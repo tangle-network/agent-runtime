@@ -36,7 +36,6 @@ import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
 import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
-import { workerTokenFloor } from './budget-floor'
 import {
   armDeadlineTimer,
   boundedChildDeadlineAt,
@@ -581,24 +580,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         args.pool.reconcile(reservation.ticket, zeroSpend())
         permit.release()
         return { ok: false, reason: 'invalid-identity' }
-      }
-      // A budget under the harness's measured floor is UNSATISFIABLE at that size, not merely
-      // tight — the child burns the whole ceiling on scaffolding it re-sends every turn and dies
-      // before reaching the task. Its own reason, for the same purpose `usd-unbudgeted` has one:
-      // `budget-exhausted` invites a caller to retry SMALLER, which here is the exact wrong move.
-      // Checked after resolution because that is where the harness is known, and refunded the way
-      // every sibling failure on this path is.
-      // `spec.harness` is null whenever the harness rides in the backend config instead of the
-      // spec — which is the path that actually spawns workers through the bridge. Reading only it
-      // made this guard miss the case it was written for: a root authored a 6,000-token child
-      // against a measured 31,211 floor, the guard never fired, and the child died having produced
-      // nothing (discovery-lab run proof-bridge-20260801f). The AgentProfile is where a root
-      // declares its child's harness, so it is the more reliable of the two.
-      const floor = workerTokenFloor(spec.harness ?? spec.profile.harness ?? null)
-      if (floor !== null && opts.budget.maxTokens < floor) {
-        args.pool.reconcile(reservation.ticket, zeroSpend())
-        permit.release()
-        return { ok: false, reason: 'below-runtime-floor' }
       }
       const outcome = args.executors.resolve<C>(spec)
       if (!outcome.succeeded) throw new ValidationError(`scope.spawn: ${outcome.error}`)

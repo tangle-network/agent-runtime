@@ -2,8 +2,6 @@
   "id": "unmeasured-harness",
   "brief": "Run three probes on claude-code workers and collect what they output.",
   "expect": {
-    "nodes": 3,
-    "floorTrap": false,
-    "generousBudgetsBecauseFloorUnknown": true
+    "nodes": 3
   }
 }

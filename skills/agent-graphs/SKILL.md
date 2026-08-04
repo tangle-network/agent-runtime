@@ -23,7 +23,6 @@ Do not use a graph when a smaller shipped primitive already expresses the work.
 ### Strict authoring decisions (Do not under-graph)
 
 - **Cheapness is not the dialect test:** Do not bail to `single-agent` just because a brief sounds trivial (e.g., "write a one-line file"). If the brief implies roles, observers, or a specific tight budget, author the graph.
-- **Budget Floor Traps:** If a brief demands an impossibly "tight" budget (e.g., a few thousand tokens), do not dodge it by dropping to `single-agent`. Author the graph and explicitly set `budget` to the valid measured executor floor.
 - **Identical-Role Parallelism:** If a brief requests N parallel instances of the same role, you MUST create N distinct worker nodes and N `delegates` edges. Do not collapse identical parallel workers into a single node.
 - **Mandatory Analysts:** If a brief requires independent observation, review, or post-settle findings (e.g., "neutral decider", "review by two perspectives", "watch the worker"), you MUST author `analyzes` edges. Do not omit analysts and attempt to merge their logic into the root's prompt.
 - **Caps are not stops:** Do not use an analysis edge `maxTraversals` cap as a global stop condition. To stop after N findings, use `deliverable.check` or `maxTraversals` on a `delegates` edge.
@@ -74,8 +73,8 @@ Put the concrete mission in `deliverable.describe`; Runtime uses that text as th
 
 `budget` is one conserved pool for the full graph.
 Set `options.perWorker` explicitly from the actual executor cost.
-For Pi, `WORKER_TOKEN_FLOOR.pi` is 31,211 input tokens before useful work, so a worker allocation below that value is refused. If a brief asks for a budget lower than the floor, do not switch to `single-agent`; output the graph with the floor allocation.
-Treat an unmeasured executor floor as unknown rather than zero.
+Size each allocation from measurements of the actual profile, mounted context, tools, and task shape when those measurements exist.
+Do not turn one run's cumulative spend into a universal harness minimum; Runtime enforces the caller's conserved pool, not guessed per-harness floors.
 Analyst nodes spend from the same pool and need the same honest accounting as ordinary workers.
 
 ## Authoring procedure
@@ -87,7 +86,7 @@ Analyst nodes spend from the same pool and need the same honest accounting as or
 5. **Register directives:** Register a versioned directive for every edge.
 6. **Delegate work:** Add one delegation edge per ordinary worker from the root.
 7. **Attach analysts:** Add `analyzes` edges only when findings must be produced independently after a worker settles. Do not skip this if the brief asked for a watcher/reviewer.
-8. **Size the pool:** Set budget, per-worker allocation, traversal caps, time, and concurrency from measured executor behavior. Ensure budgets meet the executor floor.
+8. **Size the pool:** Set budget, per-worker allocation, traversal caps, time, and concurrency from comparable measured runs when available.
 9. **Prove and inspect:** Run the structure offline, then run the real backend and inspect its result.
 
 ## Prove the graph before spending
@@ -115,7 +114,7 @@ A passing completion test proves only what that test checks.
 
 ## Common mistakes
 
-- Bailing to `single-agent` because a brief sounds trivial, instead of respecting requested roles or applying budget floors.
+- Bailing to `single-agent` because a brief sounds trivial, instead of respecting requested roles.
 - Collapsing N requested parallel identical roles into a single worker node.
 - Skipping `analyzes` edges when an observer or reviewer is explicitly requested.
 - Putting the task only in a spawn prompt instead of `deliverable.describe`.

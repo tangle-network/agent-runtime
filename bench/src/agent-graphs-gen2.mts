@@ -13,8 +13,8 @@
  *           and  v2 train mean >= v1 train mean - 0.05
  *
  * Split (declared here, enforced by runImprovementLoop's overlap check):
- *   TRAIN   = floor-trap-pi, review-pipeline, single-agent-suffices,
- *             cap-as-stop-mistake, runtime-discovered-fanout
+ *   TRAIN   = review-pipeline, single-agent-suffices, cap-as-stop-mistake,
+ *             runtime-discovered-fanout
  *   HOLDOUT = mission-in-deliverable, steer-heavy-drafting, unmeasured-harness
  *
  * Holdout hygiene: the revision prompt is built ONLY from TRAIN-case records and the
@@ -64,7 +64,6 @@ const SMOKE = process.env.GEN2_SMOKE === '1'
 const K = 3
 const SEED = 42
 const TRAIN_IDS = [
-  'floor-trap-pi',
   'review-pipeline',
   'single-agent-suffices',
   'cap-as-stop-mistake',
@@ -166,14 +165,10 @@ function buildRevisionPrompt(v1Surface: string, trainCases: GraphScenario[]): st
     '',
     ...caseBlocks,
     '',
-    'The three failure clusters your revision must target:',
-    '1. Under-graphing on cheap-sounding briefs: when a brief sounds cheap or trivial the author',
-    '   answers "single-agent" even when the case genuinely warrants a graph (e.g. a floor-trap',
-    '   brief whose tight budget must be overridden upward, not dodged; a mission whose deliverable',
-    '   must carry the concrete mission text). Cheapness of wording is not the dialect test.',
-    '2. Analysts never authored when warranted: when independent post-settle findings are required,',
+    'The two failure clusters your revision must target:',
+    '1. Analysts never authored when warranted: when independent post-settle findings are required,',
     '   the author omits analyzes edges entirely and merges review into the root.',
-    '3. Identical-role parallelism collapsed: when the work is N parallel instances of the same',
+    '2. Identical-role parallelism collapsed: when the work is N parallel instances of the same',
     '   role, the author collapses them into one worker node instead of N nodes (one delegation',
     '   edge each), losing the parallelism the brief asked for.',
     '',
@@ -184,8 +179,8 @@ function buildRevisionPrompt(v1Surface: string, trainCases: GraphScenario[]): st
     '- Keep the decision honest: "single-agent" and "dynamic-workflow" remain the CORRECT answers',
     '  when one profile suffices or when topology is discovered mid-run. Do not teach "always',
     '  graph" — fixing under-graphing must not create over-graphing.',
-    '- Keep the existing correct doctrine (traversal caps, analyzes-cap-is-not-a-stop, budget',
-    '  floors, deliverable-carries-mission, offline proving) — sharpen it, do not delete it.',
+    '- Keep the existing correct doctrine (traversal caps, analyzes-cap-is-not-a-stop,',
+    '  deliverable-carries-mission, offline proving) — sharpen it, do not delete it.',
     '- The skill is consumed by a model that must output a strict JSON graph spec; keep the text',
     '  operational, not narrative.',
     '',

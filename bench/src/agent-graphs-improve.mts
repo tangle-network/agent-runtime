@@ -84,12 +84,6 @@ export function loadInputs(): { surface: string; cases: CaseSpec[]; source: stri
   return { surface, cases, source: `git:${SKILL_REF}` }
 }
 
-// The measured pi floor the floor-trap case scores against (src/runtime/supervise/budget-floor.ts).
-const PI_TOKEN_FLOOR = 31_211
-// "Budget generously" proxy for unmeasured harnesses: floor-unknown means per-child headroom
-// well above the one measured floor; 50k is the scorer's line, documented not tuned.
-const GENEROUS_PER_CHILD_TOKENS = 50_000
-
 // ── Case + artifact shapes ─────────────────────────────────────────────────────
 
 export interface CaseExpect {
@@ -98,16 +92,12 @@ export interface CaseExpect {
   correctAnswerIsGraph?: boolean
   nodes?: number
   analyzesWarranted?: boolean
-  floorTrap?: boolean
-  mustBudgetAtLeast?: number
-  correctAuthorOverridesBrief?: boolean
   maxTraversalsAtLeast?: number
   deliverableDescribeCarriesMission?: boolean
   checkIsMechanical?: boolean
   trapIsAnalyzesCapAsStop?: boolean
   correctStopIsDelegatesCapOrDeliverable?: boolean
   wrongIfAnalystIsNode?: boolean
-  generousBudgetsBecauseFloorUnknown?: boolean
   edges?: string[]
   reason?: string
 }
@@ -461,11 +451,6 @@ function domainWords(brief: string): string[] {
   ]
 }
 
-function perChildTokens(spec: AuthoredGraphSpec): number {
-  // The skill's documented default: perWorker unset means a quarter of the pool.
-  return spec.perWorker?.maxTokens ?? Math.floor(spec.budget.maxTokens / 4)
-}
-
 function delegatesEdges(spec: AuthoredGraphSpec): Array<Extract<AuthoredEdge, { kind: 'delegates' }>> {
   return spec.edges.filter((e): e is Extract<AuthoredEdge, { kind: 'delegates' }> => e.kind === 'delegates')
 }
@@ -508,16 +493,6 @@ export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { sco
       key: 'correctAnswerIsGraph',
       pass: graphOk,
       note: `decision=${artifact.decision}${artifact.decision === 'graph' && g === undefined ? ' (no graph payload)' : ''}`,
-    })
-  }
-  if (e.mustBudgetAtLeast !== undefined) {
-    const perChild = graphOk ? perChildTokens(g) : 0
-    checks.push({
-      key: 'mustBudgetAtLeast',
-      pass: graphOk && perChild >= e.mustBudgetAtLeast,
-      note: graphOk
-        ? `per-child tokens ${perChild} vs floor ${e.mustBudgetAtLeast} (pi floor ${PI_TOKEN_FLOOR})`
-        : `no graph authored (decision=${artifact.decision})`,
     })
   }
   if (e.nodes !== undefined) {
@@ -597,16 +572,6 @@ export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { sco
         ? offenders.length === 0
           ? 'no analyst id collides with a node id'
           : `analyst ids that are nodes: ${offenders.map((o) => o.analyst).join(', ')}`
-        : 'no graph authored',
-    })
-  }
-  if (e.generousBudgetsBecauseFloorUnknown !== undefined) {
-    const perChild = graphOk ? perChildTokens(g) : 0
-    checks.push({
-      key: 'generousBudgetsBecauseFloorUnknown',
-      pass: graphOk && perChild >= GENEROUS_PER_CHILD_TOKENS,
-      note: graphOk
-        ? `per-child tokens ${perChild} vs generous line ${GENEROUS_PER_CHILD_TOKENS}`
         : 'no graph authored',
     })
   }

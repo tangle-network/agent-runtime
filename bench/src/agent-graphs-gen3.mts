@@ -68,7 +68,6 @@ const EXPECTED_V2_SHA = '4c6615b6164f6c5a86efb2596556bdf325d33f08a4e1715cae9d71c
 const K = 5
 const SEED = 42
 const TRAIN_IDS = [
-  'floor-trap-pi',
   'review-pipeline',
   'single-agent-suffices',
   'cap-as-stop-mistake',
@@ -267,8 +266,8 @@ function buildRevisionPrompt(v2Surface: string, trainCases: GraphScenario[]): st
     '- Keep the decision honest: "single-agent" and "dynamic-workflow" remain the CORRECT answers',
     '  when one profile suffices or when topology is discovered mid-run. Do not teach "always',
     '  graph" — fixing under-graphing must not create over-graphing.',
-    '- Keep the existing correct doctrine (traversal caps, analyzes-cap-is-not-a-stop, budget',
-    '  floors, deliverable-carries-mission, offline proving) — sharpen it, do not delete it.',
+    '- Keep the existing correct doctrine (traversal caps, analyzes-cap-is-not-a-stop,',
+    '  deliverable-carries-mission, offline proving) — sharpen it, do not delete it.',
     '- The skill is consumed by a model that must output a strict JSON graph spec; keep the text',
     '  operational, not narrative.',
     '',
