@@ -142,6 +142,52 @@ describe('connectStdioMcp', () => {
 })
 
 describe('materializeLocalMcp', () => {
+  it('the same-host client snapshots and forwards profile-owned Router settings', async () => {
+    const providerOptions = { prompt_cache: true }
+    const profile: AgentProfile = {
+      name: 'profile-settings-worker',
+      harness: 'cli-base',
+      model: {
+        provider: 'offline',
+        default: 'offline-test-model',
+        metadata: { seed: 42, extraBody: { provider_options: providerOptions } },
+      },
+    }
+    let sent: Record<string, unknown> | undefined
+    const fetchMock = vi.fn(async (_url: string, init: { body?: string }) => {
+      sent = JSON.parse(init.body ?? '{}') as Record<string, unknown>
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'offline-test-model',
+          choices: [{ message: { content: 'done' } }],
+          usage: { prompt_tokens: 3, completion_tokens: 2 },
+        }),
+        text: async () => '',
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = localSandboxClient({
+      router: { baseUrl: 'https://router.invalid', key: 'unused' },
+      profile,
+    })
+    providerOptions.prompt_cache = false
+    const box = await client.create()
+    try {
+      for await (const _event of box.streamPrompt('work')) {
+        // Draining the stream executes the Router turn.
+      }
+      expect(sent).toMatchObject({
+        seed: 42,
+        provider_options: { prompt_cache: true },
+      })
+    } finally {
+      await box.delete()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('spawns each enabled stdio server and namespaces its tools <server>__<tool>', async () => {
     const mat = await materializeLocalMcp(
       {

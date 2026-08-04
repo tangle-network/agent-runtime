@@ -48,11 +48,7 @@
  */
 
 import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
-import {
-  type AgentProfile,
-  agentProfileSchema,
-  canonicalCandidateDigest,
-} from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { normalizeBackendStreamEvent } from '../backends'
 import { BackendTransportError, ValidationError } from '../errors'
@@ -67,6 +63,7 @@ import type {
   RuntimeStreamEvent,
 } from '../types'
 import { createSandboxToolPartState, mapSandboxEvent, mapSandboxToolEvent } from './sandbox-events'
+import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -78,7 +75,6 @@ import {
   unknownMaterializationReceipt,
 } from './supervise/materialization'
 import {
-  assertExecutableAgentProfile,
   concreteModelId,
   profileBridgeWireModel,
   profileProviderModel,
@@ -476,8 +472,9 @@ async function* streamAgentTurnInternal(
 ): AsyncGenerator<RuntimeStreamEvent> {
   const label = backend.kind === 'chat' ? backend.backend.kind : backend.kind
   const profile =
-    backend.kind === 'executor' ? agentProfileSchema.parse(backend.profile) : undefined
-  if (profile) assertExecutableAgentProfile(profile, 'streamAgentTurn')
+    backend.kind === 'executor'
+      ? executableAgentProfileSnapshot(backend.profile, 'streamAgentTurn')
+      : undefined
   const profileDigest = profile ? authoredProfileDigest(profile) : undefined
   assertTurnIdentity(opts.callId, 'callId')
   assertTurnIdentity(opts.correlationId, 'correlationId')

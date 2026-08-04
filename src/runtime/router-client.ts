@@ -1024,16 +1024,24 @@ export async function routerToolLoop(
  */
 export function routerBrain(
   cfg: RouterConfig,
-  opts: { temperature?: number; reasoningEffort?: ReasoningEffort } = {},
+  opts: {
+    temperature?: number
+    reasoningEffort?: ReasoningEffort
+    seed?: number
+    toolChoice?: 'auto' | 'required' | 'none'
+    extraBody?: Readonly<Record<string, unknown>>
+  } = {},
 ): ToolLoopChat {
   const temperature = opts.temperature ?? 0.4
   return (messages, tools) =>
     chatWithTools(cfg, messages, tools, {
       temperature,
-      toolChoice: 'auto',
+      toolChoice: opts.toolChoice ?? 'auto',
       // The config's ceiling reaches the completion, so a caller driving a reasoning model can
       // raise it. Without this a router-brained supervisor is stuck on the 8192 default.
       ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : {}),
+      ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+      ...(opts.extraBody !== undefined ? { extraBody: opts.extraBody } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
     })
 }

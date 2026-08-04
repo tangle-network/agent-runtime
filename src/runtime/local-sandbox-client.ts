@@ -20,7 +20,6 @@
 import {
   type AgentProfile,
   type AgentProfileSecurityPolicy,
-  agentProfileSchema,
   canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
@@ -28,11 +27,8 @@ import { ValidationError } from '../errors'
 import type { KeyProvider } from './key-provider'
 import { routerBrain } from './router-client'
 import { materializeLocalMcp } from './stdio-mcp-client'
-import {
-  assertExecutableAgentProfile,
-  profileModelExecutionSettings,
-  profileProviderModel,
-} from './supervise/model-policy'
+import { executableAgentProfileSnapshot } from './supervise/executable-spec'
+import { profileModelExecutionSettings, profileProviderModel } from './supervise/model-policy'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 import type { SandboxClient } from './types'
 
@@ -52,22 +48,27 @@ export interface LocalSandboxClientOptions {
 /** A same-host `SandboxClient` adapter with no process isolation. Local MCP is
  * refused unless the caller explicitly supplies a policy that allows it. */
 export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClient {
-  if (opts.profileSecurityPolicy?.allowLocalMcp && opts.profile === undefined) {
+  const defaultProfile =
+    opts.profile === undefined
+      ? undefined
+      : executableAgentProfileSnapshot(opts.profile, 'localSandboxClient default profile')
+  const router = Object.freeze({ ...opts.router })
+  if (opts.profileSecurityPolicy?.allowLocalMcp && defaultProfile === undefined) {
     throw new ValidationError(
       'localSandboxClient: allowLocalMcp requires a fixed author-controlled profile; dynamic profiles need a real sandbox',
     )
   }
   const trustedProfileDigest =
-    opts.profileSecurityPolicy?.allowLocalMcp && opts.profile !== undefined
-      ? canonicalAgentProfileDigest(opts.profile)
+    opts.profileSecurityPolicy?.allowLocalMcp && defaultProfile !== undefined
+      ? canonicalAgentProfileDigest(defaultProfile)
       : undefined
   let seq = 0
   return {
     async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
-      const profile = agentProfileSchema.parse(
-        (options?.backend as { profile?: AgentProfile } | undefined)?.profile ?? opts.profile,
+      const profile = executableAgentProfileSnapshot(
+        (options?.backend as { profile?: AgentProfile } | undefined)?.profile ?? defaultProfile,
+        'localSandboxClient',
       )
-      assertExecutableAgentProfile(profile, 'localSandboxClient')
       const profileModel = profileProviderModel(profile)
       const model = profileModel!
       const settings = profileModelExecutionSettings(profile, 'localSandboxClient')
@@ -85,8 +86,8 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
       })
       const brain: ToolLoopChat = routerBrain(
         {
-          routerBaseUrl: opts.router.baseUrl,
-          routerKey: opts.router.key,
+          routerBaseUrl: router.baseUrl,
+          routerKey: router.key,
           model,
           ...(settings.maxAttempts !== undefined ? { maxAttempts: settings.maxAttempts } : {}),
           ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
@@ -94,6 +95,9 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
         },
         {
           ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
+          ...(settings.seed !== undefined ? { seed: settings.seed } : {}),
+          ...(settings.toolChoice !== undefined ? { toolChoice: settings.toolChoice } : {}),
+          ...(settings.extraBody !== undefined ? { extraBody: settings.extraBody } : {}),
           ...(profile.model?.reasoningEffort
             ? { reasoningEffort: profile.model.reasoningEffort }
             : {}),

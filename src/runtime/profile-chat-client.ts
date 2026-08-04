@@ -5,6 +5,7 @@ import type {
   CostReceiptInput,
   CustomTokenPricing,
 } from '@tangle-network/agent-eval'
+import { costForTokenPricing } from '@tangle-network/agent-eval'
 import type {
   ExternalOptimizerModelCall,
   ExternalOptimizerModelCallRequest,
@@ -16,13 +17,17 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { type CollectedAgentTurn, collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
+import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
-  assertExecutableAgentProfile,
   concreteModelId,
   type ProfileModelExecutionSettings,
   profileModelExecutionSettings,
 } from './supervise/model-policy'
-import { createExecutor, type ExecutorConfig } from './supervise/runtime'
+import {
+  captureReusableExecutorConfig,
+  createExecutor,
+  type ExecutorConfig,
+} from './supervise/runtime'
 
 /** Profile-exact adapter for packages that consume agent-eval's ChatClient contract.
  * Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
@@ -93,7 +98,12 @@ export function profileOptimizerModelCall(args: {
     try {
       const receipt = optimizerReceipt(binding.model, run, args.pricing)
       return run.succeeded
-        ? { succeeded: true, response: run.response, receipt, execution }
+        ? {
+            succeeded: true,
+            response: { ...run.response, costUsd: optimizerResponseCostUsd(receipt) },
+            receipt,
+            execution,
+          }
         : { succeeded: false, error: run.error, receipt, execution }
     } catch (error) {
       const message = `profile optimizer receipt normalization failed after execution: ${errorMessage(error)}`
@@ -117,7 +127,6 @@ interface BoundProfileChat {
   readonly context: string
   readonly model: string
   readonly settings: ProfileModelExecutionSettings
-  readonly systemPrompt: string
 }
 
 export type ProfileChatRun =
@@ -129,17 +138,15 @@ export function bindProfileChat(args: {
   executor: ExecutorConfig
   context: string
 }): BoundProfileChat {
-  const profile = agentProfileSchema.parse(args.profile)
-  assertExecutableAgentProfile(profile, args.context)
+  const profile = executableAgentProfileSnapshot(args.profile, args.context)
   const model = concreteModelId(profile.model?.default)
   if (!model) throw new Error(`${args.context}: AgentProfile.model.default must be concrete`)
   return {
     profile,
-    executor: args.executor,
+    executor: captureReusableExecutorConfig(args.executor, args.context),
     context: args.context,
     model,
     settings: profileModelExecutionSettings(profile, args.context),
-    systemPrompt: profile.prompt?.systemPrompt ?? '',
   }
 }
 
@@ -156,19 +163,6 @@ export async function runBoundProfileChat(
     binding.context,
   )
   assertSupportedChatCallOptions(callOpts, binding.context)
-  // The profile prompt is the immutable leading policy. A caller's system-role messages are
-  // per-call task context: preserve them after that policy rather than letting them replace it or
-  // forcing dynamic task text into AgentProfile identity.
-  const profilePromptAlreadyLeading =
-    binding.systemPrompt.length > 0 &&
-    req.messages[0]?.role === 'system' &&
-    req.messages[0].content === binding.systemPrompt
-  const messages = [
-    ...(binding.systemPrompt && !profilePromptAlreadyLeading
-      ? [{ role: 'system' as const, content: binding.systemPrompt }]
-      : []),
-    ...req.messages,
-  ]
   const turnProfile = responseProfile(binding.profile, req, binding.context)
   const startedAt = performance.now()
   const turn = await collectAgentTurn(
@@ -178,7 +172,7 @@ export async function runBoundProfileChat(
         profile: turnProfile,
         factory: createExecutor(binding.executor),
       },
-      { messages: messages as Array<{ role: string; content: unknown }> },
+      { messages: req.messages as Array<{ role: string; content: unknown }> },
       {
         ...(req.timeoutMs !== undefined ? { timeoutMs: req.timeoutMs } : {}),
         ...(callOpts?.signal ? { signal: callOpts.signal } : {}),
@@ -443,6 +437,15 @@ function unknownOptimizerReceipt(model: string): CostReceiptInput {
     usageUnknown: true,
     costUnknown: true,
   }
+}
+
+function optimizerResponseCostUsd(receipt: CostReceiptInput): number | null {
+  if (receipt.actualCostUsd !== undefined) return receipt.actualCostUsd
+  if (receipt.estimatedCostUsd !== undefined) return receipt.estimatedCostUsd
+  if (receipt.customTokenPricing !== undefined && receipt.usageUnknown !== true) {
+    return costForTokenPricing(receipt.customTokenPricing, receipt)
+  }
+  return null
 }
 
 function optimizerTokenCount(value: unknown, label: string): number | undefined {

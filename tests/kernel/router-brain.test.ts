@@ -159,6 +159,29 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
     expect(sent.tool_choice).toBeUndefined()
   })
 
+  it('forwards profile-owned seed, tool choice, and provider request fields', async () => {
+    stubRouter({ choices: [{ message: { content: 'x' } }] })
+    const tools = [
+      {
+        type: 'function' as const,
+        function: { name: 'inspect', parameters: { type: 'object' } },
+      },
+    ]
+    await routerBrain(cfg, {
+      seed: 42,
+      toolChoice: 'none',
+      extraBody: { provider_options: { prompt_cache: true } },
+    })([], tools)
+
+    const init = fetchMock.mock.calls[0]![1] as { body: string }
+    const sent = JSON.parse(init.body)
+    expect(sent).toMatchObject({
+      seed: 42,
+      tool_choice: 'none',
+      provider_options: { prompt_cache: true },
+    })
+  })
+
   it('forwards the router usage + cost so the driver can meter its inference', async () => {
     stubRouter({
       choices: [{ message: { content: 'x', tool_calls: [] } }],

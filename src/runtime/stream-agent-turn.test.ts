@@ -13,6 +13,7 @@ import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
 import { collectAgentTurn, streamAgentTurn, streamObservedAgentTurn } from './stream-agent-turn'
 import { attestRuntimeOwnedExecutor } from './supervise/materialization'
+import { createExecutor } from './supervise/runtime'
 import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 
 const TEST_PROFILE = {
@@ -527,6 +528,45 @@ describe('streamAgentTurn: executor backend', () => {
       'final',
     ])
     expect(toreDown).toBe(1)
+  })
+
+  it('uses one detached profile snapshot even when the caller mutates nested input mid-turn', async () => {
+    const providerOptions = { mode: 'before' }
+    const profile = {
+      ...TEST_PROFILE,
+      model: {
+        ...TEST_PROFILE.model,
+        metadata: { extraBody: { provider_options: providerOptions } },
+      },
+    }
+    let sent: Record<string, unknown> | undefined
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          profile,
+          factory: createExecutor({
+            backend: 'router',
+            routerBaseUrl: 'http://injected.invalid/v1',
+            routerKey: 'injected-transport',
+            complete: async (body) => {
+              sent = body
+              providerOptions.mode = 'after-transport-started'
+              return {
+                model: 'offline-test-model',
+                choices: [{ message: { content: 'stable response' } }],
+                usage: { prompt_tokens: 3, completion_tokens: 2 },
+              }
+            },
+          }),
+        },
+        'ping',
+      ),
+    )
+
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('stable response')
+    expect(sent).toMatchObject({ provider_options: { mode: 'before' } })
   })
 
   it('abort reaches the executor signal and terminates with status aborted', async () => {

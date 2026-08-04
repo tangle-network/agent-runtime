@@ -668,6 +668,9 @@ function routerBrainFromProfile(
     },
     {
       ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
+      ...(settings.seed !== undefined ? { seed: settings.seed } : {}),
+      ...(settings.toolChoice !== undefined ? { toolChoice: settings.toolChoice } : {}),
+      ...(settings.extraBody !== undefined ? { extraBody: settings.extraBody } : {}),
       ...(profile.model?.reasoningEffort ? { reasoningEffort: profile.model.reasoningEffort } : {}),
     },
   )

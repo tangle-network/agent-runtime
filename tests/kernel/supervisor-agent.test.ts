@@ -184,6 +184,50 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     ).toThrow(/router/)
   })
 
+  it('lowers every profile-owned Router setting into the supervisor request', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    let sent: Record<string, unknown> | undefined
+    const root = supervisorAgent(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: {
+          provider: 'offline',
+          default: 'offline-test-model',
+          metadata: {
+            seed: 42,
+            toolChoice: 'none',
+            extraBody: { provider_options: { prompt_cache: true } },
+          },
+        },
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        maxTurns: 1,
+        router: {
+          routerBaseUrl: 'http://injected.invalid/v1',
+          routerKey: 'injected-transport',
+          complete: async (body) => {
+            sent = body
+            return {
+              model: 'offline-test-model',
+              choices: [{ message: { content: 'done' } }],
+              usage: { prompt_tokens: 3, completion_tokens: 2 },
+            }
+          },
+        },
+      },
+    )
+
+    await runSupervisor(root, blobs, new InMemorySpawnJournal())
+    expect(sent).toMatchObject({
+      seed: 42,
+      tool_choice: 'none',
+      provider_options: { prompt_cache: true },
+    })
+  })
+
   it('binds the same node-scoped product tool to router and external managers with trusted context', async () => {
     const identity = {
       profileDigest: `sha256:${'a'.repeat(64)}`,
