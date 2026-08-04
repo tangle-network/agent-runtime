@@ -132,7 +132,6 @@ describe('createExecutor config intake', () => {
         name: 'sandbox',
         config: {
           backend: 'sandbox',
-          harness: 'codex',
           sandboxClient,
           maxIterations: 1,
           lineage: { sessionContinuity: true },

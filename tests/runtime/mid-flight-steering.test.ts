@@ -262,11 +262,10 @@ function safeJson(text: string): Record<string, unknown> | undefined {
 function backend(harness: FakeHarness, steerable: boolean): ExecutorConfig {
   return {
     backend: 'sandbox',
-    harness: 'opencode',
     sandboxClient: harness.client,
     // The ONLY difference between the proof and its falsification.
     ...(steerable ? { steering: { maxTurns: 6 } } : {}),
-  } as ExecutorConfig
+  }
 }
 
 interface AuthorityRecord {

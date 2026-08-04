@@ -80,7 +80,7 @@ export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions)
   validator: Validator<CoderOutput>
   driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'>
 } {
-  if (options.profiles.length === 0) {
+  if (!options.profiles || options.profiles.length === 0) {
     throw new ConfigError('multiHarnessCoderFanout: at least one exact profile is required')
   }
   const agentRuns = options.profiles.map((profile) => coderRunSpec({ profile }))

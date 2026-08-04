@@ -424,7 +424,6 @@ describe('the sandbox arm carries the context onto the box itself', () => {
         executors: registryOf(
           createExecutor({
             backend: 'sandbox',
-            harness: 'opencode',
             sandboxClient: fake.client,
           }),
         ),
@@ -451,7 +450,6 @@ describe('the sandbox arm carries the context onto the box itself', () => {
         executors: registryOf(
           createExecutor({
             backend: 'sandbox',
-            harness: 'opencode',
             sandboxClient: fake.client,
           }),
         ),
@@ -485,7 +483,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
       {
         budget: { maxIterations: 100, maxTokens: 100_000 },
         runId: 'front-door',
-        backend: { backend: 'sandbox', harness: 'opencode', sandboxClient: fake.client },
+        backend: { backend: 'sandbox', sandboxClient: fake.client },
         brain: scriptedBrain([
           {
             toolCalls: [

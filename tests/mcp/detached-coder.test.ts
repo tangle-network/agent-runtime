@@ -7,6 +7,7 @@ import {
   multiHarnessCoderFanout,
 } from '../../src/mcp/detached-coder'
 import type { CoderTask } from '../../src/profiles/coder'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const ctx = { iteration: 0, signal: new AbortController().signal }
 
@@ -297,42 +298,40 @@ describe('coderOutputAdapter — in-process executor raw artifact projection', (
 })
 
 describe('multiHarnessCoderFanout — heterogeneous fanout bundle', () => {
-  it('produces one AgentRunSpec per harness, each tagging its backendType', () => {
-    const bundle = multiHarnessCoderFanout({ harnesses: ['claude-code', 'codex'] })
+  const claude = testAgentProfile('coder-claude-code', {
+    harness: 'claude-code',
+    model: { provider: 'anthropic', default: 'claude-test' },
+  })
+  const codex = testAgentProfile('coder-codex', {
+    harness: 'codex',
+    model: { provider: 'openai', default: 'codex-test' },
+  })
+
+  it('produces one AgentRunSpec per exact profile', () => {
+    const bundle = multiHarnessCoderFanout({ profiles: [claude, codex] })
     expect(bundle.agentRuns).toHaveLength(2)
     expect(bundle.agentRuns.map((s) => s.name)).toEqual(['coder-claude-code', 'coder-codex'])
-    expect(bundle.agentRuns.map((s) => s.profile.metadata?.backendType)).toEqual([
-      'claude-code',
-      'codex',
-    ])
+    expect(bundle.agentRuns.map((s) => s.profile.harness)).toEqual(['claude-code', 'codex'])
   })
 
-  it('uses a minimal model-only default profile (no hardcoded tools/skills/prompt)', () => {
-    const bundle = multiHarnessCoderFanout({ harnesses: ['claude-code'] })
-    const profile = bundle.agentRuns[0]!.profile
-    expect(profile.tools).toBeUndefined()
-    expect(profile.prompt).toBeUndefined()
+  it('refuses an empty profile set instead of choosing a harness or model', () => {
+    expect(() => multiHarnessCoderFanout({ profiles: [] })).toThrow(/exact profile/)
   })
 
-  it('threads a caller-authored worker profile onto every fanout run', () => {
-    const authored = {
-      name: 'authored',
+  it('threads each caller-authored exact profile without overlays', () => {
+    const authoredProfiles = [claude, codex].map((profile) => ({
+      ...profile,
       tools: { git: true, fs: true },
       prompt: { systemPrompt: 'be careful' },
-    }
+    }))
     const bundle = multiHarnessCoderFanout({
-      profile: authored,
-      harnesses: ['claude-code', 'codex'],
+      profiles: authoredProfiles,
     })
     expect(bundle.agentRuns.every((s) => s.profile.tools?.git === true)).toBe(true)
     expect(bundle.agentRuns.every((s) => s.profile.prompt?.systemPrompt === 'be careful')).toBe(
       true,
     )
-    // The per-harness backendType still overrides regardless of the authored profile.
-    expect(bundle.agentRuns.map((s) => s.profile.metadata?.backendType)).toEqual([
-      'claude-code',
-      'codex',
-    ])
+    expect(bundle.agentRuns.map((s) => s.profile.harness)).toEqual(['claude-code', 'codex'])
   })
 })
 
