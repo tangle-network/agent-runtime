@@ -48,6 +48,21 @@ describe('model execution boundary source check', () => {
     expect(violations[0]?.location).toBe('3:7')
   })
 
+  it('rejects qualified and aliased global fetch calls', () => {
+    expect(
+      checkJavaScript(
+        'examples/direct.ts',
+        `await globalThis.fetch('https://router.tangle.tools/v1/chat/completions')`,
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'examples/direct.ts',
+        `const request = globalThis.fetch\nawait request('https://router.tangle.tools/v1/chat/completions')`,
+      ),
+    ).toHaveLength(1)
+  })
+
   it('rejects low-level Runtime model clients outside Runtime-owned adapters', () => {
     expect(
       checkJavaScript(
@@ -102,6 +117,21 @@ describe('model execution boundary source check', () => {
     ).toHaveLength(1)
   })
 
+  it('does not treat an unrelated namespace as a Runtime model client', () => {
+    expect(
+      checkJavaScript(
+        'bench/utility.ts',
+        `import * as utility from './utility'\nawait utility.routerBrain()`,
+      ),
+    ).toEqual([])
+    expect(
+      checkJavaScript(
+        'bench/utility.cjs',
+        `const utility = require('./utility')\nutility.routerBrain()`,
+      ),
+    ).toEqual([])
+  })
+
   it('rejects direct coding-agent CLI launches in JavaScript and TypeScript', () => {
     expect(
       checkJavaScript(
@@ -118,7 +148,7 @@ describe('model execution boundary source check', () => {
     expect(
       checkJavaScript(
         'bench/sidecar.ts',
-        'const command = `opencode --model ${model} --format json run ${prompt}`',
+        'const command = `opencode --model ${model} --format json run ${prompt}`\nawait exec(command)',
       ),
     ).toHaveLength(1)
     expect(
@@ -127,6 +157,21 @@ describe('model execution boundary source check', () => {
         `const args = ['run', '--agent', 'opencode']\nawait runTb(args)`,
       ),
     ).toHaveLength(1)
+  })
+
+  it('rejects child-process aliases but allows inert CLI documentation', () => {
+    expect(
+      checkJavaScript(
+        'bench/aliased-launch.ts',
+        `import { spawn as launch } from 'node:child_process'\nlaunch('opencode', ['run', prompt])`,
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'bench/documentation.ts',
+        `const help = 'Use opencode run to start a session'`,
+      ),
+    ).toEqual([])
   })
 
   it('rejects model execution hidden inside a custom CandidateGenerator callback', () => {
@@ -163,6 +208,27 @@ const generator = {
     ).toEqual([])
   })
 
+  it('checks transport-owner files and admits only the existing owned call sites', () => {
+    expect(
+      checkJavaScript(
+        'src/runtime/local-sandbox-client.ts',
+        `import { routerBrain } from './router-client'\nrouterBrain(config)\nglobalThis.fetch('https://router.test/v1/chat/completions')`,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        detail: `globalThis.fetch('https://router.test/v1/chat/completions')`,
+      }),
+    ])
+
+    const routerOwner = `
+      export async function routerChatWithUsage() {
+        await fetch(url)
+        await fetch(url)
+      }
+    `
+    expect(checkJavaScript('src/runtime/router-client.ts', routerOwner)).toHaveLength(1)
+  })
+
   it('ignores comments, inert strings, and ordinary HTTP', () => {
     const source = `
       // fetch('https://api.openai.com/v1/chat/completions')
@@ -186,9 +252,29 @@ const generator = {
     expect(checkPython(`# client.messages.create(model='x')`)).toEqual([])
     expect(checkShell(`# curl https://api.openai.com/v1/chat/completions`)).toEqual([])
     expect(checkShell(`curl https://api.openai.com/v1/chat/completions`)).toHaveLength(1)
-    expect(checkPython(`command = f"opencode --model {model} run {task}"`)).toHaveLength(1)
+    expect(
+      checkPython(
+        `import subprocess\ncommand = f"opencode --model {model} run {task}"\nsubprocess.run(command, shell=True)`,
+      ),
+    ).toHaveLength(1)
     expect(checkShell(`opencode --model "$MODEL" run "$TASK"`)).toHaveLength(1)
     expect(checkShell(`# opencode --model "$MODEL" run "$TASK"`)).toEqual([])
+  })
+
+  it('rejects aliased Python SDK calls and computed Python and shell model URLs', () => {
+    expect(
+      checkPython(
+        `from openai import OpenAI\nclient = OpenAI()\ninvoke = client.responses.create\ninvoke(model='x', input='y')`,
+      ).length,
+    ).toBeGreaterThan(0)
+    expect(
+      checkPython(
+        `import requests\nurl = base + '/chat/' + 'completions'\nrequests.post(url, json={})`,
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkShell(`route='/v1/chat/completions'\ncurl "$base$route"`),
+    ).toHaveLength(1)
   })
 
   it('allows non-inference CLI inspection', () => {
@@ -206,6 +292,26 @@ const generator = {
       writeFileSync(source, `export const value = 'source'\n`)
 
       expect(findSourceFiles(fixture)).toEqual([source])
+    } finally {
+      rmSync(fixture, { force: true, recursive: true })
+    }
+  })
+
+  it('discovers TSX and JSX source files', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'model-boundary-jsx-'))
+    try {
+      const tsx = join(fixture, 'agent.tsx')
+      const jsx = join(fixture, 'agent.jsx')
+      writeFileSync(tsx, `export const Agent = () => <div />\n`)
+      writeFileSync(jsx, `export const Agent = () => <div />\n`)
+
+      expect(findSourceFiles(fixture).sort()).toEqual([jsx, tsx].sort())
+      expect(
+        checkJavaScript(
+          'examples/agent.tsx',
+          `export const Agent = () => <button onClick={() => globalThis.fetch('/v1/chat/completions')}>run</button>`,
+        ),
+      ).toHaveLength(1)
     } finally {
       rmSync(fixture, { force: true, recursive: true })
     }
