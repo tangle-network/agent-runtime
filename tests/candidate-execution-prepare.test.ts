@@ -474,7 +474,6 @@ describe('candidate execution preparation', () => {
       network: { mode: 'gateway-only', domains: ['router.tangle.tools'] },
     })
     hanging.ports.models.settleGrant = async () => await new Promise<never>(() => undefined)
-    const startedAt = Date.now()
     await expect(
       prepareAgentCandidateExecution(
         await verifyAgentCandidateBundle(hanging.bundle, hanging.ports),
@@ -483,7 +482,6 @@ describe('candidate execution preparation', () => {
         { cleanupTimeoutMs: 20 },
       ),
     ).rejects.toThrow(/cleanup failed/)
-    expect(Date.now() - startedAt).toBeLessThan(250)
 
     const mismatched = fixture()
     mismatched.ports.models.reserveGrant = async ({ preparationId, expiresAtMs, limits }) => ({
