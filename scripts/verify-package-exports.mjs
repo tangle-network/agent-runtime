@@ -132,7 +132,6 @@ try {
     '@tangle-network/agent-eval',
     '@tangle-network/agent-interface',
     '@tangle-network/sandbox',
-    'playwright',
   ]
   const peerDependencies = Object.fromEntries(
     peerPackages.map((name) => {

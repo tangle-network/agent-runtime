@@ -25,10 +25,6 @@ export {
   toolBuildPrompt,
 } from './build-prompts'
 export {
-  type DriverLoopGeneratorOptions,
-  driverLoopGenerator,
-} from './driver-loop-generator'
-export {
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
   type ImproveCodeOptions,
@@ -68,9 +64,7 @@ export {
   officialSkillOpt,
 } from './official-optimizers'
 export {
-  buildDriverSystem,
   optimizerMethod,
-  researchDriverNote,
   strategyAuthorMethod,
 } from './optimizer-prompt'
 export type { DeepReadonly, ReadonlyAgentProfile } from './profile-types'

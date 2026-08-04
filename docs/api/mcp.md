@@ -3025,10 +3025,8 @@ wire here.
 
 **`Experimental`**
 
-Required to enable delegate_ui_audit. Wire one that closes over your
-`runAgentRounds` + `uiAuditorProfile` + a `SandboxClient` (the
-canonical in-process choice is `createInProcessUiAuditClient` from
-`@tangle-network/agent-runtime/profiles`) + your vision judge.
+Required to enable delegate_ui_audit. Wire one that executes an exact
+agent profile through Runtime and returns the provider-neutral UI audit result.
 
 ##### feedbackStore?
 
@@ -5566,10 +5564,8 @@ The coder delegate closure — given the coder args + run context, drives the
 **`Experimental`**
 
 UI-auditor delegate — fully consumer-injected. agent-runtime ships no
-default factory because the inputs are workspace path + judge function
-+ (optionally) a `SandboxClient`, and the judge is the consumer's
-model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
-`@tangle-network/agent-runtime/profiles` for the canonical wiring.
+default factory because execution belongs to a caller-supplied exact
+agent profile and Runtime executor.
 
 #### Parameters
 

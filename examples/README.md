@@ -128,7 +128,6 @@ TANGLE_API_KEY=... pnpm tsx examples/delegate/delegate.ts
 
 # Benchmarking
 pnpm tsx examples/researcher-loop/researcher-loop.ts               # needs the agent-knowledge peer
-pnpm dlx tsx examples/ui-audit/ui-audit.ts /tmp/ui-audit-demo https://example.com
 pnpm tsx examples/coding-benchmark/benchmark.ts                    # offline
 pnpm tsx examples/coding-benchmark/benchmark.ts --ensemble --reps 5
 

@@ -840,7 +840,7 @@ function failureNote(feedback?: string): string {
   ].join('\n')
 }
 
-export function rawTraceEvidenceProblem(
+function rawTraceEvidenceProblem(
   worktreePath: string,
   findings: ReadonlyArray<ProposalFinding>,
 ): string | null {
@@ -873,7 +873,7 @@ export function rawTraceEvidenceProblem(
   return null
 }
 
-export function requiresRawTraceEvidence(findings: ReadonlyArray<ProposalFinding>): boolean {
+function requiresRawTraceEvidence(findings: ReadonlyArray<ProposalFinding>): boolean {
   return findings.some((finding) => {
     const f = finding as unknown as Record<string, unknown>
     return f.analyst_id === RAW_TRACE_ANALYST_ID || f.area === RAW_TRACE_AREA
@@ -939,7 +939,7 @@ export function commandVerifier(
 }
 
 /** A one-line summary for the commit message, derived from the findings. */
-export function summarizeFindings(findings: ReadonlyArray<ProposalFinding>): string {
+function summarizeFindings(findings: ReadonlyArray<ProposalFinding>): string {
   if (findings.length === 0) return 'agentic improvement'
   if (findings.length === 1) return `agentic: ${truncate(findings[0]!.claim, 64)}`
   return `agentic: ${findings.length} findings addressed`
@@ -998,7 +998,7 @@ function worktreeDirty(worktreePath: string): boolean {
   return worktreeChangedPaths(worktreePath).length > 0
 }
 
-export function worktreeChangedPaths(worktreePath: string): string[] {
+function worktreeChangedPaths(worktreePath: string): string[] {
   const result = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], {
     cwd: worktreePath,
     encoding: 'utf-8',

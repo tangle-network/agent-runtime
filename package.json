@@ -153,7 +153,6 @@
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
     "miniflare": "4.20260722.0",
-    "playwright": "^1.62.0",
     "publint": "catalog:",
     "tsdown": "catalog:",
     "tsx": "catalog:",
@@ -172,14 +171,10 @@
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.144.1 <0.145.0",
     "@tangle-network/agent-interface": ">=0.43.0 <0.44.0",
-    "@tangle-network/sandbox": ">=0.17.2 <0.18.0",
-    "playwright": "^1.40.0"
+    "@tangle-network/sandbox": ">=0.17.2 <0.18.0"
   },
   "peerDependenciesMeta": {
     "@tangle-network/sandbox": {
-      "optional": true
-    },
-    "playwright": {
       "optional": true
     }
   },

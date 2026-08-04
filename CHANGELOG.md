@@ -162,7 +162,7 @@ The fix therefore lives in agent-eval, but a consumer only receives it if this p
 
 BREAKING. `LocalHarness` was a private three-member vocabulary (`'claude' | 'codex' | 'opencode'`) that spelled one harness differently from every other layer in the stack. It is now a narrowing of the shared `HarnessType`: **`'claude'` is renamed to `'claude-code'`**. `claude` remains the EXECUTABLE name and lives only in the harness table's `command` field.
 
-Callers to update: `runLocalHarness({ harness })`, `harnessInvocation(harness, …)`, `runWorktreeHarness({ harness })`, `agenticGenerator({ harness })`, `driverLoopGenerator({ harness })`, `createInProcessExecutor({ harnesses })`, `AuthoredHarness.harness`, and the `AGENT_RUNTIME_LOCAL_HARNESSES` env list. Anything that passed `'claude'` passes `'claude-code'`; `codex` and `opencode` are unchanged.
+Callers to update: `runLocalHarness({ harness })`, `harnessInvocation(harness, …)`, `runWorktreeHarness({ harness })`, `agenticGenerator({ harness })`, `createInProcessExecutor({ harnesses })`, `AuthoredHarness.harness`, and the `AGENT_RUNTIME_LOCAL_HARNESSES` env list. Anything that passed `'claude'` passes `'claude-code'`; `codex` and `opencode` are unchanged.
 
 Deleting the alias removed `materializerHarness()` outright — a `LocalHarness` is now handed straight to the profile materializer with no translation.
 

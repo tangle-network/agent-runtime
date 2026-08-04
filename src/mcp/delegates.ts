@@ -82,10 +82,8 @@ export type CoderDelegate = (args: DelegateCodeArgs, ctx: DelegateRunCtx) => Pro
 
 /**
  * UI-auditor delegate — fully consumer-injected. agent-runtime ships no
- * default factory because the inputs are workspace path + judge function
- * + (optionally) a `SandboxClient`, and the judge is the consumer's
- * model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
- * `@tangle-network/agent-runtime/profiles` for the canonical wiring.
+ * default factory because execution belongs to a caller-supplied exact
+ * agent profile and Runtime executor.
  *
  * @experimental
  */
