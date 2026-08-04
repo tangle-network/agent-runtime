@@ -88,14 +88,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: 42a044f29725f0587d6ab0d9783f4e889d5fb8f7 # v0.143.0
+          ref: 3f78bc880d7b2d3d477069ade50bb78f5c34bf72 # v0.144.3
           path: .cohort/agent-eval
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: 3a41d557a5549c324fad2b101d02f0bf30657cac # v7.0.8
+          ref: 6dc011ba7452638fbdbf89f454fb21f30e397d54 # v7.0.10
           path: .cohort/agent-knowledge
           persist-credentials: false
 

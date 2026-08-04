@@ -2,7 +2,7 @@
 
 ## 0.7.2
 
-- Consume Runtime 0.128.1, Eval 0.144.1, Knowledge 7.0.9, and Sandbox 0.17.3 so benchmark model calls use the exact-profile execution boundary and the released optimizer callback contract.
+- Consume Runtime 0.129.0, Eval 0.144.3, Knowledge 7.0.10, and Sandbox 0.17.3 so benchmark model calls use the exact-profile execution boundary and the released optimizer callback contract.
 
 ## 0.7.1
 

@@ -356,9 +356,9 @@ export {
   printBenchmarkReport,
   runBenchmark,
 } from './run-benchmark'
-// `runAgentRounds` is the multi-agent fanout/vote/refine kernel (many sandbox sessions per
-// call). It is NOT `runToolLoop`/`streamToolLoop` (`/tool-loop`: one chat turn, tool calls
-// folded back in) and NOT `routerToolLoop` (also on this subpath — router chat + tools).
+// `runAgentRounds` is the multi-agent fanout/vote/refine kernel over many sandbox sessions.
+// It is distinct from `runToolLoop`/`streamToolLoop`, which execute one chat turn and fold
+// tool results back into that same conversation.
 export { defaultSelectWinner, type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
@@ -953,9 +953,9 @@ export {
   superviseSurface,
 } from './supervise-surface'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
-// The driver-brain seam type a consumer scripts (a mock) or passes (`routerBrain`) into
-// `DriverAgentOptions.brain` — the canonical one-inference-turn tool-loop chat. `ToolLoopCompaction`
-// is the self-compaction config that bounds the brain's own context window (the supervisor chapter-close).
+// The driver-brain type a test or advanced caller may implement and pass into
+// `DriverAgentOptions.brain`. Production supervisors derive this chat function from their exact
+// profile. `ToolLoopCompaction` bounds the driver's own context window.
 export type {
   ToolLoopChat,
   ToolLoopCompaction,
