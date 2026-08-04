@@ -43,7 +43,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../src/mcp/tools/coordination'
-import { type AgentGraph, GraphEdgeCapError, runGraph } from '../../src/runtime/supervise/graph'
+import { type AgentGraph, GraphEdgeCapError } from '../../src/runtime/supervise/graph'
 import {
   analyzesFindingsReportPrompt,
   createPromptRegistry,
@@ -61,6 +61,7 @@ import type {
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { runGraph } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 

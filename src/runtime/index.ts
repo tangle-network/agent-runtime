@@ -540,15 +540,7 @@ export {
   gateOnDeliverable,
   mapExecutorResult,
 } from './supervise/completion-gate'
-// The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
-// verbs over the Scope (no box, no creds). The CAPABLE driver is an external harness with the
-// coordination verbs mounted as an MCP: `supervise()` wires a local bridge automatically, while a
-// remote sandbox requires an explicit reachable `driveHarness`.
-export {
-  type DriverAgentOptions,
-  driverAgent,
-  finalizeBestDelivered,
-} from './supervise/coordination-driver'
+export { finalizeBestDelivered } from './supervise/coordination-driver'
 // The durable coordination side-log a file-backed `RunContext` carries: questions, findings, answer
 // decisions, and authorized continuation receipts the spawn journal does not own. Receipts persist
 // as evidence and are never auto-delivered to a replacement worker.
@@ -953,11 +945,9 @@ export {
   superviseSurface,
 } from './supervise-surface'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
-// The driver-brain type a test or advanced caller may implement and pass into
-// `DriverAgentOptions.brain`. Production supervisors derive this chat function from their exact
-// profile. `ToolLoopCompaction` bounds the driver's own context window.
+// Profile-owned supervisor configuration. The arbitrary model callback and raw driver constructor
+// live only under `/testing`; production model execution enters through `supervise(AgentProfile)`.
 export type {
-  ToolLoopChat,
   ToolLoopCompaction,
   ToolLoopCompactionOptions,
   ToolLoopMessageRecord,

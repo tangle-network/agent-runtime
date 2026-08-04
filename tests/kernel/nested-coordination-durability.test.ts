@@ -4,12 +4,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
 import type { CoordinationEvent, QuestionRecord } from '../../src/mcp/tools/coordination'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   DriveHarness,
   DriveHarnessOwnerContext,
 } from '../../src/runtime/supervise/supervisor-agent'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 

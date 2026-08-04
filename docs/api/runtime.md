@@ -645,7 +645,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ##### load()
 
-> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Parameters
 
@@ -659,7 +659,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Implementation of
 
@@ -9833,262 +9833,6 @@ What the spawn was supposed to produce — surfaced in traces/reports.
 
 ***
 
-### DriverAgentOptions
-
-#### Properties
-
-##### name
-
-> `readonly` **name**: `string`
-
-##### brain
-
-> `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
-
-The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
- (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
- production, or a sandboxed harness. The same seam every tool-loop uses; no bespoke shape.
-
-##### blobs
-
-> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
-
-Shared blob store — `observe_agent` reads settled outputs through it.
-
-##### makeWorkerAgent
-
-> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
-
-Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam).
-
-##### authorizeDownMessage?
-
-> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](#authorizedownmessage)
-
-##### perWorker
-
-> `readonly` **perWorker**: [`Budget`](index.md#budget-4)
-
-Per-child budget reserved from the conserved pool on each spawn.
-
-##### deliverable?
-
-> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
-
-Independent completion check for work the driver performs itself. When present, the driver
- receives `submit_result`; the first passing submission ends the loop and becomes the output.
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
- flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
-
-##### analysts?
-
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
-
-The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
- Unset → no analyst feed (status quo: the driver gets settled outputs, no findings).
-
-##### analyzeOnSettle?
-
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
-
-Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
- `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
- loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`.
-
-##### watchWorkers?
-
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
-
-Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
- moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
- Omit = no online watching.
-
-##### stallAfterMs?
-
-> `readonly` `optional` **stallAfterMs?**: `number`
-
-Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
- killed). Omit = the runtime default.
-
-##### continuityByProfile?
-
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
-
-Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
- to the node's latest settled worker (see
- `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
- argument overrides. Omit = every spawn fresh (status quo).
-
-##### systemPrompt
-
-> `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
-
-The driver's stance — a string, or built from the task (the worker-driver prompt /
- the generator). INJECTED so the prompt is a pluggable, optimizable role.
-
-##### nodeTools?
-
-> `readonly` `optional` **nodeTools?**: readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
-
-Product-selected tools already bound to this exact supervisor node. The same descriptors are
- served over MCP for external supervisors; this arm projects them into router ToolSpecs.
-
-##### extraTools?
-
-> `readonly` `optional` **extraTools?**: readonly `object`[]
-
-WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
- not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
- Each is a router tool spec; their names must not collide with the coordination verbs. Pair with
- `executeExtraTool`. Unset → coordination-only (the prior behavior).
-
-##### executeExtraTool?
-
-> `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
-
-Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
- so the call falls through to the coordination dispatch. Required iff `extraTools` is set.
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### args
-
-`Record`\<`string`, `unknown`\>
-
-###### Returns
-
-`Promise`\<`string` \| `null` \| `undefined`\>
-
-##### maxTurns?
-
-> `readonly` `optional` **maxTurns?**: `number`
-
-Max driver turns before the loop force-finalizes on the best settled child. Default 16.
- `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
- an absolute deadline, the driver's own stop, and abort (checked in-loop). A finite
- anti-runaway tripwire still guards a degenerate driver that loops on a no-spawn tool.
-
-##### now?
-
-> `readonly` `optional` **now?**: () => `number`
-
-Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
- deterministic in tests. Defaults to `Date.now`.
-
-###### Returns
-
-`number`
-
-##### stopRule?
-
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
-
-PROGRESS-derived stop (mechanic D). Today a run ends on a ceiling — iterations, tokens,
-dollars, deadline, turn cap — which answers "may it continue?" and never "is it still getting
-anywhere?". A stop rule reads the run's own progress (best-so-far over settled work, time
-since the last settle, the live worker feed) and ends a run that has stopped learning BEFORE
-it exhausts a budget.
-
-Composes with, and can never override, the hard guards: `poolStarved` / `deadlinePassed` /
-abort / the driver's own stop are evaluated first, so a rule can only ADD a stop.
-
-THRESHOLDS are the caller's judgment, not this module's — build the rule with
-`plateau({window, minDelta})` / `noProgressFor({...})` / `allWorkersStalled({...})` from
-`supervise/stop-rules`. Omit ⇒ ceilings only (unchanged behavior).
-
-##### onProgressStop?
-
-> `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
-
-Called once with the rule's reason when a `stopRule` ends the run — so a caller can record
- WHY a run stopped early instead of inferring it from an unexhausted budget.
-
-###### Parameters
-
-###### reason
-
-`string`
-
-###### Returns
-
-`void`
-
-##### compaction?
-
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
-
-Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
- lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
- turn — the same context overflow a single steered agent suffers, one level up. With this set,
- once the brain's running conversation exceeds `thresholdTokens` it distills the accumulated
- history to a compact progress note and continues fresh: the supervisor analog of respawning
- against external tracking state, except the live `Scope` roster IS the durable state. Default
- off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
- with the factual settled-worker roster; override to supply your own.
-
-##### onEvent?
-
-> `readonly` `optional` **onEvent?**: (`event`, `record`) => `void` \| `Promise`\<`void`\>
-
-Pass-through subscriber for every coordination bus event: settled/question/finding,
- pre-delivery instruction receipts, and steer/answer delivery outcomes. A durable caller uses
- this to append the coordination log. Omit = no observer.
-
-###### Parameters
-
-###### event
-
-[`CoordinationEvent`](index.md#coordinationevent)
-
-###### record
-
-[`BusRecord`](#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>
-
-###### Returns
-
-`void` \| `Promise`\<`void`\>
-
-##### replaySettlements?
-
-> `readonly` `optional` **replaySettlements?**: `boolean`
-
-Re-publish resume-time settlements through the awaited observer before the first brain turn.
-
-##### priorCoordination?
-
-> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination-1)
-
-Questions, findings, and authorized continuation receipts loaded from a prior process.
- Questions seed the ledger (`list_questions`, blocking-stop policy); all three feed the resume
- brief. Continuation receipts are evidence only and are never auto-delivered. Omit = fresh.
-
-##### finalizer?
-
-> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](index.md#supervisorfinalizer)
-
-How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
- highest-scoring DELIVERED child (the exact keep-best every existing caller had). Runs under
- the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
- invalid child's output stays unreachable.
-
-##### inbox?
-
-> `readonly` `optional` **inbox?**: [`Inbox`](#inbox-1)
-
-Optional shared manager inbox used by a wrapper that must accept messages before async node
-setup finishes. Ordinary callers omit it and the driver owns a fresh inbox.
-
-***
-
 ### PriorCoordination
 
 Coordination evidence loaded from prior processes of one durable supervised run.
@@ -10166,7 +9910,7 @@ The durable coordination side-log seam. `append` records one bus event (kinds it
 
 ##### load()
 
-> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Parameters
 
@@ -10180,7 +9924,7 @@ The durable coordination side-log seam. `append` records one bus event (kinds it
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ***
 
@@ -10904,6 +10648,10 @@ The concrete worker node id, once known.
 
 ### RunGraphOptions
 
+#### Extended by
+
+- [`RunGraphTestOptions`](testing.md#rungraphtestoptions)
+
 #### Properties
 
 ##### backend?
@@ -10932,12 +10680,6 @@ The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
 Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
  graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
  seam supervise() exposes.
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the driver brain directly (offline tests / advanced).
 
 ##### analysts?
 
@@ -12556,7 +12298,7 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 ##### inbox
 
-> `readonly` **inbox**: [`Inbox`](#inbox-1)
+> `readonly` **inbox**: [`Inbox`](#inbox)
 
 ##### taskToPrompt
 
@@ -12995,7 +12737,7 @@ Evaluate a rule against the current view.
 
 ###### rule
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ###### scope?
 
@@ -13188,6 +12930,10 @@ caller that owns the code registers it here once and names it from data thereaft
 ***
 
 ### SuperviseOptions
+
+#### Extended by
+
+- [`SuperviseTestOptions`](testing.md#supervisetestoptions)
 
 #### Properties
 
@@ -13398,12 +13144,6 @@ Decide whether an authorized child becomes another supervisor. By default only
 The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
  model wins.
 
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the supervisor brain directly (tests / advanced).
-
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
@@ -13601,7 +13341,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule)
 
 PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
 before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
@@ -14111,6 +13851,10 @@ when no executor inbox is active instead of claiming a message was delivered.
 
 ### SupervisorAgentDeps
 
+#### Extended by
+
+- [`SupervisorAgentTestDeps`](testing.md#supervisoragenttestdeps)
+
 #### Properties
 
 ##### blobs
@@ -14155,12 +13899,6 @@ Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails
 
 Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
  profile's model wins.
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
 
 ##### driveHarness?
 
@@ -14256,7 +13994,7 @@ Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attache
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule)
 
 PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
  exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
@@ -14314,7 +14052,7 @@ Pass-through subscriber for every coordination bus event (both arms) — the sea
 
 ##### priorCoordination?
 
-> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination-1)
+> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination)
 
 Questions, findings, and authorized continuation receipts loaded from a prior process.
  Router arm: questions seed the ledger and all evidence enters the resume brief. External arm:
@@ -14322,7 +14060,7 @@ Questions, findings, and authorized continuation receipts loaded from a prior pr
 
 ##### loadPriorCoordination?
 
-> `readonly` `optional` **loadPriorCoordination?**: () => `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+> `readonly` `optional` **loadPriorCoordination?**: () => `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 Deferred owner-scoped replay for a recursive supervisor. Its stable owner is known while the
 parent authorizes the child, but loading remains asynchronous; Runtime calls this before the
@@ -14330,7 +14068,7 @@ nested brain can publish or act on coordination state.
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ##### finalizer?
 
@@ -20004,29 +19742,6 @@ Provider-neutral conversation record accepted by a tool-loop brain.
 
 ***
 
-### ToolLoopChat
-
-> **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; \}\>
-
-One inference turn over the running conversation + the tool specs → the model's text, any
- tool calls, and token usage. The seam every brain satisfies.
-
-#### Parameters
-
-##### messages
-
-`ReadonlyArray`\<[`ToolLoopMessageRecord`](#toolloopmessagerecord)\>
-
-##### tools
-
-`ReadonlyArray`\<[`ToolSpec`](#toolspec)\>
-
-#### Returns
-
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; \}\>
-
-***
-
 ### ToolLoopCompactionOptions
 
 > **ToolLoopCompactionOptions** = `Omit`\<[`ToolLoopCompaction`](#toolloopcompaction), `"distill"`\> & `object`
@@ -23412,25 +23127,6 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 ***
 
-### driverAgent()
-
-> **driverAgent**(`opts`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
-
-Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
-`driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
-
-#### Parameters
-
-##### opts
-
-[`DriverAgentOptions`](#driveragentoptions)
-
-#### Returns
-
-[`Agent`](#agent-2)\<`unknown`, `unknown`\>
-
-***
-
 ### finalizeBestDelivered()
 
 > **finalizeBestDelivered**(`settled`, `blobs`): `Promise`\<`unknown`\>
@@ -23926,13 +23622,13 @@ traversal is ledgered and journaled.
 
 ### createInbox()
 
-> **createInbox**(): [`Inbox`](#inbox-1)
+> **createInbox**(): [`Inbox`](#inbox)
 
 Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle.
 
 #### Returns
 
-[`Inbox`](#inbox-1)
+[`Inbox`](#inbox)
 
 ***
 
@@ -24619,7 +24315,7 @@ Build a `ProgressSample` from a scope settlement. The objective is the verdict s
 
 ### noProgressFor()
 
-> **noProgressFor**(`opts`): [`StopRule`](#stoprule-1)
+> **noProgressFor**(`opts`): [`StopRule`](#stoprule)
 
 "Nothing new has happened." Fires when the run has produced no new settled work for `ms`, or no
 IMPROVEMENT over the last `settles` settlements.
@@ -24635,13 +24331,13 @@ on CI is not a run that stopped making progress, and killing it there would defe
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### plateau()
 
-> **plateau**(`opts`): [`StopRule`](#stoprule-1)
+> **plateau**(`opts`): [`StopRule`](#stoprule)
 
 "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than
 `minDelta` across the last `window` settlements.
@@ -24658,13 +24354,13 @@ run was flat.
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### allWorkersStalled()
 
-> **allWorkersStalled**(`opts?`): [`StopRule`](#stoprule-1)
+> **allWorkersStalled**(`opts?`): [`StopRule`](#stoprule)
 
 "Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for
 longer than the stall threshold — and none of the tree is merely waiting.
@@ -24680,13 +24376,13 @@ reads it. A tree with armed waits never fires: waiting is not stalling.
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### anyOf()
 
-> **anyOf**(...`rules`): [`StopRule`](#stoprule-1)
+> **anyOf**(...`rules`): [`StopRule`](#stoprule)
 
 Stop when ANY rule stops — the ordinary composition (each rule is a separate reason to end).
 
@@ -24694,17 +24390,17 @@ Stop when ANY rule stops — the ordinary composition (each rule is a separate r
 
 ##### rules
 
-...readonly [`StopRule`](#stoprule-1)[]
+...readonly [`StopRule`](#stoprule)[]
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### allOf()
 
-> **allOf**(...`rules`): [`StopRule`](#stoprule-1)
+> **allOf**(...`rules`): [`StopRule`](#stoprule)
 
 Stop only when EVERY rule stops — for a conservative gate that needs corroboration.
 
@@ -24712,11 +24408,11 @@ Stop only when EVERY rule stops — for a conservative gate that needs corrobora
 
 ##### rules
 
-...readonly [`StopRule`](#stoprule-1)[]
+...readonly [`StopRule`](#stoprule)[]
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
@@ -24760,7 +24456,7 @@ ahead of the worker seam.
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
 
-One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use.
+One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Parameters
 
@@ -24826,7 +24522,8 @@ explicit, recorded acknowledgment — never a silent bind.
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
-Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker.
+Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness`
+(backend-as-data), the same resolution rule as every worker.
 
 #### Parameters
 

@@ -14,13 +14,12 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentGraph, promptHandle } from '@tangle-network/agent-runtime/kernel'
 import {
-  type AgentGraph,
-  promptHandle,
-  type RunGraphOptions,
-  runGraph,
+  type RunGraphTestOptions,
+  runGraphWithTestBrain,
   type ToolLoopChat,
-} from '@tangle-network/agent-runtime/kernel'
+} from '../../src/testing'
 import { leafSeam, offlineProfile, printLedger } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
@@ -47,7 +46,7 @@ function onlineFinding(
   return undefined
 }
 
-export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
+export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
@@ -119,7 +118,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
     return { content: 'done', toolCalls: [] }
   }
 
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'wd',
     makeWorkerAgent: seam,
     brain,
@@ -130,7 +129,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
 
 export async function main(): Promise<void> {
   const { graph, opts } = watchdogSteer()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('watchdog-steer', res)
 }
 

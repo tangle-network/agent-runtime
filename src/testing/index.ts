@@ -13,6 +13,24 @@ import canonicalAgentImprovementProposalFixture from './fixtures/agent-improveme
 import canonicalAgentProfileImprovementProposalFixture from './fixtures/agent-profile-improvement-proposal.json'
 import canonicalAgentProfileImprovementStateFixture from './fixtures/agent-profile-improvement-state.json'
 
+export {
+  type DriverAgentOptions,
+  driverAgent,
+} from '../runtime/supervise/coordination-driver'
+export {
+  type RunGraphTestOptions,
+  runGraphWithTestBrain,
+} from '../runtime/supervise/graph'
+export {
+  type SuperviseTestOptions,
+  superviseWithTestBrain,
+} from '../runtime/supervise/supervise'
+export {
+  type SupervisorAgentTestDeps,
+  supervisorAgentWithTestBrain,
+} from '../runtime/supervise/supervisor-agent'
+export type { ToolLoopCallContext, ToolLoopChat } from '../runtime/tool-loop'
+
 const serializedAgentImprovementProposalFixture = JSON.stringify(
   canonicalAgentImprovementProposalFixture,
 )

@@ -27,7 +27,6 @@ import {
   type SupervisorSpanRecorder,
 } from '../../src/runtime/supervise/otel-spans'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
@@ -37,6 +36,7 @@ import type {
   Scope,
   SupervisorOpts,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 

@@ -38,10 +38,9 @@ import {
   GraphEdgeCapError,
   type GraphResult,
   promptHandle,
-  type RunGraphOptions,
-  runGraph,
   streamAgentTurn,
 } from '../../src/runtime/index.ts'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing/index.ts'
 import { leafSeam, scriptedBrain, type ScriptedTurn } from './agent-graphs-improve/offline-seams.mts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -380,7 +379,7 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
           maxTokens:
             spec.perWorker.maxTokens ?? Math.max(1, Math.floor(spec.budget.maxTokens / 4)),
         }
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId,
     maxLiveWorkers: Math.max(workerIds.length, 1),
     ...(perWorker !== undefined ? { perWorker } : {}),
@@ -404,7 +403,7 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
     )
     t.unref?.()
   })
-  const res: GraphResult = await Promise.race([runGraph(graph, opts), timeout])
+  const res: GraphResult = await Promise.race([runGraphWithTestBrain(graph, opts), timeout])
   return { resultKind: res.result.kind, ledger: res.ledger, exhaustedEdges: res.exhaustedEdges }
 }
 

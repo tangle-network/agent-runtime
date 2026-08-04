@@ -93,9 +93,11 @@ import {
   type DriveHarnessOwnerContext,
   type ResolveDriveHarness,
   type ResolveSupervisorTools,
+  type SupervisorAgentDeps,
   type SupervisorNodeContext,
   type SupervisorProfile,
   supervisorAgent,
+  supervisorAgentWithTestBrain,
 } from './supervisor-agent'
 import type {
   Agent,
@@ -731,8 +733,6 @@ export interface SuperviseOptions {
   /** The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
    *  model wins. */
   readonly router?: RouterTransportConfig
-  /** Inject the supervisor brain directly (tests / advanced). */
-  readonly brain?: ToolLoopChat
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -956,7 +956,6 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     authorizeSpawn,
     authorizeMessage,
     isDriverProfile,
-    brain,
     driveHarness,
     resolveDriveHarness,
     resolveSupervisorTools,
@@ -1039,7 +1038,6 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(authorizeSpawn === undefined ? {} : { authorizeSpawn }),
     ...(authorizeMessage === undefined ? {} : { authorizeMessage }),
     ...(isDriverProfile === undefined ? {} : { isDriverProfile }),
-    ...(brain === undefined ? {} : { brain }),
     ...(driveHarness === undefined ? {} : { driveHarness }),
     ...(resolveDriveHarness === undefined ? {} : { resolveDriveHarness }),
     ...(resolveSupervisorTools === undefined ? {} : { resolveSupervisorTools }),
@@ -1175,8 +1173,37 @@ function coordinationEventId(
   })
 }
 
-/** One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use. */
+/** Test-only one-call shape, exported only through the package's explicit `/testing` entry. */
+export interface SuperviseTestOptions extends SuperviseOptions {
+  readonly brain: ToolLoopChat
+}
+
+/** One-call supervisor: build + run a supervisor from its exact profile. */
 export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
+  if ('brain' in opts) {
+    throw new ValidationError(
+      'supervise: direct brain injection is test-only; production execution derives the model call from AgentProfile',
+    )
+  }
+  return superviseInternal(profile, task, opts)
+}
+
+/** Deterministic scripted-brain path for tests. Not exported from Runtime's main entry. */
+export function superviseWithTestBrain(
+  profile: SupervisorProfile,
+  task: unknown,
+  opts: SuperviseTestOptions,
+) {
+  const { brain, ...runtimeOptions } = opts
+  return superviseInternal(profile, task, runtimeOptions, brain)
+}
+
+function superviseInternal(
+  profile: SupervisorProfile,
+  task: unknown,
+  opts: SuperviseOptions,
+  testBrain?: ToolLoopChat,
+) {
   const options = captureSuperviseOptions(opts)
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
@@ -1381,7 +1408,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     canonicalProfile,
     isExternalSupervisor(canonicalProfile)
       ? (driverMaterialization as ProfileMaterializationContract)
-      : options.brain
+      : testBrain
         ? promptControlProfileMaterialization
         : routerSupervisorProfileMaterialization,
     'supervise root',
@@ -1617,7 +1644,7 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
-    const agent = supervisorAgent(canonicalProfile, {
+    const agentDeps = {
       blobs,
       makeWorkerAgent: workerFactory,
       ...(authorizeRootMessage ? { authorizeDownMessage: authorizeRootMessage } : {}),
@@ -1639,7 +1666,6 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(options.coordination ? { coordination: options.coordination } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),
-      ...(options.brain ? { brain: options.brain } : {}),
       ...(rootDriveHarness ? { driveHarness: rootDriveHarness } : {}),
       nodeContext: {
         runId,
@@ -1663,7 +1689,11 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
       ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
       ...(options.compaction ? { compaction: options.compaction } : {}),
-    })
+    } satisfies SupervisorAgentDeps
+    const agent =
+      testBrain === undefined
+        ? supervisorAgent(canonicalProfile, agentDeps)
+        : supervisorAgentWithTestBrain(canonicalProfile, { ...agentDeps, brain: testBrain })
 
     // Built ONLY when `otel` is configured AND an exporter resolves, so the default path allocates
     // nothing and passes no `hooks` at all — byte-for-byte the wiring every existing caller gets.

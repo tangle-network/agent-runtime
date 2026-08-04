@@ -269,8 +269,6 @@ export interface SupervisorAgentDeps {
   /** Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
    *  profile's model wins. */
   readonly router?: RouterTransportConfig
-  /** Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile. */
-  readonly brain?: ToolLoopChat
   /** Required to run an external-harness supervisor: runs the harness as the driver. */
   readonly driveHarness?: DriveHarness
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
@@ -378,10 +376,39 @@ function snapshotRouterTransportConfig(input: RouterTransportConfig): RouterTran
   })
 }
 
-/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
+/** Test-only dependency shape. It is exported only through the package's explicit `/testing`
+ * entry; production supervisor surfaces cannot replace profile-derived model execution. */
+export interface SupervisorAgentTestDeps extends SupervisorAgentDeps {
+  readonly brain: ToolLoopChat
+}
+
+/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness`
+ * (backend-as-data), the same resolution rule as every worker. */
 export function supervisorAgent(
   profile: SupervisorProfile,
   deps: SupervisorAgentDeps,
+): Agent<unknown, unknown> {
+  if ('brain' in deps) {
+    throw new ValidationError(
+      'supervisorAgent: direct brain injection is test-only; production execution derives the model call from AgentProfile',
+    )
+  }
+  return buildSupervisorAgent(profile, deps)
+}
+
+/** Scripted-brain construction for deterministic tests. Not exported from Runtime's main entry. */
+export function supervisorAgentWithTestBrain(
+  profile: SupervisorProfile,
+  deps: SupervisorAgentTestDeps,
+): Agent<unknown, unknown> {
+  const { brain, ...runtimeDeps } = deps
+  return buildSupervisorAgent(profile, runtimeDeps, brain)
+}
+
+function buildSupervisorAgent(
+  profile: SupervisorProfile,
+  deps: SupervisorAgentDeps,
+  testBrain?: ToolLoopChat,
 ): Agent<unknown, unknown> {
   const exactProfile = agentProfileSchema.parse(profile)
   assertExecutableAgentProfile(exactProfile, 'supervisorAgent')
@@ -431,9 +458,10 @@ export function supervisorAgent(
   }
 
   if (harness === null) {
-    // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
-    // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
-    const brain = deps.brain ?? routerBrainFromProfile(stableProfile, stableRouter)
+    // ROUTER arm: the in-process tool-loop. `routerBrain` is an internal detail — a production
+    // caller passes a profile, never a hand-built brain. Deterministic source tests use the
+    // separately exported `/testing` constructor.
+    const brain = testBrain ?? routerBrainFromProfile(stableProfile, stableRouter)
     const inbox = createInbox()
     const build = (
       priorCoordination?: PriorCoordination,
@@ -443,6 +471,9 @@ export function supervisorAgent(
       driverAgent({
         name,
         brain,
+        ...(testBrain === undefined
+          ? { expectedModel: resolveSupervisorModelId(stableProfile) }
+          : {}),
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
@@ -690,7 +721,7 @@ function routerBrainFromProfile(
 ): ToolLoopChat {
   if (!router) {
     throw new ValidationError(
-      'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router (or deps.brain)',
+      'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router',
     )
   }
   const modelId = resolveSupervisorModelId(profile)

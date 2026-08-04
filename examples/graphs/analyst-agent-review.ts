@@ -16,18 +16,14 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import {
-  type AgentGraph,
-  promptHandle,
-  type RunGraphOptions,
-  runGraph,
-} from '@tangle-network/agent-runtime/kernel'
+import { type AgentGraph, promptHandle } from '@tangle-network/agent-runtime/kernel'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
 import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
 
-export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphOptions } {
+export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   // ── The topology: plain data (the analyst is the 'reviewer' NODE, not a registry lens) ──
   const graph: AgentGraph = {
     nodes: [
@@ -53,7 +49,7 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphOptions
   }
 
   const received: AgentProfile[] = []
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'rev',
     makeWorkerAgent: leafSeam(received, {
       implementer: { withTrace: true },
@@ -83,7 +79,7 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphOptions
 
 export async function main(): Promise<void> {
   const { graph, opts } = analystAgentReview()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('analyst-agent-review', res)
 }
 

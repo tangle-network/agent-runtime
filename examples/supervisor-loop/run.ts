@@ -22,6 +22,7 @@
  *   pnpm test tests/kernel/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
  */
 import { supervise } from '@tangle-network/agent-runtime/kernel'
+import { superviseWithTestBrain } from '../../src/testing'
 import { buildWorkerBackend, demoCheck, demoGoal, resolveSupervisorBrain } from './shared'
 
 async function main(): Promise<void> {
@@ -36,27 +37,25 @@ async function main(): Promise<void> {
 
   console.log(`supervisor-loop · ${backend.backend.toUpperCase()} · driver=${label}`)
 
-  const result = await supervise(
-    profile,
+  const task =
     `${demoGoal}\nUse this exact worker execution identity in spawn_agent.profile: ` +
-      JSON.stringify({ harness: worker.profile.harness, model: worker.profile.model }),
-    {
-      backend,
-      deliverable: { check: demoCheck, describe: 'worker delivers the goal' },
-      ...(brain ? { brain } : {}),
-      ...(!brain
-        ? {
-            router: {
-              routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
-              routerKey: process.env.TANGLE_API_KEY!,
-            },
-          }
-        : {}),
-      budget: { maxIterations: 100, maxTokens: 2_000_000, maxUsd: 2 },
-      perWorker: { maxIterations: 1, maxTokens: 200_000 },
-      runId: `supervisor-loop-${backend.backend}`,
-    },
-  )
+    JSON.stringify({ harness: worker.profile.harness, model: worker.profile.model })
+  const common = {
+    backend,
+    deliverable: { check: demoCheck, describe: 'worker delivers the goal' },
+    budget: { maxIterations: 100, maxTokens: 2_000_000, maxUsd: 2 },
+    perWorker: { maxIterations: 1, maxTokens: 200_000 },
+    runId: `supervisor-loop-${backend.backend}`,
+  } as const
+  const result = brain
+    ? await superviseWithTestBrain(profile, task, { ...common, brain })
+    : await supervise(profile, task, {
+        ...common,
+        router: {
+          routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
+          routerKey: process.env.TANGLE_API_KEY!,
+        },
+      })
 
   console.log(
     result.kind === 'winner'

@@ -11,8 +11,8 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
+import { supervise } from '../helpers/runtime-with-test-brain'
 
 type BridgeRequest = {
   model: string

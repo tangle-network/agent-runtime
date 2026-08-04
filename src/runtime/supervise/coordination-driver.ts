@@ -44,6 +44,7 @@ import {
 import type { ToolSpec } from '../router-client'
 import {
   runBrainLoop,
+  type ToolLoopCallContext,
   type ToolLoopChat,
   type ToolLoopCompaction,
   type ToolLoopCompactionOptions,
@@ -82,6 +83,9 @@ export interface DriverAgentOptions {
    *  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
    *  production, or a sandboxed harness. The same seam every tool-loop uses; no bespoke shape. */
   readonly brain: ToolLoopChat
+  /** Profile-declared model for a production Router brain. When set, every turn must report this
+   * exact provider-observed model before its output is accepted. Omitted by scripted test brains. */
+  readonly expectedModel?: string
   /** Shared blob store — `observe_agent` reads settled outputs through it. */
   readonly blobs: ResultBlobStore
   /** Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam). */
@@ -413,14 +417,22 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // reader of `tokensLeft` can see the balance is a ceiling rather than a measurement. A
       // scripted/mock turn takes this path too, so offline equal-k still debits exactly zero tokens.
       let driverTurn = 0
+      let driverCall = 0
       const meteredBrain = async (
         messages: ReadonlyArray<Record<string, unknown>>,
         tools: ReadonlyArray<ToolSpec>,
         detail: Record<string, unknown>,
       ) => {
         let res: Awaited<ReturnType<typeof opts.brain>>
+        const call = driverCall
+        driverCall += 1
+        const callContext: ToolLoopCallContext = Object.freeze({
+          signal: scope.signal,
+          callId: `${scope.view.root}:brain:${crypto.randomUUID()}`,
+          correlationId: scope.view.root,
+        })
         try {
-          res = await opts.brain(messages, tools)
+          res = await opts.brain(messages, tools, callContext)
         } catch (error) {
           await scope.meter(
             {
@@ -431,9 +443,44 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               usdKnown: false,
               ms: 0,
             },
-            { driver: opts.name, inferenceFailed: true, ...detail },
+            {
+              driver: opts.name,
+              inferenceFailed: true,
+              call,
+              callId: callContext.callId,
+              correlationId: callContext.correlationId,
+              ...detail,
+            },
           )
           throw error
+        }
+        let evidenceError: ValidationError | undefined
+        if (opts.expectedModel !== undefined) {
+          if (res.model === undefined) {
+            evidenceError = new ValidationError(
+              `driverAgent: Router response omitted model identity; expected ${JSON.stringify(opts.expectedModel)}`,
+            )
+          } else if (res.model !== opts.expectedModel) {
+            evidenceError = new ValidationError(
+              `driverAgent: Router response reported model ${JSON.stringify(res.model)}; expected ${JSON.stringify(opts.expectedModel)}`,
+            )
+          }
+        }
+        if (
+          res.transportAttempts !== undefined &&
+          (!Number.isSafeInteger(res.transportAttempts) || res.transportAttempts < 1)
+        ) {
+          evidenceError = new ValidationError(
+            'driverAgent: transportAttempts must be a positive safe integer when reported',
+          )
+        }
+        for (const [field, value] of Object.entries(res.promptCache ?? {})) {
+          if (typeof value === 'number' && (!Number.isFinite(value) || value < 0)) {
+            evidenceError = new ValidationError(
+              `driverAgent: prompt-cache field ${JSON.stringify(field)} must be finite and nonnegative`,
+            )
+            break
+          }
         }
         const trustedCost =
           res.costProvenance === 'provider-receipt' || res.costProvenance === 'billing-receipt'
@@ -447,7 +494,16 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         }
         await scope.meter(turnSpend, {
           driver: opts.name,
+          call,
+          callId: callContext.callId,
+          correlationId: callContext.correlationId,
           toolCalls: (res.toolCalls ?? []).map((c) => c.name),
+          ...(res.model !== undefined ? { model: res.model } : {}),
+          ...(res.transportAttempts !== undefined
+            ? { transportAttempts: res.transportAttempts }
+            : {}),
+          ...(res.usage?.reasoning !== undefined ? { reasoningTokens: res.usage.reasoning } : {}),
+          ...(res.promptCache !== undefined ? { promptCache: res.promptCache } : {}),
           // The streamed transport says explicitly when it finished with no usage chunk (a broken
           // `include_usage` contract), which is a different fact from a brain that never reports
           // usage at all. Recorded on the turn so the journal distinguishes them.
@@ -455,6 +511,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           ...(res.costProvenance === 'catalog-estimate' ? { estimatedCostUsd: res.costUsd } : {}),
           ...detail,
         })
+        if (evidenceError !== undefined) throw evidenceError
         return res
       }
       const chat: ToolLoopChat = async (messages, tools) => {

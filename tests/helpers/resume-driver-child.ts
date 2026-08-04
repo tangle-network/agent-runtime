@@ -18,7 +18,6 @@
 import { appendFileSync } from 'node:fs'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   Agent,
   AgentSpec,
@@ -27,6 +26,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { supervise } from './runtime-with-test-brain'
 
 const [dir, runId, phase] = process.argv.slice(2)
 if (

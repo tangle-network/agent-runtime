@@ -172,6 +172,27 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(seen).toEqual(['trusted-call-1', 'trusted-call-1'])
   })
 
+  it.each(['', '   ', null])(
+    'rejects an invalid supplied logical-call id %j before transport',
+    async (callId) => {
+      const complete = vi.fn(async () => ({ choices: [{ message: { content: 'unused' } }] }))
+
+      await expect(
+        routerChatWithUsage(
+          {
+            routerBaseUrl: 'http://router.test/v1',
+            routerKey: 'k',
+            model: 'deepseek-v4-flash',
+            complete,
+          },
+          [{ role: 'user', content: 'do not dispatch' }],
+          { callId: callId as string },
+        ),
+      ).rejects.toThrow(/callId must be a non-empty, non-whitespace string/u)
+      expect(complete).not.toHaveBeenCalled()
+    },
+  )
+
   it('fails loud with the final network cause after the configured attempts are exhausted', async () => {
     const fetchSpy = vi.fn(async () => {
       throw new TypeError('fetch failed: connection refused')

@@ -18,17 +18,16 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgentGraph,
   promptHandle,
-  type RunGraphOptions,
-  runGraph,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
 import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
 export function shotLoopResumed(): {
   graph: AgentGraph
-  opts: RunGraphOptions
+  opts: RunGraphTestOptions
   contexts: Array<WorkerSpawnContext | undefined>
 } {
   // ── The topology: plain data — continuity is one field on the edge ──
@@ -56,7 +55,7 @@ export function shotLoopResumed(): {
 
   const received: AgentProfile[] = []
   const contexts: Array<WorkerSpawnContext | undefined> = []
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'rshots',
     makeWorkerAgent: leafSeam(
       received,
@@ -108,7 +107,7 @@ export function shotLoopResumed(): {
 
 export async function main(): Promise<void> {
   const { graph, opts, contexts } = shotLoopResumed()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('shot-loop-resumed', res)
   console.log('SPAWN CONTINUITY (what the executor seam received):')
   for (const context of contexts) {

@@ -49,8 +49,12 @@ import {
   type RunGraphOptions,
   runGraph,
   type Spend,
-  type ToolLoopChat,
 } from '@tangle-network/agent-runtime/kernel'
+import {
+  type RunGraphTestOptions,
+  runGraphWithTestBrain,
+  type ToolLoopChat,
+} from '../../src/testing'
 
 // ── The shared coder sampling (the F1 parity pin) ──────────────────────────────
 
@@ -425,7 +429,7 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
       }
     },
   }
-  const opts: RunGraphOptions =
+  const opts: RunGraphOptions | RunGraphTestOptions =
     backend.kind === 'seam'
       ? {
           makeWorkerAgent: backend.makeWorkerAgent,
@@ -448,7 +452,8 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
         }
   const startedAt = Date.now()
   try {
-    const res = await runGraph(graph, opts)
+    const res =
+      'brain' in opts ? await runGraphWithTestBrain(graph, opts) : await runGraph(graph, opts)
     return graphRecord(
       res.result.kind === 'winner',
       res.result.spentTotal,

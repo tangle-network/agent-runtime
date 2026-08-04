@@ -11,17 +11,13 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import {
-  type AgentGraph,
-  promptHandle,
-  type RunGraphOptions,
-  runGraph,
-} from '@tangle-network/agent-runtime/kernel'
+import { type AgentGraph, promptHandle } from '@tangle-network/agent-runtime/kernel'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
 import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
-export function bestOfN(): { graph: AgentGraph; opts: RunGraphOptions } {
+export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
@@ -41,7 +37,7 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphOptions } {
   }
 
   const received: AgentProfile[] = []
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'bon',
     maxLiveWorkers: 2,
     makeWorkerAgent: leafSeam(received, {
@@ -73,7 +69,7 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphOptions } {
 
 export async function main(): Promise<void> {
   const { graph, opts } = bestOfN()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('best-of-n', res)
 }
 

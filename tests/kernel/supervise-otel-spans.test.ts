@@ -14,7 +14,7 @@ import type { OtelExporter, OtelSpan } from '../../src/otel-export'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createSupervisorSpanRecorder } from '../../src/runtime/supervise/otel-spans'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
-import { type SuperviseOptions, supervise } from '../../src/runtime/supervise/supervise'
+import type { SuperviseOptions } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
@@ -28,6 +28,7 @@ import type {
   SupervisorOpts,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 

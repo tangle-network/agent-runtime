@@ -792,7 +792,14 @@ function routerRequestHeaders(
   // Every POST is retryable. Mint the logical-call identity once while the request headers are
   // assembled, outside `withRetry`, so an accepted response whose connection dies cannot make a
   // retry look like a new billable completion. A trusted caller identity remains authoritative.
-  const callId = opts?.callId ?? generateIdempotencyKey()
+  const suppliedCallId: unknown = opts?.callId
+  if (
+    suppliedCallId !== undefined &&
+    (typeof suppliedCallId !== 'string' || suppliedCallId.trim().length === 0)
+  ) {
+    throw new ValidationError('router request: callId must be a non-empty, non-whitespace string')
+  }
+  const callId = typeof suppliedCallId === 'string' ? suppliedCallId : generateIdempotencyKey()
   return {
     ...(opts?.propagatedHeaders ?? {}),
     'content-type': 'application/json',
@@ -1115,8 +1122,8 @@ export function routerBrain(
   } = {},
 ): ToolLoopChat {
   const temperature = opts.temperature ?? 0.4
-  return (messages, tools) =>
-    chatWithTools(cfg, messages, tools, {
+  return async (messages, tools, context) => {
+    const result = await chatWithTools(cfg, messages, tools, {
       temperature,
       toolChoice: opts.toolChoice ?? 'auto',
       // The config's ceiling reaches the completion, so a caller driving a reasoning model can
@@ -1125,5 +1132,24 @@ export function routerBrain(
       ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
       ...(opts.extraBody !== undefined ? { extraBody: opts.extraBody } : {}),
       ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+      ...(context?.signal ? { signal: context.signal } : {}),
+      ...(context?.callId ? { callId: context.callId } : {}),
+      ...(context?.correlationId ? { correlationId: context.correlationId } : {}),
     })
+    const hasBilledCost = result.billedCostUsd !== undefined
+    return {
+      content: result.content,
+      toolCalls: result.toolCalls,
+      ...(result.usage !== undefined ? { usage: result.usage } : {}),
+      ...(result.usageUnknown === true ? { usageUnknown: true as const } : {}),
+      ...(result.model !== undefined ? { model: result.model } : {}),
+      ...(result.cache !== undefined ? { promptCache: Object.freeze({ ...result.cache }) } : {}),
+      transportAttempts: result.transportAttempts,
+      ...(hasBilledCost
+        ? { costUsd: result.billedCostUsd, costProvenance: 'billing-receipt' as const }
+        : result.costUsd !== undefined
+          ? { costUsd: result.costUsd, costProvenance: result.costProvenance }
+          : {}),
+    }
+  }
 }

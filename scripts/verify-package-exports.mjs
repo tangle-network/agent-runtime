@@ -178,10 +178,17 @@ try {
         Sha256Digest,
       } from '@tangle-network/agent-interface'
       import {
+        driverAgent,
         type AgentProfileImprovementFixture,
+        type DriverAgentOptions,
         loadAgentImprovementProposalFixture,
         loadAgentProfileImprovementFixture,
+        type ToolLoopChat,
       } from '@tangle-network/agent-runtime/testing'
+      // @ts-expect-error Arbitrary driver construction is confined to the testing entrypoint.
+      import type { DriverAgentOptions as ForbiddenDriverAgentOptions } from '@tangle-network/agent-runtime/kernel'
+      // @ts-expect-error Arbitrary model callbacks are confined to the testing entrypoint.
+      import type { ToolLoopChat as ForbiddenToolLoopChat } from '@tangle-network/agent-runtime/kernel'
       import {
         deriveExecutionId,
         handleChatTurn,
@@ -326,6 +333,11 @@ try {
       void durableExecutionId
       void durableTurnHandler
       void durableTurnResult
+      void driverAgent
+      void (undefined as unknown as DriverAgentOptions)
+      void (undefined as unknown as ToolLoopChat)
+      void (undefined as unknown as ForbiddenDriverAgentOptions)
+      void (undefined as unknown as ForbiddenToolLoopChat)
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
@@ -534,16 +546,43 @@ try {
       `
         const testing = await import('@tangle-network/agent-runtime/testing')
         const expected = [
+          'driverAgent',
           'loadAgentImprovementProposalFixture',
           'loadAgentProfileImprovementFixture',
+          'runGraphWithTestBrain',
+          'superviseWithTestBrain',
+          'supervisorAgentWithTestBrain',
         ]
         const names = Object.keys(testing).sort()
         if (JSON.stringify(names) !== JSON.stringify(expected)) {
-          throw new Error('testing entrypoint must export only the proposal fixture loaders')
+          throw new Error('testing entrypoint must export exactly the declared test helpers')
         }
         for (const name of expected) {
           if (typeof testing[name] !== 'function') {
-            throw new Error('testing fixture export must be a function: ' + name)
+            throw new Error('testing export must be a function: ' + name)
+          }
+        }
+        const kernel = await import('@tangle-network/agent-runtime/kernel')
+        for (const name of [
+          'driverAgent',
+          'runGraphWithTestBrain',
+          'superviseWithTestBrain',
+          'supervisorAgentWithTestBrain',
+        ]) {
+          if (name in kernel) {
+            throw new Error('test-only model execution export leaked into kernel: ' + name)
+          }
+        }
+        for (const [name, invoke] of [
+          ['runGraph', () => kernel.runGraph({}, { brain: async () => ({ toolCalls: [] }) })],
+          ['supervise', () => kernel.supervise({}, null, { brain: async () => ({ toolCalls: [] }) })],
+          ['supervisorAgent', () => kernel.supervisorAgent({}, { brain: async () => ({ toolCalls: [] }) })],
+        ]) {
+          try {
+            invoke()
+            throw new Error(name + ' accepted direct model injection')
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes('test-only')) throw error
           }
         }
         const first = testing.loadAgentImprovementProposalFixture()

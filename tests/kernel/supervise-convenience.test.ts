@@ -12,7 +12,6 @@ import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import {
   type SuperviseOptions,
   type SuperviseRegistryTable,
-  supervise,
   workerFromBackend,
 } from '../../src/runtime/supervise/supervise'
 import type {
@@ -23,6 +22,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
@@ -830,6 +830,137 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
     )
     expect(result.kind).toBeDefined()
+  })
+
+  it('binds the root Router call to Runtime identity and preserves model, cache, attempts, reasoning, and billed cost', async () => {
+    const turns: Array<Record<string, unknown>> = []
+    let requestHeaders: Readonly<Record<string, string>> | undefined
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+      }),
+      'finish without delegation',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async (_body, request) => {
+            requestHeaders = request?.headers
+            return {
+              model: 'deepseek-v4-flash',
+              choices: [{ message: { content: 'done' } }],
+              usage: {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                completion_tokens_details: { reasoning_tokens: 3 },
+                prompt_tokens_details: { cached_tokens: 4 },
+                cost_usd: 0.02,
+              },
+            }
+          },
+        },
+        hooks: {
+          onEvent(event) {
+            if (event.target === 'agent.turn') {
+              turns.push(event.payload as Record<string, unknown>)
+            }
+          },
+        },
+      },
+    )
+
+    expect(result.spentTotal.tokens).toEqual({ input: 10, output: 5 })
+    expect(result.spentTotal.usd).toBe(0.02)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      promptCache: { readTokens: 4 },
+      reasoningTokens: 3,
+      transportAttempts: 1,
+    })
+    expect(Object.isFrozen(turns[0]?.promptCache)).toBe(true)
+    expect(requestHeaders?.['idempotency-key']).toBe(turns[0]?.callId)
+    expect(requestHeaders?.['x-correlation-id']).toBe(turns[0]?.correlationId)
+  })
+
+  it('accounts for a mismatched observed model and then refuses its output', async () => {
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'declared-model' },
+      }),
+      'reject model drift',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async () => ({
+            model: 'ambient-model',
+            choices: [{ message: { content: 'must not be accepted' } }],
+            usage: { prompt_tokens: 7, completion_tokens: 2, cost_usd: 0.01 },
+          }),
+        },
+      },
+    )
+
+    expect(result.kind).toBe('no-winner')
+    expect(result.kind === 'no-winner' && result.reason).toBe('driver-failed')
+    expect(result.kind === 'no-winner' && result.error?.message).toMatch(
+      /reported model "ambient-model"; expected "declared-model"/u,
+    )
+    expect(result.spentTotal).toMatchObject({
+      tokens: { input: 7, output: 2 },
+      usd: 0.01,
+    })
+  })
+
+  it('cascades caller cancellation into an in-flight root Router request', async () => {
+    const controller = new AbortController()
+    let started!: () => void
+    const requestStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let transportSignal: AbortSignal | undefined
+    const running = supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+      }),
+      'cancel the root call',
+      {
+        budget,
+        signal: controller.signal,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async (_body, request) => {
+            transportSignal = request?.signal
+            started()
+            return new Promise((_resolve, reject) => {
+              request?.signal?.addEventListener(
+                'abort',
+                () => reject(request.signal?.reason ?? new Error('aborted')),
+                { once: true },
+              )
+            })
+          },
+        },
+      },
+    )
+
+    await requestStarted
+    controller.abort(new Error('caller stopped'))
+    const result = await running
+
+    expect(transportSignal?.aborted).toBe(true)
+    expect(result.kind).toBe('no-winner')
+    expect(result.kind === 'no-winner' && result.reason).toBe('aborted')
   })
 
   it('allowedModels reads a canonical AgentProfile model through its resolved default id', () => {

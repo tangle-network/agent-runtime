@@ -4,9 +4,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import { supervisorAgent } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -14,6 +12,7 @@ import type {
   ExecutorResult,
   Scope,
 } from '../../src/runtime/supervise/types'
+import { supervise, supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 

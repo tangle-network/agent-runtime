@@ -7,7 +7,6 @@ import {
   scriptedSupervisorChat,
 } from '../examples/supervisor-loop/shared'
 import { gateOnDeliverable } from '../src/runtime/supervise/completion-gate'
-import { supervise } from '../src/runtime/supervise/supervise'
 import type {
   Agent,
   AgentSpec,
@@ -15,6 +14,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../src/runtime/supervise/types'
+import { supervise } from './helpers/runtime-with-test-brain'
 
 // ── An offline worker leaf — returns the ANSWER=42 marker, no network/LLM ─────────
 // The example's runners build this leaf from a real backend (`workerFromBackend`); here

@@ -20,10 +20,9 @@ import {
   type AgentGraph,
   chatWorkerSeam,
   promptHandle,
-  type RunGraphOptions,
-  runGraph,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
 import { offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
@@ -44,7 +43,7 @@ export const USER_TURNS = [
 
 export function userSimConversation(): {
   graph: AgentGraph
-  opts: RunGraphOptions
+  opts: RunGraphTestOptions
   /** Every OpenAI-shape request body the product agent's transport received, in order — the
    *  resumed message-history chain, captured at the wire. */
   requests: Array<Record<string, unknown>>
@@ -109,7 +108,7 @@ export function userSimConversation(): {
     },
   })
   const contexts: Array<WorkerSpawnContext | undefined> = []
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'usim',
     makeWorkerAgent: (profile, context) => {
       contexts.push(context)
@@ -132,7 +131,7 @@ export function userSimConversation(): {
 
 export async function main(): Promise<void> {
   const { graph, opts, requests, contexts } = userSimConversation()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('user-sim-conversation', res)
   console.log('SPAWN CONTINUITY (what the executor seam received):')
   for (const context of contexts) {

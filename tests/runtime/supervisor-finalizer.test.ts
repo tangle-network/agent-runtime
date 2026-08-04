@@ -22,7 +22,6 @@ import {
   runFinalizer,
   type SupervisorFinalizer,
 } from '../../src/runtime/supervise/finalizer'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   Agent,
   AgentSpec,
@@ -33,6 +32,7 @@ import type {
   TreeView,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }

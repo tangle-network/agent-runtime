@@ -26,6 +26,8 @@
 - Remove `createPrimeIntellectBackend`; use `primeIntellectExecutorConfig(context)` with `createExecutor(...)`, then execute an exact profile through `streamAgentTurn` or bind it with `createProfileExecutionBackend(...)` when an `AgentExecutionBackend` is required.
 - Remove `uiAuditorProfile`, `createInProcessUiAuditClient`, and their browser/judge option types; author a normal `AgentProfile`, execute it through Runtime, and keep using `UiAuditTask`, `encodeAuditTaskEnvelope`, `formatAuditorPrompt`, `parseAuditorEvents`, and `createUiAuditorValidator` from `/profiles`.
 - Remove the bundled UI-audit example and the Playwright peer dependency because browser placement belongs to the caller-owned execution environment, not a profile-specific Runtime client.
+- Remove direct model injection from `SuperviseOptions`, `RunGraphOptions`, and `SupervisorAgentDeps`, and remove `driverAgent`, `DriverAgentOptions`, and `ToolLoopChat` from `/kernel`; production supervisor calls now derive model execution only from the exact root `AgentProfile`, while deterministic scripted calls live under the explicit `/testing` entrypoint.
+- Bind every root Router turn to one Runtime-authored cancellation signal, call id, and correlation id; preserve provider-observed model, prompt-cache, retry-attempt, reasoning-token, and billed-cost evidence; meter a mismatched model response before refusing its output; and reuse one nonempty idempotency key across all physical retries of the logical call.
 
 ## 0.128.0
 

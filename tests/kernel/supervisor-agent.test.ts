@@ -12,7 +12,6 @@ import {
   type ResolveSupervisorTools,
   resolveSupervisorProfile,
   type SupervisorProfile,
-  supervisorAgent,
 } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
@@ -23,6 +22,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 

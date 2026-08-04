@@ -23,10 +23,10 @@ import {
   type ExecutorResult,
   type GraphResult,
   type MakeWorkerAgent,
-  type ToolLoopChat,
   type TraceSource,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
+import type { ToolLoopChat } from '../../src/testing'
 
 /** Exact profile identity for the examples' injected, deterministic executors. */
 export function offlineProfile(name: string, systemPrompt: string): AgentProfile {

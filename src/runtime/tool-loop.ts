@@ -23,15 +23,24 @@ export interface ToolLoopToolCall {
   arguments: string
 }
 
+/** Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen
+ * before dispatch; a transport may observe the signal but cannot replace the authority it names. */
+export interface ToolLoopCallContext {
+  readonly signal: AbortSignal
+  readonly callId: string
+  readonly correlationId: string
+}
+
 /** One inference turn over the running conversation + the tool specs → the model's text, any
  *  tool calls, and token usage. The seam every brain satisfies. */
 export type ToolLoopChat = (
   messages: ReadonlyArray<ToolLoopMessageRecord>,
   tools: ReadonlyArray<ToolSpec>,
+  context?: ToolLoopCallContext,
 ) => Promise<{
   content?: string | null
   toolCalls: ToolLoopToolCall[]
-  usage?: { input: number; output: number }
+  usage?: { input: number; output: number; reasoning?: number }
   /** Dollar value reported for the turn. It is not billed spend unless provenance says so. */
   costUsd?: number
   costProvenance?: 'provider-receipt' | 'billing-receipt' | 'catalog-estimate'
@@ -39,6 +48,12 @@ export type ToolLoopChat = (
    *  router transport asks for usage and this says it never arrived). A metering caller records an
    *  unknown turn on it; `runBrainLoop` itself ignores it. */
   usageUnknown?: true
+  /** Provider-observed model identity. Profile-bound callers validate it before accepting output. */
+  model?: string
+  /** Provider-reported prompt-cache evidence; missing fields remain missing. */
+  promptCache?: Readonly<Record<string, number | string>>
+  /** Physical HTTP/injected-transport attempts spent by this one logical call. */
+  transportAttempts?: number
 }>
 
 /** Optional per-loop concerns the metered/steerable call sites attach. The loop is one copy;

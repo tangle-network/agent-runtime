@@ -20,12 +20,12 @@ import {
   USER_TURNS,
   userSimConversation,
 } from '../../examples/graphs/user-sim-conversation'
-import { runGraph } from '../../src/runtime/supervise/graph'
+import { runGraphWithTestBrain } from '../../src/testing'
 
 describe('examples/graphs/user-sim-conversation — turns are traversals, the session is one message list', () => {
   it('resumes one growing conversation across three workers, ledgered and metered', async () => {
     const { graph, opts, requests, contexts } = userSimConversation()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     // ── 5. The confirming turn wins through the deliverable ──
     expect(res.result.kind).toBe('winner')

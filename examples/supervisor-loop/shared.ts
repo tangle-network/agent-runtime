@@ -11,9 +11,9 @@ import { type AgentProfile, harnessTypeSchema } from '@tangle-network/agent-inte
 import type {
   ExecutorConfig,
   SandboxClient as RuntimeSandboxClient,
-  ToolLoopChat,
 } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
+import type { ToolLoopChat } from '../../src/testing'
 
 /** The marker every runner asks its workers to emit; the check confirms it landed. */
 export const expectedAnswer = 'ANSWER=42'
