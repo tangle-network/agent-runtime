@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.129.0` and `@tangle-network/agent-eval@0.144.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.129.0` and `@tangle-network/agent-eval@0.144.3` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 406 exports.
+Import from `@tangle-network/agent-runtime` — 407 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -47,6 +47,7 @@ Import from `@tangle-network/agent-runtime` — 406 exports.
 | `createKnowledgeImprovementActivationExecutor` | function | Apply or restore one local knowledge candidate through the shared activation contract. |
 | `createOpenInferenceFileExporter` | function | Create an exporter that APPENDS spans to a local OpenInference-JSONL file, one complete span per |
 | `createOtelExporter` | function | Create an OTEL exporter. Returns undefined when no endpoint is configured. |
+| `createProfileExecutionBackend` | function | Bind one exact profile and Runtime executor to the stable `AgentExecutionBackend` contract used |
 | `createProtectedAgentCandidateModelPort` | function | Bind a protected model-grant service to the immutable candidate runtime. |
 | `createRuntimeEventCollector` | function | Build an in-memory collector that sanitizes and accumulates `AgentRuntimeEvent`s for inspection. |
 | `createRuntimeStreamEventCollector` | function | Streaming-event counterpart of `createRuntimeEventCollector`. Pass each |
@@ -300,13 +301,14 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 
 ### Multi-turn conversations
 
-Import from `@tangle-network/agent-runtime/conversation` — 53 exports.
+Import from `@tangle-network/agent-runtime/conversation` — 54 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `buildForwardHeaders` | function | Build the headers to emit on an outbound participant call, given the |
 | `computeBackoff` | function | Compute the delay before the next attempt. Default: 250ms exponential with jitter. |
 | `createConversationBackend` | function | Adapt a multi-participant conversation into the standard execution backend contract. |
+| `createProfileExecutionBackend` | function | Bind one exact profile and Runtime executor to the stable `AgentExecutionBackend` contract used |
 | `d1ToSqlAdapter` | function | Adapt a Cloudflare D1 binding to the SqlAdapter shape. Lives here so D1 |
 | `defineConversation` | function | Validate and define a conversation before execution. |
 | `isDepthExceeded` | function | Refuse further forwarding when the inbound depth has reached the limit. |
@@ -1669,7 +1671,7 @@ Import from `@tangle-network/agent-eval/campaign` — 353 exports.
 | `FileSearchLedger` | class | Append-only file-backed search ledger with idempotent writes and replay. |
 | `FsLabeledScenarioStore` | class | Filesystem `LabeledScenarioStore`: appends one JSONL file per source with provenance and |
 | `LabeledScenarioStoreError` | class | Typed rejection from a labeled-scenario store (bad provenance, rate limit, invalid sample args) — carries a stable string `code`. |
-| `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, a profile whose model |
+| `ProfileMatrixError` | class | Thrown when the matrix is misconfigured (no profiles, missing resolved model evidence, |
 | `SearchLedgerConflictError` | class | Error raised when an event identifier is reused with different content. |
 | `SearchLedgerError` | class | Base error for invalid search-ledger input or operations. |
 | `SearchLedgerIntegrityError` | class | Error raised when durable search-ledger data fails an integrity check. |

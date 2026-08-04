@@ -68,6 +68,7 @@ export {
   CircuitOpenError,
   computeBackoff,
   createConversationBackend,
+  createProfileExecutionBackend,
   DEFAULT_MAX_DEPTH,
   DeadlineExceededError,
   d1ToSqlAdapter,

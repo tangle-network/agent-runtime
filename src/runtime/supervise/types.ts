@@ -408,6 +408,12 @@ export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Ex
  *  the factory reaching into module globals. */
 export interface ExecutorContext {
   readonly signal: AbortSignal
+  /**
+   * Request headers inherited from an enclosing task or conversation.
+   * Network executors forward these after their own connection headers so caller authorization,
+   * recursion depth, and trace identity survive the profile-to-executor boundary.
+   */
+  readonly propagatedHeaders?: Readonly<Record<string, string>>
   /** Present when Scope constructs the executor for a supervised node. */
   readonly node?: ExecutorNodeContext
   /** Opaque seams the registry threads through; a built-in narrows what it needs. */

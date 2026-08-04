@@ -22,7 +22,7 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import { createIterableBackend } from '../backends'
-import { streamAgentTurn } from '../runtime/stream-agent-turn'
+import { createProfileExecutionBackend } from '../runtime/profile-execution-backend'
 import type { ExecutorFactory } from '../runtime/supervise/types'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { defineConversation } from './define-conversation'
@@ -85,18 +85,13 @@ function profileRuntimeBackend(
   factory: ExecutorFactory<unknown>,
   counter?: UsageCounter,
 ): AgentExecutionBackend {
+  const backend = createProfileExecutionBackend({ profile, executor: factory })
+  if (!counter) return backend
   return {
-    kind: 'runtime-profile',
+    ...backend,
     async *stream(input, context) {
-      const turnInput = input.messages
-        ? { messages: input.messages }
-        : (input.message ?? context.task.intent)
-      for await (const event of streamAgentTurn({ kind: 'executor', profile, factory }, turnInput, {
-        signal: context.signal,
-        ...(context.turnId ? { callId: context.turnId } : {}),
-        ...(context.runId ? { correlationId: context.runId } : {}),
-      })) {
-        if (counter && event.type === 'llm_call') {
+      for await (const event of backend.stream(input, context)) {
+        if (event.type === 'llm_call') {
           counter.sawLlmCall = true
           counter.tokensIn += event.tokensIn ?? 0
           counter.tokensOut += event.tokensOut ?? 0
