@@ -468,21 +468,13 @@ Options for the source-grounded researcher profile preset.
 
 #### Properties
 
-##### harness?
+##### profile
 
-> `optional` **harness?**: `string`
-
-**`Experimental`**
-
-Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`.
-
-##### model?
-
-> `optional` **model?**: `string`
+> **profile**: `AgentProfile`
 
 **`Experimental`**
 
-Default model id passed in `AgentProfile.model.default`.
+Caller-owned exact harness/provider/model identity.
 
 ##### systemPrompt?
 
@@ -498,7 +490,7 @@ Custom system prompt replacement. Default = built-in researcher preset.
 
 **`Experimental`**
 
-Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`.
+Stable name for `AgentRunSpec.name`. Default = `profile.name`.
 
 ##### citationDensityMin?
 
@@ -517,21 +509,13 @@ Below this floor, citation_density scores < 1 and the item set is gated.
 
 #### Properties
 
-##### harnesses?
+##### profiles
 
-> `optional` **harnesses?**: `string`[]
-
-**`Experimental`**
-
-Backend.type identifiers, one per parallel agent.
-
-##### models?
-
-> `optional` **models?**: (`string` \| `undefined`)[]
+> **profiles**: readonly `AgentProfile`[]
 
 **`Experimental`**
 
-Optional per-harness model override. Indexed parallel to `harnesses`.
+Exact execution profiles, one per parallel researcher.
 
 ##### citationDensityMin?
 
@@ -1595,7 +1579,7 @@ Render a `CoderTask` into the per-task instruction handed to the coder profile.
 
 ### researcherProfile()
 
-> **researcherProfile**(`options?`): `object`
+> **researcherProfile**(`options`): `object`
 
 **`Experimental`**
 
@@ -1603,9 +1587,9 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 #### Parameters
 
-##### options?
+##### options
 
-[`ResearcherProfileOptions`](#researcherprofileoptions) & `object` = `{}`
+[`ResearcherProfileOptions`](#researcherprofileoptions) & `object`
 
 #### Returns
 
@@ -1645,7 +1629,7 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 ### multiHarnessResearcherFanout()
 
-> **multiHarnessResearcherFanout**(`options?`): `object`
+> **multiHarnessResearcherFanout**(`options`): `object`
 
 **`Experimental`**
 
@@ -1655,9 +1639,9 @@ picks the highest-scoring valid output.
 
 #### Parameters
 
-##### options?
+##### options
 
-[`MultiHarnessResearcherFanoutOptions`](#multiharnessresearcherfanoutoptions) = `{}`
+[`MultiHarnessResearcherFanoutOptions`](#multiharnessresearcherfanoutoptions)
 
 #### Returns
 

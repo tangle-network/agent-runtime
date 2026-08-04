@@ -898,59 +898,23 @@ one or the other, not both.
 Convenience shorthand for sibling placement. Equivalent to
 `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
 
-##### workerProfile?
+##### workerProfile
 
-> `optional` **workerProfile?**: `AgentProfile`
-
-**`Experimental`**
-
-The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
-sandbox-session run spec → `runAgentRounds` → the executor's `harnessInvocation`, so the harness runs
-under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
-`harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
-profile is used.
-
-##### harness?
-
-> `optional` **harness?**: `string`
+> **workerProfile**: `AgentProfile`
 
 **`Experimental`**
 
-Backend harness for the single-coder path (sets `metadata.backendType`). Default `claude-code`.
+The worker's exact authored `AgentProfile` (§1.5: the system authors profiles). It is the sole
+harness/provider/model/prompt authority for the single-coder path and the default identity for
+repeated fanout shots.
 
-##### model?
+##### fanoutProfiles?
 
-> `optional` **model?**: `string`
-
-**`Experimental`**
-
-Model override for the single-coder path.
-
-##### systemPrompt?
-
-> `optional` **systemPrompt?**: `string`
+> `optional` **fanoutProfiles?**: readonly `AgentProfile`[]
 
 **`Experimental`**
 
-The worker's authored system prompt (§1.5). Flows onto the run spec's
-`profile.prompt.systemPrompt` → through `runAgentRounds` → the executor's `harnessInvocation`, so the
-harness runs under this stance. Omit to keep the profile's own prompt.
-
-##### fanoutHarnesses?
-
-> `optional` **fanoutHarnesses?**: `string`[]
-
-**`Experimental`**
-
-Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1.
-
-##### fanoutModels?
-
-> `optional` **fanoutModels?**: (`string` \| `undefined`)[]
-
-**`Experimental`**
-
-Optional per-harness model override for `variants > 1`.
+Optional exact identities for heterogeneous fanout. Omit to repeat `workerProfile`.
 
 ##### maxConcurrency?
 
@@ -1036,18 +1000,6 @@ Session id of the detached turn — used as the synthesized event id.
 ##### signal
 
 > **signal**: `AbortSignal`
-
-**`Experimental`**
-
-##### harness?
-
-> `optional` **harness?**: `string`
-
-**`Experimental`**
-
-##### model?
-
-> `optional` **model?**: `string`
 
 **`Experimental`**
 
@@ -4583,9 +4535,8 @@ Optional free-form context the agent surfaces in the prompt prelude.
 
 **`Experimental`**
 
-When > 1, dispatches `multiHarnessCoderFanout` across N harnesses
-(claude-code, codex, opencode-glm) and picks the highest-scoring
-passing patch. Default 1.
+When > 1, dispatches `multiHarnessCoderFanout` across the delegate's configured exact profiles
+and picks the highest-scoring passing patch. Default 1.
 
 ##### config?
 

@@ -5861,17 +5861,9 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 > `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-##### harness?
+##### supervisorProfile
 
-> `optional` **harness?**: `string`
-
-##### supervisorModel?
-
-> `optional` **supervisorModel?**: `string`
-
-##### supervisorSystemPrompt?
-
-> `optional` **supervisorSystemPrompt?**: `string`
+> **supervisorProfile**: `AgentProfile`
 
 ##### superviseOptions?
 
@@ -6187,17 +6179,11 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 > `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-##### harness?
+##### supervisorProfile
 
-> `optional` **harness?**: `string`
+> **supervisorProfile**: `AgentProfile`
 
-##### supervisorModel?
-
-> `optional` **supervisorModel?**: `string`
-
-##### supervisorSystemPrompt?
-
-> `optional` **supervisorSystemPrompt?**: `string`
+Caller-owned exact supervisor harness/provider/model identity.
 
 ##### superviseOptions?
 
@@ -6311,6 +6297,14 @@ Clock override for deterministic tests.
 Options for the local-repo `code` runner over the GENERIC recursive path.
 
 #### Properties
+
+##### rootProfile
+
+> **rootProfile**: `AgentProfile`
+
+**`Experimental`**
+
+Exact profile carried by the personified root that owns this fanout.
 
 ##### repoRoot
 
@@ -7925,9 +7919,11 @@ executors omit it (returns `undefined`).
 
 ### AgentSpec
 
-`AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
-one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
-an executor directly, without changing the profile's behavioral identity.
+`AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling
+any registry, including one that resolves caller-supplied executors and factories. The default
+registry enforces the same rule when called directly. `AgentSpec.harness` records routing for one
+concrete run; where a backend consumes both fields, it must agree with `AgentProfile.harness` and
+cannot fill or override it.
 
 Resolution (in `runtime.ts`):
  - `executorFactory` present → BYO: build it after admission with the live context.
@@ -7966,16 +7962,16 @@ Per-spawn factory carrying caller configuration. Constructed only after admissio
 
 > `readonly` `optional` **executor?**: [`Executor`](#executor-2)\<`unknown`\>
 
-Bring-your-own executor: when set, overrides harness-based resolution entirely.
+Bring-your-own executor: highest routing precedence after exact-profile intake validation.
 
 ***
 
 ### ExecutorRegistry
 
-The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
-registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
-register more runtimes by name. NOT a closed switch — registration is the extension
-point, mirroring the open `Executor` interface.
+The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates
+before invoking any implementation; the default registry repeats validation for direct callers,
+resolves the three built-ins, and accepts a BYO `executor`/factory. Callers may register more
+runtimes by name, but registration does not waive exact-profile validation.
 
 #### Methods
 

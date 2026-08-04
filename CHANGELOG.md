@@ -5,6 +5,10 @@
 - Require Agent Eval 0.144.1 and Agent Knowledge 7.0.9, and route the official-optimizer callback through Runtime's exact `AgentProfile` execution path.
 - Reject model, provider, reasoning, prompt, tool, resource, harness, and generation-setting conflicts before transport; consumers must declare those fields in the profile.
 - Require `defineLeaderboard` callers to supply an exact `baseProfile`; remove its `modelBackend` override so each matrix cell's profile remains the only model authority.
+- Require generic coder, researcher, and supervised-knowledge paths to receive complete profiles; remove harness/model overlays and MCP environment alias ladders.
+- Resolve Sandbox execution only from `AgentProfile.harness`; a backend type may confirm that choice but cannot replace it.
+- Parse, detach, and deeply freeze a complete `AgentProfile` before Scope, registry, nested-driver, or personified execution can honor any built-in or caller-supplied executor.
+- Require `driverChild(profile, ...)` and `worktreeLoopRunner({ rootProfile, ... })`; remove name-only driver and personified-root shortcuts.
 - Keep missing token usage and billed cost unknown, and report reasoning-token usage when the provider supplies it.
 
 ## 0.128.0

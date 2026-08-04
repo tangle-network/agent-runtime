@@ -343,6 +343,7 @@ function recencyMatchScore(items: KnowledgeItem[], window: ResearchTask['recency
   return total === 0 ? 0 : hits / total
 }
 
+/** Built-in source-grounded research contract added to a caller-owned exact profile. */
 export const RESEARCHER_SYSTEM_PROMPT = [
   'You are a research agent. Your job is to answer a research question with',
   'source-grounded knowledge items that the caller will choose whether to',

@@ -19335,9 +19335,9 @@ Exact admitted profile used to validate the stable effective identity at publica
 
 > **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](index.md#executor-2)\<`Out`\>
 
-Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
-shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
-user supply construction args without pre-instantiating.
+Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared)
+so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a user supply
+construction args without pre-instantiating; it never bypasses exact-profile validation.
 
 #### Type Parameters
 
@@ -24472,8 +24472,8 @@ Read every valid steer request in a worker's inbox. Corrupt or partial lines are
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
-The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly
-and never pass through here. Use this (or `createExecutorRegistry`) instead of a
+The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly, while Scope
+or `createExecutorRegistry` still parses and seals their exact profile before use. Use this instead of a
 per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 `UsageEvent` reporting channel.
 
@@ -24495,9 +24495,8 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 The open resolver/registry. Pre-registers the three built-ins under their
 runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
-factory)` for any additional runtime — and a BYO `AgentSpec.executor` resolves
-without touching the registry at all. NOT a closed switch; registration + BYO
-ARE the extension points.
+factory)` for any additional runtime. A BYO `AgentSpec.executor` has highest routing precedence
+after the same exact-profile intake validation. Registration + BYO remain open extension points.
 
 `resolve` precedence (frozen in `ExecutorRegistry`): a BYO `spec.executorFactory` →
 `spec.executor` → `harness === null` → the `'router'` factory; else a registered factory for the
