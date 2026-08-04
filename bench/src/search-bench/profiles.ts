@@ -17,7 +17,12 @@
  * shape — a `transport:'http'` server at the router's `/v1/search/mcp` endpoint,
  * provider pinned via the `?provider=` query param.
  */
-import { type AgentProfile, type HarnessType, agentProfileSchema } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type HarnessType,
+  agentProfileSchema,
+  defineAgentProfileSecretRef,
+} from '@tangle-network/agent-interface'
 
 export type SearchArm = 'native' | 'off' | { provider: string }
 
@@ -91,7 +96,9 @@ export function buildArmProfile(args: BuildArmProfileArgs): AgentProfile {
       tangle_search: {
         transport: 'http',
         url: routerSearchMcpUrl(arm.provider, routerBaseUrl),
-        headers: { Authorization: `Bearer ${tangleApiKey}` },
+        headers: {
+          Authorization: defineAgentProfileSecretRef('TANGLE_API_KEY', 'bearer'),
+        },
         enabled: true,
       },
     },

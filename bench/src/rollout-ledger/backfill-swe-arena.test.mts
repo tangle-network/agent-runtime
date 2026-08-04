@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { assertRolloutLine, claudeProjectSlug, toSftRows } from '@tangle-network/agent-eval/rollout'
+import {
+  assertMintedLines,
+  assertRolloutLine,
+  claudeProjectSlug,
+  toSftRows,
+} from '@tangle-network/agent-eval/rollout'
 import { backfillSweArena } from './backfill-swe-arena.mts'
 
 let dir: string
@@ -262,7 +267,7 @@ describe('backfillSweArena', () => {
 
     // The dataset is immediately trainable: reward==1 trainable-split lines
     // with transcripts → SFT rows (candidate worker + proposer here).
-    expect(toSftRows(lines)).toHaveLength(2)
+    expect(toSftRows(assertMintedLines(lines))).toHaveLength(2)
   })
 
   it('joins a respawned worker cwd once, not once per recovered entry', async () => {

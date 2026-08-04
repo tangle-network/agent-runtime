@@ -19,6 +19,7 @@ import {
 import {
   canonicalCandidateDigest,
   type AgentProfile,
+  agentProfileSchema,
 } from '@tangle-network/agent-interface'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { extractCode, loadHumanEval, runChecker, type HumanEvalTask } from './benchmarks/humaneval'
@@ -122,11 +123,11 @@ async function main(): Promise<void> {
     const t = byId.get(scenario.id)
     if (!t) throw new Error(`agent: unknown scenario ${scenario.id}`)
     const prompt = `\`\`\`python\n${t.prompt}\`\`\``
-    const executionProfile: AgentProfile = {
+    const executionProfile: AgentProfile = agentProfileSchema.parse({
       ...candidate,
       name: candidate.name ?? 'humaneval-improvement-worker',
       model: { ...candidate.model, provider: 'tangle-router', default: workerModel },
-    }
+    })
     const t0 = Date.now()
     const paid = await ctx.cost.runPaidCall({
       channel: 'agent',

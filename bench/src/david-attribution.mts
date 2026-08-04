@@ -20,10 +20,15 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadHumanEval, extractCode, type HumanEvalTask } from './benchmarks/humaneval'
-import { runBenchRouterTurn } from './router-turn'
+import { benchRouterProfile, runBenchRouterTurn } from './router-turn'
 
-const KEY = process.env.TANGLE_API_KEY
-if (!KEY) throw new Error('TANGLE_API_KEY required')
+function requiredEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} required`)
+  return value
+}
+
+const KEY = requiredEnv('TANGLE_API_KEY')
 const ROUTER = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
 const DAVID = process.env.DAVID ?? 'groq/llama-3.1-8b-instant'
 const N = Number(process.env.N ?? 8)
@@ -40,13 +45,11 @@ async function chat(messages: { role: string; content: string }[], temp: number)
       {
         routerBaseUrl: ROUTER,
         routerKey: KEY,
-        profile: {
-          name: 'david-attribution-worker',
-          model: { provider: 'tangle-router', default: DAVID },
-          ...(system ? { prompt: { systemPrompt: system } } : {}),
-        },
-        temperature: temp,
-        maxTokens: MAX_TOKENS,
+        profile: benchRouterProfile('david-attribution-worker', DAVID, {
+          ...(system ? { systemPrompt: system } : {}),
+          temperature: temp,
+          maxTokens: MAX_TOKENS,
+        }),
         timeoutMs: LLM_TIMEOUT_MS,
       },
       { messages: messages.filter((message) => message.role !== 'system') },

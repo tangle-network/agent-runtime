@@ -13,7 +13,12 @@
  * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is just the label.
  */
 import { createExecutor } from '@tangle-network/agent-runtime/kernel'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  defineAgentProfileSecretRef,
+  harnessProviders,
+  type AgentProfile,
+  type HarnessType,
+} from '@tangle-network/agent-interface'
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'
@@ -28,22 +33,58 @@ function bridgeProfile(
   routerSearchMcp: string,
   tangleApiKey: string,
   label: string,
-  model: string,
+  harness: HarnessType,
+  wireModel: string,
 ): AgentProfile {
-  const identity = { name: `search-bench-${label}`, model: { default: model } }
+  const prefix = `${harness}/`
+  if (!wireModel.startsWith(prefix)) {
+    throw new Error(
+      `bridgeProfile: wire model '${wireModel}' must start with harness '${prefix}'`,
+    )
+  }
+  const modelPath = wireModel.slice(prefix.length)
+  const segments = modelPath.split('/').filter(Boolean)
+  if (segments.length === 0) {
+    throw new Error(`bridgeProfile: wire model '${wireModel}' has no model id`)
+  }
+  let provider: string
+  let model: string
+  if (segments.length === 1) {
+    const providers = harnessProviders(harness)
+    if (providers?.length !== 1) {
+      throw new Error(
+        `bridgeProfile: wire model '${wireModel}' must include a provider for harness '${harness}'`,
+      )
+    }
+    provider = providers[0]!
+    model = segments[0]!
+  } else {
+    provider = segments[0]!
+    model = segments.slice(1).join('/')
+  }
+  const identity: AgentProfile = {
+    name: `search-bench-${label}`,
+    harness,
+    model: { provider, default: model },
+  }
   if (arm === 'native') return identity
   const base: AgentProfile = {
     ...identity,
     metadata: { disallowedTools: nativeWebDisallowed },
   }
   if (arm === 'off') return base
+  if (!tangleApiKey) {
+    throw new Error(`bridgeProfile: provider arm requires TANGLE_API_KEY`)
+  }
   return {
     ...base,
     mcp: {
       tangle_search: {
         transport: 'http',
         url: `${routerSearchMcp}?provider=${encodeURIComponent(arm.provider)}`,
-        headers: { Authorization: `Bearer ${tangleApiKey}` },
+        headers: {
+          Authorization: defineAgentProfileSecretRef('TANGLE_API_KEY', 'bearer'),
+        },
         enabled: true,
       },
     },
@@ -69,7 +110,7 @@ export interface BridgeCfg {
 export async function runBridgeCell(
   cfg: BridgeCfg,
   task: SearchTask,
-  harness: string,
+  harness: HarnessType,
   arm: SearchArm,
 ): Promise<SearchCellResult> {
   const startedAt = Date.now()
@@ -92,6 +133,7 @@ export async function runBridgeCell(
       cfg.routerSearchMcp,
       cfg.tangleApiKey,
       `${harness}-${armId}`,
+      harness,
       cfg.bridgeModels[harness] ?? harness,
     )
     const exec = createExecutor({

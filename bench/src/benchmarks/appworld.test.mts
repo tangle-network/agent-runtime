@@ -109,9 +109,9 @@ test('react client refuses an already-aborted round before a Python session or m
     model: 'offline-model',
     routerBaseUrl: 'https://router.invalid',
     routerKey: 'offline',
-    runWorldSession: async <T>() => {
+    runWorldSession: async () => {
       sessionCalls += 1
-      return undefined as T
+      throw new Error('unexpected world session')
     },
     complete: async () => {
       modelCalls += 1
@@ -137,7 +137,7 @@ test('react client threads late abort to both the world session and Router call'
     model: 'offline-model',
     routerBaseUrl: 'https://router.invalid',
     routerKey: 'offline',
-    runWorldSession: async <T>(_taskId, _split, signal, fn): Promise<T> => {
+    runWorldSession: async (_taskId, _split, signal, fn) => {
       sessionSignal = signal
       try {
         return await fn(async () => ({ success: true, num_tests: 1, passes: 1 }), 'offline task')

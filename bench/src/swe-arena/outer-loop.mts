@@ -69,6 +69,7 @@ import {
   improve,
   rawTraceDistiller,
   type CandidateGenerator,
+  type ImproveCodeRunOptions,
   type Verifier,
 } from '@tangle-network/agent-runtime'
 import { canonicalCandidateDigest, type AgentProfile } from '@tangle-network/agent-interface'
@@ -2032,12 +2033,9 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     evidence_refs: [],
     proposal_origin: 'search',
   })
-  const analyzeGeneration = async (input: {
-    generation: number
-    runDir: string
-    candidates: Array<{ surfaceHash: string; composite: number; campaign: unknown }>
-    history: unknown[]
-  }): Promise<ProposalFinding[]> => {
+  const analyzeGeneration: NonNullable<
+    ImproveCodeRunOptions<Scenario, R4Artifact>['analyzeGeneration']
+  > = async (input): Promise<ProposalFinding[]> => {
     signal?.throwIfAborted()
     const runs: SupRunArtifacts[] = []
     if (input.generation === -1) {
@@ -2061,9 +2059,11 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     // Candidate failure artifacts come from the LIB's campaign cells (the
     // artifacts name their own runDir/patch) — resume-replayed cells included,
     // which the old recorder-based lookup silently dropped.
-    const worstFirst = [...input.candidates].sort((a, b) => a.composite - b.composite).slice(0, 4)
+    const worstFirst = [...input.candidates]
+      .sort((a, b) => (a.composite ?? -Infinity) - (b.composite ?? -Infinity))
+      .slice(0, 4)
     for (const cand of worstFirst) {
-      const cells = cellsFromCampaign(cand.campaign as CampaignResult<R4Artifact, Scenario>)
+      const cells = cellsFromCampaign(cand.campaign)
       for (const cell of cells) {
         const a = cell.artifact
         if (a === null || a.kind !== 'swe-arm' || !a.runDir) continue
@@ -2114,16 +2114,17 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         : {
             ...input,
             candidates: input.candidates.map((cand) => {
-              const campaign = cand.campaign as { cells?: Array<{ scenarioId: string }> } | null
-              if (campaign === null || typeof campaign !== 'object' || !Array.isArray(campaign.cells)) return cand
               return {
                 ...cand,
-                campaign: { ...campaign, cells: campaign.cells.filter((c) => !privateIids.has(c.scenarioId)) },
+                campaign: {
+                  ...cand.campaign,
+                  cells: cand.campaign.cells.filter((cell) => !privateIids.has(cell.scenarioId)),
+                },
               }
             }),
           }
     signal?.throwIfAborted()
-    const rawFindings = await rawTrace(censoredInput as Parameters<typeof rawTrace>[0])
+    const rawFindings = await rawTrace(censoredInput)
     signal?.throwIfAborted()
     return [steeringFinding, ...ensembleFindings, ...rawFindings]
   }

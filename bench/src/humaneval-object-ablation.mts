@@ -75,6 +75,9 @@ async function router(messages: ChatMsg[], tools?: Tool[]): Promise<{ content: s
         { messages: messages.filter((message) => message.role !== 'system') },
       )
       const toolCalls = result.toolCalls.map((call) => {
+        if (call.id === undefined) {
+          throw new Error(`router tool call '${call.name}' omitted its required id`)
+        }
         let args: Record<string, unknown> = {}
         try {
           args = JSON.parse(call.arguments) as Record<string, unknown>

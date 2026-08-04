@@ -41,6 +41,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promise
 import { dirname, join } from 'node:path'
 import {
   type DispatchContext,
+  type ComparisonCost,
   createRunCostLedger,
   fsCampaignStorage,
   type GepaOptimizationMethodConfig,
@@ -326,6 +327,7 @@ export interface GepaSeatInnerRun {
   tokenUsage: OptimizationTokenUsage
   artifactDir: string
   totalCostUsd: number
+  costProvenance: ComparisonCost['costProvenance']
   accountingComplete: boolean
   incompleteReasons: string[]
   durationMs: number
@@ -532,10 +534,7 @@ function completeProvenance(
   }
 }
 
-function assertCompleteCost(
-  cost: { totalCostUsd: number; accountingComplete: boolean; incompleteReasons: string[] },
-  seatName: string,
-): void {
+function assertCompleteCost(cost: ComparisonCost, seatName: string): void {
   if (!Number.isFinite(cost.totalCostUsd) || cost.totalCostUsd < 0) {
     throw new Error(`gepa seat '${seatName}': optimizer returned invalid total cost`)
   }
@@ -549,6 +548,13 @@ function assertCompleteCost(
   }
   if (cost.accountingComplete !== (cost.incompleteReasons.length === 0)) {
     throw new Error(`gepa seat '${seatName}': optimizer returned inconsistent cost accounting`)
+  }
+  if (cost.costProvenance.kind === 'uncaptured') {
+    if (cost.accountingComplete) {
+      throw new Error(`gepa seat '${seatName}': complete cost cannot have uncaptured provenance`)
+    }
+  } else if (cost.costProvenance.usd !== cost.totalCostUsd) {
+    throw new Error(`gepa seat '${seatName}': cost provenance does not match total cost`)
   }
   if (!cost.accountingComplete) {
     throw new Error(
@@ -823,6 +829,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
             : null,
         ...completeProvenance(result.provenance, spec.name),
         totalCostUsd: result.cost.totalCostUsd,
+        costProvenance: result.cost.costProvenance,
         accountingComplete: result.cost.accountingComplete,
         incompleteReasons: [...result.cost.incompleteReasons],
         durationMs: Date.now() - started,

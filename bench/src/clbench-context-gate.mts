@@ -53,7 +53,7 @@ function must(name: string): string {
   return v
 }
 
-interface ChatMessage {
+interface ChatMessage extends Readonly<Record<string, unknown>> {
   role: string
   content: string
 }
