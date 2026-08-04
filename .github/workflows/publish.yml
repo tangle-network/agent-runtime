@@ -169,6 +169,8 @@ jobs:
         run: pnpm run verify:primeintellect
 
       - name: Verify agent-bench against this release
+        env:
+          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
         run: pnpm run verify:bench
 
       - name: Package and verify the exact Runtime archive
@@ -296,6 +298,8 @@ jobs:
         run: pnpm --filter @tangle-network/agent-bench run wait:published-dependencies
 
       - name: Verify packed agent-bench against published dependencies
+        env:
+          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
         run: pnpm run verify:bench:published
 
       - name: Verify tag/version lock

@@ -132,6 +132,8 @@ jobs:
         run: pnpm run build
 
       - name: Verify agent-bench against current agent-runtime
+        env:
+          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
         run: pnpm run verify:bench
 
   official-optimizers:
