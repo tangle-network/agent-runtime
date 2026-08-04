@@ -134,6 +134,13 @@ const promptProfile = (): AgentProfile => ({
   prompt: { systemPrompt: 'baseline' },
 })
 
+const codeAuthorProfile = (): AgentProfile => ({
+  name: 'code-author',
+  harness: 'cli-base',
+  model: { provider: 'offline', default: 'deterministic-code-author' },
+  prompt: { systemPrompt: 'Edit the candidate worktree.' },
+})
+
 describe('improve method execution', () => {
   it('runs a complete method without exposing final-test cases and materializes its prompt', async () => {
     let observed: OptimizationMethodInput<TestScenario, TextArtifact> | undefined
@@ -764,6 +771,7 @@ describe('improve code execution', () => {
         agent: paidCodeText,
         code: {
           repoRoot: repo.repoRoot,
+          profile: codeAuthorProfile(),
           generator: {
             kind: 'test-generator',
             async generate({ worktreePath }: { worktreePath: string }) {
@@ -814,6 +822,7 @@ describe('improve code execution', () => {
         agent: paidCodeText,
         code: {
           repoRoot: repo.repoRoot,
+          profile: codeAuthorProfile(),
           generator: {
             kind: 'must-not-run',
             async generate() {
@@ -849,6 +858,7 @@ describe('improve code execution', () => {
           agent: paidCodeText,
           code: {
             repoRoot: repo.repoRoot,
+            profile: codeAuthorProfile(),
             generator: {
               kind: 'rejecting-generator',
               async generate() {
@@ -890,6 +900,7 @@ describe('improve code execution', () => {
           code: {
             repoRoot: repo.repoRoot,
             worktree: rejectingWorktree,
+            profile: codeAuthorProfile(),
             generator: {
               kind: 'unused',
               async generate() {

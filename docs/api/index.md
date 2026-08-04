@@ -4393,13 +4393,23 @@ One-based shot number within this candidate.
 
 > `readonly` **maxShots**: `number`
 
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+Exact profile identity admitted before the shot.
+
 ##### harness
 
-> `readonly` **harness**: [`LocalHarness`](mcp.md#localharness)
+> `readonly` **harness**: `HarnessType`
+
+##### provider
+
+> `readonly` **provider**: `string`
 
 ##### model
 
-> `readonly` **model**: `string` \| `null`
+> `readonly` **model**: `string`
 
 ##### reasoningEffort
 
@@ -4421,53 +4431,19 @@ One-based shot number within this candidate.
 
 > `readonly` **durationMs**: `number`
 
-##### exitCode
+##### status
 
-> `readonly` **exitCode**: `number` \| `null`
-
-##### timedOut
-
-> `readonly` **timedOut**: `boolean`
-
-##### aborted?
-
-> `readonly` `optional` **aborted?**: `boolean`
-
-True when caller cancellation reached the author process; absent in older receipts.
-
-##### killedBySignal
-
-> `readonly` **killedBySignal**: `Signals` \| `null`
-
-##### stdoutBytes
-
-> `readonly` **stdoutBytes**: `number` \| `null`
-
-##### stdoutSha256
-
-> `readonly` **stdoutSha256**: `` `sha256:${string}` `` \| `null`
-
-##### stderrBytes
-
-> `readonly` **stderrBytes**: `number` \| `null`
-
-##### stderrSha256
-
-> `readonly` **stderrSha256**: `` `sha256:${string}` `` \| `null`
+> `readonly` **status**: [`AgentTaskStatus`](#agenttaskstatus) \| `null`
 
 ##### usage
 
-> `readonly` **usage**: [`CodexTokenUsage`](mcp.md#codextokenusage) \| `null`
+> `readonly` **usage**: `Readonly`\<[`AgentTurnUsage`](runtime.md#agentturnusage)\> \| `null`
 
-##### profileWorkspacePlanDigest
+Runtime-normalized usage. Unknown token or dollar totals remain marked unknown.
 
-> `readonly` **profileWorkspacePlanDigest**: `string` \| `null`
+##### transportAttempts
 
-Digest of the exact profile-file workspace plan applied for this shot.
-
-##### profileWorkspaceFileCount
-
-> `readonly` **profileWorkspaceFileCount**: `number`
+> `readonly` **transportAttempts**: `number` \| `null`
 
 ##### costCallId
 
@@ -4491,10 +4467,6 @@ Whether dollars came from the provider, the pricing table, or are unknown.
 
 True only for a provider-reported amount, never for a pricing estimate.
 
-##### evidence
-
-> `readonly` **evidence**: [`CodexExecutionEvidence`](mcp.md#codexexecutionevidence) \| `null`
-
 ##### error
 
 > `readonly` **error**: \{ `name`: `string`; `message`: `string`; \} \| `null`
@@ -4511,41 +4483,26 @@ git worktree through a pluggable `CandidateGenerator`.
 
 #### Properties
 
-##### harness?
+##### profile
 
-> `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
+> **profile**: `AgentProfile`
 
-Local coding harness to run in the worktree. Default `claude-code`.
+Complete author identity. Harness, provider, model, prompt, tools, and resources all come from here.
 
-##### profile?
+##### executorForWorktree
 
-> `optional` **profile?**: `AgentProfile`
+> **executorForWorktree**: [`AgenticGeneratorExecutorForWorktree`](#agenticgeneratorexecutorforworktree)
 
-Author profile rendered through the canonical harness mapper. Required
- for reproducible Codex so model and reasoning settings are explicit.
-
-##### codexReproducible?
-
-> `optional` **codexReproducible?**: `boolean`
-
-Run Codex with isolated configuration, exact prompt evidence, and required
- terminal token usage. Requires `harness: 'codex'` and `profile`.
-
-##### codexReadDeniedPaths?
-
-> `optional` **codexReadDeniedPaths?**: readonly `string`[] \| ((`worktreePath`) => readonly `string`[])
-
-Absolute paths reproducible Codex must not read. A function can derive
- candidate-specific paths after the driver creates its worktree.
+Place the exact profile on compute that can edit this existing worktree.
+A Pi author normally returns `{ backend:'bridge', cwd: worktreePath, ...transport }`.
 
 ##### onShotCompleted?
 
 > `optional` **onShotCompleted?**: (`receipt`, `execution`) => `void` \| `Promise`\<`void`\>
 
-Awaited once for every attempted author shot, including process failures.
- The second argument preserves the exact harness result, including stdout
- and stderr, before worktree inspection or verification can reject the
- shot. Throwing aborts the candidate so evidence persistence fails closed.
+Awaited once for every attempted author shot, including execution failures.
+The second argument is Runtime's exact terminal turn and event stream.
+Throwing aborts the candidate so evidence persistence fails closed.
 
 ###### Parameters
 
@@ -4555,7 +4512,7 @@ Awaited once for every attempted author shot, including process failures.
 
 ###### execution
 
-`Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\> \| `null`
+`Readonly`\<[`CollectedAgentTurn`](runtime.md#collectedagentturn)\> \| `null`
 
 ###### Returns
 
@@ -4586,22 +4543,19 @@ Awaited after worktree inspection and before the shot is accepted,
 
 > `optional` **maximumCharge?**: `MaximumCharge`
 
-Optional hard upper bound passed to the run-wide CostLedger before each
- author shot. This MUST be enforced by the provider or executor; a planning
- estimate is not an admissible bound. Omit for an uncapped ledger. A capped
- ledger rejects before model dispatch when this is absent.
+Optional hard upper bound passed to the run-wide CostLedger before each author shot.
 
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
 
-Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
+Per-shot wall-clock timeout. Omit for no Runtime-imposed deadline.
 
-##### buildPrompt?
+##### buildPrompt
 
-> `optional` **buildPrompt?**: (`args`) => `string`
+> **buildPrompt**: (`args`) => `string`
 
-Build the harness task prompt from proposal findings.
+Build the task prompt from proposal findings. Required: Runtime invents no authoring policy.
 
 ###### Parameters
 
@@ -4622,47 +4576,8 @@ readonly `ProposalFinding`[]
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
  (verify-in-session), up to `maxShots`; a candidate that never verifies is
- discarded (`applied:false`), never shipped. Omitted ⇒ legacy behavior:
- the first dirty shot is the candidate. See `commandVerifier`.
-
-##### runHarness?
-
-> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
-
-Test seam — inject the harness runner (defaults to `runLocalHarness`).
-
-**`Experimental`**
-
-Spawn a local coding harness CLI as a subprocess + collect its output.
-
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
-
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
-
-Reproducible Codex additionally requires a terminal usage event. If cancellation
-prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
-returning an incomplete reproducibility receipt.
-
-###### Parameters
-
-###### options
-
-[`RunLocalHarnessOptions`](mcp.md#runlocalharnessoptions)
-
-###### Returns
-
-`Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
+ discarded (`applied:false`), never shipped. Omitted means the first dirty
+ shot is the candidate. See `commandVerifier`.
 
 ##### isDirty?
 
@@ -4820,7 +4735,7 @@ Apply a complete winning component map to a detached profile.
 
 ***
 
-### ImproveCodeOptions
+### ImproveCodeBaseOptions
 
 #### Properties
 
@@ -4849,11 +4764,41 @@ Directory worktrees are created under. Default `<repoRoot>/.worktrees`.
 Git-compatible adapter override, primarily for tests. Candidate advancement
 still requires normal Git worktree and commit semantics.
 
-##### harness?
+##### profile
 
-> `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
+> **profile**: `AgentProfile`
 
-Coding harness the agentic generator runs in each worktree. Default `claude-code`.
+Complete identity of the code author. No execution field may be filled from ambient defaults.
+
+***
+
+### ImproveRuntimeCodeGeneratorOptions
+
+#### Properties
+
+##### executorForWorktree
+
+> **executorForWorktree**: [`AgenticGeneratorExecutorForWorktree`](#agenticgeneratorexecutorforworktree)
+
+Place the exact author profile on compute that can edit the supplied worktree.
+
+##### buildPrompt
+
+> **buildPrompt**: (`args`) => `string`
+
+Author the task from admitted findings. Required: Runtime invents no code-improvement prompt.
+
+###### Parameters
+
+###### args
+
+###### findings
+
+readonly `ProposalFinding`[]
+
+###### Returns
+
+`string`
 
 ##### verify?
 
@@ -4866,14 +4811,49 @@ feed the next shot (see `agenticGenerator.verify` / `commandVerifier`).
 
 > `optional` **timeoutMs?**: `number`
 
-Per-shot wall-clock timeout for the harness (ms).
+Per-shot wall-clock timeout. Omit for no Runtime-imposed deadline.
+
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `MaximumCharge`
+
+Optional provider-enforced maximum admitted by the run-wide cost ledger.
 
 ##### generator?
 
-> `optional` **generator?**: [`CandidateGenerator`](#candidategenerator)
+> `optional` **generator?**: `undefined`
 
-Byte-producer override, used for tests and custom candidate production.
-When set, `harness`, `verify`, and `timeoutMs` are unused.
+***
+
+### ImproveCustomCodeGeneratorOptions
+
+#### Properties
+
+##### generator
+
+> **generator**: [`CandidateGenerator`](#candidategenerator)
+
+Complete byte-producer replacement. Runtime still validates `profile` before creating worktrees.
+
+##### executorForWorktree?
+
+> `optional` **executorForWorktree?**: `undefined`
+
+##### buildPrompt?
+
+> `optional` **buildPrompt?**: `undefined`
+
+##### verify?
+
+> `optional` **verify?**: `undefined`
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `undefined`
+
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `undefined`
 
 ***
 
@@ -10317,12 +10297,9 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 ### AgenticGeneratorShotExecution
 
-> **AgenticGeneratorShotExecution** = `Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\>
+> **AgenticGeneratorShotExecution** = `Readonly`\<[`CollectedAgentTurn`](runtime.md#collectedagentturn)\>
 
-Frozen exact harness result for an author shot: full streams, process state,
- token usage, and execution-policy evidence.
- The `onShotCompleted` callback receives `null` when execution failed before
- the harness returned.
+Runtime's exact terminal turn plus its complete normalized event stream.
 
 ***
 
@@ -10333,6 +10310,28 @@ Frozen exact harness result for an author shot: full streams, process state,
 Worktree decision emitted before a completed shot is retried, accepted, or
  discarded. The callback runs while `worktreePath` is still available, so
  callers can persist the exact diff.
+
+***
+
+### AgenticGeneratorExecutorForWorktree
+
+> **AgenticGeneratorExecutorForWorktree** = (`worktreePath`) => [`ExecutorConfig`](runtime.md#executorconfig)
+
+`@tangle-network/agent-runtime` improvement.
+
+The public entry point is `improve()`. Complete agent-eval methods optimize
+profile surfaces. Runtime owns only code candidates that mutate an isolated
+git worktree through a pluggable `CandidateGenerator`.
+
+#### Parameters
+
+##### worktreePath
+
+`string`
+
+#### Returns
+
+[`ExecutorConfig`](runtime.md#executorconfig)
 
 ***
 
@@ -10634,6 +10633,12 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 ##### TArtifact
 
 `TArtifact`
+
+***
+
+### ImproveCodeOptions
+
+> **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & [`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions)
 
 ***
 
@@ -11817,15 +11822,6 @@ Hard cap on chained gateway hops; refused beyond this. Default keeps recursion b
 
 ***
 
-### AGENTIC\_PROFILE\_RESOURCE\_ROOT
-
-> `const` **AGENTIC\_PROFILE\_RESOURCE\_ROOT**: `".agent-runtime-profile-resources"` = `'.agent-runtime-profile-resources'`
-
-Dedicated ephemeral root for generic author-profile files. Every declared
-file must live below this root so cleanup cannot alter candidate-owned files.
-
-***
-
 ### optimizerMethod
 
 > `const` **optimizerMethod**: `string`
@@ -12891,15 +12887,15 @@ unique-name check, so the slug only needs to be deterministic, not unique.
 
 ### agenticGenerator()
 
-> **agenticGenerator**(`opts?`): [`CandidateGenerator`](#candidategenerator)
+> **agenticGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
 
-Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place.
+Full-agentic `CandidateGenerator`: run an exact profiled author inside the existing candidate worktree.
 
 #### Parameters
 
-##### opts?
+##### opts
 
-[`AgenticGeneratorOptions`](#agenticgeneratoroptions) = `{}`
+[`AgenticGeneratorOptions`](#agenticgeneratoroptions)
 
 #### Returns
 
@@ -13163,7 +13159,7 @@ Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
   await improve({
     surface: 'code',
     findings: seedFindings,
-    code: { repoRoot },
+    code: { repoRoot, profile, executorForWorktree, buildPrompt },
     runDir: '/abs/run',                 // MUST be a real path — the traces live here
     analyzeGeneration: rawTraceDistiller(),
     scenarios, judge, agent,

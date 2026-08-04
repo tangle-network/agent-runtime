@@ -1,7 +1,7 @@
 /**
  * META-HARNESS on the SWE scaffold — improve({ surface: 'code' }).
  *
- * A coding agent (Claude Code) REWRITES the scaffold LOGIC under bench/src (the seed prompt/playbook,
+ * A Pi coding agent REWRITES the scaffold LOGIC under bench/src (the seed prompt/playbook,
  * runAgentic strategy/params, context handling, retry/patch synthesis) with the MODEL (glm worker) +
  * the TOOL surface (list/read/edit[/run]) + the JUDGE held FIXED, judged on the official swebench
  * Docker verdict, gated on a held-out instance split. This is the DGM/meta-harness recipe: let the
@@ -10,13 +10,9 @@
  * Wiring (all verified in this worktree):
  *   - improve()/codeProposerFor + rawTraceContext come from the LOCAL agent-runtime build, linked into
  *     this bench's node_modules (bench/node_modules/@tangle-network/agent-runtime -> /home/drew/code/agent-runtime).
- *   - The candidate proposer is agenticGenerator(harness:'claude-code'), BUT the shipped runLocalHarness
- *     spawns `claude --headless -p` and --headless is an unknown option on the current CLI (exit 1, no
- *     edits ever). We pass code.generator with a corrected runHarness that spawns
- *     `claude -p <prompt> --dangerously-skip-permissions` so the coding agent can actually edit the
- *     worktree. This is a harness-spawn fix, NOT a hand-authored scaffold edit — Claude still finds the
- *     lever itself from the traces.
- *   - Each candidate is a git worktree the driver forks off baseRef; Claude edits bench/src in place;
+ *   - The candidate proposer supplies one exact Pi AgentProfile and runs it through Runtime's
+ *     bridge executor. No local CLI shortcut or ambient model default exists.
+ *   - Each candidate is a git worktree the driver forks off baseRef; Pi edits bench/src in place;
  *     `verify` (an import smoke of the edited scaffold) gates it before the expensive measurement.
  *   - MEASUREMENT: the code-aware agent fn shells into the candidate scaffold's OWN judge-free emit
  *     entrypoint (swe-emit-patch.mts) with cwd = the worktree, captures the unified diff, and returns
@@ -35,6 +31,7 @@ import { join } from 'node:path'
 import { improve, agenticGenerator } from '@tangle-network/agent-runtime'
 import type { ProposalFinding } from '@tangle-network/agent-eval'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
 
@@ -120,6 +117,22 @@ async function main(): Promise<void> {
   const runDir = process.env.RUN_DIR ?? '/tmp/claude-1000/-home-drew-code-supervisor-lab/9ee6a456-a94f-474c-9888-b4afc9bc26bd/scratchpad/mh-run'
   const emitTimeoutMs = Number(process.env.EMIT_TIMEOUT_MS ?? 600_000)
   const harnessTimeoutMs = Number(process.env.HARNESS_TIMEOUT_MS ?? 900_000)
+  const bridgeUrl = process.env.CLI_BRIDGE_URL ?? process.env.BRIDGE_URL
+  const bridgeBearer = process.env.CLI_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+  if (!bridgeUrl || !bridgeBearer) {
+    throw new Error('CLI_BRIDGE_URL/BRIDGE_URL and CLI_BRIDGE_BEARER/BRIDGE_BEARER are required')
+  }
+  const authorProfile = agentProfileSchema.parse({
+    name: 'swe-scaffold-author',
+    harness: 'pi',
+    model: {
+      provider: process.env.AUTHOR_PROVIDER ?? 'tangle-router',
+      default: process.env.AUTHOR_MODEL ?? 'glm-5.2',
+    },
+    prompt: {
+      systemPrompt: 'Improve the candidate worktree from measured failure evidence and verify it.',
+    },
+  })
   mkdirSync(worktreeDir, { recursive: true })
   mkdirSync(runDir, { recursive: true })
 
@@ -199,44 +212,6 @@ async function main(): Promise<void> {
     },
   }
 
-  // The corrected coding-harness spawn: `claude -p <prompt> --dangerously-skip-permissions`. The shipped
-  // runLocalHarness uses `claude --headless -p` (unknown option on this CLI). agenticGenerator ignores
-  // the return value (it reads worktree dirtiness), so a minimal result shape is enough.
-  const runHarness = (o: { cwd: string; taskPrompt: string; timeoutMs?: number; signal?: AbortSignal }): Promise<{ exitCode: number | null; stdout: string; stderr: string; killedBySignal: NodeJS.Signals | null; durationMs: number; timedOut: boolean }> => {
-    const started = Date.now()
-    return new Promise((resolve) => {
-      const child = spawn('claude', ['-p', o.taskPrompt, '--dangerously-skip-permissions'], {
-        cwd: o.cwd,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      let stdout = ''
-      let stderr = ''
-      let timedOut = false
-      child.stdout?.on('data', (d) => (stdout += String(d)))
-      child.stderr?.on('data', (d) => (stderr += String(d)))
-      const timer = setTimeout(() => {
-        timedOut = true
-        if (!child.killed) child.kill('SIGTERM')
-      }, o.timeoutMs ?? harnessTimeoutMs)
-      ;(timer as { unref?: () => void }).unref?.()
-      const onAbort = () => {
-        if (!child.killed) child.kill('SIGTERM')
-      }
-      o.signal?.addEventListener('abort', onAbort, { once: true })
-      child.on('error', () => {
-        clearTimeout(timer)
-        resolve({ exitCode: 1, stdout, stderr: `${stderr}\n[spawn error]`, killedBySignal: null, durationMs: Date.now() - started, timedOut })
-      })
-      child.on('close', (code, signal) => {
-        clearTimeout(timer)
-        o.signal?.removeEventListener('abort', onAbort)
-        console.error(`  [proposer:claude] exit=${code} wall=${Math.round((Date.now() - started) / 1000)}s out=${stdout.length}b`)
-        resolve({ exitCode: code, stdout, stderr, killedBySignal: signal, durationMs: Date.now() - started, timedOut })
-      })
-    })
-  }
-
   // Domain prompt: name the EDIT BOUNDARY (scaffold logic only) + keep the raw-trace evidence discipline
   // (agenticGenerator discards a raw-trace candidate that doesn't inspect a trace + write the diagnosis).
   const buildPrompt = (args: { findings: ReadonlyArray<ProposalFinding> }): string => {
@@ -286,13 +261,16 @@ async function main(): Promise<void> {
   }
 
   const generator = agenticGenerator({
-    harness: 'claude-code',
+    profile: authorProfile,
+    executorForWorktree: (cwd) => ({
+      backend: 'bridge',
+      bridgeUrl,
+      bridgeBearer,
+      cwd,
+    }),
     verify,
     timeoutMs: harnessTimeoutMs,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    buildPrompt: buildPrompt as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    runHarness: runHarness as any,
+    buildPrompt,
   })
 
   const scenarios: Scenario[] = allIds.map((id) => ({ id, kind: 'swe-bench-verified' }))
@@ -301,7 +279,7 @@ async function main(): Promise<void> {
   const out = await improve({
     surface: 'code',
     gate: 'holdout',
-    code: { repoRoot: REPO_ROOT, baseRef, worktreeDir, generator },
+    code: { repoRoot: REPO_ROOT, baseRef, worktreeDir, profile: authorProfile, generator },
     rawTraceContext: true,
     runDir,
     scenarios,

@@ -21,14 +21,9 @@
  *   stage 3 — survivors proceed through the unchanged pinned-baseline
  *     reps-fail-closed gate.
  *
- * Proposer identity: each proposer is an `AgentProfile` invocation
- * (`agenticGenerator`'s `profile` option → `harnessInvocation`, which threads
- * `prompt.systemPrompt`/`instructions` into the composed prompt and
- * `model.default` into the harness's `-m` flag — verified supported for the
- * claude CLI; a bare profile is byte-identical to the legacy prompt-only
- * invocation). Profile `resources` are only materialized on the reproducible
- * Codex path, so a non-codex proposer with resources fails loud here instead
- * of silently dropping them.
+ * Proposer identity: each harness-authored proposer supplies one complete
+ * `AgentProfile`. Runtime validates and materializes that exact profile, then
+ * runs it through the CLI bridge in the candidate worktree.
  *
  * NOTE on the import cycle with outer-loop.mts: outer-loop imports this
  * module's generator factory; this module imports outer-loop's change-space +
@@ -47,13 +42,11 @@ import {
   type AgenticGeneratorShotExecution,
   type AgenticGeneratorShotReceipt,
 } from '@tangle-network/agent-runtime'
-import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { agentProfileSchema, type AgentProfile } from '@tangle-network/agent-interface'
 import type { CostLedgerHandle, ProposalFinding } from '@tangle-network/agent-eval'
 import {
   changeSpaceViolations,
   loopsCandidateVerifier,
-  proposerShotEnv,
   purgeIgnoredArtifacts,
   round4BuildPrompt,
   type OuterLoopConfig,
@@ -86,17 +79,12 @@ import {
 export interface ProposerSpec {
   /** Unique short name — becomes the candidate's staircase `label`. */
   name: string
-  /** Path to an `AgentProfile` JSON. Absolute, or relative to this module's
-   *  `profiles/` directory. Omitted = bare profile (legacy invocation). */
+  /** Path to the complete `AgentProfile` JSON. Absolute, or relative to this
+   *  module's `profiles/` directory. Required by the Runtime author path. */
   profile?: string
-  /** Required for harness-authored seats. Absent on an engine seat
-   *  (`engine` set) — enforced both ways at generator construction. */
-  harness?: 'claude-code' | 'codex' | 'opencode'
-  /** GEN-4 pinned model id, threaded to the harness CLI as `-m <model>` via
-   *  the author profile's `model.default` (harnessInvocation maps it for all
-   *  three harnesses). Unset = the CLI's own resolved model (its login/settings
-   *  default) — recorded per run by the proposer-provenance capture, so the
-   *  seat identity is pinned in provenance even when the flag is absent. */
+  /** Optional provenance mirror of `profile.harness`; a mismatch is rejected. */
+  harness?: 'claude-code' | 'codex' | 'opencode' | 'pi'
+  /** Optional provenance mirror of `profile.model.default`; a mismatch is rejected. */
   model?: string
   /** GEN-4 merge seat: this proposer's task is to MERGE the configured
    *  Pareto parents' diffs into one coherent surface (see
@@ -179,42 +167,40 @@ export interface PrefilterKill {
 
 export const PROFILES_DIR = fileURLToPath(new URL('./profiles', import.meta.url))
 
-/** Load + validate a proposer's `AgentProfile`. Fail-closed on resources for
- *  non-codex harnesses: `agenticGenerator` only materializes profile resource
- *  files on the reproducible Codex path, so accepting them here would drop
- *  them silently. */
+/** Load and schema-validate a proposer's exact `AgentProfile`. */
 export function loadAuthorProfile(spec: ProposerSpec): AgentProfile | undefined {
   if (!spec.profile) return undefined
   const path = spec.profile.startsWith('/') ? spec.profile : join(PROFILES_DIR, spec.profile)
-  const profile = JSON.parse(readFileSync(path, 'utf8')) as AgentProfile
-  if (typeof profile.name !== 'string' || profile.name.length === 0) {
-    throw new Error(`proposer ${spec.name}: profile ${path} has no name`)
-  }
-  if (profile.resources && spec.harness !== 'codex') {
+  return agentProfileSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+}
+
+/** Default author: Pi with the exact GLM profile committed beside this module. */
+export function defaultProposers(): ProposerSpec[] {
+  return [
+    {
+      name: 'default-author',
+      profile: 'default-author.profile.json',
+      harness: 'pi',
+      model: 'glm-5.2',
+    },
+  ]
+}
+
+/** Resolve the one exact profile; duplicated provenance fields may only agree. */
+export function resolveAuthorProfile(spec: ProposerSpec): AgentProfile | undefined {
+  const profile = loadAuthorProfile(spec)
+  if (!profile) return undefined
+  if (spec.harness !== undefined && profile.harness !== spec.harness) {
     throw new Error(
-      `proposer ${spec.name}: profile ${path} declares resources, which only materialize on the ` +
-        `reproducible codex path — the ${spec.harness} harness would silently drop them`,
+      `proposer ${spec.name}: harness ${spec.harness} conflicts with profile.harness ${profile.harness}`,
+    )
+  }
+  if (spec.model !== undefined && profile.model?.default !== spec.model) {
+    throw new Error(
+      `proposer ${spec.name}: model ${spec.model} conflicts with profile.model.default ${profile.model?.default ?? 'missing'}`,
     )
   }
   return profile
-}
-
-/** The gen-2 author, codified: one bare-profile claude proposer. */
-export function defaultProposers(): ProposerSpec[] {
-  return [{ name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' }]
-}
-
-/** The profile the author shot actually runs: the loaded profile (if any) with
- *  the spec's PINNED MODEL merged into `model.default` — harnessInvocation
- *  turns that into the CLI's `-m <model>` flag (claude/codex/opencode all map
- *  it). Without a pinned model this is byte-identical to `loadAuthorProfile`,
- *  so gen-3 seats keep their exact invocation. A pinned model with no profile
- *  path synthesizes a minimal named profile carrying only the pin. */
-export function resolveAuthorProfile(spec: ProposerSpec): AgentProfile | undefined {
-  const profile = loadAuthorProfile(spec)
-  if (!spec.model) return profile
-  const base: AgentProfile = profile ?? { name: `${spec.name}-pinned` }
-  return { ...base, model: { ...base.model, default: spec.model } }
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +339,7 @@ export function sliceFindings(
   findings: ReadonlyArray<ProposalFinding>,
   slice: ProposerSpec['diagnosisSlice'],
 ): ProposalFinding[] {
-  if (slice === undefined || slice === 'all') return findings
+  if (slice === undefined || slice === 'all') return [...findings]
   return findings.filter((finding) => {
     const f = finding as unknown as Record<string, unknown>
     if (isSteeringOrRawTrace(f)) return true
@@ -402,47 +388,14 @@ export function proposerBuildPrompt(
 
 export function proposerShotHooks(opts: {
   shotDir: string
-  harness: ProposerSpec['harness']
-  ledger: () => CostLedgerHandle | undefined
-  phase: () => string | undefined
 }): (receipt: AgenticGeneratorShotReceipt, execution: AgenticGeneratorShotExecution | null) => Promise<void> {
   return async (receipt, execution) => {
-    const tail = (s: string | undefined): string | null =>
-      s === undefined ? null : s.length > 20_000 ? s.slice(-20_000) : s
     await mkdir(opts.shotDir, { recursive: true })
     const name = `gen${receipt.generation ?? 'x'}-cand${receipt.candidateIndex ?? 'x'}-shot${receipt.shot}.json`
     await writeFile(
       join(opts.shotDir, name),
-      JSON.stringify({ receipt, stdoutTail: tail(execution?.stdout), stderrTail: tail(execution?.stderr) }, null, 2),
+      JSON.stringify({ receipt, execution }, null, 2),
     )
-    // Proposer-shot spend → the lib's run ledger. The generator only settles
-    // its own receipts on the codexReproducible path (costCallId non-null);
-    // the claude/opencode author path otherwise leaves every shot as $0 in
-    // the run's spend summary. Import the shot receipt's measured usage.
-    const ledger = opts.ledger()
-    if (ledger && receipt.costCallId === null && (receipt.usage || receipt.costUsdKnown)) {
-      const usage = receipt.usage
-      const paid = await ledger.runPaidCall({
-        channel: 'driver',
-        phase: opts.phase() ?? 'search.proposal',
-        actor: `proposer-shot:${opts.harness}`,
-        model: receipt.model ?? `${opts.harness}-cli`,
-        tags: {
-          generation: String(receipt.generation ?? -1),
-          candidateIndex: String(receipt.candidateIndex ?? -1),
-          shot: String(receipt.shot),
-        },
-        execute: async () => receipt,
-        receipt: () => ({
-          model: receipt.model ?? `${opts.harness}-cli`,
-          inputTokens: usage?.inputTokens ?? 0,
-          outputTokens: usage ? usage.outputTokens + usage.reasoningOutputTokens : 0,
-          ...(usage ? { cachedTokens: usage.cachedInputTokens } : { usageUnknown: true }),
-          ...(receipt.costUsdKnown && receipt.costUsd !== null ? { actualCostUsd: receipt.costUsd } : {}),
-        }),
-      })
-      if (!paid.succeeded) throw paid.error
-    }
   }
 }
 
@@ -512,7 +465,6 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
   // One agenticGenerator per proposer, created lazily and cached: each carries
   // its own profile, lens prompt, and shot-receipt home.
   const inners = new Map<string, CandidateGenerator>()
-  const ledgers = new Map<string, { ledger?: CostLedgerHandle; phase?: string }>()
   // The GEPA seat authors through the agent-eval adapter, not a
   // harness CLI. Its inner evaluator is the SAME injected smoke runner the
   // pre-filter uses (presence enforced at generator construction).
@@ -531,20 +483,27 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
       })
       return gepaAuthor(proposer, args)
     }
-    const harness = proposer.harness
-    if (harness === undefined) {
-      throw new Error(`proposer ${proposer.name}: harness is required for a non-engine seat`)
-    }
     let inner = inners.get(proposer.name)
-    const slot = ledgers.get(proposer.name) ?? {}
-    ledgers.set(proposer.name, slot)
     if (!inner) {
-      // GEN-4: the resolved profile carries the spec's pinned model
-      // (`model.default` → the harness CLI's `-m` flag).
       const profile = resolveAuthorProfile(proposer)
+      if (!profile) {
+        throw new Error(`proposer ${proposer.name}: profile is required for a Runtime author seat`)
+      }
+      const bridgeUrl = process.env.CLI_BRIDGE_URL ?? process.env.BRIDGE_URL
+      const bridgeBearer = process.env.CLI_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+      if (!bridgeUrl || !bridgeBearer) {
+        throw new Error(
+          'proposer authoring requires CLI_BRIDGE_URL/BRIDGE_URL and CLI_BRIDGE_BEARER/BRIDGE_BEARER',
+        )
+      }
       inner = agenticGenerator({
-        harness,
-        ...(profile ? { profile } : {}),
+        profile,
+        executorForWorktree: (cwd) => ({
+          backend: 'bridge',
+          bridgeUrl,
+          bridgeBearer,
+          cwd,
+        }),
         timeoutMs: config.proposerTimeoutMs,
         buildPrompt: (args) =>
           proposerBuildPrompt(args, proposer, deps.parents ?? [], {
@@ -552,18 +511,12 @@ function defaultAuthor(config: OuterLoopConfig, deps: FanOutDeps): AuthorFn {
             ...(config.activationGate === true ? { activationGate: true } : {}),
           }),
         verify: loopsCandidateVerifier(config.loopsRepo),
-        runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(harness) }),
         onShotCompleted: proposerShotHooks({
           shotDir: join(config.outDir, 'proposer-shots', sanitize(proposer.name)),
-          harness,
-          ledger: () => slot.ledger,
-          phase: () => slot.phase,
         }),
       })
       inners.set(proposer.name, inner)
     }
-    slot.ledger = args.costLedger
-    slot.phase = args.costPhase
     return inner.generate(args)
   }
 }

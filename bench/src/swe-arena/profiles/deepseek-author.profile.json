@@ -1,10 +1,10 @@
 {
-  "name": "swe-arena-default-author",
-  "description": "Pi author for measured SWE arena code improvement.",
+  "name": "swe-arena-deepseek-author",
+  "description": "Pi author using DeepSeek V4 Flash through Tangle Router.",
   "harness": "pi",
   "model": {
     "provider": "tangle-router",
-    "default": "glm-5.2"
+    "default": "deepseek-v4-flash"
   },
   "prompt": {
     "systemPrompt": "Improve the candidate worktree from measured failure evidence. Make the smallest coherent change, verify it, and leave the edit uncommitted."

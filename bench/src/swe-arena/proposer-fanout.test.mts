@@ -73,7 +73,7 @@ describe('sliceFindings', () => {
 
 describe('proposerBuildPrompt', () => {
   it('appends the lens AFTER the shared protocol prompt, leaving the change-space text intact', () => {
-    const spec: ProposerSpec = { name: 'x', harness: 'claude-code', lens: 'Prefer code-path fixes.' }
+    const spec: ProposerSpec = { name: 'x', harness: 'pi', lens: 'Prefer code-path fixes.' }
     const prompt = proposerBuildPrompt({ findings: [] }, spec)
     expect(prompt).toContain('DECLARED CHANGE-SPACE')
     expect(prompt.indexOf('DECLARED CHANGE-SPACE')).toBeLessThan(prompt.indexOf('YOUR AUTHORING LENS (x)'))
@@ -81,7 +81,7 @@ describe('proposerBuildPrompt', () => {
   })
 
   it('is the bare round prompt without a lens', () => {
-    const spec: ProposerSpec = { name: 'x', harness: 'claude-code' }
+    const spec: ProposerSpec = { name: 'x', harness: 'pi' }
     expect(proposerBuildPrompt({ findings: [] }, spec)).not.toContain('AUTHORING LENS')
   })
 })
@@ -106,35 +106,47 @@ const PARENTS: ParetoParentContext[] = [
   },
 ]
 
-describe('resolveAuthorProfile (pinned models)', () => {
-  it('merges the spec model into the loaded profile as model.default', () => {
+describe('resolveAuthorProfile', () => {
+  it('returns the exact committed profile when provenance mirrors agree', () => {
     const spec: ProposerSpec = {
       name: 'x',
       profile: 'default-author.profile.json',
-      harness: 'claude-code',
-      model: 'claude-fable-5',
+      harness: 'pi',
+      model: 'glm-5.2',
     }
     const profile = resolveAuthorProfile(spec)
     expect(profile?.name).toBe('swe-arena-default-author')
-    expect(profile?.model?.default).toBe('claude-fable-5')
+    expect(profile?.harness).toBe('pi')
+    expect(profile?.model?.default).toBe('glm-5.2')
   })
 
-  it('synthesizes a minimal named profile for a pinned model without a profile path', () => {
-    const profile = resolveAuthorProfile({ name: 'glm-author', harness: 'opencode', model: 'zai-coding-plan/glm-5.2' })
-    expect(profile?.name).toBe('glm-author-pinned')
-    expect(profile?.model?.default).toBe('zai-coding-plan/glm-5.2')
+  it('rejects duplicated harness or model fields that conflict with the profile', () => {
+    expect(() =>
+      resolveAuthorProfile({
+        name: 'bad-harness',
+        profile: 'default-author.profile.json',
+        harness: 'codex',
+      }),
+    ).toThrow(/conflicts with profile\.harness/)
+    expect(() =>
+      resolveAuthorProfile({
+        name: 'bad-model',
+        profile: 'default-author.profile.json',
+        model: 'different-model',
+      }),
+    ).toThrow(/conflicts with profile\.model\.default/)
   })
 
-  it('is byte-identical to loadAuthorProfile without a pin (gen-3 seats unchanged)', () => {
-    const spec: ProposerSpec = { name: 'x', profile: 'default-author.profile.json', harness: 'claude-code' }
+  it('does not synthesize an ambient profile when the path is missing', () => {
+    const spec: ProposerSpec = { name: 'x', profile: 'default-author.profile.json', harness: 'pi' }
     expect(resolveAuthorProfile(spec)).toEqual(loadAuthorProfile(spec))
-    expect(resolveAuthorProfile({ name: 'bare', harness: 'claude-code' })).toBeUndefined()
+    expect(resolveAuthorProfile({ name: 'bare', harness: 'pi' })).toBeUndefined()
   })
 })
 
 describe('proposerBuildPrompt with pareto parents', () => {
   it('appends the parents section (evidence + diffs) after the protocol prompt and lens', () => {
-    const spec: ProposerSpec = { name: 'x', harness: 'claude-code', lens: 'Prefer code-path fixes.' }
+    const spec: ProposerSpec = { name: 'x', harness: 'pi', lens: 'Prefer code-path fixes.' }
     const prompt = proposerBuildPrompt({ findings: [] }, spec, PARENTS)
     expect(prompt).toContain('DECLARED CHANGE-SPACE')
     expect(prompt).toContain('PARETO PARENTS')
@@ -146,14 +158,14 @@ describe('proposerBuildPrompt with pareto parents', () => {
   })
 
   it('leaves the prompt untouched when no parents are seeded (gen-3 behavior)', () => {
-    const spec: ProposerSpec = { name: 'x', harness: 'claude-code' }
+    const spec: ProposerSpec = { name: 'x', harness: 'pi' }
     expect(proposerBuildPrompt({ findings: [] }, spec)).not.toContain('PARETO PARENTS')
     expect(parentsPromptSection(PARENTS)).toContain('measured evidence')
   })
 })
 
 describe('mergeAuthorPrompt', () => {
-  const spec: ProposerSpec = { name: 'merge-author', harness: 'claude-code', merge: true }
+  const spec: ProposerSpec = { name: 'merge-author', harness: 'pi', merge: true }
 
   it('keeps the change-space contract and presents BOTH parent diffs with the coherent-union task', () => {
     const prompt = proposerBuildPrompt({ findings: [] }, spec, PARENTS)
@@ -178,21 +190,23 @@ describe('mergeAuthorPrompt', () => {
 describe('defaultGen4Config', () => {
   const config = defaultGen4Config()
 
-  it('seats four proposers (one candidate slot each) with the pinned glm model and the merge seat', () => {
-    expect(config.proposers).toHaveLength(4)
-    expect(config.populationSize).toBe(4)
+  it('seats Pi authors with exact GLM and DeepSeek profiles', () => {
+    expect(config.proposers).toHaveLength(3)
+    expect(config.populationSize).toBe(3)
     const byName = Object.fromEntries(config.proposers!.map((p) => [p.name, p]))
-    expect(byName['claude-author']).toMatchObject({ harness: 'claude-code', profile: 'default-author.profile.json' })
-    expect(byName['claude-author']!.model).toBeUndefined()
-    expect(byName['glm-author']).toMatchObject({ harness: 'opencode', model: 'zai-coding-plan/glm-5.2' })
-    expect(byName['codex-author']).toMatchObject({ harness: 'codex' })
-    expect(byName['merge-author']).toMatchObject({ harness: 'claude-code', merge: true })
+    expect(byName['glm-author']).toMatchObject({ harness: 'pi', model: 'glm-5.2' })
+    expect(byName['deepseek-author']).toMatchObject({
+      harness: 'pi',
+      model: 'deepseek-v4-flash',
+      profile: 'deepseek-author.profile.json',
+    })
+    expect(byName['merge-author']).toMatchObject({ harness: 'pi', merge: true })
   })
 
-  it('drops the codex seat (and shrinks the population) when includeCodex is false', () => {
-    const noCodex = defaultGen4Config(undefined, { includeCodex: false })
-    expect(noCodex.proposers!.map((p) => p.name)).toEqual(['claude-author', 'glm-author', 'merge-author'])
-    expect(noCodex.populationSize).toBe(3)
+  it('can omit the DeepSeek seat while keeping population aligned', () => {
+    const noDeepseek = defaultGen4Config(undefined, { includeDeepseek: false })
+    expect(noDeepseek.proposers!.map((p) => p.name)).toEqual(['glm-author', 'merge-author'])
+    expect(noDeepseek.populationSize).toBe(2)
   })
 
   it('seeds the gen-3 frontier as pareto parents and points at a fresh gen4 outDir + baseline artifact', () => {
@@ -215,24 +229,40 @@ describe('defaultGen4Config', () => {
 })
 
 describe('loadAuthorProfile', () => {
-  it('loads the committed default-author profile (bare: no prompt, no model)', () => {
-    const profile = loadAuthorProfile({ name: 'a', profile: 'default-author.profile.json', harness: 'claude-code' })
+  it('loads the complete committed Pi/GLM author profile', () => {
+    const profile = loadAuthorProfile({
+      name: 'a',
+      profile: 'default-author.profile.json',
+      harness: 'pi',
+    })
     expect(profile?.name).toBe('swe-arena-default-author')
-    expect(profile?.prompt).toBeUndefined()
-    expect(profile?.model).toBeUndefined()
+    expect(profile?.harness).toBe('pi')
+    expect(profile?.prompt?.systemPrompt).toContain('measured failure evidence')
+    expect(profile?.model).toMatchObject({ provider: 'tangle-router', default: 'glm-5.2' })
     expect(existsSync(join(PROFILES_DIR, 'default-author.profile.json'))).toBe(true)
   })
 
   it('returns undefined without a profile path', () => {
-    expect(loadAuthorProfile({ name: 'a', harness: 'claude-code' })).toBeUndefined()
+    expect(loadAuthorProfile({ name: 'a', harness: 'pi' })).toBeUndefined()
   })
 
-  it('fails loud when a non-codex proposer declares profile resources (they would be dropped)', async () => {
+  it('preserves profile resources for Runtime materialization', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'profile-'))
     try {
       const path = join(dir, 'with-resources.json')
-      await writeFile(path, JSON.stringify({ name: 'r', resources: { files: [] } }))
-      expect(() => loadAuthorProfile({ name: 'a', profile: path, harness: 'claude-code' })).toThrow(/silently drop/)
+      await writeFile(
+        path,
+        JSON.stringify({
+          name: 'r',
+          harness: 'pi',
+          model: { provider: 'test', default: 'model' },
+          prompt: { systemPrompt: 'Author changes.' },
+          resources: { files: [] },
+        }),
+      )
+      expect(loadAuthorProfile({ name: 'a', profile: path, harness: 'pi' })?.resources).toEqual({
+        files: [],
+      })
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -300,9 +330,14 @@ describe('defaultGen3Config', () => {
     }
   })
 
-  it('defaultProposers codifies the gen-2 author: one bare-profile claude entry', () => {
+  it('defaultProposers uses one exact Pi/GLM profile', () => {
     expect(defaultProposers()).toEqual([
-      { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' },
+      {
+        name: 'default-author',
+        profile: 'default-author.profile.json',
+        harness: 'pi',
+        model: 'glm-5.2',
+      },
     ])
   })
 })
@@ -357,8 +392,8 @@ describe('fanOutLoopsGenerator', () => {
 
   it('authors ALL proposers concurrently in separate worktrees and applies each patch to its candidate slot', async () => {
     const proposers: ProposerSpec[] = [
-      { name: 'alpha', harness: 'claude-code' },
-      { name: 'beta', harness: 'claude-code' },
+      { name: 'alpha', harness: 'pi' },
+      { name: 'beta', harness: 'pi' },
     ]
     let inFlight = 0
     let maxInFlight = 0
@@ -396,7 +431,7 @@ describe('fanOutLoopsGenerator', () => {
 
     expect(first).toMatchObject({ applied: true, label: 'alpha' })
     expect(second).toMatchObject({ applied: true, label: 'beta' })
-    expect(first.rationale).toContain('proposer alpha (claude-code)')
+    expect(first.rationale).toContain('proposer alpha (pi)')
     // Both patches landed on the SAME driver worktree across the two calls —
     // the driver discards/finalizes between calls in production; here we only
     // assert each call applied its own proposer's file.
@@ -407,8 +442,8 @@ describe('fanOutLoopsGenerator', () => {
 
   it('kills a candidate at the smoke pre-filter: applied=false, no patch applied, kill recorded with reason', async () => {
     const proposers: ProposerSpec[] = [
-      { name: 'good', harness: 'claude-code' },
-      { name: 'bad', harness: 'claude-code' },
+      { name: 'good', harness: 'pi' },
+      { name: 'bad', harness: 'pi' },
     ]
     const config = baseConfig(proposers)
     config.prefilter = { enabled: true, smokeInstance: 'cheapest-of-set' }
@@ -461,7 +496,7 @@ describe('fanOutLoopsGenerator', () => {
   })
 
   it('kills an out-of-space diff at the change-space pre-filter before any smoke spend', async () => {
-    const proposers: ProposerSpec[] = [{ name: 'rogue', harness: 'claude-code' }]
+    const proposers: ProposerSpec[] = [{ name: 'rogue', harness: 'pi' }]
     const config = baseConfig(proposers)
     config.prefilter = { enabled: true, smokeInstance: 'cheapest-of-set' }
     let smokeRan = false
@@ -488,7 +523,7 @@ describe('fanOutLoopsGenerator', () => {
   })
 
   it('returns applied:false without a kill when a proposer authors nothing', async () => {
-    const gen = fanOutLoopsGenerator(baseConfig([{ name: 'idle', harness: 'claude-code' }]), {
+    const gen = fanOutLoopsGenerator(baseConfig([{ name: 'idle', harness: 'pi' }]), {
       author: async () => ({ applied: false, summary: '' }),
     })
     expect((await gen.generate(generatorArgs(0))).applied).toBe(false)
@@ -496,7 +531,7 @@ describe('fanOutLoopsGenerator', () => {
   })
 
   it('fails loud when candidateIndex exceeds the proposer list (populationSize drift)', async () => {
-    const gen = fanOutLoopsGenerator(baseConfig([{ name: 'only', harness: 'claude-code' }]), {
+    const gen = fanOutLoopsGenerator(baseConfig([{ name: 'only', harness: 'pi' }]), {
       author: async () => ({ applied: false, summary: '' }),
     })
     await expect(gen.generate(generatorArgs(1))).rejects.toThrow(/populationSize must equal/)
@@ -520,7 +555,7 @@ describe('fanOutLoopsGenerator', () => {
   })
 
   it('refuses a merge seat without >=2 materialized parents', () => {
-    const config = baseConfig([{ name: 'merge-author', harness: 'claude-code', merge: true }])
+    const config = baseConfig([{ name: 'merge-author', harness: 'pi', merge: true }])
     expect(() => fanOutLoopsGenerator(config, { author: async () => ({ applied: false, summary: '' }) })).toThrow(
       /merge proposer/,
     )
@@ -539,8 +574,8 @@ describe('fanOutLoopsGenerator', () => {
   it('rejects duplicate proposer names and empty proposer lists', () => {
     expect(() =>
       fanOutLoopsGenerator(baseConfig([
-        { name: 'dup', harness: 'claude-code' },
-        { name: 'dup', harness: 'claude-code' },
+        { name: 'dup', harness: 'pi' },
+        { name: 'dup', harness: 'pi' },
       ])),
     ).toThrow(/duplicate/)
     expect(() => fanOutLoopsGenerator({ ...defaultRound4Config(), loopsRepo, outDir })).toThrow(/empty/)
@@ -576,10 +611,10 @@ describe('defaultGen5Config', () => {
     expect(config.priorEvidenceDirs!.some((d) => d.includes('gen4'))).toBe(true)
   })
 
-  it('drops the codex seat when includeCodex is false (population follows)', () => {
-    const noCodex = defaultGen5Config(undefined, { includeCodex: false })
-    expect(noCodex.proposers!.map((p) => p.name)).toEqual(['claude-author', 'glm-author', 'merge-author'])
-    expect(noCodex.populationSize).toBe(3)
+  it('can omit the DeepSeek seat while keeping population aligned', () => {
+    const noDeepseek = defaultGen5Config(undefined, { includeDeepseek: false })
+    expect(noDeepseek.proposers!.map((p) => p.name)).toEqual(['glm-author', 'merge-author'])
+    expect(noDeepseek.populationSize).toBe(2)
   })
 })
 
@@ -591,7 +626,7 @@ describe('gen-5 prompt sections', () => {
   }
 
   it('appends EVIDENCE MAP + briefing + activation contract after the protocol prompt', () => {
-    const spec: ProposerSpec = { name: 'x', harness: 'claude-code' }
+    const spec: ProposerSpec = { name: 'x', harness: 'pi' }
     const prompt = proposerBuildPrompt({ findings: [] }, spec, [], {
       briefing,
       activationGate: true,
@@ -604,7 +639,7 @@ describe('gen-5 prompt sections', () => {
   })
 
   it('the merge seat gets the gen-5 sections too', () => {
-    const spec: ProposerSpec = { name: 'merge-author', harness: 'claude-code', merge: true }
+    const spec: ProposerSpec = { name: 'merge-author', harness: 'pi', merge: true }
     const prompt = proposerBuildPrompt({ findings: [] }, spec, PARENTS, {
       briefing,
       activationGate: true,
@@ -615,7 +650,7 @@ describe('gen-5 prompt sections', () => {
   })
 
   it('leaves gen-3/gen-4 prompts byte-identical when no extras are passed', () => {
-    const spec: ProposerSpec = { name: 'x', harness: 'claude-code' }
+    const spec: ProposerSpec = { name: 'x', harness: 'pi' }
     const legacy = proposerBuildPrompt({ findings: [] }, spec, PARENTS)
     expect(legacy).not.toContain('EVIDENCE MAP')
     expect(legacy).not.toContain('ACTIVATION PREDICATE')

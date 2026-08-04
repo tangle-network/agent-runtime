@@ -7,7 +7,7 @@
  */
 
 export {
-  AGENTIC_PROFILE_RESOURCE_ROOT,
+  type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorOptions,
   type AgenticGeneratorShotDisposition,
   type AgenticGeneratorShotExecution,
@@ -27,10 +27,12 @@ export {
 export {
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
+  type ImproveCodeBaseOptions,
   type ImproveCodeOptions,
   type ImproveCodeResult,
   type ImproveCodeRunOptions,
   type ImproveCost,
+  type ImproveCustomCodeGeneratorOptions,
   type ImproveLineage,
   type ImproveMethodContext,
   type ImproveMethodFactory,
@@ -47,6 +49,7 @@ export {
   type ImproveProfileComponents,
   type ImproveProfileSurface,
   type ImproveResult,
+  type ImproveRuntimeCodeGeneratorOptions,
   type ImproveScenarioPartitions,
   type ImproveSkillsOptions,
   type ImproveSurface,
