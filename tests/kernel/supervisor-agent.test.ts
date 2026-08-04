@@ -2,6 +2,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ConfigError } from '../../src/errors'
+import type { RouterTransportConfig } from '../../src/runtime/router-client'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -78,6 +79,31 @@ function runSupervisor(
 }
 
 describe('supervisorAgent — the brain is resolved from profile.harness (backend-as-data)', () => {
+  it('rejects behavioral fields smuggled through a widened Router transport object', () => {
+    const router = {
+      routerBaseUrl: 'http://router.test/v1',
+      routerKey: 'k',
+      maxTokens: 7,
+      retry: { maxAttempts: 1 },
+      stream: true,
+    } as unknown as RouterTransportConfig
+
+    expect(() =>
+      supervisorAgent(
+        testAgentProfile('root', {
+          harness: 'cli-base',
+          model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+        }),
+        {
+          router,
+          blobs: new InMemoryResultBlobStore(),
+          makeWorkerAgent: () => deliveringLeaf('unused', {}),
+          perWorker,
+        },
+      ),
+    ).toThrow(/unsupported behavioral fields: maxTokens, retry, stream/u)
+  })
+
   it('ROUTER arm (harness null): the in-process tool-loop drives a worker to delivery', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()

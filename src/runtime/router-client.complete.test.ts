@@ -96,7 +96,9 @@ describe('RouterConfig.complete — the injected completion transport', () => {
 
   it('buffered chat retries a thrown network failure and reports the exact attempt count', async () => {
     let calls = 0
-    const fetchSpy = vi.fn(async () => {
+    const idempotencyKeys: string[] = []
+    const fetchSpy = vi.fn(async (_url: unknown, init: RequestInit) => {
+      idempotencyKeys.push((init.headers as Record<string, string>)['idempotency-key'] ?? '')
       calls += 1
       if (calls === 1) throw new TypeError('fetch failed: socket reset')
       return {
@@ -128,8 +130,46 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
 
     expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(idempotencyKeys[0]).toMatch(/^idem_/u)
+    expect(idempotencyKeys).toEqual([idempotencyKeys[0], idempotencyKeys[0]])
     expect(result.transportAttempts).toBe(2)
     expect(result.content).toBe('recovered')
+  })
+
+  it('keeps a caller-supplied logical-call id authoritative across retries', async () => {
+    const seen: string[] = []
+    let calls = 0
+    const complete = vi.fn(
+      async (
+        _body: Record<string, unknown>,
+        request?: { headers: Readonly<Record<string, string>> },
+      ) => {
+        seen.push(request?.headers['idempotency-key'] ?? '')
+        calls += 1
+        if (calls === 1) throw new TypeError('fetch failed: accepted response lost')
+        return { choices: [{ message: { content: 'recovered' } }] }
+      },
+    )
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'recover' }],
+      { callId: 'trusted-call-1' },
+    )
+
+    expect(seen).toEqual(['trusted-call-1', 'trusted-call-1'])
   })
 
   it('fails loud with the final network cause after the configured attempts are exhausted', async () => {

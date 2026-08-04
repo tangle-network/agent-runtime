@@ -343,6 +343,41 @@ export interface SupervisorAgentDeps {
   readonly coordination?: CoordinationBinding
 }
 
+const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete'])
+
+/** Capture the transport-only Router seam before any profile lowering. TypeScript excess-property
+ * checks are not a runtime boundary: JavaScript and widened objects can otherwise smuggle private
+ * generation/retry fields through a spread and override an AgentProfile that omitted them. */
+function snapshotRouterTransportConfig(input: RouterTransportConfig): RouterTransportConfig {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new ValidationError('supervisorAgent: deps.router must be a RouterTransportConfig object')
+  }
+  const unsupported = Object.keys(input).filter((field) => !ROUTER_TRANSPORT_FIELDS.has(field))
+  if (unsupported.length > 0) {
+    throw new ValidationError(
+      `supervisorAgent: deps.router contains unsupported behavioral fields: ${unsupported.sort().join(', ')}`,
+    )
+  }
+  if (typeof input.routerBaseUrl !== 'string' || input.routerBaseUrl.length === 0) {
+    throw new ValidationError(
+      'supervisorAgent: deps.router.routerBaseUrl must be a non-empty string',
+    )
+  }
+  if (typeof input.routerKey !== 'string' || input.routerKey.length === 0) {
+    throw new ValidationError('supervisorAgent: deps.router.routerKey must be a non-empty string')
+  }
+  if (input.complete !== undefined && typeof input.complete !== 'function') {
+    throw new ValidationError(
+      'supervisorAgent: deps.router.complete must be a function when provided',
+    )
+  }
+  return Object.freeze({
+    routerBaseUrl: input.routerBaseUrl,
+    routerKey: input.routerKey,
+    ...(input.complete !== undefined ? { complete: input.complete } : {}),
+  })
+}
+
 /** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
 export function supervisorAgent(
   profile: SupervisorProfile,
@@ -351,6 +386,8 @@ export function supervisorAgent(
   const exactProfile = agentProfileSchema.parse(profile)
   assertExecutableAgentProfile(exactProfile, 'supervisorAgent')
   const stableProfile = detachedSnapshot(exactProfile, 'supervisorAgent profile')
+  const stableRouter =
+    deps.router === undefined ? undefined : snapshotRouterTransportConfig(deps.router)
   const resolveTools = deps.resolveSupervisorTools
   const observeNodeEvent = deps.observeNodeEvent
   const nodeContextSeed =
@@ -396,7 +433,7 @@ export function supervisorAgent(
   if (harness === null) {
     // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
     // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
-    const brain = deps.brain ?? routerBrainFromProfile(stableProfile, deps)
+    const brain = deps.brain ?? routerBrainFromProfile(stableProfile, stableRouter)
     const inbox = createInbox()
     const build = (
       priorCoordination?: PriorCoordination,
@@ -649,9 +686,9 @@ function bindSupervisorNodeObserver(
 
 function routerBrainFromProfile(
   profile: SupervisorProfile,
-  deps: SupervisorAgentDeps,
+  router: RouterTransportConfig | undefined,
 ): ToolLoopChat {
-  if (!deps.router) {
+  if (!router) {
     throw new ValidationError(
       'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router (or deps.brain)',
     )
@@ -660,7 +697,9 @@ function routerBrainFromProfile(
   const settings = profileModelExecutionSettings(profile, 'supervisorAgent')
   return routerBrain(
     {
-      ...deps.router,
+      routerBaseUrl: router.routerBaseUrl,
+      routerKey: router.routerKey,
+      ...(router.complete !== undefined ? { complete: router.complete } : {}),
       model: modelId,
       ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
       ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),

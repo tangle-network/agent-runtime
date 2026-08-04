@@ -10,7 +10,12 @@
  * (a phantom 0 reads as a free call downstream, which the gate would act on).
  */
 
-import { type RetryConfig, SDKError, withRetry } from '@tangle-network/agent-core'
+import {
+  generateIdempotencyKey,
+  type RetryConfig,
+  SDKError,
+  withRetry,
+} from '@tangle-network/agent-core'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
@@ -784,11 +789,15 @@ function routerRequestHeaders(
       }
     | undefined,
 ): Record<string, string> {
+  // Every POST is retryable. Mint the logical-call identity once while the request headers are
+  // assembled, outside `withRetry`, so an accepted response whose connection dies cannot make a
+  // retry look like a new billable completion. A trusted caller identity remains authoritative.
+  const callId = opts?.callId ?? generateIdempotencyKey()
   return {
     ...(opts?.propagatedHeaders ?? {}),
     'content-type': 'application/json',
     authorization: `Bearer ${cfg.routerKey}`,
-    ...(opts?.callId ? { 'idempotency-key': opts.callId } : {}),
+    'idempotency-key': callId,
     ...(opts?.correlationId ? { 'x-correlation-id': opts.correlationId } : {}),
   }
 }
