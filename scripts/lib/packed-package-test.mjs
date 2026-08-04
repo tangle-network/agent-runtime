@@ -34,6 +34,25 @@ export function requiredPackedPackageVersion(version, name, owner) {
   return version
 }
 
+export function currentMinorPeerRange(version) {
+  const match = /^(\d+)\.(\d+)\.\d+(?:-.+)?$/.exec(version)
+  if (!match) throw new Error(`cannot derive peer range from version ${version}`)
+  return `>=${version} <${match[1]}.${Number(match[2]) + 1}.0`
+}
+
+export function assertPeerMatchesDevelopmentDependency(packageJson, name) {
+  const version = requiredPackedDevelopmentDependency(packageJson, name)
+  const expected = currentMinorPeerRange(version)
+  const actual = packageJson.peerDependencies?.[name]
+  if (actual !== expected) {
+    const packageName =
+      typeof packageJson.name === 'string' ? packageJson.name : 'packed package'
+    throw new Error(
+      `${packageName} peerDependencies.${name} must match its resolved development dependency: expected ${expected}, found ${String(actual)}`,
+    )
+  }
+}
+
 export function createStrictNodeConsumerTsconfig(options = {}) {
   return {
     compilerOptions: {
