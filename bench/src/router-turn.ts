@@ -28,7 +28,14 @@ export interface BenchProfileSettings {
   systemPrompt?: string
   temperature?: number
   maxTokens?: number
-  maxRetries?: number
+  retry?: {
+    maxAttempts?: number
+    initialBackoffMs?: number
+    maxBackoffMs?: number
+    jitter?: number
+    retryStatuses?: ReadonlyArray<number>
+    requestTimeoutMs?: number
+  }
   maxTurns?: number
   seed?: number
   reasoningEffort?: ReasoningEffort
@@ -62,7 +69,7 @@ export function withBenchProfile(
     ...(base.model?.metadata ?? {}),
     ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
     ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
-    ...(settings.maxRetries !== undefined ? { maxRetries: settings.maxRetries } : {}),
+    ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
     ...(settings.maxTurns !== undefined ? { maxTurns: settings.maxTurns } : {}),
     ...(settings.seed !== undefined ? { seed: settings.seed } : {}),
     ...(settings.extraBody !== undefined ? { extraBody: settings.extraBody } : {}),

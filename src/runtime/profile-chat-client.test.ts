@@ -71,6 +71,49 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('carries the exact profile retry policy through the injected Router transport', async () => {
+    let attempts = 0
+    const complete = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('fetch failed: injected reset')
+      return {
+        model: 'deepseek-v4-flash',
+        choices: [{ message: { content: 'retried response' } }],
+      }
+    })
+    const client = profileChatClient({
+      profile: {
+        ...profile,
+        model: {
+          ...profile.model,
+          metadata: {
+            retry: {
+              maxAttempts: 2,
+              initialBackoffMs: 0,
+              maxBackoffMs: 0,
+              jitter: 0,
+              requestTimeoutMs: 0,
+            },
+          },
+        },
+      },
+      context: 'profile retry test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete,
+      },
+    })
+
+    const response = await client.chat(request)
+
+    expect(client.maximumAttempts).toBe(2)
+    expect(response.content).toBe('retried response')
+    expect(response.raw).toMatchObject({ transportAttempts: 2 })
+    expect(complete).toHaveBeenCalledTimes(2)
+  })
+
   it('refuses a provider-reported model different from the exact profile', async () => {
     await expect(
       clientWith(async () => ({

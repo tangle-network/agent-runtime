@@ -662,7 +662,7 @@ function routerBrainFromProfile(
     {
       ...deps.router,
       model: modelId,
-      ...(settings.maxAttempts !== undefined ? { maxAttempts: settings.maxAttempts } : {}),
+      ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
       ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
       ...(settings.stream !== undefined ? { stream: settings.stream } : {}),
     },

@@ -8,6 +8,7 @@ import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
 import { agentHarness } from '../harness-role'
+import { type ResolvedRouterRetryPolicy, resolveRouterRetryPolicy } from '../router-retry-policy'
 
 /**
  * Return the model id an executor may send to a provider.
@@ -84,8 +85,7 @@ export function assertExecutableAgentProfile(profile: AgentProfile, context: str
 export interface ProfileModelExecutionSettings {
   readonly temperature?: number
   readonly maxTokens?: number
-  /** Total transport attempts including the first request. */
-  readonly maxAttempts?: number
+  readonly retry?: ResolvedRouterRetryPolicy
   readonly seed?: number
   readonly toolChoice?: 'auto' | 'required' | 'none'
   readonly extraBody?: Readonly<Record<string, unknown>>
@@ -96,9 +96,9 @@ export interface ProfileModelExecutionSettings {
 
 const PROFILE_MODEL_METADATA_KEYS = new Set([
   'extraBody',
-  'maxRetries',
   'maxTokens',
   'maxTurns',
+  'retry',
   'seed',
   'stream',
   'temperature',
@@ -122,7 +122,11 @@ export function profileModelExecutionSettings(
   }
   const temperature = finiteNumber(metadata.temperature, `${context}: temperature`)
   const maxTokens = positiveInteger(metadata.maxTokens, `${context}: maxTokens`)
-  const maxRetries = nonnegativeInteger(metadata.maxRetries, `${context}: maxRetries`)
+  const retryInput = metadata.retry
+  const retry =
+    retryInput === undefined
+      ? undefined
+      : resolveRouterRetryPolicy(retryInput, `${context}: AgentProfile.model.metadata.retry`)
   const seed = safeInteger(metadata.seed, `${context}: seed`)
   const maxTurns = nonnegativeInteger(metadata.maxTurns, `${context}: maxTurns`)
   const stream = optionalBoolean(metadata.stream, `${context}: stream`)
@@ -145,7 +149,7 @@ export function profileModelExecutionSettings(
   return {
     ...(temperature !== undefined ? { temperature } : {}),
     ...(maxTokens !== undefined ? { maxTokens } : {}),
-    ...(maxRetries !== undefined ? { maxAttempts: maxRetries + 1 } : {}),
+    ...(retry !== undefined ? { retry } : {}),
     ...(seed !== undefined ? { seed } : {}),
     ...(toolChoice !== undefined ? { toolChoice } : {}),
     ...(extraBody !== undefined

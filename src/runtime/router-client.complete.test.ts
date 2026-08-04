@@ -5,7 +5,10 @@ import { routerChatWithTools, routerChatWithUsage } from './router-client'
 // clients call it with the OpenAI request body and parse what it returns, INSTEAD of `fetch`-ing
 // the router. The offline-benchmark path — a deterministic in-process responder, no network.
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('RouterConfig.complete — the injected completion transport', () => {
   it('routerChatWithUsage uses `complete` and never touches fetch', async () => {
@@ -91,17 +94,11 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(fetchSpy).toHaveBeenCalledOnce()
   })
 
-  it('reports the exact transport count and honors a caller-owned retry total', async () => {
+  it('buffered chat retries a thrown network failure and reports the exact attempt count', async () => {
     let calls = 0
     const fetchSpy = vi.fn(async () => {
       calls += 1
-      if (calls === 1) {
-        return {
-          ok: false,
-          status: 503,
-          text: async (): Promise<string> => 'capacity',
-        }
-      }
+      if (calls === 1) throw new TypeError('fetch failed: socket reset')
       return {
         ok: true,
         status: 200,
@@ -119,7 +116,13 @@ describe('RouterConfig.complete — the injected completion transport', () => {
         routerBaseUrl: 'http://router.test/v1',
         routerKey: 'k',
         model: 'deepseek-v4-flash',
-        maxAttempts: 2,
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          requestTimeoutMs: 0,
+        },
       },
       [{ role: 'user', content: 'recover' }],
     )
@@ -127,6 +130,147 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2)
     expect(result.transportAttempts).toBe(2)
     expect(result.content).toBe('recovered')
+  })
+
+  it('fails loud with the final network cause after the configured attempts are exhausted', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('fetch failed: connection refused')
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(
+      routerChatWithUsage(
+        {
+          routerBaseUrl: 'http://router.test/v1',
+          routerKey: 'k',
+          model: 'deepseek-v4-flash',
+          retry: {
+            maxAttempts: 2,
+            initialBackoffMs: 0,
+            maxBackoffMs: 0,
+            jitter: 0,
+            requestTimeoutMs: 0,
+          },
+        },
+        [{ role: 'user', content: 'cannot connect' }],
+      ),
+    ).rejects.toThrow(/router network failure: fetch failed: connection refused/u)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('enforces the per-attempt header timeout and retries the timed-out request', async () => {
+    let calls = 0
+    const fetchSpy = vi.fn(async (_url: unknown, init: { signal?: AbortSignal }) => {
+      calls += 1
+      if (calls === 1) {
+        return new Promise<never>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            'abort',
+            () => reject(init.signal?.reason ?? new Error('aborted')),
+            { once: true },
+          )
+        })
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'after timeout' } }] }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          requestTimeoutMs: 10,
+        },
+      },
+      [{ role: 'user', content: 'timeout once' }],
+    )
+
+    expect(result.content).toBe('after timeout')
+    expect(result.transportAttempts).toBe(2)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('passes initial delay, exponential cap, and jitter to the shared retry primitive', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1)
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
+    let calls = 0
+    const fetchSpy = vi.fn(async () => {
+      calls += 1
+      if (calls < 3) throw new TypeError('fetch failed')
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'third try' } }] }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 3,
+          initialBackoffMs: 10,
+          maxBackoffMs: 15,
+          jitter: 0.2,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'back off' }],
+    )
+
+    expect(timerSpy.mock.calls.map((call) => call[1])).toEqual([12, 18])
+  })
+
+  it('cancels pending backoff and never starts another request after caller abort', async () => {
+    const controller = new AbortController()
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
+    let firstAttemptStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      firstAttemptStarted = resolve
+    })
+    const fetchSpy = vi.fn(async () => {
+      firstAttemptStarted()
+      throw new TypeError('fetch failed: offline')
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const pending = routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 3,
+          initialBackoffMs: 60_000,
+          maxBackoffMs: 60_000,
+          jitter: 0,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'stop retrying' }],
+      { signal: controller.signal },
+    )
+    await started
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(timerSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
+    controller.abort(new Error('caller stopped'))
+
+    await expect(pending).rejects.toThrow(/caller stopped/u)
+    expect(fetchSpy).toHaveBeenCalledOnce()
   })
 
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
@@ -140,7 +284,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
             routerBaseUrl: 'http://router.test/v1',
             routerKey: 'k',
             model: 'deepseek-v4-flash',
-            maxAttempts,
+            retry: { maxAttempts },
           },
           [{ role: 'user', content: 'do not dispatch' }],
         ),

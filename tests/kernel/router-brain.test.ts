@@ -416,7 +416,55 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
 
   it('fails loud on a non-2xx with the same message shape as the buffered path', async () => {
     stubStream('gateway blew up', { status: 524 })
-    await expect(streamRouterChatWithTools(cfg, [], [])).rejects.toThrow(/router 524/)
+    await expect(
+      streamRouterChatWithTools({ ...cfg, retry: { maxAttempts: 1 } }, [], []),
+    ).rejects.toThrow(/router 524/)
+  })
+
+  it('streamed chat honors a caller-owned status set and retries through the shared request path', async () => {
+    const encoder = new TextEncoder()
+    let attempts = 0
+    fetchMock = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) {
+        return { ok: false, status: 409, text: async () => 'retry this conflict' }
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `${frame({ choices: [{ delta: { content: 'recovered' } }] })}data: [DONE]\n\n`,
+              ),
+            )
+            controller.close()
+          },
+        }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await streamRouterChatWithTools(
+      {
+        ...cfg,
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          retryStatuses: [409],
+          requestTimeoutMs: 0,
+        },
+      },
+      [],
+      [],
+    )
+
+    expect(result.content).toBe('recovered')
+    expect(result.transportAttempts).toBe(2)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('refuses to pair the streamed transport with the buffered injected transport', async () => {

@@ -42,8 +42,8 @@ export function profileChatClient(args: {
   return {
     transport: 'custom',
     defaultModel: binding.model,
-    ...(binding.settings.maxAttempts !== undefined
-      ? { maximumAttempts: binding.settings.maxAttempts }
+    ...(binding.settings.retry?.maxAttempts !== undefined
+      ? { maximumAttempts: binding.settings.retry.maxAttempts }
       : {}),
     async chat(req, callOpts) {
       const run = await runBoundProfileChat(binding, req, callOpts)

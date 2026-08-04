@@ -10,9 +10,11 @@
  * (a phantom 0 reads as a free call downstream, which the gate would act on).
  */
 
+import { type RetryConfig, SDKError, withRetry } from '@tangle-network/agent-core'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 
 /**
@@ -43,12 +45,8 @@ export interface RouterTransportConfig {
  */
 export interface RouterConfig extends RouterTransportConfig {
   model: string
-  /**
-   * Total HTTP attempts for one completion, including the first request.
-   * Defaults to 5. Set 1 when an outer workflow owns retries so the two
-   * policies cannot multiply invisibly. Any positive safe integer is allowed.
-   */
-  maxAttempts?: number
+  /** Exact retry controls lowered from `AgentProfile.model.metadata.retry`. */
+  retry?: RouterRetryPolicy
   /**
    * Optional ceiling for one completion, forwarded as `max_tokens`.
    *
@@ -168,44 +166,33 @@ export async function routerChatWithUsage(
     ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   })
-  const maxAttempts = routerMaxAttempts(cfg)
+  const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   // Injected transport short-circuits the network: the offline benchmark seam. It owns its own
-  // determinism, so the fetch-specific transient-retry/temperature-handling below does not apply.
-  if (cfg.complete) {
-    return parseChatResult(
-      await cfg.complete(body(), {
+  // determinism while sharing the HTTP path's retry, timeout, and cancellation behavior.
+  const complete = cfg.complete
+  if (complete) {
+    const { value, attempts } = await retryRouterOperation(retry, opts?.signal, (signal) =>
+      complete(body(), {
         headers,
-        ...(opts?.signal ? { signal: opts.signal } : {}),
+        signal,
       }),
-      cfg.model,
-      1,
     )
+    return parseChatResult(value, cfg.model, attempts)
   }
   // Retry transient upstream failures (429/5xx) with backoff so a single capacity
   // hiccup does not kill a whole multi-model benchmark run. Provider requests to
   // change temperature fail: generation behavior belongs to the exact profile.
-  let lastErr = ''
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const res = await fetch(url, {
+  const { response, attempts } = await fetchRouterResponse(
+    url,
+    {
       method: 'POST',
       headers,
       body: JSON.stringify(body()),
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    })
-    if (res.ok) return parseChatResult(await res.json(), cfg.model, attempt)
-    const status = res.status
-    const text = (await res.text()).slice(0, 200)
-    lastErr = `router ${status}: ${text}`
-    // Non-retryable (auth/quota/malformed) fails loud immediately; retryable
-    // statuses back off and continue until the loop's attempt bound, then the
-    // post-loop throw is the honest "exhausted retries" terminal. 408/425 + the
-    // Cloudflare-origin family (520/522/524) are transient under heavy parallel
-    // load — a fleet of concurrent gate runs hits 524 ("origin timeout") and must
-    // retry, not crash the whole run.
-    if (!isTransientRouterStatus(status)) throw new Error(lastErr)
-    if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 800 * 2 ** (attempt - 1)))
-  }
-  throw new Error(`${lastErr} (exhausted retries)`)
+    },
+    opts?.signal,
+    retry,
+  )
+  return parseChatResult(await response.json(), cfg.model, attempts)
 }
 
 function parseChatResult(
@@ -345,34 +332,32 @@ export async function routerChatWithTools(
   },
 ): Promise<RouterChatToolsResult> {
   const body = toolCompletionBody(cfg, messages, tools, opts)
-  const maxAttempts = routerMaxAttempts(cfg)
+  const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   // Injected transport short-circuits the network — the offline benchmark seam (see RouterConfig.complete).
   let transportAttempts = 1
   const headers = routerRequestHeaders(cfg, opts)
-  const raw = cfg.complete
-    ? await cfg.complete(structuredClone(body), {
-        headers,
-        ...(opts?.signal ? { signal: opts.signal } : {}),
-      })
+  const complete = cfg.complete
+  const raw = complete
+    ? await (async () => {
+        const result = await retryRouterOperation(retry, opts?.signal, (signal) =>
+          complete(structuredClone(body), { headers, signal }),
+        )
+        transportAttempts = result.attempts
+        return result.value
+      })()
     : await (async () => {
-        let lastErr = ''
-        for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-          transportAttempts = attempt
-          const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+        const result = await fetchRouterResponse(
+          `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`,
+          {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
-            ...(opts?.signal ? { signal: opts.signal } : {}),
-          })
-          if (res.ok) return res.json()
-          const status = res.status
-          lastErr = `router ${status}: ${(await res.text()).slice(0, 200)}`
-          if (!isTransientRouterStatus(status)) throw new Error(lastErr)
-          if (attempt < maxAttempts) {
-            await new Promise((resolve) => setTimeout(resolve, 800 * 2 ** (attempt - 1)))
-          }
-        }
-        throw new Error(`${lastErr} (exhausted retries)`)
+          },
+          opts?.signal,
+          retry,
+        )
+        transportAttempts = result.attempts
+        return result.response.json()
       })()
   const data = raw as {
     model?: unknown
@@ -658,7 +643,7 @@ export async function streamRouterChatWithTools(
     correlationId?: string
   },
 ): Promise<RouterChatToolsResult> {
-  const maxAttempts = routerMaxAttempts(cfg)
+  const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   if (cfg.complete) {
     throw new ValidationError(
       'streamRouterChatWithTools: RouterConfig.complete is a BUFFERED transport (it returns one ' +
@@ -674,31 +659,19 @@ export async function streamRouterChatWithTools(
     // fact by `usageUnknown`, not assumed away.
     stream_options: { include_usage: true },
   }
-  let res: Response | undefined
-  let transportAttempts = 0
-  let lastErr = ''
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    transportAttempts = attempt
-    const candidate = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const { response: res, attempts: transportAttempts } = await fetchRouterResponse(
+    `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`,
+    {
       method: 'POST',
       headers: {
         ...routerRequestHeaders(cfg, opts),
         accept: 'text/event-stream',
       },
       body: JSON.stringify(body),
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    })
-    if (candidate.ok) {
-      res = candidate
-      break
-    }
-    lastErr = `router ${candidate.status}: ${(await candidate.text()).slice(0, 200)}`
-    if (!isTransientRouterStatus(candidate.status)) throw new Error(lastErr)
-    if (attempt < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 800 * 2 ** (attempt - 1)))
-    }
-  }
-  if (!res) throw new Error(`${lastErr} (exhausted retries)`)
+    },
+    opts?.signal,
+    retry,
+  )
   if (!res.body) {
     throw new ValidationError(
       `router ${res.status}: streamed completion returned no response body to read`,
@@ -811,16 +784,103 @@ function reportedModel(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-function routerMaxAttempts(cfg: RouterConfig): number {
-  const value = cfg.maxAttempts ?? 5
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new ValidationError('RouterConfig.maxAttempts must be a positive safe integer')
-  }
-  return value
+async function fetchRouterResponse(
+  url: string,
+  init: Omit<RequestInit, 'signal'>,
+  callerSignal: AbortSignal | undefined,
+  retry: ReturnType<typeof resolveRouterRetryPolicy>,
+): Promise<{ response: Response; attempts: number }> {
+  const result = await retryRouterOperation(retry, callerSignal, async (signal) => {
+    const candidate = await fetch(url, { ...init, signal })
+    if (candidate.ok) return candidate
+    const text = await candidate.text().catch(() => '<failed to read response body>')
+    throw new SDKError(`router ${candidate.status}: ${text.slice(0, 200)}`, {
+      code: 'UNKNOWN',
+      status: candidate.status,
+      retryable: retry.retryStatuses.includes(candidate.status),
+      context: { body: text.slice(0, 200) },
+    })
+  })
+  return { response: result.value, attempts: result.attempts }
 }
 
-function isTransientRouterStatus(status: number): boolean {
-  return [408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status)
+async function retryRouterOperation<T>(
+  retry: ReturnType<typeof resolveRouterRetryPolicy>,
+  callerSignal: AbortSignal | undefined,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<{ value: T; attempts: number }> {
+  let attempts = 0
+  const value = await withRetry(
+    async (attempt) => {
+      attempts = attempt + 1
+      const attemptSignal = withRouterRequestTimeout(callerSignal, retry.requestTimeoutMs)
+      try {
+        return await operation(attemptSignal.signal)
+      } catch (error) {
+        if (callerSignal?.aborted) throw callerSignal.reason ?? error
+        if (attemptSignal.signal.aborted) {
+          throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {
+            code: 'TIMEOUT',
+            cause: error instanceof Error ? error : new Error(String(error)),
+          })
+        }
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          throw new SDKError(`router network failure: ${error.message}`, {
+            code: 'NETWORK',
+            cause: error,
+          })
+        }
+        throw error
+      } finally {
+        attemptSignal.dispose()
+      }
+    },
+    agentCoreRetryConfig(retry, callerSignal),
+  )
+  return { value, attempts }
+}
+
+function agentCoreRetryConfig(
+  retry: ReturnType<typeof resolveRouterRetryPolicy>,
+  callerSignal: AbortSignal | undefined,
+): RetryConfig {
+  return {
+    maxAttempts: retry.maxAttempts,
+    initialDelayMs: retry.initialBackoffMs,
+    maxDelayMs: retry.maxBackoffMs,
+    multiplier: 2,
+    jitter: retry.jitter,
+    ...(callerSignal ? { signal: callerSignal } : {}),
+    shouldRetry: (error) => {
+      if (callerSignal?.aborted) return false
+      if (error.status !== undefined) return retry.retryStatuses.includes(error.status)
+      return error.code === 'NETWORK' || error.code === 'TIMEOUT'
+    },
+  }
+}
+
+function withRouterRequestTimeout(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; dispose: () => void } {
+  if (timeoutMs === 0) {
+    return { signal: callerSignal ?? new AbortController().signal, dispose: () => undefined }
+  }
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`router request timeout after ${timeoutMs}ms`)),
+    timeoutMs,
+  )
+  const onCallerAbort = () => controller.abort(callerSignal?.reason ?? new Error('aborted'))
+  if (callerSignal?.aborted) onCallerAbort()
+  else callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timeout)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
+    },
+  }
 }
 
 function idAlreadyOpen(calls: Map<number, StreamingToolCall>, id: string): boolean {

@@ -194,7 +194,7 @@ async function main(): Promise<void> {
     routerBaseUrl,
     routerKey,
     profile: benchRouterProfile('aec-worker', model, {
-      maxRetries: Number(process.env.MAX_RETRIES ?? 2),
+      retry: { maxAttempts: Number(process.env.MAX_ATTEMPTS ?? 3) },
     }),
   }
   const bench = process.env.BENCH ?? 'aec-bench'

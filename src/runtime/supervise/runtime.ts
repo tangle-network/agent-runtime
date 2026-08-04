@@ -101,6 +101,7 @@ import {
 import {
   assertExecutableAgentProfile,
   concreteProfileModel,
+  type ProfileModelExecutionSettings,
   profileBridgeWireModel,
   profileModelExecutionSettings,
 } from './model-policy'
@@ -469,8 +470,8 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                     routerBaseUrl: seam.routerBaseUrl,
                     routerKey: seam.routerKey,
                     model,
-                    ...(profileExecution.maxAttempts !== undefined
-                      ? { maxAttempts: profileExecution.maxAttempts }
+                    ...(profileExecution.retry !== undefined
+                      ? { retry: profileExecution.retry }
                       : {}),
                     ...(seam.complete ? { complete: seam.complete } : {}),
                   },
@@ -497,8 +498,8 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                     routerBaseUrl: seam.routerBaseUrl,
                     routerKey: seam.routerKey,
                     model,
-                    ...(profileExecution.maxAttempts !== undefined
-                      ? { maxAttempts: profileExecution.maxAttempts }
+                    ...(profileExecution.retry !== undefined
+                      ? { retry: profileExecution.retry }
                       : {}),
                     ...(seam.complete ? { complete: seam.complete } : {}),
                   },
@@ -575,7 +576,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         provider: spec.profile.model?.provider ?? null,
         temperature: profileExecution.temperature ?? null,
         maxTokens: profileExecution.maxTokens ?? null,
-        maxAttempts: profileExecution.maxAttempts ?? null,
+        retry: profileExecution.retry ?? null,
         seed: profileExecution.seed ?? null,
         reasoningEffort: profileExecution.reasoningEffort ?? null,
         extraBody: profileExecution.extraBody ?? null,
@@ -766,8 +767,8 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                   routerBaseUrl: seam.routerBaseUrl,
                   routerKey: seam.routerKey,
                   model,
-                  ...(profileExecution.maxAttempts !== undefined
-                    ? { maxAttempts: profileExecution.maxAttempts }
+                  ...(profileExecution.retry !== undefined
+                    ? { retry: profileExecution.retry }
                     : {}),
                   ...(seam.complete ? { complete: seam.complete } : {}),
                 },
@@ -967,7 +968,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         tools: seam.tools,
         temperature: profileExecution.temperature ?? null,
         maxTokens: profileExecution.maxTokens ?? null,
-        maxAttempts: profileExecution.maxAttempts ?? null,
+        retry: profileExecution.retry ?? null,
         toolChoice: profileExecution.toolChoice ?? null,
         extraBody: profileExecution.extraBody ?? null,
         reasoningEffort: profileExecution.reasoningEffort ?? null,
@@ -3864,7 +3865,7 @@ interface RouterProfileExecution {
   reasoningEffort?: ReasoningEffort
   temperature?: number
   maxTokens?: number
-  maxAttempts?: number
+  retry?: ProfileModelExecutionSettings['retry']
   seed?: number
   toolChoice?: 'auto' | 'required' | 'none'
   extraBody?: Readonly<Record<string, unknown>>
