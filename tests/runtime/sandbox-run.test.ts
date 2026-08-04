@@ -109,12 +109,24 @@ function createFakeClient(opts: FakeOpts = {}) {
 }
 
 function spec(name = 'w'): AgentRunSpec<string> {
-  return { profile: { name }, name, taskToPrompt: (t) => t }
+  return {
+    profile: {
+      name,
+      harness: 'opencode',
+      model: { provider: 'offline', default: 'offline-test-model' },
+    },
+    name,
+    taskToPrompt: (t) => t,
+  }
 }
 
 function backendSpec(name = 'w'): AgentRunSpec<string> {
   return {
-    profile: { name },
+    profile: {
+      name,
+      harness: 'opencode',
+      model: { provider: 'offline', default: 'offline-test-model' },
+    },
     name,
     taskToPrompt: (t) => t,
     sandboxOverrides: { backend: { type: 'opencode' } },

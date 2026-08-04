@@ -17,7 +17,7 @@ import {
   type RunGraphOptions,
   runGraph,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
@@ -25,9 +25,9 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'lead', profile: { name: 'lead', prompt: { systemPrompt: 'Keep the best.' } } },
-      { id: 'coder-a', profile: { name: 'coder-a', prompt: { systemPrompt: 'Minimal diff.' } } },
-      { id: 'coder-b', profile: { name: 'coder-b', prompt: { systemPrompt: 'Full rewrite.' } } },
+      { id: 'lead', profile: offlineProfile('lead', 'Keep the best.') },
+      { id: 'coder-a', profile: offlineProfile('coder-a', 'Minimal diff.') },
+      { id: 'coder-b', profile: offlineProfile('coder-b', 'Full rewrite.') },
     ],
     edges: [
       { kind: 'delegates', from: 'lead', to: 'coder-a', directive: brief },

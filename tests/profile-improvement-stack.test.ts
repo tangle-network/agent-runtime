@@ -40,6 +40,8 @@ const executionRef = canonicalCandidateDigest({ fixture: 'profile-improvement-st
 
 const baseProfile = (): AgentProfile => ({
   name: 'incident-responder',
+  harness: 'cli-base',
+  model: { provider: 'offline', default: 'deterministic-profile-stack' },
   prompt: { systemPrompt: 'Handle the task directly.' },
 })
 
@@ -49,7 +51,12 @@ const improvingMethod: OptimizationMethod<ProfileScenario, { prompt: string }> =
     return {
       winnerSurface:
         'Handle the task directly.\n\nREPAIR_ON_FAILURE: after a failed draft, revise once using the failure signal.',
-      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
     }
   },
 }

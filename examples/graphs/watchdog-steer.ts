@@ -21,7 +21,7 @@ import {
   runGraph,
   type ToolLoopChat,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger } from './shared'
+import { leafSeam, offlineProfile, printLedger } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
@@ -51,8 +51,8 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Watch and steer.' } } },
-      { id: 'builder', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
+      { id: 'driver', profile: offlineProfile('driver', 'Watch and steer.') },
+      { id: 'builder', profile: offlineProfile('builder', 'Build.') },
     ],
     edges: [{ kind: 'delegates', from: 'driver', to: 'builder', directive: brief }],
     deliverable: { describe: 'the built artifact', check: (out) => out !== undefined },

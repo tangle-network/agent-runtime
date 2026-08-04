@@ -22,7 +22,7 @@ import {
   type RunGraphOptions,
   runGraph,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -37,8 +37,8 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'reviewer', profile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } } },
-      { id: 'coder', profile: { name: 'coder', prompt: { systemPrompt: 'Make tests pass.' } } },
+      { id: 'reviewer', profile: offlineProfile('reviewer', 'Verify.') },
+      { id: 'coder', profile: offlineProfile('coder', 'Make tests pass.') },
     ],
     edges: [
       { kind: 'delegates', from: 'reviewer', to: 'coder', directive: brief, maxTraversals: 3 },

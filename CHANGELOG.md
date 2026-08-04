@@ -2,8 +2,9 @@
 
 ## 0.128.1
 
-- Require Agent Eval 0.144.1 and route its official-optimizer callback through Runtime's exact `AgentProfile` execution path.
+- Require Agent Eval 0.144.1 and Agent Knowledge 7.0.9, and route the official-optimizer callback through Runtime's exact `AgentProfile` execution path.
 - Reject model, provider, reasoning, prompt, tool, resource, harness, and generation-setting conflicts before transport; consumers must declare those fields in the profile.
+- Require `defineLeaderboard` callers to supply an exact `baseProfile`; remove its `modelBackend` override so each matrix cell's profile remains the only model authority.
 - Keep missing token usage and billed cost unknown, and report reasoning-token usage when the provider supplies it.
 
 ## 0.128.0

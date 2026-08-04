@@ -28,6 +28,16 @@ import {
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
 
+/** Exact profile identity for the examples' injected, deterministic executors. */
+export function offlineProfile(name: string, systemPrompt: string): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: { provider: 'offline', default: `offline/${name}` },
+    prompt: { systemPrompt },
+  }
+}
+
 // ── The scripted driver brain ──────────────────────────────────────────────────
 
 /** A scripted driver turn in the easy-to-write form (parsed tool args). */

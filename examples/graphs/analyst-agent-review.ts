@@ -22,7 +22,7 @@ import {
   type RunGraphOptions,
   runGraph,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -31,11 +31,11 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphOptions
   // ── The topology: plain data (the analyst is the 'reviewer' NODE, not a registry lens) ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive the build.' } } },
-      { id: 'implementer', profile: { name: 'implementer', prompt: { systemPrompt: 'Build.' } } },
+      { id: 'driver', profile: offlineProfile('driver', 'Drive the build.') },
+      { id: 'implementer', profile: offlineProfile('implementer', 'Build.') },
       {
         id: 'reviewer',
-        profile: { name: 'reviewer', prompt: { systemPrompt: 'Review the trace evidence.' } },
+        profile: offlineProfile('reviewer', 'Review the trace evidence.'),
       },
     ],
     edges: [

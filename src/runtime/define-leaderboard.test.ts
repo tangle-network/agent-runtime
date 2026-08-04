@@ -1,9 +1,8 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type DefaultVerdict, HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { CreateSandboxOptions, SandboxEvent } from '@tangle-network/sandbox'
+import type { DefaultVerdict } from '@tangle-network/agent-eval'
+import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   defineLeaderboard,
@@ -45,6 +44,11 @@ function board(overrides: Partial<Parameters<typeof defineLeaderboard<FakeCase>>
     cases: CASES,
     prompt: async (c) => `solve the task. answer=${c.answer}`,
     score: (output, c) => (output.includes(c.answer) ? 1 : 0),
+    baseProfile: {
+      name: 'fake-board',
+      harness: 'opencode',
+      model: { provider: 'offline', default: 'test-model@2026-01-01' },
+    },
     backends: { inproc: fakeBackend },
     export: async () => {}, // silence the default table print in tests
     ...overrides,
@@ -165,10 +169,7 @@ describe('defineLeaderboard', () => {
     expect(shots[1]?.info).toEqual({ index: 1, verdict: { score: 1 } })
   })
 
-  it('pins HARNESS_NATIVE_MODEL-snapped cells via the resolveModel seam', async () => {
-    // claude-code is vendor-locked to anthropic/*; a moonshot model snaps the
-    // axis to the 'default' sentinel, and the RunRecord then REQUIRES a
-    // dispatch-reported served model.
+  it('refuses a harness/model cell that expands to a runtime-selected marker before backend work', async () => {
     const snappedAxis = [
       '--backend',
       'inproc',
@@ -177,69 +178,50 @@ describe('defineLeaderboard', () => {
       '--models',
       'moonshot/kimi-k2@2026-01-01',
     ]
-    await expect(board().run([...snappedAxis, '--cases', 'case-alpha'])).rejects.toThrow(
-      /paid-call receipt/,
-    )
-
-    const creates: CreateSandboxOptions[] = []
-    const result = await board({
-      backends: {
-        inproc: () => {
-          const inner = fakeBackend()
-          return {
-            ...inner,
-            async create(options?: CreateSandboxOptions) {
-              creates.push(options ?? {})
-              return inner.create(options)
-            },
-          }
+    let backendFactories = 0
+    let prompts = 0
+    await expect(
+      board({
+        backends: {
+          inproc: () => {
+            backendFactories += 1
+            return fakeBackend()
+          },
         },
-      },
-      resolveModel: (events) => {
-        // The served model rides the backend's own usage events — here the fake
-        // backend's llm_call stands in for the harness's terminal event.
-        const call = events.find((e) => (e as { type: string }).type === 'llm_call')
-        return call ? 'kimi-k2@2026-01-01' : undefined
-      },
-    }).run([...snappedAxis, '--cases', 'case-alpha'])
-    expect(result.records[0]?.model).toBe('kimi-k2@2026-01-01')
-    expect(creates).toHaveLength(1)
-    expect(creates[0]?.backend?.model).toBeUndefined()
-    const executionProfile = creates[0]?.backend?.profile as AgentProfile
-    expect(executionProfile.model?.default).toBeUndefined()
-    expect(executionProfile.model?.default).not.toBe(HARNESS_NATIVE_MODEL)
+        prompt: (c) => {
+          prompts += 1
+          return `solve the task. answer=${c.answer}`
+        },
+        resolveModel: () => 'kimi-k2@2026-01-01',
+      }).run([...snappedAxis, '--cases', 'case-alpha']),
+    ).rejects.toThrow(/runtime-selected/)
+    expect(backendFactories).toBe(0)
+    expect(prompts).toBe(0)
   })
 
-  it('sends the runtime-selected marker only to cli-bridge cells', async () => {
-    const creates: CreateSandboxOptions[] = []
-    const inner = fakeBackend()
-    const result = await board({
-      backends: {
-        'cli-bridge': () => ({
-          ...inner,
-          async create(options?: CreateSandboxOptions) {
-            creates.push(options ?? {})
-            return inner.create(options)
+  it('does not make runtime-selected cells executable through the cli-bridge backend', async () => {
+    let backendFactories = 0
+    await expect(
+      board({
+        backends: {
+          'cli-bridge': () => {
+            backendFactories += 1
+            return fakeBackend()
           },
-        }),
-      },
-      resolveModel: () => 'kimi-k2@2026-01-01',
-    }).run([
-      '--backend',
-      'cli-bridge',
-      '--harnesses',
-      'claude-code',
-      '--models',
-      'moonshot/kimi-k2@2026-01-01',
-      '--cases',
-      'case-alpha',
-    ])
-
-    expect(result.records[0]?.model).toBe('kimi-k2@2026-01-01')
-    expect(creates).toHaveLength(1)
-    expect(creates[0]?.backend?.model?.model).toBe(HARNESS_NATIVE_MODEL)
-    const executionProfile = creates[0]?.backend?.profile as AgentProfile
-    expect(executionProfile.model?.default).toBeUndefined()
+        },
+        resolveModel: () => 'kimi-k2@2026-01-01',
+      }).run([
+        '--backend',
+        'cli-bridge',
+        '--harnesses',
+        'claude-code',
+        '--models',
+        'moonshot/kimi-k2@2026-01-01',
+        '--cases',
+        'case-alpha',
+      ]),
+    ).rejects.toThrow(/runtime-selected/)
+    expect(backendFactories).toBe(0)
   })
 
   it('flows a structured TArtifact through parseOutput → score → records natively', async () => {
@@ -251,6 +233,11 @@ describe('defineLeaderboard', () => {
       name: 'structured-board',
       cases: CASES,
       prompt: async (c) => `solve the task. answer=${c.answer}`,
+      baseProfile: {
+        name: 'structured-board',
+        harness: 'opencode',
+        model: { provider: 'offline', default: 'test-model@2026-01-01' },
+      },
       parseOutput: (events): Structured => {
         const final = events.find((e) => (e as { type: string }).type === 'result') as
           | { data?: { finalText?: string } }
@@ -286,6 +273,11 @@ describe('defineLeaderboard', () => {
         cases: CASES,
         prompt: (c) => c.id,
         score: () => 0,
+        baseProfile: {
+          name: 'no-backend',
+          harness: 'opencode',
+          model: { provider: 'offline', default: 'm@1' },
+        },
       }).run(['--models', 'm@1']),
     ).rejects.toThrow(/backends\.sandbox/)
   })
@@ -314,6 +306,11 @@ describe('defineLeaderboard', () => {
       cases: [CASES[0] as FakeCase, CASES[0] as FakeCase],
       prompt: (c) => c.id,
       score: () => 0,
+      baseProfile: {
+        name: 'dup',
+        harness: 'opencode',
+        model: { provider: 'offline', default: 'test-model@2026-01-01' },
+      },
     }).toBenchmarkAdapter()
     await expect(dup.preflight()).rejects.toThrow(/duplicate case id/)
   })

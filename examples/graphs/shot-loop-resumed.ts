@@ -22,7 +22,7 @@ import {
   runGraph,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
@@ -34,8 +34,8 @@ export function shotLoopResumed(): {
   // ── The topology: plain data — continuity is one field on the edge ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'reviewer', profile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } } },
-      { id: 'coder', profile: { name: 'coder', prompt: { systemPrompt: 'Make tests pass.' } } },
+      { id: 'reviewer', profile: offlineProfile('reviewer', 'Verify.') },
+      { id: 'coder', profile: offlineProfile('coder', 'Make tests pass.') },
     ],
     edges: [
       {

@@ -24,7 +24,7 @@ import {
   runGraph,
   type WorkerSpawnContext,
 } from '@tangle-network/agent-runtime/kernel'
-import { printLedger, scriptedBrain } from './shared'
+import { offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 
@@ -56,13 +56,10 @@ export function userSimConversation(): {
     nodes: [
       {
         id: 'user-sim',
-        profile: {
-          name: 'user-sim',
-          prompt: {
-            systemPrompt:
-              'You are Ada, a busy founder buying a team plan. Terse. SSO is non-negotiable.',
-          },
-        },
+        profile: offlineProfile(
+          'user-sim',
+          'You are Ada, a busy founder buying a team plan. Terse. SSO is non-negotiable.',
+        ),
       },
       {
         id: 'product-agent',

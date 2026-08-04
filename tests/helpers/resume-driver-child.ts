@@ -66,6 +66,14 @@ const workerUsage: UsageEvent[] = [
 ]
 const workerSpend = spendFromUsageEvents(workerUsage)
 
+function offlineProfile(name: string): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: { provider: 'offline', default: `offline/${name}` },
+  }
+}
+
 function leafAgent(
   name: string,
   out: string,
@@ -90,7 +98,7 @@ function leafAgent(
     }),
   }
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: offlineProfile(name),
     harness: null,
     executor: executor as Executor<unknown>,
   }
@@ -119,7 +127,7 @@ const brain: ToolLoopChat = async (messages) => {
         id: `spawn-${i}`,
         name: 'spawn_agent',
         arguments: JSON.stringify({
-          profile: { name: w.key },
+          profile: offlineProfile(w.key),
           task: `do ${w.key}`,
           label: w.key,
           key: w.key,
@@ -139,7 +147,7 @@ const brain: ToolLoopChat = async (messages) => {
   }
 }
 
-const result = await supervise({ name: 'root', harness: 'cli-base' }, 'five assignments', {
+const result = await supervise(offlineProfile('root'), 'five assignments', {
   budget: { maxIterations: 200, maxTokens: 500_000 },
   // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
   // fifth spawn and make this a four-worker test.

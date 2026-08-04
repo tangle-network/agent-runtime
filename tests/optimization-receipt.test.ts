@@ -30,7 +30,12 @@ const officialImprovementMethod: ImproveMethodFactory<ImprovementScenario, strin
   async optimize() {
     return {
       winnerSurface: 'PROMOTED',
-      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
       provenance: {
         source: {
           kind: 'package',
@@ -49,6 +54,15 @@ const officialImprovementMethod: ImproveMethodFactory<ImprovementScenario, strin
           sourceSha256: 'b'.repeat(64),
         },
         optimizerModel: 'optimizer-model',
+        optimizerCallRef: 'tests/optimization-receipt:official-optimizer-call',
+        modelExecutions: {
+          scope: 'runtime-model-calls',
+          path: 'mem://official-optimizer/model-executions.jsonl',
+          sha256: `sha256:${'d'.repeat(64)}`,
+          calls: 2,
+          succeeded: 2,
+          failed: 0,
+        },
         modules: [{ module: 'official_optimizer.engine', sourceSha256: 'c'.repeat(64) }],
         python: { implementation: 'CPython', version: '3.13.5' },
         runId: `official:${context.evaluationRef}`,

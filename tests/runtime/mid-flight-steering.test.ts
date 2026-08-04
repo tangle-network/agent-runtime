@@ -38,6 +38,17 @@ const STEER = `stop editing ${WRONG} — the change belongs in ${RIGHT}`
 const ANSWER = `continue in ${RIGHT}`
 
 const budget: Budget = { maxIterations: 200, maxTokens: 400_000 }
+const rootProfile = {
+  name: 'root',
+  harness: 'cli-base' as const,
+  model: { provider: 'offline', default: 'offline/supervisor' },
+  prompt: { systemPrompt: 'drive one coder and correct it' },
+}
+const coderProfile = {
+  name: 'coder',
+  harness: 'opencode' as const,
+  model: { provider: 'offline', default: 'offline/coder' },
+}
 
 /** A promise a test resolves by hand — how the fake harness is held mid-turn until the driver
  *  has actually observed it and sent its steer, so the assertion is about the worker's behavior
@@ -161,7 +172,7 @@ function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat 
     turn += 1
 
     if (turn === 1) {
-      return call('spawn_agent', { profile: { name: 'coder' }, task: 'make the change' })
+      return call('spawn_agent', { profile: coderProfile, task: 'make the change' })
     }
     if (turn === 2) {
       workerId = String(parsed?.workerId ?? 'w')
@@ -201,7 +212,7 @@ function missingMessageAuthorityBrain(
     turn += 1
 
     if (turn === 1) {
-      return call('spawn_agent', { profile: { name: 'coder' }, task: 'make the change' })
+      return call('spawn_agent', { profile: coderProfile, task: 'make the change' })
     }
     if (turn === 2) {
       workerId = String(parsed?.workerId ?? workerId)
@@ -266,38 +277,30 @@ interface AuthorityRecord {
 async function runSupervisedSteer(steerable: boolean, authority?: AuthorityRecord) {
   const harness = createFakeHarness()
   const record: BrainRecord = {}
-  const result = await supervise(
-    {
-      name: 'root',
-      harness: 'cli-base',
-      prompt: { systemPrompt: 'drive one coder and correct it' },
-    },
-    'change the right module',
-    {
-      budget,
-      backend: backend(harness, steerable),
-      brain: steeringBrain(harness, record),
-      maxTurns: 8,
-      ...(authority
-        ? {
-            authorizeSpawn(input) {
-              authority.spawnCalls += 1
-              return { profile: input.profile }
-            },
-            authorizeMessage(input) {
-              authority.messages.push({
-                instruction: input.instruction,
-                frozen: Object.isFrozen(input) && Object.isFrozen(input.workerIdentity),
-                hasIdentity:
-                  input.workerIdentity.profileDigest !== undefined &&
-                  input.workerIdentity.taskDigest !== undefined,
-              })
-              return { instruction: input.instruction }
-            },
-          }
-        : {}),
-    },
-  )
+  const result = await supervise(rootProfile, 'change the right module', {
+    budget,
+    backend: backend(harness, steerable),
+    brain: steeringBrain(harness, record),
+    maxTurns: 8,
+    ...(authority
+      ? {
+          authorizeSpawn(input) {
+            authority.spawnCalls += 1
+            return { profile: input.profile }
+          },
+          authorizeMessage(input) {
+            authority.messages.push({
+              instruction: input.instruction,
+              frozen: Object.isFrozen(input) && Object.isFrozen(input.workerIdentity),
+              hasIdentity:
+                input.workerIdentity.profileDigest !== undefined &&
+                input.workerIdentity.taskDigest !== undefined,
+            })
+            return { instruction: input.instruction }
+          },
+        }
+      : {}),
+  })
   return { harness, record, result }
 }
 
@@ -307,7 +310,7 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     const harness = createFakeHarness()
     const record: { steer?: Record<string, unknown>; answer?: Record<string, unknown> } = {}
     try {
-      await supervise({ name: 'root', harness: 'cli-base' }, 'change the right module', {
+      await supervise(rootProfile, 'change the right module', {
         budget,
         backend: backend(harness, true),
         brain: missingMessageAuthorityBrain(harness, record),

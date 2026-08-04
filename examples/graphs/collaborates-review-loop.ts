@@ -26,7 +26,7 @@ import {
   type RunGraphOptions,
   runGraph,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -47,9 +47,9 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphOpt
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive the loop.' } } },
-      { id: 'implementer', profile: { name: 'implementer', prompt: { systemPrompt: 'Build.' } } },
-      { id: 'reviewer', profile: { name: 'reviewer', prompt: { systemPrompt: 'Review.' } } },
+      { id: 'driver', profile: offlineProfile('driver', 'Drive the loop.') },
+      { id: 'implementer', profile: offlineProfile('implementer', 'Build.') },
+      { id: 'reviewer', profile: offlineProfile('reviewer', 'Review.') },
     ],
     edges: [
       { kind: 'delegates', from: 'driver', to: 'implementer', directive: brief },

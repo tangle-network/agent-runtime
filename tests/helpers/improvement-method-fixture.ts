@@ -93,7 +93,12 @@ export const improvementMethod: ImproveMethodFactory<ImprovementScenario, string
     }
     return {
       winnerSurface: 'PROMOTED',
-      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
     }
   },
 })

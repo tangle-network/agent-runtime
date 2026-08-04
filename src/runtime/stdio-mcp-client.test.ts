@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   type AgentProfile,
   defineAgentProfilePublicConfig,
@@ -34,6 +35,10 @@ const SECRET_SERVER = `
 require('node:fs').writeFileSync(process.env.MARKER_PATH, process.env.TEST_TOKEN || 'missing')
 ${HELLO_SERVER}
 `
+
+const PUBLIC_MCP_SERVER = fileURLToPath(
+  new URL('../../tests/fixtures/stdio-mcp-server.cjs', import.meta.url),
+)
 
 const ENV_BOUNDARY_SERVER = `
 require('node:fs').writeFileSync(process.env.MARKER_PATH, JSON.stringify({
@@ -205,13 +210,16 @@ describe('materializeLocalMcp', () => {
     const marker = join(dir, 'received.txt')
     const get = vi.fn(async (name: string) => (name === 'GREETER_TOKEN' ? 'test-token' : undefined))
     const profile: AgentProfile = {
+      name: 'secret-mcp-worker',
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline-test-model' },
       mcp: {
         greeter: {
           transport: 'stdio',
           command: 'node',
-          args: [pub('-e'), pub(SECRET_SERVER)],
-          env: { MARKER_PATH: pub(marker) },
-          metadata: { secretEnv: { TEST_TOKEN: 'GREETER_TOKEN' } },
+          args: [pub(PUBLIC_MCP_SERVER)],
+          env: { MARKER_PATH: pub(marker), WRITE_MARKER: pub('1') },
+          metadata: { secretEnv: { MESSAGE: 'GREETER_TOKEN' } },
         },
       },
     }
@@ -304,11 +312,14 @@ describe('materializeLocalMcp', () => {
     const dir = mkdtempSync(join(tmpdir(), 'local-mcp-dynamic-'))
     const marker = join(dir, 'must-not-exist.txt')
     const trustedProfile: AgentProfile = {
+      name: 'trusted-mcp-worker',
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline-test-model' },
       mcp: {
         trusted: {
           transport: 'stdio',
           command: 'node',
-          args: [pub('-e'), pub(HELLO_SERVER)],
+          args: [pub(PUBLIC_MCP_SERVER)],
         },
       },
     }
@@ -318,12 +329,15 @@ describe('materializeLocalMcp', () => {
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
     })
     const dynamicProfile: AgentProfile = {
+      name: 'dynamic-mcp-worker',
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline-test-model' },
       mcp: {
         untrusted: {
           transport: 'stdio',
           command: 'node',
-          args: [pub('-e'), pub(SECRET_SERVER)],
-          env: { MARKER_PATH: pub(marker) },
+          args: [pub(PUBLIC_MCP_SERVER)],
+          env: { MARKER_PATH: pub(marker), WRITE_MARKER: pub('1') },
         },
       },
     }

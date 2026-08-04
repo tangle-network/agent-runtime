@@ -281,7 +281,12 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
       routerKey: 'k',
       workerProfile: {
         name: 'starved-worker',
-        model: { default: 'stub-model', metadata: { maxTokens: 64 } },
+        harness: 'cli-base',
+        model: {
+          provider: 'offline',
+          default: 'stub-model',
+          metadata: { maxTokens: 64 },
+        },
         prompt: { systemPrompt: 'Solve it.' },
         tools: {},
       },
