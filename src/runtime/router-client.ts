@@ -142,6 +142,8 @@ export async function routerChatWithUsage(
     callId?: string
     /** Caller trace correlation forwarded independently of idempotency. */
     correlationId?: string
+    /** Headers inherited from an enclosing conversation or task. */
+    propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatResult> {
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
@@ -329,6 +331,8 @@ export async function routerChatWithTools(
     reasoningEffort?: ReasoningEffort
     callId?: string
     correlationId?: string
+    /** Headers inherited from an enclosing conversation or task. */
+    propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatToolsResult> {
   const body = toolCompletionBody(cfg, messages, tools, opts)
@@ -641,6 +645,8 @@ export async function streamRouterChatWithTools(
     reasoningEffort?: ReasoningEffort
     callId?: string
     correlationId?: string
+    /** Headers inherited from an enclosing conversation or task. */
+    propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatToolsResult> {
   const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
@@ -770,9 +776,16 @@ export async function streamRouterChatWithTools(
 
 function routerRequestHeaders(
   cfg: Pick<RouterConfig, 'routerKey'>,
-  opts: { callId?: string; correlationId?: string } | undefined,
+  opts:
+    | {
+        callId?: string
+        correlationId?: string
+        propagatedHeaders?: Readonly<Record<string, string>>
+      }
+    | undefined,
 ): Record<string, string> {
   return {
+    ...(opts?.propagatedHeaders ?? {}),
     'content-type': 'application/json',
     authorization: `Bearer ${cfg.routerKey}`,
     ...(opts?.callId ? { 'idempotency-key': opts.callId } : {}),

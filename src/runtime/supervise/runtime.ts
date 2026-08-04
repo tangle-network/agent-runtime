@@ -1002,21 +1002,32 @@ function assertObservedRouterModel(
 function routerRequestIdentity(ctx: ExecutorContext): {
   readonly callId?: string
   readonly correlationId?: string
+  readonly propagatedHeaders?: Readonly<Record<string, string>>
 } {
   const correlation = ctx.node?.identity?.correlation
   return {
     ...(correlation?.callId ? { callId: correlation.callId } : {}),
     ...(correlation?.correlationId ? { correlationId: correlation.correlationId } : {}),
+    ...(ctx.propagatedHeaders ? { propagatedHeaders: ctx.propagatedHeaders } : {}),
   }
 }
 
 function routerTurnRequestIdentity(
-  identity: { readonly callId?: string; readonly correlationId?: string },
+  identity: {
+    readonly callId?: string
+    readonly correlationId?: string
+    readonly propagatedHeaders?: Readonly<Record<string, string>>
+  },
   turnIndex: number,
-): { readonly callId?: string; readonly correlationId?: string } {
+): {
+  readonly callId?: string
+  readonly correlationId?: string
+  readonly propagatedHeaders?: Readonly<Record<string, string>>
+} {
   return {
     ...(identity.callId ? { callId: `${identity.callId}:turn:${turnIndex + 1}` } : {}),
     ...(identity.correlationId ? { correlationId: identity.correlationId } : {}),
+    ...(identity.propagatedHeaders ? { propagatedHeaders: identity.propagatedHeaders } : {}),
   }
 }
 
