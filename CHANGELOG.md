@@ -1,15 +1,31 @@
 # Changelog
 
-## 0.128.1
+## 0.129.0
 
-- Require Agent Eval 0.144.1 and Agent Knowledge 7.0.9, and route the official-optimizer callback through Runtime's exact `AgentProfile` execution path.
+- Require Agent Eval 0.144.3 and Agent Knowledge 7.0.10, and route the official-optimizer callback through Runtime's exact `AgentProfile` execution path.
 - Reject model, provider, reasoning, prompt, tool, resource, harness, and generation-setting conflicts before transport; consumers must declare those fields in the profile.
 - Require `defineLeaderboard` callers to supply an exact `baseProfile`; remove its `modelBackend` override so each matrix cell's profile remains the only model authority.
 - Require generic coder, researcher, and supervised-knowledge paths to receive complete profiles; remove harness/model overlays and MCP environment alias ladders.
 - Resolve Sandbox execution only from `AgentProfile.harness`; a backend type may confirm that choice but cannot replace it.
 - Parse, detach, and deeply freeze a complete `AgentProfile` before Scope, registry, nested-driver, or personified execution can honor any built-in or caller-supplied executor.
 - Require `driverChild(profile, ...)` and `worktreeLoopRunner({ rootProfile, ... })`; remove name-only driver and personified-root shortcuts.
+- Remove the public `runLocalHarness` process shortcut; use `createWorktreeCliExecutor({ profile, ... })` directly or `createExecutor({ backend: 'cli-worktree', ... })` inside a supervised run so the CLI and model derive from one exact `AgentProfile`.
 - Keep missing token usage and billed cost unknown, and report reasoning-token usage when the provider supplies it.
+
+### Removed public execution shortcuts
+
+- Remove `driverLoopGenerator`, `DriverLoopGeneratorOptions`, `buildDriverSystem`, and `researchDriverNote`; use `improve({ surface: 'code', code: { profile, executorForWorktree, buildPrompt } })` or `agenticGenerator` so every authoring call uses the exact declared profile through Runtime.
+- Remove `AGENTIC_PROFILE_RESOURCE_ROOT`; profile resources now travel inside the exact `AgentProfile` and Runtime materializes them at execution.
+- Remove `AgentBackendKind`, `ResolveAgentBackendOptions`, `resolveAgentBackend`, `createOpenAICompatibleBackend`, and `BackendRetryPolicy`; select a built-in transport with `ExecutorConfig` and `createExecutor(...)`, bind it to an exact profile with `createProfileExecutionBackend(...)` for `runAgentTaskStream` or conversation APIs, or pass both directly to `streamAgentTurn`.
+- Move retry configuration into `AgentProfile.model.metadata.retry`, including attempt count, per-attempt timeout, retryable status codes, exponential-backoff bounds, and jitter, so deleting the parallel backend API does not delete caller control.
+- Remove the public Router chat and tool-loop API (`RouterConfig`, `RouterChatResult`, `RouterChatToolsResult`, `RouterToolCall`, `RouterToolLoopResult`, `routerChatWithUsage`, `routerChatWithTools`, `streamRouterChatWithTools`, `routerToolLoop`, and `routerBrain`); use `createExecutor(...)` plus `streamAgentTurn` and `collectAgentTurn`, use `ToolLoopToolCall` for the provider-neutral tool-call record, use `profileChatClient` for Eval integrations, or use `supervise(...)` for a profiled supervisor.
+- Replace `ShotPersona` with `ShotSpec.profile`, which carries a complete exact profile instead of a prompt/model-only override.
+- Remove `canonicalizeAuthoredProfile`; inputs must already satisfy `agentProfileSchema`, with no flat legacy spelling that Runtime silently repairs.
+- Remove `authoredWorker`; use `workerFromBackend(...)`, which admits each complete profile through the same executor path as every other supervised worker.
+- Remove the public `chatCompletionsTransport` constructor; inject an offline completion function through `ChatTransportExecutorOptions.complete`, or use an exact profile with `createExecutor(...)` for real execution.
+- Remove `createPrimeIntellectBackend`; use `primeIntellectExecutorConfig(context)` with `createExecutor(...)`, then execute an exact profile through `streamAgentTurn` or bind it with `createProfileExecutionBackend(...)` when an `AgentExecutionBackend` is required.
+- Remove `uiAuditorProfile`, `createInProcessUiAuditClient`, and their browser/judge option types; author a normal `AgentProfile`, execute it through Runtime, and keep using `UiAuditTask`, `encodeAuditTaskEnvelope`, `formatAuditorPrompt`, `parseAuditorEvents`, and `createUiAuditorValidator` from `/profiles`.
+- Remove the bundled UI-audit example and the Playwright peer dependency because browser placement belongs to the caller-owned execution environment, not a profile-specific Runtime client.
 
 ## 0.128.0
 

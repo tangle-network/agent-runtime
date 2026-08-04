@@ -26,9 +26,8 @@ export interface ConversationParticipant {
   name: string
   /**
    * Backend that runs this participant's turn. Reuses the existing
-   * `AgentExecutionBackend` contract from `runAgentTaskStream`, so any
-   * registered backend (iterable, sandbox, OpenAI-compatible) works without
-   * adaptation.
+   * `AgentExecutionBackend` contract from `runAgentTaskStream`, so an iterable,
+   * sandbox, or profile-backed Runtime executor works through the same runner.
    */
   backend: AgentExecutionBackend
   /**

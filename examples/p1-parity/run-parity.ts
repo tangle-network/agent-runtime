@@ -76,7 +76,7 @@ function parityCell(index: number, shots: number): CellSpec {
     // The coder model is PINNED on its profile (the arms refuse a model-less coder — a silent
     // fallback could let the two arms drift apart); offline it names the scripted transport.
     // The reviewer profile stays model-less: as the graph ROOT it is materialized by the driver
-    // brain, and the driver model is substrate config (multishot backend / graph RouterConfig).
+    // brain, and the driver model comes from the exact root profile in both arms.
     coderProfile: {
       name: 'coder',
       harness: 'cli-base',

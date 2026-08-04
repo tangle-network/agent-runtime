@@ -34,10 +34,10 @@ export const demoGoal = `Produce the exact line "${expectedAnswer}".`
 /**
  * A SCRIPTED `ToolLoopChat`: spawn `workerCount` workers (the "drive N workers"
  * shape), await each settlement, then stop. This is the exact contract
- * `routerBrain` fills in production — here it returns a fixed turn sequence so the
- * brain runs with no inference (the same offline seam the driver's own unit tests
- * use). The brain still REASONS the loop (spawn → await → stop) against a live
- * `Scope`; only the driver-LLM call is mocked.
+ * Runtime derives from the supervisor's exact profile in production; here the chat
+ * function returns a fixed turn sequence so the brain runs with no inference (the
+ * same offline seam the driver's own unit tests use). The brain still REASONS the
+ * loop (spawn → await → stop) against a live `Scope`; only the driver-LLM call is mocked.
  *
  * The canonical loop parses `toolCalls[].arguments` itself, so each scripted call
  * serializes its arguments to a JSON string; the loop JSON.parses them before

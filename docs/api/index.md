@@ -3954,9 +3954,8 @@ within a `Conversation`.
 > **backend**: [`AgentExecutionBackend`](#agentexecutionbackend)
 
 Backend that runs this participant's turn. Reuses the existing
-`AgentExecutionBackend` contract from `runAgentTaskStream`, so any
-registered backend (iterable, sandbox, OpenAI-compatible) works without
-adaptation.
+`AgentExecutionBackend` contract from `runAgentTaskStream`, so an iterable,
+sandbox, or profile-backed Runtime executor works through the same runner.
 
 ##### label?
 
@@ -14270,6 +14269,38 @@ lifetime; consumers should not share it across requests.
 #### Returns
 
 [`RuntimeRunHandle`](#runtimerunhandle)
+
+***
+
+### createProfileExecutionBackend()
+
+> **createProfileExecutionBackend**(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)
+
+**`Stable`**
+
+Bind one exact profile and Runtime executor to the stable `AgentExecutionBackend` contract used
+by `runAgentTaskStream` and conversations.
+
+Runtime still owns the model call through `streamAgentTurn`.
+The adapter only translates the two stream protocols and carries the caller's request headers
+into `ExecutorContext` so an HTTP executor can preserve authorization, recursion depth, and
+trace identity.
+
+#### Parameters
+
+##### options
+
+###### profile
+
+`AgentProfile`
+
+###### executor
+
+[`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
+
+#### Returns
+
+[`AgentExecutionBackend`](#agentexecutionbackend)
 
 ***
 

@@ -139,7 +139,7 @@ No benchmark adapter is removed — planned stubs (e.g. AppWorld) are kept.
 ## Evidence anchors
 
 - Agent-driver: `src/mcp/tools/coordination.ts` (`createCoordinationTools` — spawn · observe · steer · stop) over `src/runtime/supervise/` (`Scope`/`Supervisor`).
-- Strategy program space: `src/runtime/strategy.ts` (`defineStrategy`/`ShotPersona`), `src/runtime/strategy-author.ts` (`authorStrategy`), `src/runtime/run-benchmark.ts` (`runBenchmark`/`Environment`).
+- Strategy program space: `src/runtime/strategy.ts` (`defineStrategy`/`ShotSpec.profile`), `src/runtime/strategy-author.ts` (`authorStrategy`), `src/runtime/run-benchmark.ts` (`runBenchmark`/`Environment`).
 - Selection: `src/runtime/run-loop.ts:983` (`defaultSelectWinner`), `:797` (`branchPoint`), `:104` (`selectWinner` inject); deployable selector = `bench/src/selector.ts` replayed via `corpus-replay.mts --selector`.
 - Analyst proposal source: `src/analyst-loop/types.ts` (`KnowledgeProposalSource`); the trace observer feeding the canonical loop is `observe()` (`src/runtime/observe.ts`).
 - Shared loop: `bench/src/refine-loop.ts` (`RefineLoopSpec`).

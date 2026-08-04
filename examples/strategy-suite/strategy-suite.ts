@@ -83,7 +83,7 @@ const doubleCheck = defineStrategy(
 )
 
 // ── The offline worker: a deterministic `complete` transport (no server) ─────
-// `worker.complete` is the injection seam (RouterConfig.complete): given the OpenAI request body
+// `worker.complete` is the injected completion transport: given the OpenAI request body
 // it returns the parsed `/chat/completions` JSON the worker + analyst would have fetched. The same
 // fn serves BOTH legs — the worker's tool-calling turns and the refine analyst's chat-only steer —
 // exactly as a localhost mock endpoint would, but in-process. The live router is the drop-in upgrade.

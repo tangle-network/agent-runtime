@@ -4,9 +4,9 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.128.1.**
+> **Version 0.129.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.144.1 <0.145.0`.
+> `agent-eval` must satisfy `>=0.144.3 <0.145.0`.
 > `sandbox` must satisfy `>=0.17.2 <0.18.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.43.0 <0.44.0`.
 >
@@ -132,6 +132,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Run **agent-eval fixture folders** through Runtime `runAgentRounds` | agent-eval fixture loading/planning, then `loopCampaignDispatch(...)`: `/kernel`; it starts the Runtime cell inside Eval's paid-call lifecycle | a one-off `runCampaign` dispatch, or attaching a completed `LoopResult` after paid work already ran |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)`: `/kernel` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
 | Run **ONE agent turn** on any substrate: box (`streamPrompt`), cli-bridge/router `Executor`, or in-process chat backend: as ONE normalized `RuntimeStreamEvent` stream with a guaranteed terminal result+usage event; opt into in-stream `tool_call`/`tool_result` with `preserveToolParts`, or tap the raw sandbox events with `onRawEvent` | `streamAgentTurn(backend, prompt, { signal, timeoutMs, preserveToolParts?, onRawEvent? })` + `collectAgentTurn(stream)`: `/kernel` | a per-provider stream→event mapper zoo, a hand-faked box around a non-box executor, or raw fetch leaking through the turn abstraction |
+| Use an exact profile and Runtime executor where `runAgentTaskStream` or a conversation expects an `AgentExecutionBackend` | `createProfileExecutionBackend({ profile, executor: createExecutor(config) })`: root `.`; the adapter preserves conversation authorization, recursion-depth, and trace headers | a provider-specific backend constructor or an adapter that reads a second model/prompt configuration |
 | Pick the **execution transport a driven loop runs on** (`sandbox` box / cli-bridge / router) from a product flag | `resolveSandboxClient({ backend })`: `/kernel` | a per-product `if (backend === 'router') …` branch re-wiring `createExecutor` + `inlineSandboxClient` |
 | Adapt an exact `AgentProfile` to agent-eval's `ChatClient` without moving credentials or execution policy into Eval | `profileChatClient({ profile, executor, context })`: `/kernel` | a provider fetch configured separately from the profile, or request fields that override the profile's model policy |
 | Pick / register a leaf backend, or bring your own agent | `createExecutor({ backend })` / `createExecutorRegistry()` / implement `Executor`: `/kernel` | a per-vendor adapter or closed `inline\|sandbox\|cli` switch (won't report through the `UsageEvent` channel) |

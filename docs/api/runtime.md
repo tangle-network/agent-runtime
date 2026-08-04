@@ -14837,6 +14837,14 @@ Construction context handed to a `ExecutorFactory` — the seams a built-in need
 
 > `readonly` **signal**: `AbortSignal`
 
+##### propagatedHeaders?
+
+> `readonly` `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Request headers inherited from an enclosing task or conversation.
+Network executors forward these after their own connection headers so caller authorization,
+recursion depth, and trace identity survive the profile-to-executor boundary.
+
 ##### node?
 
 > `readonly` `optional` **node?**: [`ExecutorNodeContext`](#executornodecontext)

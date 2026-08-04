@@ -31,7 +31,14 @@ That file defines the scripted `worker`, `output`, and `validator` used below so
 Replace the scripted worker with a sandbox, CLI bridge, or router backend without changing the driver.
 
 ```ts
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
+
+const noteWriterProfile = {
+  name: 'note-writer',
+  harness: 'cli-base',
+  model: { provider: 'scripted', default: 'scripted/note-writer' },
+} satisfies AgentProfile
 
 const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
   task: { prompt: 'Write a one-line release note for one-click restore.' },
@@ -47,7 +54,7 @@ const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail
     decide: (history) =>
       history.some((shot) => shot.verdict?.valid) ? 'pick-winner' : history.length < 3 ? 'refine' : 'fail',
   },
-  agentRun: { profile: { name: 'note-writer' } as AgentProfile, taskToPrompt: (t) => t.prompt },
+  agentRun: { profile: noteWriterProfile, taskToPrompt: (t) => t.prompt },
   output,    // parses the worker's event stream into { note }
   validator, // pass/fail check: does the note mention "rollback"?
   ctx: { sandboxClient: worker },
@@ -60,9 +67,9 @@ Run it from a clone of this repo and you get exactly this:
 ```bash
 $ pnpm i && pnpm build
 $ pnpm tsx examples/quickstart/quickstart.ts
-shot 0: reject: "Shipped one-click restore."
-shot 1: PASS: "Shipped one-click restore with an instant rollback path."
-decision: pick-winner: winner: shot 1
+shot 0: reject — "Shipped one-click restore."
+shot 1: PASS — "Shipped one-click restore with an instant rollback path."
+decision: pick-winner — winner: shot 1
 ```
 
 The annotated version is [`examples/driver-loop`](./examples/driver-loop).
@@ -119,6 +126,7 @@ const result = await supervise(
   {
     name: 'supervisor',
     harness: 'cli-base',
+    model: { provider: 'tangle-router', default: process.env.TANGLE_MODEL! },
     prompt: {
       systemPrompt: 'Delegate to workers; do not solve the task yourself.',
     },
@@ -234,7 +242,7 @@ There is no local fallback.
 Install its optional Python process before using it:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.144.1"
+python -m pip install "agent-eval-rpc==0.144.3"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -248,7 +256,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.144.1"
+python -m pip install "agent-eval-rpc==0.144.3"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
@@ -296,7 +304,7 @@ It uses Runtime's isolated git worktrees and coding-agent candidate execution:
 ```ts
 const result = await improve({
   surface: 'code',
-  code: { repoRoot, baseRef, generator },
+  code: { repoRoot, baseRef, profile, generator },
   scenarios,
   judge,
   agent,
