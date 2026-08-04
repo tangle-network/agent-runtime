@@ -22,7 +22,11 @@ interface Outer {
   best: number
 }
 
-const profile: AgentProfile = { name: 'compose-stub' }
+const profile: AgentProfile = {
+  name: 'compose-stub',
+  harness: 'opencode',
+  model: { provider: 'offline', default: 'offline-test-model' },
+}
 
 const innerOutput: OutputAdapter<Inner> = {
   parse(events) {

@@ -78,6 +78,7 @@ import {
   unknownMaterializationReceipt,
 } from './supervise/materialization'
 import {
+  assertExecutableAgentProfile,
   concreteModelId,
   profileBridgeWireModel,
   profileProviderModel,
@@ -128,8 +129,8 @@ type ObservedAgentTurnBackend =
     }
   | {
       /**
-       * An in-process `AgentExecutionBackend` (`resolveAgentBackend` output or
-       * any custom backend): the turn is one `backend.stream()` call.
+       * A caller-supplied in-process `AgentExecutionBackend`: the turn is one
+       * `backend.stream()` call.
        */
       kind: 'chat'
       backend: AgentExecutionBackend
@@ -476,6 +477,7 @@ async function* streamAgentTurnInternal(
   const label = backend.kind === 'chat' ? backend.backend.kind : backend.kind
   const profile =
     backend.kind === 'executor' ? agentProfileSchema.parse(backend.profile) : undefined
+  if (profile) assertExecutableAgentProfile(profile, 'streamAgentTurn')
   const profileDigest = profile ? authoredProfileDigest(profile) : undefined
   assertTurnIdentity(opts.callId, 'callId')
   assertTurnIdentity(opts.correlationId, 'correlationId')

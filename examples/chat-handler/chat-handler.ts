@@ -3,9 +3,8 @@
  * chat handler implements. `handleChatTurn` frames events with NDJSON +
  * `session.run.*` envelope and calls product hooks after drain.
  *
- * In a real product, `produce()` calls `runAgentTaskStream({ task,
- * backend, input })` against a real backend
- * (`createOpenAICompatibleBackend` / `createSandboxPromptBackend`).
+ * In a real product, `produce()` adapts `streamAgentTurn(...)` from a
+ * profile-bound Runtime executor into the product's chat events.
  * Here we yield a small scripted stream so the example runs offline.
  *
  * Run with:

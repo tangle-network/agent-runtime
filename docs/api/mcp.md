@@ -2134,7 +2134,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-12)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-13)
 
 ##### sandboxId?
 
@@ -4392,10 +4392,6 @@ Parsed `delegate` tool arguments.
 
 > **intent**: `string`
 
-##### model?
-
-> `optional` **model?**: `string`
-
 ##### runId?
 
 > `optional` **runId?**: `string`
@@ -4428,11 +4424,19 @@ What killed a delegation, projected for the calling agent: the rejection's name 
 
 ##### router
 
-> **router**: [`RouterConfig`](runtime.md#routerconfig)
+> **router**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
 
 **`Experimental`**
 
 The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained).
+
+##### supervisorProfile
+
+> **supervisorProfile**: `AgentProfile`
+
+**`Experimental`**
+
+Exact executable supervisor identity selected by the trusted composition root.
 
 ##### backend
 
@@ -4449,14 +4453,6 @@ WHERE the authored workers run. Required for `supervise()` to spawn anything.
 **`Experimental`**
 
 The completion oracle the authored workers settle against (settled ⟺ delivered).
-
-##### model?
-
-> `optional` **model?**: `string`
-
-**`Experimental`**
-
-Default supervisor brain model when a call omits `model`.
 
 ##### allowedModels?
 
@@ -6401,7 +6397,7 @@ Human-readable description of the `delegate` MCP tool, injected into the tool ma
 
 **`Experimental`**
 
-JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`).
+JSON Schema for `delegate` tool arguments (`intent` + optional trace id).
 
 #### Type Declaration
 
@@ -6424,18 +6420,6 @@ JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runI
 ###### properties.intent.description
 
 > `readonly` **description**: `"What you want accomplished, as an outcome. The supervisor authors the worker."` = `'What you want accomplished, as an outcome. The supervisor authors the worker.'`
-
-###### properties.model
-
-> `readonly` **model**: `object`
-
-###### properties.model.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.model.description
-
-> `readonly` **description**: `"Optional per-call override for the supervisor brain model."` = `'Optional per-call override for the supervisor brain model.'`
 
 ###### properties.runId
 
@@ -7114,7 +7098,7 @@ created, against the same table that emits the argv.
 
 ##### reasoningEffort
 
-`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"`
+`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"`
 
 #### Returns
 

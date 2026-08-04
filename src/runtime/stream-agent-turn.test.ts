@@ -17,7 +17,8 @@ import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/type
 
 const TEST_PROFILE = {
   name: 'stream-agent-turn-test',
-  model: { default: 'offline-test-model' },
+  harness: 'cli-base',
+  model: { provider: 'offline', default: 'offline-test-model' },
 } as const
 
 function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'final' } {
@@ -57,7 +58,7 @@ describe('streamAgentTurn: box backend', () => {
     expect(final.text).toBe('Hello world')
     expect(final.metadata).toMatchObject({
       tokenUsage: { input: 100, output: 40 },
-      usdKnown: false,
+      costUsd: 0.02,
       model: 'kimi-k2',
     })
   })
@@ -135,7 +136,12 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
     if (start?.type !== 'backend_start') throw new Error('expected backend_start')
     expect(start.backend).toBe('box')
     expect(turn.finalText).toBe('task output')
-    expect(turn.usage).toEqual({ input: 9, output: 4, usdKnown: false, model: 'kimi-k2' })
+    expect(turn.usage).toEqual({
+      input: 9,
+      output: 4,
+      costUsd: 0.01,
+      model: 'kimi-k2',
+    })
     expect(turn.status).toBe('completed')
   })
 
@@ -467,6 +473,28 @@ describe('streamAgentTurn: executor backend', () => {
       )
     }
   }
+
+  it('rejects an incomplete execution profile before constructing an executor', async () => {
+    let factoryCalls = 0
+    const factory: ExecutorFactory<unknown> = (...args) => {
+      factoryCalls += 1
+      return stubFactory()(...args)
+    }
+
+    await expect(
+      collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory,
+            profile: { name: 'incomplete', model: { default: 'offline-test-model' } },
+          },
+          'must not run',
+        ),
+      ),
+    ).rejects.toThrow(/AgentProfile\.harness must be explicit/u)
+    expect(factoryCalls).toBe(0)
+  })
 
   it('runs the factory once and terminates with the executor usage', async () => {
     let toreDown = 0

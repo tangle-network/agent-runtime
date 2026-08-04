@@ -60,8 +60,8 @@ A `@tangle-network/agent-gateway`-fronted endpoint:
 
 A `@tangle-network/agent-runtime` consumer (driver code):
 - Passes `propagatedHeaders` + `inboundDepth` + `parentTurnId` to `runConversation` / `runConversationStream` from its inbound request context.
-- The runtime automatically emits `buildForwardHeaders(...)` on every participant backend call.
-- Backends that issue HTTP (e.g. `createOpenAICompatibleBackend`) merge `context.propagatedHeaders` into their outbound request automatically.
+- The runtime derives `buildForwardHeaders(...)` and exposes the result as `AgentBackendContext.propagatedHeaders` on every participant backend call.
+- A caller-owned HTTP backend MUST merge `context.propagatedHeaders` into its outbound request; Runtime does not issue provider HTTP on its behalf.
 
 ## Reference
 

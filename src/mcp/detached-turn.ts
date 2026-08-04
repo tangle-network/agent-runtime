@@ -26,8 +26,8 @@
  * token/cost aggregation is not produced for that turn. The trace sinks still
  * observe detached work — `runDetachedTurn` synthesizes a single-iteration
  * loop event stream (see `RunDetachedTurnOptions.traceEmitter`) so the span
- * topology joins the inherited trace context, with cost/tokens reported as 0
- * under the `'detached-turn'` driver tag. Multi-variant fanout stays on the
+ * topology joins the inherited trace context, with zero observed subtotals
+ * explicitly marked incomplete under the `'detached-turn'` driver tag. Multi-variant fanout stays on the
  * streaming `runAgentRounds` path — N concurrent sessions cannot be expressed as one
  * resume key, and winner selection needs every candidate.
  *
@@ -191,8 +191,8 @@ export interface RunDetachedTurnOptions {
    * `'detached-turn'`) so trace-context inheritance survives the detached
    * path — the same events the streaming `runAgentRounds` path would emit, minus
    * per-token telemetry: `driveTurn` yields one terminal payload, so token
-   * and cost figures are structurally unavailable and reported as 0 under
-   * this driver tag.
+   * and cost figures are structurally unavailable; zero observed subtotals are
+   * marked incomplete under this driver tag.
    */
   traceEmitter?: LoopTraceEmitter
   /** Physical placement stamped on the synthesized dispatch event. Default `'sibling'`. */
@@ -274,7 +274,7 @@ export async function runDetachedTurn(options: RunDetachedTurnOptions): Promise<
  * the trace sinks (OTEL exporter, delegation journal) observe detached work
  * exactly like a streamed `runAgentRounds` run. `runId` = the deterministic session
  * id; cost/token figures are structurally unavailable on the `driveTurn`
- * surface and emitted as 0 under the `'detached-turn'` driver tag.
+ * surface, so zero observed subtotals carry explicit unknown flags.
  */
 function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
   started(): void
@@ -337,7 +337,9 @@ function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
           iterationIndex: 0,
           agentRunName,
           costUsd: 0,
+          costUsdKnown: false,
           durationMs: endMs - startMs,
+          tokenUsage: { input: 0, output: 0, tokensKnown: false },
           ...(error !== undefined ? { error } : {}),
         },
       })
@@ -348,6 +350,7 @@ function createDetachedTurnTrace(options: RunDetachedTurnOptions): {
         payload: {
           ...(error === undefined ? { winnerIterationIndex: 0 } : {}),
           totalCostUsd: 0,
+          costUsdKnown: false,
           durationMs: endMs - startMs,
           iterations: 1,
         },

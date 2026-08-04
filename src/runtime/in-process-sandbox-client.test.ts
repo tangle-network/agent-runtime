@@ -28,7 +28,14 @@ describe('inProcessSandboxClient', () => {
 
     const result = await runAgentRounds({
       driver,
-      agentRun: { profile: { name: 'echo' }, taskToPrompt: (t) => t },
+      agentRun: {
+        profile: {
+          name: 'echo',
+          harness: 'opencode',
+          model: { provider: 'offline', default: 'offline-test-model' },
+        },
+        taskToPrompt: (t) => t,
+      },
       output,
       validator: {
         async validate() {

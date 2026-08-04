@@ -131,9 +131,9 @@ export function extractLlmCallEvent(
  *     receipt: (turn) => {
  *       const u = sumSandboxUsage(turn.events)
  *       return { model, inputTokens: u.input, outputTokens: u.output,
- *         ...(u.tokensKnown ? {} : { usageUnknown: true }),
- *         ...(u.usdKnown && u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}),
- *         ...(u.usdKnown ? {} : { costUnknown: true }),
+ *         ...(u.tokensKnown === false ? { usageUnknown: true } : {}),
+ *         ...(u.usdKnown !== false && u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}),
+ *         ...(u.usdKnown === false ? { costUnknown: true } : {}),
  *         ...(u.estimatedCostUsd !== undefined ? { estimatedCostUsd: u.estimatedCostUsd } : {}) }
  *     }
  *
@@ -147,8 +147,8 @@ export function sumSandboxUsage(
   input: number
   output: number
   costUsd: number
-  tokensKnown: boolean
-  usdKnown: boolean
+  tokensKnown?: false
+  usdKnown?: false
   estimatedCostUsd?: number
 } {
   let input = 0
@@ -177,8 +177,8 @@ export function sumSandboxUsage(
     input,
     output,
     costUsd,
-    tokensKnown: sawCall && tokensKnown,
-    usdKnown: sawCall && usdKnown,
+    ...(sawCall && tokensKnown ? {} : { tokensKnown: false as const }),
+    ...(sawCall && usdKnown ? {} : { usdKnown: false as const }),
     ...(sawEstimate ? { estimatedCostUsd } : {}),
   }
 }
@@ -205,10 +205,15 @@ function buildLlmCall(
   const promptCache = finiteMetadata(data.promptCache ?? data.prompt_cache)
   const tokensKnown =
     explicitTokensKnown !== false && tokensIn !== undefined && tokensOut !== undefined
+  // Sandbox's canonical terminal `totalCostUsd` is already the provider-reported receipt. The
+  // current SDK carries no provenance tag, so absence means the canonical receipt rather than
+  // "unknown". Explicit estimates and explicit false-known markers remain unknown.
   const usdKnown =
-    explicitCostKnown === true &&
-    (costProvenance === 'provider-receipt' || costProvenance === 'billing-receipt') &&
-    costUsd !== undefined
+    explicitCostKnown !== false &&
+    costUsd !== undefined &&
+    (costProvenance === undefined ||
+      costProvenance === 'provider-receipt' ||
+      costProvenance === 'billing-receipt')
   if (
     tokensIn === undefined &&
     tokensOut === undefined &&

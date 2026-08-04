@@ -226,9 +226,9 @@ export interface BackendErrorDetail {
 /**
  *
  * OpenAI Chat Completions tool descriptor. The shape mirrors the
- * `/v1/chat/completions` `tools[]` parameter so callers can pass tool
- * definitions through `createOpenAICompatibleBackend({ tools })` without any
- * runtime translation. The router proxies this shape verbatim to Anthropic
+ * `/v1/chat/completions` `tools[]` parameter so caller-owned compatible
+ * transports can pass tool definitions without translation. A router can
+ * proxy this shape to Anthropic
  * (translated server-side), DeepSeek, Groq, OpenAI, and Gemini — every model
  * that the eval surface targets.
  *

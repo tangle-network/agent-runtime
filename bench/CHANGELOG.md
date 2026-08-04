@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2
+
+- Consume Runtime 0.128.1, Eval 0.144.1, and Sandbox 0.17.3 so benchmark model calls use the exact-profile execution boundary and the released optimizer callback contract.
+
 ## 0.7.1
 
 - Consume Runtime 0.126.0 with Eval 0.143.0 and Knowledge 7.0.8, so campaign cost remains observed, estimated, or explicitly uncaptured across the complete benchmark dependency tree.

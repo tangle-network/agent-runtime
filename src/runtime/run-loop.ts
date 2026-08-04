@@ -37,6 +37,7 @@ import {
   type SandboxLineage,
   type SandboxLineageHandle,
 } from './sandbox-lineage'
+import { assertExecutableAgentProfile } from './supervise/model-policy'
 import type {
   AgentRunSpec,
   Driver,
@@ -152,6 +153,9 @@ export async function runAgentRounds<Task, Output, Decision>(
   options: RunAgentRoundsOptions<Task, Output, Decision>,
 ): Promise<LoopResult<Task, Output, Decision>> {
   const specs = resolveAgentRuns(options)
+  for (const [index, spec] of specs.entries()) {
+    assertExecutableAgentProfile(spec.profile, `runAgentRounds: agent spec ${index}`)
+  }
   const maxIterations = options.maxIterations ?? DEFAULT_MAX_ITERATIONS
   if (!Number.isFinite(maxIterations) || maxIterations <= 0) {
     throw new ValidationError('runAgentRounds: maxIterations must be > 0')

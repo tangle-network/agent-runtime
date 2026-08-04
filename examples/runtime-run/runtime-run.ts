@@ -29,8 +29,9 @@ const readyTask: AgentTaskSpec = {
 }
 
 // Toy backend that yields a couple of llm_call events so the cost ledger has
-// real input. Real consumers plug in `createOpenAICompatibleBackend`,
-// `createSandboxPromptBackend`, or any `AgentExecutionBackend`.
+// real input. Real consumers plug in `createSandboxPromptBackend` or another
+// caller-owned `AgentExecutionBackend`. Paid model work enters Runtime through
+// `streamAgentTurn` with an exact `AgentProfile` and executor.
 const backend = createIterableBackend<AgentBackendInput>({
   kind: 'demo',
   async *stream(_input, ctx) {

@@ -64,12 +64,19 @@ export interface PersonaConversationResult {
   costUsd: number
   tokensIn: number
   tokensOut: number
+  /** Absent means every worker call reported complete token usage. */
+  tokensKnown?: false
+  /** Absent means every worker call reported provider-billed cost, including a known zero. */
+  costUsdKnown?: false
 }
 
 interface UsageCounter {
   tokensIn: number
   tokensOut: number
   costUsd: number
+  sawLlmCall: boolean
+  tokensKnown: boolean
+  usdKnown: boolean
 }
 
 /** Adapt one exact profile + Runtime executor into the conversation stream protocol. */
@@ -90,9 +97,20 @@ function profileRuntimeBackend(
         ...(context.runId ? { correlationId: context.runId } : {}),
       })) {
         if (counter && event.type === 'llm_call') {
+          counter.sawLlmCall = true
           counter.tokensIn += event.tokensIn ?? 0
           counter.tokensOut += event.tokensOut ?? 0
           counter.costUsd += event.costUsd ?? 0
+          if (
+            event.tokensKnown === false ||
+            event.tokensIn === undefined ||
+            event.tokensOut === undefined
+          ) {
+            counter.tokensKnown = false
+          }
+          if (event.usdKnown === false || event.costUsd === undefined) {
+            counter.usdKnown = false
+          }
         }
         yield event
       }
@@ -132,7 +150,14 @@ function scriptedPersonaBackend(turns: readonly string[]): AgentExecutionBackend
 export async function runPersonaConversation(
   opts: RunPersonaConversationOptions,
 ): Promise<PersonaConversationResult> {
-  const counter: UsageCounter = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
+  const counter: UsageCounter = {
+    tokensIn: 0,
+    tokensOut: 0,
+    costUsd: 0,
+    sawLlmCall: false,
+    tokensKnown: true,
+    usdKnown: true,
+  }
   const workerName = opts.workerName ?? 'agent'
   const worker = profileRuntimeBackend(
     opts.worker,
@@ -178,12 +203,11 @@ export async function runPersonaConversation(
   // profile-driven persona the aggregate also includes the persona-driver's
   // spend, so attributing it to the worker would over-count; report the
   // worker's metered spend (0 if its backend reported none) instead.
-  const costUsd =
-    counter.costUsd > 0
-      ? counter.costUsd
-      : opts.persona.kind === 'scripted'
-        ? result.spentCreditsCents / 100
-        : 0
+  const fallbackCostKnown =
+    !counter.sawLlmCall && opts.persona.kind === 'scripted' && result.spentCreditsCents > 0
+  const costUsd = fallbackCostKnown ? result.spentCreditsCents / 100 : counter.costUsd
+  const tokensKnown = counter.sawLlmCall && counter.tokensKnown
+  const costUsdKnown = counter.sawLlmCall ? counter.usdKnown : fallbackCostKnown
   return {
     transcript: result.transcript,
     turns: result.turns,
@@ -191,6 +215,8 @@ export async function runPersonaConversation(
     costUsd,
     tokensIn: counter.tokensIn,
     tokensOut: counter.tokensOut,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
+    ...(costUsdKnown ? {} : { costUsdKnown: false }),
   }
 }
 
@@ -251,7 +277,10 @@ export function runPersonaDispatch<TScenario extends Scenario, TArtifact>(
         model,
         inputTokens: result.tokensIn,
         outputTokens: result.tokensOut,
-        ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+        ...(result.tokensKnown === false ? { usageUnknown: true } : {}),
+        ...(result.costUsdKnown === false
+          ? { costUnknown: true }
+          : { actualCostUsd: result.costUsd }),
       }),
     })
     if (!paid.succeeded) throw paid.error

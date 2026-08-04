@@ -226,6 +226,52 @@ describe('profileChatClient exact Runtime adapter', () => {
     })
     expect(complete).toHaveBeenCalledOnce()
   })
+
+  it('keeps paid-call evidence when cache classification fails after transport', async () => {
+    const complete = vi.fn(async () => ({
+      model: 'deepseek-v4-flash',
+      choices: [{ message: { content: 'paid response' }, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 3,
+        completion_tokens: 2,
+        cost: 0.001,
+        prompt_cache_hit_tokens: 4,
+      },
+    }))
+    const call = profileOptimizerModelCall({
+      profile,
+      context: 'profile optimizer post-call evidence test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete,
+      },
+    })
+
+    const result = await call({
+      callId: 'optimizer-paid-invalid-cache',
+      request: { ...request, model: 'deepseek-v4-flash' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(false)
+    if (result.succeeded) throw new Error('expected post-call receipt failure')
+    expect(result.error).toMatch(/receipt normalization failed after execution/u)
+    expect(result.receipt).toMatchObject({
+      model: 'deepseek-v4-flash',
+      inputTokens: 3,
+      outputTokens: 2,
+      actualCostUsd: 0.001,
+    })
+    expect(result.execution).toMatchObject({
+      executed: true,
+      succeeded: false,
+      model: 'deepseek-v4-flash',
+    })
+    expect(complete).toHaveBeenCalledOnce()
+  })
 })
 
 describe('terminalDurationMs', () => {

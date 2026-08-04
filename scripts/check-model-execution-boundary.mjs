@@ -18,6 +18,35 @@ const directTransportOwners = new Set([
   'src/runtime/supervise/supervisor-agent.ts',
 ])
 
+// These files use caller-supplied URLs for non-inference HTTP (OAuth, telemetry, MCP, search, or
+// public benchmark data). Everywhere else a global fetch target must be statically readable so a
+// computed provider endpoint cannot hide from this check.
+const dynamicNonModelFetchOwners = new Set([
+  'src/model-resolution.ts',
+  'src/otel-export.ts',
+  'src/platform/auth.ts',
+  'src/platform/integrations.ts',
+  'src/runtime/mcp-environment.ts',
+  'bench/src/research-shot.ts',
+  'bench/src/search-tool.ts',
+  'bench/src/benchmarks/aec-bench.ts',
+  'bench/src/benchmarks/commit0.ts',
+  'bench/src/benchmarks/enterpriseops-gym.ts',
+  'bench/src/benchmarks/finsearchcomp.ts',
+  'bench/src/benchmarks/humaneval.ts',
+  'bench/src/benchmarks/programbench.ts',
+])
+
+const providerSdkModules = new Set([
+  'openai',
+  '@anthropic-ai/sdk',
+  '@google/genai',
+  '@google/generative-ai',
+  'cohere-ai',
+  'groq-sdk',
+  '@mistralai/mistralai',
+])
+
 const lowLevelModelCalls = new Set([
   'chatCompletionsTransport',
   'createChatClient',
@@ -103,7 +132,14 @@ export function checkJavaScript(path, text) {
   collect(source)
 
   for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings) continue
+    if (!ts.isImportDeclaration(statement)) continue
+    const moduleName = ts.isStringLiteral(statement.moduleSpecifier)
+      ? statement.moduleSpecifier.text
+      : undefined
+    if (moduleName !== undefined && providerSdkModules.has(moduleName)) {
+      failures.push({ node: statement, detail: `provider SDK import ${JSON.stringify(moduleName)}` })
+    }
+    if (!statement.importClause?.namedBindings) continue
     const bindings = statement.importClause.namedBindings
     if (ts.isNamespaceImport(bindings)) {
       lowLevelNamespaces.add(bindings.name.text)
@@ -126,6 +162,13 @@ export function checkJavaScript(path, text) {
   function collectCommonJs(node) {
     if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
       if (isRequireCall(node.initializer)) {
+        const moduleArg = node.initializer.arguments[0]
+        if (ts.isStringLiteral(moduleArg) && providerSdkModules.has(moduleArg.text)) {
+          failures.push({
+            node: node.initializer,
+            detail: `provider SDK require ${JSON.stringify(moduleArg.text)}`,
+          })
+        }
         if (ts.isIdentifier(node.name)) lowLevelNamespaces.add(node.name.text)
         if (ts.isObjectBindingPattern(node.name)) {
           for (const element of node.name.elements) {
@@ -148,6 +191,34 @@ export function checkJavaScript(path, text) {
   }
   collectCommonJs(source)
 
+  function staticString(node, seen = new Set()) {
+    if (ts.isStringLiteralLike(node)) return node.text
+    if (ts.isIdentifier(node)) {
+      if (seen.has(node.text)) return undefined
+      const initializer = initializers.get(node.text)
+      if (initializer === undefined) return undefined
+      const nextSeen = new Set(seen)
+      nextSeen.add(node.text)
+      return staticString(initializer, nextSeen)
+    }
+    if (ts.isParenthesizedExpression(node)) return staticString(node.expression, seen)
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const left = staticString(node.left, seen)
+      const right = staticString(node.right, seen)
+      return left === undefined || right === undefined ? undefined : left + right
+    }
+    if (ts.isTemplateExpression(node)) {
+      let value = node.head.text
+      for (const span of node.templateSpans) {
+        const expression = staticString(span.expression, seen)
+        if (expression === undefined) return undefined
+        value += expression + span.literal.text
+      }
+      return value
+    }
+    return undefined
+  }
+
   function expressionText(node, seen = new Set()) {
     if (ts.isIdentifier(node)) {
       if (seen.has(node.text)) return node.getText(source)
@@ -165,11 +236,16 @@ export function checkJavaScript(path, text) {
       const callee = node.expression.getText(source)
       const first = node.arguments[0]
       const target = first === undefined ? '' : expressionText(first)
+      const resolvedTarget = first === undefined ? undefined : staticString(first)
       const call = node.getText(source)
+      const isGlobalFetch = callee === 'fetch'
       const directFetch =
-        callee === 'fetch' && namesModelEndpoint(target) && !isLocalTestTarget(path, target)
+        isGlobalFetch &&
+        (namesModelEndpoint(resolvedTarget ?? target) ||
+          (resolvedTarget === undefined && !dynamicNonModelFetchOwners.has(path))) &&
+        !isLocalTestTarget(path, resolvedTarget ?? target)
       const providerSdk =
-        /(?:^|\.)(?:chat\.completions\.create|responses\.create|messages\.create|generateContent)$/.test(
+        /(?:^|\.)(?:chat\.completions\.create|responses\.(?:create|stream)|messages\.(?:create|stream)|generateContent)$/.test(
           callee,
         )
       const rawHttp =

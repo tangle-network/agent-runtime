@@ -24,6 +24,26 @@ describe('model execution boundary source check', () => {
     ).toHaveLength(1)
   })
 
+  it('rejects aliased provider SDK clients and responses.stream', () => {
+    const violations = checkJavaScript(
+      'examples/direct.ts',
+      `import Client from 'openai'\nconst client = new Client({ apiKey: 'x' })\nawait client.responses.stream({ model: 'x' })`,
+    )
+    expect(violations.length).toBeGreaterThan(0)
+    expect(violations.some((violation) => violation.detail.includes('provider SDK import'))).toBe(
+      true,
+    )
+  })
+
+  it('rejects computed model URLs passed to fetch', () => {
+    const violations = checkJavaScript(
+      'examples/direct.ts',
+      `const base = process.env.PROVIDER_URL\nconst route = '/v1/chat/' + 'completions'\nawait fetch(base + route)`,
+    )
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.location).toBe('3:7')
+  })
+
   it('rejects low-level Runtime model clients outside Runtime-owned adapters', () => {
     expect(
       checkJavaScript(

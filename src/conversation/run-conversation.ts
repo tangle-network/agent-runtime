@@ -287,8 +287,8 @@ export async function* runConversationStream(
             // When the participant elects to pay for its own outbound calls,
             // drop the forwarded user identity so the downstream gateway
             // bills the participant's own credentials instead. The backend
-            // brings its own `Authorization` header at construction time
-            // (e.g. `createOpenAICompatibleBackend({ apiKey: sk-tan-AGENT })`);
+            // brings its own credentials through its caller-owned backend or
+            // profile-bound Runtime executor;
             // omitting the forwarded header is what flips the billing target.
             forwardedAuthorization: resolveAuthForwarding(speaker, {
               transcript,

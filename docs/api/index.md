@@ -1169,64 +1169,6 @@ In-memory `RuntimeSessionStore` for single-process use and tests.
 
 ## Interfaces
 
-### BackendRetryPolicy
-
-Retry policy for transient transport errors (rate limits, upstream
-timeouts). Defaults to 5 attempts with exponential backoff starting at
-1s, ±25% jitter, capped at 30s. Set `maxAttempts: 1` to disable retries.
-
-Retried status codes:
-  - 408 Request Timeout
-  - 425 Too Early
-  - 429 Too Many Requests
-  - 500 / 502 / 503 / 504 — upstream transient failures
-
-Hard failures (401, 403, 4xx other than the above) propagate immediately.
-
-#### Properties
-
-##### maxAttempts?
-
-> `optional` **maxAttempts?**: `number`
-
-Total attempts including the first try. Default 5.
-
-##### initialBackoffMs?
-
-> `optional` **initialBackoffMs?**: `number`
-
-Initial backoff in ms before the second attempt. Default 1000.
-
-##### maxBackoffMs?
-
-> `optional` **maxBackoffMs?**: `number`
-
-Hard ceiling on backoff in ms. Default 30000.
-
-##### jitter?
-
-> `optional` **jitter?**: `number`
-
-Jitter fraction in [0, 1]. Default 0.25 (±25%).
-
-##### retryStatuses?
-
-> `optional` **retryStatuses?**: readonly `number`[]
-
-Status codes that trigger a retry. Default: 408, 425, 429, 500, 502, 503, 504.
-
-##### requestTimeoutMs?
-
-> `optional` **requestTimeoutMs?**: `number`
-
-Per-attempt wall-clock deadline in ms. If a single fetch attempt does
-not return headers within this window the attempt is aborted and
-retried. Default 120000 (2 min). Without this a hung upstream blocks
-the attempt indefinitely — observed in production as a 15-minute
-`fetch failed` that burned an entire eval persona. Set to 0 to disable.
-
-***
-
 ### AgentCandidateCodeSurfaceSource
 
 The only accepted path from an agent-eval code candidate to executable bytes.
@@ -1377,7 +1319,7 @@ Immutable signed identity stored for one execution attempt.
 
 ##### retryPolicy
 
-> `readonly` **retryPolicy**: `"none"` \| `"pre-model-infrastructure-only"`
+> `readonly` **retryPolicy**: `"pre-model-infrastructure-only"` \| `"none"`
 
 ##### bundleDigest
 
@@ -1927,7 +1869,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -2233,7 +2175,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -3784,12 +3726,12 @@ The agent under test. Metered; its rendered prompt leads its turns.
 
 The simulated user driving the dialogue.
 
-##### backendFor
+##### executorFor
 
-> **backendFor**: (`profile`, `role`) => [`AgentExecutionBackend`](#agentexecutionbackend)
+> **executorFor**: (`profile`, `role`) => [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
-Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
- Applied to the worker and to a `profile`-kind persona.
+Resolve transport/executable ports for the exact profile. Runtime still materializes the
+profile and owns every model call. Applied to the worker and a profile-driven persona.
 
 ###### Parameters
 
@@ -3803,23 +3745,7 @@ Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
 
 ###### Returns
 
-[`AgentExecutionBackend`](#agentexecutionbackend)
-
-##### systemPromptOf
-
-> **systemPromptOf**: (`profile`) => `string`
-
-Render a profile's system prompt — prepended to that profile's messages.
-
-###### Parameters
-
-###### profile
-
-`AgentProfile`
-
-###### Returns
-
-`string`
+[`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
 ##### maxTurns?
 
@@ -3899,11 +3825,11 @@ Worker-only spend (the side under test).
 
 #### Properties
 
-##### backendFor
+##### executorFor
 
-> **backendFor**: (`profile`, `role`) => [`AgentExecutionBackend`](#agentexecutionbackend)
+> **executorFor**: (`profile`, `role`) => [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
-Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
+Resolve transport/executable ports for each exact profile.
 
 ###### Parameters
 
@@ -3917,23 +3843,7 @@ Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
 
 ###### Returns
 
-[`AgentExecutionBackend`](#agentexecutionbackend)
-
-##### systemPromptOf
-
-> **systemPromptOf**: (`profile`) => `string`
-
-Render a profile's system prompt.
-
-###### Parameters
-
-###### profile
-
-`AgentProfile`
-
-###### Returns
-
-`string`
+[`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
 ##### personaOf
 
@@ -4069,9 +3979,9 @@ Who pays for THIS participant's outbound calls?
 - `(state) => AuthSource` — per-turn / per-condition decision, e.g. base
   sub-services are agent-owned but premium add-ons forward the user.
 
-The agent's own credentials live on the backend (set at construction
-time, e.g. `createOpenAICompatibleBackend({ apiKey })`); this field is
-purely about *whether to also forward the user's identity downstream*.
+The agent's own credentials live on its caller-owned backend or
+profile-bound Runtime executor; this field is purely about *whether to
+also forward the user's identity downstream*.
 
 ***
 
@@ -4481,7 +4391,7 @@ One-based shot number within this candidate.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 
@@ -5967,7 +5877,7 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ###### profile
 
-[`SupervisorProfile`](runtime.md#supervisorprofile)
+`AgentProfile`
 
 ###### task
 
@@ -6293,7 +6203,7 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ###### profile
 
-[`SupervisorProfile`](runtime.md#supervisorprofile)
+`AgentProfile`
 
 ###### task
 
@@ -7220,152 +7130,6 @@ Idempotency-Key header (e.g. the runId) — safe retries + upsert.
 ###### reason
 
 > **reason**: `string`
-
-***
-
-### ResolveAgentBackendOptions
-
-#### Extends
-
-- `OpenAICompatPassthrough`
-
-#### Type Parameters
-
-##### TInput
-
-`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
-
-#### Properties
-
-##### tools?
-
-> `optional` **tools?**: readonly [`OpenAIChatTool`](#openaichattool)[]
-
-OpenAI Chat Completions `tools[]` definitions surfaced to the model on
-every request. Omit to send a tool-free request (existing behavior).
-The runtime makes no assumption about the dispatcher — calls stream out
-as `tool_call` events and the caller is responsible for executing them
-and feeding `tool_result` messages back on a follow-up turn.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.tools`
-
-##### toolChoice?
-
-> `optional` **toolChoice?**: [`OpenAIChatToolChoice`](#openaichattoolchoice)
-
-OpenAI Chat Completions `tool_choice`. Default `undefined` (request
-omits the field; provider falls back to its own default — typically
-`'auto'`).
-
-###### Inherited from
-
-`OpenAICompatPassthrough.toolChoice`
-
-##### responseFormat?
-
-> `optional` **responseFormat?**: [`OpenAIChatResponseFormat`](#openaichatresponseformat)
-
-OpenAI Chat Completions `response_format`. Omit for provider default text.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.responseFormat`
-
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-OpenAI Chat Completions `temperature`. Omit for provider default.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.temperature`
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.maxTokens`
-
-##### fetchImpl?
-
-> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
-
-###### Parameters
-
-###### input
-
-`string` \| `URL` \| `Request`
-
-###### init?
-
-`RequestInit`
-
-###### Returns
-
-`Promise`\<`Response`\>
-
-###### Inherited from
-
-`OpenAICompatPassthrough.fetchImpl`
-
-##### retry?
-
-> `optional` **retry?**: [`BackendRetryPolicy`](#backendretrypolicy)
-
-###### Inherited from
-
-`OpenAICompatPassthrough.retry`
-
-##### kind
-
-> **kind**: [`AgentBackendKind`](#agentbackendkind)
-
-The chat transport to resolve.
-
-##### apiKey
-
-> **apiKey**: `string`
-
-Bearer credential for the OpenAI-compat kinds. Empty string is valid for a
-loopback-anonymous cli-bridge; a `router`/`tcloud` route with an empty key
-is a caller bug the product surfaces before calling in.
-
-##### baseUrl
-
-> **baseUrl**: `string`
-
-Base URL for the OpenAI-compat kinds. cli-bridge's is its `/v1`.
-
-##### model
-
-> **model**: `string`
-
-Model id sent on every request. cli-bridge rejects a request without it.
-
-##### label?
-
-> `optional` **label?**: `string`
-
-`kind` label stamped on the resolved backend + its traces. Defaults to `kind`.
-
-##### sandboxBackend?
-
-> `optional` **sandboxBackend?**: () => [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-`sandbox` kind: the product's own domain backend. Required for that kind —
-the substrate owns no product sandbox shape, so a `sandbox` resolution with
-no seam is a caller bug, not a silent fallback.
-
-###### Returns
-
-[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
 ***
 
@@ -8807,6 +8571,30 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 
 Sum of every iteration's `costUsd`.
 
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+**`Experimental`**
+
+False when `costUsd` is only the observed subtotal, not a complete bill.
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+**`Experimental`**
+
+Sum of separately-labelled local/catalog estimates.
+
+##### promptCache?
+
+> `optional` **promptCache?**: `Record`\<`string`, `string` \| `number`\>
+
+**`Experimental`**
+
+Aggregated provider-reported prompt-cache fields.
+
 ##### tokenUsage
 
 > **tokenUsage**: [`LoopTokenUsage`](runtime.md#looptokenusage)
@@ -9584,9 +9372,9 @@ Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 **`Stable`**
 
 OpenAI Chat Completions tool descriptor. The shape mirrors the
-`/v1/chat/completions` `tools[]` parameter so callers can pass tool
-definitions through `createOpenAICompatibleBackend({ tools })` without any
-runtime translation. The router proxies this shape verbatim to Anthropic
+`/v1/chat/completions` `tools[]` parameter so caller-owned compatible
+transports can pass tool definitions without translation. A router can
+proxy this shape to Anthropic
 (translated server-side), DeepSeek, Groq, OpenAI, and Gemini — every model
 that the eval surface targets.
 
@@ -11261,14 +11049,6 @@ The single shell-command-in-worktree runner seam (replaces the per-executor copi
 
 ***
 
-### AgentBackendKind
-
-> **AgentBackendKind** = `"router"` \| `"tcloud"` \| `"cli-bridge"` \| `"sandbox"`
-
-The transport a chat backend runs on.
-
-***
-
 ### RuntimeHookPhase
 
 > **RuntimeHookPhase** = `"before"` \| `"after"` \| `"error"` \| `"event"`
@@ -11728,7 +11508,7 @@ pin `{ type: 'function', function: { name } }`.
 
 ### RuntimeStreamEvent
 
-> **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+> **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
 **`Stable`**
 
@@ -11790,7 +11570,35 @@ pin `{ type: 'function', function: { name } }`.
 
 ##### Type Literal
 
-\{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \}
+\{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \}
+
+###### type
+
+> **type**: `"backend_start"`
+
+###### task
+
+> **task**: [`AgentTaskSpec`](#agenttaskspec)
+
+###### session
+
+> **session**: [`RuntimeSession`](#runtimesession)
+
+###### backend
+
+> **backend**: `string`
+
+###### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+Canonical execution identity and materialization evidence for this turn, when Runtime
+ owns the selected executor. Generic metadata keeps the event vocabulary open while the
+ values use Runtime's existing identity/materialization receipt shapes.
+
+###### timestamp
+
+> **timestamp**: `string`
 
 ***
 
@@ -11820,7 +11628,71 @@ pin `{ type: 'function', function: { name } }`.
 
 ##### Type Literal
 
-\{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \}
+\{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \}
+
+###### type
+
+> **type**: `"llm_call"`
+
+###### task?
+
+> `optional` **task?**: [`AgentTaskSpec`](#agenttaskspec)
+
+###### session?
+
+> `optional` **session?**: [`RuntimeSession`](#runtimesession)
+
+###### model
+
+> **model**: `string`
+
+###### tokensIn?
+
+> `optional` **tokensIn?**: `number`
+
+###### tokensOut?
+
+> `optional` **tokensOut?**: `number`
+
+###### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+False when the numeric token subtotal is incomplete or absent.
+
+###### costUsd?
+
+> `optional` **costUsd?**: `number`
+
+###### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+False when `costUsd` is only an observed floor, estimate, or absent.
+
+###### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+Separately-labelled local/catalog estimate; never billed spend.
+
+###### promptCache?
+
+> `optional` **promptCache?**: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>
+
+Provider-reported prompt-cache fields; absent fields remain unknown.
+
+###### latencyMs?
+
+> `optional` **latencyMs?**: `number`
+
+###### finishReason?
+
+> `optional` **finishReason?**: `string`
+
+###### timestamp?
+
+> `optional` **timestamp?**: `string`
 
 ***
 
@@ -12261,119 +12133,6 @@ Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call
 ###### getSessionId?
 
 (`box`, `input`) => `string` \| `undefined`
-
-#### Returns
-
-[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-***
-
-### createOpenAICompatibleBackend()
-
-> **createOpenAICompatibleBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-**`Stable`**
-
-OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any
-`POST /chat/completions` endpoint that speaks OpenAI's SSE protocol —
-Tangle Router, OpenAI direct, OpenRouter, Groq, DeepSeek, Together. The
-router also fronts Anthropic models in Anthropic-native SSE shape; this
-backend handles both.
-
-### Tool calls
-
-Pass `tools` (and optionally `toolChoice`) to forward an OpenAI Chat
-Completions `tools[]` array on every request. Streamed `tool_call` chunks
-are buffered until the model finalizes them (either `finish_reason:
-'tool_calls'` for OpenAI shape or a `content_block_stop` for Anthropic
-`tool_use` blocks proxied through the router), then emitted as a single
-`tool_call` RuntimeStreamEvent with the assembled `args`.
-
-The backend does NOT execute tools — it surfaces calls for the caller's
-own dispatcher (typically the product's MCP / sandbox runtime) to fulfill
-and feed back as a subsequent `messages` turn. This keeps the transport
-thin and lets the agent host own tool dispatch policy.
-
-### Fail-loud errors
-
-Non-success HTTP responses (4xx/5xx) and exhausted retry budgets throw
-`BackendTransportError` from inside the `stream()` generator. The runtime
-catches the throw, yields a `backend_error` with a typed `error` field
-(`kind`, `status`, truncated `body`) and a terminal `final` event with
-`status: 'failed'` carrying the same detail. Consumers MUST map
-`final.error` onto their `RunRecord.error` — silently treating an empty
-`finalText` as "agent produced nothing" hides credit exhaustion, auth
-failure, and upstream outages.
-
-#### Type Parameters
-
-##### TInput
-
-`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
-
-#### Parameters
-
-##### options
-
-###### apiKey
-
-`string`
-
-###### baseUrl
-
-`string`
-
-###### model
-
-`string`
-
-###### kind?
-
-`string`
-
-###### tools?
-
-readonly [`OpenAIChatTool`](#openaichattool)[]
-
-OpenAI Chat Completions `tools[]` definitions surfaced to the model on
-every request. Omit to send a tool-free request (existing behavior).
-The runtime makes no assumption about the dispatcher — calls stream out
-as `tool_call` events and the caller is responsible for executing them
-and feeding `tool_result` messages back on a follow-up turn.
-
-###### toolChoice?
-
-[`OpenAIChatToolChoice`](#openaichattoolchoice)
-
-OpenAI Chat Completions `tool_choice`. Default `undefined` (request
-omits the field; provider falls back to its own default — typically
-`'auto'`).
-
-###### responseFormat?
-
-[`OpenAIChatResponseFormat`](#openaichatresponseformat)
-
-OpenAI Chat Completions `response_format`. Omit for provider default text.
-
-###### temperature?
-
-`number`
-
-OpenAI Chat Completions `temperature`. Omit for provider default.
-
-###### maxTokens?
-
-`number`
-
-Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default.
-
-###### fetchImpl?
-
-(`input`, `init?`) => `Promise`\<`Response`\>
-
-###### retry?
-
-[`BackendRetryPolicy`](#backendretrypolicy)
 
 #### Returns
 
@@ -14491,31 +14250,6 @@ Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / 
 #### Returns
 
 [`KnowledgeReadinessDecision`](#knowledgereadinessdecision)
-
-***
-
-### resolveAgentBackend()
-
-> **resolveAgentBackend**\<`TInput`\>(`opts`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-Resolve the `AgentExecutionBackend` for the chosen `kind`. Reuse this instead
-of hand-rolling the `createOpenAICompatibleBackend` branch in each product.
-
-#### Type Parameters
-
-##### TInput
-
-`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
-
-#### Parameters
-
-##### opts
-
-[`ResolveAgentBackendOptions`](#resolveagentbackendoptions)\<`TInput`\>
-
-#### Returns
-
-[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
 
 ***
 

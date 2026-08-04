@@ -116,10 +116,10 @@ export function inlineSandboxClient(
                 type: 'llm_call',
                 data: {
                   ...(artifact.spent.tokensKnown === false ? {} : { tokensIn, tokensOut }),
-                  ...(costUsd > 0 ? { costUsd } : {}),
+                  ...(artifact.spent.usdKnown !== false ? { costUsd } : {}),
                   ...(artifact.spent.tokensKnown === false ? { tokensKnown: false } : {}),
                   ...(artifact.spent.usdKnown === false ? { costKnown: false } : {}),
-                  ...(artifact.spent.usdKnown !== false && costUsd > 0
+                  ...(artifact.spent.usdKnown !== false
                     ? {
                         costKnown: true,
                         costProvenance: 'provider-receipt',

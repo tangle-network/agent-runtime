@@ -170,9 +170,7 @@ function loopCostReceipt<Task, Output, Decision>(
     inputTokens: result.tokenUsage.input,
     outputTokens: result.tokenUsage.output,
     ...(result.tokenUsage.tokensKnown === false ? { usageUnknown: true } : {}),
-    ...(result.costUsdKnown !== false && result.costUsd > 0
-      ? { actualCostUsd: result.costUsd }
-      : {}),
+    ...(result.costUsdKnown !== false ? { actualCostUsd: result.costUsd } : {}),
     ...(result.costUsdKnown === false ? { costUnknown: true } : {}),
     ...(result.estimatedCostUsd !== undefined ? { estimatedCostUsd: result.estimatedCostUsd } : {}),
   }

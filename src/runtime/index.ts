@@ -167,7 +167,6 @@ export {
   type AgentSession,
   type AgentSessionRef,
   type AgentSessionStatus,
-  type AgentTurnInput,
   type AgentTurnResult,
   type CheckpointRef,
   type CheckpointRequest,
@@ -461,6 +460,7 @@ export {
 } from './strategy-evolution'
 export {
   type AgentTurnBackend,
+  type AgentTurnInput,
   type AgentTurnUsage,
   type CollectedAgentTurn,
   collectAgentTurn,
@@ -961,6 +961,7 @@ export type {
   ToolLoopCompaction,
   ToolLoopCompactionOptions,
   ToolLoopMessageRecord,
+  ToolLoopToolCall,
 } from './tool-loop'
 export type {
   AgentRunSpec,

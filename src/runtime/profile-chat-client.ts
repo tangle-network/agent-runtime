@@ -66,21 +66,13 @@ export function profileOptimizerModelCall(args: {
       request: request.request,
       endpointFormat: request.endpointFormat ?? null,
     })
+    let run: ProfileChatRun
     try {
-      const run = await runBoundProfileChat(
-        binding,
-        structuredClone(request.request) as ChatRequest,
-        {
-          signal: request.signal,
-          idempotencyKey: request.callId,
-          correlationId: request.callId,
-        },
-      )
-      const receipt = optimizerReceipt(binding.model, run, args.pricing)
-      const execution = optimizerExecution(profileDigest, requestDigest, request, run)
-      return run.succeeded
-        ? { succeeded: true, response: run.response, receipt, execution }
-        : { succeeded: false, error: run.error, receipt, execution }
+      run = await runBoundProfileChat(binding, structuredClone(request.request) as ChatRequest, {
+        signal: request.signal,
+        idempotencyKey: request.callId,
+        correlationId: request.callId,
+      })
     } catch (error) {
       return {
         succeeded: false,
@@ -94,6 +86,25 @@ export function profileOptimizerModelCall(args: {
           endpointFormat: request.endpointFormat ?? null,
           executed: false,
           error: errorMessage(error),
+        },
+      }
+    }
+    const execution = optimizerExecution(profileDigest, requestDigest, request, run)
+    try {
+      const receipt = optimizerReceipt(binding.model, run, args.pricing)
+      return run.succeeded
+        ? { succeeded: true, response: run.response, receipt, execution }
+        : { succeeded: false, error: run.error, receipt, execution }
+    } catch (error) {
+      const message = `profile optimizer receipt normalization failed after execution: ${errorMessage(error)}`
+      return {
+        succeeded: false,
+        error: message,
+        receipt: rawOptimizerReceipt(binding.model, run, args.pricing),
+        execution: {
+          ...execution,
+          succeeded: false,
+          postCallError: message,
         },
       }
     }
@@ -367,6 +378,31 @@ function optimizerReceipt(
     outputTokens: usage.output,
     ...(cachedTokens !== undefined ? { cachedTokens } : {}),
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
+    ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
+    ...(actualCostUsd !== undefined
+      ? { actualCostUsd }
+      : usage.estimatedCostUsd !== undefined
+        ? { estimatedCostUsd: usage.estimatedCostUsd }
+        : pricing
+          ? { customTokenPricing: pricing }
+          : { costUnknown: true }),
+  }
+}
+
+/** Preserve the observed call totals when finer receipt classification is inconsistent. */
+function rawOptimizerReceipt(
+  model: string,
+  run: ProfileChatRun,
+  pricing: CustomTokenPricing | undefined,
+): CostReceiptInput {
+  const usage = run.turn.usage
+  const tokensKnown = usage.tokensKnown !== false
+  const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
+  return {
+    model,
+    inputTokens: tokensKnown ? usage.input : 0,
+    outputTokens: tokensKnown ? usage.output : 0,
+    ...(tokensKnown ? {} : { usageUnknown: true }),
     ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
     ...(actualCostUsd !== undefined
       ? { actualCostUsd }

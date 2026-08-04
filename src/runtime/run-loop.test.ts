@@ -1,7 +1,15 @@
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { runAgentRounds } from './run-loop'
 import type { AgentRunSpec, Driver, OutputAdapter, SandboxClient } from './types'
+
+function exactProfile(name: string) {
+  return {
+    name,
+    harness: 'opencode' as const,
+    model: { provider: 'offline', default: 'offline-test-model' },
+  }
+}
 
 describe('runAgentRounds sandbox preparation', () => {
   it('runs AgentRunSpec.prepareBox before the first prompt is streamed', async () => {
@@ -23,7 +31,7 @@ describe('runAgentRounds sandbox preparation', () => {
       },
     }
     const agentRun: AgentRunSpec<string> = {
-      profile: { name: 'prepared-agent' },
+      profile: exactProfile('prepared-agent'),
       taskToPrompt: (task) => task,
       async prepareBox() {
         order.push('prepare')
@@ -64,6 +72,25 @@ describe('runAgentRounds sandbox preparation', () => {
     expect(validatorBox).toBe(box)
     expect(order).toEqual(['create', 'prepare', 'stream:hello'])
   })
+
+  it('refuses an incomplete profile before planning or creating a sandbox', async () => {
+    const plan = vi.fn(async () => ['hello'])
+    const create = vi.fn()
+
+    await expect(
+      runAgentRounds({
+        driver: { plan, decide: () => 'done' as const },
+        agentRun: { profile: { name: 'incomplete' }, taskToPrompt: (task) => task },
+        output: { parse: () => 'unused' },
+        task: 'hello',
+        maxIterations: 1,
+        ctx: { sandboxClient: { create } },
+      }),
+    ).rejects.toThrow(/AgentProfile\.harness must be explicit/)
+
+    expect(plan).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
 })
 
 describe('runAgentRounds onSandboxEvent tee', () => {
@@ -102,7 +129,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
       },
     }
     const agentRun: AgentRunSpec<string> = {
-      profile: { name: 'tee-agent' },
+      profile: exactProfile('tee-agent'),
       taskToPrompt: (task) => task,
     }
     const output: OutputAdapter<string> = {

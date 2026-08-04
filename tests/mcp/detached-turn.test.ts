@@ -24,6 +24,11 @@ import type { DelegateCodeArgs } from '../../src/mcp/types'
 import type { LoopTraceEvent, SandboxClient } from '../../src/runtime'
 
 const codeArgs: DelegateCodeArgs = { goal: 'fix bug', repoRoot: '/repo' }
+const exactWorkerProfile = {
+  name: 'coder-test',
+  harness: 'claude-code' as const,
+  model: { provider: 'anthropic', default: 'offline-test-model' },
+}
 
 /**
  * Submit a single-variant coder delegation to the queue exactly as the bin's `delegate` dispatch
@@ -152,7 +157,7 @@ describe('detached session ref codec', () => {
 
 describe('runDetachedTurn', () => {
   const spec = {
-    profile: { name: 'coder-test' },
+    profile: exactWorkerProfile,
     taskToPrompt: () => 'do the thing',
   } as never
 
@@ -288,9 +293,26 @@ describe('runDetachedTurn', () => {
     expect(started.agentRunNames).toEqual(['coder-test'])
     const dispatch = events[2]!.payload as { placement: string; sandboxId: string }
     expect(dispatch).toMatchObject({ placement: 'sibling', sandboxId: 'sandbox_t1' })
-    const ended = events[4]!.payload as { winnerIterationIndex?: number; iterations: number }
+    const iterationEnded = events[3]!.payload as {
+      costUsd: number
+      costUsdKnown?: false
+      tokenUsage?: { input: number; output: number; tokensKnown?: false }
+    }
+    expect(iterationEnded).toMatchObject({
+      costUsd: 0,
+      costUsdKnown: false,
+      tokenUsage: { input: 0, output: 0, tokensKnown: false },
+    })
+    const ended = events[4]!.payload as {
+      winnerIterationIndex?: number
+      iterations: number
+      totalCostUsd: number
+      costUsdKnown?: false
+    }
     expect(ended.winnerIterationIndex).toBe(0)
     expect(ended.iterations).toBe(1)
+    expect(ended.totalCostUsd).toBe(0)
+    expect(ended.costUsdKnown).toBe(false)
   })
 
   it('records the error on the synthesized stream when the turn fails', async () => {
@@ -585,7 +607,11 @@ describe('detachedSessionDelegate detached path', () => {
       id: 'sandbox_77',
     })
     const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
-    const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
+    const delegate = detachedSessionDelegate({
+      executor,
+      workerProfile: exactWorkerProfile,
+      detachedTickIntervalMs: 1,
+    })
     const rebinds: string[] = []
     const sessionId = 'dlg-turn-coder-deadbeef'
     const output = await delegate(codeArgs, {
@@ -606,7 +632,11 @@ describe('detachedSessionDelegate detached path', () => {
       id: 'sandbox_88',
     })
     const executor = createSiblingSandboxExecutor({ client: fakeClient(fake.box) })
-    const delegate = detachedSessionDelegate({ executor, detachedTickIntervalMs: 1 })
+    const delegate = detachedSessionDelegate({
+      executor,
+      workerProfile: exactWorkerProfile,
+      detachedTickIntervalMs: 1,
+    })
     const queue = new DelegationTaskQueue()
     const { taskId } = submitCoder(
       queue,
@@ -645,7 +675,7 @@ describe('detachedSessionDelegate detached path', () => {
     })
     const box = { ...fake.box, streamPrompt }
     const executor = createSiblingSandboxExecutor({ client: fakeClient(box) })
-    const delegate = detachedSessionDelegate({ executor })
+    const delegate = detachedSessionDelegate({ executor, workerProfile: exactWorkerProfile })
     const output = await delegate(codeArgs, {
       signal: new AbortController().signal,
       report: () => {},

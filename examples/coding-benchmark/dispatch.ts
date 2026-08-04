@@ -143,7 +143,13 @@ export function codingDispatch(
               model,
               inputTokens: usage.input,
               outputTokens: usage.output,
-              ...(usage.costUsd > 0 ? { actualCostUsd: usage.costUsd } : {}),
+              ...(usage.tokensKnown === false ? { usageUnknown: true } : {}),
+              ...(usage.usdKnown === false
+                ? { costUnknown: true }
+                : { actualCostUsd: usage.costUsd }),
+              ...(usage.estimatedCostUsd !== undefined
+                ? { estimatedCostUsd: usage.estimatedCostUsd }
+                : {}),
             }
           },
         })

@@ -10,10 +10,18 @@
  */
 
 import { ValidationError } from '../errors'
-import type { RouterToolCall, ToolSpec } from './router-client'
+import type { ToolSpec } from './router-client'
 
 /** Provider-neutral conversation record accepted by a tool-loop brain. */
 export type ToolLoopMessageRecord = Record<string, unknown>
+
+/** One provider-neutral tool request emitted by a tool-loop model. */
+export interface ToolLoopToolCall {
+  id: string
+  name: string
+  /** Raw JSON arguments emitted by the model. */
+  arguments: string
+}
 
 /** One inference turn over the running conversation + the tool specs → the model's text, any
  *  tool calls, and token usage. The seam every brain satisfies. */
@@ -22,7 +30,7 @@ export type ToolLoopChat = (
   tools: ReadonlyArray<ToolSpec>,
 ) => Promise<{
   content?: string | null
-  toolCalls: RouterToolCall[]
+  toolCalls: ToolLoopToolCall[]
   usage?: { input: number; output: number }
   /** Dollar value reported for the turn. It is not billed spend unless provenance says so. */
   costUsd?: number

@@ -50,6 +50,7 @@ test('zaiChatRaw preserves the SWE transport shape through Runtime', async () =>
       },
       {
         name: 'swe-jail-test-worker',
+        harness: 'cli-base',
         model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
         tools: { run: true },
       },
@@ -90,6 +91,37 @@ test('zaiChatRaw preserves the SWE transport shape through Runtime', async () =>
       ],
       usage: { prompt_tokens: 11, completion_tokens: 3 },
     })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('zaiChatRaw refuses a local profile error without entering the retry ladder', async () => {
+  let fetchCalls = 0
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => {
+    fetchCalls += 1
+    throw new Error('fetch must not run')
+  }
+
+  try {
+    await assert.rejects(
+      zaiChatRaw(
+        {
+          base: 'http://router.test/v1',
+          key: 'secret',
+          timeoutMs: 1_000,
+          maxAttempts: 7,
+        },
+        { model: 'deepseek-v4-flash', messages: [{ role: 'user', content: 'inspect' }] },
+        {
+          name: 'incomplete-worker',
+          model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+        },
+      ),
+      /AgentProfile\.harness must be explicit/,
+    )
+    assert.equal(fetchCalls, 0)
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -57,9 +57,9 @@ export interface ConversationParticipant {
    * - `(state) => AuthSource` — per-turn / per-condition decision, e.g. base
    *   sub-services are agent-owned but premium add-ons forward the user.
    *
-   * The agent's own credentials live on the backend (set at construction
-   * time, e.g. `createOpenAICompatibleBackend({ apiKey })`); this field is
-   * purely about *whether to also forward the user's identity downstream*.
+   * The agent's own credentials live on its caller-owned backend or
+   * profile-bound Runtime executor; this field is purely about *whether to
+   * also forward the user's identity downstream*.
    */
   authSource?: AuthSource
 }

@@ -46,6 +46,18 @@ function fakeExecutor(
   })
 }
 
+function unknownUsageExecutor(): ExecutorFactory<unknown> {
+  return createExecutor({
+    backend: 'router',
+    routerBaseUrl: 'https://router.test/v1',
+    routerKey: 'test-key',
+    complete: async (body) => ({
+      model: body.model,
+      choices: [{ message: { content: 'answer without a provider receipt' } }],
+    }),
+  })
+}
+
 const PROFILE = {
   name: 'worker',
   harness: 'cli-base',
@@ -183,6 +195,22 @@ describe('runPersonaConversation', () => {
       }),
     ).rejects.toThrow(/no turns/)
   })
+
+  it('marks missing worker usage and cost as unknown instead of measured zero', async () => {
+    const result = await runPersonaConversation({
+      worker: PROFILE,
+      persona: { kind: 'scripted', turns: ['q1'] },
+      executorFor: () => unknownUsageExecutor(),
+    })
+
+    expect(result).toMatchObject({
+      tokensIn: 0,
+      tokensOut: 0,
+      costUsd: 0,
+      tokensKnown: false,
+      costUsdKnown: false,
+    })
+  })
 })
 
 describe('runPersonaDispatch (matrix adapter)', () => {
@@ -242,6 +270,28 @@ describe('runPersonaDispatch (matrix adapter)', () => {
     ).resolves.toBe(2)
     expect(ctx.ledger.list()).toEqual([
       expect.objectContaining({ maximumCostUsd: 0.05, actualCostUsd: 0.02, costUsd: 0.02 }),
+    ])
+  })
+
+  it('carries missing Router usage and cost into the campaign receipt as unknown', async () => {
+    const dispatch = runPersonaDispatch<PersonaScenario, number>({
+      executorFor: () => unknownUsageExecutor(),
+      personaOf: (scenario) => ({ kind: 'scripted', turns: scenario.turns }),
+      artifactOf: (transcript) => transcript.length,
+    })
+    const ctx = fakeCtx()
+
+    await expect(
+      dispatch(PROFILE, { id: 'unknown-usage', kind: 'persona', turns: ['q1'] }, ctx),
+    ).resolves.toBe(2)
+    expect(ctx.ledger.list()).toEqual([
+      expect.objectContaining({
+        inputTokens: 0,
+        outputTokens: 0,
+        usageUnknown: true,
+        costUnknown: true,
+        costUsd: 0,
+      }),
     ])
   })
 })

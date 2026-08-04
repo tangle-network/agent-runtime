@@ -3,7 +3,7 @@
 > **In plain terms:** This is the one-page mental model of agent-runtime —
 > read it first if you're meeting the package cold. agent-runtime is a small
 > shared foundation that handles the plumbing every AI agent needs — running a
-> task, streaming a chat reply, reconnecting a dropped connection, picking a
+> task, streaming a chat reply, reconnecting a dropped connection, executing an
 > model — so you only write the parts unique to your agent. The one takeaway:
 > it owns a handful of reusable building blocks and leaves all the
 > domain-specific work — your tools, prompts, and scoring rules — to you.
@@ -42,14 +42,15 @@ place.
    └───────────────────────────────────────┬─────────────────┘
                                            │
    ┌───────────────────────────────────────┴─────────────────┐
-   │  Backends + catalog                                     │
-   │  createOpenAICompatibleBackend, createSandboxPromptBackend,
+   │  Profile-bound model execution + catalog                │
+   │  profileChatClient, profileOptimizerModelCall,           │
+   │  createSandboxPromptBackend,                             │
    │  getModels / resolveChatModel / validateChatModelId       │
    └─────────────────────────────────────────────────────────┘
 ```
 
 Each layer composes the one below it. You can use the bottom layers
-alone (a raw backend + the model catalog), or the whole stack
+alone (a profile-bound adapter + the model catalog), or the whole stack
 (`defineAgent` → `handleChatTurn`) — they're the same primitives
 nested.
 
@@ -129,13 +130,17 @@ answers wrong (or differently). Substrate primitive:
 This module has **no React, no `process.env` assumption** — it runs
 unchanged in Node and in Cloudflare Workers.
 
-## Backends
+## Model execution
 
-`createOpenAICompatibleBackend({ baseUrl, model, apiKey })` and
-`createSandboxPromptBackend({ ... })` are the two production backends.
-Both stream. `policy.fallbackModels: [...]` rotates through a named list
-on transient failure — that's the only fallback you should ever wire,
-and it's explicit.
+`profileChatClient({ profile, executor, context })` adapts one exact
+`AgentProfile` to agent-eval's chat contract.
+`profileOptimizerModelCall({ profile, executor, context })` does the same for
+external optimizer calls, while `createSandboxPromptBackend({ ... })`
+normalizes a caller-owned sandbox stream.
+The Runtime executor owns credentials, routing, retries, and usage evidence;
+request fields cannot override the profile's model policy.
+An explicit `policy.fallbackModels: [...]` list may rotate through named models
+on transient failure; no unnamed fallback is allowed.
 
 The doctrine is in `AGENTS.md`: **no silent fallbacks**. Required fields
 fail loud; named rotations are opt-in.

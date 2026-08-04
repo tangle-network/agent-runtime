@@ -15,7 +15,6 @@ import {
   type FleetHandle,
 } from './executor'
 import { createInProcessExecutor } from './in-process-executor'
-import { LOCAL_HARNESSES, type LocalHarness } from './local-harness'
 
 /** @experimental */
 export interface DetectExecutorArgs {
@@ -60,7 +59,6 @@ export async function detectExecutor(args: DetectExecutorArgs): Promise<Delegati
     }
     return createInProcessExecutor({
       repoRoot,
-      harnesses: parseHarnesses(env.AGENT_RUNTIME_LOCAL_HARNESSES),
       testCmd: env.AGENT_RUNTIME_TEST_CMD?.trim() || undefined,
       typecheckCmd: env.AGENT_RUNTIME_TYPECHECK_CMD?.trim() || undefined,
     })
@@ -77,23 +75,6 @@ export async function detectExecutor(args: DetectExecutorArgs): Promise<Delegati
     fleet,
     excludeMachineIds,
   })
-}
-
-function parseHarnesses(raw: string | undefined): ReadonlyArray<LocalHarness> | undefined {
-  if (!raw) return undefined
-  const parts = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  if (parts.length === 0) return undefined
-  for (const part of parts) {
-    if (!LOCAL_HARNESSES.includes(part as LocalHarness)) {
-      throw new Error(
-        `agent-runtime-mcp: AGENT_RUNTIME_LOCAL_HARNESSES contains unknown harness "${part}". Expected: ${LOCAL_HARNESSES.join(', ')}.`,
-      )
-    }
-  }
-  return parts as LocalHarness[]
 }
 
 interface FleetsApi {

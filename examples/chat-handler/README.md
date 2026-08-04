@@ -53,13 +53,17 @@ self-contained — that reader is illustrative, not something to copy. In your p
 
 ## From offline to production — one swap
 
-The only scripted part is `produce()`. In a real product it wraps your agent backend:
+The only scripted part is `produce()`. In a real product it wraps a profile-bound Runtime turn:
 
 ```ts
-produce: () => runAgentTaskStream({ task, backend, input })
-// backend = createOpenAICompatibleBackend(...)  — any OpenAI-compatible model
-//         or createSandboxPromptBackend(...)     — a sandboxed coding agent
+produce: () => streamAgentTurn(
+  { kind: 'executor', profile, factory: createExecutor(executorConfig) },
+  input,
+)
 ```
+
+The exact `AgentProfile` selects the model and tools; the Runtime executor owns credentials,
+routing, retries, and usage evidence.
 
 Everything else — the NDJSON framing, the `session.run.*` envelope, the after-drain persist — stays
 identical. That framing is the whole point of `handleChatTurn`.

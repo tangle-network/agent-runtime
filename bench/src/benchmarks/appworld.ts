@@ -289,11 +289,17 @@ const EXECUTE_TOOL: ToolSpec = {
 async function withWorldSession<T>(
   taskId: string,
   split: string,
+  signal: AbortSignal,
   fn: (call: (cmd: Record<string, unknown>) => Promise<Record<string, unknown>>, instruction: string) => Promise<T>,
 ): Promise<T> {
+  signal.throwIfAborted()
   const child = spawn(venvPython, [DRIVER, 'session', '--task-id', taskId, '--split', split], {
     cwd: benchRoot,
   })
+  const stopChild = (): void => {
+    if (!child.killed) child.kill('SIGTERM')
+  }
+  signal.addEventListener('abort', stopChild, { once: true })
   const rl = createInterface({ input: child.stdout })
   const pending: Array<(line: string) => void> = []
   const backlog: string[] = []
@@ -308,6 +314,10 @@ async function withWorldSession<T>(
   })
   const nextLine = (timeoutMs: number): Promise<string> =>
     new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason)
+        return
+      }
       const fromBacklog = backlog.shift()
       if (fromBacklog !== undefined) return resolve(fromBacklog)
       const t = setTimeout(
@@ -318,14 +328,29 @@ async function withWorldSession<T>(
       // cap) — remove it on the resolve path.
       const onExit = (code: number | null): void => {
         clearTimeout(t)
-        reject(new Error(`appworld session exited (${code}); stderr: ${stderr.slice(-400)}`))
+        signal.removeEventListener('abort', onAbort)
+        reject(
+          signal.aborted
+            ? signal.reason
+            : new Error(`appworld session exited (${code}); stderr: ${stderr.slice(-400)}`),
+        )
       }
-      pending.push((l) => {
+      const onAbort = (): void => {
         clearTimeout(t)
         child.removeListener('exit', onExit)
-        resolve(l)
-      })
+        const index = pending.indexOf(onLine)
+        if (index >= 0) pending.splice(index, 1)
+        reject(signal.reason)
+      }
+      const onLine = (line: string): void => {
+        clearTimeout(t)
+        child.removeListener('exit', onExit)
+        signal.removeEventListener('abort', onAbort)
+        resolve(line)
+      }
+      pending.push(onLine)
       child.once('exit', onExit)
+      signal.addEventListener('abort', onAbort, { once: true })
     })
   try {
     const ready = JSON.parse(await nextLine(120_000)) as { ready?: boolean; instruction?: string; error?: string }
@@ -338,10 +363,20 @@ async function withWorldSession<T>(
     }
     return await fn(call, ready.instruction ?? '')
   } finally {
+    signal.removeEventListener('abort', stopChild)
     child.stdin.end()
-    child.kill('SIGTERM')
+    stopChild()
   }
 }
+
+type AppWorldWorldSession = typeof withWorldSession
+type AppWorldComplete = (
+  body: Record<string, unknown>,
+  request?: {
+    readonly headers: Readonly<Record<string, string>>
+    readonly signal?: AbortSignal
+  },
+) => Promise<unknown>
 
 /** SandboxClient whose leaf is Runtime's profile-bound Router executor driving a world session. */
 export function appworldToolLoopClient(cfg: {
@@ -349,15 +384,22 @@ export function appworldToolLoopClient(cfg: {
   routerBaseUrl: string
   routerKey: string
   maxTurns?: number
+  /** Offline-test seam; production always uses the Python AppWorld session above. */
+  runWorldSession?: AppWorldWorldSession
+  /** Offline-test seam; production uses Runtime's Router HTTP transport. */
+  complete?: AppWorldComplete
 }): unknown {
   const maxTurns = cfg.maxTurns ?? Number(process.env.REACT_MAX_TURNS ?? 40)
+  const runWorldSession = cfg.runWorldSession ?? withWorldSession
   let seq = 0
   return {
     async create() {
       const id = `appworld-toolloop-${seq++}`
       return {
         id,
-        async *streamPrompt(prompt: string) {
+        async *streamPrompt(prompt: string, promptOpts?: { signal?: AbortSignal }) {
+          const signal = promptOpts?.signal ?? new AbortController().signal
+          signal.throwIfAborted()
           const m = prompt.match(REACT_HEADER)
           if (!m) {
             throw new Error(
@@ -366,7 +408,7 @@ export function appworldToolLoopClient(cfg: {
           }
           const [, taskId, split] = m
           const directive = prompt.replace(REACT_HEADER, '').trim()
-          const out = await withWorldSession(taskId as string, split as string, async (call, instruction) => {
+          const out = await runWorldSession(taskId as string, split as string, signal, async (call, instruction) => {
             const system = directive ? `${SESSION_SYSTEM}\n\n${directive}` : SESSION_SYSTEM
             const transcriptSteps: Array<{ args: string; result: string }> = []
             const profile = {
@@ -384,6 +426,7 @@ export function appworldToolLoopClient(cfg: {
               backend: 'router-tools',
               routerBaseUrl: cfg.routerBaseUrl,
               routerKey: cfg.routerKey,
+              ...(cfg.complete ? { complete: cfg.complete } : {}),
               tools: [EXECUTE_TOOL],
               executeToolCall: async (name, args) => {
                 if (name !== 'execute_python') return `error: unknown tool ${name}`
@@ -398,6 +441,7 @@ export function appworldToolLoopClient(cfg: {
               streamAgentTurn(
                 { kind: 'executor', factory, profile },
                 `Task: ${instruction}`,
+                { signal },
               ),
             )
             if (loop.status !== 'completed') {

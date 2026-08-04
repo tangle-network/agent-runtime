@@ -161,6 +161,15 @@ export async function zaiChatRaw(
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e)
       const status = Number(/router (\d+)/.exec(lastErr)?.[1])
+      const transientStatus =
+        Number.isFinite(status) &&
+        (status === 408 || status === 409 || status === 425 || status === 429 || status >= 500)
+      const transientTransport =
+        ctl.signal.aborted ||
+        /fetch failed|network|socket|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|operation was aborted/i.test(
+          lastErr,
+        )
+      if (!transientStatus && !transientTransport) throw e
       delayBase = status === 429 ? 60_000 : 2_000
     } finally {
       clearTimeout(timer)

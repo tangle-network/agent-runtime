@@ -65,8 +65,9 @@ Persisted row: {
 
 ## Make it real
 
-- **Real work:** replace the toy backend with `createOpenAICompatibleBackend` (any OpenAI-style
-  model API), `createSandboxPromptBackend` (a cloud sandbox), or any `AgentExecutionBackend`.
+- **Real work:** replace the toy backend with `createSandboxPromptBackend` (a cloud sandbox) or
+  another caller-owned `AgentExecutionBackend`. Paid model work uses `streamAgentTurn` with an
+  exact `AgentProfile` and Runtime executor instead of a provider transport in this lifecycle.
 - **Real store:** implement `RuntimeRunPersistenceAdapter` — one `upsert(row)` method — against D1,
   Postgres, or your existing runs table. The row shape doesn't change.
 
