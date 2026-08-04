@@ -1,4 +1,4 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   demoCheck,
@@ -45,10 +45,10 @@ function answerExecutor(): Executor<unknown> {
 /** The worker seam the example's scripted brain spawns into: an offline leaf gated on the
  *  SAME deployable check (`demoCheck`) the real runners use — settled ⟺ delivered. */
 function makeWorkerAgent(rawProfile: unknown): Agent<unknown, unknown> {
-  const p = (rawProfile ?? {}) as { name?: unknown }
-  const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'worker'
+  const profile = agentProfileSchema.parse(rawProfile)
+  const name = profile.name ?? 'worker'
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile,
     harness: null,
     executor: gateOnDeliverable(answerExecutor(), {
       check: demoCheck,
@@ -62,10 +62,16 @@ function makeWorkerAgent(rawProfile: unknown): Agent<unknown, unknown> {
 
 describe('supervisor-loop example — supervise() on the scripted brain (offline, $0)', () => {
   it('the surviving example path drives a worker to a CHECKED delivery and returns a winner', async () => {
+    const workerProfile: AgentProfile = {
+      name: 'worker',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: 'offline-worker-model' },
+    }
     const result = await supervise(
       {
         name: 'supervisor',
         harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'offline-supervisor-model' },
         prompt: {
           systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
         },
@@ -74,7 +80,7 @@ describe('supervisor-loop example — supervise() on the scripted brain (offline
       {
         // The example's offline brain (a fixed spawn → await → stop plan) + an injected worker
         // seam — exactly the no-creds wiring the runners default to.
-        brain: scriptedSupervisorChat(1, 'solver'),
+        brain: scriptedSupervisorChat(1, 'solver', workerProfile),
         makeWorkerAgent,
         budget: { maxIterations: 50, maxTokens: 500_000 },
         runId: 'supervisor-loop-example-test',
