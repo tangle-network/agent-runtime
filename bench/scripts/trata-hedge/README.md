@@ -21,8 +21,8 @@ sparse (1 iff all themes). No deployable ground-truth checker — it's an **orac
 
 ## Status (2026-06-06): pipeline PROVEN end-to-end
 
-Our solver → their **real** Gemini-3.1-pro judge → a genuine graded result. Every link
-works. The naive **single-shot** baseline (gpt-4o, ~3 of N corpus files in one context
+Our Runtime-backed solver → their **real** Gemini-3.1-pro judge → a genuine graded result. Every link
+works. The naive **single-shot** baseline (DeepSeek V4 Flash, ~3 of N corpus files in one context
 window) scores **0/4** — a floor: it hit only 1/3 moves on a few themes with
 hallucinations flagged, because it could not explore the full corpus. The bench is built
 for **agentic** exploration; a fair baseline needs our sandbox runtime as the solver
@@ -35,7 +35,7 @@ for **agentic** exploration; a fair baseline needs our sandbox runtime as the so
 git clone https://github.com/Trata-Inc/trata-hedge-bench /tmp/thb
 
 dotenvx run -f ~/company/devops/secrets/.env.keys -f ~/company/devops/secrets/agent-state.env -- \
-  bash bench/scripts/trata-hedge/run.sh /tmp/thb/environments/<env-name> gpt-4o
+  bash bench/scripts/trata-hedge/run.sh /tmp/thb/environments/<env-name> deepseek-v4-flash
 ```
 
 ## Gotchas (each cost a debugging cycle)

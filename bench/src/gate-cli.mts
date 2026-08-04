@@ -46,9 +46,16 @@ async function main(): Promise<void> {
 
   const profile = {
     name: 'gate-solver',
-    model: { default: model },
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      metadata: {
+        temperature: Number(process.env.TEMPERATURE ?? 0.7),
+      },
+    },
     prompt: { systemPrompt: 'You are an expert agent. Produce the single best deliverable the task’s grader will accept.' },
-  } as unknown as AgentProfile
+  } satisfies AgentProfile
 
   const report = await runGate({
     adapter,
@@ -56,8 +63,6 @@ async function main(): Promise<void> {
     strategies,
     routerBaseUrl,
     routerKey,
-    model,
-    ...(process.env.TEMPERATURE ? { temperature: Number(process.env.TEMPERATURE) } : {}),
     n: Number(process.env.N ?? 20),
     ...(process.env.IDS ? { ids: process.env.IDS.split(',') } : {}),
     ...(process.env.SPLIT ? { split: process.env.SPLIT } : {}),

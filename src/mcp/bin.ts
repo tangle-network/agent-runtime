@@ -100,7 +100,7 @@ async function main(): Promise<void> {
   }
   if (delegateSupervisor) {
     process.stderr.write(
-      `agent-runtime-mcp: delegate enabled — generic authoring supervisor on ${delegateSupervisor.router.model}\n`,
+      `agent-runtime-mcp: delegate enabled — generic authoring supervisor on ${delegateSupervisor.supervisorProfile.model?.default}\n`,
     )
   }
 

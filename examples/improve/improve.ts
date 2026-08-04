@@ -63,7 +63,12 @@ export const scriptedWinner: ImproveMethodFactory<DemoScenario, string> = (conte
   async optimize() {
     return {
       winnerSurface: context.findings.length > 0 ? 'PROMOTED' : context.baselineSurface,
-      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
     }
   },
 })

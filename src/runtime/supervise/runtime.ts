@@ -32,10 +32,18 @@ import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
+  type AgentProfileResourceRef,
   agentProfileSchema,
-  mergeAgentProfiles,
+  canonicalAgentProfileDigest,
+  profileMaterializationAxes,
+  REASONING_EFFORTS,
+  type ReasoningEffort,
 } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
+import {
+  assertProfileMaterialization,
+  defineProfileMaterializationContract,
+} from '../../agent/profile-materialization'
 import { ValidationError } from '../../errors'
 import type { LocalHarness } from '../../mcp/local-harness'
 import { mergeTraceEnv } from '../../mcp/trace-propagation'
@@ -60,7 +68,16 @@ import {
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
 import { agentHarness } from '../harness-role'
-import { routerChatWithUsage, type ToolSpec } from '../router-client'
+import {
+  type PromptCacheUsage,
+  type RouterChatResult,
+  type RouterChatToolsResult,
+  type RouterConfig,
+  routerChatWithTools,
+  routerChatWithUsage,
+  streamRouterChatWithTools,
+  type ToolSpec,
+} from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
 import type {
@@ -73,12 +90,19 @@ import type {
 } from '../types'
 import { zeroTokenUsage } from '../util'
 import { createInbox, type Inbox } from './inbox'
-import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import {
-  concreteModelId,
+  attestRuntimeOwnedExecutor,
+  attestRuntimeOwnedPendingExecutor,
+  finalizeRuntimeOwnedPendingExecutor,
+  newExecutionAttemptId,
+  runtimeOwnedExecutorExecutionBinding,
+  runtimeOwnedExecutorMaterialization,
+} from './materialization'
+import {
+  assertExecutableAgentProfile,
   concreteProfileModel,
-  isHarnessNativeModel,
-  profileForExecution,
+  profileBridgeWireModel,
+  profileModelExecutionSettings,
 } from './model-policy'
 import {
   type ActivityLog,
@@ -112,15 +136,41 @@ import { createWorktreeCliExecutor } from './worktree-cli-executor'
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
 
 /**
- * Router/inline connection seam. A direct OpenAI-compatible Router endpoint —
- * the cheapest leaf, no box, no tools. `model` overrides the profile's model
- * hint when present; otherwise the profile's `model.default` is required.
+ * Router/inline transport seam. The profile owns model, prompt, and generation behavior.
  */
 export interface RouterSeam {
   routerBaseUrl: string
   routerKey: string
-  model?: string
+  /** Injectable transport for offline/local execution; still passes through Runtime metering. */
+  complete?: RouterConfig['complete']
+  /** When present, return one turn's requested tool calls without executing them. */
+  tools?: ReadonlyArray<ToolSpec>
 }
+
+const routerTurnProfileMaterialization = defineProfileMaterializationContract({
+  name: 'router-profile-turn',
+  axes: [
+    'name',
+    'description',
+    'version',
+    'tags',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelProvider',
+    'modelReasoningEffort',
+    'modelMetadata',
+    'harness',
+    'tools',
+    'files',
+    'resourceTools',
+    'skills',
+    'resourceAgents',
+    'commands',
+    'resourceInstructions',
+    'metadata',
+  ],
+})
 
 /**
  * Sandbox executor seam. The `sandboxClient` the composed `runAgentRounds` creates
@@ -182,7 +232,7 @@ export interface CliSeam {
 /**
  * cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
  * (claude / codex / opencode) on its own git worktree — the leaf `createWorktreeCliExecutor`
- * named as data. `harness` + `repoRoot` are required; the task comes from `Executor.execute`.
+ * named as data. `repoRoot` is transport data; `AgentProfile.harness` selects the CLI.
  * `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
  * The authored
  * `profile.prompt.systemPrompt` + `profile.model.default` reach the harness via the §1.5
@@ -190,8 +240,6 @@ export interface CliSeam {
  */
 export interface CliWorktreeSeam {
   repoRoot: string
-  /** Local CLI harness transport. Omit when `bridge` is set. */
-  harness?: LocalHarness
   taskPrompt?: string
   runId?: string
   baseRef?: string
@@ -217,25 +265,20 @@ export interface CliWorktreeSeam {
 export interface CliWorktreeBridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
-  /** Bridge model/harness id. Defaults to the profile's model hint when omitted. */
-  model?: string
-  /** Canonical profile overlay merged over the spawned profile. */
-  agentProfile?: AgentProfile
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
    *  same value in `execution.timeoutMs` so cli-bridge cannot substitute its own cutoff. */
   timeoutMs?: number
   /** Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`. */
   sessionId?: string
-  maxTurns?: number
+  /** Transport reconnects allowed after the first POST. Default 3; set 0 to disable. */
+  maxReconnects?: number
 }
 
 /**
  * cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
- * (claude-code / opencode / kimi / pi) behind one HTTP surface; `model` doubles
- * as the harness selector (e.g. `claude-code/sonnet`, `opencode/<provider>/<model>`).
- * `agentProfile` is the bridge-dialect profile (metadata.disallowedTools, mcp)
- * forwarded verbatim per request — how an arm disables native tools or injects
- * a provider search MCP.
+ * (claude-code / opencode / kimi / pi) behind one HTTP surface. The spawned
+ * `AgentProfile` is the sole harness/provider/model and behavioral authority and
+ * is forwarded verbatim per request; this seam carries transport data only.
  *
  * The executor opens a resumable cli-bridge session. `sessionId` identifies the
  * harness conversation across turns; each turn also receives its own durable run id.
@@ -249,7 +292,7 @@ export interface CliWorktreeBridgeSeam {
  * loses its pairing: an installed extension that persists memory across runs carries arm A's state
  * into arm B, and nothing reports it.
  *
- * That is what the `AgentProfile` on this seam (and on the spawn spec) is FOR. `agent_profile`
+ * That is what the spawned `AgentProfile` is FOR. `agent_profile`
  * rides every request verbatim, and cli-bridge maps it onto each harness's own native controls:
  *
  *   - Materializing any profile at all already starts the harness isolated from ambient
@@ -279,21 +322,16 @@ export interface CliWorktreeBridgeSeam {
 export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
-  /** Fallback bridge wire id. A spawned profile may select its own harness and model. */
-  model?: string
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
   cwd?: string
-  /** Canonical profile overlay merged over the spawned profile. */
-  agentProfile?: AgentProfile
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
    *  same value in `execution.timeoutMs` so the bridge-owned process follows the same policy. */
   timeoutMs?: number
   /** Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
    *  to a freshly minted per-spawn id so each worker is its own resumable session. */
   sessionId?: string
-  /** Per-resume-turn inference cap before the worker settles on its last output.
-   *  Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop). */
-  maxTurns?: number
+  /** Transport reconnects allowed after the first POST. Default 3; set 0 to disable. */
+  maxReconnects?: number
   /** Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`). */
   activityWindow?: number
 }
@@ -318,6 +356,8 @@ const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
 const maxBridgeTimeoutMs = 2_147_483_647
+const bridgeProfileMaterializationSchema = 'cli-bridge.profile-materialization.v2'
+const bridgeUsageCostSchema = 'cli-bridge.usage-cost.v1'
 const cliWorktreeSeamKey = 'cli-worktree'
 const providerSeamKey = 'provider'
 
@@ -357,18 +397,19 @@ function contentRef(prefix: string, value: unknown): string {
  * as a ceiling rather than a measurement. Use this — never a bare zero — whenever a runtime cannot
  * see what its worker spent.
  *
- * DELIBERATELY NOT `usdKnown: false`, and this is not an oversight. On the dollar channel that flag
- * is not a marker but a REFUSAL: `budget.ts` treats unknown dollars under a dollar-capped root as a
- * reconcile violation and fails the child. Applying it here would contradict `budgetExempt`, whose
- * whole documented contract is that such a worker settles OUT of the conserved pool rather than
- * against it (`scope.ts`) — a worker the kernel already agreed not to budget would start failing
- * after its work had burned, which is a policy change about which configurations are allowed, not a
- * fix to how honestly spend is reported. The token marker taints only token accounting. Under the
- * current `budgetExempt` policy the surviving `usd: 0` remains dollar-known; callers that require
- * dollar accounting must use a backend that returns priced usage.
+ * The same rule applies to dollars. A dollar-capped run must refuse an executor whose billed spend
+ * is unknowable; `budgetExempt` does not authorize Runtime to relabel unknown spend as a measured
+ * zero. Callers that require dollar accounting must use a backend with a trusted billing receipt.
  */
 function unmeteredSpend(ms: number): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), tokensKnown: false, usd: 0, ms }
+  return {
+    iterations: 0,
+    tokens: zeroTokenUsage(),
+    tokensKnown: false,
+    usd: 0,
+    usdKnown: false,
+    ms,
+  }
 }
 
 // ── router/inline executor (harness === null) ──────────────────────────────────
@@ -386,15 +427,12 @@ function unmeteredSpend(ms: number): Spend {
  */
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
-  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
-  if (!model) {
-    throw new ValidationError(
-      'routerInlineExecutor: no model — set RouterSeam.model or AgentProfile.model.default',
-    )
-  }
+  const model = exactRouterModel(spec.profile, 'routerInlineExecutor')
   if (!seam.routerBaseUrl || !seam.routerKey) {
     throw new ValidationError('routerInlineExecutor: RouterSeam.routerBaseUrl + routerKey required')
   }
+  const profileExecution = routerProfileExecution(spec.profile, seam, { multiTurn: false })
+  const requestIdentity = routerRequestIdentity(ctx)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -411,24 +449,104 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     {
       runtime: 'router' as Runtime,
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
-        const messages = taskToMessages(task, spec)
+        const messages = taskToMessages(task, spec, profileExecution.systemPrompt)
         const started = Date.now()
         const linked = linkSignals(signal, controller.signal)
-        const r = await routerChatWithUsage(
-          { routerBaseUrl: seam.routerBaseUrl, routerKey: seam.routerKey, model },
-          messages,
-          linked ? { signal: linked } : {},
+        const extraBody = {
+          ...(profileExecution.extraBody ?? {}),
+          ...(profileExecution.reasoningEffort
+            ? { reasoning_effort: profileExecution.reasoningEffort }
+            : {}),
+        }
+        const r = await runRouterTransport<RouterChatResult | RouterChatToolsResult>(
+          'routerInlineExecutor',
+          () =>
+            seam.tools
+              ? (profileExecution.stream === true
+                  ? streamRouterChatWithTools
+                  : routerChatWithTools)(
+                  {
+                    routerBaseUrl: seam.routerBaseUrl,
+                    routerKey: seam.routerKey,
+                    model,
+                    ...(profileExecution.maxAttempts !== undefined
+                      ? { maxAttempts: profileExecution.maxAttempts }
+                      : {}),
+                    ...(seam.complete ? { complete: seam.complete } : {}),
+                  },
+                  messages,
+                  seam.tools,
+                  {
+                    ...(profileExecution.temperature !== undefined
+                      ? { temperature: profileExecution.temperature }
+                      : {}),
+                    ...(linked ? { signal: linked } : {}),
+                    ...(profileExecution.toolChoice
+                      ? { toolChoice: profileExecution.toolChoice }
+                      : {}),
+                    ...(profileExecution.maxTokens !== undefined
+                      ? { maxTokens: profileExecution.maxTokens }
+                      : {}),
+                    ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
+                    ...(Object.keys(extraBody).length > 0 ? { extraBody } : {}),
+                    ...requestIdentity,
+                  },
+                )
+              : routerChatWithUsage(
+                  {
+                    routerBaseUrl: seam.routerBaseUrl,
+                    routerKey: seam.routerKey,
+                    model,
+                    ...(profileExecution.maxAttempts !== undefined
+                      ? { maxAttempts: profileExecution.maxAttempts }
+                      : {}),
+                    ...(seam.complete ? { complete: seam.complete } : {}),
+                  },
+                  messages,
+                  {
+                    ...(profileExecution.temperature !== undefined
+                      ? { temperature: profileExecution.temperature }
+                      : {}),
+                    ...(linked ? { signal: linked } : {}),
+                    ...(profileExecution.maxTokens !== undefined
+                      ? { maxTokens: profileExecution.maxTokens }
+                      : {}),
+                    ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
+                    ...(profileExecution.reasoningEffort
+                      ? { reasoningEffort: profileExecution.reasoningEffort }
+                      : {}),
+                    ...(profileExecution.extraBody
+                      ? { extraBody: profileExecution.extraBody }
+                      : {}),
+                    ...requestIdentity,
+                  },
+                ),
         )
         const spent: Spend = {
           iterations: 1,
           tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
-          usd: r.costUsd ?? 0,
+          usd: r.billedCostUsd ?? 0,
           ...(r.usage ? {} : { tokensKnown: false }),
-          ...(r.costUsd === undefined ? { usdKnown: false } : {}),
+          ...(r.billedCostUsd === undefined ? { usdKnown: false } : {}),
           ms: Date.now() - started,
         }
-        const out = { content: r.content } as unknown
-        artifact = { outRef: contentRef('router', { model, content: r.content }), out, spent }
+        assertObservedRouterModel(r.model, model, 'routerInlineExecutor')
+        const out = {
+          content: r.content ?? '',
+          ...(r.model !== undefined ? { model: r.model } : {}),
+          transportAttempts: r.transportAttempts,
+          ...(r.costUsd !== undefined ? { estimatedCostUsd: r.costUsd } : {}),
+          ...(r.cache ? { promptCache: r.cache } : {}),
+          ...(r.usage?.reasoning !== undefined ? { reasoningTokens: r.usage.reasoning } : {}),
+          ...('toolCalls' in r ? { toolCalls: r.toolCalls } : {}),
+          ...(r.reasoning ? { reasoning: r.reasoning } : {}),
+          ...(r.finishReason
+            ? { finishReason: r.finishReason }
+            : 'toolCalls' in r && r.toolCalls.length > 0
+              ? { finishReason: 'tool_calls' }
+              : {}),
+        } as unknown
+        artifact = { outRef: contentRef('router', { model, out }), out, spent }
         return artifact
       },
       teardown(_grace): Promise<{ destroyed: boolean }> {
@@ -451,7 +569,20 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         id: executionId,
       },
       materializer: 'router-prompt-model',
-      plan: { kind: 'openai-chat-completion', model },
+      plan: {
+        kind: 'openai-chat-completion',
+        model,
+        provider: spec.profile.model?.provider ?? null,
+        temperature: profileExecution.temperature ?? null,
+        maxTokens: profileExecution.maxTokens ?? null,
+        maxAttempts: profileExecution.maxAttempts ?? null,
+        seed: profileExecution.seed ?? null,
+        reasoningEffort: profileExecution.reasoningEffort ?? null,
+        extraBody: profileExecution.extraBody ?? null,
+        tools: seam.tools ?? null,
+        toolChoice: profileExecution.toolChoice ?? null,
+        systemPrompt: profileExecution.systemPrompt || null,
+      },
     },
     {
       attemptId,
@@ -480,9 +611,13 @@ export type { ToolSpec }
 export interface RouterToolsSeam {
   routerBaseUrl: string
   routerKey: string
-  model?: string
+  complete?: RouterConfig['complete']
   tools: ReadonlyArray<ToolSpec>
   executeToolCall: (name: string, args: Record<string, unknown>, task: unknown) => Promise<string>
+  /** Exact conversation to continue. Runtime validates its system message against the profile. */
+  initialMessages?: ReadonlyArray<Readonly<Record<string, unknown>>>
+  /** Observe the detached final conversation for session persistence. */
+  onMessages?: (messages: ReadonlyArray<Readonly<Record<string, unknown>>>) => void | Promise<void>
   /** Online observer of each tool step — the seam a `DetectorMonitor` taps to watch the live pipe
    *  (raise a `finding` when the worker loops/errors). Called after every tool call resolves, with
    *  real per-call wall-clock (`startedAt`/`endedAt`/`durationMs`) so a push `TraceSource` can carry
@@ -498,21 +633,38 @@ export interface RouterToolsSeam {
     endedAt?: number
     durationMs?: number
   }) => void
-  /** Max inference turns. Default 200 (runaway backstop — set far above any
-   *  legitimate workflow). For tighter per-workflow limits use a cost budget
-   *  or wall-clock deadline at the call site. */
-  maxTurns?: number
 }
 const routerToolsSeamKey = 'router-tools'
 
-interface RouterToolsResponse {
-  choices?: Array<{
-    message?: {
-      content?: string | null
-      tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
-    }
-  }>
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
+function mergePromptCache(
+  target: Record<string, number | string>,
+  cache: PromptCacheUsage | undefined,
+): void {
+  if (!cache) return
+  for (const key of ['readTokens', 'writeTokens', 'missTokens', 'readSavingsUsd'] as const) {
+    const value = cache[key]
+    if (value !== undefined) target[key] = (Number(target[key]) || 0) + value
+  }
+  if (cache.status !== undefined) target.status = cache.status
+}
+
+async function runRouterTransport<T>(context: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call()
+  } catch (error) {
+    throwRouterTransportFailure(context, error)
+  }
+}
+
+function throwRouterTransportFailure(context: string, error: unknown): never {
+  if (
+    error instanceof ValidationError ||
+    (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')
+  ) {
+    throw error
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  throw new ValidationError(`${context}: transport failed: ${message}`)
 }
 
 /**
@@ -521,18 +673,24 @@ interface RouterToolsResponse {
  */
 export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterToolsSeam>(ctx, routerToolsSeamKey, 'router-tools')
-  const model = concreteProfileModel(spec.profile) ?? concreteModelId(seam.model)
-  if (!model) {
-    throw new ValidationError(
-      'routerToolsInlineExecutor: no model — set RouterToolsSeam.model or AgentProfile.model.default',
-    )
-  }
+  const model = exactRouterModel(spec.profile, 'routerToolsInlineExecutor')
   if (!seam.routerBaseUrl || !seam.routerKey) {
     throw new ValidationError(
       'routerToolsInlineExecutor: RouterToolsSeam.routerBaseUrl + routerKey required',
     )
   }
-  const maxTurns = seam.maxTurns ?? 200
+  const profileExecution = routerProfileExecution(
+    spec.profile,
+    {
+      routerBaseUrl: seam.routerBaseUrl,
+      routerKey: seam.routerKey,
+      tools: seam.tools,
+    },
+    { multiTurn: true },
+  )
+  const enabledToolNames = new Set(seam.tools.map((tool) => tool.function.name))
+  const maxTurns = profileExecution.maxTurns ?? 0
+  const requestIdentity = routerRequestIdentity(ctx)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -554,12 +712,25 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       deliver: (m) => inbox.deliver(m),
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
         const started = Date.now()
-        const messages: Array<Record<string, unknown>> = [
-          ...(taskToMessages(task, spec) as Array<Record<string, unknown>>),
-        ]
+        const messages: Array<Record<string, unknown>> = seam.initialMessages
+          ? taskToMessages(
+              {
+                messages: [...seam.initialMessages, { role: 'user', content: taskToPrompt(task) }],
+              },
+              spec,
+              profileExecution.systemPrompt,
+            )
+          : taskToMessages(task, spec, profileExecution.systemPrompt)
         const tokens = zeroTokenUsage()
         let tokensKnown = true
+        let billedUsd = 0
+        let usdKnown = true
         let turns = 0
+        let transportAttempts = 0
+        let observedModel: string | undefined
+        let reasoningTokens = 0
+        let reasoningKnown = true
+        const promptCache: Record<string, number | string> = {}
         let lastText = ''
         // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
         const flush = () => {
@@ -572,148 +743,197 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         // re-register listeners on these long-lived signals every turn.
         const external = mergeAbortSignals(signal, controller.signal)
 
-        for (let t = 0; t < maxTurns; t += 1) {
-          // QUEUED messages flush at the step boundary, before this turn's inference.
-          flush()
-          // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
-          // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
-          // removed after the turn (`cleanup`) so nothing accumulates across turns.
-          const interruptSig = inbox.freshInterrupt()
-          const turnController = new AbortController()
-          const abortTurn = () => turnController.abort()
-          if (external.aborted) turnController.abort()
-          else external.addEventListener('abort', abortTurn)
-          interruptSig.addEventListener('abort', abortTurn, { once: true })
-          const cleanup = () => external.removeEventListener('abort', abortTurn)
-          let res: Response
-          try {
-            res = await fetch(`${seam.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-              method: 'POST',
-              headers: {
-                'content-type': 'application/json',
-                authorization: `Bearer ${seam.routerKey}`,
-              },
-              body: JSON.stringify({
-                model,
+        try {
+          for (let t = 0; maxTurns === 0 || t < maxTurns; t += 1) {
+            // QUEUED messages flush at the step boundary, before this turn's inference.
+            flush()
+            // A forceful (interrupt) message aborts THIS turn so the worker re-plans immediately. The
+            // per-turn controller fires on `external` OR a fresh interrupt; its listener on `external` is
+            // removed after the turn (`cleanup`) so nothing accumulates across turns.
+            const interruptSig = inbox.freshInterrupt()
+            const turnController = new AbortController()
+            const abortTurn = () => turnController.abort()
+            if (external.aborted) turnController.abort()
+            else external.addEventListener('abort', abortTurn)
+            interruptSig.addEventListener('abort', abortTurn, { once: true })
+            const cleanup = () => external.removeEventListener('abort', abortTurn)
+            let res: Awaited<ReturnType<typeof routerChatWithTools>>
+            try {
+              res = await (profileExecution.stream === true
+                ? streamRouterChatWithTools
+                : routerChatWithTools)(
+                {
+                  routerBaseUrl: seam.routerBaseUrl,
+                  routerKey: seam.routerKey,
+                  model,
+                  ...(profileExecution.maxAttempts !== undefined
+                    ? { maxAttempts: profileExecution.maxAttempts }
+                    : {}),
+                  ...(seam.complete ? { complete: seam.complete } : {}),
+                },
                 messages,
-                tools: seam.tools,
-                tool_choice: 'auto',
-                temperature: 0.2,
-              }),
-              signal: turnController.signal,
-            })
-          } catch (e) {
-            cleanup()
-            // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
-            // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
-            // loop slot (so interrupt spam is bounded by maxTurns, not a hang) but does not bill a turn.
-            // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
-            const interruptAbort =
-              e instanceof DOMException &&
-              e.name === 'AbortError' &&
-              interruptSig.aborted &&
-              !signal.aborted &&
-              !controller.signal.aborted
-            if (interruptAbort) continue
-            throw e
-          }
-          cleanup()
-          // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
-          turns += 1
-          if (!res.ok) {
-            throw new ValidationError(
-              `routerToolsInlineExecutor: router ${res.status}: ${(await res.text()).slice(0, 200)}`,
-            )
-          }
-          const data = (await res.json()) as RouterToolsResponse
-          const u = data.usage
-          if (u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number') {
-            tokens.input += u.prompt_tokens
-            tokens.output += u.completion_tokens
-          } else {
-            tokensKnown = false
-          }
-          const msg = data.choices?.[0]?.message
-          if (msg?.content) lastText = msg.content
-          const toolCalls = msg?.tool_calls ?? []
-          if (toolCalls.length === 0) {
-            // Before settling, flush once more — a worker may not finish while a steer/answer it never
-            // read is still pending. If anything flushed, keep going; otherwise it is truly done.
-            if (flush()) continue
-            break
-          }
-
-          // Record the assistant turn verbatim, then run each call on the host and
-          // fold the result back as a `tool` message for the next turn.
-          messages.push({
-            role: 'assistant',
-            content: msg?.content ?? '',
-            tool_calls: toolCalls.map((tc, i) => ({
-              id: tc.id ?? `call_${i}`,
-              type: 'function',
-              function: {
-                name: tc.function?.name ?? '',
-                arguments: tc.function?.arguments ?? '{}',
-              },
-            })),
-          })
-          for (let i = 0; i < toolCalls.length; i += 1) {
-            const tc = toolCalls[i]
-            const id = tc?.id ?? `call_${i}`
-            let args: Record<string, unknown> = {}
-            try {
-              args = JSON.parse(tc?.function?.arguments ?? '{}') as Record<string, unknown>
-            } catch {
-              // Malformed args are a real outcome, not an infra fault — feed the error
-              // back so the model can correct, rather than aborting the whole loop.
-              messages.push({
-                role: 'tool',
-                tool_call_id: id,
-                content: 'error: tool arguments were not valid JSON',
-              })
-              continue
-            }
-            const toolName = tc?.function?.name ?? ''
-            let result: string
-            let status: 'ok' | 'error' = 'ok'
-            const toolStartedAt = Date.now()
-            try {
-              result = await seam.executeToolCall(toolName, args, task)
+                seam.tools,
+                {
+                  ...(profileExecution.temperature !== undefined
+                    ? { temperature: profileExecution.temperature }
+                    : {}),
+                  signal: turnController.signal,
+                  ...(profileExecution.toolChoice
+                    ? { toolChoice: profileExecution.toolChoice }
+                    : {}),
+                  ...(profileExecution.maxTokens !== undefined
+                    ? { maxTokens: profileExecution.maxTokens }
+                    : {}),
+                  ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
+                  ...(profileExecution.reasoningEffort
+                    ? { reasoningEffort: profileExecution.reasoningEffort }
+                    : {}),
+                  ...(profileExecution.extraBody ? { extraBody: profileExecution.extraBody } : {}),
+                  ...routerTurnRequestIdentity(requestIdentity, t),
+                },
+              )
             } catch (e) {
-              status = 'error'
-              result = `error: ${e instanceof Error ? e.message : String(e)}`
+              cleanup()
+              // Re-plan ONLY when a forceful inbox message aborted this turn (a real AbortError, with the
+              // interrupt — not the external teardown/budget signal). The re-planned turn still consumes a
+              // loop slot when the caller configured a finite maxTurns, but does not bill a turn.
+              // Any other error — incl. a network fault coincident with an interrupt — is fatal: rethrow.
+              const interruptAbort =
+                e instanceof DOMException &&
+                e.name === 'AbortError' &&
+                interruptSig.aborted &&
+                !signal.aborted &&
+                !controller.signal.aborted
+              if (interruptAbort) continue
+              throwRouterTransportFailure('routerToolsInlineExecutor', e)
             }
-            const toolEndedAt = Date.now()
-            messages.push({ role: 'tool', tool_call_id: id, content: result })
-            // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
-            // call or hammering errors is caught mid-run, not only at settle. This is an observability
-            // side-channel: a throwing monitor must never crash the production inference loop.
-            try {
-              seam.onToolStep?.({
-                toolName,
-                args,
-                status,
-                startedAt: toolStartedAt,
-                endedAt: toolEndedAt,
-                durationMs: toolEndedAt - toolStartedAt,
-              })
-            } catch {
-              // ignore — monitoring must not break the worker
+            cleanup()
+            // The inference completed — count the turn now (an interrupted, re-planned turn doesn't bill).
+            turns += 1
+            transportAttempts += res.transportAttempts
+            assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')
+            if (res.model !== undefined) observedModel = res.model
+            mergePromptCache(promptCache, res.cache)
+            if (res.usage) {
+              tokens.input += res.usage.input
+              tokens.output += res.usage.output
+              if (res.usage.reasoning !== undefined) reasoningTokens += res.usage.reasoning
+              else reasoningKnown = false
+            } else {
+              tokensKnown = false
+              reasoningKnown = false
+            }
+            if (res.billedCostUsd !== undefined) billedUsd += res.billedCostUsd
+            else usdKnown = false
+            if (res.content) lastText = res.content
+            const toolCalls = res.toolCalls
+            if (toolCalls.length === 0) {
+              // Before settling, flush once more — a worker may not finish while a steer/answer it never
+              // read is still pending. If anything flushed, keep going; otherwise it is truly done.
+              if (flush()) continue
+              messages.push({ role: 'assistant', content: res.content ?? '' })
+              break
+            }
+
+            // Record the assistant turn verbatim, then run each call on the host and
+            // fold the result back as a `tool` message for the next turn.
+            messages.push({
+              role: 'assistant',
+              content: res.content ?? '',
+              tool_calls: toolCalls.map((tc) => ({
+                id: tc.id,
+                type: 'function',
+                function: {
+                  name: tc.name,
+                  arguments: tc.arguments,
+                },
+              })),
+            })
+            for (let i = 0; i < toolCalls.length; i += 1) {
+              const tc = toolCalls[i]
+              const id = tc?.id ?? `call_${i}`
+              const toolName = tc?.name ?? ''
+              if (!enabledToolNames.has(toolName)) {
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: id,
+                  content: `error: tool ${JSON.stringify(toolName)} is not enabled by AgentProfile.tools`,
+                })
+                try {
+                  seam.onToolStep?.({ toolName, args: {}, status: 'error' })
+                } catch {
+                  // Monitoring cannot authorize or execute a refused tool call.
+                }
+                continue
+              }
+              let args: Record<string, unknown> = {}
+              try {
+                args = JSON.parse(tc?.arguments ?? '{}') as Record<string, unknown>
+              } catch {
+                // Malformed args are a real outcome, not an infra fault — feed the error
+                // back so the model can correct, rather than aborting the whole loop.
+                messages.push({
+                  role: 'tool',
+                  tool_call_id: id,
+                  content: 'error: tool arguments were not valid JSON',
+                })
+                continue
+              }
+              let result: string
+              let status: 'ok' | 'error' = 'ok'
+              const toolStartedAt = Date.now()
+              try {
+                result = await seam.executeToolCall(toolName, args, task)
+              } catch (e) {
+                status = 'error'
+                result = `error: ${e instanceof Error ? e.message : String(e)}`
+              }
+              const toolEndedAt = Date.now()
+              messages.push({ role: 'tool', tool_call_id: id, content: result })
+              // Feed the online detector pipe (stuck-loop / error-streak) — a worker repeating the same
+              // call or hammering errors is caught mid-run, not only at settle. This is an observability
+              // side-channel: a throwing monitor must never crash the production inference loop.
+              try {
+                seam.onToolStep?.({
+                  toolName,
+                  args,
+                  status,
+                  startedAt: toolStartedAt,
+                  endedAt: toolEndedAt,
+                  durationMs: toolEndedAt - toolStartedAt,
+                })
+              } catch {
+                // ignore — monitoring must not break the worker
+              }
             }
           }
+        } finally {
+          await seam.onMessages?.(
+            structuredClone(messages) as ReadonlyArray<Readonly<Record<string, unknown>>>,
+          )
         }
 
         const priced = isModelPriced(model)
-        const usd = priced ? estimateCost(tokens.input, tokens.output, model) : 0
+        const estimatedUsd = priced ? estimateCost(tokens.input, tokens.output, model) : undefined
         const spent: Spend = {
           iterations: turns,
           tokens,
           ...(tokensKnown ? {} : { tokensKnown: false }),
-          usd,
-          ...(!priced || !tokensKnown ? { usdKnown: false } : {}),
+          usd: billedUsd,
+          ...(usdKnown ? {} : { usdKnown: false }),
           ms: Date.now() - started,
         }
-        const out = { content: lastText } as unknown
+        const out = {
+          content: lastText,
+          ...(observedModel !== undefined ? { model: observedModel } : {}),
+          messages,
+          turns,
+          toolCalls: messages.filter((message) => message.role === 'tool').length,
+          transportAttempts,
+          ...(estimatedUsd !== undefined ? { estimatedCostUsd: estimatedUsd } : {}),
+          ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
+          ...(reasoningKnown && turns > 0 ? { reasoningTokens } : {}),
+        } as unknown
         artifact = { outRef: contentRef('router-tools', { model, content: lastText }), out, spent }
         return artifact
       },
@@ -739,7 +959,20 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         id: executionId,
       },
       materializer: 'router-tools-prompt-model',
-      plan: { kind: 'openai-tool-loop', model, maxTurns, tools: seam.tools },
+      plan: {
+        kind: 'openai-tool-loop',
+        model,
+        provider: spec.profile.model?.provider ?? null,
+        maxTurns,
+        tools: seam.tools,
+        temperature: profileExecution.temperature ?? null,
+        maxTokens: profileExecution.maxTokens ?? null,
+        maxAttempts: profileExecution.maxAttempts ?? null,
+        toolChoice: profileExecution.toolChoice ?? null,
+        extraBody: profileExecution.extraBody ?? null,
+        reasoningEffort: profileExecution.reasoningEffort ?? null,
+        systemPrompt: profileExecution.systemPrompt || null,
+      },
     },
     {
       attemptId,
@@ -751,6 +984,39 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       descriptor: { kind: 'router-tool-loop', transport: 'http', backend: 'router-tools' },
     },
   )
+}
+
+function assertObservedRouterModel(
+  observed: string | undefined,
+  expected: string,
+  context: string,
+): void {
+  if (observed !== undefined && observed !== expected) {
+    throw new ValidationError(
+      `${context}: provider reported model ${JSON.stringify(observed)} but AgentProfile requires ${JSON.stringify(expected)}`,
+    )
+  }
+}
+
+function routerRequestIdentity(ctx: ExecutorContext): {
+  readonly callId?: string
+  readonly correlationId?: string
+} {
+  const correlation = ctx.node?.identity?.correlation
+  return {
+    ...(correlation?.callId ? { callId: correlation.callId } : {}),
+    ...(correlation?.correlationId ? { correlationId: correlation.correlationId } : {}),
+  }
+}
+
+function routerTurnRequestIdentity(
+  identity: { readonly callId?: string; readonly correlationId?: string },
+  turnIndex: number,
+): { readonly callId?: string; readonly correlationId?: string } {
+  return {
+    ...(identity.callId ? { callId: `${identity.callId}:turn:${turnIndex + 1}` } : {}),
+    ...(identity.correlationId ? { correlationId: identity.correlationId } : {}),
+  }
 }
 
 // ── sandbox executor (harness is a BackendType) ────────────────────────────────
@@ -986,23 +1252,41 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     if (failure) throw failure
     const out = result.winner?.output ?? { events: [] }
     const verdict = result.winner?.verdict ?? leafVerdict(result)
+    const tokensKnown = result.tokenUsage.tokensKnown !== false
+    const usdKnown = result.costUsdKnown !== false
+    const outWithUsage = {
+      ...out,
+      ...(result.estimatedCostUsd !== undefined
+        ? { estimatedCostUsd: result.estimatedCostUsd }
+        : {}),
+      ...(result.promptCache ? { promptCache: result.promptCache } : {}),
+    }
     const spent: Spend = {
       iterations: result.iterations.length,
       tokens: { input: result.tokenUsage.input, output: result.tokenUsage.output },
+      ...(tokensKnown ? {} : { tokensKnown: false }),
       usd: result.costUsd,
+      ...(usdKnown ? {} : { usdKnown: false }),
       ms: Date.now() - started,
     }
     args.onArtifact({
-      outRef: contentRef('sandbox', { harness: args.harness, out }),
-      out,
+      outRef: contentRef('sandbox', { harness: args.harness, out: outWithUsage }),
+      out: outWithUsage,
       ...(verdict ? { verdict } : {}),
       spent,
     })
     for (let i = 0; i < result.iterations.length; i += 1) yield { kind: 'iteration' }
-    if (result.tokenUsage.input || result.tokenUsage.output) {
-      yield { kind: 'tokens', input: result.tokenUsage.input, output: result.tokenUsage.output }
+    if (result.iterations.length > 0 || result.tokenUsage.input || result.tokenUsage.output) {
+      yield {
+        kind: 'tokens',
+        input: result.tokenUsage.input,
+        output: result.tokenUsage.output,
+        ...(tokensKnown ? {} : { tokensKnown: false }),
+      }
     }
-    if (result.costUsd) yield { kind: 'cost', usd: result.costUsd }
+    if (result.iterations.length > 0 || result.costUsd) {
+      yield { kind: 'cost', usd: result.costUsd, ...(usdKnown ? {} : { usdKnown: false }) }
+    }
   } finally {
     args.signal.removeEventListener('abort', cascade)
     args.controller.signal.removeEventListener('abort', cascade)
@@ -1246,80 +1530,31 @@ function killWithGrace(
  *
  * Reports REAL usage when the bridge surfaces it, never a fabricated cost.
  */
-/** Resolve the bridge wire model for this spawn. Per-create matrix settings win, then the
- * canonical profile's harness/model preferences, then the bridge's configured fallback. */
-/**
- * A profile's selected model with its provider attached, the way a harness addresses one.
- *
- * Returns undefined when the profile selects no model, and the id unchanged when it is already
- * qualified or when the profile names no provider — there, the harness's own provider resolution
- * IS the caller's declared intent rather than a gap to fill.
- */
-function qualifyProviderModel(model: AgentProfile['model']): string | undefined {
-  const id = concreteModelId(model?.default)
-  if (!id) return undefined
-  const provider = model?.provider
-  if (!provider || id.includes('/')) return id
-  return `${provider}/${id}`
+interface ResolvedBridgeSeam extends BridgeSeam {
+  /** Derived once from the exact AgentProfile; never accepted as backend configuration. */
+  readonly model: string
 }
 
-function bridgeCellModel(
-  seamModel: string | undefined,
-  ctx: ExecutorContext,
-  profile: AgentProfile,
-): string | undefined {
-  const create = ctx.seams.createOptions as
-    | { backend?: { type?: string; model?: { model?: string } } }
-    | undefined
-  const backend = create?.backend
-  const profileHarness = agentHarness(profile.harness)
-  const harness = backend?.type ?? profileHarness
-  // The PROVIDER rides with the model. A harness addresses a model as `provider/model`, so a wire
-  // id built from `model.default` alone loses it: `{provider:'tangle-router', default:'glm-5.2'}`
-  // becomes `pi/glm-5.2`, which routes to the right BACKEND and then hands pi a bare id it cannot
-  // place. pi falls back to its own default provider and dies with "No API key found for
-  // <that provider>" — a credential error naming a provider the caller never chose. Measured live;
-  // the same request with `pi/tangle-router/glm-5.2` returns 200.
-  //
-  // A concrete per-cell `backend.model.model` override is left exactly as supplied: it is a
-  // caller-authored wire id, not a profile hint, and qualifying it would rewrite what the caller
-  // asked for. Eval's runtime-selected marker is the one exception: it selects the harness's
-  // configured model and must never cross the wire as a provider model id.
-  const backendModel = backend?.model?.model
-  const hasBackendModel = backendModel !== undefined
-  // cli-bridge already treats a bare harness id (`pi`, `codex`, …) as "use that
-  // harness's configured model". Translate Eval's marker into that existing
-  // wire form rather than leaking `default` or substituting an unrelated fallback.
-  if (hasBackendModel && isHarnessNativeModel(backendModel)) {
-    return harness ?? concreteModelId(seamModel)
+/** Resolve the exact bridge wire id from the profile and nowhere else. */
+function bridgeProfileModel(profile: AgentProfile, context: string): string {
+  assertExecutableAgentProfile(profile, context)
+  if (!agentHarness(profile.harness)) {
+    throw new ValidationError(`${context}: AgentProfile.harness must select a coding-agent harness`)
   }
-  const model = hasBackendModel
-    ? concreteModelId(backendModel)
-    : qualifyProviderModel(profile.model)
-  const fallback = concreteModelId(seamModel)
-  if (!harness && !model) return fallback
-  if (!harness) return model
-  if (model) return model.startsWith(`${harness}/`) ? model : `${harness}/${model}`
-  if (!fallback) return undefined
-  return fallback.startsWith(`${harness}/`) ? fallback : `${harness}/${fallback}`
+  const model = profileBridgeWireModel(profile)
+  if (!model) {
+    throw new ValidationError(`${context}: AgentProfile did not resolve a bridge wire model`)
+  }
+  return model
 }
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
-  // A per-create `backend` override (threaded by `inlineSandboxClient` as
-  // `seams.createOptions`) targets the bridge model per cell without a second
-  // client: `backend.type` is the harness, `backend.model.model` the model, and
-  // the wire id is `${harness}/${model}` (an already-`${harness}/`-prefixed model
-  // passes through). This is how ONE bridge `SandboxClient` drives every
-  // harness×model cell of a matrix — the seam `model` is the fixed default.
-  const effectiveProfile = agentProfileSchema.parse(
-    mergeAgentProfiles(spec.profile, base.agentProfile) ?? spec.profile,
-  )
-  const seam = { ...base, model: bridgeCellModel(base.model, ctx, effectiveProfile) }
-  if (!seam.bridgeUrl || !seam.bridgeBearer || !seam.model) {
-    throw new ValidationError(
-      'bridgeExecutor: bridgeUrl + bridgeBearer and a profile or bridge model are required',
-    )
+  const effectiveProfile = agentProfileSchema.parse(spec.profile)
+  const model = bridgeProfileModel(effectiveProfile, 'bridgeExecutor')
+  const seam: ResolvedBridgeSeam = { ...base, model }
+  if (!seam.bridgeUrl || !seam.bridgeBearer) {
+    throw new ValidationError('bridgeExecutor: bridgeUrl + bridgeBearer are required')
   }
   if (
     seam.timeoutMs !== undefined &&
@@ -1331,7 +1566,14 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       `bridgeExecutor: timeoutMs must be an integer from 1 to ${maxBridgeTimeoutMs}`,
     )
   }
-  const maxTurns = seam.maxTurns ?? 200
+  if (
+    seam.maxReconnects !== undefined &&
+    (!Number.isSafeInteger(seam.maxReconnects) || seam.maxReconnects < 0)
+  ) {
+    throw new ValidationError('bridgeExecutor: maxReconnects must be a nonnegative safe integer')
+  }
+  const maxTurns = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor').maxTurns ?? 0
+  const maxReconnects = seam.maxReconnects ?? 3
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
   const sessionId = seam.sessionId ?? `bridge-${spec.profile.name ?? 'worker'}-${randomUUID()}`
@@ -1361,122 +1603,138 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     refreshing: false,
     closed: false,
   }
-  // What this executor changed about what the caller declared. Recorded up front, never evicted,
-  // so a run that fails on turn 40 still answers "what was this worker actually given?".
-  if (base.agentProfile !== undefined) {
-    observation.derived.push(
-      "profile: merged the bridge seam's agentProfile over the spawn profile before materialization",
-    )
-  }
-  if (seam.model !== base.model) {
-    observation.derived.push(
-      `model: resolved the bridge wire model to ${seam.model} (seam default ${base.model ?? 'none'})`,
-    )
-  }
   // One push source per SPAWN, not per turn: a steered worker's turn 4 tool calls belong to the
   // same trace as its turn 0 calls, and `collect()` must still answer after the stream drains.
   const trace = createPushTraceSource({ runId: sessionId })
 
-  return attestRuntimeOwnedExecutor(
-    {
-      runtime: 'cli' as Runtime,
-      deliver: (m) => inbox.deliver(m),
-      /**
-       * The LIVE read of this worker, answered entirely from local mirrors so it is synchronous
-       * and cannot block or fail the run. The bridge's own run state is refreshed OUT OF BAND —
-       * a read schedules a fetch whose answer lands for the NEXT read — because the executor
-       * cannot know from its own stream whether a silent run is thinking, detached mid-reconnect,
-       * or already cancelled server-side, and that is exactly the distinction a supervisor's
-       * respawn decision turns on.
-       */
-      progress: (): ExecutorProgress | undefined => {
-        try {
-          scheduleBridgeRunStateRefresh(seam, activeRuns, observation)
-          return {
-            turns: observation.turns,
-            pendingMessages: inbox.pending(),
-            recentActivity: observation.activity.read(),
-            ...(observation.derived.length > 0 ? { derived: [...observation.derived] } : {}),
-            note: bridgeProgressNote(observation, liveBridgeRunId(activeRuns)),
-          }
-        } catch {
-          // An observability read must degrade to "no progress available", never take a live
-          // run down. There is no partial answer worth risking the worker for.
-          return undefined
-        }
-      },
-      traceSource: (): TraceSource => trace.source,
-      execute(task, signal): AsyncIterable<UsageEvent> {
-        return streamBridgeSession({
-          task,
-          signal,
-          profile: effectiveProfile,
-          seam,
-          sessionId,
-          maxTurns,
-          inbox,
-          controller,
-          activeRuns,
-          observation,
-          record: (step: ToolStepInput) => {
-            trace.record(step)
-          },
-          onArtifact: (a) => {
-            artifact = a
-          },
-        })
-      },
-      async teardown(grace): Promise<{ destroyed: boolean }> {
-        controller.abort()
-        const remaining = [...activeRuns.values()].filter((run) => !run.terminal)
-        if (remaining.length === 0) return { destroyed: true }
-        const terminal = await Promise.all(
-          remaining.map((run) => cancelBridgeRunToTerminal(seam, run, grace)),
-        )
-        return { destroyed: terminal.every(Boolean) }
-      },
-      resultArtifact() {
-        if (!artifact) {
-          throw new ValidationError('bridgeExecutor: resultArtifact() read before stream drained')
-        }
-        return { ...artifact, spent: artifact.spent }
-      },
+  // Interface's AgentExecutionPreparationReceipt cannot be reused here yet: it is a pre-compute
+  // contract requiring an execution-bound workspace lease, source/prepared workspace digests,
+  // profile-activation evidence, and full per-axis ownership. cli-bridge currently has only its
+  // terminal applied WorkspacePlan acknowledgement. Keep that acknowledgement explicitly terminal,
+  // bind it into Runtime's existing declaration, and never present this planned declaration as
+  // evidence that the remote process actually used it.
+  const plannedDeclaration = {
+    effectiveProfile,
+    backend: 'bridge',
+    model: { status: 'known' as const, id: seam.model },
+    execution: { kind: 'session', id: sessionId },
+    materializer: 'cli-bridge-agent-profile',
+    plan: {
+      kind: 'cli-bridge-session',
+      cwd: seam.cwd ?? null,
+      maxTurns,
+      maxReconnects,
+      timeoutMs: seam.timeoutMs ?? null,
+      streaming: true,
+      terminalAcknowledgement: null,
     },
-    {
+  }
+  const plannedBinding = {
+    attemptId,
+    binding: {
+      bridgeUrl: seam.bridgeUrl,
+      cwd: seam.cwd ?? null,
       effectiveProfile,
-      backend: 'bridge',
-      model: { status: 'known', id: seam.model },
-      execution: { kind: 'session', id: sessionId },
-      materializer: 'cli-bridge-agent-profile',
-      plan: {
-        kind: 'cli-bridge-session',
-        cwd: seam.cwd ?? null,
-        maxTurns,
-        timeoutMs: seam.timeoutMs ?? null,
-        streaming: true,
-      },
+      model: seam.model,
+      sessionId,
     },
-    {
-      attemptId,
-      binding: {
-        bridgeUrl: seam.bridgeUrl,
-        cwd: seam.cwd ?? null,
-        effectiveProfile,
-        model: seam.model,
+    descriptor: { kind: 'bridge-session', transport: 'http', backend: 'bridge' },
+  }
+  let acknowledged: BridgeProfileMaterializationReceipt | undefined
+  let executor!: Executor<unknown>
+  executor = {
+    runtime: 'cli' as Runtime,
+    deliver: (m) => inbox.deliver(m),
+    /**
+     * The LIVE read of this worker, answered entirely from local mirrors so it is synchronous
+     * and cannot block or fail the run. The bridge's own run state is refreshed OUT OF BAND —
+     * a read schedules a fetch whose answer lands for the NEXT read — because the executor
+     * cannot know from its own stream whether a silent run is thinking, detached mid-reconnect,
+     * or already cancelled server-side, and that is exactly the distinction a supervisor's
+     * respawn decision turns on.
+     */
+    progress: (): ExecutorProgress | undefined => {
+      try {
+        scheduleBridgeRunStateRefresh(seam, activeRuns, observation)
+        return {
+          turns: observation.turns,
+          pendingMessages: inbox.pending(),
+          recentActivity: observation.activity.read(),
+          ...(observation.derived.length > 0 ? { derived: [...observation.derived] } : {}),
+          note: bridgeProgressNote(observation, liveBridgeRunId(activeRuns)),
+        }
+      } catch {
+        return undefined
+      }
+    },
+    traceSource: (): TraceSource => trace.source,
+    execute(task, signal): AsyncIterable<UsageEvent> {
+      return streamBridgeSession({
+        task,
+        signal,
+        profile: effectiveProfile,
+        seam,
         sessionId,
-      },
-      descriptor: { kind: 'bridge-session', transport: 'http', backend: 'bridge' },
+        maxTurns,
+        maxReconnects,
+        inbox,
+        controller,
+        activeRuns,
+        observation,
+        record: (step: ToolStepInput) => {
+          trace.record(step)
+        },
+        onArtifact: (a) => {
+          artifact = a
+        },
+        onProfileMaterialization: (receipt) => {
+          if (acknowledged !== undefined) {
+            if (JSON.stringify(acknowledged) !== JSON.stringify(receipt)) {
+              throw new ValidationError(
+                'bridgeExecutor: profile materialization changed across session turns',
+              )
+            }
+            return
+          }
+          acknowledged = receipt
+          finalizeRuntimeOwnedPendingExecutor(
+            executor,
+            {
+              ...plannedDeclaration,
+              plan: { ...plannedDeclaration.plan, terminalAcknowledgement: receipt },
+            },
+            plannedBinding,
+          )
+        },
+      })
     },
-  )
+    async teardown(grace): Promise<{ destroyed: boolean }> {
+      controller.abort()
+      const remaining = [...activeRuns.values()].filter((run) => !run.terminal)
+      if (remaining.length === 0) return { destroyed: true }
+      const terminal = await Promise.all(
+        remaining.map((run) => cancelBridgeRunToTerminal(seam, run, grace)),
+      )
+      return { destroyed: terminal.every(Boolean) }
+    },
+    resultArtifact() {
+      if (!artifact) {
+        throw new ValidationError('bridgeExecutor: resultArtifact() read before stream drained')
+      }
+      return { ...artifact, spent: artifact.spent }
+    },
+  }
+  return attestRuntimeOwnedPendingExecutor(executor, 'cli', plannedDeclaration, plannedBinding)
 }
 
 interface StreamBridgeArgs {
   task: unknown
   signal: AbortSignal
   profile: AgentProfile
-  seam: BridgeSeam
+  seam: ResolvedBridgeSeam
   sessionId: string
   maxTurns: number
+  maxReconnects: number
   inbox: Inbox
   controller: AbortController
   activeRuns: Map<string, ActiveBridgeRun>
@@ -1484,6 +1742,7 @@ interface StreamBridgeArgs {
   observation: BridgeObservation
   record: (step: ToolStepInput) => void
   onArtifact: (a: ExecutorResult<unknown>) => void
+  onProfileMaterialization: (receipt: BridgeProfileMaterializationReceipt) => void
 }
 
 /** Everything `bridgeExecutor.progress()` answers from. Every field is written by the turn loop as
@@ -1651,9 +1910,28 @@ function readBridgeRunState(runId: string, body: string): BridgeRunStateRead | u
 interface ActiveBridgeRun {
   readonly id: string
   requestDigest?: string
+  profileMaterialization?: BridgeProfileMaterializationReceipt
+  transportAttempts: number
   lastEventId: number
   terminal: boolean
   cancelInFlight?: Promise<boolean>
+}
+
+interface BridgeProfileMaterializationReceipt {
+  readonly schema: typeof bridgeProfileMaterializationSchema
+  readonly effectiveProfileDigest: string
+  readonly harness: string
+  readonly provider: string | null
+  /** Exact full bridge wire id, for example `pi/tangle-router/deepseek-v4-flash`. */
+  readonly model: string
+  readonly reasoningEffort: {
+    readonly requested: ReasoningEffort | null
+    /** Exact native argv/config value after the bridge's backend mapping. */
+    readonly applied: string | null
+  }
+  readonly workspacePlanDigest: string
+  readonly files: ReadonlyArray<{ path: string; mode: number }>
+  readonly unsupported: ReadonlyArray<{ dimension: string; reason: string }>
 }
 
 /**
@@ -1671,14 +1949,18 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let tokensKnown = true
   let usd = 0
   let usdKnown = true
+  let estimatedUsd = 0
+  let sawEstimatedUsd = false
   let turns = 0
+  let transportAttempts = 0
   let lastText = ''
   const toolCalls: string[] = []
+  const promptCache: { freshInput?: number; readInput?: number; writeInput?: number } = {}
 
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
-  for (let t = 0; t < args.maxTurns; t += 1) {
+  for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; t += 1) {
     // Drain queued down-messages; on turns > 0 they ARE the prompt (resume content).
     const pending = inbox.drain()
     if (pending.length) {
@@ -1725,6 +2007,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
 
     const activeRun: ActiveBridgeRun = {
       id: `bridge-run-${randomUUID()}`,
+      transportAttempts: 0,
       lastEventId: 0,
       terminal: false,
     }
@@ -1744,16 +2027,22 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     }
 
     let turnText = ''
-    let turnTokensKnown = false
-    let turnUsdKnown = false
+    let sawTurnTokenUsage = false
+    let turnTokensKnown = true
+    let sawTurnCostStatus = false
+    let turnUsdKnown = true
+    let turnKnownCostSubtotal = 0
+    let turnEstimatedCostSubtotal = 0
     let interrupted = false
     try {
       for await (const chunk of streamDurableBridgeRun({
         seam,
+        profile: args.profile,
         sessionId: args.sessionId,
         body: requestBody,
         signal: turnController.signal,
         run: activeRun,
+        maxReconnects: args.maxReconnects,
       })) {
         if (chunk.content) {
           turnText += chunk.content
@@ -1771,19 +2060,66 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           args.record(step)
         }
         if (chunk.usage) {
-          turnTokensKnown = true
+          sawTurnTokenUsage = true
+          if (!chunk.usage.known) turnTokensKnown = false
           tokens.input += chunk.usage.input
           tokens.output += chunk.usage.output
-          yield { kind: 'tokens', input: chunk.usage.input, output: chunk.usage.output }
-        }
-        if (typeof chunk.cost === 'number') {
-          turnUsdKnown = true
-          if (chunk.cost > 0) {
-            usd += chunk.cost
-            yield { kind: 'cost', usd: chunk.cost }
+          yield {
+            kind: 'tokens',
+            input: chunk.usage.input,
+            output: chunk.usage.output,
+            ...(chunk.usage.known ? {} : { tokensKnown: false }),
+          }
+          if (chunk.usage.promptCache) {
+            if (chunk.usage.promptCache.freshInput !== undefined) {
+              promptCache.freshInput =
+                (promptCache.freshInput ?? 0) + chunk.usage.promptCache.freshInput
+            }
+            if (chunk.usage.promptCache.readInput !== undefined) {
+              promptCache.readInput =
+                (promptCache.readInput ?? 0) + chunk.usage.promptCache.readInput
+            }
+            if (chunk.usage.promptCache.writeInput !== undefined) {
+              promptCache.writeInput =
+                (promptCache.writeInput ?? 0) + chunk.usage.promptCache.writeInput
+            }
           }
         }
+        if (chunk.costKnown !== undefined) {
+          sawTurnCostStatus = true
+          if (!chunk.costKnown) turnUsdKnown = false
+          // A trusted total is the complete charge for the turn. It supersedes earlier
+          // incremental chunks that correctly reported that their subtotal was incomplete.
+          if (chunk.costKnown && chunk.costScope === 'total') turnUsdKnown = true
+        }
+        if (typeof chunk.cost === 'number') {
+          const increment =
+            chunk.costScope === 'total' ? chunk.cost - turnKnownCostSubtotal : chunk.cost
+          if (increment < 0) {
+            throw new ValidationError('bridgeExecutor: total billed cost decreased within a turn')
+          }
+          turnKnownCostSubtotal += increment
+          if (increment > 0) {
+            usd += increment
+            yield { kind: 'cost', usd: increment }
+          }
+        }
+        if (typeof chunk.estimatedCost === 'number') {
+          const increment =
+            chunk.costScope === 'total'
+              ? chunk.estimatedCost - turnEstimatedCostSubtotal
+              : chunk.estimatedCost
+          if (increment < 0) {
+            throw new ValidationError(
+              'bridgeExecutor: total estimated cost decreased within a turn',
+            )
+          }
+          turnEstimatedCostSubtotal += increment
+          estimatedUsd += increment
+          sawEstimatedUsd = true
+        }
       }
+      args.onProfileMaterialization(activeRun.profileMaterialization!)
     } catch (error) {
       // A forceful steer first detaches this HTTP reader, then explicitly cancels
       // the durable run and waits for terminal proof. Starting the resume turn
@@ -1809,6 +2145,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         throw error
       }
     } finally {
+      transportAttempts += activeRun.transportAttempts
       cleanup()
     }
     // Some transports can finish a buffered body normally after their signal fires. The forceful
@@ -1819,8 +2156,8 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     turns += 1
     observation.turns = turns
     observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
-    if (!turnTokensKnown) tokensKnown = false
-    if (!turnUsdKnown) usdKnown = false
+    if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
+    if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
     yield { kind: 'iteration' }
     if (!interrupted && turnText) lastText = turnText
 
@@ -1844,7 +2181,14 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: Date.now() - started,
   }
-  const out = { content: lastText, toolCalls } as unknown
+  const out = {
+    content: lastText,
+    model: seam.model,
+    toolCalls,
+    transportAttempts,
+    ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
+    ...(sawEstimatedUsd ? { estimatedCostUsd: estimatedUsd } : {}),
+  } as unknown
   args.onArtifact({
     outRef: contentRef('bridge', { model: seam.model, session: args.sessionId, content: lastText }),
     out,
@@ -1852,16 +2196,17 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   })
 }
 
-const BRIDGE_MAX_RECONNECTS = 3
 const BRIDGE_CANCEL_LONG_POLL_MS = 30_000
 const BRIDGE_BRUTAL_KILL_WAIT_MS = 150
 
 interface StreamDurableBridgeRunArgs {
-  seam: BridgeSeam
+  seam: ResolvedBridgeSeam
+  profile: AgentProfile
   sessionId: string
   body: unknown
   signal: AbortSignal
   run: ActiveBridgeRun
+  maxReconnects: number
 }
 
 /**
@@ -1873,12 +2218,14 @@ interface StreamDurableBridgeRunArgs {
 async function* streamDurableBridgeRun(
   args: StreamDurableBridgeRunArgs,
 ): AsyncIterable<BridgeStreamChunk> {
+  await assertBridgeExecutionCapabilities(args.seam, args.signal)
   let reconnects = 0
   let pendingUpstreamError: ValidationError | undefined
 
   for (;;) {
     let res: BridgeResponse
     try {
+      args.run.transportAttempts += 1
       res = await bridgeStreamPost(args.seam.bridgeUrl, {
         bearer: args.seam.bridgeBearer,
         sessionId: args.sessionId,
@@ -1889,7 +2236,7 @@ async function* streamDurableBridgeRun(
       })
     } catch (error) {
       if (args.signal.aborted) throw error
-      if (reconnects >= BRIDGE_MAX_RECONNECTS) {
+      if (reconnects >= args.maxReconnects) {
         throw new ValidationError(
           `bridgeExecutor: run ${args.run.id} disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
         )
@@ -1923,12 +2270,28 @@ async function* streamDurableBridgeRun(
         }
         args.run.lastEventId = event.id
         if (event.error) pendingUpstreamError = event.error
+        if (event.chunk?.profileMaterialization) {
+          const receipt = assertBridgeProfileMaterialization(
+            event.chunk.profileMaterialization,
+            args.profile,
+            args.seam.model,
+          )
+          if (
+            args.run.profileMaterialization !== undefined &&
+            JSON.stringify(args.run.profileMaterialization) !== JSON.stringify(receipt)
+          ) {
+            throw new ValidationError(
+              `bridgeExecutor: run ${args.run.id} profile materialization changed across replay`,
+            )
+          }
+          args.run.profileMaterialization = receipt
+        }
         if (event.chunk) yield event.chunk
       }
     } catch (error) {
       if (args.signal.aborted) throw error
       if (error instanceof ValidationError) throw error
-      if (reconnects >= BRIDGE_MAX_RECONNECTS) {
+      if (reconnects >= args.maxReconnects) {
         throw new ValidationError(
           `bridgeExecutor: run ${args.run.id} stream disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
         )
@@ -1938,6 +2301,11 @@ async function* streamDurableBridgeRun(
     }
 
     if (sawDone) {
+      if (args.run.profileMaterialization === undefined) {
+        throw new ValidationError(
+          `bridgeExecutor: run ${args.run.id} completed without ${bridgeProfileMaterializationSchema}`,
+        )
+      }
       args.run.terminal = true
       if (pendingUpstreamError) throw pendingUpstreamError
       return
@@ -1949,12 +2317,74 @@ async function* streamDurableBridgeRun(
     if (args.signal.aborted) {
       throw new DOMException('bridgeExecutor: turn aborted', 'AbortError')
     }
-    if (reconnects >= BRIDGE_MAX_RECONNECTS) {
+    if (reconnects >= args.maxReconnects) {
       throw new ValidationError(
         `bridgeExecutor: run ${args.run.id} ended without terminal acknowledgement after ${reconnects + 1} attempts`,
       )
     }
     reconnects += 1
+  }
+}
+
+/** Refuse an old bridge before it can start a paid harness turn. This is intentionally uncached:
+ * a process may restart behind the same URL, and a remembered capability from the prior process
+ * is not evidence about the process that will receive the next POST. The terminal receipt remains
+ * mandatory because the bridge can still restart between this GET and the run request. */
+async function assertBridgeExecutionCapabilities(
+  seam: BridgeSeam,
+  signal: AbortSignal,
+): Promise<void> {
+  const target = new URL(`${seam.bridgeUrl.replace(/\/$/, '')}/`)
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  const response = await new Promise<BridgeBufferedResponse>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('bridgeExecutor: aborted before capability preflight', 'AbortError'))
+      return
+    }
+    const req = requestFn(
+      target,
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${seam.bridgeBearer}` },
+        timeout: 0,
+      },
+      (res) => {
+        void (async () => {
+          const chunks: Buffer[] = []
+          for await (const chunk of res) chunks.push(Buffer.from(chunk))
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            text: Buffer.concat(chunks).toString('utf8'),
+          })
+        })().catch(reject)
+      },
+    )
+    const abort = () =>
+      req.destroy(new DOMException('bridgeExecutor: preflight aborted', 'AbortError'))
+    signal.addEventListener('abort', abort, { once: true })
+    req.on('error', reject)
+    req.on('close', () => signal.removeEventListener('abort', abort))
+    req.end()
+  })
+  if (response.status < 200 || response.status >= 300) {
+    throw new ValidationError(
+      `bridgeExecutor: capability preflight returned ${response.status}: ${response.text.slice(0, 200)}`,
+    )
+  }
+  let body: { capabilities?: Record<string, unknown> }
+  try {
+    body = JSON.parse(response.text) as typeof body
+  } catch {
+    throw new ValidationError('bridgeExecutor: capability preflight returned invalid JSON')
+  }
+  if (body.capabilities?.profileMaterialization !== bridgeProfileMaterializationSchema) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge does not advertise ${bridgeProfileMaterializationSchema}`,
+    )
+  }
+  if (body.capabilities?.usageCostProvenance !== bridgeUsageCostSchema) {
+    throw new ValidationError(`bridgeExecutor: bridge does not advertise ${bridgeUsageCostSchema}`)
   }
 }
 
@@ -2231,8 +2661,222 @@ interface BridgeStreamChunk {
   content?: string
   /** Every tool call the delta carried, decoded into the shared tool-step currency. */
   toolCalls?: ReadonlyArray<ToolStepInput>
-  usage?: { input: number; output: number }
+  usage?: {
+    input: number
+    output: number
+    known: boolean
+    promptCache?: { freshInput?: number; readInput?: number; writeInput?: number }
+  }
   cost?: number
+  costKnown?: boolean
+  estimatedCost?: number
+  costScope?: 'incremental' | 'total'
+  profileMaterialization?: BridgeProfileMaterializationReceipt
+}
+
+function assertBridgeProfileMaterialization(
+  value: unknown,
+  profile: AgentProfile,
+  wireModel: string | undefined,
+): BridgeProfileMaterializationReceipt {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new ValidationError('bridgeExecutor: profile materialization receipt must be an object')
+  }
+  const raw = value as Record<string, unknown>
+  const exactKeys = [
+    'effectiveProfileDigest',
+    'files',
+    'harness',
+    'model',
+    'provider',
+    'reasoningEffort',
+    'schema',
+    'unsupported',
+    'workspacePlanDigest',
+  ]
+  if (Object.keys(raw).sort().join(',') !== exactKeys.sort().join(',')) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has missing or unknown fields',
+    )
+  }
+  if (raw.schema !== bridgeProfileMaterializationSchema) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization receipt is not ${bridgeProfileMaterializationSchema}`,
+    )
+  }
+  const effectiveProfileDigest = raw.effectiveProfileDigest
+  if (
+    typeof effectiveProfileDigest !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/u.test(effectiveProfileDigest)
+  ) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has an invalid effectiveProfileDigest',
+    )
+  }
+  const expectedDigest = canonicalAgentProfileDigest(profile)
+  if (effectiveProfileDigest !== expectedDigest) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge materialized profile ${effectiveProfileDigest}, expected ${expectedDigest}`,
+    )
+  }
+  if (typeof raw.harness !== 'string' || raw.harness.length === 0) {
+    throw new ValidationError('bridgeExecutor: profile materialization receipt has no harness')
+  }
+  if (raw.provider !== null && (typeof raw.provider !== 'string' || raw.provider.length === 0)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has invalid provider',
+    )
+  }
+  if (typeof raw.model !== 'string' || raw.model.length === 0 || raw.model !== wireModel) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge materialized model ${JSON.stringify(raw.model)}, expected ${JSON.stringify(wireModel)}`,
+    )
+  }
+  const expectedHarness = agentHarness(profile.harness) ?? wireModel?.split('/')[0]
+  if (!expectedHarness || raw.harness !== expectedHarness) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge materialized harness ${JSON.stringify(raw.harness)}, expected ${JSON.stringify(expectedHarness)}`,
+    )
+  }
+  const expectedProvider = profile.model?.provider ?? null
+  if (expectedProvider !== null && raw.provider !== expectedProvider) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge materialized provider ${JSON.stringify(raw.provider)}, expected ${JSON.stringify(expectedProvider)}`,
+    )
+  }
+  if (
+    !raw.reasoningEffort ||
+    typeof raw.reasoningEffort !== 'object' ||
+    Array.isArray(raw.reasoningEffort)
+  ) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has invalid reasoningEffort',
+    )
+  }
+  const reasoningEffort = raw.reasoningEffort as Record<string, unknown>
+  if (Object.keys(reasoningEffort).sort().join(',') !== 'applied,requested') {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt reasoningEffort has missing or unknown fields',
+    )
+  }
+  const requested = reasoningEffort.requested
+  const applied = reasoningEffort.applied
+  if (
+    (requested !== null &&
+      (typeof requested !== 'string' ||
+        !REASONING_EFFORTS.includes(requested as ReasoningEffort))) ||
+    (applied !== null && (typeof applied !== 'string' || applied.length === 0))
+  ) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has invalid reasoning effort values',
+    )
+  }
+  const expectedRequested = profile.model?.reasoningEffort ?? null
+  const expectedApplied = expectedBridgeAppliedReasoning(raw.harness, expectedRequested)
+  if (requested !== expectedRequested || applied !== expectedApplied) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge materialized reasoning effort ${JSON.stringify({ requested, applied })}, expected ${JSON.stringify({ requested: expectedRequested, applied: expectedApplied })}`,
+    )
+  }
+  if (
+    typeof raw.workspacePlanDigest !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/u.test(raw.workspacePlanDigest)
+  ) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has invalid workspacePlanDigest',
+    )
+  }
+  if (!Array.isArray(raw.files) || !Array.isArray(raw.unsupported)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt files/unsupported must be arrays',
+    )
+  }
+  const files = raw.files.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new ValidationError('bridgeExecutor: profile materialization receipt has invalid file')
+    }
+    const file = entry as Record<string, unknown>
+    if (
+      Object.keys(file).sort().join(',') !== 'mode,path' ||
+      typeof file.path !== 'string' ||
+      file.path.length === 0 ||
+      !Number.isSafeInteger(file.mode) ||
+      (file.mode as number) < 0
+    ) {
+      throw new ValidationError('bridgeExecutor: profile materialization receipt has invalid file')
+    }
+    return { path: file.path, mode: file.mode as number }
+  })
+  const unsupported = raw.unsupported.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new ValidationError(
+        'bridgeExecutor: profile materialization receipt has invalid unsupported entry',
+      )
+    }
+    const item = entry as Record<string, unknown>
+    if (
+      Object.keys(item).sort().join(',') !== 'dimension,reason' ||
+      typeof item.dimension !== 'string' ||
+      item.dimension.length === 0 ||
+      typeof item.reason !== 'string' ||
+      item.reason.length === 0
+    ) {
+      throw new ValidationError(
+        'bridgeExecutor: profile materialization receipt has invalid unsupported entry',
+      )
+    }
+    return { dimension: item.dimension, reason: item.reason }
+  })
+  if (unsupported.length > 0) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge did not materialize profile dimensions: ${unsupported.map((item) => item.dimension).join(', ')}`,
+    )
+  }
+  return Object.freeze({
+    schema: bridgeProfileMaterializationSchema,
+    effectiveProfileDigest,
+    harness: raw.harness,
+    provider: raw.provider as string | null,
+    model: raw.model,
+    reasoningEffort: {
+      requested: requested as ReasoningEffort | null,
+      applied: applied as string | null,
+    },
+    workspacePlanDigest: raw.workspacePlanDigest,
+    files: Object.freeze(files),
+    unsupported: Object.freeze(unsupported),
+  })
+}
+
+/** Expected native control for the bridge backends that can emit the v2 acknowledgement. These
+ * mappings mirror the actual cli-bridge argv functions, so the acknowledgement is checked against
+ * what the process must have received rather than merely echoing the canonical request. */
+function expectedBridgeAppliedReasoning(
+  harness: string,
+  requested: ReasoningEffort | null,
+): string | null {
+  if (requested === null) return null
+  switch (harness) {
+    case 'pi':
+      if (requested === 'none') return 'off'
+      return requested === 'ultracode' ? 'xhigh' : requested
+    case 'claude-code':
+      if (requested === 'none' || requested === 'minimal') return 'low'
+      return requested === 'ultracode' ? 'max' : requested
+    case 'codex':
+      if (requested === 'none') return 'minimal'
+      return requested === 'xhigh' || requested === 'ultracode' ? 'high' : requested
+    case 'kimi-code':
+      if (requested === 'medium') return null
+      return requested === 'none' || requested === 'minimal' || requested === 'low'
+        ? '--no-thinking'
+        : '--thinking'
+    case 'gemini':
+      return null
+    default:
+      // OpenCode and bridge backends with direct reasoning variants preserve the canonical label.
+      return requested
+  }
 }
 
 /**
@@ -2384,7 +3028,20 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       message?: { content?: string | null }
     }>
     error?: { message?: string; type?: string }
-    usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+    usage?: {
+      prompt_tokens?: unknown
+      completion_tokens?: unknown
+      fresh_input_tokens?: unknown
+      cache_read_input_tokens?: unknown
+      cache_write_input_tokens?: unknown
+      cost?: unknown
+      estimated_cost?: unknown
+      cost_known?: unknown
+      cost_provenance?: unknown
+      cost_scope?: unknown
+      estimated?: unknown
+    }
+    profile_materialization?: unknown
   }
   try {
     parsed = JSON.parse(data)
@@ -2412,15 +3069,119 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   const toolCalls = decodeBridgeToolCalls(choice?.delta?.tool_calls)
   if (toolCalls.length > 0) out.toolCalls = toolCalls
   const u = parsed.usage
-  if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number')) {
-    out.usage = { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0 }
+  if (u) {
+    const input = optionalBridgeTokenCount(u.prompt_tokens, 'prompt_tokens')
+    const output = optionalBridgeTokenCount(u.completion_tokens, 'completion_tokens')
+    const freshInput = optionalBridgeTokenCount(u.fresh_input_tokens, 'fresh_input_tokens')
+    const readInput = optionalBridgeTokenCount(u.cache_read_input_tokens, 'cache_read_input_tokens')
+    const writeInput = optionalBridgeTokenCount(
+      u.cache_write_input_tokens,
+      'cache_write_input_tokens',
+    )
+    if (
+      input !== undefined ||
+      output !== undefined ||
+      freshInput !== undefined ||
+      readInput !== undefined ||
+      writeInput !== undefined
+    ) {
+      out.usage = {
+        input: input ?? 0,
+        output: output ?? 0,
+        known: input !== undefined && output !== undefined && u.estimated !== true,
+        ...(freshInput !== undefined || readInput !== undefined || writeInput !== undefined
+          ? {
+              promptCache: {
+                ...(freshInput !== undefined ? { freshInput } : {}),
+                ...(readInput !== undefined ? { readInput } : {}),
+                ...(writeInput !== undefined ? { writeInput } : {}),
+              },
+            }
+          : {}),
+      }
+    }
+    if (u.estimated !== undefined && typeof u.estimated !== 'boolean') {
+      throw new ValidationError('bridgeExecutor: usage.estimated must be boolean')
+    }
+    if (u.cost_scope !== undefined && u.cost_scope !== 'incremental' && u.cost_scope !== 'total') {
+      throw new ValidationError("bridgeExecutor: usage.cost_scope must be 'incremental' or 'total'")
+    }
+    out.costScope = u.cost_scope === 'total' ? 'total' : 'incremental'
+    applyBridgeCostReceipt(out, u)
   }
-  if (typeof u?.cost === 'number') out.cost = u.cost
+  if (parsed.profile_materialization !== undefined) {
+    out.profileMaterialization =
+      parsed.profile_materialization as BridgeProfileMaterializationReceipt
+  }
   return {
     kind: 'event',
     id,
     ...(Object.keys(out).length > 0 ? { chunk: out } : {}),
   }
+}
+
+function optionalBridgeTokenCount(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ValidationError(`bridgeExecutor: usage.${field} must be a nonnegative safe integer`)
+  }
+  return value as number
+}
+
+function optionalBridgeMoney(value: unknown, field: string): number | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ValidationError(`bridgeExecutor: usage.${field} must be a finite nonnegative number`)
+  }
+  return value
+}
+
+/** Admit billed spend only with explicit trusted provenance. A catalog estimate remains visible on
+ * the result but can never debit a dollar budget or turn unknown dollars into a known zero. */
+function applyBridgeCostReceipt(
+  out: BridgeStreamChunk,
+  usage: {
+    cost?: unknown
+    estimated_cost?: unknown
+    cost_known?: unknown
+    cost_provenance?: unknown
+  },
+): void {
+  const cost = optionalBridgeMoney(usage.cost, 'cost')
+  const estimatedCost = optionalBridgeMoney(usage.estimated_cost, 'estimated_cost')
+  const provenance = usage.cost_provenance
+  if (usage.cost_known !== true && usage.cost_known !== false) {
+    throw new ValidationError('bridgeExecutor: usage.cost_known must be an explicit boolean')
+  }
+  if (usage.cost_known) {
+    if (
+      cost === undefined ||
+      (provenance !== 'provider-receipt' && provenance !== 'billing-receipt') ||
+      estimatedCost !== undefined
+    ) {
+      throw new ValidationError(
+        'bridgeExecutor: known cost requires cost plus provider-receipt or billing-receipt provenance',
+      )
+    }
+    out.costKnown = true
+    out.cost = cost
+    return
+  }
+  if (cost !== undefined) {
+    throw new ValidationError('bridgeExecutor: unknown cost cannot carry billed cost')
+  }
+  if (estimatedCost !== undefined && provenance !== 'catalog-estimate') {
+    throw new ValidationError('bridgeExecutor: estimated cost requires catalog-estimate provenance')
+  }
+  if (
+    estimatedCost === undefined &&
+    provenance !== undefined &&
+    provenance !== 'catalog-estimate'
+  ) {
+    throw new ValidationError('bridgeExecutor: unknown cost has invalid provenance')
+  }
+  out.costKnown = false
+  if (estimatedCost !== undefined) out.estimatedCost = estimatedCost
 }
 
 function bridgeWorktreeExecutor(
@@ -2441,10 +3202,8 @@ function bridgeWorktreeExecutor(
   const runId = seam.runId ?? randomUUID()
   const sessionId = bridge.sessionId ?? `bridge-worktree-${runId}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(runId)
-  const effectiveProfile = agentProfileSchema.parse(
-    mergeAgentProfiles(spec.profile, bridge.agentProfile) ?? spec.profile,
-  )
-  const model = bridgeCellModel(bridge.model, ctx, effectiveProfile)
+  const effectiveProfile = agentProfileSchema.parse(spec.profile)
+  const model = bridgeProfileModel(effectiveProfile, 'cliWorktreeExecutor bridge')
   const controller = new AbortController()
   const pending: unknown[] = []
   let inner: Executor<unknown> | undefined
@@ -2472,158 +3231,181 @@ function bridgeWorktreeExecutor(
     pending.push(msg)
   }
 
-  return attestRuntimeOwnedExecutor(
-    {
-      runtime: 'cli' as Runtime,
-      budgetExempt: seam.budgetExempt ?? false,
-      deliver,
-      execute(task, signal): AsyncIterable<UsageEvent> {
-        return (async function* bridgeWorktreeStream() {
-          const started = Date.now()
-          const linked = mergeAbortSignals(signal, controller.signal)
-          let bridgeArtifact: ExecutorResult<unknown> | undefined
-
-          try {
-            worktree = await createWorktree({
-              repoRoot: seam.repoRoot,
-              runId,
-              ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
-              ...(seam.runGit ? { runGit: seam.runGit } : {}),
-            })
-            removed = false
-
-            const bridgeSeam: BridgeSeam = {
-              bridgeUrl: bridge.bridgeUrl,
-              bridgeBearer: bridge.bridgeBearer,
-              cwd: worktree.path,
-              sessionId,
-              ...(bridge.model ? { model: bridge.model } : {}),
-              ...(bridge.agentProfile ? { agentProfile: bridge.agentProfile } : {}),
-              ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
-              ...(bridge.maxTurns !== undefined ? { maxTurns: bridge.maxTurns } : {}),
-            }
-            const bridgeCtx: ExecutorContext = {
-              ...ctx,
-              signal: linked,
-              seams: { ...ctx.seams, [bridgeSeamKey]: bridgeSeam },
-            }
-            inner = bridgeExecutor(spec, bridgeCtx)
-            for (const msg of pending.splice(0)) inner.deliver?.(msg)
-
-            const run = inner.execute(task, linked)
-            if (isAsyncIterable<UsageEvent>(run)) {
-              for await (const event of run) yield event
-              bridgeArtifact = inner.resultArtifact()
-            } else {
-              bridgeArtifact = await run
-            }
-
-            const diff = await captureWorktreeDiff({
-              worktree,
-              ...(seam.runGit ? { runGit: seam.runGit } : {}),
-            })
-            const checks = await runWorktreeChecks({
-              worktreePath: worktree.path,
-              ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
-              ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
-              timeoutMs:
-                seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
-              cap: seam.checkOutputCap ?? 16_000,
-              ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
-              signal: linked,
-            })
-
-            const result: WorktreeHarnessResult = {
-              branch: worktree.branch,
-              patch: diff.patch,
-              stats: diff.stats,
-              harness: {
-                name: 'bridge',
-                exitCode: null,
-                timedOut: false,
-                killedBySignal: null,
-                durationMs: bridgeArtifact.spent.ms || Date.now() - started,
-                stdout: bridgeOutputText(bridgeArtifact.out),
-                stderr: '',
-              },
-              ...(checks ? { checks } : {}),
-            }
-            const spent: Spend = {
-              ...bridgeArtifact.spent,
-              ms: bridgeArtifact.spent.ms || Date.now() - started,
-            }
-            artifact = {
-              outRef: contentRef('bridge-worktree', { sessionId, result }),
-              out: result,
-              spent,
-            }
-          } catch (err) {
-            controller.abort()
-            await inner?.teardown('brutalKill').catch(() => undefined)
-            await cleanupWorktree()
-            throw err
-          }
-        })()
-      },
-      async teardown(grace): Promise<{ destroyed: boolean }> {
-        controller.abort()
-        let destroyed = true
-        try {
-          if (inner) {
-            destroyed = (await inner.teardown(grace)).destroyed
-          }
-        } finally {
-          await cleanupWorktree()
-        }
-        return { destroyed }
-      },
-      resultArtifact() {
-        if (!artifact) {
-          throw new ValidationError(
-            'cliWorktreeExecutor: bridge resultArtifact() read before stream drained',
-          )
-        }
-        return artifact
-      },
+  const plannedDeclaration = {
+    effectiveProfile,
+    backend: 'bridge-worktree',
+    model: { status: 'known' as const, id: model },
+    execution: { kind: 'worktree-session', id: `${runId}:${sessionId}` },
+    materializer: 'bridge-worktree-agent-profile',
+    plan: {
+      kind: 'bridge-worktree-session',
+      runId,
+      sessionId,
+      baseRef: seam.baseRef ?? 'HEAD',
+      model,
+      testCmd: seam.testCmd ?? null,
+      typecheckCmd: seam.typecheckCmd ?? null,
+      checkTimeoutMs:
+        seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
+      checkOutputCap: seam.checkOutputCap ?? 16_000,
+      bridgeAcknowledgement: null,
     },
-    {
+  }
+  const plannedBinding = {
+    attemptId,
+    binding: {
+      bridgeUrl: bridge.bridgeUrl,
       effectiveProfile,
+      model,
+      repoRoot: seam.repoRoot,
+      runId,
+      sessionId,
+    },
+    descriptor: {
+      kind: 'bridge-worktree-session',
+      transport: 'http',
       backend: 'bridge-worktree',
-      model: model
-        ? { status: 'known', id: model }
-        : { status: 'unknown', reason: 'bridge worktree profile did not select a model' },
-      execution: { kind: 'worktree-session', id: `${runId}:${sessionId}` },
-      materializer: 'bridge-worktree-agent-profile',
-      plan: {
-        kind: 'bridge-worktree-session',
-        runId,
-        sessionId,
-        baseRef: seam.baseRef ?? 'HEAD',
-        model: model ?? null,
-        testCmd: seam.testCmd ?? null,
-        typecheckCmd: seam.typecheckCmd ?? null,
-        checkTimeoutMs:
-          seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
-        checkOutputCap: seam.checkOutputCap ?? 16_000,
-      },
     },
-    {
-      attemptId,
-      binding: {
-        bridgeUrl: bridge.bridgeUrl,
-        effectiveProfile,
-        model: model ?? null,
-        repoRoot: seam.repoRoot,
-        runId,
-        sessionId,
-      },
-      descriptor: {
-        kind: 'bridge-worktree-session',
-        transport: 'http',
-        backend: 'bridge-worktree',
-      },
+  }
+  let executor!: Executor<WorktreeHarnessResult>
+  executor = {
+    runtime: 'cli' as Runtime,
+    budgetExempt: seam.budgetExempt ?? false,
+    deliver,
+    execute(task, signal): AsyncIterable<UsageEvent> {
+      return (async function* bridgeWorktreeStream() {
+        const started = Date.now()
+        const linked = mergeAbortSignals(signal, controller.signal)
+        let bridgeArtifact: ExecutorResult<unknown> | undefined
+
+        try {
+          worktree = await createWorktree({
+            repoRoot: seam.repoRoot,
+            runId,
+            ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
+            ...(seam.runGit ? { runGit: seam.runGit } : {}),
+          })
+          removed = false
+
+          const bridgeSeam: BridgeSeam = {
+            bridgeUrl: bridge.bridgeUrl,
+            bridgeBearer: bridge.bridgeBearer,
+            cwd: worktree.path,
+            sessionId,
+            ...(bridge.timeoutMs !== undefined ? { timeoutMs: bridge.timeoutMs } : {}),
+            ...(bridge.maxReconnects !== undefined ? { maxReconnects: bridge.maxReconnects } : {}),
+          }
+          const bridgeCtx: ExecutorContext = {
+            ...ctx,
+            signal: linked,
+            seams: { ...ctx.seams, [bridgeSeamKey]: bridgeSeam },
+          }
+          inner = bridgeExecutor(spec, bridgeCtx)
+          for (const msg of pending.splice(0)) inner.deliver?.(msg)
+
+          const run = inner.execute(task, linked)
+          if (isAsyncIterable<UsageEvent>(run)) {
+            for await (const event of run) yield event
+            bridgeArtifact = inner.resultArtifact()
+          } else {
+            bridgeArtifact = await run
+          }
+
+          const bridgeDeclaration = runtimeOwnedExecutorMaterialization(inner)
+          const bridgeBinding = runtimeOwnedExecutorExecutionBinding(inner)
+          if (bridgeDeclaration === undefined || bridgeBinding === undefined) {
+            throw new ValidationError(
+              'cliWorktreeExecutor: bridge completed without a terminal materialization acknowledgement',
+            )
+          }
+          finalizeRuntimeOwnedPendingExecutor(
+            executor,
+            {
+              ...plannedDeclaration,
+              plan: {
+                ...plannedDeclaration.plan,
+                bridgeAcknowledgement: bridgeDeclaration.plan,
+              },
+            },
+            {
+              ...plannedBinding,
+              binding: {
+                ...plannedBinding.binding,
+                worktreePath: worktree.path,
+                bridgeBinding: bridgeBinding.binding,
+              },
+            },
+          )
+
+          const diff = await captureWorktreeDiff({
+            worktree,
+            ...(seam.runGit ? { runGit: seam.runGit } : {}),
+          })
+          const checks = await runWorktreeChecks({
+            worktreePath: worktree.path,
+            ...(seam.testCmd !== undefined ? { testCmd: seam.testCmd } : {}),
+            ...(seam.typecheckCmd !== undefined ? { typecheckCmd: seam.typecheckCmd } : {}),
+            timeoutMs:
+              seam.checkTimeoutMs ?? seam.harnessTimeoutMs ?? bridge.timeoutMs ?? 5 * 60 * 1000,
+            cap: seam.checkOutputCap ?? 16_000,
+            ...(seam.runCommand ? { runCommand: seam.runCommand } : {}),
+            signal: linked,
+          })
+
+          const result: WorktreeHarnessResult = {
+            branch: worktree.branch,
+            patch: diff.patch,
+            stats: diff.stats,
+            harness: {
+              name: 'bridge',
+              exitCode: null,
+              timedOut: false,
+              killedBySignal: null,
+              durationMs: bridgeArtifact.spent.ms || Date.now() - started,
+              stdout: bridgeOutputText(bridgeArtifact.out),
+              stderr: '',
+            },
+            ...(checks ? { checks } : {}),
+          }
+          const spent: Spend = {
+            ...bridgeArtifact.spent,
+            ms: bridgeArtifact.spent.ms || Date.now() - started,
+          }
+          artifact = {
+            outRef: contentRef('bridge-worktree', { sessionId, result }),
+            out: result,
+            spent,
+          }
+        } catch (err) {
+          controller.abort()
+          await inner?.teardown('brutalKill').catch(() => undefined)
+          await cleanupWorktree()
+          throw err
+        }
+      })()
     },
-  )
+    async teardown(grace): Promise<{ destroyed: boolean }> {
+      controller.abort()
+      let destroyed = true
+      try {
+        if (inner) {
+          destroyed = (await inner.teardown(grace)).destroyed
+        }
+      } finally {
+        await cleanupWorktree()
+      }
+      return { destroyed }
+    },
+    resultArtifact() {
+      if (!artifact) {
+        throw new ValidationError(
+          'cliWorktreeExecutor: bridge resultArtifact() read before stream drained',
+        )
+      }
+      return artifact
+    },
+  }
+  return attestRuntimeOwnedPendingExecutor(executor, 'cli', plannedDeclaration, plannedBinding)
 }
 
 function bridgeOutputText(out: unknown): string {
@@ -2660,15 +3442,18 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     throw new ValidationError('cliWorktreeExecutor: CliWorktreeSeam.repoRoot required')
   }
   if (seam.bridge) return bridgeWorktreeExecutor(spec, ctx, seam)
-  if (!seam.harness) {
+  const effectiveProfile = agentProfileSchema.parse(spec.profile)
+  assertExecutableAgentProfile(effectiveProfile, 'cliWorktreeExecutor')
+  const harness = localWorktreeHarness(agentHarness(effectiveProfile.harness))
+  if (!harness) {
     throw new ValidationError(
-      'cliWorktreeExecutor: CliWorktreeSeam.harness required when bridge is not set',
+      'cliWorktreeExecutor: AgentProfile.harness must select claude-code, codex, or opencode when bridge is not set',
     )
   }
   return createWorktreeCliExecutor({
     repoRoot: seam.repoRoot,
-    profile: spec.profile,
-    harness: seam.harness,
+    profile: effectiveProfile,
+    harness,
     ...(seam.taskPrompt !== undefined ? { taskPrompt: seam.taskPrompt } : {}),
     ...(seam.runId ? { runId: seam.runId } : {}),
     ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
@@ -2684,6 +3469,12 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     ...(seam.budgetExempt !== undefined ? { budgetExempt: seam.budgetExempt } : {}),
     ...(ctx.node?.attemptId !== undefined ? { executionAttemptId: ctx.node.attemptId } : {}),
   }) as Executor<unknown>
+}
+
+function localWorktreeHarness(harness: string | undefined): LocalHarness | undefined {
+  return harness === 'claude-code' || harness === 'codex' || harness === 'opencode'
+    ? harness
+    : undefined
 }
 
 // ── createExecutor: the ONE built-in factory (backend as data) ──────────────────
@@ -2702,22 +3493,52 @@ export type ExecutorConfig =
   | ({ backend: 'provider' } & ProviderSeam)
   | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
 
+function assertExactConfigKeys(
+  value: Readonly<Record<string, unknown>>,
+  allowed: ReadonlySet<string>,
+  context: string,
+): void {
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key))
+  if (unknown.length > 0) {
+    throw new ValidationError(
+      `${context}: unknown fields ${unknown.sort().join(', ')}; execution behavior belongs in AgentProfile`,
+    )
+  }
+}
+
 /** Capture one public executor configuration at its call boundary. All data that selects policy,
- * model, process, limits, profile overlays, or backend behavior is detached and deeply frozen.
+ * model, process, limits, or backend behavior is detached and deeply frozen.
  * Explicit service/function fields remain live by reference because they are executable ports,
  * not portable configuration. */
 export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
   switch (config.backend) {
     case 'router-tools': {
-      const { executeToolCall, onToolStep, ...decisionData } = config
+      const { complete, executeToolCall, onMessages, onToolStep, ...decisionData } = config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor router-tools config')
       return Object.freeze({
         ...snapshot,
+        ...(complete === undefined ? {} : { complete }),
         executeToolCall,
+        ...(onMessages === undefined ? {} : { onMessages }),
         ...(onToolStep === undefined ? {} : { onToolStep }),
       })
     }
+    case 'router': {
+      const { complete, ...decisionData } = config
+      const snapshot = detachedSnapshot(decisionData, 'createExecutor router config')
+      return Object.freeze({
+        ...snapshot,
+        ...(complete === undefined ? {} : { complete }),
+      })
+    }
     case 'cli-worktree': {
+      if (config.bridge) {
+        assertExactConfigKeys(
+          config.bridge as unknown as Readonly<Record<string, unknown>>,
+          new Set(['bridgeBearer', 'bridgeUrl', 'maxReconnects', 'sessionId', 'timeoutMs']),
+          'createExecutor cli-worktree bridge config',
+        )
+      }
       const { runGit, runCommand, ...decisionData } = config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor cli-worktree config')
       return Object.freeze({
@@ -2763,32 +3584,33 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         }),
       })
     }
-    case 'router':
     case 'bridge':
+      assertExactConfigKeys(
+        config as unknown as Readonly<Record<string, unknown>>,
+        new Set([
+          'activityWindow',
+          'backend',
+          'bridgeBearer',
+          'bridgeUrl',
+          'cwd',
+          'maxReconnects',
+          'sessionId',
+          'timeoutMs',
+        ]),
+        'createExecutor bridge config',
+      )
+      return detachedSnapshot(config, 'createExecutor bridge config')
     case 'cli':
       return detachedSnapshot(config, `createExecutor ${config.backend} config`)
   }
 }
 
-/** A backend config reused for multiple workers/managers cannot pin execution identity or carry a
- * profile overlay applied after Scope hashed the authored profile. Direct single-execution
- * `createExecutor` calls may still use those fields. */
+/** A backend config reused for multiple workers/managers cannot pin execution identity. */
 export function captureReusableExecutorConfig(
   config: ExecutorConfig,
   context: string,
 ): ExecutorConfig {
   const captured = snapshotExecutorConfig(config)
-  const profileOverlay =
-    captured.backend === 'bridge'
-      ? captured.agentProfile
-      : captured.backend === 'cli-worktree'
-        ? captured.bridge?.agentProfile
-        : undefined
-  if (profileOverlay !== undefined) {
-    throw new ValidationError(
-      `${context}: backend agentProfile overlays are not allowed because they change the effective profile after spawn identity is fixed`,
-    )
-  }
   const fixedIdentity =
     captured.backend === 'bridge' && captured.sessionId !== undefined
       ? 'sessionId'
@@ -2845,6 +3667,7 @@ export function bindReusableExecutorExecutionId(
 export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown> {
   const captured = snapshotExecutorConfig(config)
   return (spec, ctx) => {
+    assertExecutableAgentProfile(spec.profile, `createExecutor(${captured.backend})`)
     const { backend, ...seamData } = captured as ExecutorConfig & Record<string, unknown>
     const seam = Object.freeze(seamData)
     const seamed: ExecutorContext = { ...ctx, seams: { ...ctx.seams, [backend]: seam } }
@@ -2904,8 +3727,16 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         const profileForCreate = providerSeam.profileForCreate
         return providerAsExecutor(provider, {
           ...providerSeam,
-          profileForCreate: (profile) =>
-            profileForExecution(profileForCreate?.(profile) ?? profile),
+          profileForCreate: (profile) => {
+            const prepared = profileForCreate?.(profile) ?? profile
+            assertExecutableAgentProfile(prepared, 'createExecutor(provider)')
+            if (canonicalAgentProfileDigest(prepared) !== canonicalAgentProfileDigest(profile)) {
+              throw new ValidationError(
+                'createExecutor(provider): profileForCreate changed the exact AgentProfile; execution overlays are not allowed',
+              )
+            }
+            return prepared
+          },
         })(spec, seamed)
       }
       case 'sandbox': {
@@ -3024,17 +3855,188 @@ export function taskToPrompt(task: unknown): string {
   return JSON.stringify(task)
 }
 
-/** Router messages from the opaque task + every portable profile prompt instruction. */
-function taskToMessages(task: unknown, spec: AgentSpec): Array<{ role: string; content: string }> {
-  const messages: Array<{ role: string; content: string }> = []
-  const system = [spec.profile.prompt?.systemPrompt, ...(spec.profile.prompt?.instructions ?? [])]
-    .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
-    .join('\n')
-  if (system.length > 0) {
-    messages.push({ role: 'system', content: system })
+interface RouterProfileExecution {
+  systemPrompt: string
+  reasoningEffort?: ReasoningEffort
+  temperature?: number
+  maxTokens?: number
+  maxAttempts?: number
+  seed?: number
+  toolChoice?: 'auto' | 'required' | 'none'
+  extraBody?: Readonly<Record<string, unknown>>
+  maxTurns?: number
+  stream?: boolean
+}
+
+/** Validate and render every AgentProfile axis the direct Router path claims to carry.
+ * Unsupported behavioral axes fail before the HTTP request; inline resources become
+ * named system-prompt attachments because this executor has no workspace to mount. */
+function routerProfileExecution(
+  profile: AgentProfile,
+  seam: RouterSeam,
+  mode: { multiTurn: boolean },
+): RouterProfileExecution {
+  assertProfileMaterialization({
+    contract: routerTurnProfileMaterialization,
+    changedAxes: profileMaterializationAxes(profile),
+    context: 'routerInlineExecutor',
+  })
+
+  if (agentHarness(profile.harness) !== undefined) {
+    throw new ValidationError(
+      `routerInlineExecutor: AgentProfile.harness ${JSON.stringify(profile.harness)} requires a harness executor; the direct Router executor cannot materialize it`,
+    )
   }
-  messages.push({ role: 'user', content: taskToPrompt(task) })
-  return messages
+
+  const profileEffort = profile.model?.reasoningEffort
+  const settings = profileModelExecutionSettings(profile, 'routerInlineExecutor')
+
+  if (!mode.multiTurn && settings.maxTurns !== undefined) {
+    throw new ValidationError(
+      'routerInlineExecutor: AgentProfile.model.metadata.maxTurns requires the router-tools backend',
+    )
+  }
+  if (settings.stream === true && seam.tools === undefined) {
+    throw new ValidationError(
+      'routerInlineExecutor: streamed chat without tool schemas is not supported; omit stream or use a harness executor',
+    )
+  }
+
+  const declaredTools = profile.tools ?? {}
+  const suppliedTools = seam.tools ?? []
+  if (settings.toolChoice !== undefined && suppliedTools.length === 0) {
+    throw new ValidationError(
+      'routerInlineExecutor: AgentProfile.model.metadata.toolChoice requires at least one enabled tool',
+    )
+  }
+  const suppliedNames = new Set<string>()
+  for (const tool of suppliedTools) {
+    const name = tool.function.name
+    if (!name || suppliedNames.has(name)) {
+      throw new ValidationError(
+        `routerInlineExecutor: caller tool names must be non-empty and unique (${JSON.stringify(name)})`,
+      )
+    }
+    suppliedNames.add(name)
+    if (declaredTools[name] !== true) {
+      throw new ValidationError(
+        `routerInlineExecutor: caller tool ${JSON.stringify(name)} is not enabled by AgentProfile.tools`,
+      )
+    }
+  }
+  for (const [name, enabled] of Object.entries(declaredTools)) {
+    if (enabled && !suppliedNames.has(name)) {
+      throw new ValidationError(
+        `routerInlineExecutor: AgentProfile enables tool ${JSON.stringify(name)} but the caller supplied no matching schema`,
+      )
+    }
+    if (!enabled && suppliedNames.has(name)) {
+      throw new ValidationError(
+        `routerInlineExecutor: AgentProfile disables tool ${JSON.stringify(name)}`,
+      )
+    }
+  }
+
+  return {
+    systemPrompt: renderRouterProfilePrompt(profile),
+    ...(profileEffort ? { reasoningEffort: profileEffort } : {}),
+    ...settings,
+  }
+}
+
+/** Resolve the one model id that will cross the Router boundary from the exact profile only. */
+function exactRouterModel(profile: AgentProfile, context: string): string {
+  assertExecutableAgentProfile(profile, context)
+  if (agentHarness(profile.harness) !== undefined) {
+    throw new ValidationError(
+      `${context}: AgentProfile.harness ${JSON.stringify(profile.harness)} conflicts with direct Router execution; use "cli-base"`,
+    )
+  }
+  return concreteProfileModel(profile)!
+}
+
+function renderRouterProfilePrompt(profile: AgentProfile): string {
+  const sections: string[] = [
+    profile.prompt?.systemPrompt,
+    ...(profile.prompt?.instructions ?? []),
+  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  const resources = profile.resources
+  if (!resources) return sections.join('\n')
+
+  if (typeof resources.instructions === 'string') {
+    if (resources.instructions.trim()) sections.push(resources.instructions)
+  } else if (resources.instructions) {
+    sections.push(renderRouterResource('instructions', resources.instructions))
+  }
+  for (const file of resources.files ?? []) {
+    if (file.executable === true) {
+      throw new ValidationError(
+        `routerInlineExecutor: executable resource ${JSON.stringify(file.path)} requires a workspace backend`,
+      )
+    }
+    sections.push(renderRouterResource(`file ${file.path}`, file.resource))
+  }
+  for (const [kind, refs] of [
+    ['tool', resources.tools],
+    ['skill', resources.skills],
+    ['agent', resources.agents],
+    ['command', resources.commands],
+  ] as const) {
+    for (const ref of refs ?? []) sections.push(renderRouterResource(kind, ref))
+  }
+  return sections.join('\n\n')
+}
+
+function renderRouterResource(kind: string, resource: AgentProfileResourceRef): string {
+  if (resource.kind !== 'inline') {
+    throw new ValidationError(
+      `routerInlineExecutor: ${kind} resource ${JSON.stringify(resource.name ?? resource.path)} is not inline and cannot be resolved by the direct Router executor`,
+    )
+  }
+  return `## Attached ${kind}: ${resource.name}\n${resource.content}`
+}
+
+/** Router messages from the opaque task + every portable profile prompt instruction.
+ * The profile prompt is always the immutable first message. Later system-role messages are
+ * preserved as per-call task context; they cannot replace or precede the profile policy. */
+function taskToMessages(
+  task: unknown,
+  spec: AgentSpec,
+  resolvedSystem?: string,
+): Array<{ role: string; content: unknown } & Record<string, unknown>> {
+  const system =
+    resolvedSystem ??
+    [spec.profile.prompt?.systemPrompt, ...(spec.profile.prompt?.instructions ?? [])]
+      .filter((line): line is string => typeof line === 'string' && line.trim().length > 0)
+      .join('\n')
+
+  if (
+    task &&
+    typeof task === 'object' &&
+    Array.isArray((task as { messages?: unknown }).messages)
+  ) {
+    const supplied = (task as { messages: unknown[] }).messages.map((value, index) => {
+      if (!value || typeof value !== 'object') {
+        throw new ValidationError(`routerInlineExecutor: messages[${index}] must be an object`)
+      }
+      const message = { ...(value as Record<string, unknown>) }
+      if (typeof message.role !== 'string' || !('content' in message)) {
+        throw new ValidationError(
+          `routerInlineExecutor: messages[${index}] requires role and content`,
+        )
+      }
+      return message as { role: string; content: unknown } & Record<string, unknown>
+    })
+    if (system.length > 0 && !(supplied[0]?.role === 'system' && supplied[0].content === system)) {
+      return [{ role: 'system', content: system }, ...supplied]
+    }
+    return supplied
+  }
+
+  return [
+    ...(system.length > 0 ? [{ role: 'system', content: system }] : []),
+    { role: 'user', content: taskToPrompt(task) },
+  ]
 }
 
 /** A driver that refines a single task up to `maxIterations` times then stops —

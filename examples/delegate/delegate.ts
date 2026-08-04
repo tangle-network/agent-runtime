@@ -15,7 +15,8 @@
  * Run:  TANGLE_API_KEY=<router key>  pnpm tsx examples/delegate/delegate.ts
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { delegate } from '@tangle-network/agent-runtime/kernel'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { delegate, supervisorInstructions } from '@tangle-network/agent-runtime/kernel'
 import { fileDeliverable, makeWriteFileBackend, scratchTarget } from './shared'
 
 async function main(): Promise<void> {
@@ -28,7 +29,19 @@ async function main(): Promise<void> {
   const brainModel = process.env.MODEL ?? process.env.BRAIN_MODEL ?? model
 
   const { workDir, target, targetAbs } = scratchTarget()
-  const backend = makeWriteFileBackend({ workDir, routerBaseUrl, routerKey, model })
+  const backend = makeWriteFileBackend({ workDir, routerBaseUrl, routerKey })
+  const supervisorProfile: AgentProfile = {
+    name: 'file-delegator',
+    harness: 'cli-base',
+    model: { provider: 'tangle-router', default: brainModel },
+    prompt: {
+      systemPrompt:
+        supervisorInstructions() +
+        `\nFor this run, every worker you author must use harness="cli-base", ` +
+        `model.provider="tangle-router", model.default=${JSON.stringify(model)}, and ` +
+        'model.metadata.maxTurns=8.',
+    },
+  }
 
   const result = await delegate(
     `Create a file named ${target} containing exactly the word hello (lowercase, no quotes). ` +
@@ -36,8 +49,8 @@ async function main(): Promise<void> {
       `with the single word DONE and STOP — do not call any more tools after the file is written.`,
     {
       backend,
-      router: { routerBaseUrl, routerKey, model: brainModel },
-      model: brainModel,
+      router: { routerBaseUrl, routerKey },
+      supervisorProfile,
       deliverable: fileDeliverable(targetAbs, target),
       budget: { maxIterations: 40, maxTokens: 200_000, maxUsd: 0.5 },
     },

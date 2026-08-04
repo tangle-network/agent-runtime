@@ -13,6 +13,7 @@
  * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is just the label.
  */
 import { createExecutor } from '@tangle-network/agent-runtime/kernel'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'
@@ -22,9 +23,19 @@ const nativeWebDisallowed = ['WebSearch', 'WebFetch', 'web_search', 'web_fetch',
 
 /** Build the cli-bridge `agent_profile` for one arm (bridge dialect: disable via
  *  `metadata.disallowedTools`, search MCP via `mcp.<name>.transport:'http'`). */
-function bridgeProfile(arm: SearchArm, routerSearchMcp: string, tangleApiKey: string, label: string): Record<string, unknown> {
-  if (arm === 'native') return { name: `search-bench-${label}` }
-  const base = { name: `search-bench-${label}`, metadata: { disallowedTools: nativeWebDisallowed } }
+function bridgeProfile(
+  arm: SearchArm,
+  routerSearchMcp: string,
+  tangleApiKey: string,
+  label: string,
+  model: string,
+): AgentProfile {
+  const identity = { name: `search-bench-${label}`, model: { default: model } }
+  if (arm === 'native') return identity
+  const base: AgentProfile = {
+    ...identity,
+    metadata: { disallowedTools: nativeWebDisallowed },
+  }
   if (arm === 'off') return base
   return {
     ...base,
@@ -76,14 +87,19 @@ export async function runBridgeCell(
   try {
     // One harness turn through the unified bridge executor — same backend the
     // loop path uses; this cell scorer just adds oracle scoring + citations.
+    const profile = bridgeProfile(
+      arm,
+      cfg.routerSearchMcp,
+      cfg.tangleApiKey,
+      `${harness}-${armId}`,
+      cfg.bridgeModels[harness] ?? harness,
+    )
     const exec = createExecutor({
       backend: 'bridge',
       bridgeUrl: cfg.bridgeUrl,
       bridgeBearer: cfg.bridgeBearer,
-      model: cfg.bridgeModels[harness] ?? harness,
-      agentProfile: bridgeProfile(arm, cfg.routerSearchMcp, cfg.tangleApiKey, `${harness}-${armId}`),
       timeoutMs: cfg.timeoutMs ?? 300_000,
-    })({ profile: { name: `${harness}-${armId}` }, harness: null }, { signal: controller.signal, seams: {} })
+    })({ profile, harness: null }, { signal: controller.signal, seams: {} })
     // bridgeExecutor is one-shot (async execute resolves an ExecutorResult).
     const artifact = (await exec.execute(taskToPrompt(task), controller.signal)) as {
       out: unknown

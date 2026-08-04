@@ -45,7 +45,7 @@ import {
   GraphEdgeCapError,
   type MakeWorkerAgent,
   promptHandle,
-  type RouterConfig,
+  type RouterTransportConfig,
   type RunGraphOptions,
   runGraph,
   type Spend,
@@ -164,12 +164,6 @@ export interface ParityRecord {
 export interface MultishotArmBackend {
   readonly agentTransport: MultishotTransport
   readonly driverTransport: MultishotTransport
-  /** The reviewer (driver) leg's wire model — REQUIRED, no fallback. Substrate config of this
-   *  arm, exactly as the paired graph arm declares its driver model on `RouterConfig.model`
-   *  (the reviewer PROFILE stays model-less: as the graph ROOT it is materialized by the driver
-   *  brain, whose model axis lives in that substrate config). Live runs feed BOTH arms the same
-   *  env value; the offline backend pins a scripted id. */
-  readonly driverModel: string
   /** The shared completion check, applied to each turn-initial coder reply. MUST be the same
    *  predicate the paired graph arm's deliverable uses, or the comparison is invalid. */
   readonly shotPassed: (assistantText: string) => boolean
@@ -196,11 +190,8 @@ export type GraphArmBackend =
       /** OpenAI-compatible base URL both arms' coders speak (e.g. a cli-bridge `/v1`). */
       readonly url: string
       readonly bearer?: string
-      /** The coder wire model id — the same id the paired multishot arm sends. */
-      readonly model: string
-      /** Router substrate for the reviewer (driver) brain. REQUIRED: a live graph driver with
-       *  neither `brain` nor `router` cannot run at all. */
-      readonly router: RouterConfig
+      /** Transport-only Router substrate; the reviewer profile owns the model. */
+      readonly router: RouterTransportConfig
       readonly shotPassed: (workerOutText: string) => boolean
     }
 
@@ -348,7 +339,7 @@ export async function runMultishotArm(
       toolExecutors: {},
       maxTurns: cell.shots,
       agentModel: requireProfileModel(cell.coderProfile, 'coderProfile'),
-      driverModel: requireModel(backend.driverModel, 'MultishotArmBackend.driverModel'),
+      driverModel: requireProfileModel(cell.reviewerProfile, 'reviewerProfile'),
       // Coder sampling parity (F1): pin the turn-initial ceiling to the shared constant; the
       // agent leg's temperature 0.7 is hardcoded inside `runMultishot` and asserted by test.
       agentMaxTokens: PARITY_CODER_SAMPLING.maxTokens,
@@ -449,11 +440,6 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
           makeWorkerAgent: chatWorkerSeam({
             url: backend.url,
             ...(backend.bearer !== undefined ? { bearer: backend.bearer } : {}),
-            model: backend.model,
-            // Coder sampling parity (F1): the same pinned temperature + max_tokens the multishot
-            // arm's coder leg sends, from the one shared constant — never a per-arm choice.
-            temperature: PARITY_CODER_SAMPLING.temperature,
-            maxTokens: PARITY_CODER_SAMPLING.maxTokens,
             deliverable: graph.deliverable,
           }),
           router: backend.router,
@@ -566,5 +552,14 @@ function validateCell(cell: CellSpec): void {
   }
   if (typeof cell.task !== 'string' || cell.task.length === 0) {
     throw new Error('p1-parity: task must be a non-empty string')
+  }
+  for (const [field, profile] of [
+    ['coderProfile', cell.coderProfile],
+    ['reviewerProfile', cell.reviewerProfile],
+  ] as const) {
+    requireProfileModel(profile, field)
+    if (!profile.model?.provider || profile.harness === undefined) {
+      throw new Error(`p1-parity: ${field} must declare harness and model.provider`)
+    }
   }
 }

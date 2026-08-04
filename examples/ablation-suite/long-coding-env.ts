@@ -1308,7 +1308,7 @@ export const longCodingTasks = async (offset: number, n: number): Promise<Agenti
     const seed = offset + i
     return {
       id: `lce-${seed}`,
-      systemPrompt:
+      userPrompt:
         'You are a Python engineer. lib.py has ~54 small stub functions (string, integer/math, parser, ' +
         'formatter, and validator helpers). Several SHARED conventions — the field separator, the format ' +
         'for negative numbers, whether ranges are inclusive or exclusive, the rounding tie direction, the ' +
@@ -1319,8 +1319,6 @@ export const longCodingTasks = async (offset: number, n: number): Promise<Agenti
         'WORKFLOW: read test_lib.py, implement lib.py, then call run_tests to see how many passed and which ' +
         'tests FAIL, and fix exactly those — iterate until every test passes. Watch the edge cases (empty ' +
         'inputs, zero, boundaries, padding, rounding ties). Do not edit test_lib.py.',
-      userPrompt:
-        'Read test_lib.py, implement lib.py for every function (nailing each shared convention), then run_tests and fix the failing tests until all pass.',
       meta: { seed },
     } satisfies AgenticTask
   })

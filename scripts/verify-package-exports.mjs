@@ -435,7 +435,7 @@ try {
           'createPrimeIntellectPackage',
           'writePrimeIntellectPackage',
           'readPrimeIntellectEpisodeContext',
-          'createPrimeIntellectBackend',
+          'primeIntellectExecutorConfig',
           'runPrimeIntellectProgram',
           'parsePrimeIntellectTraces',
           'primeIntellectTraceToRunRecord',

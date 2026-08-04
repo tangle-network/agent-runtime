@@ -68,7 +68,8 @@ export function userSimConversation(): {
         id: 'product-agent',
         profile: {
           name: 'product-agent',
-          model: { default: 'scripted/product-agent' },
+          harness: 'cli-base',
+          model: { provider: 'scripted', default: 'scripted/product-agent' },
           prompt: { systemPrompt: 'You are the product sales agent. Close honestly.' },
         },
       },

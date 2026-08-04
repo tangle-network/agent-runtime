@@ -26,29 +26,34 @@ import { buildWorkerBackend, demoCheck, demoGoal, resolveSupervisorBrain } from 
 
 async function main(): Promise<void> {
   // THE ONE KNOB — bridge (local CLIs) or sandbox (real boxes). Everything below is identical.
-  const backend = buildWorkerBackend()
-  const { brain, label } = resolveSupervisorBrain(1, `${backend.backend}-solver`)
+  const worker = buildWorkerBackend()
+  const { backend } = worker
+  const { brain, profile, label } = resolveSupervisorBrain(
+    1,
+    `${backend.backend}-solver`,
+    worker.profile,
+  )
 
   console.log(`supervisor-loop · ${backend.backend.toUpperCase()} · driver=${label}`)
 
   const result = await supervise(
-    {
-      name: 'supervisor',
-      harness: 'cli-base',
-      prompt: {
-        systemPrompt:
-          'You are a supervisor. Spawn one worker session to produce the required line, await it ' +
-          'with await_event, and stop once a worker delivered (valid). Do not answer yourself.',
-      },
-    },
-    demoGoal,
+    profile,
+    `${demoGoal}\nUse this exact worker execution identity in spawn_agent.profile: ` +
+      JSON.stringify({ harness: worker.profile.harness, model: worker.profile.model }),
     {
       backend,
       deliverable: { check: demoCheck, describe: 'worker delivers the goal' },
-      brain,
+      ...(brain ? { brain } : {}),
+      ...(!brain
+        ? {
+            router: {
+              routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
+              routerKey: process.env.TANGLE_API_KEY!,
+            },
+          }
+        : {}),
       budget: { maxIterations: 100, maxTokens: 2_000_000, maxUsd: 2 },
       perWorker: { maxIterations: 1, maxTokens: 200_000 },
-      maxTurns: 12,
       runId: `supervisor-loop-${backend.backend}`,
     },
   )

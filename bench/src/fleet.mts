@@ -12,8 +12,13 @@
  *
  * Run it twice: the second run injects the first run's learnings into the workers.
  */
-import { createChatClient } from '@tangle-network/agent-eval'
-import { FileCorpus, observe, openSandboxRun, renderReport } from '@tangle-network/agent-runtime/kernel'
+import {
+  defaultAnalystInstruction,
+  FileCorpus,
+  observe,
+  openSandboxRun,
+  renderReport,
+} from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { answerOutput, sandboxAgentRun, type WorkerBackendType } from './sandbox-run'
 
@@ -74,13 +79,18 @@ async function main(): Promise<void> {
   const routerKey = env('TANGLE_API_KEY')
   const cfg = {
     backendType: env('BACKEND', 'opencode') as WorkerBackendType,
-    model: env('MODEL', 'gpt-4.1'),
+    model: env('MODEL', 'deepseek-v4-flash'),
     routerBaseUrl: env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1'),
   }
   const n = Math.min(Number(env('N', '2')), subtasks.length)
   const corpus = new FileCorpus(env('CORPUS', '/tmp/fleet-corpus.jsonl'))
-  const observerModel = env('OBSERVER_MODEL', 'gpt-4.1')
-  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: cfg.routerBaseUrl, defaultModel: observerModel })
+  const observerModel = env('OBSERVER_MODEL', 'deepseek-v4-flash')
+  const observerProfile = {
+    name: 'fleet-observer',
+    harness: 'cli-base' as const,
+    model: { provider: 'tangle-router', default: observerModel },
+    prompt: { systemPrompt: defaultAnalystInstruction },
+  }
   const client = new Sandbox({ baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'), apiKey: routerKey })
 
   // ── continuous: read what prior runs LEARNED, inject it into this run's workers
@@ -104,7 +114,12 @@ async function main(): Promise<void> {
     if (w.error) continue
     const ob = await observe(
       { task: w.task, output: w.output, trace: w.events, outcome: w.output ? 'passed' : 'unknown', runId: w.id },
-      { chat, model: observerModel, corpus, tags: [cfg.backendType, 'fleet'] },
+      {
+        profile: observerProfile,
+        executor: { backend: 'router', routerBaseUrl: cfg.routerBaseUrl, routerKey },
+        corpus,
+        tags: [cfg.backendType, 'fleet'],
+      },
     )
     totalLearned += ob.learned.length
     console.error(`  answer: ${w.output.slice(0, 120).replace(/\n/g, ' ')}`)

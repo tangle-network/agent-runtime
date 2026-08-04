@@ -5,8 +5,7 @@
  * Every agent here is three things: instructions (system prompt), tools, and a model — its
  * `AgentProfile`. The supervisor's job is to WRITE those profiles: read the task, decompose it,
  * and for each sub-task author a tailored worker recipe. `supervisorInstructions` is the how-to the
- * supervisor reads (its system prompt); `authoredWorker` builds a worker AGENT from a profile the
- * supervisor authored — the authored systemPrompt + model shape the worker's call.
+ * supervisor reads; canonical Runtime executors materialize the resulting profile.
  *
  * The skill is the single OPTIMIZABLE surface: edit it → the supervisor designs better agents.
  * That is the self-improvement lever (the prompt/skill lever), not the execution plumbing.
@@ -20,14 +19,7 @@ import {
   type AgentProfilePrompt,
   agentProfileSchema,
 } from '@tangle-network/agent-interface'
-import { contentAddress } from '../../durable/spawn-journal'
-import { ValidationError } from '../../errors'
-import { type RouterConfig, routerChatWithUsage } from '../router-client'
-import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
-import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
-import { concreteProfileModel } from './model-policy'
 import { supervisorPolicyPrompt } from './prompt-registry'
-import type { Agent, AgentSpec, Executor, ExecutorResult } from './types'
 
 /** What the supervisor AUTHORS per sub-task: one complete canonical profile whose name and
  *  task-specific system prompt are present. Every other `AgentProfile` axis is preserved exactly. */
@@ -51,52 +43,6 @@ export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
         : 'worker',
     prompt: { ...parsed.data.prompt, systemPrompt },
   }
-}
-
-/**
- * Lift a profile the supervisor AUTHORED into the canonical shape every executor reads.
- *
- * The skill asks for `systemPrompt` and `model` as flat fields — the vocabulary a model writes
- * well — while `AgentProfile` carries them as `prompt.systemPrompt` and `model.default`. Nothing
- * downstream reads the flat form: the router and cli-bridge leaves read `profile.prompt
- * .systemPrompt`, and the sandbox leaf hands the profile to a strict schema that REJECTS the flat
- * key outright (`Unrecognized key: "systemPrompt"`), which fails the worker's every round. Lift
- * both here, once, so what the supervisor writes is what the worker runs.
- *
- * Purely additive: a profile already canonical is returned untouched, and a flat field is dropped
- * only after its canonical slot is filled. Both spellings of the same standing instruction, set to
- * DIFFERENT text, is a contradiction with no safe reading — it fails loud, matching
- * `resolveSupervisorProfile`'s rule for the supervisor's own profile.
- */
-export function canonicalizeAuthoredProfile(raw: unknown): AgentProfile {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return (raw ?? {}) as AgentProfile
-  const authored = { ...(raw as Record<string, unknown>) }
-
-  const flatPrompt = authored.systemPrompt
-  if (typeof flatPrompt === 'string' && flatPrompt.trim().length > 0) {
-    const prompt =
-      authored.prompt && typeof authored.prompt === 'object' && !Array.isArray(authored.prompt)
-        ? { ...(authored.prompt as Record<string, unknown>) }
-        : {}
-    const canonicalPrompt = prompt.systemPrompt
-    if (typeof canonicalPrompt === 'string' && canonicalPrompt !== flatPrompt) {
-      throw new ValidationError(
-        'canonicalizeAuthoredProfile: prompt.systemPrompt and systemPrompt are both set and differ ' +
-          '— they are the same standing instruction, so author exactly one ' +
-          `(prompt.systemPrompt: ${JSON.stringify(canonicalPrompt.slice(0, 80))}; ` +
-          `systemPrompt: ${JSON.stringify(flatPrompt.slice(0, 80))})`,
-      )
-    }
-    if (typeof canonicalPrompt !== 'string') prompt.systemPrompt = flatPrompt
-    authored.prompt = prompt
-    delete authored.systemPrompt
-  }
-
-  if (typeof authored.model === 'string' && authored.model.trim().length > 0) {
-    authored.model = { default: authored.model }
-  }
-
-  return authored as AgentProfile
 }
 
 /** The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
@@ -126,86 +72,6 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     '5. Stop (reply with no tool call) once the work is delivered.',
     ...(opts?.goal ? ['', `The goal: ${opts.goal}`] : []),
   ].join('\n')
-}
-
-/** Build a router-only worker from an authored profile. This helper executes the prompt/model axes;
- *  use `workerFromBackend` for full materialization of tools, MCP, resources, hooks, and subagents. */
-export function authoredWorker(
-  profile: AuthoredProfile,
-  opts: {
-    cfg: RouterConfig
-    taskPrompt: string
-    deliverable: DeliverableSpec
-    temperature?: number
-  },
-): Agent<unknown, unknown> {
-  const model = concreteProfileModel(profile) ?? opts.cfg.model
-  const executorFactory: NonNullable<AgentSpec['executorFactory']> = (spec, ctx) => {
-    let artifact: ExecutorResult<unknown> | undefined
-    const executionId = ctx.node?.nodeId ?? `authored-router-${profile.name}`
-    const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
-    const inner: Executor<unknown> = attestRuntimeOwnedExecutor(
-      {
-        runtime: 'router',
-        async execute(_t, signal) {
-          const res = await routerChatWithUsage(
-            { ...opts.cfg, model },
-            [
-              { role: 'system', content: profile.prompt.systemPrompt },
-              { role: 'user', content: opts.taskPrompt },
-            ],
-            { temperature: opts.temperature ?? 0.4, ...(signal ? { signal } : {}) },
-          )
-          artifact = {
-            outRef: contentAddress(res.content),
-            out: res.content,
-            spent: {
-              iterations: 1,
-              tokens: res.usage ?? { input: 0, output: 0 },
-              usd: res.costUsd ?? 0,
-              ms: 0,
-            },
-          }
-          return artifact
-        },
-        teardown: () => Promise.resolve({ destroyed: true }),
-        resultArtifact: () => {
-          if (!artifact) throw new Error('authoredWorker: resultArtifact read before execute')
-          return artifact
-        },
-      },
-      {
-        effectiveProfile: spec.profile,
-        backend: 'router',
-        model: { status: 'known', id: model },
-        execution: { kind: 'request', id: executionId },
-        materializer: 'authored-router-prompt',
-        plan: {
-          kind: 'authored-router-completion',
-          model,
-          temperature: opts.temperature ?? 0.4,
-          taskPrompt: opts.taskPrompt,
-        },
-      },
-      {
-        attemptId,
-        binding: { endpoint: opts.cfg.routerBaseUrl, executionId, model },
-        descriptor: { kind: 'router-request', transport: 'http', backend: 'router' },
-      },
-    )
-    return gateOnDeliverable(inner, opts.deliverable)
-  }
-  const spec: AgentSpec = {
-    profile,
-    harness: null,
-    executorFactory,
-  }
-  return { name: profile.name, act: async () => '', executorSpec: spec } as Agent<
-    unknown,
-    unknown
-  > & {
-    executorSpec: AgentSpec
-  }
 }
 
 // ── Profile-richness gate ────────────────────────────────────────────────────

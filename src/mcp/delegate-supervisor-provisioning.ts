@@ -15,11 +15,13 @@
  * @experimental
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import { ConfigError } from '../errors'
 import { type RouterEnv, resolveRouterBaseUrl } from '../model-resolution.js'
 import type { SandboxClient } from '../runtime'
-import type { RouterConfig } from '../runtime/router-client'
+import type { RouterTransportConfig } from '../runtime/router-client'
+import { supervisorInstructions } from '../runtime/supervise/authoring'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type { DelegateHandlerOptions } from './tools/delegate'
 
@@ -64,7 +66,10 @@ export function delegateEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
  * on every box: a delegate child running there inherits the model its own host declared. When
  * nothing names one, fail at startup with the ladder in the message.
  */
-function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
+function resolveRouterSupervisor(env: NodeJS.ProcessEnv): {
+  router: RouterTransportConfig
+  profile: AgentProfile
+} {
   const routerKey =
     trimmed(env.MCP_SUPERVISOR_ROUTER_KEY) ??
     trimmed(env.TANGLE_INFERENCE_KEY) ??
@@ -86,7 +91,15 @@ function resolveRouter(env: NodeJS.ProcessEnv): RouterConfig {
         'WORKER_MODEL / TANGLE_ROUTER_MODEL) to a tool-calling model the router serves.',
     )
   }
-  return { routerBaseUrl, routerKey, model }
+  return {
+    router: { routerBaseUrl, routerKey },
+    profile: {
+      name: 'delegate-supervisor',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: model },
+      prompt: { systemPrompt: supervisorInstructions() },
+    },
+  }
 }
 
 /**
@@ -100,7 +113,7 @@ export function resolveDelegateSupervisor(
   env: NodeJS.ProcessEnv = process.env,
 ): DelegateHandlerOptions | undefined {
   if (!delegateEnabled(env)) return undefined
-  const router = resolveRouter(env)
+  const supervisor = resolveRouterSupervisor(env)
   const harness = (trimmed(env.MCP_DELEGATE_WORKER_HARNESS) ??
     DEFAULT_WORKER_HARNESS) as BackendType
   const backend: ExecutorConfig = {
@@ -109,8 +122,8 @@ export function resolveDelegateSupervisor(
     sandboxClient,
   }
   return {
-    router,
+    router: supervisor.router,
+    supervisorProfile: supervisor.profile,
     backend,
-    model: router.model,
   }
 }

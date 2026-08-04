@@ -23,16 +23,15 @@ async function main(): Promise<void> {
     backend: 'router-tools',
     routerBaseUrl,
     routerKey,
-    model,
     tools: [],
     executeToolCall: (name) => Promise.resolve(`unknown tool ${name}`),
-    maxTurns: 6,
   }
 
   const result = await supervise(
     {
       name: 'supervisor',
       harness: 'cli-base', // in-process router brain (the supervisor calls spawn/await/stop)
+      model: { provider: 'tangle-router', default: model },
       // This demo overrides the shipped `defaultSupervisorPrompt` on purpose: the default tells a
       // supervisor to do SMALL work itself, but this supervisor has no work tools and the completion
       // oracle only credits a DELIVERED child — so we force the delegation path the example teaches.
@@ -41,6 +40,8 @@ async function main(): Promise<void> {
         systemPrompt:
           'You are a supervisor. Produce the deliverable by delegating:\n' +
           '1. Call spawn_agent with a worker profile and the task.\n' +
+          `   The worker profile must use harness="cli-base", model.provider="tangle-router", ` +
+          `model.default=${JSON.stringify(model)}, and model.metadata.maxTurns=6.\n` +
           '2. Then call await_event and WAIT for that worker to settle — never call stop while a ' +
           'worker is still running, or its result is lost.\n' +
           '3. Once a worker has delivered, call stop.\n' +
@@ -50,7 +51,7 @@ async function main(): Promise<void> {
     'Produce the exact line: READY',
     {
       budget: { maxIterations: 50, maxTokens: 500_000, maxUsd: 0.5 },
-      router: { routerBaseUrl, routerKey, model }, // the supervisor's own brain
+      router: { routerBaseUrl, routerKey }, // the supervisor's own transport
       backend, // where the workers run
       // The completion oracle: "delivered" means a real check passed against the worker's OUTPUT,
       // not the supervisor's say-so. A `router-tools` worker settles `{ content: string }`, so read

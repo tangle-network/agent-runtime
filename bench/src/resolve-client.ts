@@ -11,7 +11,7 @@
  *   - `bridge`               → OFF-BOX: a local cli-bridge fronting a harness CLI
  *                              (opencode/kimi-code/…) as the leaf executor. Same resumable
  *                              `bridgeExecutor` the supervisor uses; harness+model ride the
- *                              bridge `model` id (`${harness}/${model}`).
+ *                              exact harness/provider/model come from the turn's AgentProfile.
  *   - anything else (`sandbox`/a BackendType) → IN-BOX: a real `Sandbox`. The in-box backend
  *                              TYPE (opencode/codex/…) is set separately on the `AgentRunSpec`;
  *                              this only decides off-box-vs-in-box transport for `runAgentRounds`.
@@ -33,7 +33,6 @@ export interface ResolveBenchClientOptions {
   backend: string
   routerBaseUrl: string
   routerKey: string
-  model: string
   /** When set on the `router` backend, the off-box worker becomes a `router-tools` agentic loop
    *  with a live `web_search` tool backed by this provider (`you`/`exa`/…). */
   searchProvider?: string
@@ -47,7 +46,7 @@ export interface ResolveBenchClientOptions {
 }
 
 export function resolveBenchClient(opts: ResolveBenchClientOptions): SandboxClient {
-  const { backend, routerBaseUrl, routerKey, model, searchProvider } = opts
+  const { backend, routerBaseUrl, routerKey, searchProvider } = opts
   if (backend === 'router') {
     if (searchProvider) {
       return inlineSandboxClient(
@@ -55,13 +54,12 @@ export function resolveBenchClient(opts: ResolveBenchClientOptions): SandboxClie
           backend: 'router-tools',
           routerBaseUrl,
           routerKey,
-          model,
           tools: [webSearchTool],
           executeToolCall: makeSearchExecutor({ routerBaseUrl, routerKey, provider: searchProvider }),
         }),
       )
     }
-    return inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey, model }))
+    return inlineSandboxClient(createExecutor({ backend: 'router', routerBaseUrl, routerKey }))
   }
   if (backend === 'bridge') {
     // bench's bearer fallback (`?? routerKey`) resolves first, then the shared
@@ -70,7 +68,7 @@ export function resolveBenchClient(opts: ResolveBenchClientOptions): SandboxClie
     if (!bridgeBearer) throw new Error("resolveBenchClient: backend 'bridge' needs bridgeBearer or routerKey")
     return resolveSandboxClient({
       backend: 'bridge',
-      bridge: { url: opts.bridgeUrl, bearer: bridgeBearer, model, timeoutMs: opts.timeoutMs },
+      bridge: { url: opts.bridgeUrl, bearer: bridgeBearer, timeoutMs: opts.timeoutMs },
     })
   }
   return new Sandbox({

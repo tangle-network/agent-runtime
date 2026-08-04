@@ -169,7 +169,12 @@ function loopCostReceipt<Task, Output, Decision>(
     model,
     inputTokens: result.tokenUsage.input,
     outputTokens: result.tokenUsage.output,
-    ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+    ...(result.tokenUsage.tokensKnown === false ? { usageUnknown: true } : {}),
+    ...(result.costUsdKnown !== false && result.costUsd > 0
+      ? { actualCostUsd: result.costUsd }
+      : {}),
+    ...(result.costUsdKnown === false ? { costUnknown: true } : {}),
+    ...(result.estimatedCostUsd !== undefined ? { estimatedCostUsd: result.estimatedCostUsd } : {}),
   }
 }
 

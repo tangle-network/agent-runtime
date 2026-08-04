@@ -28,7 +28,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createChatClient } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgenticSurface,
   type AgenticTask,
@@ -38,6 +38,7 @@ import {
   runStrategyEvolution,
   type SurfaceScore,
   sample,
+  strategyAuthorSystemPrompt,
 } from '@tangle-network/agent-runtime/kernel'
 
 // ── The contamination-proof task generator (deterministic per seed) ──────────────
@@ -213,13 +214,11 @@ export const codingTasks = async (offset: number, n: number): Promise<AgenticTas
     const seed = offset + i
     return {
       id: `gen-${seed}`,
-      systemPrompt:
+      userPrompt:
         'You are a Python engineer. The library lib.py has stub functions; its exact contract is defined ONLY by ' +
         'test_lib.py. You CANNOT run the tests — read test_lib.py CAREFULLY (every assertion, every edge case) and ' +
         'implement lib.py correctly in one pass with write_file. Get the edge cases right (empty inputs, malformed ' +
         'inputs, exact formats). Do not edit test_lib.py.',
-      userPrompt:
-        'Read test_lib.py to learn the exact contract, then write a correct lib.py. You cannot run the tests — reason carefully.',
       meta: { seed },
     } satisfies AgenticTask
   })
@@ -294,20 +293,23 @@ async function main(): Promise<void> {
         worker: {
           routerBaseUrl,
           routerKey,
-          model: workerModel,
-          innerTurns: Number(process.env.INNER_TURNS ?? 8),
-          maxTokens: 4000,
+          workerProfile: routerProfile(
+            'coding-worker',
+            workerModel,
+            undefined,
+            4000,
+            Number(process.env.MAX_TURNS ?? 8),
+          ),
         },
         author: {
-          chat: createChatClient({
-            transport: 'router',
-            baseUrl: routerBaseUrl,
-            apiKey: routerKey,
-            defaultModel: authorModel,
-          }),
-          model: authorModel,
-          maxTokens: 8000,
-          fallbackModel: process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+          profile: routerProfile('strategy-author', authorModel, strategyAuthorSystemPrompt, 8000),
+          executor: { backend: 'router', routerBaseUrl, routerKey },
+          fallbackProfile: routerProfile(
+            'strategy-author-fallback',
+            process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+            strategyAuthorSystemPrompt,
+            8000,
+          ),
         },
         baselines: [sample, refine],
         budget: Number(process.env.BUDGET ?? 3),
@@ -350,3 +352,25 @@ if (import.meta.url === `file://${process.argv[1]}`)
     console.error(e instanceof Error ? (e.stack ?? e.message) : String(e))
     process.exit(1)
   })
+
+function routerProfile(
+  name: string,
+  model: string,
+  systemPrompt?: string,
+  maxTokens?: number,
+  maxTurns?: number,
+): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      metadata: {
+        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+      },
+    },
+    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+  }
+}

@@ -100,7 +100,17 @@ export const fullProfileMaterialization = defineProfileMaterializationContract({
  */
 export const promptModelProfileMaterialization = defineProfileMaterializationContract({
   name: 'prompt-model-execution',
-  axes: ['name', 'systemPrompt', 'instructions', 'modelDefault', 'harness', 'metadata'],
+  axes: [
+    'name',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelProvider',
+    'modelReasoningEffort',
+    'modelMetadata',
+    'harness',
+    'metadata',
+  ],
 })
 
 /**
@@ -120,6 +130,7 @@ export const worktreeCliProfileMaterialization = defineProfileMaterializationCon
     'systemPrompt',
     'instructions',
     'modelDefault',
+    'modelProvider',
     'modelReasoningEffort',
     'harness',
     'permissions',
@@ -149,7 +160,17 @@ export const controlProfileMaterialization = defineProfileMaterializationContrac
  * applies the profile prompt, name, placement, and metadata, but not model selection. */
 export const promptControlProfileMaterialization = defineProfileMaterializationContract({
   name: 'prompt-control-execution',
-  axes: ['name', 'systemPrompt', 'instructions', 'harness', 'metadata'],
+  axes: [
+    'name',
+    'systemPrompt',
+    'instructions',
+    'modelDefault',
+    'modelProvider',
+    'modelReasoningEffort',
+    'modelMetadata',
+    'harness',
+    'metadata',
+  ],
 })
 
 /**

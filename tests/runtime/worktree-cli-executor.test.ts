@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { PassThrough, type Readable } from 'node:stream'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The bridge transport (`streamBridgeSession`) POSTs over the `node:http` core client,
@@ -16,8 +16,8 @@ vi.mock('node:http', async () => {
   return {
     ...actual,
     request: (
-      _url: unknown,
-      _opts: unknown,
+      url: URL,
+      opts: unknown,
       cb: (res: Readable) => void,
     ): { write: (b: string) => void; end: () => void; on: () => void; destroy: () => void } => {
       let body = ''
@@ -26,6 +26,24 @@ vi.mock('node:http', async () => {
           body += chunk
         },
         end: () => {
+          if ((opts as { method?: string }).method === 'GET' && url.pathname === '/') {
+            const response = new PassThrough() as Readable & {
+              statusCode?: number
+              headers?: Record<string, string>
+            }
+            response.statusCode = 200
+            response.headers = { 'content-type': 'application/json' }
+            response.end(
+              JSON.stringify({
+                capabilities: {
+                  profileMaterialization: 'cli-bridge.profile-materialization.v2',
+                  usageCostProvenance: 'cli-bridge.usage-cost.v1',
+                },
+              }),
+            )
+            cb(response)
+            return
+          }
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
           const res = bridgeHttpHandler(payload) as Readable & {
@@ -103,19 +121,47 @@ const authoredProfile: AgentProfile = {
 
 const reproducibleCodexProfile: AgentProfile = {
   name: 'reproducible-codex',
+  harness: 'codex',
   prompt: {
     systemPrompt: 'You are a careful refactorer.',
     instructions: ['Never search for a public solution.'],
   },
-  model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+  model: { provider: 'openai', default: 'gpt-5.4', reasoningEffort: 'xhigh' },
 }
 
-function bridgeSseResponse(content: string): Readable {
+function bridgeSseResponse(content: string, request: Record<string, unknown>): Readable {
+  const profile = request.agent_profile as AgentProfile
+  const model = String(request.model)
+  const parts = model.split('/')
   const payload = [
     'id: 1',
     `data: ${JSON.stringify({
       choices: [{ delta: { content } }],
-      usage: { prompt_tokens: 3, completion_tokens: 5, cost: 0.02 },
+      usage: {
+        prompt_tokens: 3,
+        completion_tokens: 5,
+        cost: 0.02,
+        cost_known: true,
+        cost_provenance: 'provider-receipt',
+      },
+    })}`,
+    '',
+    'id: 2',
+    `data: ${JSON.stringify({
+      profile_materialization: {
+        schema: 'cli-bridge.profile-materialization.v2',
+        effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+        harness: parts[0],
+        provider: parts[1] ?? null,
+        model,
+        reasoningEffort: {
+          requested: profile.model?.reasoningEffort ?? null,
+          applied: profile.model?.reasoningEffort ?? null,
+        },
+        workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
+        files: [],
+        unsupported: [],
+      },
     })}`,
     '',
     'data: [DONE]',
@@ -521,7 +567,6 @@ describe('createWorktreeCliExecutor', () => {
     const factory = createExecutor({
       backend: 'cli-worktree',
       repoRoot: '/workspace',
-      harness: 'codex',
       taskPrompt: 'x',
       codexReproducible: true,
     })
@@ -674,7 +719,7 @@ describe('createWorktreeCliExecutor', () => {
     const checks: Array<{ command: string; cwd: string }> = []
     bridgeHttpHandler = (payload) => {
       requests.push(payload as (typeof requests)[number])
-      return bridgeSseResponse('done from bridge')
+      return bridgeSseResponse('done from bridge', payload)
     }
 
     const factory = createExecutor({
@@ -684,7 +729,6 @@ describe('createWorktreeCliExecutor', () => {
       bridge: {
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'codex/live',
         sessionId: 'session-live',
       },
       testCmd: 'pnpm test',
@@ -694,7 +738,14 @@ describe('createWorktreeCliExecutor', () => {
         return { exitCode: 0, output: 'tests passed' }
       },
     })
-    const spec: AgentSpec = { profile: authoredProfile, harness: null }
+    const spec: AgentSpec = {
+      profile: {
+        ...authoredProfile,
+        harness: 'codex',
+        model: { provider: 'tangle-router', default: 'live' },
+      },
+      harness: null,
+    }
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
     const authorizedTask = {
       experimentId: 'bridge-exp-9',

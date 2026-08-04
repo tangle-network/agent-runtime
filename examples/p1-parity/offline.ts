@@ -83,7 +83,6 @@ export function offlineMultishotBackend(script: ShotScript): {
     backend: {
       agentTransport,
       driverTransport,
-      driverModel: 'scripted/parity-reviewer',
       shotPassed: offlineShotPassed,
     },
     capture: { agentRequests, driverRequests },
@@ -103,6 +102,7 @@ export function meteredScriptedBrain(turns: ScriptedTurn[]): ToolLoopChat {
     ...(await brain(messages, tools)),
     usage: { input: 5, output: 5 },
     costUsd: 0,
+    costProvenance: 'billing-receipt',
   })
 }
 

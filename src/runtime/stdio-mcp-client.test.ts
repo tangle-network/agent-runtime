@@ -218,14 +218,14 @@ describe('materializeLocalMcp', () => {
     expect(JSON.stringify(profile)).not.toContain('test-token')
     await expect(
       localSandboxClient({
-        router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+        router: { baseUrl: 'https://router.invalid', key: 'unused' },
         profile,
         profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
       }).create(),
     ).rejects.toThrow(/no KeyProvider/)
 
     const client = localSandboxClient({
-      router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+      router: { baseUrl: 'https://router.invalid', key: 'unused' },
       keys: { get },
       profile,
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
@@ -313,7 +313,7 @@ describe('materializeLocalMcp', () => {
       },
     }
     const client = localSandboxClient({
-      router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+      router: { baseUrl: 'https://router.invalid', key: 'unused' },
       profile: trustedProfile,
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
     })
@@ -340,7 +340,7 @@ describe('materializeLocalMcp', () => {
   it('rejects permissive host-process policy without fixed trusted profile bytes', () => {
     expect(() =>
       localSandboxClient({
-        router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+        router: { baseUrl: 'https://router.invalid', key: 'unused' },
         profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
       }),
     ).toThrow(/requires a fixed author-controlled profile/)

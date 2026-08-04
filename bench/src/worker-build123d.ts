@@ -21,7 +21,7 @@ import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 
 export { DEFAULT_BUILD123D_DIRECTIVE } from './directives'
 
@@ -106,13 +106,22 @@ export async function solveBuild123dLocal(task: BenchTask, cfg: Build123dConfig)
     runShot: async (user, round, dir) => {
       const scriptPath = join(dir, 'build.py')
       const stepPath = join(dir, 'output.step')
-      const { content, usage: u } = await routerChatWithUsage(cfg, [
-        { role: 'system', content: sys },
-        { role: 'user', content: user },
-      ])
-      if (u) {
-        usage.input += u.input
-        usage.output += u.output
+      const turn = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'build123d-worker',
+            model: { provider: 'tangle-router', default: cfg.model },
+            prompt: { systemPrompt: sys },
+          },
+        },
+        user,
+      )
+      const content = turn.finalText
+      if (turn.usage.tokensKnown !== false) {
+        usage.input += turn.usage.input
+        usage.output += turn.usage.output
       }
       const source = extractPy(content)
       trace.push({ spanId: `s-author-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)

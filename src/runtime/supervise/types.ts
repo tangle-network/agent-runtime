@@ -219,18 +219,18 @@ export interface ExecutorResult<Out> {
  * conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
  * `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
  *
- * KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
- * (`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
- * happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
- * upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
- * omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
- * non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
- * widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
- * threading it through `foldStream` — a change to the metering contract every executor implements,
- * which is why it is not folded into a streaming-transport fix. Filed separately.
+ * Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
+ * therefore remains unknown through live metering and terminal reconciliation instead of becoming
+ * a fabricated zero.
  */
 export type UsageEvent =
-  | { kind: 'tokens'; input: number; output: number }
+  | {
+      kind: 'tokens'
+      /** Known token subtotal. When false, these counts are only the observed/estimated floor. */
+      tokensKnown?: false
+      input: number
+      output: number
+    }
   | {
       kind: 'cost'
       /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
@@ -327,6 +327,7 @@ export interface ExecutorExecutionBinding {
 /** Why exact materialization evidence is unavailable for a node. */
 export type UnknownMaterializationReason =
   | 'executor-did-not-report'
+  | 'executor-receipt-pending'
   | 'invalid-executor-report'
   | 'root-agent-did-not-report'
 

@@ -24,7 +24,6 @@ describe('rollout policy profile coordinate', () => {
       repairRounds: 1,
       testgen: 0,
       diverse: false,
-      temperature: 0.2,
     }
     const profile: AgentProfile = { name: 'fixture' }
     const serialized = serializeRolloutPolicy(policy)
@@ -89,7 +88,12 @@ function policyMethod(
     async optimize() {
       return {
         winnerSurface: serializeRolloutPolicy(policy),
-        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+        cost: {
+          totalCostUsd: 0,
+          costProvenance: { kind: 'observed', usd: 0 },
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
       }
     },
   }
@@ -172,7 +176,12 @@ describe("improve surface 'rollout-policy'", () => {
         async optimize(input) {
           return {
             winnerSurface: input.baselineSurface,
-            cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+            cost: {
+              totalCostUsd: 0,
+              costProvenance: { kind: 'observed', usd: 0 },
+              accountingComplete: true,
+              incompleteReasons: [],
+            },
           }
         },
       },

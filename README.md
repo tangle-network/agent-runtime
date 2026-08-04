@@ -137,7 +137,12 @@ The profile is never changed.
 
 ```ts
 import { improve, officialGepa } from '@tangle-network/agent-runtime'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { profileOptimizerModelCall } from '@tangle-network/agent-runtime/kernel'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 
 const executionRef = canonicalCandidateDigest({
   deployment: process.env.AGENT_DEPLOYMENT_SHA!,
@@ -145,20 +150,42 @@ const executionRef = canonicalCandidateDigest({
   tools: process.env.AGENT_TOOLSET_SHA!,
 })
 
+const optimizerProfile = {
+  name: 'support-prompt-optimizer',
+  harness: 'cli-base',
+  model: {
+    provider: 'tangle-router',
+    default: process.env.OPTIMIZER_MODEL!,
+    metadata: { maxTokens: 16_384 },
+  },
+} satisfies AgentProfile
+const optimizerPricing = {
+  inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
+  outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
+}
 const optimizer = {
-  model: process.env.OPTIMIZER_MODEL!,
-  baseUrl: process.env.OPTIMIZER_BASE_URL!,
-  apiKey: process.env.OPTIMIZER_API_KEY!,
+  model: optimizerProfile.model.default,
+  call: profileOptimizerModelCall({
+    profile: optimizerProfile,
+    context: 'support-prompt optimizer',
+    executor: {
+      backend: 'router',
+      routerBaseUrl: process.env.OPTIMIZER_BASE_URL!,
+      routerKey: process.env.OPTIMIZER_API_KEY!,
+    },
+    pricing: optimizerPricing,
+  }),
+  callRef: canonicalCandidateDigest({
+    profile: canonicalAgentProfileDigest(optimizerProfile),
+    deployment: process.env.OPTIMIZER_DEPLOYMENT_SHA!,
+  }),
   budget: {
     maxCostUsd: 10,
     maxRequests: 50,
     maxRequestBytes: 2_000_000,
     maxResponseBytes: 2_000_000,
     maxOutputTokensPerRequest: 16_384,
-    pricing: {
-      inputUsdPerMillion: Number(process.env.OPTIMIZER_INPUT_USD_PER_MILLION),
-      outputUsdPerMillion: Number(process.env.OPTIMIZER_OUTPUT_USD_PER_MILLION),
-    },
+    pricing: optimizerPricing,
   },
 }
 
@@ -207,7 +234,7 @@ There is no local fallback.
 Install its optional Python process before using it:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.143.0"
+python -m pip install "agent-eval-rpc==0.144.1"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -221,14 +248,14 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.143.0"
+python -m pip install "agent-eval-rpc==0.144.1"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 
 SkillOpt 0.2.0's published wheel omits prompt files required by `ReflACTTrainer`, so the tested SkillOpt source revision remains necessary.
-SkillOpt and GEPA's standard reflection engine require `optimizer: { model, baseUrl, apiKey, budget }`.
+SkillOpt and GEPA's standard reflection engine require `optimizer: { model, call, callRef, budget }`.
 Agent-based GEPA engines may own their model connection instead.
-Agent Eval proxies those model calls, enforces the nested budget, and records their cost.
+Runtime owns those model calls through one exact `AgentProfile`; Agent Eval enforces the nested budget and records their measured cost and execution evidence without receiving provider credentials.
 `costCeiling` is the total limit for optimizer calls, candidate runs, judges, and final scoring.
 Runtime returns `hold` when any part of that cost is unknown.
 Runtime rejects a reported total above the limit.
@@ -414,13 +441,27 @@ Here, `runProductAgent` is the application's existing entry point, not another l
 
 ```ts
 import {
-  createPrimeIntellectBackend,
+  primeIntellectExecutorConfig,
   runPrimeIntellectProgram,
 } from '@tangle-network/agent-runtime/primeintellect'
+import {
+  collectAgentTurn,
+  createExecutor,
+  streamAgentTurn,
+} from '@tangle-network/agent-runtime/kernel'
 
 await runPrimeIntellectProgram(async (episode) => {
-  const backend = createPrimeIntellectBackend(episode)
-  return runProductAgent({ task: episode.task, backend })
+  const profile = makeProductProfile({ model: episode.model.name })
+  return collectAgentTurn(
+    streamAgentTurn(
+      {
+        kind: 'executor',
+        profile,
+        factory: createExecutor(primeIntellectExecutorConfig(episode)),
+      },
+      episode.task.prompt,
+    ),
+  )
 })
 ```
 

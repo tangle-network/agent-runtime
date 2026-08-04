@@ -16,7 +16,9 @@
  *   TANGLE_API_KEY=... pnpm tsx examples/strategy-suite/strategy-suite.ts   # live router worker
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
+  defaultAnalystInstruction,
   defineStrategy,
   printBenchmarkReport,
   refine,
@@ -160,11 +162,12 @@ async function main(): Promise<void> {
   // No key → inject the deterministic `complete` transport (offline, no network, no server).
   // A key → use the live Tangle router. EITHER WAY the worker drives the SAME `runBenchmark` below.
   const routerKey = process.env.TANGLE_API_KEY
+  const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const worker = {
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey: routerKey ?? 'offline',
-    model: process.env.WORKER_MODEL ?? 'gpt-4o-mini',
-    innerTurns: 6,
+    workerProfile: routerProfile('counter-worker', model, undefined, 6),
+    analystProfile: routerProfile('counter-analyst', model, defaultAnalystInstruction),
     ...(routerKey ? {} : { complete: offlineComplete }),
   }
   console.log(routerKey ? 'worker: live Tangle router\n' : 'worker: offline (injected transport)\n')
@@ -192,3 +195,21 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
+function routerProfile(
+  name: string,
+  model: string,
+  systemPrompt?: string,
+  maxTurns?: number,
+): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      ...(maxTurns !== undefined ? { metadata: { maxTurns } } : {}),
+    },
+    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+  }
+}

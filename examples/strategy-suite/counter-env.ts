@@ -61,6 +61,5 @@ export const counterEnv: Environment = {
 /** One counter task with the given id — the same prompt across both examples. */
 export const counterTask = (id: string): AgenticTask => ({
   id,
-  systemPrompt: 'You operate a counter with tools.',
-  userPrompt: `Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,
+  userPrompt: `You operate a counter with tools. Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,
 })

@@ -46,6 +46,7 @@ import {
 import {
   type AuthoredArtifact,
   type CaseSpec,
+  buildAgentGraphsAuthorProfile,
   callAuthor,
   dispatchWithSurface,
   judgeArtifact,
@@ -337,7 +338,7 @@ function makeProposer(v2Surface: string, trainCases: GraphScenario[]): SurfacePr
       let prompt = revisionPrompt
       let lastProblems: string[] = []
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        const reply = await callAuthor(prompt, 0.7, 12_000)
+        const reply = await callAuthor(buildAgentGraphsAuthorProfile(v2Surface), prompt)
         const skill = extractSkill(reply)
         lastProblems = validateSkillGate(skill)
         if (lastProblems.length === 0) {

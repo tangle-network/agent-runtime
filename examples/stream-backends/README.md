@@ -2,8 +2,8 @@
 
 An agent's output arrives as a live stream of events: text as it's typed, tool calls as they
 fire, tool results as they return. That stream can come from three very different places — a
-function you wrote, a remote sandbox running a coding agent, or any OpenAI-compatible chat
-API. This example runs all three and shows they emit the **same typed events** and serialize
+function you wrote, a remote sandbox running a coding agent, or an exact `AgentProfile` executed
+by Runtime through the Tangle Router. This example runs all three and shows they emit the **same typed events** and serialize
 to the **same format a browser reads**, so the source is a swappable detail your UI never
 sees.
 
@@ -24,7 +24,7 @@ without touching the route that streams to the browser or the code that collects
 |---|---|
 | **Iterable** (`createIterableBackend`) | You own the loop: write an async generator that yields events directly. For tests, scripted demos, or wrapping a stream shape the others don't map. |
 | **Sandbox** (`createSandboxPromptBackend`) | A remote `@tangle-network/sandbox` box runs the agent and streams back its native events (text updates, tool calls, tool results). The default mapper already understands them, so you write no translation code. |
-| **OpenAI-compatible** (`createOpenAICompatibleBackend`) | Any OpenAI-style chat endpoint: OpenAI itself, the Tangle router, a local vLLM server. |
+| **Exact model turn** (`streamAgentTurn`) | A concrete profile whose prompt, provider, model, and generation controls Runtime preserves and meters. |
 
 All three feed `runAgentTaskStream`, which emits a typed `RuntimeStreamEvent` stream, which
 two helpers serialize to SSE (`runtimeStreamServerSentEvent` per event, plus
@@ -51,13 +51,11 @@ data: {"type":"tool_call","toolName":"Read","toolCallId":"call_1", ...}
 data: {"type":"tool_result","toolName":"Read", ...}
 ```
 
-The third (OpenAI-compatible) section is skipped with a printed note unless you give it a real
-endpoint:
+The third section is skipped unless you provide a Tangle Router key:
 
 ```bash
-OPENAI_API_KEY=sk-... pnpm tsx examples/stream-backends/stream-backends.ts
+TANGLE_API_KEY=sk-... pnpm tsx examples/stream-backends/stream-backends.ts
 ```
 
-Point it anywhere OpenAI-compatible with `OPENAI_BASE_URL` and `OPENAI_MODEL` — e.g. set
-`OPENAI_BASE_URL=https://router.tangle.tools/v1` and pass a Tangle key as `OPENAI_API_KEY` to
-stream from the Tangle router. The output is the same SSE shape as the offline sections.
+`MODEL` and `MODEL_PROVIDER` override the concrete DeepSeek defaults, while `ROUTER_BASE` changes
+only the transport endpoint. The output is the same SSE shape as the offline sections.

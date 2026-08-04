@@ -3,7 +3,11 @@ import { createServer, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
@@ -20,6 +24,42 @@ type BridgeRequest = {
 
 const TEST_RUN_DIGEST = `sha256:${'c'.repeat(64)}`
 
+function codexTestProfile(name: string, systemPrompt?: string): AgentProfile {
+  return {
+    name,
+    harness: 'codex',
+    model: { provider: 'openai', default: 'test' },
+    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+  }
+}
+
+function routerTestProfile(name: string, systemPrompt?: string): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: { provider: 'tangle-router', default: 'test' },
+    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+  }
+}
+
+function createBridgeServer(handler: Parameters<typeof createServer>[0]): Server {
+  return createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          capabilities: {
+            profileMaterialization: 'cli-bridge.profile-materialization.v2',
+            usageCostProvenance: 'cli-bridge.usage-cost.v1',
+          },
+        }),
+      )
+      return
+    }
+    return handler(req, res)
+  })
+}
+
 function numberSseDataFrames(body: string): string {
   let seq = 0
   return body.replace(/^data: (?!\[DONE\])/gmu, () => `id: ${++seq}\ndata: `)
@@ -35,7 +75,43 @@ function respondWithBridgeStream(
     'x-run-id': request.run_id,
     'x-run-request-digest': TEST_RUN_DIGEST,
   })
-  res.end(numberSseDataFrames(stream))
+  const normalized = stream
+    .split('\n')
+    .map((line) => {
+      if (!line.startsWith('data: ') || line === 'data: [DONE]') return line
+      const payload = JSON.parse(line.slice('data: '.length)) as { usage?: Record<string, unknown> }
+      if (!payload.usage) return line
+      payload.usage = {
+        ...payload.usage,
+        ...(typeof payload.usage.cost === 'number'
+          ? { cost_known: true, cost_provenance: 'provider-receipt' }
+          : { cost_known: false }),
+      }
+      return `data: ${JSON.stringify(payload)}`
+    })
+    .join('\n')
+  const parts = request.model.split('/')
+  const requested = request.agent_profile.model?.reasoningEffort ?? null
+  const applied =
+    requested === 'none'
+      ? 'minimal'
+      : requested === 'xhigh' || requested === 'ultracode'
+        ? 'high'
+        : requested
+  const receipt = `data: ${JSON.stringify({
+    profile_materialization: {
+      schema: 'cli-bridge.profile-materialization.v2',
+      effectiveProfileDigest: canonicalAgentProfileDigest(request.agent_profile),
+      harness: parts[0],
+      provider: parts[1] ?? null,
+      model: request.model,
+      reasoningEffort: { requested, applied },
+      workspacePlanDigest: `sha256:${'d'.repeat(64)}`,
+      files: [],
+      unsupported: [],
+    },
+  })}`
+  res.end(numberSseDataFrames(normalized.replace('data: [DONE]', `${receipt}\n\ndata: [DONE]`)))
 }
 
 function cancelledRunId(url: string | undefined): string | undefined {
@@ -123,7 +199,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const firstRequest = new Promise<void>((resolve) => {
       markFirstRequest = resolve
     })
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const cancelledId = cancelledRunId(req.url)
       if (cancelledId !== undefined) {
         cancelled.push(cancelledId)
@@ -139,7 +215,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           'x-run-request-digest': TEST_RUN_DIGEST,
         })
         res.write(
-          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0.01 } })}\n\n`,
+          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0.01, cost_known: true, cost_provenance: 'provider-receipt' } })}\n\n`,
         )
         markFirstRequest()
         return
@@ -154,7 +230,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         name: 'pi-leader',
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
-        model: { default: 'gpt-5.6' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
       },
       'Choose the next experiment.',
       {
@@ -163,7 +239,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           backend: 'bridge',
           bridgeUrl: `http://127.0.0.1:${port}`,
           bridgeBearer: 'test-token',
-          model: 'codex/gpt-5.6',
         },
         budget: { maxIterations: 4, maxTokens: 10_000 },
       },
@@ -192,7 +267,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it('selects heterogeneous leaf completion checks from the exact authorized spawn context', async () => {
     const requests: BridgeRequest[] = []
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       requests.push(body)
       const content =
@@ -216,14 +291,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     }> = []
     let turn = 0
     const result = await supervise(
-      { name: 'root', harness: 'cli-base', prompt: { systemPrompt: 'Run all checks.' } },
+      routerTestProfile('root', 'Run all checks.'),
       'Compare implementation and evaluation evidence.',
       {
         backend: {
           backend: 'bridge',
           bridgeUrl: `http://127.0.0.1:${port}`,
           bridgeBearer: 'test-token',
-          model: 'codex/test',
         },
         budget: { maxIterations: 20, maxTokens: 20_000 },
         perWorker: { maxIterations: 4, maxTokens: 2_000 },
@@ -243,7 +317,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   id: 'worker',
                   name: 'spawn_agent',
                   arguments: JSON.stringify({
-                    profile: { name: 'worker' },
+                    profile: codexTestProfile('worker'),
                     task: { kind: 'implement', expected: 'WORK=42' },
                     key: 'worker',
                   }),
@@ -252,7 +326,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   id: 'evaluator',
                   name: 'spawn_agent',
                   arguments: JSON.stringify({
-                    profile: { name: 'evaluator' },
+                    profile: codexTestProfile('evaluator'),
                     task: { kind: 'evaluate', expected: 'EVAL=pass' },
                     key: 'evaluator',
                   }),
@@ -261,7 +335,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   id: 'fallback',
                   name: 'spawn_agent',
                   arguments: JSON.stringify({
-                    profile: { name: 'fallback' },
+                    profile: codexTestProfile('fallback'),
                     task: { kind: 'archive', expected: 'FALLBACK=ready' },
                     key: 'fallback',
                   }),
@@ -343,7 +417,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it('reuses the recorded per-spawn completion result on durable resume', async () => {
     let requests = 0
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       requests += 1
       respondWithBridgeStream(res, body, successStream('RESULT=durable'))
@@ -363,7 +437,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 id: 'spawn',
                 name: 'spawn_agent',
                 arguments: JSON.stringify({
-                  profile: { name: 'durable-worker' },
+                  profile: codexTestProfile('durable-worker'),
                   task: 'produce the durable result',
                   key: 'durable-worker',
                 }),
@@ -384,7 +458,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         backend: 'bridge' as const,
         bridgeUrl: `http://127.0.0.1:${port}`,
         bridgeBearer: 'test-token',
-        model: 'codex/test',
       },
       budget: { maxIterations: 8, maxTokens: 10_000 },
       perWorker: { maxIterations: 2, maxTokens: 1_000 },
@@ -400,7 +473,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         }
       },
     }
-    const profile = { name: 'root', harness: 'cli-base' as const }
+    const profile = routerTestProfile('root')
     try {
       const first = await supervise(profile, 'resume the exact result', {
         ...common,
@@ -439,7 +512,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       profile: AgentProfile
       task: unknown
     }> = []
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       try {
         const body = await readJson(req)
         requests.push(body)
@@ -455,7 +528,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 description: 'Run the discriminating experiment',
                 harness: 'codex',
                 prompt: { systemPrompt: 'Supervise one empirical worker.' },
-                model: { default: 'gpt-5.6', reasoningEffort: 'high' },
+                model: { provider: 'openai', default: 'gpt-5.6', reasoningEffort: 'high' },
                 tools: { shell: true },
                 resources: {
                   skills: [
@@ -484,7 +557,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 description: 'Execute and report the measurement',
                 harness: 'codex',
                 prompt: { systemPrompt: 'Return the exact measured result.' },
-                model: { default: 'gpt-5.6', reasoningEffort: 'medium' },
+                model: { provider: 'openai', default: 'gpt-5.6', reasoningEffort: 'medium' },
                 permissions: { shell: 'allow' },
                 tools: { shell: true, web: false },
                 resources: {
@@ -526,14 +599,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       backend: 'bridge',
       bridgeUrl: `http://127.0.0.1:${port}`,
       bridgeBearer: 'test-token',
-      model: 'codex/gpt-5.6',
     }
     const rootProfile: AgentProfile = {
       name: 'pi-leader',
       description: 'Lead the full pursuit',
       harness: 'codex',
       prompt: { systemPrompt: 'Choose and supervise the most informative experiment.' },
-      model: { default: 'gpt-5.6', reasoningEffort: 'xhigh' },
+      model: { provider: 'openai', default: 'gpt-5.6', reasoningEffort: 'xhigh' },
       tools: { web: true },
       mcp: {
         literature: { transport: 'http', url: 'https://papers.example.test/mcp' },
@@ -624,9 +696,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       'experiment-worker',
     ])
     expect(requests.map((request) => request.model)).toEqual([
-      'codex/gpt-5.6',
-      'codex/gpt-5.6',
-      'codex/gpt-5.6',
+      'codex/openai/gpt-5.6',
+      'codex/openai/gpt-5.6',
+      'codex/openai/gpt-5.6',
     ])
     expect(requests.map((request) => request.session_id)).toEqual([
       expect.stringMatching(/^supervised-manager-[a-f0-9]{64}$/),
@@ -706,7 +778,9 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       candidateDigest: canonicalCandidateDigest({ candidate: 'pi-leader' }),
       correlation: { pursuitId: 'pursuit-1', experimentId: 'experiment-root' },
     })
-    const rootMaterialized = rootEvents?.find((event) => event.kind === 'materialized')
+    const rootMaterialized = rootEvents?.find(
+      (event) => event.kind === 'materialized' && event.id === 'identity-run',
+    )
     expect(rootMaterialized).toMatchObject({
       kind: 'materialized',
       id: 'identity-run',
@@ -716,7 +790,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         effectiveProfileDigest: canonicalCandidateDigest(rootProfile),
         runtime: 'cli',
         backend: 'bridge',
-        model: { status: 'known', id: 'codex/gpt-5.6' },
+        model: { status: 'known', id: 'codex/openai/gpt-5.6' },
         execution: { kind: 'session', id: requests[0]!.session_id },
       },
     })
@@ -753,7 +827,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it('isolates identical concurrent managers but reuses one durable manager session on restart', async () => {
     const sessions: string[] = []
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       sessions.push(body.session_id)
       respondWithBridgeStream(res, body, successStream('managed'))
@@ -764,13 +838,12 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       name: 'pi-leader',
       harness: 'codex',
       prompt: { systemPrompt: 'Lead the pursuit.' },
-      model: { default: 'gpt-5.6' },
+      model: { provider: 'openai', default: 'gpt-5.6' },
     } as const
     const backend = {
       backend: 'bridge' as const,
       bridgeUrl: `http://127.0.0.1:${port}`,
       bridgeBearer: 'test-token',
-      model: 'codex/gpt-5.6',
     }
     const task = 'Choose the next experiment.'
 
@@ -811,7 +884,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it('captures mutable supervision policy, profiles, limits, and callback selection at intake', async () => {
     const requests: BridgeRequest[] = []
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       requests.push(body)
       respondWithBridgeStream(res, body, successStream('RESULT=42'))
@@ -843,7 +916,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 profile: {
                   name: 'policy-worker',
                   harness: 'codex',
-                  model: { default: 'safe-model' },
+                  model: { provider: 'openai', default: 'safe-model' },
                   mcp: {
                     allowed: { transport: 'http', url: 'https://allowed.test/mcp' },
                   },
@@ -868,13 +941,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const rootProfile: AgentProfile = {
       name: 'original-root',
       harness: 'cli-base',
+      model: { provider: 'tangle-router', default: 'safe-model' },
       prompt: { systemPrompt: 'Use the worker.' },
     }
     const backend = {
       backend: 'bridge' as const,
       bridgeUrl: `http://127.0.0.1:${port}`,
       bridgeBearer: 'test-token',
-      model: 'safe-model',
     }
     const profileSecurity = {
       allowLocalMcp: false,
@@ -917,7 +990,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     await firstTurnEntered
     rootProfile.name = 'mutated-root'
     backend.bridgeUrl = 'http://127.0.0.1:1'
-    backend.model = 'mutated-model'
     profileSecurity.allowedMcpHosts.splice(0, 1, 'mutated.test')
     perWorker.maxIterations = 0
     perWorker.maxTokens = 1
@@ -937,7 +1009,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(callbackCalls).toEqual(['original-authorizer'])
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
-      model: 'codex/safe-model',
+      model: 'codex/openai/safe-model',
       agent_profile: {
         name: 'policy-worker',
         mcp: { allowed: { url: 'https://allowed.test/mcp' } },
@@ -946,39 +1018,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(requests[0]?.agent_profile.mcp?.['agent-runtime-coordination']).toBeUndefined()
   })
 
-  it('refuses a backend overlay before it can occupy the coordination alias', () => {
-    expect(() =>
-      supervise(
-        {
-          name: 'pi-leader',
-          harness: 'codex',
-          prompt: { systemPrompt: 'Lead the pursuit.' },
-          model: { default: 'gpt-5.6' },
-        },
-        'Choose the next experiment.',
-        {
-          backend: {
-            backend: 'bridge',
-            bridgeUrl: 'http://127.0.0.1:1',
-            bridgeBearer: 'unused',
-            model: 'codex/gpt-5.6',
-            agentProfile: {
-              mcp: {
-                'agent-runtime-coordination': {
-                  transport: 'http',
-                  url: 'http://169.254.169.254/latest/meta-data',
-                },
-              },
-            },
-          },
-          budget: { maxIterations: 2, maxTokens: 10_000 },
-        },
-      ),
-    ).toThrow(/backend agentProfile overlays are not allowed/)
-  })
-
   it('refuses a manager with unknown cost under a dollar-capped budget', async () => {
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       respondWithBridgeStream(res, body, unknownCostStream('managed'))
     })
@@ -990,7 +1031,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         name: 'pi-leader',
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
-        model: { default: 'gpt-5.6' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
       },
       'Choose the next experiment.',
       {
@@ -998,7 +1039,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           backend: 'bridge',
           bridgeUrl: `http://127.0.0.1:${port}`,
           bridgeBearer: 'test-token',
-          model: 'codex/gpt-5.6',
         },
         budget: { maxIterations: 2, maxTokens: 10_000, maxUsd: 1 },
       },
@@ -1016,7 +1056,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
   })
 
   it('records a manager with unknown token usage as unknown telemetry without ending the run', async () => {
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       respondWithBridgeStream(res, body, unknownTokenStream('managed'))
     })
@@ -1028,7 +1068,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         name: 'pi-leader',
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
-        model: { default: 'gpt-5.6' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
       },
       'Choose the next experiment.',
       {
@@ -1036,7 +1076,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           backend: 'bridge',
           bridgeUrl: `http://127.0.0.1:${port}`,
           bridgeBearer: 'test-token',
-          model: 'codex/gpt-5.6',
         },
         budget: { maxIterations: 2, maxTokens: 10_000 },
       },
@@ -1058,7 +1097,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const runDir = await mkdtemp(join(tmpdir(), 'manager-partial-stream-'))
     let requests = 0
     try {
-      server = createServer(async (req, res) => {
+      server = createBridgeServer(async (req, res) => {
         const cancelled = cancelledRunId(req.url)
         if (cancelled !== undefined) {
           respondWithTerminalCancellation(res, cancelled)
@@ -1072,7 +1111,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           'x-run-request-digest': TEST_RUN_DIGEST,
         })
         res.write(
-          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 13, completion_tokens: 5, cost: 0.02 } })}\n\n`,
+          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 13, completion_tokens: 5, cost: 0.02, cost_known: true, cost_provenance: 'provider-receipt' } })}\n\n`,
         )
         setTimeout(() => res.socket?.destroy(new Error('socket died before terminal receipt')), 10)
       })
@@ -1082,14 +1121,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         name: 'pi-leader',
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
-        model: { default: 'gpt-5.6' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
       } as const
       const options = {
         backend: {
           backend: 'bridge',
           bridgeUrl: `http://127.0.0.1:${port}`,
           bridgeBearer: 'test-token',
-          model: 'codex/gpt-5.6',
         } as const,
         budget: { maxIterations: 2, maxTokens: 100, maxUsd: 1 },
         runDir,
@@ -1123,7 +1161,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it("preserves a leaf's unknown dollar cost and refuses it under a dollar cap", async () => {
     const requests: BridgeRequest[] = []
-    server = createServer(async (req, res) => {
+    server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       requests.push(body)
       const profile = body.agent_profile
@@ -1134,7 +1172,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             name: 'worker',
             harness: 'codex',
             prompt: { systemPrompt: 'Return the result.' },
-            model: { default: 'gpt-5.6' },
+            model: { provider: 'openai', default: 'gpt-5.6' },
           },
           task: 'Return RESULT=42.',
         })
@@ -1154,7 +1192,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         name: 'pi-leader',
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
-        model: { default: 'gpt-5.6' },
+        model: { provider: 'openai', default: 'gpt-5.6' },
       },
       'Choose the next experiment.',
       {
@@ -1162,7 +1200,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           backend: 'bridge',
           bridgeUrl: `http://127.0.0.1:${port}`,
           bridgeBearer: 'test-token',
-          model: 'codex/gpt-5.6',
         },
         budget: { maxIterations: 4, maxTokens: 10_000, maxUsd: 1 },
       },

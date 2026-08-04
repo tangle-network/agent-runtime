@@ -138,7 +138,25 @@ const makeTransport =
   async (body: Record<string, unknown>): Promise<unknown> => {
     const msgs = (body.messages ?? []) as Array<{ role?: string; content?: unknown }>
     counter.guardedMsgs += assertNoHiddenLeak(marks, msgs)
-    const { json, attempts } = await zaiChatRaw({ base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS }, body)
+    const model = String(body.model ?? '')
+    const systemPrompt = msgs.find((message) => message.role === 'system')?.content
+    const toolNames = Array.isArray(body.tools)
+      ? (body.tools as Array<{ function?: { name?: unknown } }>).flatMap((tool) =>
+          typeof tool.function?.name === 'string' ? [tool.function.name] : [],
+        )
+      : []
+    const { json, attempts } = await zaiChatRaw(
+      { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS },
+      body,
+      {
+        name: 'swe-structural-worker',
+        model: { provider: 'zai', default: model, reasoningEffort: 'high' },
+        ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
+        ...(toolNames.length > 0
+          ? { tools: Object.fromEntries(toolNames.map((name) => [name, true])) }
+          : {}),
+      },
+    )
     counter.calls += 1
     counter.httpAttempts += attempts
     const u = (json as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage

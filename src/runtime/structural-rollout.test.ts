@@ -85,7 +85,7 @@ describe('repair keep-best guard', () => {
 })
 
 describe('modelAuthoredChecks — the assert filter (visible info only, frozen per task)', () => {
-  const task: AgenticTask = { id: 't', systemPrompt: 's', userPrompt: 'Write add.' }
+  const task: AgenticTask = { id: 't', userPrompt: 'Write add.' }
 
   it('keeps only single-line paren-balanced asserts mentioning the entry symbol, capped', async () => {
     const reply = [
@@ -141,11 +141,10 @@ describe('officialChecksFromMeta', () => {
     const source = officialChecksFromMeta()
     const withMeta: AgenticTask = {
       id: 't',
-      systemPrompt: 's',
       userPrompt: 'u',
       meta: { visibleChecks: ['assert f() == 1', 42, '  '] },
     }
-    const bare: AgenticTask = { id: 't', systemPrompt: 's', userPrompt: 'u' }
+    const bare: AgenticTask = { id: 't', userPrompt: 'u' }
     const ctx = { count: 0, consult: async () => null }
     expect(await source.generate(withMeta, ctx)).toEqual([
       { code: 'assert f() == 1', kind: 'official' },
@@ -155,7 +154,7 @@ describe('officialChecksFromMeta', () => {
 })
 
 describe('sandboxCheckRunner', () => {
-  const task: AgenticTask = { id: 't', systemPrompt: 's', userPrompt: 'u' }
+  const task: AgenticTask = { id: 't', userPrompt: 'u' }
   const checks: VisibleCheck[] = [
     { code: 'assert f() == 1', kind: 'official' },
     { code: 'assert f() != 2', kind: 'authored' },
@@ -277,10 +276,15 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
 
     const result = await runAgentic({
       surface,
-      task: { id: 'starved', systemPrompt: 'Solve it.', userPrompt: 'Solve it.' },
+      task: { id: 'starved', userPrompt: 'Solve it.' },
       routerBaseUrl: 'http://offline.test/v1',
       routerKey: 'k',
-      model: 'stub-model',
+      workerProfile: {
+        name: 'starved-worker',
+        model: { default: 'stub-model', metadata: { maxTokens: 64 } },
+        prompt: { systemPrompt: 'Solve it.' },
+        tools: {},
+      },
       complete: async () => {
         throw new Error('candidate should not run')
       },
@@ -394,13 +398,21 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
 
     const result = await runAgentic({
       surface,
-      task: { id: 't1', systemPrompt: 'Solve it.', userPrompt: 'Write f.\n\ndef f():\n    ...' },
+      task: { id: 't1', userPrompt: 'Write f.\n\ndef f():\n    ...' },
       routerBaseUrl: 'http://offline.test/v1',
       routerKey: 'k',
-      model: 'stub-model',
+      workerProfile: {
+        name: 'structural-worker',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: 'stub-model',
+          metadata: { maxTurns: 2 },
+        },
+        prompt: { systemPrompt: 'Solve it.' },
+        tools: { submit_answer: true },
+      },
       complete,
-      innerTurns: 2,
-      maxTokens: 64,
       strategy: structuralRollout({
         policy: { k: 2, repairRounds: 2, testgen: 0 },
         checkSource: { generate },

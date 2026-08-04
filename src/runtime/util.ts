@@ -137,10 +137,11 @@ export function zeroTokenUsage(): LoopTokenUsage {
   return { input: 0, output: 0 }
 }
 
-/** Add `delta` into `acc` in place. Missing fields count as zero. */
+/** Add the observed subtotal into `acc`; incompleteness is sticky. */
 export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage>): void {
   acc.input += delta.input ?? 0
   acc.output += delta.output ?? 0
+  if (delta.tokensKnown === false) acc.tokensKnown = false
 }
 
 /**

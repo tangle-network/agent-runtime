@@ -15,6 +15,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       // The body is the OpenAI request the client built — assert it threaded the model + messages.
       expect(body.model).toBe('deepseek-v4-flash')
       expect(body.messages).toEqual([{ role: 'user', content: 'hi' }])
+      expect(body).not.toHaveProperty('max_tokens')
       return {
         choices: [{ message: { content: 'pong' } }],
         usage: { prompt_tokens: 7, completion_tokens: 3 },
@@ -31,6 +32,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.content).toBe('pong')
     expect(res.usage).toEqual({ input: 7, output: 3 })
+    expect(res.transportAttempts).toBe(1)
     expect(complete).toHaveBeenCalledOnce()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -64,6 +66,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.toolCalls).toEqual([{ id: 'c1', name: 'increment', arguments: '{}' }])
     expect(res.usage).toEqual({ input: 5, output: 2 })
+    expect(res.transportAttempts).toBe(1)
     expect(complete).toHaveBeenCalledOnce()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -84,7 +87,169 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       [{ role: 'user', content: 'hi' }],
     )
     expect(res.content).toBe('live')
+    expect(res.transportAttempts).toBe(1)
     expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('reports the exact transport count and honors a caller-owned retry total', async () => {
+    let calls = 0
+    const fetchSpy = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 503,
+          text: async (): Promise<string> => 'capacity',
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'recovered' } }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        }),
+        text: async (): Promise<string> => '',
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        maxAttempts: 2,
+      },
+      [{ role: 'user', content: 'recover' }],
+    )
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(result.transportAttempts).toBe(2)
+    expect(result.content).toBe('recovered')
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid maxAttempts %s before dispatch',
+    async (maxAttempts) => {
+      const fetchSpy = vi.fn()
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        routerChatWithUsage(
+          {
+            routerBaseUrl: 'http://router.test/v1',
+            routerKey: 'k',
+            model: 'deepseek-v4-flash',
+            maxAttempts,
+          },
+          [{ role: 'user', content: 'do not dispatch' }],
+        ),
+      ).rejects.toThrow(/maxAttempts must be a positive safe integer/u)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    },
+  )
+
+  it('uses the caller ceiling when set and otherwise leaves the provider default unrestricted', async () => {
+    const seen: Record<string, unknown>[] = []
+    const complete = async (body: Record<string, unknown>) => {
+      seen.push(body)
+      return { choices: [{ message: { content: 'done' } }] }
+    }
+    const config = {
+      routerBaseUrl: 'http://router.test/v1',
+      routerKey: 'k',
+      model: 'deepseek-v4-flash',
+      complete,
+    }
+    await routerChatWithUsage(config, [{ role: 'user', content: 'default' }])
+    await routerChatWithUsage({ ...config, maxTokens: 16_384 }, [
+      { role: 'user', content: 'configured' },
+    ])
+    await routerChatWithUsage(config, [{ role: 'user', content: 'per-call' }], {
+      maxTokens: 32_768,
+    })
+
+    expect(seen[0]).not.toHaveProperty('max_tokens')
+    expect(seen[1]?.max_tokens).toBe(16_384)
+    expect(seen[2]?.max_tokens).toBe(32_768)
+  })
+
+  it('accepts multimodal messages and provider fields without letting extras replace canonical fields', async () => {
+    const content = [
+      { type: 'text', text: 'describe this image' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+    ]
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content }],
+        temperature: 0.4,
+        max_tokens: 32_768,
+        seed: 7,
+        thinking: { type: 'enabled' },
+      })
+      return { choices: [{ message: { content: 'image' } }] }
+    })
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content }],
+      {
+        temperature: 0.4,
+        maxTokens: 32_768,
+        seed: 7,
+        extraBody: {
+          model: 'must-not-win',
+          messages: [],
+          temperature: 999,
+          max_tokens: 1,
+          thinking: { type: 'enabled' },
+        },
+      },
+    )
+    expect(complete).toHaveBeenCalledOnce()
+  })
+
+  it('omits tool fields for a no-tool request and protects canonical fields from provider extras', async () => {
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content: 'answer' }],
+        temperature: 0.1,
+        thinking: { type: 'enabled' },
+      })
+      expect(body).not.toHaveProperty('tools')
+      expect(body).not.toHaveProperty('tool_choice')
+      return { choices: [{ message: { content: 'done' } }] }
+    })
+
+    const result = await routerChatWithTools(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content: 'answer' }],
+      [],
+      {
+        temperature: 0.1,
+        extraBody: {
+          model: 'must-not-win',
+          messages: [],
+          tools: [{ type: 'function' }],
+          tool_choice: 'required',
+          thinking: { type: 'enabled' },
+        },
+      },
+    )
+    expect(result.content).toBe('done')
+    expect(complete).toHaveBeenCalledOnce()
   })
 })
 

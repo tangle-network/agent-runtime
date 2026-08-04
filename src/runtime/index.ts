@@ -329,6 +329,9 @@ export type {
   WidenSpec,
   WinnerStrategy,
 } from './personify/wave-types'
+// Agent-eval integrations (judges, optimizers) use this exact-profile adapter instead of opening
+// a second provider path. It lowers one AgentProfile through createExecutor + streamAgentTurn.
+export { profileChatClient, profileOptimizerModelCall } from './profile-chat-client'
 export {
   type PromotionGateOptions,
   type PromotionVerdict,
@@ -339,22 +342,10 @@ export {
   type ResolveSandboxClientOptions,
   resolveSandboxClient,
 } from './resolve-sandbox-client'
-// The one router chat client (chat / chat-with-tools / off-box tool loop). `ToolSpec` is exported
-// with the executor seam block below. `routerBrain` is the production supervisor BRAIN — the
-// router's tool-calling as the canonical `ToolLoopChat` seam a `driverAgent` drives
-// (tests script a mock `ToolLoopChat`, production passes `routerBrain(cfg)`).
-export {
-  type RouterChatResult,
-  type RouterChatToolsResult,
-  type RouterConfig,
-  type RouterToolCall,
-  type RouterToolLoopResult,
-  routerBrain,
-  routerChatWithTools,
-  routerChatWithUsage,
-  routerToolLoop,
-  streamRouterChatWithTools,
-} from './router-client'
+// Router requests are an internal transport adapter. Public execution always enters through an
+// exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
+// endpoint/auth transport used by that path.
+export type { RouterTransportConfig } from './router-client'
 export {
   type BenchmarkCell,
   type BenchmarkConfig,
@@ -433,7 +424,6 @@ export {
   type RunAgenticOptions,
   refine,
   runAgentic,
-  type ShotPersona,
   type ShotSpec,
   type Strategy,
   type StrategyArtifacts,
@@ -451,6 +441,7 @@ export {
   assertStrategyContract,
   authorStrategy,
   strategyAuthorContract,
+  strategyAuthorSystemPrompt,
 } from './strategy-author'
 export {
   type ChampionPick,
@@ -512,8 +503,6 @@ export {
   type AuthoredProfile,
   asAuthoredProfile,
   assessAuthoredProfile,
-  authoredWorker,
-  canonicalizeAuthoredProfile,
   defaultProfileRichnessThresholds,
   type ProfileRichness,
   type ProfileRichnessThresholds,
@@ -539,14 +528,18 @@ export {
   type ChatTransportExecutorOptions,
   type ChatTransportTool,
   type ChatWorkerSeamOptions,
-  chatCompletionsTransport,
   chatTransportExecutor,
   chatWorkerSeam,
   createChatSessionStore,
 } from './supervise/chat-transport-executor'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
-export { type DeliverableSpec, gateOnDeliverable } from './supervise/completion-gate'
+export {
+  type DeliverableSpec,
+  type ExecutorResultMapping,
+  gateOnDeliverable,
+  mapExecutorResult,
+} from './supervise/completion-gate'
 // The CHEAP / offline driver: an in-process router-tools loop that drives the coordination
 // verbs over the Scope (no box, no creds). The CAPABLE driver is an external harness with the
 // coordination verbs mounted as an MCP: `supervise()` wires a local bridge automatically, while a

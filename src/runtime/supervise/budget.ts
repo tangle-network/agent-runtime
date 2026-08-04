@@ -183,12 +183,14 @@ export interface BudgetPool {
  *  pool does not read wall-clock). */
 export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   const tokens = zeroTokenUsage()
+  let tokensKnown = true
   let usd = 0
   let usdKnown = true
   let iterations = 0
   for (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
+      if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
       if (ev.usdKnown === false) usdKnown = false
@@ -199,6 +201,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   return {
     iterations,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: 0,
@@ -208,12 +211,14 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
 async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
   if (Array.isArray(events)) return spendFromUsageEvents(events)
   const tokens = zeroTokenUsage()
+  let tokensKnown = true
   let usd = 0
   let usdKnown = true
   let iterations = 0
   for await (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
+      if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
       if (ev.usdKnown === false) usdKnown = false
@@ -224,6 +229,7 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
   return {
     iterations,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: 0,

@@ -36,7 +36,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { composeStrategies } from './directives'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
-import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import {
+  benchRouterProfile,
+  type BenchRouterTarget,
+  runBenchRouterTurn,
+  withBenchProfile,
+} from './router-turn'
 import { selfConsistencySelect, verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
 
@@ -154,7 +159,7 @@ function parseJudge(reply: string, rubricCount: number): RubricVerdict {
 
 /** Grade one completion with the rubric judge. A judge API/parse failure is a real
  *  zero (the response could not be validated) — surfaced, never masked. */
-async function judgeRubrics(cfg: RouterConfig, task: CtxTask, output: string): Promise<RubricVerdict> {
+async function judgeRubrics(cfg: BenchRouterTarget, task: CtxTask, output: string): Promise<RubricVerdict> {
   if (!output.trim()) return { fraction: 0, allPass: false, graded: 0 }
   const rubricsText = task.rubrics.map((r, i) => `${i + 1}. ${r}`).join('\n')
   // Fault-isolate the judge: a transient router failure (after retries) or an
@@ -162,8 +167,18 @@ async function judgeRubrics(cfg: RouterConfig, task: CtxTask, output: string): P
   // NOT throw — one bad grade would otherwise crash the whole N×K×2 run. graded=0
   // marks it as judge-failed so it's distinguishable from a real 0/N rubric pass.
   try {
-    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: judgePrompt(rubricsText, output) }], { temperature: 0 })
-    return parseJudge(typeof res.content === 'string' ? res.content : '', task.rubrics.length)
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: withBenchProfile(cfg.profile, {
+          name: 'clbench-rubric-judge',
+          temperature: 0,
+        }),
+      },
+      judgePrompt(rubricsText, output),
+    )
+    return parseJudge(res.finalText, task.rubrics.length)
   } catch {
     return { fraction: 0, allPass: false, graded: 0 }
   }
@@ -190,8 +205,18 @@ async function main(): Promise<void> {
   if (!Number.isInteger(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isInteger(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
-  const workerCfg: RouterConfig = { routerBaseUrl, routerKey, model }
-  const judgeCfg: RouterConfig = { routerBaseUrl, routerKey, model: judgeModel }
+  const workerCfg: BenchRouterTarget = {
+    routerBaseUrl,
+    routerKey,
+    profile: benchRouterProfile('clbench-context-worker', model, {
+      temperature: Number(process.env.TEMPERATURE ?? '0.8'),
+    }),
+  }
+  const judgeCfg: BenchRouterTarget = {
+    routerBaseUrl,
+    routerKey,
+    profile: benchRouterProfile('clbench-rubric-judge', judgeModel, { temperature: 0 }),
+  }
 
   console.log(`=== CL-bench (Context Learning) selector gate · N=${n} K=${k} offset=${offset} ===`)
   console.log(`  worker=${model}  judge=${judgeModel} (rubric-fraction verifier)  router=${routerBaseUrl}`)
@@ -213,8 +238,19 @@ async function main(): Promise<void> {
   }
   console.log(`\n▶ solving ${units.length} attempts (${tasks.length} tasks × ${k} shots × 2 arms) via router, conc=${solveConcurrency}`)
   const outputs = await pool(units, solveConcurrency, async (u) => {
-    const res = await routerChatWithUsage(workerCfg, u.messages, { temperature: Number(process.env.TEMPERATURE ?? '0.8') })
-    return typeof res.content === 'string' ? res.content : ''
+    const system = u.messages.find((message) => message.role === 'system')?.content
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: workerCfg.routerBaseUrl,
+        routerKey: workerCfg.routerKey,
+        profile: withBenchProfile(workerCfg.profile, {
+          name: 'clbench-context-worker',
+          ...(system ? { systemPrompt: system } : {}),
+        }),
+      },
+      { messages: u.messages.filter((message) => message.role !== 'system') },
+    )
+    return res.finalText
   })
 
   console.log(`▶ grading ${outputs.length} completions with the rubric judge (${judgeModel}), conc=${solveConcurrency}`)

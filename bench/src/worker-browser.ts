@@ -18,7 +18,7 @@
 import { readFile } from 'node:fs/promises'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 
 export interface BrowserLocalConfig {
   routerBaseUrl: string
@@ -67,10 +67,23 @@ export async function solveBrowserLocal(task: BenchTask, cfg: BrowserLocalConfig
 
   trace.push({ spanId: 's-task', runId, kind: 'llm', name: 'web task', model: cfg.model, messages: [{ role: 'user', content: goal }], startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
 
-  const { content, usage } = await routerChatWithUsage(cfg, [
-    { role: 'system', content: directive },
-    { role: 'user', content: task.prompt },
-  ])
+  const turn = await runBenchRouterTurn(
+    {
+      routerBaseUrl: cfg.routerBaseUrl,
+      routerKey: cfg.routerKey,
+      profile: {
+        name: 'browser-local-worker',
+        model: { provider: 'tangle-router', default: cfg.model },
+        prompt: { systemPrompt: directive },
+      },
+    },
+    task.prompt,
+  )
+  const content = turn.finalText
+  const usage =
+    turn.usage.tokensKnown === false
+      ? undefined
+      : { input: turn.usage.input, output: turn.usage.output }
   const artifact = content.trim()
 
   const elementId = /ELEMENT:\s*\[?(\d+)\]?/i.exec(artifact)?.[1] ?? ''

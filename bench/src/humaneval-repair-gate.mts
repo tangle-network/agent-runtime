@@ -20,9 +20,20 @@
  *     tsx src/humaneval-repair-gate.mts
  */
 import { type HumanEvalTask, basePrompt, extractCode, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { type RouterConfig, type ToolSpec, routerChatWithUsage, routerToolLoop } from '@tangle-network/agent-runtime/kernel'
+import {
+  collectAgentTurn,
+  createExecutor,
+  streamAgentTurn,
+  type ToolSpec,
+} from '@tangle-network/agent-runtime/kernel'
 import { verifierGroundedSelect } from './selector'
 import { type PairedLift, pairedLift, pool } from './stats.mts'
+import {
+  benchRouterProfile,
+  type BenchRouterTarget,
+  runBenchRouterTurn,
+  withBenchProfile,
+} from './router-turn'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -51,14 +62,23 @@ const repairSystem = [
 ].join(' ')
 
 /** repair@K: one worker, up to K inference turns, steering on real test failures. */
-async function repairAttempt(cfg: RouterConfig, task: HumanEvalTask, k: number): Promise<number> {
+async function repairAttempt(cfg: BenchRouterTarget, task: HumanEvalTask, k: number): Promise<number> {
   let lastTested = ''
-  const r = await routerToolLoop(
-    cfg,
-    repairSystem,
-    basePrompt(task),
-    [runTestsTool],
-    async (name, args) => {
+  const profile = {
+    ...withBenchProfile(cfg.profile, {
+      name: 'humaneval-repair-worker',
+      systemPrompt: repairSystem,
+      maxTurns: k,
+      temperature: 0.3,
+    }),
+    tools: { run_tests: true },
+  }
+  const factory = createExecutor({
+    backend: 'router-tools',
+    routerBaseUrl: cfg.routerBaseUrl,
+    routerKey: cfg.routerKey,
+    tools: [runTestsTool],
+    executeToolCall: async (name, args) => {
       if (name !== 'run_tests') return `error: unknown tool ${name}`
       const code = extractCode(String(args.code ?? ''))
       lastTested = code
@@ -67,22 +87,37 @@ async function repairAttempt(cfg: RouterConfig, task: HumanEvalTask, k: number):
         ? 'ALL TESTS PASSED. Reply with the final function now; do not call run_tests again.'
         : `TESTS FAILED:\n${res.detail ?? 'no output'}\n\nFix the function and call run_tests again.`
     },
-    { maxTurns: k, temperature: 0.3 },
+  })
+  const r = await collectAgentTurn(
+    streamAgentTurn({ kind: 'executor', factory, profile }, basePrompt(task)),
   )
+  if (r.status !== 'completed') {
+    throw new Error(r.error?.message ?? `repair turn ended with status ${r.status}`)
+  }
   // Judge the model's final answer; fall back to the last code it tested (it may
   // report "done" without re-pasting the passing function).
-  const finalCode = extractCode(r.final) || lastTested
+  const finalCode = extractCode(r.finalText) || lastTested
   if (!finalCode) return 0
   return (await runChecker(task, finalCode)).pass
 }
 
 /** blind@K: K independent completions, verifier-grounded pick (the resample control). */
-async function blindAttempts(cfg: RouterConfig, task: HumanEvalTask, k: number): Promise<number[]> {
+async function blindAttempts(cfg: BenchRouterTarget, task: HumanEvalTask, k: number): Promise<number[]> {
   const base = basePrompt(task)
   const passes: number[] = []
   for (let i = 0; i < k; i += 1) {
-    const res = await routerChatWithUsage(cfg, [{ role: 'user', content: base }], { temperature: 0.8 })
-    passes.push((await runChecker(task, extractCode(res.content))).pass)
+    const res = await runBenchRouterTurn(
+      {
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: withBenchProfile(cfg.profile, {
+          name: 'humaneval-blind-worker',
+          temperature: 0.8,
+        }),
+      },
+      base,
+    )
+    passes.push((await runChecker(task, extractCode(res.finalText))).pass)
   }
   return passes
 }
@@ -95,7 +130,11 @@ async function main(): Promise<void> {
   const k = Number(process.env.K ?? 3)
   const offset = Number(process.env.OFFSET ?? 82)
   const model = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
-  const cfg: RouterConfig = { routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1', routerKey: must('TANGLE_API_KEY'), model }
+  const cfg: BenchRouterTarget = {
+    routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+    routerKey: must('TANGLE_API_KEY'),
+    profile: benchRouterProfile('humaneval-worker', model),
+  }
   const concurrency = Number(process.env.CONCURRENCY ?? 6)
   if (k < 2) throw new Error('K must be >= 2 (repair needs at least write + one fix)')
 

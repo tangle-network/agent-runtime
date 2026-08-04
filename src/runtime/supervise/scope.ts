@@ -26,6 +26,7 @@
  */
 
 import {
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
   sha256DigestSchema,
@@ -51,6 +52,7 @@ import {
   runtimeOwnedDeferredExecutorRuntime,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './materialization'
@@ -751,11 +753,13 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             at: new Date(now()).toISOString(),
           })
         })
+      let pendingEvidence: { complete: () => Promise<void>; fail: () => Promise<void> } | undefined
       const materializationCommitted = spawnCommitted.then(async () => {
         const profileDigest = identity?.profileDigest ?? authoredProfileDigest(spec.profile)
         let receipt: ProfileMaterializationReceipt
         let binding: ExecutionBindingReceipt
         const declaration = runtimeOwnedExecutorMaterialization(executor)
+        const pending = runtimeOwnedPendingExecutorMaterialization(executor)
         const deferredRuntime = runtimeOwnedDeferredExecutorRuntime(executor)
         if (deferredRuntime !== undefined) {
           deferredOwner.ownerMaterialization = {
@@ -769,6 +773,88 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               live.runtime = materialization.runtime
               live.materialization = materialization
               live.executionBindings.push(executionBinding)
+            },
+          }
+          return
+        }
+        if (pending !== undefined) {
+          if (profileDigest === undefined) {
+            throw new ValidationError(
+              'scope.spawn: a pending materialization requires a canonical authored profile',
+            )
+          }
+          if (pending.runtime !== executor.runtime || pending.binding.attemptId !== attemptId) {
+            throw new ValidationError(
+              'scope.spawn: pending executor did not bind the kernel-minted attempt id',
+            )
+          }
+          // Validate the planned shape before spend, but do not persist it as proof that the
+          // external bridge actually used it. Only the terminal acknowledgement can finalize it.
+          const plannedReceipt = knownMaterializationReceipt({
+            authoredProfileDigest: profileDigest,
+            runtime: executor.runtime,
+            declaration: pending.declaration,
+          })
+          if (
+            plannedReceipt.status !== 'known' ||
+            plannedReceipt.effectiveProfileDigest !== plannedReceipt.authoredProfileDigest
+          ) {
+            throw new ValidationError(
+              'scope.spawn: pending executor changed the authored AgentProfile before execution',
+            )
+          }
+          let recorded = false
+          pendingEvidence = {
+            complete: async () => {
+              if (recorded) return
+              const acknowledged = runtimeOwnedExecutorMaterialization(executor)
+              const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
+              if (acknowledged === undefined || acknowledgedBinding?.attemptId !== attemptId) {
+                throw new ValidationError(
+                  'scope.spawn: external executor completed without a terminal materialization acknowledgement',
+                )
+              }
+              const finalReceipt = knownMaterializationReceipt({
+                authoredProfileDigest: profileDigest,
+                runtime: executor.runtime,
+                declaration: acknowledged,
+              })
+              if (finalReceipt.status !== 'known') {
+                throw new ValidationError('scope.spawn: terminal materialization remained unknown')
+              }
+              if (finalReceipt.effectiveProfileDigest !== finalReceipt.authoredProfileDigest) {
+                throw new ValidationError(
+                  'scope.spawn: external executor changed the authored AgentProfile',
+                )
+              }
+              const finalBinding = knownExecutionBindingReceipt(finalReceipt, acknowledgedBinding)
+              await appendNodeMaterialization(args, id, ordinal, finalReceipt, finalBinding, now)
+              live.materialization = finalReceipt
+              live.executionBindings.push(finalBinding)
+              recorded = true
+            },
+            fail: async () => {
+              if (recorded) return
+              // The remote turn can be acknowledged before a later local persistence/check step
+              // fails. Preserve that known execution truth even though the child settles down.
+              if (runtimeOwnedExecutorMaterialization(executor) !== undefined) {
+                await pendingEvidence?.complete()
+                return
+              }
+              const unknown = unknownMaterializationReceipt({
+                authoredProfileDigest: profileDigest,
+                runtime: executor.runtime,
+                reason: 'executor-receipt-pending',
+              })
+              const unknownBinding = unknownExecutionBindingReceipt(
+                unknown,
+                attemptId,
+                'executor-receipt-pending',
+              )
+              await appendNodeMaterialization(args, id, ordinal, unknown, unknownBinding, now)
+              live.materialization = unknown
+              live.executionBindings.push(unknownBinding)
+              recorded = true
             },
           }
           return
@@ -857,6 +943,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         args.blobs,
         now,
         materializationCommitted,
+        {
+          complete: async () => pendingEvidence?.complete(),
+          fail: async () => pendingEvidence?.fail(),
+        },
         childDeadlineAtMs,
       )
         .then((s) => {
@@ -1324,7 +1414,7 @@ export async function recordScopeOwnerMaterialization(
         'scope owner execution binding does not use the kernel-minted attempt id',
       )
     }
-    if (canonicalCandidateDigest(declaration.effectiveProfile) !== state.authoredProfileDigest) {
+    if (canonicalAgentProfileDigest(declaration.effectiveProfile) !== state.authoredProfileDigest) {
       throw new ValidationError(
         'scope owner stable effective profile conflicts with its admitted authored profile',
       )
@@ -1743,6 +1833,10 @@ async function runChild<C>(
   blobs: ResultBlobStore,
   now: () => number,
   executionReady: Promise<void>,
+  executionEvidence: {
+    complete: () => Promise<void>
+    fail: () => Promise<void>
+  },
   deadlineAtMs: number | undefined,
 ): Promise<PreSeqSettled> {
   let reconciled = false
@@ -1800,6 +1894,7 @@ async function runChild<C>(
         childAbort.signal,
       )
       live.spent = spend
+      await executionEvidence.complete()
       artifact = executor.resultArtifact() as ExecutorResult<C>
       const accounting = executor.accounting?.()
       const terminalSpend = preserveUnknownTelemetry(spend, artifact.spent)
@@ -1810,6 +1905,7 @@ async function runChild<C>(
       if (reconcileError !== undefined) throw reconcileError
     } else {
       const terminal = await awaitAbortable(Promise.resolve(ran), childAbort.signal)
+      await executionEvidence.complete()
       const accounting = executor.accounting?.()
       live.spent = accounting?.reported ?? terminal.spent
       artifact = terminal
@@ -1854,6 +1950,12 @@ async function runChild<C>(
     // A thrown executor has also finished its own work — only the down-record persistence
     // remains, so the non-blocking drain may await this child too.
     live.executorDone = true
+    let evidenceError: unknown
+    try {
+      await executionEvidence.fail()
+    } catch (error) {
+      evidenceError = error
+    }
     // A recursive executor can still report the nested work committed before it threw.
     // Reconcile that whole partial subtree while journaling its child-work component separately.
     // A box-backed trace must be collected before teardown destroys the session that owns it.
@@ -1884,7 +1986,11 @@ async function runChild<C>(
       // settlement as infrastructure-related, while the unknown spend flags retain the accounting
       // failure itself in the durable record.
       errMessage(err),
-      teardownError !== undefined || reconcileError !== undefined || aborted || isInfraError(err),
+      evidenceError !== undefined ||
+        teardownError !== undefined ||
+        reconcileError !== undefined ||
+        aborted ||
+        isInfraError(err),
       trace,
       executor.metered?.(),
     )
@@ -2011,7 +2117,7 @@ export function deriveNodeExecutionIdentity(
       return undefined
     }
   }
-  const profileDigest = digest(spec.profile)
+  const profileDigest = authoredProfileDigest(spec.profile)
   const taskDigest = digest(task)
   const candidateDigest = spec.execution?.candidateDigest
   if (candidateDigest !== undefined && !sha256DigestSchema.safeParse(candidateDigest).success) {
@@ -2074,6 +2180,7 @@ async function foldStream(
   signal?: AbortSignal,
 ): Promise<Spend> {
   const tokens = { input: 0, output: 0 }
+  let tokensKnown = true
   let usd = 0
   let usdKnown = true
   let iterations = 0
@@ -2088,6 +2195,7 @@ async function foldStream(
       if (ev.kind === 'tokens') {
         tokens.input += ev.input
         tokens.output += ev.output
+        if (ev.tokensKnown === false) tokensKnown = false
       } else if (ev.kind === 'cost') {
         usd += ev.usd
         if (ev.usdKnown === false) usdKnown = false
@@ -2097,6 +2205,7 @@ async function foldStream(
       onProgress?.({
         iterations,
         tokens: { ...tokens },
+        ...(tokensKnown ? {} : { tokensKnown: false }),
         usd,
         ...(usdKnown ? {} : { usdKnown: false }),
         ms: 0,
@@ -2111,6 +2220,7 @@ async function foldStream(
   return {
     iterations,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: 0,

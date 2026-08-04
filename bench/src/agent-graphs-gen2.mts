@@ -47,6 +47,7 @@ import {
 import {
   type AuthoredArtifact,
   type CaseSpec,
+  buildAgentGraphsAuthorProfile,
   callAuthor,
   dispatchWithSurface,
   judgeArtifact,
@@ -215,6 +216,16 @@ function validateSkillGate(text: string): string[] {
 }
 
 function makeProposer(v1Surface: string, trainCases: GraphScenario[]): SurfaceProposer {
+  const proposerProfile = buildAgentGraphsAuthorProfile(v1Surface, {
+    ...process.env,
+    AGENT_GRAPHS_AUTHOR_PROFILE_NAME: 'agent-graphs-skill-reviser',
+    AGENT_GRAPHS_AUTHOR_SYSTEM_PROMPT:
+      'Revise an agent skill from measured development-case failures. Return only the requested artifact.',
+  })
+  const attemptLimit = Number(process.env.AGENT_GRAPHS_GEN2_PROPOSER_ATTEMPTS ?? 2)
+  if (!Number.isSafeInteger(attemptLimit) || attemptLimit <= 0) {
+    throw new Error('AGENT_GRAPHS_GEN2_PROPOSER_ATTEMPTS must be a positive integer')
+  }
   return {
     kind: 'agent-graphs-skill-reviser',
     async propose(_ctx: ProposeContext): Promise<ProposedCandidate[]> {
@@ -245,8 +256,8 @@ function makeProposer(v1Surface: string, trainCases: GraphScenario[]): SurfacePr
       }
       let prompt = revisionPrompt
       let lastProblems: string[] = []
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const reply = await callAuthor(prompt, 0.7, 12_000)
+      for (let attempt = 0; attempt < attemptLimit; attempt += 1) {
+        const reply = await callAuthor(proposerProfile, prompt)
         const skill = extractSkill(reply)
         lastProblems = validateSkillGate(skill)
         if (lastProblems.length === 0) {

@@ -29,8 +29,11 @@
  *   dotenvx run -f …/.env.keys -f …/agent-state.env -- \
  *     env MODEL=gpt-4.1 ROUNDS=3 pnpm exec tsx src/cloud-loop.mts
  */
-import { createChatClient } from '@tangle-network/agent-eval'
-import { observe, openSandboxRun } from '@tangle-network/agent-runtime/kernel'
+import {
+  defaultAnalystInstruction,
+  observe,
+  openSandboxRun,
+} from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { answerOutput, sandboxAgentRun } from './sandbox-run'
 
@@ -68,11 +71,16 @@ function tools(events: ReadonlyArray<unknown>): string[] {
 
 async function main(): Promise<void> {
   const routerKey = env('TANGLE_API_KEY')
-  const model = env('MODEL', 'gpt-4.1')
+  const model = env('MODEL', 'deepseek-v4-flash')
   const routerBaseUrl = env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1')
   const rounds = Number(env('ROUNDS', '3'))
   const client = new Sandbox({ baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'), apiKey: routerKey })
-  const chat = createChatClient({ transport: 'router', apiKey: routerKey, baseUrl: routerBaseUrl, defaultModel: model })
+  const observerProfile = {
+    name: 'trace-observer',
+    harness: 'cli-base' as const,
+    model: { provider: 'tangle-router', default: model },
+    prompt: { systemPrompt: defaultAnalystInstruction },
+  }
 
   console.error(`\n=== LIVE observe→steer loop · ${model} · real cloud worker + real observer ===\n`)
   const steers: string[] = []
@@ -116,7 +124,10 @@ async function main(): Promise<void> {
     // THE JOIN: a REAL observer reads the REAL trace → a finding → next round's steer.
     const ob = await observe(
       { task, output, trace: events, outcome: 'failed', runId: `r${round}` },
-      { chat, model },
+      {
+        profile: observerProfile,
+        executor: { backend: 'router', routerBaseUrl, routerKey },
+      },
     )
     const next = ob.findings.flatMap((f) => (f.recommended_action ? [f.recommended_action] : [])).slice(0, 3)
     if (next.length === 0) {

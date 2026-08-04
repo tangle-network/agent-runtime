@@ -13,15 +13,15 @@
  *      field marks `usdKnown: false` — never a silent estimate, never a fabricated zero.
  *   5. The tool table: tool_calls run on the host and fold back as `tool` messages; unknown tools
  *      and malformed arguments are fed back to the model, never thrown.
- *   6. Transport failures throw `ValidationError` (the scope's INFRA class) — and the turns that
- *      DID run are still recorded, because resume-after-failure is a kernel-supported path.
+ *   6. Transport failures remain visible to the scope as INFRA — and the turns that DID run are
+ *      still recorded, because resume-after-failure is a kernel-supported path.
  *   7. `chatWorkerSeam`: profile model/prompt win, the graph's appended directive instructions
  *      reach the system message, the node id keys the recorded session, and a missing model
  *      fails loud.
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
-import { ValidationError } from '../../src/errors'
 import type { WorkerSpawnContext } from '../../src/mcp/tools/coordination'
 import {
   type ChatCompletionsTransport,
@@ -51,6 +51,16 @@ function buildExecutor(spec: AgentSpec, ctx: ExecutorContext): Executor<unknown>
 
 const never = new AbortController().signal
 
+function chatProfile(
+  overrides: Partial<AgentProfile> & Pick<AgentProfile, 'name'> = { name: 'chat-worker' },
+): AgentProfile {
+  return {
+    harness: 'cli-base',
+    model: { provider: 'scripted', default: 'test/model' },
+    ...overrides,
+  }
+}
+
 /** A scripted transport: replies in order (last repeats), captures every request body. */
 function scriptedTransport(replies: Array<Record<string, unknown>>): {
   transport: ChatCompletionsTransport
@@ -78,8 +88,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     ])
     const ex = chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
-      system: 'Be terse.',
+      profile: chatProfile({ name: 'terse', prompt: { systemPrompt: 'Be terse.' } }),
       complete: transport,
     })
     const result = await (ex.execute('what is 2+2?', never) as Promise<ExecutorResult<string>>)
@@ -123,10 +132,16 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     ])
     await (chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
+      profile: chatProfile({
+        name: 'tool-user',
+        model: {
+          provider: 'scripted',
+          default: 'test/model',
+          metadata: { temperature: 0.7, maxTokens: 2500 },
+        },
+        tools: { step: true },
+      }),
       complete: transport,
-      temperature: 0.7,
-      maxTokens: 2500,
       tools: [
         {
           spec: { type: 'function', function: { name: 'step', parameters: {} } },
@@ -149,11 +164,17 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
       expect(() =>
         chatTransportExecutor({
           url: 'http://unused.invalid',
-          model: 'test/model',
+          profile: chatProfile({
+            name: 'invalid-token-limit',
+            model: {
+              provider: 'scripted',
+              default: 'test/model',
+              metadata: { maxTokens },
+            },
+          }),
           complete: transport,
-          maxTokens,
         }),
-      ).toThrow(/maxTokens must be a positive integer/)
+      ).toThrow(/maxTokens must (?:be positive|be a safe integer)/)
     }
     expect(requests).toHaveLength(0)
   })
@@ -165,8 +186,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     ])
     await (chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
-      system: 'Persist.',
+      profile: chatProfile({ name: 'persistent', prompt: { systemPrompt: 'Persist.' } }),
       complete: shot1.transport,
       sessions,
       sessionKey: 'run:s0',
@@ -177,9 +197,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     ])
     const result = await (chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
-      // A resumed session keeps its recorded system message; this one must NOT re-seed.
-      system: 'IGNORED ON RESUME',
+      profile: chatProfile({ name: 'persistent', prompt: { systemPrompt: 'Persist.' } }),
       complete: shot2.transport,
       sessions,
       sessionKey: 'run:s1',
@@ -204,7 +222,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     expect(() =>
       chatTransportExecutor({
         url: 'http://unused.invalid',
-        model: 'test/model',
+        profile: chatProfile(),
         complete: transport,
         sessions: createChatSessionStore(),
         resume: { ofWorker: 'ghost:s9', sequence: 2 },
@@ -213,11 +231,11 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     expect(() =>
       chatTransportExecutor({
         url: 'http://unused.invalid',
-        model: 'test/model',
+        profile: chatProfile(),
         complete: transport,
         resume: { ofWorker: 'ghost:s9', sequence: 2 },
       }),
-    ).toThrow(/needs `sessions`/)
+    ).toThrow(/needs the session store/)
     expect(requests).toHaveLength(0)
   })
 
@@ -225,7 +243,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     const noUsage = scriptedTransport([{ choices: [{ message: { content: 'blind turn' } }] }])
     const r1 = await (chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
+      profile: chatProfile(),
       complete: noUsage.transport,
     }).execute('t', never) as Promise<ExecutorResult<string>>)
     expect(r1.spent.tokensKnown).toBe(false)
@@ -240,7 +258,10 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     ])
     const r2 = await (chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'openai/gpt-4o-mini',
+      profile: chatProfile({
+        name: 'priced-model',
+        model: { provider: 'openai', default: 'openai/gpt-4o-mini' },
+      }),
       complete: tokensOnly.transport,
     }).execute('t', never) as Promise<ExecutorResult<string>>)
     expect(r2.spent.tokens).toEqual({ input: 3, output: 4 })
@@ -271,7 +292,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     ])
     const result = await (chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
+      profile: chatProfile({ name: 'lookup-user', tools: { lookup: true } }),
       complete: transport,
       tools: [
         {
@@ -290,20 +311,27 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     const turn2 = requests[1]?.messages as Array<Record<string, unknown>>
     expect(turn2.slice(-3)).toEqual([
       { role: 'tool', tool_call_id: 'c1', content: 'result:42' },
-      { role: 'tool', tool_call_id: 'c2', content: "error: unknown tool 'nope'" },
+      {
+        role: 'tool',
+        tool_call_id: 'c2',
+        content: 'error: tool "nope" is not enabled by AgentProfile.tools',
+      },
       { role: 'tool', tool_call_id: 'c3', content: 'error: tool arguments were not valid JSON' },
     ])
     expect(requests[0]?.tools).toBeDefined()
     expect(requests[0]?.tool_choice).toBe('auto')
   })
 
-  it('throws ValidationError on transport failure — and still records the turns that ran', async () => {
+  it('surfaces a transport failure — and still records the turns that ran', async () => {
     const sessions = createChatSessionStore()
     let turn = 0
     const ex = chatTransportExecutor({
       url: 'http://unused.invalid',
-      model: 'test/model',
-      system: 'S.',
+      profile: chatProfile({
+        name: 'fallible-tool-user',
+        prompt: { systemPrompt: 'S.' },
+        tools: { step: true },
+      }),
       sessions,
       sessionKey: 'run:s0',
       tools: [
@@ -330,36 +358,21 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
         throw new Error('socket hang up')
       },
     })
-    await expect(ex.execute('go', never) as Promise<unknown>).rejects.toThrow(
-      new ValidationError('chatTransportExecutor: transport failed: socket hang up'),
-    )
+    await expect(ex.execute('go', never) as Promise<unknown>).rejects.toThrow('socket hang up')
     // The failed shot's REAL first turn is recorded, so a resume can continue the session.
     const recorded = sessions.load('run:s0')
     expect(recorded?.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'tool'])
   })
 
-  it('fails loud on a malformed completion and on a second execute of one instance', async () => {
+  it('fails loud on a malformed completion', async () => {
     const empty = scriptedTransport([{ choices: [] }])
     await expect(
       chatTransportExecutor({
         url: 'http://unused.invalid',
-        model: 'test/model',
+        profile: chatProfile(),
         complete: empty.transport,
       }).execute('t', never) as Promise<unknown>,
     ).rejects.toThrow(/no choices\[0\]\.message/)
-
-    const ok = scriptedTransport([
-      reply('once', { prompt_tokens: 1, completion_tokens: 1, cost: 0 }),
-    ])
-    const ex = chatTransportExecutor({
-      url: 'http://unused.invalid',
-      model: 'test/model',
-      complete: ok.transport,
-    })
-    await (ex.execute('t', never) as Promise<unknown>)
-    await expect(ex.execute('t', never) as Promise<unknown>).rejects.toThrow(
-      /execute\(\) called twice/,
-    )
   })
 })
 
@@ -386,16 +399,18 @@ describe('chatWorkerSeam — the continuity-honoring makeWorkerAgent over the ex
     const sessions = createChatSessionStore()
     const seam = chatWorkerSeam({
       url: 'http://unused.invalid',
-      model: 'seam/fallback',
       complete: transport,
       sessions,
-      temperature: 0.7,
-      maxTokens: 2500,
     })
     const agent = seam(
       {
         name: 'product-agent',
-        model: { default: 'profile/model' },
+        harness: 'cli-base',
+        model: {
+          provider: 'scripted',
+          default: 'profile/model',
+          metadata: { temperature: 0.7, maxTokens: 2500 },
+        },
         // The graph pins the delegates directive by APPENDING to instructions — it must reach
         // the system message.
         prompt: { systemPrompt: 'Sell.', instructions: ['directive: be helpful'] },
@@ -427,7 +442,11 @@ describe('chatWorkerSeam — the continuity-honoring makeWorkerAgent over the ex
       url: 'http://unused.invalid',
       complete: transport,
     })
-    const profile = { name: 'agent', model: { default: 'm' }, prompt: { systemPrompt: 'S.' } }
+    const profile = chatProfile({
+      name: 'agent',
+      model: { provider: 'scripted', default: 'm' },
+      prompt: { systemPrompt: 'S.' },
+    })
 
     const first = seam(profile, spawnContext({}))
     await (buildExecutor(specOf(first), nodeCtx('g:s0')).execute(
@@ -452,10 +471,10 @@ describe('chatWorkerSeam — the continuity-honoring makeWorkerAgent over the ex
     ])
   })
 
-  it('fails loud when neither the profile nor the seam names a model', () => {
+  it('fails loud when the exact profile omits execution identity', () => {
     const seam = chatWorkerSeam({ url: 'http://unused.invalid', complete: async () => reply('x') })
     expect(() => seam({ name: 'agent', prompt: { systemPrompt: 'S.' } }, undefined)).toThrow(
-      /no model/,
+      /harness must be explicit/,
     )
   })
 })

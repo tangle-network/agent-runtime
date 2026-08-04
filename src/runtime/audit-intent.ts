@@ -24,7 +24,9 @@
  * objective drift across tasks).
  */
 
-import type { ChatClient } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { profileChatClient } from './profile-chat-client'
+import type { ExecutorConfig } from './supervise/runtime'
 
 export interface AuditIntentInput {
   /** The declared intent: the task text / acceptance criteria the agent was given. */
@@ -40,10 +42,10 @@ export interface AuditIntentInput {
 }
 
 export interface AuditIntentOptions {
-  chat: ChatClient
-  model?: string
-  /** Override the auditor instruction (optimizable like any analyst prompt). */
-  auditorInstruction?: string
+  /** Exact auditor identity. */
+  profile: AgentProfile
+  /** Execution substrate. All behavior comes from the profile. */
+  executor: ExecutorConfig
   /** Cap trace lines fed to the auditor. Default 80. */
   maxTraceLines?: number
   signal?: AbortSignal
@@ -111,12 +113,14 @@ export async function auditIntent(
   input: AuditIntentInput,
   opts: AuditIntentOptions,
 ): Promise<IntentAudit> {
-  const res = await opts.chat.chat(
+  const res = await profileChatClient({
+    profile: opts.profile,
+    executor: opts.executor,
+    context: 'intent auditor',
+  }).chat(
     {
-      ...(opts.model ? { model: opts.model } : {}),
       jsonSchema: auditSchema as unknown as { name: string; schema: Record<string, unknown> },
       messages: [
-        { role: 'system', content: opts.auditorInstruction ?? defaultAuditorInstruction },
         {
           role: 'user',
           content:

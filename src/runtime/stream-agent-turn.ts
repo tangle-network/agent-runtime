@@ -1,8 +1,8 @@
 /**
  * `streamAgentTurn` — the ONE run-a-turn event-stream contract over every
  * execution substrate: a sandbox box (`SandboxInstance.streamPrompt`), a
- * one-shot `Executor` (cli-bridge / router / BYO, via `ExecutorFactory`), and
- * an in-process `AgentExecutionBackend` (the `resolveAgentBackend` output).
+ * one-shot Runtime-owned `Executor` (cli-bridge / router / sandbox, via
+ * `ExecutorFactory`), and an in-process `AgentExecutionBackend`.
  *
  * One function, one vocabulary: every backend kind yields the existing
  * `RuntimeStreamEvent` union incrementally and ALWAYS terminates with a
@@ -14,13 +14,14 @@
  * This is a UNIFICATION seam, not a new stream parser — each kind is a thin
  * adapter over code that already exists and is already hardened:
  *   - `box`      — `mapSandboxEvent` + `extractLlmCallEvent` (sandbox-events.ts)
- *                  project the sandbox event stream; nothing is re-mapped here.
- *   - `executor` — `inlineSandboxClient` (the ONE executor→box adapter) turns
- *                  the factory into a box, then the box path drives it. The
- *                  executor's settle/teardown lifecycle stays in that adapter.
+ *                  project the sandbox event stream; its requested profile is
+ *                  explicitly recorded as unverified because the box already exists.
+ *   - `executor` — Runtime materializes the exact `AgentProfile`, records its
+ *                  identity receipts, drives the executor once, and tears it
+ *                  down after capturing the terminal artifact.
  *   - `chat`     — the backend's own `stream()` surface, normalized by
- *                  `normalizeBackendStreamEvent` (the same projection
- *                  `runAgentTaskStream` applies).
+ *                  `normalizeBackendStreamEvent`; its requested profile is likewise
+ *                  unverified because an arbitrary backend cannot attest its setup.
  *
  * Distinct from `openSandboxRun` (box-only, session resume over one persistent
  * artifact, raw `SandboxEvent` deliverables) and from `runAgentTaskStream`
@@ -47,11 +48,17 @@
  */
 
 import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { normalizeBackendStreamEvent } from '../backends'
-import { BackendTransportError } from '../errors'
+import { BackendTransportError, ValidationError } from '../errors'
 import { newRuntimeSession, nowIso } from '../sessions'
 import type {
+  AgentBackendInput,
   AgentExecutionBackend,
   AgentTaskSpec,
   AgentTaskStatus,
@@ -59,9 +66,31 @@ import type {
   RuntimeSession,
   RuntimeStreamEvent,
 } from '../types'
-import { inlineSandboxClient } from './inline-sandbox-client'
 import { createSandboxToolPartState, mapSandboxEvent, mapSandboxToolEvent } from './sandbox-events'
-import type { ExecutorFactory } from './supervise/types'
+import {
+  authoredProfileDigest,
+  knownExecutionBindingReceipt,
+  knownMaterializationReceipt,
+  runtimeOwnedExecutorExecutionBinding,
+  runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
+  unknownExecutionBindingReceipt,
+  unknownMaterializationReceipt,
+} from './supervise/materialization'
+import {
+  concreteModelId,
+  profileBridgeWireModel,
+  profileProviderModel,
+} from './supervise/model-policy'
+import type {
+  ExecutionBindingReceipt,
+  Executor,
+  ExecutorFactory,
+  ExecutorResult,
+  NodeExecutionIdentity,
+  ProfileMaterializationReceipt,
+  UsageEvent,
+} from './supervise/types'
 
 /**
  * The execution substrate one turn runs on — a closed discriminated union over
@@ -69,7 +98,19 @@ import type { ExecutorFactory } from './supervise/types'
  *
  * @experimental
  */
-export type AgentTurnBackend =
+export type AgentTurnBackend = {
+  /** A Runtime-owned executor factory materialized from this exact canonical profile. */
+  kind: 'executor'
+  factory: ExecutorFactory<unknown>
+  /** Exact canonical identity materialized by the executor. */
+  profile: AgentProfile
+  /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
+  agentRunName?: string
+}
+
+/** Lower-level observation adapters. They normalize an already-created execution surface but do
+ * not bind an AgentProfile to it, so they are deliberately absent from the public kernel export. */
+type ObservedAgentTurnBackend =
   | {
       /** A live sandbox box: the turn is one `box.streamPrompt(prompt)` call. */
       kind: 'box'
@@ -87,24 +128,17 @@ export type AgentTurnBackend =
     }
   | {
       /**
-       * A one-shot `Executor` (cli-bridge / router / BYO): the factory is
-       * instantiated fresh for the turn via `inlineSandboxClient`, run once on
-       * the prompt, and torn down — the same per-spawn lifecycle the supervise
-       * runtime gives it.
-       */
-      kind: 'executor'
-      factory: ExecutorFactory<unknown>
-      /** Model label stamped on cost-only `llm_call` events. Default `'agent'`. */
-      agentRunName?: string
-    }
-  | {
-      /**
        * An in-process `AgentExecutionBackend` (`resolveAgentBackend` output or
        * any custom backend): the turn is one `backend.stream()` call.
        */
       kind: 'chat'
       backend: AgentExecutionBackend
     }
+
+/** One prompt or an exact OpenAI-compatible conversation carried as the turn input. */
+export type AgentTurnInput =
+  | string
+  | { readonly messages: ReadonlyArray<Readonly<Record<string, unknown>>> }
 
 /** @experimental */
 export interface StreamAgentTurnOptions {
@@ -116,6 +150,10 @@ export interface StreamAgentTurnOptions {
    * (a blown deadline is a turn failure, not a caller cancellation).
    */
   timeoutMs?: number
+  /** Stable logical paid-call id, forwarded as the provider idempotency key and retained in evidence. */
+  callId?: string
+  /** Caller trace tag retained in evidence and forwarded when the transport supports it. */
+  correlationId?: string
   /**
    * Opt-in tool-part projection for box and executor backends: sandbox tool
    * parts additionally surface in-stream as
@@ -137,18 +175,205 @@ export interface StreamAgentTurnOptions {
   onRawEvent?: (event: SandboxEvent) => void | Promise<void>
 }
 
+function turnIntent(input: AgentTurnInput): string {
+  if (typeof input === 'string') return input
+  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
+    const message = input.messages[index]
+    if (message?.role === 'user' && typeof message.content === 'string') return message.content
+  }
+  return 'structured agent turn'
+}
+
+function turnBackendInput(task: AgentTaskSpec, input: AgentTurnInput): AgentBackendInput {
+  if (typeof input === 'string') return { task, message: input }
+  return {
+    task,
+    messages: input.messages.map((message) => ({ ...message })) as AgentBackendInput['messages'],
+  }
+}
+
+function executorEvidence(
+  executor: Executor<unknown>,
+  profile: AgentProfile,
+  attemptId: string,
+): {
+  materialization: ProfileMaterializationReceipt
+  executionBinding: ExecutionBindingReceipt
+} {
+  const profileDigest = authoredProfileDigest(profile)
+  const declaration = runtimeOwnedExecutorMaterialization(executor)
+  if (!profileDigest || !declaration) {
+    const materialization = unknownMaterializationReceipt({
+      ...(profileDigest ? { authoredProfileDigest: profileDigest } : {}),
+      runtime: executor.runtime,
+      reason: declaration ? 'invalid-executor-report' : 'executor-did-not-report',
+    })
+    return {
+      materialization,
+      executionBinding: unknownExecutionBindingReceipt(
+        materialization,
+        attemptId,
+        declaration ? 'invalid-executor-report' : 'executor-did-not-report',
+      ),
+    }
+  }
+  try {
+    const materialization = knownMaterializationReceipt({
+      authoredProfileDigest: profileDigest,
+      runtime: executor.runtime,
+      declaration,
+    })
+    const binding = runtimeOwnedExecutorExecutionBinding(executor)
+    if (!binding || binding.attemptId !== attemptId) throw new Error('executor attempt id mismatch')
+    return {
+      materialization,
+      executionBinding: knownExecutionBindingReceipt(materialization, binding),
+    }
+  } catch {
+    const materialization = unknownMaterializationReceipt({
+      authoredProfileDigest: profileDigest,
+      runtime: executor.runtime,
+      reason: 'invalid-executor-report',
+    })
+    return {
+      materialization,
+      executionBinding: unknownExecutionBindingReceipt(
+        materialization,
+        attemptId,
+        'invalid-executor-report',
+      ),
+    }
+  }
+}
+
+/** Exact turns require the model-bearing profile to be the sole behavioral authority. Runtime
+ * checks the trusted declaration before execution so a seam fallback cannot hide behind the same
+ * profile digest. */
+function assertExactExecutorDeclaration(executor: Executor<unknown>, profile: AgentProfile): void {
+  const profileModel = profileProviderModel(profile)
+  if (!profileModel) {
+    throw new ValidationError(
+      'streamAgentTurn: exact AgentProfile.model.default must name the concrete model',
+    )
+  }
+  const declaration =
+    runtimeOwnedExecutorMaterialization(executor) ??
+    runtimeOwnedPendingExecutorMaterialization(executor)?.declaration
+  if (!declaration) return
+  if (declaration.model.status !== 'known') {
+    throw new ValidationError(
+      'streamAgentTurn: exact executor did not materialize a known model identity',
+    )
+  }
+  if (declaration.backend === 'router' || declaration.backend === 'router-tools') {
+    const plan = declaration.plan as {
+      configuredModel?: unknown
+      configuredReasoningEffort?: unknown
+      reasoningEffort?: unknown
+    }
+    if (declaration.model.id !== profileModel) {
+      throw new ValidationError(
+        'streamAgentTurn: Router executor model differs from AgentProfile.model.default',
+      )
+    }
+    if (
+      plan.configuredModel !== null &&
+      plan.configuredModel !== undefined &&
+      concreteModelId(String(plan.configuredModel)) !== profileModel
+    ) {
+      throw new ValidationError(
+        'streamAgentTurn: configured Router model conflicts with AgentProfile.model.default',
+      )
+    }
+    const expectedEffort = profile.model?.reasoningEffort ?? null
+    if (
+      plan.configuredReasoningEffort !== null &&
+      plan.configuredReasoningEffort !== undefined &&
+      plan.configuredReasoningEffort !== expectedEffort
+    ) {
+      throw new ValidationError(
+        'streamAgentTurn: configured Router reasoning conflicts with AgentProfile.model.reasoningEffort',
+      )
+    }
+    if ((plan.reasoningEffort ?? null) !== expectedEffort) {
+      throw new ValidationError(
+        'streamAgentTurn: Router reasoning effort must come from AgentProfile.model.reasoningEffort',
+      )
+    }
+  }
+  if (declaration.backend === 'bridge' || declaration.backend === 'bridge-worktree') {
+    const expectedWireModel = profileBridgeWireModel(profile)
+    if (!expectedWireModel || declaration.model.id !== expectedWireModel) {
+      throw new ValidationError(
+        'streamAgentTurn: bridge executor model differs from the AgentProfile harness/provider/model wire id',
+      )
+    }
+    const plan = declaration.plan as { configuredModel?: unknown }
+    if (
+      plan.configuredModel !== null &&
+      plan.configuredModel !== undefined &&
+      concreteModelId(String(plan.configuredModel)) !== expectedWireModel
+    ) {
+      throw new ValidationError(
+        'streamAgentTurn: configured bridge model conflicts with the AgentProfile harness/provider/model wire id',
+      )
+    }
+  }
+}
+
+function turnProvenance(
+  startedAt: number,
+  timeoutMs: number | undefined,
+  profileDigest: string | undefined,
+  taskDigest: string,
+  materialization: ProfileMaterializationReceipt | undefined,
+  executionBinding: ExecutionBindingReceipt | undefined,
+  correlation: Readonly<Record<string, string>>,
+): Record<string, unknown> {
+  const endedAt = Date.now()
+  return {
+    ...(profileDigest
+      ? {
+          identity: {
+            profileDigest,
+            taskDigest,
+            ...(Object.keys(correlation).length > 0 ? { correlation } : {}),
+          },
+        }
+      : { taskDigest }),
+    ...(materialization ? { materialization } : {}),
+    ...(executionBinding ? { executionBindings: [executionBinding] } : {}),
+    budget: { timeoutMs: timeoutMs ?? null },
+    timing: {
+      startedAt: new Date(startedAt).toISOString(),
+      endedAt: new Date(endedAt).toISOString(),
+      durationMs: endedAt - startedAt,
+    },
+  }
+}
+
 /**
  * Metered usage of one turn, summed over every cost-bearing event the backend
- * emitted. `input`/`output` are token counts (0 when the backend reported
- * none — the honest sum, never a fabricated estimate). `costUsd`/`model` are
- * present only when the backend actually reported them.
+ * emitted. `input`/`output` are token counts and are accompanied by
+ * `tokensKnown: false` when the backend did not report them. `costUsd`/`model`
+ * are present only when the backend actually reported them.
  *
  * @experimental
  */
 export interface AgentTurnUsage {
   input: number
   output: number
+  /** Present when a real turn ran but the provider did not report token usage. */
+  tokensKnown?: false
   costUsd?: number
+  /** Present when Runtime could not prove the full dollar amount. */
+  usdKnown?: false
+  /** Separately-labelled local/catalog estimate; never billed spend. */
+  estimatedCostUsd?: number
+  /** Provider-reported prompt-cache fields; absent fields remain unknown. */
+  promptCache?: Readonly<Record<string, number | string>>
+  /** Provider-reported reasoning-token subset of output, when available. */
+  reasoningTokens?: number
   model?: string
 }
 
@@ -161,7 +386,12 @@ export interface AgentTurnUsage {
  */
 export interface CollectedAgentTurn {
   finalText: string
+  /** Exact terminal artifact output from a Runtime-owned executor. */
+  output?: unknown
   usage: AgentTurnUsage
+  /** Exact underlying transport calls when the Runtime-owned executor reports them. */
+  transportAttempts?: number
+  toolCalls: Array<{ id?: string; name: string; arguments: string }>
   events: RuntimeStreamEvent[]
   status: AgentTaskStatus
   error?: BackendErrorDetail
@@ -178,7 +408,17 @@ interface TurnAccumulator {
   input: number
   output: number
   costUsd: number
+  estimatedCostUsd: number
+  sawEstimatedCost: boolean
+  promptCache: Record<string, number | string>
+  reasoningTokens?: number
+  tokensKnown: boolean
+  usdKnown: boolean
+  sawLlmCall: boolean
   model?: string
+  stopReason?: string
+  transportAttempts?: number
+  result?: ExecutorResult<unknown>
 }
 
 /**
@@ -193,44 +433,226 @@ interface TurnAccumulator {
  */
 export async function* streamAgentTurn(
   backend: AgentTurnBackend,
-  prompt: string,
+  input: AgentTurnInput,
   opts: StreamAgentTurnOptions = {},
 ): AsyncGenerator<RuntimeStreamEvent> {
+  assertTurnTimeout(opts.timeoutMs)
+  if ((backend as { kind?: unknown }).kind !== 'executor') {
+    throw new ValidationError(
+      "streamAgentTurn: exact execution accepts only kind 'executor'; use Runtime-owned creation",
+    )
+  }
+  yield* streamAgentTurnInternal(backend, input, opts)
+}
+
+/** @internal Normalize a pre-created box/chat stream without asserting an AgentProfile identity. */
+export async function* streamObservedAgentTurn(
+  backend: ObservedAgentTurnBackend,
+  input: AgentTurnInput,
+  opts: StreamAgentTurnOptions = {},
+): AsyncGenerator<RuntimeStreamEvent> {
+  assertTurnTimeout(opts.timeoutMs)
+  yield* streamAgentTurnInternal(backend, input, opts)
+}
+
+function assertTurnTimeout(timeoutMs: number | undefined): void {
+  if (timeoutMs === undefined) return
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+    throw new ValidationError('streamAgentTurn: timeoutMs must be an integer from 1 to 2147483647')
+  }
+}
+
+function assertTurnIdentity(value: string | undefined, field: string): void {
+  if (value !== undefined && (typeof value !== 'string' || value.trim().length === 0)) {
+    throw new ValidationError(`streamAgentTurn: ${field} must be a non-empty string`)
+  }
+}
+
+async function* streamAgentTurnInternal(
+  backend: AgentTurnBackend | ObservedAgentTurnBackend,
+  input: AgentTurnInput,
+  opts: StreamAgentTurnOptions,
+): AsyncGenerator<RuntimeStreamEvent> {
   const label = backend.kind === 'chat' ? backend.backend.kind : backend.kind
-  const task: AgentTaskSpec = { id: `turn-${crypto.randomUUID()}`, intent: prompt }
-  const acc: TurnAccumulator = { deltaText: '', input: 0, output: 0, costUsd: 0 }
+  const profile =
+    backend.kind === 'executor' ? agentProfileSchema.parse(backend.profile) : undefined
+  const profileDigest = profile ? authoredProfileDigest(profile) : undefined
+  assertTurnIdentity(opts.callId, 'callId')
+  assertTurnIdentity(opts.correlationId, 'correlationId')
+  const correlation = {
+    ...(opts.callId ? { callId: opts.callId } : {}),
+    ...(opts.correlationId ? { correlationId: opts.correlationId } : {}),
+  }
+  const taskInput = input
+  const taskDigest = canonicalCandidateDigest(taskInput)
+  const task: AgentTaskSpec = {
+    id: `turn-${crypto.randomUUID()}`,
+    intent: turnIntent(input),
+    ...(profileDigest
+      ? {
+          metadata: {
+            identity: {
+              profileDigest,
+              taskDigest,
+              ...(Object.keys(correlation).length > 0 ? { correlation } : {}),
+            } satisfies NodeExecutionIdentity,
+          },
+        }
+      : {}),
+  }
+  const acc: TurnAccumulator = {
+    deltaText: '',
+    input: 0,
+    output: 0,
+    costUsd: 0,
+    estimatedCostUsd: 0,
+    sawEstimatedCost: false,
+    promptCache: {},
+    tokensKnown: false,
+    usdKnown: false,
+    sawLlmCall: false,
+  }
   const deadline = deriveTurnSignal(opts.signal, opts.timeoutMs ?? 0)
+  const startedAt = Date.now()
 
   let session: RuntimeSession | undefined
+  let executor: Executor<unknown> | undefined
+  let materialization: ProfileMaterializationReceipt | undefined
+  let executionBinding: ExecutionBindingReceipt | undefined
   try {
-    session = await startTurnSession(backend, task, prompt, deadline.signal, label)
-    yield { type: 'backend_start', task, session, backend: label, timestamp: nowIso() }
+    const nodeId = task.id
+    const attemptId = `${nodeId}:attempt:${crypto.randomUUID()}`
+    if (backend.kind === 'executor') {
+      executor = backend.factory(
+        { profile: profile!, harness: null },
+        {
+          signal: deadline.signal,
+          seams: {},
+          node: {
+            rootId: nodeId,
+            parentId: nodeId,
+            nodeId,
+            attemptId,
+            identity: {
+              profileDigest: profileDigest!,
+              taskDigest,
+              ...(Object.keys(correlation).length > 0 ? { correlation } : {}),
+            },
+          },
+        },
+      )
+      assertExactExecutorDeclaration(executor, profile!)
+      const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+      if (pending !== undefined) {
+        if (pending.runtime !== executor.runtime || pending.binding.attemptId !== attemptId) {
+          throw new ValidationError(
+            'streamAgentTurn: pending executor did not bind the kernel-minted attempt',
+          )
+        }
+        if (authoredProfileDigest(pending.declaration.effectiveProfile) !== profileDigest) {
+          throw new ValidationError(
+            'streamAgentTurn: pending executor changed the authored AgentProfile before execution',
+          )
+        }
+        materialization = unknownMaterializationReceipt({
+          authoredProfileDigest: profileDigest!,
+          runtime: executor.runtime,
+          reason: 'executor-receipt-pending',
+        })
+        executionBinding = unknownExecutionBindingReceipt(
+          materialization,
+          attemptId,
+          'executor-receipt-pending',
+        )
+      } else {
+        ;({ materialization, executionBinding } = executorEvidence(executor, profile!, attemptId))
+        assertExactExecutorEvidence(materialization, executionBinding)
+      }
+    } else {
+      materialization = unknownMaterializationReceipt({
+        runtime: backend.kind === 'box' ? 'sandbox' : label,
+        reason: 'executor-did-not-report',
+      })
+      executionBinding = unknownExecutionBindingReceipt(
+        materialization,
+        attemptId,
+        'executor-did-not-report',
+      )
+    }
+    session = await startTurnSession(backend, task, input, deadline.signal, label)
+    yield {
+      type: 'backend_start',
+      task,
+      session,
+      backend: executor?.runtime ?? label,
+      metadata: {
+        ...(profileDigest
+          ? {
+              identity: {
+                profileDigest,
+                taskDigest,
+                ...(Object.keys(correlation).length > 0 ? { correlation } : {}),
+              },
+            }
+          : { taskDigest }),
+        ...(materialization ? { materialization } : {}),
+        ...(executionBinding ? { executionBindings: [executionBinding] } : {}),
+        budget: { timeoutMs: opts.timeoutMs ?? null },
+        timing: { startedAt: new Date(startedAt).toISOString() },
+      },
+      timestamp: nowIso(),
+    }
 
     const inner =
       backend.kind === 'chat'
-        ? driveChatTurn(backend.backend, task, session, prompt, deadline.signal, acc)
-        : driveBoxTurn(
-            backend.kind === 'executor'
-              ? await inlineSandboxClient(backend.factory).create()
-              : backend.box,
-            prompt,
-            deadline.signal,
-            backend.agentRunName ?? 'agent',
-            acc,
-            {
-              ...(backend.kind !== 'executor' && backend.options
-                ? { options: backend.options }
-                : {}),
-              preserveToolParts: opts.preserveToolParts === true,
-              ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
-            },
-          )
+        ? driveChatTurn(backend.backend, task, session, input, deadline.signal, acc)
+        : backend.kind === 'executor'
+          ? driveExecutorTurn(
+              executor!,
+              task,
+              session,
+              input,
+              deadline.signal,
+              acc,
+              materializedModel(materialization, profile!),
+            )
+          : driveBoxTurn(
+              backend.box,
+              turnIntent(input),
+              deadline.signal,
+              backend.agentRunName ?? 'agent',
+              acc,
+              {
+                ...(backend.options ? { options: backend.options } : {}),
+                preserveToolParts: opts.preserveToolParts === true,
+                ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
+              },
+            )
     for await (const event of inner) {
       yield event
       throwIfAborted(deadline.signal)
     }
 
-    yield buildFinalEvent(task, session, acc, { status: 'completed', reason: 'turn completed' })
+    if (backend.kind === 'executor') {
+      ;({ materialization, executionBinding } = executorEvidence(executor!, profile!, attemptId))
+      assertExactExecutorEvidence(materialization, executionBinding)
+    }
+
+    yield buildFinalEvent(
+      task,
+      session,
+      acc,
+      { status: 'completed', reason: 'turn completed' },
+      turnProvenance(
+        startedAt,
+        opts.timeoutMs,
+        profileDigest,
+        taskDigest,
+        materialization,
+        executionBinding,
+        correlation,
+      ),
+    )
   } catch (err) {
     const callerAborted = opts.signal?.aborted === true
     const status: AgentTaskStatus = callerAborted ? 'aborted' : 'failed'
@@ -249,9 +671,40 @@ export async function* streamAgentTurn(
       error,
       timestamp: nowIso(),
     }
-    yield buildFinalEvent(task, session, acc, { status, reason: message, error })
+    yield buildFinalEvent(
+      task,
+      session,
+      acc,
+      { status, reason: message, error },
+      turnProvenance(
+        startedAt,
+        opts.timeoutMs,
+        profileDigest,
+        taskDigest,
+        materialization,
+        executionBinding,
+        correlation,
+      ),
+    )
   } finally {
+    await executor?.teardown('brutalKill').catch(() => undefined)
     deadline.dispose()
+  }
+}
+
+function assertExactExecutorEvidence(
+  materialization: ProfileMaterializationReceipt,
+  executionBinding: ExecutionBindingReceipt,
+): void {
+  if (materialization.status !== 'known' || executionBinding.status !== 'known') {
+    throw new ValidationError(
+      'streamAgentTurn: exact profile execution requires terminally validated Runtime materialization and execution binding evidence',
+    )
+  }
+  if (materialization.effectiveProfileDigest !== materialization.authoredProfileDigest) {
+    throw new ValidationError(
+      'streamAgentTurn: executor changed the authored AgentProfile; exact turn execution refuses profile overlays',
+    )
   }
 }
 
@@ -275,6 +728,10 @@ export async function collectAgentTurn(
     )
   }
   const metadata = final.metadata ?? {}
+  const resultMetadata =
+    metadata.result && typeof metadata.result === 'object'
+      ? (metadata.result as Record<string, unknown>)
+      : undefined
   const tokenUsage =
     metadata.tokenUsage && typeof metadata.tokenUsage === 'object'
       ? (metadata.tokenUsage as Record<string, unknown>)
@@ -282,15 +739,35 @@ export async function collectAgentTurn(
   const usage: AgentTurnUsage = {
     input: finiteNumber(tokenUsage.input) ?? 0,
     output: finiteNumber(tokenUsage.output) ?? 0,
+    ...(metadata.tokensKnown === false ? { tokensKnown: false as const } : {}),
   }
   const costUsd = finiteNumber(metadata.costUsd)
   if (costUsd !== undefined) usage.costUsd = costUsd
+  if (metadata.usdKnown === false) usage.usdKnown = false
+  const estimatedCostUsd = finiteNumber(metadata.estimatedCostUsd)
+  if (estimatedCostUsd !== undefined) usage.estimatedCostUsd = estimatedCostUsd
+  if (metadata.promptCache && typeof metadata.promptCache === 'object') {
+    usage.promptCache = metadata.promptCache as Record<string, number | string>
+  }
+  const reasoningTokens = finiteNumber(metadata.reasoningTokens)
+  if (reasoningTokens !== undefined) usage.reasoningTokens = reasoningTokens
   if (typeof metadata.model === 'string' && metadata.model.length > 0) {
     usage.model = metadata.model
   }
+  const transportAttempts = finiteNumber(metadata.transportAttempts)
+  const toolCalls = events
+    .filter((event) => event.type === 'tool_call')
+    .map((event) => ({
+      ...(event.toolCallId ? { id: event.toolCallId } : {}),
+      name: event.toolName,
+      arguments: typeof event.args === 'string' ? event.args : JSON.stringify(event.args ?? {}),
+    }))
   return {
     finalText: final.text ?? '',
+    ...(resultMetadata && 'output' in resultMetadata ? { output: resultMetadata.output } : {}),
     usage,
+    ...(transportAttempts !== undefined ? { transportAttempts } : {}),
+    toolCalls,
     events,
     status: final.status,
     ...(final.error ? { error: final.error } : {}),
@@ -301,17 +778,18 @@ export async function collectAgentTurn(
  *  correlation session otherwise. Box/executor turns carry no server session
  *  here — resume lives in `openSandboxRun`/`SandboxLineage`, not this primitive. */
 async function startTurnSession(
-  backend: AgentTurnBackend,
+  backend: AgentTurnBackend | ObservedAgentTurnBackend,
   task: AgentTaskSpec,
-  prompt: string,
+  input: AgentTurnInput,
   signal: AbortSignal,
   label: string,
 ): Promise<RuntimeSession> {
   if (backend.kind === 'chat' && backend.backend.start) {
-    return backend.backend.start(
-      { task, message: prompt },
-      { task, knowledge: emptyReadiness(task), signal },
-    )
+    return backend.backend.start(turnBackendInput(task, input), {
+      task,
+      knowledge: emptyReadiness(task),
+      signal,
+    })
   }
   return newRuntimeSession(label)
 }
@@ -370,17 +848,178 @@ async function* driveChatTurn(
   backend: AgentExecutionBackend,
   task: AgentTaskSpec,
   session: RuntimeSession,
-  prompt: string,
+  input: AgentTurnInput,
   signal: AbortSignal,
   acc: TurnAccumulator,
 ): AsyncGenerator<RuntimeStreamEvent> {
-  const input = { task, message: prompt }
+  const backendInput = turnBackendInput(task, input)
   const context = { task, knowledge: emptyReadiness(task), session, signal }
-  for await (const raw of backend.stream(input, context)) {
+  for await (const raw of backend.stream(backendInput, context)) {
     const event = normalizeBackendStreamEvent(raw, task, session)
     foldEvent(event, acc)
     yield event
   }
+}
+
+async function* driveExecutorTurn(
+  executor: Executor<unknown>,
+  task: AgentTaskSpec,
+  session: RuntimeSession,
+  input: AgentTurnInput,
+  signal: AbortSignal,
+  acc: TurnAccumulator,
+  declaredModel: string | undefined,
+): AsyncGenerator<RuntimeStreamEvent> {
+  const taskValue = typeof input === 'string' ? input : { messages: input.messages }
+  const run = executor.execute(taskValue, signal)
+  let result: ExecutorResult<unknown>
+  if (isAsyncIterable(run)) {
+    for await (const _usage of run) {
+      throwIfAborted(signal)
+    }
+    result = executor.resultArtifact()
+  } else {
+    result = await run
+  }
+  acc.result = result
+  acc.terminalText = executorResultText(result.out)
+  acc.input = result.spent.tokens.input
+  acc.output = result.spent.tokens.output
+  acc.costUsd = result.spent.usd
+  const estimatedCostUsd = executorResultEstimatedCost(result.out)
+  if (estimatedCostUsd !== undefined) {
+    acc.estimatedCostUsd = estimatedCostUsd
+    acc.sawEstimatedCost = true
+  }
+  Object.assign(acc.promptCache, executorResultPromptCache(result.out))
+  acc.reasoningTokens = executorResultReasoningTokens(result.out)
+  acc.tokensKnown = result.spent.tokensKnown !== false
+  acc.usdKnown = result.spent.usdKnown !== false
+  acc.sawLlmCall = true
+
+  // Usage model identity is observational: the executor must report what answered. The profile's
+  // declared model remains available in materialization evidence, but it is not fabricated into
+  // `usage.model` when the provider/transport omitted an actual response model.
+  const model = executorResultModel(result.out)
+  if (model) acc.model = model
+  acc.stopReason = executorResultStopReason(result.out)
+  acc.transportAttempts = executorResultTransportAttempts(result.out)
+  const latencyMs = result.spent.ms
+  yield {
+    type: 'llm_call',
+    task,
+    session,
+    model: model ?? declaredModel ?? executor.runtime,
+    ...(acc.tokensKnown ? { tokensIn: acc.input, tokensOut: acc.output } : {}),
+    ...(acc.usdKnown ? { costUsd: acc.costUsd } : {}),
+    ...(acc.tokensKnown ? {} : { tokensKnown: false }),
+    ...(acc.usdKnown ? {} : { usdKnown: false }),
+    ...(acc.sawEstimatedCost ? { estimatedCostUsd: acc.estimatedCostUsd } : {}),
+    ...(Object.keys(acc.promptCache).length > 0 ? { promptCache: acc.promptCache } : {}),
+    latencyMs,
+    timestamp: nowIso(),
+  }
+  for (const call of executorResultToolCalls(result.out)) {
+    yield {
+      type: 'tool_call',
+      task,
+      session,
+      toolName: call.name,
+      ...(call.id ? { toolCallId: call.id } : {}),
+      args: call.arguments,
+      timestamp: nowIso(),
+    }
+  }
+  yield {
+    type: 'artifact',
+    task,
+    session,
+    artifactId: result.outRef,
+    name: 'agent-turn-result',
+    metadata: {
+      spend: result.spent,
+      ...(result.verdict ? { verdict: result.verdict } : {}),
+    },
+    timestamp: nowIso(),
+  }
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
+  return typeof value === 'object' && value !== null && Symbol.asyncIterator in value
+}
+
+function executorResultText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (!value || typeof value !== 'object') return ''
+  const content = (value as Record<string, unknown>).content
+  return typeof content === 'string' ? content : ''
+}
+
+function executorResultModel(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const model = (value as Record<string, unknown>).model
+  return typeof model === 'string' && model.length > 0 ? model : undefined
+}
+
+function executorResultStopReason(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const reason = (value as Record<string, unknown>).finishReason
+  return typeof reason === 'string' && reason.length > 0 ? reason : undefined
+}
+
+function executorResultTransportAttempts(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const attempts = (value as Record<string, unknown>).transportAttempts
+  return typeof attempts === 'number' && Number.isSafeInteger(attempts) && attempts > 0
+    ? attempts
+    : undefined
+}
+
+function executorResultEstimatedCost(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  return finiteNumber((value as Record<string, unknown>).estimatedCostUsd)
+}
+
+function executorResultPromptCache(value: unknown): Record<string, number | string> {
+  if (!value || typeof value !== 'object') return {}
+  const raw = (value as Record<string, unknown>).promptCache
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const cache: Record<string, number | string> = {}
+  for (const [key, entry] of Object.entries(raw)) {
+    if ((typeof entry === 'number' && Number.isFinite(entry)) || typeof entry === 'string') {
+      cache[key] = entry
+    }
+  }
+  return cache
+}
+
+function executorResultReasoningTokens(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const count = (value as Record<string, unknown>).reasoningTokens
+  return Number.isSafeInteger(count) && (count as number) >= 0 ? (count as number) : undefined
+}
+
+function executorResultToolCalls(
+  value: unknown,
+): Array<{ id?: string; name: string; arguments: string }> {
+  if (!value || typeof value !== 'object') return []
+  const raw = (value as Record<string, unknown>).toolCalls
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') return []
+    const call = entry as Record<string, unknown>
+    if (typeof call.name !== 'string') return []
+    return [
+      {
+        ...(typeof call.id === 'string' ? { id: call.id } : {}),
+        name: call.name,
+        arguments:
+          typeof call.arguments === 'string'
+            ? call.arguments
+            : JSON.stringify(call.arguments ?? {}),
+      },
+    ]
+  })
 }
 
 /** Fold one normalized event into the turn accumulator (text + usage).
@@ -396,9 +1035,25 @@ function foldEvent(
     return
   }
   if (event.type === 'llm_call') {
+    const tokensReported =
+      event.tokensKnown !== false && event.tokensIn !== undefined && event.tokensOut !== undefined
+    const usdReported = event.usdKnown !== false && event.costUsd !== undefined
+    if (!acc.sawLlmCall) {
+      acc.tokensKnown = tokensReported
+      acc.usdKnown = usdReported
+      acc.sawLlmCall = true
+    } else {
+      acc.tokensKnown &&= tokensReported
+      acc.usdKnown &&= usdReported
+    }
     acc.input += event.tokensIn ?? 0
     acc.output += event.tokensOut ?? 0
     acc.costUsd += event.costUsd ?? 0
+    if (event.estimatedCostUsd !== undefined) {
+      acc.estimatedCostUsd += event.estimatedCostUsd
+      acc.sawEstimatedCost = true
+    }
+    if (event.promptCache) Object.assign(acc.promptCache, event.promptCache)
     if (event.model && event.model !== fallbackModelLabel) acc.model = event.model
   }
 }
@@ -424,6 +1079,7 @@ function buildFinalEvent(
   session: RuntimeSession | undefined,
   acc: TurnAccumulator,
   outcome: { status: AgentTaskStatus; reason: string; error?: BackendErrorDetail },
+  provenance: Record<string, unknown>,
 ): RuntimeStreamEvent {
   const finalText = acc.terminalText ?? acc.deltaText
   return {
@@ -431,16 +1087,42 @@ function buildFinalEvent(
     task,
     ...(session ? { session } : {}),
     status: outcome.status,
-    reason: outcome.reason,
+    reason: outcome.status === 'completed' ? (acc.stopReason ?? outcome.reason) : outcome.reason,
     ...(finalText ? { text: finalText } : {}),
     metadata: {
       tokenUsage: { input: acc.input, output: acc.output },
-      ...(acc.costUsd > 0 ? { costUsd: acc.costUsd } : {}),
+      ...(acc.tokensKnown ? {} : { tokensKnown: false }),
+      ...(acc.usdKnown ? { costUsd: acc.costUsd } : { usdKnown: false }),
+      ...(acc.sawEstimatedCost ? { estimatedCostUsd: acc.estimatedCostUsd } : {}),
+      ...(Object.keys(acc.promptCache).length > 0 ? { promptCache: acc.promptCache } : {}),
+      ...(acc.reasoningTokens !== undefined ? { reasoningTokens: acc.reasoningTokens } : {}),
       ...(acc.model ? { model: acc.model } : {}),
+      ...(acc.stopReason ? { stopReason: acc.stopReason } : {}),
+      ...(acc.transportAttempts !== undefined ? { transportAttempts: acc.transportAttempts } : {}),
+      ...(acc.result
+        ? {
+            result: {
+              outRef: acc.result.outRef,
+              output: acc.result.out,
+              ...(acc.result.verdict ? { verdict: acc.result.verdict } : {}),
+              spent: acc.result.spent,
+            },
+          }
+        : {}),
+      ...provenance,
     },
     ...(outcome.error ? { error: outcome.error } : {}),
     timestamp: nowIso(),
   }
+}
+
+function materializedModel(
+  receipt: ProfileMaterializationReceipt | undefined,
+  profile: AgentProfile,
+): string | undefined {
+  if (receipt?.status === 'known' && receipt.model.status === 'known') return receipt.model.id
+  const fallback = profile.model?.default
+  return typeof fallback === 'string' && fallback.length > 0 ? fallback : undefined
 }
 
 /** Minimal ready-by-construction readiness report for a requirement-free turn. */

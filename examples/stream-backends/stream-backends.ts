@@ -1,10 +1,10 @@
 /**
- * The three stream transports behind `runAgentTaskStream`, plus the SSE
+ * Three Runtime event sources, plus the SSE
  * serialization helpers a browser route uses — one file, one comparison.
  *
  *   1. createIterableBackend       — you own the event loop (offline)
  *   2. createSandboxPromptBackend  — the sandbox-SDK `SandboxEvent` vocabulary (offline)
- *   3. createOpenAICompatibleBackend — any OpenAI-compatible endpoint (needs OPENAI_API_KEY)
+ *   3. streamAgentTurn             — an exact AgentProfile through Runtime (needs TANGLE_API_KEY)
  *
  * Every section ends in the same place: typed `RuntimeStreamEvent`s
  * serialized with `runtimeStreamServerSentEvent` for an SSE response.
@@ -14,15 +14,16 @@
  */
 
 import { type KnowledgeRequirement, scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   createIterableBackend,
-  createOpenAICompatibleBackend,
   createSandboxPromptBackend,
   InMemoryRuntimeSessionStore,
   readinessServerSentEvent,
   runAgentTaskStream,
   runtimeStreamServerSentEvent,
 } from '@tangle-network/agent-runtime'
+import { createExecutor, streamAgentTurn } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 // ── 1. Iterable backend — you yield RuntimeStreamEvent values directly ───────
@@ -110,7 +111,9 @@ async function main() {
   console.log(
     'RuntimeStreamEvent -> SSE serialization. Sections: readiness SSE, iterable (offline),',
   )
-  console.log('sandbox (offline), openai-compatible (skipped unless OPENAI_API_KEY is set).\n')
+  console.log(
+    'sandbox (offline), exact Runtime model turn (skipped unless TANGLE_API_KEY is set).\n',
+  )
 
   // Readiness SSE — the one-off event a route writes when a task is gated on
   // missing knowledge (see examples/knowledge-gating for the gate itself).
@@ -140,24 +143,37 @@ async function main() {
   await drainToSse('iterable backend', iterableBackend, 'hello')
   await drainToSse('sandbox backend', sandboxBackend, 'hello')
 
-  // ── 3. OpenAI-compatible backend — a real endpoint, so key-gated ──────────
-  // Defaults to OpenAI itself, so the OPENAI_* names mean what they say. Point
-  // OPENAI_BASE_URL at any OpenAI-compatible endpoint — e.g. the Tangle router
-  // (https://router.tangle.tools/v1) with a TANGLE_API_KEY as OPENAI_API_KEY.
-  const apiKey = process.env.OPENAI_API_KEY
+  // ── 3. Exact profile through Runtime — a real endpoint, so key-gated ──────
+  const apiKey = process.env.TANGLE_API_KEY
   if (!apiKey) {
-    console.log('\n--- openai-compatible backend ---')
-    console.log(
-      'skipped: set OPENAI_API_KEY (and optionally OPENAI_BASE_URL / OPENAI_MODEL) to run',
-    )
+    console.log('\n--- exact Runtime model turn ---')
+    console.log('skipped: set TANGLE_API_KEY to run')
     return
   }
-  const openAiBackend = createOpenAICompatibleBackend({
-    baseUrl: process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1',
-    apiKey,
-    model: process.env.OPENAI_MODEL ?? 'gpt-4o-mini',
-  })
-  await drainToSse('openai-compatible backend', openAiBackend, 'Say hello in five words.')
+  const profile: AgentProfile = {
+    name: 'five-word-greeter',
+    harness: 'cli-base',
+    model: {
+      provider: process.env.MODEL_PROVIDER ?? 'deepseek',
+      default: process.env.MODEL ?? 'deepseek/deepseek-v4-flash',
+    },
+    prompt: { systemPrompt: 'Answer in exactly five words.' },
+  }
+  console.log('\n--- exact Runtime model turn ---')
+  for await (const event of streamAgentTurn(
+    {
+      kind: 'executor',
+      profile,
+      factory: createExecutor({
+        backend: 'router',
+        routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
+        routerKey: apiKey,
+      }),
+    },
+    'Say hello.',
+  )) {
+    process.stdout.write(runtimeStreamServerSentEvent(event))
+  }
 }
 
 main().catch((err) => {

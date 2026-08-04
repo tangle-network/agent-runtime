@@ -95,10 +95,12 @@ export interface SteerableSandboxArgs {
 /** One steerable sandbox worker. The returned session is inert until `stream()` is drained. */
 export function createSteerableSandboxSession(args: SteerableSandboxArgs): SteerableSandboxSession {
   const now = args.now ?? Date.now
-  const maxTurns = Math.max(
-    1,
-    Math.floor(args.options?.maxTurns ?? DEFAULT_SANDBOX_STEERING_MAX_TURNS),
-  )
+  const maxTurns = args.options?.maxTurns ?? DEFAULT_SANDBOX_STEERING_MAX_TURNS
+  if (!Number.isSafeInteger(maxTurns) || maxTurns < 0) {
+    throw new ValidationError(
+      'steerable sandbox worker: maxTurns must be a nonnegative safe integer (0 means unbounded)',
+    )
+  }
   const activity: ActivityLog = createActivityLog(args.options?.activityWindow ?? 12)
   const trace = createPushTraceSource({ runId: `sandbox-${args.harness}-${now()}`, now })
 
@@ -157,12 +159,13 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
     const started = now()
     const tokens = zeroTokenUsage()
+    let tokensKnown = true
     let usd = 0
     let handle: SandboxLineageHandle | undefined
     let nextPrompt: string | undefined = args.taskToPrompt(task)
 
     try {
-      for (let turn = 0; turn < maxTurns; turn += 1) {
+      for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
         // Drain the down-leg FIRST. On turn 0 a steer that landed during box acquisition is
         // appended to the task; on later turns the steer IS the whole prompt, because the
         // worker's prior context lives server-side in the session.
@@ -202,6 +205,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         }
 
         let events: AsyncIterable<SandboxEvent>
+        let sawLlmCall = false
         try {
           if (!handle) {
             const opened = await lineage.start(spec, prompt, turnController.signal, promptOptions)
@@ -214,16 +218,28 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
             recordEvent(event)
             const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
             if (!call) continue
+            sawLlmCall = true
+            const callTokensKnown =
+              call.tokensKnown !== false &&
+              typeof call.tokensIn === 'number' &&
+              typeof call.tokensOut === 'number'
+            if (!callTokensKnown) tokensKnown = false
             const input = call.tokensIn ?? 0
             const output = call.tokensOut ?? 0
-            if (input || output) {
+            if (input || output || !callTokensKnown) {
               tokens.input += input
               tokens.output += output
-              yield { kind: 'tokens', input, output }
+              yield {
+                kind: 'tokens',
+                input,
+                output,
+                ...(callTokensKnown ? {} : { tokensKnown: false }),
+              }
             }
             if (typeof call.costUsd === 'number' && call.costUsd > 0) {
               usd += call.costUsd
-              yield { kind: 'cost', usd: call.costUsd }
+              // Numeric sandbox cost has no billing-provenance/completeness receipt.
+              yield { kind: 'cost', usd: call.costUsd, usdKnown: false }
             }
           }
         } catch (e) {
@@ -237,6 +253,11 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           throw e
         }
         cleanup()
+
+        if (!sawLlmCall) {
+          tokensKnown = false
+          yield { kind: 'tokens', input: 0, output: 0, tokensKnown: false }
+        }
 
         state.turns += 1
         activity.push({ at: now(), kind: 'turn', label: `turn ${turn}` })
@@ -252,7 +273,17 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       state.teardown = undefined
     }
 
-    const spent: Spend = { iterations: state.turns, tokens, usd, ms: now() - started }
+    // Mark the dollar channel unknown even when no event carried a numeric subtotal: a completed
+    // sandbox turn is not proof that the provider billed exactly zero.
+    if (state.turns > 0) yield { kind: 'cost', usd: 0, usdKnown: false }
+    const spent: Spend = {
+      iterations: state.turns,
+      tokens,
+      ...(tokensKnown ? {} : { tokensKnown: false }),
+      usd,
+      ...(state.turns > 0 ? { usdKnown: false } : {}),
+      ms: now() - started,
+    }
     const out = {
       content: state.lastText,
       turns: state.turns,

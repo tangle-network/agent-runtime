@@ -12,9 +12,8 @@
  *    gpt-5.5 / opus-4.8 slot in by editing the analyst spec list, never by a
  *    hardcoded requirement on an unrouted model.
  *  - analysts are blind: same bundle, no cross-talk, independent calls.
- *  - secrets discipline matches capacity.ts: the API key is referenced by NAME
- *    inside a dotenvx child shell; the response body lands in a file (dotenvx
- *    writes its banner to stdout, so stdout is only trusted for the marker).
+ *  - the containing run is launched through dotenvx; every analyst enters Runtime through one
+ *    exact AgentProfile and its event record is retained with the response.
  */
 
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
@@ -22,7 +21,7 @@ import { join } from 'node:path'
 import { type AnalystFinding, makeFinding } from '@tangle-network/agent-eval'
 import { findSupervisorRunDir, type SecretsEnv } from './arms'
 import { ROUTER_ENDPOINT, sleepWithSignal } from './capacity'
-import { run } from './proc'
+import { runBenchRouterTurn } from '../router-turn'
 
 // ---------------------------------------------------------------------------
 // Analyst specs.
@@ -32,6 +31,8 @@ export interface AnalystSpec {
   /** Stable label, e.g. 'glm-5.2#1'. Used in fusion attribution + filenames. */
   id: string
   model: string
+  /** Provider identity stamped into the exact profile. Default: tangle-router. */
+  provider?: string
   /** Chat-completions endpoint. Default: the Tangle router. */
   url?: string
   /** NAME of the env var holding the bearer key (resolved in the dotenvx child). */
@@ -247,8 +248,7 @@ export function parseAnalystFindings(text: string): AnalystRawFinding[] {
   })
 }
 
-/** POST one blind analyst call through the router via dotenvx (key stays in
- *  the child; response body lands in `outFile`, never on shared stdout).
+/** Run one blind analyst through Runtime's exact-profile Router boundary.
  *  ONE retry on transport failure (5xx/524/timeout) — an edge flake was
  *  observed live in the calibration smoke; a parse failure is NOT retried
  *  (same prompt, same model ⇒ same bad shape). */
@@ -265,59 +265,62 @@ export async function runAnalyst(
     return { analystId: spec.id, model: spec.model, ok: false, findings: [], error: `invalid apiKeyEnv name: ${apiKeyEnv}` }
   }
   const url = spec.url ?? ROUTER_ENDPOINT
-  const body = JSON.stringify({
-    model: spec.model,
-    messages: [{ role: 'user', content: analystPrompt(bundle) }],
-    temperature: spec.temperature ?? 0,
-    max_tokens: spec.maxTokens ?? 16_000,
-  })
+  const routerKey = process.env[apiKeyEnv]
+  if (!routerKey) {
+    return {
+      analystId: spec.id,
+      model: spec.model,
+      ok: false,
+      findings: [],
+      error: `${apiKeyEnv} is required; launch through dotenvx`,
+    }
+  }
+  void secrets
   opts.signal?.throwIfAborted()
   await mkdir(scratchDir, { recursive: true })
   const outFile = join(scratchDir, `analyst-${spec.id.replace(/[^a-zA-Z0-9._-]/g, '_')}.response.json`)
   const timeoutMs = opts.timeoutMs ?? 600_000
-  // Body via stdin (--data @-) so the payload never sits on a command line;
-  // the HTTP code is marker-anchored on stdout (dotenvx banners share stdout).
-  const script =
-    `curl -sS -o "$DIAG_OUT" -w "HTTP_CODE=%{http_code}" --max-time ${Math.ceil(timeoutMs / 1000) - 20} ` +
-    `-X POST "$DIAG_URL" -H "Authorization: Bearer $${apiKeyEnv}" -H "Content-Type: application/json" --data @-`
-  const argv = ['run', ...secrets.envFiles.flatMap((f) => ['-f', f]), '--', 'bash', '-c', script]
   const attempts = 1 + (opts.retries ?? 1)
   let transportError = ''
-  let transported = false
-  for (let attempt = 0; attempt < attempts && !transported; attempt++) {
-    opts.signal?.throwIfAborted()
-    if (attempt > 0) await sleepWithSignal(opts.retryDelayMs ?? 5_000, opts.signal)
-    const res = await run('dotenvx', argv, {
-      cwd: secrets.secretsDir,
-      timeoutMs,
-      stdin: body,
-      env: { ...process.env, DIAG_URL: url, DIAG_OUT: outFile },
-      signal: opts.signal,
-    })
-    opts.signal?.throwIfAborted()
-    const codeMatch = res.stdout.match(/HTTP_CODE=(\d{3})\s*$/)
-    if (codeMatch && codeMatch[1] === '200') {
-      transported = true
-    } else {
-      transportError = `router call failed (http=${codeMatch?.[1] ?? 'none'}, rc=${res.code}${res.timedOut ? ', timeout' : ''}, attempt=${attempt + 1}/${attempts})`
-    }
-  }
-  if (!transported) {
-    return { analystId: spec.id, model: spec.model, ok: false, findings: [], error: transportError }
-  }
   let content = ''
   let tokens: AnalystReport['tokens']
-  try {
-    const parsed = JSON.parse(await readFile(outFile, 'utf8')) as {
-      choices?: Array<{ message?: { content?: string } }>
-      usage?: { prompt_tokens?: number; completion_tokens?: number }
+  for (let attempt = 0; attempt < attempts && content.length === 0; attempt++) {
+    opts.signal?.throwIfAborted()
+    if (attempt > 0) await sleepWithSignal(opts.retryDelayMs ?? 5_000, opts.signal)
+    try {
+      const turn = await runBenchRouterTurn(
+        {
+          routerBaseUrl: url.replace(/\/chat\/completions\/?$/u, ''),
+          routerKey,
+          profile: {
+            name: `diagnosis-${spec.id}`,
+            harness: 'cli-base',
+            model: {
+              provider: spec.provider ?? 'tangle-router',
+              default: spec.model,
+              metadata: {
+                temperature: spec.temperature ?? 0,
+                maxTokens: spec.maxTokens ?? 16_000,
+              },
+            },
+            prompt: { systemPrompt: 'Diagnose the supplied run evidence as an independent analyst.' },
+          },
+          timeoutMs,
+          signal: opts.signal,
+        },
+        analystPrompt(bundle),
+      )
+      content = turn.finalText
+      if (turn.usage.tokensKnown !== false) {
+        tokens = { input: turn.usage.input, output: turn.usage.output }
+      }
+      await writeFile(outFile, JSON.stringify(turn, null, 2))
+    } catch (cause) {
+      transportError = `router call failed (${(cause as Error).message}, attempt=${attempt + 1}/${attempts})`
     }
-    content = parsed.choices?.[0]?.message?.content ?? ''
-    if (parsed.usage) {
-      tokens = { input: parsed.usage.prompt_tokens ?? 0, output: parsed.usage.completion_tokens ?? 0 }
-    }
-  } catch (cause) {
-    return { analystId: spec.id, model: spec.model, ok: false, findings: [], error: `unparseable response body: ${(cause as Error).message}` }
+  }
+  if (content.length === 0 && transportError) {
+    return { analystId: spec.id, model: spec.model, ok: false, findings: [], error: transportError }
   }
   if (content.trim().length === 0) {
     return { analystId: spec.id, model: spec.model, ok: false, findings: [], error: 'empty content (max_tokens starvation?)', tokens }

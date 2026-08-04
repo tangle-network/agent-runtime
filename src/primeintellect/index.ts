@@ -4,8 +4,7 @@ export {
   writePrimeIntellectPackage,
 } from './package'
 export {
-  createPrimeIntellectBackend,
-  type PrimeIntellectBackendOptions,
+  primeIntellectExecutorConfig,
   type RunPrimeIntellectProgramOptions,
   readPrimeIntellectEpisodeContext,
   runPrimeIntellectProgram,

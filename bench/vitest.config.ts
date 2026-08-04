@@ -8,6 +8,7 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   test: {
     include: [
+      'src/official-optimizer-config.test.mts',
       'src/swe-arena/**/*.test.mts',
       'src/quant-arena/**/*.test.mts',
       'src/rollout-ledger/**/*.test.mts',

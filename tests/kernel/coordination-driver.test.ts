@@ -512,12 +512,11 @@ describe('driverAgent — maxTurns=0 lifts the turn cap; the conserved pool + de
     expect(result.kind).toBe('no-winner')
   })
 
-  it('runs the driver PAST the default 16-turn cap until it stops on its own', async () => {
+  it('runs past the former 2000-turn sentinel until the driver stops on its own', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const seen: SeenMessages = []
-    // 20 benign turns then a no-tool-call stop: a run the old default (16) would have force-finalized.
-    const turns: ScriptedTurn[] = Array.from({ length: 20 }, () => benignTurn)
+    const turns: ScriptedTurn[] = Array.from({ length: 2001 }, () => benignTurn)
     turns.push({ content: 'nothing left to do' })
     const chat = scriptedBrain(turns, seen)
 
@@ -532,9 +531,8 @@ describe('driverAgent — maxTurns=0 lifts the turn cap; the conserved pool + de
       now: () => 0,
     })
 
-    // 20 benign turns + 1 stop = 21 driver turns — proof maxTurns=0 blew past the old 16 cap
-    // instead of force-finalizing at it.
-    expect(seen.length).toBe(21)
+    // 2,001 benign turns + 1 stop proves Runtime did not remap 0 to the old 2,000 sentinel.
+    expect(seen.length).toBe(2002)
   })
 
   it('breaks the unlimited loop the moment the scope signal aborts (mid-loop)', async () => {

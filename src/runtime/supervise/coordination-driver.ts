@@ -222,13 +222,6 @@ function formatRosterNode(node: NodeSnapshot, settled?: SettledWorker): string {
   return `- ${node.id}: ${node.status}, label=${node.label}, runtime=${node.runtime}${result}`
 }
 
-/** maxTurns=0 anti-runaway tripwire: a finite ceiling for the ONE case the conserved pool can't
- *  bound — a driver whose chat seam reports NO usage (so `scope.meter`/`pool.observe` is never
- *  called and its turns don't drain the pool). With a usage-reporting seam, driver inference now
- *  meters into the pool and `poolStarved` halts it; the pool + deadline + abort are the real bounds
- *  and no healthy run approaches this. */
-const runawayTripwireTurns = 2000
-
 /** Spawn-progress is impossible: the pool can't afford another worker AND nothing is in flight to
  *  await. A long-horizon driver bounded by the conserved pool stops here instead of spinning (the
  *  in-loop budget guard the turn cap alone never provided). Checks BOTH conserved channels: tokens
@@ -338,11 +331,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       'driverAgent: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
     )
   }
-  // maxTurns=0 lifts the turn-COUNT cap: a long-horizon decomposition must not die on an
-  // arbitrary number of turns. It is bounded instead by the conserved budget pool, an absolute
-  // deadline, the driver's own stop, and abort — all checked in-loop below. The tripwire is a
-  // pure anti-runaway guard, NOT the intended limit.
-  const maxTurns = opts.maxTurns === 0 ? runawayTripwireTurns : (opts.maxTurns ?? 16)
+  // maxTurns=0 lifts the turn-count cap exactly. The conserved pool, deadline, abort, and explicit
+  // stop remain the caller-visible bounds; Runtime does not substitute a hidden sentinel.
+  const maxTurns = opts.maxTurns ?? 16
   const now = opts.now ?? Date.now
   const inbox = opts.inbox ?? createInbox()
 
@@ -411,8 +402,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
 
       // Meter the driver's OWN inference on EVERY turn into the conserved pool — the largest single
       // token consumer in the loop, and what makes maxTurns=0 genuinely bounded (a thinking driver
-      // drains the pool → poolStarved). iterations:0 — the conserved iteration channel budgets
-      // CHILD rounds, not driver turns.
+      // drains the pool → poolStarved). Driver turns never consume the child-iteration budget;
+      // failed inference stays visible through unknown token/USD channels and journal detail.
       //
       // There is deliberately no branch that skips `scope.meter`. A turn whose brain reported no
       // usage is metered as an UNKNOWN turn (`tokensKnown: false`), not omitted: omitting it let the
@@ -427,33 +418,31 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         tools: ReadonlyArray<ToolSpec>,
         detail: Record<string, unknown>,
       ) => {
-        // KNOWN LIMITATION (pre-existing, predates the streamed transport): a turn that THROWS is
-        // never metered at all. The throw propagates out of `meteredBrain` before `scope.meter`
-        // below, so a brain call that burned prefill and then failed (a 5xx after generation, an
-        // abort mid-completion) leaves NO record — not even an unknown-marked one — and the pool's
-        // `tokensKnown` stays true while real tokens were spent. Deferred deliberately: metering
-        // the throw path means deciding what a partial turn debits and re-throwing after the meter
-        // in every driver exit, which changes error-handling semantics across this file and belongs
-        // in its own change. Filed separately; do not fix inline.
-        const res = await opts.brain(messages, tools)
-        // Nothing at all came back about what the turn cost: neither tokens nor dollars. Both
-        // channels are marked unknown, mirroring how the pool already represents unknown dollars.
-        //
-        // KNOWN LIMITATION (pre-existing): "a turn that reported tokens but no price is a
-        // known-ZERO dollar turn" is true for a genuinely free model and WRONG for an UNPRICED one.
-        // `meterTurn` in `router-client.ts` returns `costUsd: undefined` both when a model costs
-        // nothing and when it is simply missing from the price table, and the two are
-        // indistinguishable here — so an unpriced model's real dollars are recorded as a measured
-        // $0 with `usdKnown` left true, and a dollar-denominated cap under-counts. Fixing it means
-        // the router result must distinguish "free" from "unpriced", which is an upstream contract
-        // change. Filed separately; do not fix inline.
-        const nothingReported = res.usage === undefined && res.costUsd === undefined
+        let res: Awaited<ReturnType<typeof opts.brain>>
+        try {
+          res = await opts.brain(messages, tools)
+        } catch (error) {
+          await scope.meter(
+            {
+              iterations: 0,
+              tokens: { input: 0, output: 0 },
+              tokensKnown: false,
+              usd: 0,
+              usdKnown: false,
+              ms: 0,
+            },
+            { driver: opts.name, inferenceFailed: true, ...detail },
+          )
+          throw error
+        }
+        const trustedCost =
+          res.costProvenance === 'provider-receipt' || res.costProvenance === 'billing-receipt'
         const turnSpend: Spend = {
           iterations: 0,
           tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
           ...(res.usage === undefined ? { tokensKnown: false } : {}),
-          usd: res.costUsd ?? 0,
-          ...(nothingReported ? { usdKnown: false } : {}),
+          usd: trustedCost ? (res.costUsd ?? 0) : 0,
+          ...(trustedCost && res.costUsd !== undefined ? {} : { usdKnown: false }),
           ms: 0,
         }
         await scope.meter(turnSpend, {
@@ -463,6 +452,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           // `include_usage` contract), which is a different fact from a brain that never reports
           // usage at all. Recorded on the turn so the journal distinguishes them.
           ...(res.usageUnknown === true ? { streamUsageMissing: true } : {}),
+          ...(res.costProvenance === 'catalog-estimate' ? { estimatedCostUsd: res.costUsd } : {}),
           ...detail,
         })
         return res
@@ -488,14 +478,6 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               opts.compaction.distill ??
               (async (msgs) => {
                 const roster = summarizeRoster(scope.view, coord.settled())
-                // KNOWN LIMITATION (pre-existing, predates the streamed transport): this `catch`
-                // degrades a failed distill to a roster-only summary, which is the right product
-                // behavior — compaction must not kill the run — but it also SWALLOWS the turn's
-                // cost. `meteredBrain` throws before reaching `scope.meter`, so a distill that
-                // burned a full O(history) prefill and then failed debits nothing and leaves the
-                // pool's `tokensKnown` true. It is the same unmetered-throw gap as the main loop
-                // (see `meteredBrain` above), reached through a different exit; both are deferred
-                // to one change that decides what a thrown turn debits. Filed separately.
                 try {
                   const res = await meteredBrain(
                     [...msgs, { role: 'user', content: distillInstruction }],

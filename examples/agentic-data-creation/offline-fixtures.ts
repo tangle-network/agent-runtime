@@ -18,9 +18,13 @@
  * by construction here — a live run produces the real ones.
  */
 
-import { createChatClient, llmJudge } from '@tangle-network/agent-eval'
+import { llmJudge } from '@tangle-network/agent-eval'
 import type { JudgeConfig } from '@tangle-network/agent-eval/campaign'
-import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/kernel'
+import {
+  inProcessSandboxClient,
+  profileChatClient,
+  type SandboxClient,
+} from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { DataExample, SolverArtifact } from './agentic-data-creation'
 
@@ -160,58 +164,88 @@ export function solverClient(strength: 'weak' | 'strong'): SandboxClient {
 // the transport returns a scripted score from the answer's grade marker; live, a real model scores
 // the prose. Tuned so EASY → gap ≈ 0.02, HARD → gap ≈ 0.31 (illustrative targets, by construction).
 export function buildRubricJudge(): JudgeConfig<SolverArtifact> {
-  const chat = createChatClient({
-    transport: 'mock',
-    defaultModel: 'offline-judge',
-    handler: async (req) => {
-      const text = req.messages
-        .map((m) => (typeof m.content === 'string' ? m.content : ''))
-        .join('\n')
-      const m = /<<grade:(strong|weak):(hard|easy):s(\d+)>>/.exec(text)
-      if (!m) throw new Error('offline judge: answer carried no grade marker')
-      const [, strength, difficulty, sampleIndex] = m
-      const base =
-        difficulty === 'hard'
-          ? strength === 'strong'
-            ? 0.77
-            : 0.46
-          : strength === 'strong'
-            ? 0.86
-            : 0.84
-      // Per-sample jitter over samples 0,1,2 → −0.02, 0, +0.02, so the N× mean lands back on `base`
-      // (the variance-reduction step is a real average of distinct scores, not a no-op).
-      const jitter = (Number(sampleIndex) - 1) * 0.02
-      const score = Math.min(1, Math.max(0, base + jitter))
-      return {
-        content: JSON.stringify({
-          dimensions: { rubric_coverage: score, correctness: score },
-          notes: `offline: ${strength} solver on ${difficulty} example (sample ${sampleIndex})`,
-        }),
-        usage: { promptTokens: 130, completionTokens: 25, totalTokens: 155 },
-        costUsd: 0.0001,
-        model: 'offline-judge',
-        durationMs: 1,
-        raw: {},
-      }
+  const instruction =
+    'Score the candidate ANSWER against the example RUBRIC. Return JSON ' +
+    '{"dimensions":{"rubric_coverage":N,"correctness":N},"notes":"..."} with each score in [0,1].'
+  const dimensions = [
+    {
+      key: 'rubric_coverage',
+      description: 'fraction of the rubric criteria the answer satisfies',
+    },
+    { key: 'correctness', description: 'agreement with the reference answer' },
+  ]
+  const systemPrompt = [
+    instruction,
+    '',
+    'Score the artifact on EACH of these dimensions:',
+    ...dimensions.map(
+      (dimension) => `  - "${dimension.key}": ${dimension.description} (score 0.0 to 1.0)`,
+    ),
+    '',
+    'Respond with JSON ONLY, no prose. Every dimension is a number in [0.0 to 1.0]:',
+    `{"dimensions": {${dimensions.map((dimension) => `"${dimension.key}": <number>`).join(', ')}}, "notes": "<one-line rationale>"}`,
+  ].join('\n')
+  const chat = profileChatClient({
+    context: 'agentic-data-creation offline judge',
+    profile: {
+      name: 'offline-rubric-judge',
+      harness: 'cli-base',
+      model: {
+        provider: 'scripted',
+        default: 'offline-judge',
+        metadata: { temperature: 0.1, maxTokens: 800 },
+      },
+      prompt: { systemPrompt },
+    },
+    executor: {
+      backend: 'router',
+      routerBaseUrl: 'http://offline.invalid/v1',
+      routerKey: 'injected-transport',
+      complete: async (body) => {
+        const messages = Array.isArray(body.messages)
+          ? (body.messages as Array<Record<string, unknown>>)
+          : []
+        const text = messages
+          .map((message) => (typeof message.content === 'string' ? message.content : ''))
+          .join('\n')
+        const match = /<<grade:(strong|weak):(hard|easy):s(\d+)>>/.exec(text)
+        if (!match) throw new Error('offline judge: answer carried no grade marker')
+        const [, strength, difficulty, sampleIndex] = match
+        const base =
+          difficulty === 'hard'
+            ? strength === 'strong'
+              ? 0.77
+              : 0.46
+            : strength === 'strong'
+              ? 0.86
+              : 0.84
+        // Per-sample jitter over samples 0,1,2 → −0.02, 0, +0.02, so the N× mean lands back on `base`
+        // (the variance-reduction step is a real average of distinct scores, not a no-op).
+        const jitter = (Number(sampleIndex) - 1) * 0.02
+        const score = Math.min(1, Math.max(0, base + jitter))
+        return {
+          model: 'offline-judge',
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  dimensions: { rubric_coverage: score, correctness: score },
+                  notes: `offline: ${strength} solver on ${difficulty} example (sample ${sampleIndex})`,
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 130, completion_tokens: 25, cost: 0.0001 },
+        }
+      },
     },
   })
 
-  return llmJudge<SolverArtifact>(
-    'rubric-judge',
-    'Score the candidate ANSWER against the example RUBRIC. Return JSON ' +
-      '{"dimensions":{"rubric_coverage":N,"correctness":N},"notes":"..."} with each score in [0,1].',
-    {
-      chat,
-      dimensions: [
-        {
-          key: 'rubric_coverage',
-          description: 'fraction of the rubric criteria the answer satisfies',
-        },
-        { key: 'correctness', description: 'agreement with the reference answer' },
-      ],
-      scale: 'unit',
-      renderUser: ({ artifact }) =>
-        `RUBRIC:\n${artifact.example.rubric.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nANSWER:\n${artifact.answer}`,
-    },
-  )
+  return llmJudge<SolverArtifact>('rubric-judge', instruction, {
+    chat,
+    dimensions,
+    scale: 'unit',
+    renderUser: ({ artifact }) =>
+      `RUBRIC:\n${artifact.example.rubric.map((r, i) => `${i + 1}. ${r}`).join('\n')}\n\nANSWER:\n${artifact.answer}`,
+  })
 }

@@ -723,6 +723,7 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       },
     })
     const events: SandboxEvent[] = []
+    let sawLlmCall = false
     for await (const event of stream) {
       events.push(event)
       // Tee each raw event to an optional host observer so a caller can stream
@@ -736,10 +737,27 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       })
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
+        sawLlmCall = true
         slot.costUsd += llmCall.costUsd ?? 0
-        addTokenUsage(slot.tokenUsage, { input: llmCall.tokensIn, output: llmCall.tokensOut })
+        if (llmCall.usdKnown === false) slot.costUsdKnown = false
+        if (llmCall.estimatedCostUsd !== undefined) {
+          slot.estimatedCostUsd = (slot.estimatedCostUsd ?? 0) + llmCall.estimatedCostUsd
+        }
+        if (llmCall.promptCache) {
+          slot.promptCache ??= {}
+          mergeUsageMetadata(slot.promptCache, llmCall.promptCache)
+        }
+        addTokenUsage(slot.tokenUsage, {
+          input: llmCall.tokensIn,
+          output: llmCall.tokensOut,
+          ...(llmCall.tokensKnown === false ? { tokensKnown: false } : {}),
+        })
         args.ctx.runHandle?.observe(llmCall)
       }
+    }
+    if (!sawLlmCall) {
+      slot.tokenUsage.tokensKnown = false
+      slot.costUsdKnown = false
     }
     slot.events = events
     slot.output = args.output.parse(events)
@@ -766,6 +784,9 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         verdict: slot.verdict,
         error: slot.error?.message,
         costUsd: slot.costUsd,
+        ...(slot.costUsdKnown === false ? { costUsdKnown: false } : {}),
+        ...(slot.estimatedCostUsd !== undefined ? { estimatedCostUsd: slot.estimatedCostUsd } : {}),
+        ...(slot.promptCache ? { promptCache: slot.promptCache } : {}),
         durationMs: slot.endedAt - slot.startedAt,
         tokenUsage:
           slot.tokenUsage.input || slot.tokenUsage.output ? { ...slot.tokenUsage } : undefined,
@@ -972,7 +993,16 @@ function finalize<Task, Output, Decision>(
       winner = defaultSelectWinner(args.iterations)
     }
   }
-  const costUsd = args.iterations.reduce((sum, iter) => sum + (iter.costUsd || 0), 0)
+  const costUsd = args.iterations.reduce((sum, iter) => sum + iter.costUsd, 0)
+  const costUsdKnown = args.iterations.every((iter) => iter.costUsdKnown !== false)
+  const estimatedCostUsd = args.iterations.reduce(
+    (sum, iter) => sum + (iter.estimatedCostUsd ?? 0),
+    0,
+  )
+  const promptCache: Record<string, number | string> = {}
+  for (const iteration of args.iterations) {
+    if (iteration.promptCache) mergeUsageMetadata(promptCache, iteration.promptCache)
+  }
   const tokenUsage = args.iterations.reduce((acc: LoopTokenUsage, iter) => {
     addTokenUsage(acc, iter.tokenUsage)
     return acc
@@ -983,6 +1013,9 @@ function finalize<Task, Output, Decision>(
     winner,
     durationMs: args.now() - args.startMs,
     costUsd,
+    ...(costUsdKnown ? {} : { costUsdKnown: false }),
+    ...(estimatedCostUsd > 0 ? { estimatedCostUsd } : {}),
+    ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
     tokenUsage,
     provenance: {
       mounts: args.mounts,
@@ -990,6 +1023,16 @@ function finalize<Task, Output, Decision>(
     },
   }
   return result
+}
+
+function mergeUsageMetadata(
+  target: Record<string, number | string>,
+  source: Readonly<Record<string, number | string>>,
+): void {
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'number') target[key] = (Number(target[key]) || 0) + value
+    else target[key] = value
+  }
 }
 
 /**
@@ -1093,6 +1136,10 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
       decision: stringifySafe(decision),
       winnerIterationIndex: result.winner?.iterationIndex,
       totalCostUsd: result.costUsd,
+      ...(result.costUsdKnown === false ? { costUsdKnown: false } : {}),
+      ...(result.estimatedCostUsd !== undefined
+        ? { estimatedCostUsd: result.estimatedCostUsd }
+        : {}),
       durationMs: result.durationMs,
       iterations: iterations.length,
     },
@@ -1106,6 +1153,10 @@ async function finalizeAndEmitEnded<Task, Output, Decision>(
     payload: {
       winnerIterationIndex: result.winner?.iterationIndex,
       totalCostUsd: result.costUsd,
+      ...(result.costUsdKnown === false ? { costUsdKnown: false } : {}),
+      ...(result.estimatedCostUsd !== undefined
+        ? { estimatedCostUsd: result.estimatedCostUsd }
+        : {}),
       durationMs: result.durationMs,
       iterations: iterations.length,
     },

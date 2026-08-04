@@ -13,6 +13,7 @@ import {
   type AgentProfile,
   type AgentProfileSecurityPolicy,
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
   validateAgentProfileSecurity,
@@ -44,9 +45,8 @@ import type {
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
-import type { RouterConfig } from '../router-client'
+import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
-import { canonicalizeAuthoredProfile } from './authoring'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
@@ -57,9 +57,14 @@ import {
   attestRuntimeOwnedScopeOwner,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
-import { assertModelAllowed, assertProfileModelsAllowed } from './model-policy'
+import {
+  assertExecutableAgentProfile,
+  assertModelAllowed,
+  assertProfileModelsAllowed,
+} from './model-policy'
 import {
   createSupervisorSpanRecorder,
   type SupervisorSpanOptions,
@@ -130,10 +135,7 @@ export function workerFromBackend(
   const unscopedNamespace = randomUUID()
   let unscopedOrdinal = 0
   return (rawProfile, spawnContext) => {
-    // The supervisor authors in the skill's flat vocabulary; every leaf reads the canonical
-    // profile. Lift it HERE — the one place a backend becomes a spawnable worker — so no leaf
-    // has to guess which shape it was handed, then hold the LIFTED form to the canonical schema.
-    const parsed = agentProfileSchema.safeParse(canonicalizeAuthoredProfile(rawProfile))
+    const parsed = agentProfileSchema.safeParse(rawProfile)
     if (!parsed.success) {
       throw new ValidationError(`workerFromBackend: invalid AgentProfile: ${parsed.error.message}`)
     }
@@ -253,12 +255,10 @@ function assertBackendProfileMaterialization(
 
 /**
  * The ROOT router-brained supervisor's materialization claim. The router arm consumes the
- * identity fields, the resolved system prompt (`systemPrompt` + `prompt.instructions` +
+ * identity fields, the resolved system prompt (`prompt.systemPrompt` + `prompt.instructions` +
  * `resources.instructions`), and the resolved model id (`model.default`); the remaining model
- * HINTS (`small`, `provider`, `reasoningEffort`, `metadata`) are accepted as documented-unhonored
- * router-arm material (`supervisorAgent`'s contract table states each one), so a canonical
- * profile carrying ordinary hints is not refused. Every behavioral axis — tools, permissions,
- * MCP, hooks, modes, subagents, file resources — still fails loud before any compute.
+ * fields are either applied by the profile-bound Router adapter or refused. Every behavioral axis
+ * the Router brain cannot materialize fails before compute.
  */
 const routerSupervisorProfileMaterialization = defineProfileMaterializationContract({
   name: 'router-supervisor-execution',
@@ -271,7 +271,6 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
     'instructions',
     'resourceInstructions',
     'modelDefault',
-    'modelSmall',
     'modelProvider',
     'modelReasoningEffort',
     'modelMetadata',
@@ -301,15 +300,6 @@ function automaticDriverBackendSupported(backend: ExecutorConfig): boolean {
   // The built-in coordination server binds host loopback. A local bridge can reach it; a remote
   // sandbox cannot until the caller supplies an explicit relay/tunnel through `driveHarness`.
   return backend.backend === 'bridge'
-}
-
-function backendProfileOverlays(backend: ExecutorConfig | undefined): AgentProfile[] {
-  if (!backend) return []
-  if (backend.backend === 'bridge' && backend.agentProfile) return [backend.agentProfile]
-  if (backend.backend === 'cli-worktree' && backend.bridge?.agentProfile) {
-    return [backend.bridge.agentProfile]
-  }
-  return []
 }
 
 /** Run a harness-brained manager through the same executor factory as its children. The manager's
@@ -410,44 +400,81 @@ function driveHarnessFromBackend(
       // unmetered runtime reaches the single bounded teardown path below.
       const declaration = runtimeOwnedExecutorMaterialization(executor)
       const executionBinding = runtimeOwnedExecutorExecutionBinding(executor)
-      if (declaration === undefined || executionBinding === undefined) {
+      const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+      const authoredProfileFromDriverExecution = (profile: AgentProfile): AgentProfile => {
+        const mcp = profile.mcp ?? {}
+        const { [coordinationMcpAlias]: _runtimeAttachment, ...authoredMcp } = mcp
+        const { mcp: _mcp, ...withoutMcp } = profile
+        return agentProfileSchema.parse(
+          Object.keys(authoredMcp).length > 0 ? { ...withoutMcp, mcp: authoredMcp } : withoutMcp,
+        )
+      }
+      const ownerDeclaration = (
+        exactDeclaration: NonNullable<typeof declaration>,
+      ): NonNullable<typeof declaration> => ({
+        ...exactDeclaration,
+        // The coordination MCP is a Runtime-owned platform attachment, not authored behavior.
+        effectiveProfile: canonicalDriverProfile,
+        platformAttachments: {
+          [coordinationMcpAlias]: {
+            kind: 'coordination-mcp',
+            transport: 'http',
+            tools: stableCoordinationTools,
+          },
+        },
+      })
+      const publishMaterialization = async (
+        exactDeclaration: NonNullable<typeof declaration>,
+        exactBinding: NonNullable<typeof executionBinding>,
+      ) => {
+        await recordScopeOwnerMaterialization(
+          scope,
+          executor.runtime,
+          ownerDeclaration(exactDeclaration),
+          {
+            ...exactBinding,
+            binding: {
+              stableBinding: exactBinding.binding,
+              platformAttachments: {
+                [coordinationMcpAlias]: {
+                  transport: 'http',
+                  url: coordinationMcpUrl,
+                },
+              },
+            },
+            descriptor: {
+              ...exactBinding.descriptor,
+              coordination: true,
+            },
+          },
+        )
+      }
+      if (pending === undefined && (declaration === undefined || executionBinding === undefined)) {
         throw new ValidationError(
           `driveHarnessFromBackend: built-in runtime ${JSON.stringify(executor.runtime)} has no trusted materialization declaration or execution binding`,
         )
       }
-      await recordScopeOwnerMaterialization(
-        scope,
-        executor.runtime,
-        {
-          ...declaration,
-          // The endpoint is one attempt's transport binding, not AgentProfile identity. Keep the
-          // admitted profile stable and commit the logical coordination capability separately.
-          effectiveProfile: canonicalDriverProfile,
-          platformAttachments: {
-            [coordinationMcpAlias]: {
-              kind: 'coordination-mcp',
-              transport: 'http',
-              tools: stableCoordinationTools,
-            },
-          },
-        },
-        {
-          ...executionBinding,
-          binding: {
-            stableBinding: executionBinding.binding,
-            platformAttachments: {
-              [coordinationMcpAlias]: {
-                transport: 'http',
-                url: coordinationMcpUrl,
-              },
-            },
-          },
-          descriptor: {
-            ...executionBinding.descriptor,
-            coordination: true,
-          },
-        },
-      )
+      if (pending !== undefined) {
+        if (
+          pending.runtime !== executor.runtime ||
+          pending.binding.attemptId !== scopeOwnerExecutorNodeContext(scope).attemptId
+        ) {
+          throw new ValidationError(
+            'driveHarnessFromBackend: pending executor did not bind the kernel-minted attempt',
+          )
+        }
+        if (
+          canonicalAgentProfileDigest(
+            authoredProfileFromDriverExecution(pending.declaration.effectiveProfile),
+          ) !== canonicalAgentProfileDigest(canonicalDriverProfile)
+        ) {
+          throw new ValidationError(
+            'driveHarnessFromBackend: pending executor changed the authored AgentProfile before execution',
+          )
+        }
+      } else {
+        await publishMaterialization(declaration!, executionBinding!)
+      }
       if (executor.budgetExempt) {
         throw new ValidationError(
           `driveHarnessFromBackend: runtime ${JSON.stringify(executor.runtime)} does not report usage and cannot drive a budgeted supervisor`,
@@ -489,6 +516,16 @@ function driveHarnessFromBackend(
           { ...artifact.spent, iterations: 0 },
           { role: 'driver', runtime: executor.runtime },
         )
+      }
+      if (pending !== undefined) {
+        const acknowledged = runtimeOwnedExecutorMaterialization(executor)
+        const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
+        if (acknowledged === undefined || acknowledgedBinding === undefined) {
+          throw new ValidationError(
+            'driveHarnessFromBackend: external executor completed without a terminal materialization acknowledgement',
+          )
+        }
+        await publishMaterialization(acknowledged, acknowledgedBinding)
       }
       completed = true
     } catch (error) {
@@ -695,7 +732,7 @@ export interface SuperviseOptions {
   readonly isDriverProfile?: (input: AuthorizedSpawnContext) => boolean
   /** The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
    *  model wins. */
-  readonly router?: RouterConfig
+  readonly router?: RouterTransportConfig
   /** Inject the supervisor brain directly (tests / advanced). */
   readonly brain?: ToolLoopChat
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
@@ -1041,39 +1078,6 @@ function freezeDetachedProfile(value: unknown): AgentProfile {
   return freezeDetached(agentProfileSchema.parse(value))
 }
 
-/**
- * Map the two loose `SupervisorProfile` spellings onto their canonical `AgentProfile` form before
- * the strict schema parse, so both documented spellings run the SAME canonical pipeline and share
- * one identity digest:
- *  - a string `model` IS `model.default`;
- *  - a top-level `systemPrompt` IS `prompt.systemPrompt` (two disagreeing values are a fault);
- *  - `harness: null` selects the router brain, which canonically is an ABSENT harness.
- * A canonical profile passes through byte-identical; every other field is left for the schema to
- * accept or refuse.
- */
-function canonicalSupervisorProfileInput(profile: SupervisorProfile): unknown {
-  if (typeof profile !== 'object' || profile === null) return profile
-  const { harness, model, systemPrompt, prompt, ...rest } = profile as SupervisorProfile &
-    Record<string, unknown>
-  const promptSystem = prompt?.systemPrompt
-  if (systemPrompt !== undefined && promptSystem !== undefined && systemPrompt !== promptSystem) {
-    throw new ValidationError(
-      'supervise: profile.prompt.systemPrompt and profile.systemPrompt are both set and differ — ' +
-        'they are the same standing instruction, so keep exactly one',
-    )
-  }
-  const canonicalPrompt =
-    systemPrompt !== undefined ? { ...prompt, systemPrompt } : (prompt as unknown)
-  return {
-    ...rest,
-    ...(harness === null || harness === undefined ? {} : { harness }),
-    ...(model === undefined
-      ? {}
-      : { model: typeof model === 'string' ? { default: model } : model }),
-    ...(canonicalPrompt === undefined ? {} : { prompt: canonicalPrompt }),
-  }
-}
-
 function canonicalExecution(
   profile: AgentProfile,
   task: unknown,
@@ -1179,11 +1183,12 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   assertValidBudget(options.budget, 'supervise budget')
   // Fail loud before any compute: every configured model must be in the allowed subset (no-op
   // when allowedModels is unset). The backend seam carries its own model on most backends.
-  const parsedProfile = agentProfileSchema.safeParse(canonicalSupervisorProfileInput(profile))
+  const parsedProfile = agentProfileSchema.safeParse(profile)
   if (!parsedProfile.success) {
     throw new ValidationError(`supervise: invalid AgentProfile: ${parsedProfile.error.message}`)
   }
   const canonicalProfile = freezeDetachedProfile(parsedProfile.data)
+  assertExecutableAgentProfile(canonicalProfile, 'supervise root')
   const canonicalTask = freezeDetached(task)
   if (options.makeWorkerAgent && options.authorizeSpawn) {
     throw new ValidationError(
@@ -1225,16 +1230,6 @@ export function supervise(profile: SupervisorProfile, task: unknown, opts: Super
   )
   const backendModel = (options.backend as { model?: unknown } | undefined)?.model
   const driverBackendModel = (options.driverBackend as { model?: unknown } | undefined)?.model
-  const overlays = [
-    ...backendProfileOverlays(options.backend),
-    ...backendProfileOverlays(options.driverBackend),
-  ]
-  if (overlays.length > 0) {
-    throw new ValidationError(
-      'supervise: backend agentProfile overlays are not allowed because they run after spawn authorization; merge the overlay into the exact profile before calling supervise',
-    )
-  }
-  assertModelAllowed(options.router?.model, options.allowedModels)
   assertProfileModelsAllowed(canonicalProfile, options.allowedModels)
   assertModelAllowed(
     typeof backendModel === 'string' ? backendModel : undefined,

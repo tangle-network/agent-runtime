@@ -17,12 +17,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import { acquireSandbox, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import { acquireSandbox } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import type { Span } from '@tangle-network/agent-eval'
 import type { BenchTask } from './benchmarks/types'
 import { DEFAULT_CAD_DIRECTIVE, DEFAULT_CAD_SANDBOX_DIRECTIVE } from './directives'
 import { runRefineLoop } from './refine-loop'
+import { runBenchRouterTurn } from './router-turn'
 
 export { DEFAULT_CAD_DIRECTIVE } from './directives'
 
@@ -138,13 +139,22 @@ export async function solveCadRefineLocal(task: BenchTask, cfg: CadLocalConfig):
       const scadPath = join(dir, 'model.scad')
       const stlPath = join(dir, 'model.stl')
       const pngPath = join(dir, 'model.png')
-      const { content, usage: u } = await routerChatWithUsage(cfg, [
-        { role: 'system', content: directive },
-        { role: 'user', content: user },
-      ])
-      if (u) {
-        usage.input += u.input
-        usage.output += u.output
+      const turn = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'cad-local-worker',
+            model: { provider: 'tangle-router', default: cfg.model },
+            prompt: { systemPrompt: directive },
+          },
+        },
+        user,
+      )
+      const content = turn.finalText
+      if (turn.usage.tokensKnown !== false) {
+        usage.input += turn.usage.input
+        usage.output += turn.usage.output
       }
       const scad = extractScad(content)
       trace.push({ spanId: `s-reply-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: content.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
@@ -253,10 +263,19 @@ export async function solveCadRefine(task: BenchTask, cfg: CadRefineConfig): Pro
         ? task.prompt
         : `Your previous OpenSCAD had this problem:\n${lastErr}\n\nHere is the previous source:\n${history[history.length - 1]?.artifact ?? ''}\n\nFix it so it compiles AND better matches the brief:\n${task.prompt}`,
     runShot: async (user, round, box) => {
-      const { content: reply } = await routerChatWithUsage(cfg, [
-        { role: 'system', content: sys },
-        { role: 'user', content: user },
-      ])
+      const turn = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'cad-sandbox-worker',
+            model: { provider: 'tangle-router', default: cfg.model },
+            prompt: { systemPrompt: sys },
+          },
+        },
+        user,
+      )
+      const reply = turn.finalText
       const scad = extractScad(reply)
       trace.push({ spanId: `s-reply-${round}`, runId, kind: 'llm', name: `author r${round}`, model: cfg.model, messages: [{ role: 'user', content: round === 1 ? task.prompt : 'refine' }], output: reply.slice(0, 600), startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)
       trace.push({ spanId: `s-write-${round}`, runId, kind: 'tool', name: 'write_file', toolName: 'create_file', args: { path: 'model.scad', content: scad }, startedAt: tick(), endedAt: tick(), status: 'ok' } as Span)

@@ -173,7 +173,12 @@ describe('method evaluation identity', () => {
       async optimize() {
         return {
           winnerSurface: 'improved bytes',
-          cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0,
+            costProvenance: { kind: 'observed', usd: 0 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
         }
       },
     }

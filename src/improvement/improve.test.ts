@@ -89,7 +89,12 @@ function fixedMethod(
       inspect?.(input)
       return {
         winnerSurface,
-        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+        cost: {
+          totalCostUsd: 0,
+          costProvenance: { kind: 'observed', usd: 0 },
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
         durationMs: 1,
       }
     },
@@ -601,6 +606,7 @@ describe('improve method execution', () => {
       winnerSurface: 'improved prompt',
       cost: {
         totalCostUsd: 0,
+        costProvenance: { kind: 'uncaptured', usd: null },
         accountingComplete: false,
         incompleteReasons: ['optimizer model cost unavailable'],
       },
@@ -620,6 +626,7 @@ describe('improve method execution', () => {
       winnerSurface: 'improved prompt',
       cost: {
         totalCostUsd: 2,
+        costProvenance: { kind: 'observed', usd: 2 },
         accountingComplete: true,
         incompleteReasons: [],
       },

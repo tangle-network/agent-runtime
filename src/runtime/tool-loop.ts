@@ -8,6 +8,8 @@
  * steerable concerns the call sites add (a driver's conserved-pool + deadline bound; an inline
  * executor's inbox flush + abort) attach via optional `hooks`; the skeleton stays one copy.
  */
+
+import { ValidationError } from '../errors'
 import type { RouterToolCall, ToolSpec } from './router-client'
 
 /** Provider-neutral conversation record accepted by a tool-loop brain. */
@@ -22,9 +24,9 @@ export type ToolLoopChat = (
   content?: string | null
   toolCalls: RouterToolCall[]
   usage?: { input: number; output: number }
-  /** The turn's inference cost (usd) when the provider priced it — for callers that meter usd
-   *  into a conserved pool (the supervisor brain). `runBrainLoop` itself ignores it. */
+  /** Dollar value reported for the turn. It is not billed spend unless provenance says so. */
   costUsd?: number
+  costProvenance?: 'provider-receipt' | 'billing-receipt' | 'catalog-estimate'
   /** The turn ran but its usage was not reported when the transport EXPECTED one (the streamed
    *  router transport asks for usage and this says it never arrived). A metering caller records an
    *  unknown turn on it; `runBrainLoop` itself ignores it. */
@@ -132,8 +134,26 @@ export interface ToolLoopResult {
   /** The behavior trace: each call + its result, in order — what a trace-analyst steerer reads. */
   toolTrace: Array<{ name: string; args: string; result: string }>
   usage: { input: number; output: number }
+  /** False when any completed inference turn omitted token usage. */
+  tokensKnown?: false
   /** The full conversation after the loop — lets a caller CARRY the messages into the next shot. */
   messages: ToolLoopMessageRecord[]
+}
+
+/** Resolve one tool-loop turn limit. Zero removes only the turn-count cap; abort, time, and
+ * resource budgets remain available to callers. */
+export function resolveToolLoopMaxTurns(
+  value: number | undefined,
+  fallback: number,
+  context = 'tool loop',
+): number {
+  const resolved = value ?? fallback
+  if (!Number.isSafeInteger(resolved) || resolved < 0) {
+    throw new ValidationError(
+      `${context}: maxTurns must be a nonnegative safe integer (0 means unbounded)`,
+    )
+  }
+  return resolved
 }
 
 export async function runBrainLoop(opts: {
@@ -148,14 +168,16 @@ export async function runBrainLoop(opts: {
    *  free). Off by default — when unset the conversation accumulates exactly as before. */
   compaction?: ToolLoopCompaction
 }): Promise<ToolLoopResult> {
-  const maxTurns = opts.maxTurns ?? 4
+  const maxTurns = resolveToolLoopMaxTurns(opts.maxTurns, 4, 'runBrainLoop')
   const messages: ToolLoopMessageRecord[] = [...opts.initialMessages]
   let toolCalls = 0
   let lastText = ''
   const usage = { input: 0, output: 0 }
+  let tokensKnown = true
+  let completedTurns = 0
   const toolTrace: Array<{ name: string; args: string; result: string }> = []
 
-  for (let turn = 1; turn <= maxTurns; turn += 1) {
+  for (let turn = 1; maxTurns === 0 || turn <= maxTurns; turn += 1) {
     if (opts.hooks?.stopBefore?.(turn)) break
     await opts.hooks?.beforeTurn?.(turn, messages)
     // Close the chapter BEFORE the inference turn that would otherwise re-bill the whole transcript:
@@ -163,11 +185,12 @@ export async function runBrainLoop(opts: {
     // not O(total-history). A clean boundary — the prior turn's tool replies are already folded in.
     if (opts.compaction) await maybeCompact(messages, opts.compaction, turn)
     const r = await opts.chat(messages, opts.tools)
+    completedTurns = turn
     if (r.usage) {
       usage.input += r.usage.input
       usage.output += r.usage.output
       opts.hooks?.onUsage?.(r.usage)
-    }
+    } else tokensKnown = false
     if (r.content) lastText = r.content
     if (r.toolCalls.length === 0) {
       // The stopping reply is part of the conversation (the contract on `messages`: seed +
@@ -176,7 +199,15 @@ export async function runBrainLoop(opts: {
       // solution the model can't see, and candidate extraction (structural-rollout's
       // fenced-code fallback) reads an empty conversation on non-tool-calling models.
       if (r.content) messages.push({ role: 'assistant', content: r.content })
-      return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
+      return {
+        final: lastText,
+        turns: turn,
+        toolCalls,
+        toolTrace,
+        usage,
+        ...(tokensKnown ? {} : { tokensKnown: false }),
+        messages,
+      }
     }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then run each
@@ -210,5 +241,13 @@ export async function runBrainLoop(opts: {
       toolTrace.push({ name: tc.name, args: tc.arguments, result: out })
     }
   }
-  return { final: lastText, turns: maxTurns, toolCalls, toolTrace, usage, messages }
+  return {
+    final: lastText,
+    turns: completedTurns,
+    toolCalls,
+    toolTrace,
+    usage,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
+    messages,
+  }
 }

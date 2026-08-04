@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createPrimeIntellectPackage, writePrimeIntellectPackage } from './package'
 import {
-  createPrimeIntellectBackend,
+  primeIntellectExecutorConfig,
   readPrimeIntellectEpisodeContext,
   runPrimeIntellectProgram,
 } from './runner'
@@ -179,14 +179,15 @@ describe('PrimeIntellect runtime program contract', () => {
     OPENAI_API_KEY: 'interception-secret',
   }
 
-  it('reads an answer-free episode and creates the existing backend', async () => {
+  it('reads an answer-free episode and resolves transport-only executor config', async () => {
     const context = readPrimeIntellectEpisodeContext(env)
     expect(context.task.id).toBe('eval-refund')
     expect(context.mcpServers.policy).toBe('http://127.0.0.1:3210/mcp')
-    expect(createPrimeIntellectBackend(context).kind).toBe('primeintellect')
-    expect(createPrimeIntellectBackend(context, { kind: 'product-runtime' }).kind).toBe(
-      'product-runtime',
-    )
+    expect(primeIntellectExecutorConfig(context)).toEqual({
+      backend: 'router',
+      routerBaseUrl: 'http://127.0.0.1:9000/v1',
+      routerKey: 'interception-secret',
+    })
     await expect(
       runPrimeIntellectProgram(async (episode) => episode.task.id, { env }),
     ).resolves.toBe('eval-refund')

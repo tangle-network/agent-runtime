@@ -1,5 +1,6 @@
 import { PassThrough, type Readable } from 'node:stream'
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
@@ -14,12 +15,13 @@ import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/s
 // live-but-slow bridge. Tests drive that transport by setting `bridgeHttpHandler`.
 let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
 let lastBridgeUrl: URL | null = null
+let activeBridgePayload: Record<string, unknown> | null = null
 
 vi.mock('node:http', async () => {
   const actual = await vi.importActual<typeof import('node:http')>('node:http')
   return {
     ...actual,
-    request: (url: URL, _opts: unknown, cb: (res: Readable) => void) => {
+    request: (url: URL, opts: unknown, cb: (res: Readable) => void) => {
       lastBridgeUrl = url
       let body = ''
       return {
@@ -27,12 +29,32 @@ vi.mock('node:http', async () => {
           body += chunk
         },
         end: () => {
+          if ((opts as { method?: string }).method === 'GET' && url.pathname === '/') {
+            const capability = new PassThrough() as Readable & {
+              statusCode?: number
+              headers?: Record<string, string>
+            }
+            capability.statusCode = 200
+            capability.headers = { 'content-type': 'application/json' }
+            capability.end(
+              JSON.stringify({
+                capabilities: {
+                  profileMaterialization: 'cli-bridge.profile-materialization.v2',
+                  usageCostProvenance: 'cli-bridge.usage-cost.v1',
+                },
+              }),
+            )
+            cb(capability)
+            return
+          }
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
+          activeBridgePayload = payload
           const res = bridgeHttpHandler(payload) as Readable & {
             statusCode?: number
             headers?: Record<string, string>
           }
+          activeBridgePayload = null
           res.statusCode = res.statusCode ?? 200
           if (res.statusCode >= 200 && res.statusCode < 300) {
             res.headers = {
@@ -50,13 +72,42 @@ vi.mock('node:http', async () => {
 })
 
 function sse(content: string, input: number, output: number): Readable {
+  if (!activeBridgePayload) throw new Error('sse: no active bridge request')
+  const payload = activeBridgePayload
+  const profile = payload.agent_profile as AgentProfile
+  const model = String(payload.model)
+  const parts = model.split('/')
   const stream = new PassThrough()
   stream.end(
     [
       'id: 1',
       `data: ${JSON.stringify({
         choices: [{ delta: { content } }],
-        usage: { prompt_tokens: input, completion_tokens: output },
+        usage: {
+          prompt_tokens: input,
+          completion_tokens: output,
+          cost: 0.001,
+          cost_known: true,
+          cost_provenance: 'provider-receipt',
+        },
+      })}`,
+      '',
+      'id: 2',
+      `data: ${JSON.stringify({
+        profile_materialization: {
+          schema: 'cli-bridge.profile-materialization.v2',
+          effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+          harness: parts[0],
+          provider: parts.length >= 3 ? parts[1] : (profile.model?.provider ?? null),
+          model,
+          reasoningEffort: {
+            requested: profile.model?.reasoningEffort ?? null,
+            applied: profile.model?.reasoningEffort ?? null,
+          },
+          workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
+          files: [],
+          unsupported: [],
+        },
       })}`,
       '',
       'data: [DONE]',
@@ -66,23 +117,39 @@ function sse(content: string, input: number, output: number): Readable {
   return stream
 }
 
+function exactBridgeProfile(
+  name: string,
+  model = 'kimi-k2.6',
+  metadata?: Record<string, unknown>,
+): AgentProfile {
+  return {
+    name,
+    harness: 'kimi-code',
+    model: {
+      provider: 'moonshot',
+      default: model,
+      ...(metadata ? { metadata } : {}),
+    },
+  }
+}
+
 function bridgeClient(model: string) {
+  const profile = exactBridgeProfile('bridge-test', model)
   return inlineSandboxClient(
     createExecutor({
       backend: 'bridge',
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model,
     }),
+    { profile },
   )
 }
 
 async function runOnce(
   client: ReturnType<typeof bridgeClient>,
   prompt: string,
-  backend?: unknown,
 ): Promise<{ finalText: string; tokensIn: number; tokensOut: number }> {
-  const box = await client.create(backend ? ({ backend } as never) : undefined)
+  const box = await client.create()
   let finalText = ''
   let tokensIn = 0
   let tokensOut = 0
@@ -112,12 +179,12 @@ describe('bridgeExecutor over node:http', () => {
       seen.push(payload)
       return sse('done from bridge', 7, 11)
     }
-    const out = await runOnce(bridgeClient('kimi-code/kimi-k2.6'), 'compute the return')
+    const out = await runOnce(bridgeClient('kimi-k2.6'), 'compute the return')
     expect(out.finalText).toBe('done from bridge')
     expect(out.tokensIn).toBe(7)
     expect(out.tokensOut).toBe(11)
     expect(seen).toHaveLength(1)
-    expect(seen[0]?.model).toBe('kimi-code/kimi-k2.6')
+    expect(seen[0]?.model).toBe('kimi-code/moonshot/kimi-k2.6')
     expect(seen[0]?.stream).toBe(true)
     const msgs = seen[0]?.messages as Array<{ role: string; content: string }>
     expect(msgs.some((m) => m.content.includes('compute the return'))).toBe(true)
@@ -138,9 +205,15 @@ describe('bridgeExecutor over node:http', () => {
         backend: 'bridge',
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'pi/tangle-router/deepseek-v4-flash',
         timeoutMs: 14_400_000,
       }),
+      {
+        profile: {
+          name: 'timeout-worker',
+          harness: 'pi',
+          model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+        },
+      },
     )
 
     await runOnce(client, 'work until the task is complete')
@@ -157,9 +230,15 @@ describe('bridgeExecutor over node:http', () => {
           backend: 'bridge',
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'pi/tangle-router/deepseek-v4-flash',
           timeoutMs,
         }),
+        {
+          profile: {
+            name: 'timeout-worker',
+            harness: 'pi',
+            model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+          },
+        },
       )
 
       await expect(runOnce(client, 'do not dispatch')).rejects.toThrow(
@@ -169,38 +248,14 @@ describe('bridgeExecutor over node:http', () => {
     },
   )
 
-  it('a per-create backend override targets the cell model as harness/model', async () => {
+  it('uses the exact profile model verbatim', async () => {
     const seen: Array<Record<string, unknown>> = []
     bridgeHttpHandler = (payload) => {
       seen.push(payload)
       return sse('ok', 1, 2)
     }
-    const client = bridgeClient('kimi-code/default')
-    await runOnce(client, 'go', { type: 'opencode', model: { model: 'glm-4.6' } })
-    expect(seen[0]?.model).toBe('opencode/glm-4.6')
-  })
-
-  it('an already-prefixed override model passes through unchanged', async () => {
-    const seen: Array<Record<string, unknown>> = []
-    bridgeHttpHandler = (payload) => {
-      seen.push(payload)
-      return sse('ok', 1, 2)
-    }
-    await runOnce(bridgeClient('kimi-code/default'), 'go', {
-      type: 'opencode',
-      model: { model: 'opencode/glm-4.6' },
-    })
-    expect(seen[0]?.model).toBe('opencode/glm-4.6')
-  })
-
-  it('uses the seam model verbatim when no per-create override is given', async () => {
-    const seen: Array<Record<string, unknown>> = []
-    bridgeHttpHandler = (payload) => {
-      seen.push(payload)
-      return sse('ok', 1, 2)
-    }
-    await runOnce(bridgeClient('kimi-code/kimi-k2.6'), 'go')
-    expect(seen[0]?.model).toBe('kimi-code/kimi-k2.6')
+    await runOnce(bridgeClient('kimi-k2.6'), 'go')
+    expect(seen[0]?.model).toBe('kimi-code/moonshot/kimi-k2.6')
   })
 
   it('captures model and nested profile policy when createExecutor is called', async () => {
@@ -213,19 +268,20 @@ describe('bridgeExecutor over node:http', () => {
       backend: 'bridge',
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model: 'safe-model',
-      agentProfile: {
-        name: 'policy-overlay',
-        permissions: { shell: 'deny' },
-      },
     }
-    const client = inlineSandboxClient(createExecutor(config))
-    config.model = 'mutated-model'
-    if (config.agentProfile?.permissions) config.agentProfile.permissions.shell = 'allow'
+    const profile: AgentProfile = {
+      name: 'policy-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+      permissions: { shell: 'deny' },
+    }
+    const client = inlineSandboxClient(createExecutor(config), { profile })
+    profile.model.default = 'mutated-model'
+    profile.permissions.shell = 'allow'
 
     await runOnce(client, 'go')
 
-    expect(seen[0]?.model).toBe('safe-model')
+    expect(seen[0]?.model).toBe('pi/tangle-router/safe-model')
     expect(seen[0]?.agent_profile).toMatchObject({ permissions: { shell: 'deny' } })
   })
 
@@ -241,15 +297,15 @@ describe('bridgeExecutor over node:http', () => {
       backend: 'bridge',
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model: 'safe-model',
-      maxTurns: 1,
     }
     const factory = createExecutor(config)
-    config.maxTurns = 3
+    const profile = exactBridgeProfile('budget-worker', 'safe-model', { maxTurns: 1 })
     const executor = factory(
-      { profile: { name: 'budget-worker' }, harness: null },
+      { profile, harness: null },
       { signal: new AbortController().signal, seams: {} },
     )
+    if (!profile.model?.metadata) throw new Error('test profile metadata missing')
+    profile.model.metadata.maxTurns = 3
     deliver = (message) => executor.deliver?.(message)
     const run = executor.execute('go', new AbortController().signal)
     if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
@@ -271,19 +327,15 @@ describe('bridgeExecutor over node:http', () => {
       backend: 'bridge',
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model: 'safe-model',
     })
     const workers = ['a', 'b'].map(
       (name, index) =>
-        make(
-          { name },
-          {
-            assignmentId: `ordinal:${index}`,
-            budget: { maxIterations: 1, maxTokens: 100 },
-            task: 'go',
-            label: name,
-          },
-        ) as Agent<unknown, unknown> & {
+        make(exactBridgeProfile(name, 'safe-model'), {
+          assignmentId: `ordinal:${index}`,
+          budget: { maxIterations: 1, maxTokens: 100 },
+          task: 'go',
+          label: name,
+        }) as Agent<unknown, unknown> & {
           executorSpec: AgentSpec
         },
     )
@@ -321,7 +373,6 @@ describe('bridgeExecutor over node:http', () => {
       backend: 'bridge' as const,
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model: 'safe-model',
     }
     const context = {
       assignmentId: 'key:stable-experiment',
@@ -332,7 +383,7 @@ describe('bridgeExecutor over node:http', () => {
     }
     const workers = [workerFromBackend(backend), workerFromBackend(backend)].map(
       (make) =>
-        make({ name: 'worker' }, context) as Agent<unknown, unknown> & {
+        make(exactBridgeProfile('worker', 'safe-model'), context) as Agent<unknown, unknown> & {
           executorSpec: AgentSpec
         },
     )
@@ -362,7 +413,7 @@ describe('bridgeExecutor over node:http', () => {
       s.end('boom')
       return s
     }
-    await expect(runOnce(bridgeClient('kimi-code/k2'), 'go')).rejects.toThrow(/bridge 500/)
+    await expect(runOnce(bridgeClient('k2'), 'go')).rejects.toThrow(/bridge 500/)
   })
 })
 
@@ -673,34 +724,6 @@ describe('bridgeExecutor live observability', () => {
     }
     expect((executor.resultArtifact().out as { content: string }).content).toBe('PLATYPUS')
   })
-
-  it('reports what it derived about the caller declaration, before any turn runs', () => {
-    bridgeHttpHandler = () => streamOf(REAL_TOOL_CALL_FRAMES)
-    const executor = bridgeExecutor(
-      { profile: { name: 'derived-worker' }, harness: null } as unknown as AgentSpec,
-      {
-        signal: new AbortController().signal,
-        seams: {
-          bridge: {
-            bridgeUrl: 'http://bridge.test',
-            bridgeBearer: 'secret',
-            model: 'kimi-code/kimi-k2.6',
-            agentProfile: { name: 'overlay', permissions: { shell: 'deny' } },
-          },
-          // A per-create backend override resolves a DIFFERENT wire model than the seam default.
-          createOptions: { backend: { type: 'opencode', model: { model: 'glm-4.6' } } },
-        },
-      },
-    )
-    // Readable BEFORE the first turn and never evicted, so a run that dies on turn 40 can still
-    // answer "which model did this actually run, and whose profile?" — the questions a failure
-    // raises and that neither the activity ring nor the settled artifact can answer.
-    const derived = executor.progress?.()?.derived ?? []
-    expect(derived).toEqual([
-      "profile: merged the bridge seam's agentProfile over the spawn profile before materialization",
-      'model: resolved the bridge wire model to opencode/glm-4.6 (seam default kimi-code/kimi-k2.6)',
-    ])
-  })
 })
 
 /** One numbered SSE data frame, exactly as cli-bridge writes it. */
@@ -709,8 +732,47 @@ function frame(id: number, payload: unknown): string {
 }
 
 function streamOf(frames: ReadonlyArray<string>): Readable {
+  if (!activeBridgePayload) throw new Error('streamOf: no active bridge request')
+  const payload = activeBridgePayload
+  const profile = payload.agent_profile as AgentProfile
+  const model = String(payload.model)
+  const parts = model.split('/')
+  let maxId = 0
+  const normalized = frames.map((raw) => {
+    const id = /^id: (\d+)/u.exec(raw)?.[1]
+    if (id) maxId = Math.max(maxId, Number(id))
+    const data = /data: (\{.*\})/u.exec(raw)?.[1]
+    if (!data) return raw
+    const parsed = JSON.parse(data) as { usage?: Record<string, unknown> }
+    if (!parsed.usage) return raw
+    parsed.usage = {
+      ...parsed.usage,
+      ...(typeof parsed.usage.cost === 'number'
+        ? { cost_known: true, cost_provenance: 'provider-receipt' }
+        : { cost_known: false }),
+    }
+    return raw.replace(data, JSON.stringify(parsed))
+  })
+  const receipt = frame(maxId + 1, {
+    profile_materialization: {
+      schema: 'cli-bridge.profile-materialization.v2',
+      effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+      harness: parts[0],
+      provider: parts[1] ?? null,
+      model,
+      reasoningEffort: {
+        requested: profile.model?.reasoningEffort ?? null,
+        applied: profile.model?.reasoningEffort ?? null,
+      },
+      workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
+      files: [],
+      unsupported: [],
+    },
+  })
   const stream = new PassThrough()
-  stream.end(frames.join(''))
+  stream.end(
+    normalized.map((raw) => (raw === 'data: [DONE]\n\n' ? `${receipt}${raw}` : raw)).join(''),
+  )
   return stream
 }
 
@@ -723,14 +785,20 @@ function jsonOf(body: unknown): Readable {
 
 function observedBridgeExecutor(): Executor<unknown> {
   return bridgeExecutor(
-    { profile: { name: 'observed-worker' }, harness: null } as unknown as AgentSpec,
+    {
+      profile: {
+        name: 'observed-worker',
+        harness: 'pi',
+        model: { provider: 'tangle-router', default: 'gpt-5-mini' },
+      },
+      harness: null,
+    } as AgentSpec,
     {
       signal: new AbortController().signal,
       seams: {
         bridge: {
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'pi/tangle-router/gpt-5-mini',
         },
       },
     },
@@ -760,10 +828,7 @@ describe('profile-selected model keeps its provider', () => {
   // pi fell back to its own default provider and died with "No API key found for opencode" — a
   // credential error naming a provider nobody chose. Measured live against a real cli-bridge:
   // `pi/tangle-router/glm-5.2` returns 200, `pi/glm-5.2` does not.
-  async function wireModelFor(
-    profile: Record<string, unknown>,
-    seamModel = 'pi/seam-default',
-  ): Promise<unknown> {
+  async function wireModelFor(profile: Record<string, unknown>): Promise<unknown> {
     const seen: Array<Record<string, unknown>> = []
     bridgeHttpHandler = (payload) => {
       seen.push(payload)
@@ -773,7 +838,6 @@ describe('profile-selected model keeps its provider', () => {
       backend: 'bridge',
       bridgeUrl: 'http://bridge.test',
       bridgeBearer: 'secret',
-      model: seamModel,
     })({ profile, harness: null } as unknown as AgentSpec, {
       signal: new AbortController().signal,
       seams: {},
@@ -796,10 +860,10 @@ describe('profile-selected model keeps its provider', () => {
     ).toBe('pi/tangle-router/glm-5.2')
   })
 
-  it('leaves a model with no declared provider to the harness own resolution', async () => {
-    expect(await wireModelFor({ name: 'w', harness: 'pi', model: { default: 'glm-5.2' } })).toBe(
-      'pi/glm-5.2',
-    )
+  it('refuses a profile with no declared provider before dispatch', async () => {
+    await expect(
+      wireModelFor({ name: 'w', harness: 'pi', model: { default: 'glm-5.2' } }),
+    ).rejects.toThrow(/model\.provider must be explicit/)
   })
 
   it('does not double-qualify a model that already carries its provider', async () => {
@@ -812,41 +876,13 @@ describe('profile-selected model keeps its provider', () => {
     ).toBe('pi/tangle-router/glm-5.2')
   })
 
-  it('keeps the configured bridge model when Eval delegates model selection to runtime', async () => {
-    expect(
-      await wireModelFor({
+  it('refuses runtime-selected model markers before dispatch', async () => {
+    await expect(
+      wireModelFor({
         name: 'w',
         harness: 'pi',
         model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
       }),
-    ).toBe('pi/seam-default')
-  })
-
-  it('qualifies a bare configured bridge model with the selected harness', async () => {
-    expect(
-      await wireModelFor(
-        {
-          name: 'w',
-          harness: 'pi',
-          model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
-        },
-        'seam-default',
-      ),
-    ).toBe('pi/seam-default')
-  })
-
-  it('uses the harness configured model when a real per-create override delegates selection', async () => {
-    const seen: Array<Record<string, unknown>> = []
-    bridgeHttpHandler = (payload) => {
-      seen.push(payload)
-      return sse('ok', 1, 2)
-    }
-
-    await runOnce(bridgeClient('seam-default'), 'go', {
-      type: 'pi',
-      model: { model: HARNESS_NATIVE_MODEL },
-    })
-
-    expect(seen[0]?.model).toBe('pi')
+    ).rejects.toThrow(/model\.default is runtime-selected/)
   })
 })

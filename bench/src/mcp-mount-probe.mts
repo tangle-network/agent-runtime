@@ -14,6 +14,8 @@ import {
   type Agent,
   type AgentProfile,
   type AgentSpec,
+  collectAgentTurn,
+  createExecutor,
   createExecutorRegistry,
   createSupervisor,
   type Executor,
@@ -21,6 +23,7 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   type Scope,
+  streamAgentTurn,
   type UsageEvent,
 } from '../../src/runtime/index'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
@@ -53,18 +56,27 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
 }
 
 async function bridgeChat(messages: Array<{ role: string; content: string }>, mcpUrl: string): Promise<string> {
-  const r = await fetch(`${BRIDGE.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      messages,
-      mcp: { mcpServers: { coordination: { type: 'http', url: mcpUrl } } },
-    }),
+  if (!BEARER) throw new Error('TANGLE_API_KEY is required')
+  const profile: AgentProfile = {
+    name: 'mcp-mount-probe-supervisor',
+    model: { default: MODEL },
+    mcp: { coordination: { transport: 'http', url: mcpUrl } },
+  }
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl: BRIDGE.replace(/\/v1\/?$/u, ''),
+    bridgeBearer: BEARER,
   })
-  if (!r.ok) return `(bridge HTTP ${r.status}: ${(await r.text()).slice(0, 200)})`
-  const j = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return j.choices?.[0]?.message?.content ?? ''
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile },
+      messages.map((message) => message.content).join('\n\n'),
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `bridge turn ended with ${turn.status}`)
+  }
+  return turn.finalText
 }
 
 async function main(): Promise<void> {

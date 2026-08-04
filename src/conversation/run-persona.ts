@@ -22,6 +22,8 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import { createIterableBackend } from '../backends'
+import { streamAgentTurn } from '../runtime/stream-agent-turn'
+import type { ExecutorFactory } from '../runtime/supervise/types'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { defineConversation } from './define-conversation'
 import { runConversation } from './run-conversation'
@@ -38,11 +40,9 @@ export interface RunPersonaConversationOptions {
   worker: AgentProfile
   /** The simulated user driving the dialogue. */
   persona: PersonaDriver
-  /** Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
-   *  Applied to the worker and to a `profile`-kind persona. */
-  backendFor: (profile: AgentProfile, role: 'worker' | 'persona') => AgentExecutionBackend
-  /** Render a profile's system prompt — prepended to that profile's messages. */
-  systemPromptOf: (profile: AgentProfile) => string
+  /** Resolve transport/executable ports for the exact profile. Runtime still materializes the
+   * profile and owns every model call. Applied to the worker and a profile-driven persona. */
+  executorFor: (profile: AgentProfile, role: 'worker' | 'persona') => ExecutorFactory<unknown>
   /** Speaker-turn cap. Default for a scripted persona = `2 * turns.length`
    *  (worker answers each user turn). REQUIRED for a `profile` persona. */
   maxTurns?: number
@@ -72,24 +72,23 @@ interface UsageCounter {
   costUsd: number
 }
 
-/** Prefix a backend's requests with `systemPrompt`; when `counter` is given,
- *  accumulate its `llm_call` token/cost usage (used for the metered worker). */
-function withProfilePrompt(
-  inner: AgentExecutionBackend,
-  systemPrompt: string,
+/** Adapt one exact profile + Runtime executor into the conversation stream protocol. */
+function profileRuntimeBackend(
+  profile: AgentProfile,
+  factory: ExecutorFactory<unknown>,
   counter?: UsageCounter,
 ): AgentExecutionBackend {
   return {
-    kind: inner.kind,
-    start: inner.start ? (input, ctx) => inner.start!(input, ctx) : undefined,
-    resume: inner.resume ? (session, input, ctx) => inner.resume!(session, input, ctx) : undefined,
-    stop: inner.stop ? (session, reason) => inner.stop!(session, reason) : undefined,
+    kind: 'runtime-profile',
     async *stream(input, context) {
-      const base =
-        input.messages ?? (input.message ? [{ role: 'user', content: input.message }] : [])
-      const messages =
-        base[0]?.role === 'system' ? base : [{ role: 'system', content: systemPrompt }, ...base]
-      for await (const event of inner.stream({ ...input, messages }, context)) {
+      const turnInput = input.messages
+        ? { messages: input.messages }
+        : (input.message ?? context.task.intent)
+      for await (const event of streamAgentTurn({ kind: 'executor', profile, factory }, turnInput, {
+        signal: context.signal,
+        ...(context.turnId ? { callId: context.turnId } : {}),
+        ...(context.runId ? { correlationId: context.runId } : {}),
+      })) {
         if (counter && event.type === 'llm_call') {
           counter.tokensIn += event.tokensIn ?? 0
           counter.tokensOut += event.tokensOut ?? 0
@@ -135,9 +134,9 @@ export async function runPersonaConversation(
 ): Promise<PersonaConversationResult> {
   const counter: UsageCounter = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
   const workerName = opts.workerName ?? 'agent'
-  const worker = withProfilePrompt(
-    opts.backendFor(opts.worker, 'worker'),
-    opts.systemPromptOf(opts.worker),
+  const worker = profileRuntimeBackend(
+    opts.worker,
+    opts.executorFor(opts.worker, 'worker'),
     counter,
   )
 
@@ -150,9 +149,9 @@ export async function runPersonaConversation(
     persona = scriptedPersonaBackend(opts.persona.turns)
     maxTurns = opts.maxTurns ?? 2 * opts.persona.turns.length
   } else {
-    persona = withProfilePrompt(
-      opts.backendFor(opts.persona.profile, 'persona'),
-      opts.systemPromptOf(opts.persona.profile),
+    persona = profileRuntimeBackend(
+      opts.persona.profile,
+      opts.executorFor(opts.persona.profile, 'persona'),
     )
     if (opts.maxTurns === undefined) {
       throw new Error('runPersonaConversation: maxTurns is required for a profile-driven persona')
@@ -196,10 +195,8 @@ export async function runPersonaConversation(
 }
 
 export interface RunPersonaConfig<TScenario extends Scenario, TArtifact> {
-  /** Turn an `AgentProfile` into a runnable backend (router / sandbox / fake). */
-  backendFor: (profile: AgentProfile, role: 'worker' | 'persona') => AgentExecutionBackend
-  /** Render a profile's system prompt. */
-  systemPromptOf: (profile: AgentProfile) => string
+  /** Resolve transport/executable ports for each exact profile. */
+  executorFor: (profile: AgentProfile, role: 'worker' | 'persona') => ExecutorFactory<unknown>
   /** The persona driving each scenario — a driver profile or scripted turns. */
   personaOf: (scenario: TScenario) => PersonaDriver
   /** Build the scored artifact from the finished transcript. */
@@ -244,8 +241,7 @@ export function runPersonaDispatch<TScenario extends Scenario, TArtifact>(
         runPersonaConversation({
           worker,
           persona: config.personaOf(scenario),
-          backendFor: config.backendFor,
-          systemPromptOf: config.systemPromptOf,
+          executorFor: config.executorFor,
           maxTurns: config.maxTurns?.(scenario),
           seed: config.seed?.(scenario),
           signal: executionSignal,
