@@ -3809,6 +3809,18 @@ Worker-only spend (the side under test).
 
 > **tokensOut**: `number`
 
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+Absent means every worker call reported complete token usage.
+
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+Absent means every worker call reported provider-billed cost, including a known zero.
+
 ***
 
 ### RunPersonaConfig

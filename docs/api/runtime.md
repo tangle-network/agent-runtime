@@ -2663,12 +2663,13 @@ Harness × model axes for `expandProfileAxes`. Defaults: the canonical
 
 > `optional` **models?**: readonly `string`[]
 
-##### baseProfile?
+##### baseProfile
 
-> `optional` **baseProfile?**: `AgentProfile`
+> **baseProfile**: `AgentProfile`
 
-Base profile the axes expand over (prompt/tools/skills held fixed).
- Default: a minimal `{ name, model: { default: <first model> } }`.
+Exact base profile the axes expand over (prompt/tools/skills held fixed).
+ Its provider remains authoritative while each axis cell replaces the
+ harness and concrete model.
 
 ##### backends?
 
@@ -2687,14 +2688,6 @@ yields the `SandboxClient` every cell runs on. Merged over the defaults:
 > `optional` **flags?**: `Record`\<`string`, [`LeaderboardFlagSpec`](#leaderboardflagspec)\>
 
 Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
-
-##### modelBackend?
-
-> `optional` **modelBackend?**: `Record`\<`string`, `unknown`\>
-
-Extra fields merged into each cell's `backend.model` create override —
- e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
- sandbox. The cell's bare model id is set by the facade from the axis.
 
 ##### setup?
 
@@ -2784,13 +2777,10 @@ readonly `SandboxEvent`[]
 
 > `optional` **resolveModel?**: (`events`) => `string` \| `undefined`
 
-Resolve the model the backend ACTUALLY served off a shot's raw events.
-Required for HARNESS_NATIVE_MODEL-snapped cells (a vendor-locked harness ×
-an out-of-family model expands to the `default` sentinel): the RunRecord
-must pin a real snapshot-bearing model id, which only the dispatch —
-reading the backend's usage/terminal events — can know. When this returns
-a value the default dispatch records it on the paid-call receipt;
-in-family cells (concrete declared model) never need it.
+Resolve the model the backend actually served from a shot's raw events.
+When this returns a value the default dispatch records it on the paid-call
+receipt. It cannot complete an inexact planning profile: every expanded
+cell must already declare a concrete model before backend work starts.
 
 ###### Parameters
 
@@ -22250,9 +22240,9 @@ event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
     receipt: (turn) => {
       const u = sumSandboxUsage(turn.events)
       return { model, inputTokens: u.input, outputTokens: u.output,
-        ...(u.tokensKnown ? {} : { usageUnknown: true }),
-        ...(u.usdKnown && u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}),
-        ...(u.usdKnown ? {} : { costUnknown: true }),
+        ...(u.tokensKnown === false ? { usageUnknown: true } : {}),
+        ...(u.usdKnown !== false && u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}),
+        ...(u.usdKnown === false ? { costUnknown: true } : {}),
         ...(u.estimatedCostUsd !== undefined ? { estimatedCostUsd: u.estimatedCostUsd } : {}) }
     }
 
@@ -22285,13 +22275,13 @@ readonly `SandboxEvent`[]
 
 > **costUsd**: `number`
 
-##### tokensKnown
+##### tokensKnown?
 
-> **tokensKnown**: `boolean`
+> `optional` **tokensKnown?**: `false`
 
-##### usdKnown
+##### usdKnown?
 
-> **usdKnown**: `boolean`
+> `optional` **usdKnown?**: `false`
 
 ##### estimatedCostUsd?
 

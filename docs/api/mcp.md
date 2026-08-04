@@ -1572,8 +1572,8 @@ single-iteration loop span tree (`runId` = `sessionId`, driver
 `'detached-turn'`) so trace-context inheritance survives the detached
 path — the same events the streaming `runAgentRounds` path would emit, minus
 per-token telemetry: `driveTurn` yields one terminal payload, so token
-and cost figures are structurally unavailable and reported as 0 under
-this driver tag.
+and cost figures are structurally unavailable; zero observed subtotals are
+marked incomplete under this driver tag.
 
 ##### placement?
 
@@ -1981,14 +1981,6 @@ across all namespaces. Returns events in insertion order.
 **`Experimental`**
 
 Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.agent-worktrees/`.
-
-##### harnesses?
-
-> `optional` **harnesses?**: readonly [`LocalHarness`](#localharness)[]
-
-**`Experimental`**
-
-Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude-code']`.
 
 ##### testCmd?
 
