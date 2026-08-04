@@ -59,11 +59,7 @@ export function resolveRouterRetryPolicy(
     `${context}.initialBackoffMs`,
   )
   const maxBackoffMs = timerInteger(policy.maxBackoffMs, 30_000, `${context}.maxBackoffMs`)
-  const requestTimeoutMs = timerInteger(
-    policy.requestTimeoutMs,
-    120_000,
-    `${context}.requestTimeoutMs`,
-  )
+  const requestTimeoutMs = timerInteger(policy.requestTimeoutMs, 0, `${context}.requestTimeoutMs`)
   const jitter = policy.jitter ?? 0.25
   if (typeof jitter !== 'number' || !Number.isFinite(jitter) || jitter < 0 || jitter > 1) {
     throw new ValidationError(`${context}.jitter must be a finite number from 0 through 1`)

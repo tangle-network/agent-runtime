@@ -11,6 +11,12 @@ const profileWithRetry = (retry: unknown): Pick<AgentProfile, 'model'> => ({
 })
 
 describe('AgentProfile.model.metadata.retry', () => {
+  it('leaves request duration unlimited unless the caller sets a deadline', () => {
+    const settings = profileModelExecutionSettings(profileWithRetry({}), 'default retry profile')
+
+    expect(settings.retry?.requestTimeoutMs).toBe(0)
+  })
+
   it('resolves every caller control into one immutable current policy', () => {
     const settings = profileModelExecutionSettings(
       profileWithRetry({
