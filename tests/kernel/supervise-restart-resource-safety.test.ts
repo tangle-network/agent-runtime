@@ -1,4 +1,4 @@
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
@@ -16,6 +16,7 @@ import type {
   Spend,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const zeroSpend: Spend = {
   iterations: 0,
@@ -327,7 +328,10 @@ describe('supervision restart and resource safety', () => {
         const allocation = { maxIterations: 1, maxTokens: 10 }
         const manager = scope.spawn(
           driverChild(
-            { name: 'nested-manager', harness: 'cli-base', metadata: { role: 'driver' } },
+            testAgentProfile('nested-manager', {
+              harness: 'cli-base',
+              metadata: { role: 'driver' },
+            }),
             nested,
             journal,
           ),
@@ -824,7 +828,10 @@ describe('supervision restart and resource safety', () => {
       async act(task, scope): Promise<unknown> {
         const manager = scope.spawn(
           driverChild(
-            { name: 'manager', harness: 'cli-base', metadata: { role: 'driver' } },
+            testAgentProfile('manager', {
+              harness: 'cli-base',
+              metadata: { role: 'driver' },
+            }),
             nestedDriver,
             journal,
           ),
@@ -999,7 +1006,10 @@ describe('supervision restart and resource safety', () => {
       async act(task, scope): Promise<string> {
         const spawned = scope.spawn(
           driverChild(
-            { name: 'unknown-manager', harness: 'cli-base', metadata: { role: 'driver' } },
+            testAgentProfile('unknown-manager', {
+              harness: 'cli-base',
+              metadata: { role: 'driver' },
+            }),
             nestedDriver,
             journal,
           ),
@@ -1250,7 +1260,7 @@ function leafFromExecutor<Out>(
 ): Agent<unknown, Out> {
   const executor = makeExecutor()
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: executor as Executor<unknown>,
   }

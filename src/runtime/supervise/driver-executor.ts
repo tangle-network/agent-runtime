@@ -38,6 +38,7 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
+import { executableAgentSpecSnapshot } from './executable-spec'
 import {
   attestRuntimeOwnedDeferredExecutor,
   runtimeOwnedScopeOwnerRuntime,
@@ -68,9 +69,6 @@ import type {
 /** The runtime tag the registry maps a driver child to. */
 export { driverRuntime } from './tree-key'
 
-/** The metadata marker on a driver child's spec the recursive registry routes on. */
-const driverRole = 'driver'
-
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
 interface DriverSpec extends AgentSpec {
   readonly driverRuntime: typeof driverRuntime
@@ -83,22 +81,18 @@ interface DriverSpec extends AgentSpec {
 /**
  * Mark + carry a driver `Agent` so the recursive registry resolves it to the
  * driver-executor. The returned agent is SPAWNED (never run directly): its
- * `executorSpec` is marked `role: 'driver'` and carries the driver agent + the shared
+ * `executorSpec` carries the exact profile, driver agent, and shared
  * journal so the executor can run its `act` inside a nested scope. `act` fails loud if
  * called directly — a driver child runs THROUGH its nested-scope executor, never as a root.
  */
 export function driverChild<Out>(
-  profileOrName: AgentProfile | string,
+  profile: AgentProfile,
   driver: Agent<unknown, Out>,
   journal: SpawnJournal,
   execution?: AgentExecutionRef,
 ): Agent<unknown, Out> {
-  const profile: AgentProfile =
-    typeof profileOrName === 'string'
-      ? { name: profileOrName, metadata: { role: driverRole } }
-      : profileOrName
   const name = profile.name ?? driver.name
-  const spec: DriverSpec = {
+  const rawSpec: DriverSpec = {
     profile,
     harness: null,
     ...(execution ? { execution } : {}),
@@ -106,6 +100,7 @@ export function driverChild<Out>(
     driver: driver as Agent<unknown, unknown>,
     journal,
   }
+  const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
   const deliver = driver.deliver?.bind(driver)
   return {
     name,
@@ -125,21 +120,21 @@ export function driverChild<Out>(
   } as Agent<unknown, Out> & { executorSpec: AgentSpec }
 }
 
-/** True when a spec is a driver child (carries the role marker + a driver Agent). */
+/** True when a spec carries Runtime's explicit nested-driver tag plus a driver Agent. */
 export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
   if ((spec as { driverRuntime?: unknown }).driverRuntime !== driverRuntime) return false
   const driver = (spec as { driver?: unknown }).driver
   if (!isAgent(driver)) {
     throw new ValidationError(
-      'driverExecutor: a driver-role spec must carry a `driver` Agent to run inside its nested scope',
+      'driverExecutor: a nested-driver spec must carry a `driver` Agent to run inside its nested scope',
     )
   }
   return true
 }
 
 /**
- * The recursive driver-executor factory. `withDriverExecutor` routes a child marked
- * `role: 'driver'` here; any other child resolves to a leaf built-in. On `execute`, it
+ * The recursive driver-executor factory. `withDriverExecutor` routes a child carrying
+ * Runtime's explicit nested-driver tag here; any other child resolves to a leaf built-in. On `execute`, it
  * reads the `nested-scope` seam the SCOPE seeded, mounts a nested `Scope` one `depth`
  * deeper over the driver's reserved child pool plus shared journal/blobs/registry, runs the driver
  * `Agent.act(task, nestedScope)`, and reports the conserved spend summed off the nested
@@ -150,10 +145,11 @@ export function isDriverSpec(spec: AgentSpec): spec is DriverSpec {
  * thrown executor, which the parent scope types into a `down` settlement — the same
  * fail-loud-into-typed-down discipline a leaf gets.
  */
-export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
+export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) => {
+  const spec = executableAgentSpecSnapshot(rawSpec, 'driverExecutorFactory')
   if (!isDriverSpec(spec)) {
     throw new ValidationError(
-      'driverExecutorFactory: spec is not a driver child (no role:"driver" marker)',
+      'driverExecutorFactory: spec is not a driver child (missing Runtime nested-driver tag)',
     )
   }
   const driver = spec.driver
@@ -278,20 +274,30 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (spec, ctx) => {
 }
 
 /**
- * Register the driver-executor so a child marked `role: 'driver'` resolves to it. The base
- * registry resolves by harness alone (it does not read `role`), so a recursive run needs a
- * registry that routes the driver tag here FIRST. Returns a registry decorator: a
- * driver-role spec → the driver-executor; everything else → the base registry's resolution
+ * Register the driver-executor so a child carrying Runtime's explicit nested-driver tag resolves
+ * to it. The base registry resolves by harness alone, so a recursive run needs a registry that
+ * routes the driver tag here first. Returns a registry decorator: a tagged driver spec → the
+ * driver-executor; everything else → the base registry's resolution
  * (leaf built-ins + BYO).
  */
 export function withDriverExecutor(base: ExecutorRegistry): ExecutorRegistry {
   return {
     register: base.register.bind(base),
-    resolve<Out>(spec: AgentSpec) {
+    resolve<Out>(rawSpec: AgentSpec) {
+      const spec = executableAgentSpecSnapshot(rawSpec, 'driver executor registry')
       if ((spec as { driverRuntime?: unknown }).driverRuntime === driverRuntime && !spec.executor) {
-        return { succeeded: true as const, value: driverExecutorFactory as ExecutorFactory<Out> }
+        return {
+          succeeded: true as const,
+          value: ((_ignored, context) =>
+            driverExecutorFactory(spec, context)) as ExecutorFactory<Out>,
+        }
       }
-      return base.resolve<Out>(spec)
+      const resolved = base.resolve<Out>(spec)
+      if (!resolved.succeeded) return resolved
+      return {
+        succeeded: true as const,
+        value: (_ignored, context) => resolved.value(spec, context),
+      }
     },
   }
 }

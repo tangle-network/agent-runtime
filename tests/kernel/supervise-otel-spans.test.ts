@@ -154,7 +154,7 @@ async function runNestedTree(exporter: OtelExporter) {
   )
   const root = scriptedDriver(
     'root',
-    () => [{ label: 'mid', agent: driverChild('mid', mid, journal) }],
+    () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), mid, journal) }],
     [
       {
         spend: { iterations: 0, tokens: { input: 100, output: 40 }, usd: 0.5, ms: 12 },

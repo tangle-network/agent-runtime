@@ -7,7 +7,6 @@
  * about the default path changes.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -20,6 +19,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 /** Counts its own executions so "did this key run again?" is a number, not an inference. `gate`,
  *  when given, holds the worker open until the test releases it — a deterministic stand-in for a
@@ -44,7 +44,7 @@ function countingLeaf(name: string, out: string, runs: { n: number }, gate?: Pro
     }),
   }
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: executor as Executor<unknown>,
   }
@@ -207,7 +207,7 @@ describe('semantic spawn keys', () => {
         },
       }
       const spec: AgentSpec = {
-        profile: { name: 'f' } as AgentProfile,
+        profile: testAgentProfile('f'),
         harness: null,
         executor: executor as Executor<unknown>,
       }

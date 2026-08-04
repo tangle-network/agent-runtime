@@ -11,7 +11,6 @@
  * loops. That wire's own docstring described it; nothing connected it until now.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createCoordinationTools } from '../../src/mcp/tools/coordination'
@@ -34,6 +33,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 50, maxTokens: 100_000 }
 
@@ -68,7 +68,7 @@ function pausingLeaf(name: string, pause: Promise<void>): Agent<unknown, unknown
       spent: { iterations: 2, tokens: { input: 150, output: 30 }, usd: 0, ms: 0 },
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor: ex }
   return { name, act: async () => 0, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -173,7 +173,7 @@ describe('scope.progress — a running worker is observable without any executor
     const agent = {
       name: 'sub',
       act: async () => 0,
-      executorSpec: { profile: { name: 'sub' } as AgentProfile, harness: null, executor: ex },
+      executorSpec: { profile: testAgentProfile('sub'), harness: null, executor: ex },
     } as Agent<unknown, unknown>
     const res = scope.spawn(agent, 'go', { budget })
     if (!res.ok) throw new Error('spawn failed')
@@ -222,7 +222,7 @@ describe('a GATED active worker stays fully observable mid-flight (BUG 1 + BUG 2
       progress: (): ExecutorProgress => ({ recentActivity: log.read(), note: 'running tests' }),
     }
     const gated = gateOnDeliverable(inner, { check: () => true })
-    const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: gated }
+    const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor: gated }
     return { name, act: async () => 0, executorSpec: spec } as Agent<unknown, unknown> & {
       executorSpec: AgentSpec
     }

@@ -22,6 +22,7 @@ import type {
   NodeExecutionIdentity,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const spent = {
   iterations: 1,
@@ -218,7 +219,7 @@ describe('spawn journal replay identity', () => {
         },
       }
       const spec: AgentSpec = {
-        profile: { name: 'failing worker' },
+        profile: testAgentProfile('failing worker'),
         harness: null,
         executor,
       }

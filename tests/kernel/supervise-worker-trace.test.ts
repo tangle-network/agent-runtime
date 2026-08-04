@@ -246,7 +246,10 @@ describe('a spawned worker inherits the run trace and the spawning node span', (
     )
     const result = await createSupervisor<unknown, unknown>().run(
       scriptedDriver('root', () => [
-        { label: 'mid', agent: driverChild('mid', mid, journal) as Agent<unknown, unknown> },
+        {
+          label: 'mid',
+          agent: driverChild(testAgentProfile('mid'), mid, journal) as Agent<unknown, unknown>,
+        },
       ]),
       'task',
       supervisorOpts({

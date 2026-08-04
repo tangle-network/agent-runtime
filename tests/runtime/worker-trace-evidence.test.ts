@@ -22,6 +22,7 @@ import type {
   ResultBlobStore,
   SpawnJournal,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const spent = {
   iterations: 1,
@@ -36,7 +37,7 @@ function makeAgent(
   return {
     name: 'trace worker',
     act: async () => undefined,
-    executorSpec: { profile: { name: 'trace worker' }, harness: null, executor },
+    executorSpec: { profile: testAgentProfile('trace worker'), harness: null, executor },
   }
 }
 

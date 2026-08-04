@@ -246,9 +246,11 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 // ── Executor resolution (OPEN registry, not a switch) ─────────────────────────
 
 /**
- * `AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
- * one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
- * an executor directly, without changing the profile's behavioral identity.
+ * `AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling
+ * any registry, including one that resolves caller-supplied executors and factories. The default
+ * registry enforces the same rule when called directly. `AgentSpec.harness` records routing for one
+ * concrete run; where a backend consumes both fields, it must agree with `AgentProfile.harness` and
+ * cannot fill or override it.
  *
  * Resolution (in `runtime.ts`):
  *  - `executorFactory` present → BYO: build it after admission with the live context.
@@ -267,7 +269,7 @@ export interface AgentSpec {
   /** Per-spawn factory carrying caller configuration. Constructed only after admission, with the
    *  real child signal and nested-scope context. */
   readonly executorFactory?: ExecutorFactory<unknown>
-  /** Bring-your-own executor: when set, overrides harness-based resolution entirely. */
+  /** Bring-your-own executor: highest routing precedence after exact-profile intake validation. */
   readonly executor?: Executor<unknown>
 }
 
@@ -395,9 +397,9 @@ export interface ExecutorNodeContext {
 }
 
 /**
- * Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
- * shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
- * user supply construction args without pre-instantiating.
+ * Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared)
+ * so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a user supply
+ * construction args without pre-instantiating; it never bypasses exact-profile validation.
  */
 export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Executor<Out>
 
@@ -413,10 +415,10 @@ export interface ExecutorContext {
 }
 
 /**
- * The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
- * registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
- * register more runtimes by name. NOT a closed switch — registration is the extension
- * point, mirroring the open `Executor` interface.
+ * The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates
+ * before invoking any implementation; the default registry repeats validation for direct callers,
+ * resolves the three built-ins, and accepts a BYO `executor`/factory. Callers may register more
+ * runtimes by name, but registration does not waive exact-profile validation.
  */
 export interface ExecutorRegistry {
   /** Register a factory for a named runtime. Throws on a duplicate name (fail loud). */

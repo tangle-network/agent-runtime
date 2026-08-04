@@ -44,6 +44,7 @@ import {
   teardownExecutor,
 } from './deadline'
 import { freeSlots } from './dispatch'
+import { executableAgentSpecSnapshot } from './executable-spec'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -507,7 +508,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           `scope.spawn: agent "${agent.name}" exposes no \`executorSpec\` (AgentSpec) to resolve a Executor`,
         )
       }
-      const spec = snapshotAgentSpec(rawSpec)
+      const spec = executableAgentSpecSnapshot(rawSpec, 'scope.spawn')
       return { agent, spec, identity: deriveNodeExecutionIdentity(spec, task) }
     }
     if (opts.key !== undefined) {
@@ -539,6 +540,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (args.maxDepth !== undefined && args.depth >= args.maxDepth) {
       return { ok: false, reason: 'depth-exceeded' }
     }
+
+    // A concrete child exposes its profile now, so parse and seal it before capacity or budget
+    // admission. A lazy agent factory cannot reveal a profile without being constructed; preserve
+    // the refusal invariant for those factories and validate the result immediately after the
+    // reservation, before registry resolution or any executor code.
+    if (typeof agentOrFactory !== 'function') prepared ??= prepare()
 
     // ONE admission counter is shared by the root scope and every recursive scope it mounts.
     // Acquire before calling a lazy worker factory, resolving/constructing its executor, or
@@ -2314,27 +2321,6 @@ function isAgentSpec(value: unknown): value is AgentSpec {
   if (typeof value !== 'object' || value === null) return false
   const v = value as Record<string, unknown>
   return 'profile' in v && 'harness' in v
-}
-
-/** Snapshot every data field whose bytes affect identity, admission, or materialization while
- * preserving the executable callbacks by reference. The executor implementation is trusted code;
- * its profile and attribution inputs are not. */
-function snapshotAgentSpec(raw: AgentSpec): AgentSpec {
-  const {
-    profile: rawProfile,
-    harness,
-    execution: rawExecution,
-    ...runtimeExtensions
-  } = raw as AgentSpec & Readonly<Record<string, unknown>>
-  const profile = detachedSnapshot(rawProfile, 'scope.spawn profile')
-  const execution =
-    rawExecution === undefined ? undefined : detachedSnapshot(rawExecution, 'scope.spawn execution')
-  return Object.freeze({
-    ...runtimeExtensions,
-    profile,
-    harness,
-    ...(execution === undefined ? {} : { execution }),
-  }) as AgentSpec
 }
 
 function isAbortError(err: unknown): boolean {

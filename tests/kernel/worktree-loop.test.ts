@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { worktreeLoopRunner } from '../../src/loop-runner'
 import type { GitRunner } from '../../src/mcp/worktree'
 import type { Budget } from '../../src/runtime'
+import { testAgentProfile } from './test-agent-profile'
 
 /** Per-worktree fake git: each worktree gets a distinct diff keyed by its path so two harness
  *  leaves produce two different patches (and two different diff sizes). */
@@ -27,10 +28,8 @@ function fakeGitWith(
   }
 }
 
-const profile = (name: string): AgentProfile => ({
-  name,
-  prompt: { systemPrompt: `You are ${name}.` },
-})
+const profile = (name: string, harness: AgentProfile['harness']): AgentProfile =>
+  testAgentProfile(name, { harness, prompt: { systemPrompt: `You are ${name}.` } })
 
 const budget: Budget = { maxIterations: 50, maxTokens: 500_000 }
 
@@ -54,18 +53,19 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
     const patch = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n+const a = 1'
     const runner = worktreeLoopRunner({
       repoRoot: '/repo',
+      rootProfile: profile('worktree-coder', 'cli-base'),
       taskPrompt: 'fix the off-by-one',
       budget,
       harnesses: [
         {
           name: 'claude',
-          profile: profile('claude'),
+          profile: profile('claude', 'claude-code'),
           harness: 'claude-code',
           budgetExempt: false,
         },
         {
           name: 'opencode',
-          profile: profile('opencode'),
+          profile: profile('opencode', 'opencode'),
           harness: 'opencode',
           budgetExempt: false,
         },
@@ -90,12 +90,13 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
     const patch = 'diff --git a/src/x.ts b/src/x.ts\n--- a/src/x.ts\n+++ b/src/x.ts\n+const a = 1'
     const runner = worktreeLoopRunner({
       repoRoot: '/repo',
+      rootProfile: profile('worktree-coder', 'cli-base'),
       taskPrompt: 'fix it',
       budget,
       harnesses: [
         {
           name: 'claude',
-          profile: profile('claude'),
+          profile: profile('claude', 'claude-code'),
           harness: 'claude-code',
           budgetExempt: false,
         },
@@ -116,12 +117,13 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
   it('rejects an empty patch via the always-on no-op floor (no winner)', async () => {
     const runner = worktreeLoopRunner({
       repoRoot: '/repo',
+      rootProfile: profile('worktree-coder', 'cli-base'),
       taskPrompt: 'do nothing',
       budget,
       harnesses: [
         {
           name: 'claude',
-          profile: profile('claude'),
+          profile: profile('claude', 'claude-code'),
           harness: 'claude-code',
           budgetExempt: false,
         },

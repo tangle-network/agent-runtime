@@ -195,7 +195,7 @@ describe('kernel-owned materialization evidence', () => {
       'cli',
     )
     const child = driverChild(
-      { name: 'manager', metadata: { role: 'driver' } },
+      testAgentProfile('manager', { metadata: { role: 'driver' } }),
       silentManager,
       journal,
     )

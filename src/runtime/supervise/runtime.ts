@@ -89,6 +89,7 @@ import type {
   SandboxClient,
 } from '../types'
 import { zeroTokenUsage } from '../util'
+import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInbox, type Inbox } from './inbox'
 import {
   attestRuntimeOwnedExecutor,
@@ -3664,15 +3665,15 @@ export function bindReusableExecutorExecutionId(
 /**
  * The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
  * injects the matching seam, and delegates to that backend's built-in implementation.
- * The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly
- * and never pass through here. Use this (or `createExecutorRegistry`) instead of a
+ * The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly, while Scope
+ * or `createExecutorRegistry` still parses and seals their exact profile before use. Use this instead of a
  * per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
  * `UsageEvent` reporting channel.
  */
 export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown> {
   const captured = snapshotExecutorConfig(config)
-  return (spec, ctx) => {
-    assertExecutableAgentProfile(spec.profile, `createExecutor(${captured.backend})`)
+  return (rawSpec, ctx) => {
+    const spec = executableAgentSpecSnapshot(rawSpec, `createExecutor(${captured.backend})`)
     const { backend, ...seamData } = captured as ExecutorConfig & Record<string, unknown>
     const seam = Object.freeze(seamData)
     const seamed: ExecutorContext = { ...ctx, seams: { ...ctx.seams, [backend]: seam } }
@@ -3733,8 +3734,10 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return providerAsExecutor(provider, {
           ...providerSeam,
           profileForCreate: (profile) => {
-            const prepared = profileForCreate?.(profile) ?? profile
-            assertExecutableAgentProfile(prepared, 'createExecutor(provider)')
+            const prepared = executableAgentProfileSnapshot(
+              profileForCreate?.(profile) ?? profile,
+              'createExecutor(provider)',
+            )
             if (canonicalAgentProfileDigest(prepared) !== canonicalAgentProfileDigest(profile)) {
               throw new ValidationError(
                 'createExecutor(provider): profileForCreate changed the exact AgentProfile; execution overlays are not allowed',
@@ -3782,9 +3785,8 @@ function requiredProviderProfileHarness(spec: AgentSpec, seam: ProviderSeam): Ba
 /**
  * The open resolver/registry. Pre-registers the three built-ins under their
  * runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
- * factory)` for any additional runtime — and a BYO `AgentSpec.executor` resolves
- * without touching the registry at all. NOT a closed switch; registration + BYO
- * ARE the extension points.
+ * factory)` for any additional runtime. A BYO `AgentSpec.executor` has highest routing precedence
+ * after the same exact-profile intake validation. Registration + BYO remain open extension points.
  *
  * `resolve` precedence (frozen in `ExecutorRegistry`): a BYO `spec.executorFactory` →
  * `spec.executor` → `harness === null` → the `'router'` factory; else a registered factory for the
@@ -3805,22 +3807,30 @@ export function createExecutorRegistry(): ExecutorRegistry {
       factories.set(runtime, factory as ExecutorFactory<unknown>)
     },
     resolve<Out>(
-      spec: AgentSpec,
+      rawSpec: AgentSpec,
     ): { succeeded: true; value: ExecutorFactory<Out> } | { succeeded: false; error: string } {
+      const spec = executableAgentSpecSnapshot(rawSpec, 'executor registry')
+      const bind =
+        (factory: ExecutorFactory<Out>): ExecutorFactory<Out> =>
+        (_ignored, context) =>
+          factory(spec, context)
       // BYO factory: constructed only after Scope admission with the real signal/context.
       if (spec.executorFactory) {
-        return { succeeded: true, value: spec.executorFactory as ExecutorFactory<Out> }
+        return {
+          succeeded: true,
+          value: bind(spec.executorFactory as ExecutorFactory<Out>),
+        }
       }
       // BYO: a caller-supplied executor wins, wrapped in a trivial per-spawn factory.
       if (spec.executor) {
         const byo = spec.executor
-        return { succeeded: true, value: (() => byo) as ExecutorFactory<Out> }
+        return { succeeded: true, value: bind(() => byo as Executor<Out>) }
       }
       // router/inline: an agent with no harness is a direct Router call.
       if (spec.harness === null) {
         const f = factories.get('router')
         if (!f) return { succeeded: false, error: 'executor registry: no "router" factory' }
-        return { succeeded: true, value: f as ExecutorFactory<Out> }
+        return { succeeded: true, value: bind(f as ExecutorFactory<Out>) }
       }
       // sandbox: any BackendType maps to the sandbox-composing-runAgentRounds executor.
       const runtimeTag: Runtime = 'sandbox'
@@ -3831,7 +3841,7 @@ export function createExecutorRegistry(): ExecutorRegistry {
           error: `executor registry: no factory for runtime "${runtimeTag}" (harness "${spec.harness}") and no BYO executor`,
         }
       }
-      return { succeeded: true, value: f as ExecutorFactory<Out> }
+      return { succeeded: true, value: bind(f as ExecutorFactory<Out>) }
     },
   }
 }

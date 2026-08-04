@@ -21,6 +21,7 @@
  * @experimental
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { runAnalystLoop } from './analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from './analyst-loop/types'
 import { ConfigError } from './errors'
@@ -113,6 +114,8 @@ export async function runDelegatedLoop<T = unknown>(
 
 /** @experimental Options for the local-repo `code` runner over the GENERIC recursive path. */
 export interface WorktreeLoopRunnerOptions {
+  /** Exact profile carried by the personified root that owns this fanout. */
+  rootProfile: AgentProfile
   /** Absolute path to the local git checkout each worktree is cut from. */
   repoRoot: string
   /** The instruction handed to every authored harness (composed under each profile's systemPrompt). */
@@ -174,7 +177,7 @@ export function worktreeLoopRunner(
   // executor is BYO (the gated worktree-CLI leaf), so the registry only needs to pass BYO through.
   const persona = definePersona<WorktreePatchArtifact>({
     name: 'worktree-coder',
-    root: { profile: { name: 'worktree-coder' }, harness: null },
+    root: { profile: options.rootProfile, harness: null },
     directive: 'deliver a minimal validated patch on a fresh worktree',
     context: { role: 'coder' },
     executors: { registry: createExecutorRegistry() },

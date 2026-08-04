@@ -20,6 +20,7 @@ import type {
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 type SeenMessages = Array<ReadonlyArray<Record<string, unknown>>>
 
@@ -63,7 +64,7 @@ function workerLeaf(
   onTeardown?: () => void,
 ): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: workerExecutor(s, onTeardown),
   }
@@ -74,7 +75,7 @@ function workerLeaf(
 
 function hangingWorkerLeaf(name: string): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: {
       runtime: 'router',
@@ -324,7 +325,11 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
       if (profile.metadata?.kind === 'driver') {
         const childBrain = scriptedBrain(midTurns, midSeen)
-        return driverChild('mid', driverAgent(driverOpts('mid', childBrain, makeAgent)), journal)
+        return driverChild(
+          testAgentProfile('mid'),
+          driverAgent(driverOpts('mid', childBrain, makeAgent)),
+          journal,
+        )
       }
       return worker
     }
@@ -727,7 +732,7 @@ describe('driverAgent — the analyst up-leg (analysts + analyzeOnSettle pass-th
     ({
       name: 'w',
       act: async () => '',
-      executorSpec: { profile: { name: 'w' } as AgentProfile, harness: null },
+      executorSpec: { profile: testAgentProfile('w'), harness: null },
     }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
   const analysts = {
     kinds: [{ id: 'progress', description: 'read the settled output', area: 'progress' }],

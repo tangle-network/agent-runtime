@@ -29,6 +29,7 @@ import type {
   WidenGate,
 } from '../../src/runtime/supervise/types'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── The mock Executor — the whole keystone runs offline against this ─────────
 //
@@ -102,7 +103,7 @@ function stableKey(value: unknown): string {
  *  router/sandbox/cli factory ever fires — the test stays fully offline. */
 function leafAgent(name: string, script: MockScript): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: mockExecutor(script),
   }
@@ -852,7 +853,7 @@ describe('reactive scope', () => {
     const agent = {
       name: 'boom',
       act: async () => 0,
-      executorSpec: { profile: {} as AgentProfile, harness: null },
+      executorSpec: { profile: testAgentProfile('boom'), harness: null },
     } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     expect(() =>
       scope.spawn(agent, 'task', { budget: { maxIterations: 1, maxTokens: 100 }, label: 'boom' }),
@@ -925,7 +926,7 @@ describe('reactive scope', () => {
       name: 'validated-inbox',
       act: async () => 1,
       executorSpec: {
-        profile: { name: 'validated-inbox' } as AgentProfile,
+        profile: testAgentProfile('validated-inbox'),
         harness: null,
         executor,
       },
@@ -1110,11 +1111,161 @@ describe('settledToIteration adapter', () => {
 // ── 5. Open executor registry resolution ─────────────────────────────────────────
 
 describe('open executor registry', () => {
+  it.each([
+    {
+      field: 'harness',
+      profile: {
+        name: 'missing-harness',
+        model: { provider: 'offline', default: 'offline-test-model' },
+      },
+    },
+    {
+      field: 'provider',
+      profile: {
+        name: 'missing-provider',
+        harness: 'cli-base',
+        model: { default: 'offline-test-model' },
+      },
+    },
+    {
+      field: 'model',
+      profile: {
+        name: 'missing-model',
+        harness: 'cli-base',
+        model: { provider: 'offline' },
+      },
+    },
+  ] as const)(
+    'scope rejects a child missing $field before resolving or constructing custom execution code',
+    async ({ profile }) => {
+      let resolutions = 0
+      let constructions = 0
+      const registry = {
+        register() {},
+        resolve() {
+          resolutions += 1
+          return {
+            succeeded: true as const,
+            value: () => {
+              constructions += 1
+              return mockExecutor({ out: 'must-not-run', events: [] })
+            },
+          }
+        },
+      } as Parameters<typeof createScope>[0]['executors']
+      const { scope, pool } = await beginScope({ executors: registry })
+      const agent = {
+        name: profile.name,
+        act: async () => 'must-not-run',
+        executorSpec: { profile: profile as AgentProfile, harness: null },
+      } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+
+      expect(() =>
+        scope.spawn(agent, 'task', {
+          budget: { maxIterations: 1, maxTokens: 10 },
+          label: profile.name,
+        }),
+      ).toThrow(/AgentProfile\.(harness|model\.provider|model\.default)/)
+      expect(resolutions).toBe(0)
+      expect(constructions).toBe(0)
+      expect(pool.readout().reservedTokens).toBe(0)
+    },
+  )
+
+  it('scope validates a child before honoring a BYO executor or executor factory', async () => {
+    let factoryCalls = 0
+    let executeCalls = 0
+    const executor = mockExecutor({ out: 'must-not-run', events: [] })
+    const execute = executor.execute.bind(executor)
+    executor.execute = (task, signal) => {
+      executeCalls += 1
+      return execute(task, signal)
+    }
+    const { scope } = await beginScope()
+    const spawn = (name: string, route: Pick<AgentSpec, 'executor' | 'executorFactory'>) =>
+      scope.spawn(
+        {
+          name,
+          act: async () => 'must-not-run',
+          executorSpec: {
+            profile: { name } as AgentProfile,
+            harness: null,
+            ...route,
+          },
+        } as Agent<unknown, unknown> & { executorSpec: AgentSpec },
+        'task',
+        { budget: { maxIterations: 1, maxTokens: 10 }, label: name },
+      )
+
+    expect(() => spawn('byo-executor', { executor })).toThrow(/AgentProfile\.harness/)
+    expect(() =>
+      spawn('byo-factory', {
+        executorFactory: () => {
+          factoryCalls += 1
+          return executor
+        },
+      }),
+    ).toThrow(/AgentProfile\.harness/)
+    expect(factoryCalls).toBe(0)
+    expect(executeCalls).toBe(0)
+  })
+
+  it('passes a detached deeply frozen profile snapshot to a custom executor factory', async () => {
+    const original = testAgentProfile('snapshot-child', {
+      model: {
+        provider: 'offline',
+        default: 'authorized-model',
+        metadata: { temperature: 0.25 },
+      },
+    })
+    let received: AgentProfile | undefined
+    const agent = {
+      name: 'snapshot-child',
+      act: async () => 'done',
+      executorSpec: {
+        profile: original,
+        harness: null,
+        executorFactory: (spec: AgentSpec) => {
+          received = spec.profile
+          return mockExecutor({ out: 'done', events: [] })
+        },
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const { scope } = await beginScope()
+    const mutableModel = original.model as { default: string }
+
+    const spawned = scope.spawn(agent, 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'snapshot-child',
+    })
+    expect(spawned.ok).toBe(true)
+    mutableModel.default = 'mutated-model'
+
+    expect(received).not.toBe(original)
+    expect(received?.model?.default).toBe('authorized-model')
+    expect(Object.isFrozen(received)).toBe(true)
+    expect(Object.isFrozen(received?.model)).toBe(true)
+    expect(Object.isFrozen(received?.model?.metadata)).toBe(true)
+    await scope.next()
+  })
+
+  it('the built-in registry validates before honoring a BYO executor directly', () => {
+    const registry = createExecutorRegistry()
+    const executor = mockExecutor({ out: 'must-not-run', events: [] })
+    expect(() =>
+      registry.resolve({
+        profile: { name: 'invalid-byo' } as AgentProfile,
+        harness: null,
+        executor,
+      }),
+    ).toThrow(/AgentProfile\.harness/)
+  })
+
   it('resolves a BYO executor verbatim (highest precedence)', () => {
     const registry = createExecutorRegistry()
     const byo = mockExecutor({ out: 'x', events: [] })
     const spec: AgentSpec = {
-      profile: { name: 'byo' } as AgentProfile,
+      profile: testAgentProfile('byo'),
       harness: null,
       executor: byo,
     }
@@ -1129,9 +1280,9 @@ describe('open executor registry', () => {
 
   it('harness:null resolves the router factory; a BackendType resolves the sandbox factory', () => {
     const registry = createExecutorRegistry()
-    const router = registry.resolve({ profile: { name: 'r' } as AgentProfile, harness: null })
+    const router = registry.resolve({ profile: testAgentProfile('r'), harness: null })
     const sandbox = registry.resolve({
-      profile: { name: 's' } as AgentProfile,
+      profile: testAgentProfile('s', { harness: 'claude-code' }),
       harness: 'claude-code',
     })
     expect(router.succeeded).toBe(true)

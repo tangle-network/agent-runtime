@@ -183,7 +183,7 @@ Import from `@tangle-network/agent-runtime` — 407 exports.
 | `AgentCandidateRepositoryPort` | interface | Resolves a declared GitHub repository to an already-present local Git object store. |
 | `AgentCandidateTaskExecution` | interface | Runtime placement for one exact cell from a signed candidate experiment. |
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
-| `AgentSpec` | interface | `AgentProfile.harness` is a portable preference; this wrapper records the executor decision for |
+| `AgentSpec` | interface | `AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling |
 | `BackendErrorDetail` | interface | Typed transport / backend failure detail. Carried on `backend_error` and |
 | `Budget` | interface | A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. |
 | `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
@@ -192,7 +192,7 @@ Import from `@tangle-network/agent-runtime` — 407 exports.
 | `CircuitBreakerConfig` | interface | Circuit-breaker tuning. `failuresToOpen` consecutive failures opens it; closed only after `cooldownMs`. |
 | `D1DatabaseLike` | interface | Structural type matching the surface of `D1Database` we depend on, so the |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
-| `ExecutorRegistry` | interface | The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default |
+| `ExecutorRegistry` | interface | The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates |
 | `FinalizeContext` | interface | What a finalizer gets to decide with. `delivered` is the ONLY output material; `allSettled` |
 | `ImproveCandidateValidationInput` | interface | Exact materialized profile presented for validation before any candidate run. |
 | `ImproveCost` | interface | Normalized spend reported for one Runtime improvement run. |
@@ -770,7 +770,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 712 exports.
 | `AgenticSurface` | interface | A stateful, checkable environment an agent operates over with tools. Open behind one interface. |
 | `AgentProfile` | interface | Public provider-neutral agent profile contract. |
 | `AgentRunSpec` | interface | Sandbox-SDK-shaped agent specification. |
-| `AgentSpec` | interface | `AgentProfile.harness` is a portable preference; this wrapper records the executor decision for |
+| `AgentSpec` | interface | `AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling |
 | `AgentTurnUsage` | interface | Metered usage of one turn, summed over every cost-bearing event the backend |
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
@@ -834,7 +834,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 712 exports.
 | `ExecutorMaterialization` | interface | Data-only declaration from trusted executor code about the exact sealed plan `execute` uses. |
 | `ExecutorNodeContext` | interface | Kernel-owned context for the concrete supervised node a factory is constructing. |
 | `ExecutorProgress` | interface | What an executor OPTIONALLY adds to the scope-derived progress (`Executor.progress()`). Every |
-| `ExecutorRegistry` | interface | The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default |
+| `ExecutorRegistry` | interface | The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates |
 | `ExecutorResult` | interface | Terminal artifact of a one-shot `Executor.execute`. |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
@@ -1008,7 +1008,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 712 exports.
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `ExecutionBindingReceipt` | type | One attempt's immutable link from a stable materialization plan to its actual transport. |
 | `ExecutorConfig` | type | Config for {@link createExecutor}: the backend is DATA — the cost dial a profile, |
-| `ExecutorFactory` | type | Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not |
+| `ExecutorFactory` | type | Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared) |
 | `Fanout` | type | `fanout(items, opts)` — build the fanout combinator over a static item list. |
 | `FanoutWinnerSelector` | type | A winner-selection strategy: argmax/sort over the gathered child iterations (each output is the |
 | `FlatWidenGate` | type | The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall |

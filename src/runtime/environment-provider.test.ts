@@ -837,7 +837,14 @@ describe('environment provider adapters', () => {
     const usage = await running
 
     expect(executor.runtime).toBe('session-provider')
-    expect(created?.profile).toBe(profile)
+    expect(created?.profile).toStrictEqual(profile)
+    expect(created?.profile).not.toBe(profile)
+    expect(Object.isFrozen(created?.profile)).toBe(true)
+    expect(typeof created?.profile).toBe('object')
+    if (typeof created?.profile !== 'object' || created.profile === null) {
+      throw new Error('expected the exact AgentProfile snapshot')
+    }
+    expect(Object.isFrozen(created.profile.model)).toBe(true)
     expect(created).toMatchObject({
       backend: 'pi',
       workspace: { cwd: '/repo' },

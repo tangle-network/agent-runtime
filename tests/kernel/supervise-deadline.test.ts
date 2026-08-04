@@ -1,4 +1,3 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
@@ -16,6 +15,7 @@ import type {
   Spend,
   SupervisorOpts,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const zeroSpend: Spend = {
   iterations: 0,
@@ -225,7 +225,7 @@ function leaf(
     teardown: async () => ({ destroyed: true }),
   }
   const executorSpec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor,
   }

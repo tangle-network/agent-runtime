@@ -103,4 +103,43 @@ describe('router executor exact-profile identity', () => {
       expect(request).toBeUndefined()
     },
   )
+
+  it.each([
+    {
+      field: 'harness',
+      profile: {
+        name: 'missing-harness',
+        model: { provider: 'tangle-router', default: 'profile-selected-model' },
+      },
+    },
+    {
+      field: 'provider',
+      profile: {
+        name: 'missing-provider',
+        harness: 'cli-base',
+        model: { default: 'profile-selected-model' },
+      },
+    },
+    {
+      field: 'model',
+      profile: {
+        name: 'missing-model',
+        harness: 'cli-base',
+        model: { provider: 'tangle-router' },
+      },
+    },
+  ] as const)('rejects a direct createExecutor call missing $field at intake', ({ profile }) => {
+    const factory = createExecutor({
+      backend: 'router',
+      routerBaseUrl: 'http://must-not-dispatch.invalid',
+      routerKey: 'key',
+    })
+
+    expect(() =>
+      factory(
+        { profile: profile as AgentProfile, harness: null },
+        { signal: new AbortController().signal, seams: {} },
+      ),
+    ).toThrow(/AgentProfile\.(harness|model\.provider|model\.default)/)
+  })
 })

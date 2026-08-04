@@ -1,7 +1,6 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   contentAddress,
@@ -22,6 +21,7 @@ import type {
   SpawnJournal,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const rootBudget = { maxIterations: 10, maxTokens: 10_000 }
 const childBudget = { maxIterations: 4, maxTokens: 1_000 }
@@ -49,7 +49,7 @@ function leaf(
       }
     },
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -82,10 +82,14 @@ describe('loadSpawnForest', () => {
       const root: Agent<unknown, unknown> = {
         name: 'root',
         async act(task, scope) {
-          const spawned = scope.spawn(driverChild('nested', nested, journal), task, {
-            budget: childBudget,
-            label: 'nested',
-          })
+          const spawned = scope.spawn(
+            driverChild(testAgentProfile('nested'), nested, journal),
+            task,
+            {
+              budget: childBudget,
+              label: 'nested',
+            },
+          )
           if (!spawned.ok) throw new Error(spawned.reason)
           return onlyDone(scope)
         },

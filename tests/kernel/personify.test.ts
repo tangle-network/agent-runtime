@@ -31,6 +31,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { RuntimeHookEvent, RuntimeHooks } from '../../src/runtime-hooks'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Offline mock leaf runtime ─────────────────────────────────────────────────────
 //
@@ -104,7 +105,7 @@ function makePersona<D>(
 ): Persona<D> {
   return definePersona<D>({
     name,
-    root: { profile: { name: role } as AgentProfile, harness: null },
+    root: { profile: testAgentProfile(role), harness: null },
     directive: `act as ${role}`,
     context: { role },
     executors: { registry: mockRegistry(scriptFor) },
@@ -118,6 +119,44 @@ const ev = (input: number, output: number): UsageEvent[] => [
 
 const wideBudget: Budget = { maxIterations: 200, maxTokens: 1_000_000 }
 const wideShapeBudget = { fanout: 4, perChild: { maxIterations: 10, maxTokens: 50_000 } }
+
+describe('personify profile intake', () => {
+  it.each([
+    {
+      field: 'harness',
+      profile: {
+        name: 'missing-harness',
+        model: { provider: 'offline', default: 'offline-test-model' },
+      },
+    },
+    {
+      field: 'provider',
+      profile: {
+        name: 'missing-provider',
+        harness: 'cli-base',
+        model: { default: 'offline-test-model' },
+      },
+    },
+    {
+      field: 'model',
+      profile: {
+        name: 'missing-model',
+        harness: 'cli-base',
+        model: { provider: 'offline' },
+      },
+    },
+  ] as const)('definePersona rejects a root missing $field at intake', ({ profile }) => {
+    expect(() =>
+      definePersona({
+        name: profile.name,
+        root: { profile: profile as AgentProfile, harness: null },
+        directive: 'must not reach a shape',
+        context: { role: 'test' },
+        executors: { registry: mockRegistry(() => ({ out: 'must-not-run', events: [] })) },
+      }),
+    ).toThrow(/AgentProfile\.(harness|model\.provider|model\.default)/)
+  })
+})
 
 /** Run a combinator factory verbatim (NOT via a registry name) through the real keystone.
  *  Passing the factory directly keeps the test independent of the shape-name registry. */
@@ -313,7 +352,7 @@ describe('combinator · fanout', () => {
       itemTask: (item) => ({ item }),
       label: (item) => `leaf:${item}`,
       itemSpec: (item, i): AgentSpec => ({
-        profile: { name: `authored-${item}` } as AgentProfile,
+        profile: testAgentProfile(`authored-${item}`),
         harness: null,
         executor: byoExecutor(`out-${item}`, 0.2 + i * 0.3),
       }),
@@ -635,7 +674,7 @@ describe('meta-orchestrator (depth-2 sub-driver loops)', () => {
     // The meta persona's children are BYO sub-loop leaves — each runs its own nested loop.
     const metaPersona = definePersona<string>({
       name: 'meta',
-      root: { profile: { name: 'orchestrator' } as AgentProfile, harness: null },
+      root: { profile: testAgentProfile('orchestrator'), harness: null },
       directive: 'orchestrate sub-loops',
       context: { role: 'orchestrator' },
       executors: {
