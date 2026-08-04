@@ -69,7 +69,12 @@ describe('optimizer cost reconciliation', () => {
       assertMethodCostRecorded(
         'fixture',
         {
-          cost: { totalCostUsd: 0.25, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0.25,
+            costProvenance: { kind: 'observed', usd: 0.25 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
         },
         ledger,
         ledger,
@@ -85,7 +90,12 @@ describe('optimizer cost reconciliation', () => {
       assertMethodCostRecorded(
         'fixture',
         {
-          cost: { totalCostUsd: 0.25, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0.25,
+            costProvenance: { kind: 'observed', usd: 0.25 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
         },
         ledger,
         ledger,
@@ -103,6 +113,7 @@ describe('optimizer cost reconciliation', () => {
         {
           cost: {
             totalCostUsd: 0,
+            costProvenance: { kind: 'uncaptured', usd: null },
             accountingComplete: false,
             incompleteReasons: ['provider receipt unavailable'],
           },
@@ -146,7 +157,12 @@ describe('optimizer cost reconciliation', () => {
       assertMethodCostRecorded(
         'third-party',
         {
-          cost: { totalCostUsd: 0.1, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0.1,
+            costProvenance: { kind: 'observed', usd: 0.1 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
           provenance: {
             source: {
               kind: 'package',
@@ -204,7 +220,12 @@ describe('optimizer cost reconciliation', () => {
       assertMethodCostRecorded(
         'fixture',
         {
-          cost: { totalCostUsd: 0.3, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0.3,
+            costProvenance: { kind: 'observed', usd: 0.3 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
           provenance: {
             source: {
               kind: 'package',

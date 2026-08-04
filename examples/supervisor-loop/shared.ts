@@ -7,14 +7,13 @@
  * these are only the per-example task + the offline brain it can be driven with.
  */
 
-import {
-  type ExecutorConfig,
-  type SandboxClient as RuntimeSandboxClient,
-  routerBrain,
-  type ToolLoopChat,
+import { type AgentProfile, harnessTypeSchema } from '@tangle-network/agent-interface'
+import type {
+  ExecutorConfig,
+  SandboxClient as RuntimeSandboxClient,
 } from '@tangle-network/agent-runtime/kernel'
-import type { BackendType } from '@tangle-network/sandbox'
 import { Sandbox } from '@tangle-network/sandbox'
+import type { ToolLoopChat } from '../../src/testing'
 
 /** The marker every runner asks its workers to emit; the check confirms it landed. */
 export const expectedAnswer = 'ANSWER=42'
@@ -35,16 +34,20 @@ export const demoGoal = `Produce the exact line "${expectedAnswer}".`
 /**
  * A SCRIPTED `ToolLoopChat`: spawn `workerCount` workers (the "drive N workers"
  * shape), await each settlement, then stop. This is the exact contract
- * `routerBrain` fills in production — here it returns a fixed turn sequence so the
- * brain runs with no inference (the same offline seam the driver's own unit tests
- * use). The brain still REASONS the loop (spawn → await → stop) against a live
- * `Scope`; only the driver-LLM call is mocked.
+ * Runtime derives from the supervisor's exact profile in production; here the chat
+ * function returns a fixed turn sequence so the brain runs with no inference (the
+ * same offline seam the driver's own unit tests use). The brain still REASONS the
+ * loop (spawn → await → stop) against a live `Scope`; only the driver-LLM call is mocked.
  *
  * The canonical loop parses `toolCalls[].arguments` itself, so each scripted call
  * serializes its arguments to a JSON string; the loop JSON.parses them before
  * running the tool.
  */
-export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solver'): ToolLoopChat {
+export function scriptedSupervisorChat(
+  workerCount: number,
+  labelPrefix = 'solver',
+  workerProfile: AgentProfile = workerProfileFromEnv(),
+): ToolLoopChat {
   interface ScriptedTurn {
     content: string
     toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
@@ -58,8 +61,9 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
           name: 'spawn_agent',
           arguments: {
             profile: {
+              ...workerProfile,
               name: `${labelPrefix}-${i}`,
-              prompt: { systemPrompt: `Emit ${expectedAnswer}.` },
+              prompt: { ...workerProfile.prompt, systemPrompt: `Emit ${expectedAnswer}.` },
             },
             task: `Emit the exact line ${expectedAnswer} and nothing else.`,
             label: `${labelPrefix}-${i}`,
@@ -102,7 +106,8 @@ export function scriptedSupervisorChat(workerCount: number, labelPrefix = 'solve
  * harness CLIs on your machine, no cloud); `WORKER_BACKEND=sandbox` runs them in real Tangle boxes.
  * Nothing downstream cares which — `workerFromBackend` injects the seam and returns a uniform worker.
  */
-export function buildWorkerBackend(): ExecutorConfig {
+export function buildWorkerBackend(): { backend: ExecutorConfig; profile: AgentProfile } {
+  const profile = workerProfileFromEnv()
   const backend = process.env.WORKER_BACKEND ?? 'bridge'
   if (backend === 'sandbox') {
     const apiKey = process.env.TANGLE_API_KEY
@@ -116,26 +121,39 @@ export function buildWorkerBackend(): ExecutorConfig {
     }
     // The real Tangle client satisfies the runtime's `SandboxClient` port (it exposes `create(...)`).
     const sandboxClient = new Sandbox({ apiKey, baseUrl }) as RuntimeSandboxClient
-    const harness = (process.env.LOOP_HARNESS ?? 'opencode') as BackendType
-    return { backend: 'sandbox', harness, sandboxClient, maxIterations: 1 }
+    return {
+      backend: { backend: 'sandbox', sandboxClient, maxIterations: 1 },
+      profile,
+    }
   }
   if (backend !== 'bridge') {
     throw new Error(`WORKER_BACKEND must be "bridge" or "sandbox" (got ${JSON.stringify(backend)})`)
   }
+  return {
+    backend: {
+      backend: 'bridge',
+      bridgeUrl: process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344',
+      bridgeBearer: process.env.BRIDGE_BEARER ?? 'local',
+      timeoutMs: 180_000,
+    },
+    profile,
+  }
+}
+
+function workerProfileFromEnv(): AgentProfile {
   const model = process.env.WORKER_MODEL
   if (!model) {
     throw new Error(
-      'WORKER_BACKEND=bridge needs WORKER_MODEL=<harness>/<model> the bridge can serve,\n' +
-        '  e.g. WORKER_MODEL=opencode/zai-coding-plan/glm-5.1\n' +
-        '  Start the bridge first: cd ~/code/cli-bridge && pnpm start  (→ http://127.0.0.1:3344)',
+      'Set WORKER_MODEL to the concrete model, plus optional WORKER_HARNESS and WORKER_PROVIDER.',
     )
   }
   return {
-    backend: 'bridge',
-    bridgeUrl: process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344',
-    bridgeBearer: process.env.BRIDGE_BEARER ?? 'local',
-    model,
-    timeoutMs: 180_000,
+    name: 'worker',
+    harness: harnessTypeSchema.parse(process.env.WORKER_HARNESS ?? 'pi'),
+    model: {
+      provider: process.env.WORKER_PROVIDER ?? 'tangle-router',
+      default: model,
+    },
   }
 }
 
@@ -144,18 +162,35 @@ export function buildWorkerBackend(): ExecutorConfig {
 export function resolveSupervisorBrain(
   workerCount: number,
   labelPrefix: string,
-): { brain: ToolLoopChat; label: string } {
+  workerProfile: AgentProfile,
+): { brain?: ToolLoopChat; profile: AgentProfile; label: string } {
   const routerKey = process.env.TANGLE_API_KEY
-  const driverModel = process.env.DRIVER_MODEL ?? process.env.LOOP_MODEL
+  const driverModel =
+    process.env.DRIVER_MODEL ?? process.env.LOOP_MODEL ?? workerProfile.model?.default
+  if (!driverModel) throw new Error('supervisor profile needs a concrete model')
+  const profile: AgentProfile = {
+    name: 'supervisor',
+    harness: 'cli-base',
+    model: {
+      provider: process.env.DRIVER_PROVIDER ?? 'tangle-router',
+      default: driverModel,
+      metadata: { maxTurns: 12 },
+    },
+    prompt: {
+      systemPrompt:
+        'You are a supervisor. Spawn one worker session, await it with await_event, and stop once ' +
+        'it delivered. The worker profile must use the exact execution identity supplied in the task.',
+    },
+  }
   if (process.env.DRIVER !== 'scripted' && routerKey && driverModel) {
     return {
-      brain: routerBrain({
-        routerBaseUrl: process.env.ROUTER_BASE_URL ?? 'https://router.tangle.tools/v1',
-        routerKey,
-        model: driverModel,
-      }),
+      profile,
       label: `router(${driverModel})`,
     }
   }
-  return { brain: scriptedSupervisorChat(workerCount, labelPrefix), label: 'scripted' }
+  return {
+    brain: scriptedSupervisorChat(workerCount, labelPrefix, workerProfile),
+    profile,
+    label: 'scripted',
+  }
 }

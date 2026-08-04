@@ -16,16 +16,9 @@
  *   MCP_ENABLE_DELEGATE              set to `1` to serve the generic `delegate` verb. Its authoring
  *                                    supervisor runs the brain on the router and spawns authored
  *                                    workers as sub-sandboxes via the same client; needs TANGLE_API_KEY.
- *   MCP_SUPERVISOR_MODEL             supervisor brain model id (falls back to MCP_WORKER_MODEL, then
- *                                    WORKER_MODEL, then TANGLE_ROUTER_MODEL). Must be a tool-calling
- *                                    model the router serves; with none named the bin exits 2.
- *   MCP_SUPERVISOR_ROUTER_KEY        router key for the supervisor brain (falls back to the box's
- *                                    inference credential TANGLE_INFERENCE_KEY, then its vendor
- *                                    spelling OPENAI_API_KEY, then TANGLE_API_KEY — which
- *                                    authenticates the sandbox API, not the router)
- *   MCP_SUPERVISOR_ROUTER_BASE_URL   router base for the supervisor brain (defaults to the repo's
- *                                    resolveRouterBaseUrl, normalized to `/v1`)
- *   MCP_DELEGATE_WORKER_HARNESS      harness the authored workers run on (default `opencode`)
+ *   MCP_SUPERVISOR_MODEL             required exact supervisor brain model id
+ *   MCP_SUPERVISOR_ROUTER_KEY        required router key for the supervisor brain
+ *   MCP_SUPERVISOR_ROUTER_BASE_URL   required router base, normalized to `/v1`
  *   AGENT_RUNTIME_DELEGATION_STATE_FILE
  *                                    optional — absolute path of a JSON state
  *                                    file. When set, delegation records persist
@@ -100,7 +93,7 @@ async function main(): Promise<void> {
   }
   if (delegateSupervisor) {
     process.stderr.write(
-      `agent-runtime-mcp: delegate enabled — generic authoring supervisor on ${delegateSupervisor.router.model}\n`,
+      `agent-runtime-mcp: delegate enabled — generic authoring supervisor on ${delegateSupervisor.supervisorProfile.model?.default}\n`,
     )
   }
 

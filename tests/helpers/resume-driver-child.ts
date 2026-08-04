@@ -18,7 +18,6 @@
 import { appendFileSync } from 'node:fs'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   Agent,
   AgentSpec,
@@ -27,6 +26,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { supervise } from './runtime-with-test-brain'
 
 const [dir, runId, phase] = process.argv.slice(2)
 if (
@@ -66,6 +66,14 @@ const workerUsage: UsageEvent[] = [
 ]
 const workerSpend = spendFromUsageEvents(workerUsage)
 
+function offlineProfile(name: string): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: { provider: 'offline', default: `offline/${name}` },
+  }
+}
+
 function leafAgent(
   name: string,
   out: string,
@@ -90,7 +98,7 @@ function leafAgent(
     }),
   }
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: offlineProfile(name),
     harness: null,
     executor: executor as Executor<unknown>,
   }
@@ -119,7 +127,7 @@ const brain: ToolLoopChat = async (messages) => {
         id: `spawn-${i}`,
         name: 'spawn_agent',
         arguments: JSON.stringify({
-          profile: { name: w.key },
+          profile: offlineProfile(w.key),
           task: `do ${w.key}`,
           label: w.key,
           key: w.key,
@@ -139,7 +147,7 @@ const brain: ToolLoopChat = async (messages) => {
   }
 }
 
-const result = await supervise({ name: 'root', harness: 'cli-base' }, 'five assignments', {
+const result = await supervise(offlineProfile('root'), 'five assignments', {
   budget: { maxIterations: 200, maxTokens: 500_000 },
   // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
   // fifth spawn and make this a four-worker test.

@@ -21,7 +21,8 @@ import type {
   MultishotTransportRequest,
 } from '@tangle-network/agent-eval/multishot'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { MakeWorkerAgent, ToolLoopChat } from '@tangle-network/agent-runtime/kernel'
+import type { MakeWorkerAgent } from '@tangle-network/agent-runtime/kernel'
+import type { ToolLoopChat } from '../../src/testing'
 import { type LeafShot, leafSeam, type ScriptedTurn, scriptedBrain } from '../graphs/shared'
 import type { CellSpec, GraphArmBackend, MultishotArmBackend } from './arms'
 
@@ -83,7 +84,6 @@ export function offlineMultishotBackend(script: ShotScript): {
     backend: {
       agentTransport,
       driverTransport,
-      driverModel: 'scripted/parity-reviewer',
       shotPassed: offlineShotPassed,
     },
     capture: { agentRequests, driverRequests },
@@ -103,6 +103,7 @@ export function meteredScriptedBrain(turns: ScriptedTurn[]): ToolLoopChat {
     ...(await brain(messages, tools)),
     usage: { input: 5, output: 5 },
     costUsd: 0,
+    costProvenance: 'billing-receipt',
   })
 }
 

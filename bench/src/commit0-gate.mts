@@ -53,10 +53,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  collectAgentTurn,
+  createExecutor,
   type AgentRunSpec,
   type Deliverable,
   openSandboxRun,
   type SandboxRun,
+  streamAgentTurn,
 } from '@tangle-network/agent-runtime/kernel'
 import { Sandbox } from '@tangle-network/sandbox'
 import { createCommit0Adapter } from './benchmarks/commit0'
@@ -153,8 +156,17 @@ interface ShotCfg {
    *  registered model names (e.g. gpt-4.1). Override via WORKER_PROVIDER. */
   provider: string
   timeoutMs: number
-  /** local-backend: the opencode CLI binary (cli-bridge fallback when the sandbox is down). */
-  opencodeBin: string
+  /** Local Runtime bridge transport. The profile, not this transport, selects the harness/model. */
+  bridgeUrl?: string
+  bridgeBearer?: string
+}
+
+function workerProfile(cfg: ShotCfg, name: string) {
+  return {
+    name,
+    harness: 'opencode' as const,
+    model: { provider: cfg.provider, default: cfg.model },
+  }
 }
 
 /** The diff the in-box agent produces, read back off the box FS (+ any stream error). */
@@ -189,21 +201,15 @@ async function runShot(task: BenchTask, attempt: number, cfg: ShotCfg, steer?: s
   // other rollout (the powered-run crash).
   const controller = new AbortController()
   const timer = cfg.timeoutMs > 0 ? setTimeout(() => controller.abort(), cfg.timeoutMs) : undefined
-  // backend.model pins provider/model/baseUrl only; the platform writes the in-box
-  // provider config keyed to the box's own OPENCODE_MODEL_API_KEY. The inline
-  // profile + backend override is the same generic AgentRunSpec the runAgentRounds kernel
-  // boots. Never inject an external key — the egress proxy 403s foreign credentials.
+  // The exact profile owns harness/provider/model. Sandbox overrides contain only box
+  // infrastructure; Runtime derives the backend from the profile and refuses conflicts.
   const agentRun: AgentRunSpec<string> = {
-    profile: { name: 'commit0-worker', metadata: { backendType: 'opencode' } },
+    profile: workerProfile(cfg, 'commit0-worker'),
     name: 'commit0-worker',
     taskToPrompt: () => '', // unused — the prompt is streamed directly by openSandboxRun
     sandboxOverrides: {
       name: `commit0-${task.id}-${attempt}-${randomSuffix()}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
-      backend: {
-        type: 'opencode',
-        model: { provider: cfg.provider, model: cfg.model, baseUrl: cfg.routerBaseUrl },
-      },
     },
   }
   let run: SandboxRun<RolloutDeliverable> | undefined
@@ -310,15 +316,29 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, stee
     if (co.code !== 0) {
       return { task, attempt, diff: '', ok: false, events: 0, wallMs: Date.now() - startedAt, detail: `git checkout ${meta.baseCommit} failed: ${co.out.trim().slice(-180)}` }
     }
-    // openai/* → route through the router (OPENAI_* env); anything else → opencode's
-    // OWN configured auth (kimi-for-coding / zai coding-plan subscriptions).
-    const env = cfg.model.startsWith('openai/')
-      ? { ...process.env, OPENAI_API_KEY: cfg.routerKey, OPENAI_BASE_URL: cfg.routerBaseUrl }
-      : process.env
     const prompt = steer ? steeredPrompt(localRolloutPrompt(meta), steer) : localRolloutPrompt(meta)
-    const oc = await sh(cfg.opencodeBin, ['run', prompt, '-m', cfg.model, '--dir', dir], { timeoutMs: cfg.timeoutMs, env })
-    const lines = oc.out.split('\n')
-    const events = lines.length
+    if (!cfg.bridgeUrl || !cfg.bridgeBearer) {
+      throw new Error('local rollout requires CLI_BRIDGE_URL/BRIDGE_URL and CLI_BRIDGE_BEARER/BRIDGE_BEARER')
+    }
+    const factory = createExecutor({
+      backend: 'bridge',
+      bridgeUrl: cfg.bridgeUrl,
+      bridgeBearer: cfg.bridgeBearer,
+      cwd: dir,
+      ...(cfg.timeoutMs > 0 ? { timeoutMs: cfg.timeoutMs } : {}),
+    })
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory, profile: workerProfile(cfg, `commit0-local-${attempt}`) },
+        prompt,
+        cfg.timeoutMs > 0 ? { timeoutMs: cfg.timeoutMs } : {},
+      ),
+    )
+    if (turn.status !== 'completed') {
+      throw new Error(turn.error?.message ?? `Runtime bridge ended with ${turn.status}`)
+    }
+    const traceEvents = turn.events.map((event) => JSON.stringify(event))
+    const events = turn.events.length
     // Read the diff straight from git, scoped to src_dir (excludes the .venv the agent made).
     const diffRes = await sh('bash', ['-c', `cd ${JSON.stringify(dir)} && git add -- ${JSON.stringify(meta.srcDir)} && git diff --cached -- ${JSON.stringify(meta.srcDir)}`], { timeoutMs: 60_000 })
     const diff = diffRes.out
@@ -329,10 +349,10 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, stee
       diff,
       ok,
       events,
-      traceEvents: lines.slice(-TRACE_EVENTS_TAIL),
+      traceEvents: traceEvents.slice(-TRACE_EVENTS_TAIL),
       ...(steer ? { steer } : {}),
       wallMs: Date.now() - startedAt,
-      ...(ok ? {} : { detail: `no diff (opencode rc=${oc.code}): ${oc.out.trim().slice(-160)}` }),
+      ...(ok ? {} : { detail: `no diff (Runtime bridge completed): ${turn.finalText.trim().slice(-160)}` }),
     }
   } catch (err) {
     return { task, attempt, diff: '', ok: false, events: 0, ...(steer ? { steer } : {}), wallMs: Date.now() - startedAt, detail: `local rollout error: ${(err instanceof Error ? err.message : String(err)).slice(0, 180)}` }
@@ -349,7 +369,7 @@ async function main(): Promise<void> {
   const backend = process.env.COMMIT0_BACKEND === 'local' ? 'local' : 'sandbox'
   const n = Number(process.env.N ?? 8)
   const k = Number(process.env.K ?? 4)
-  const model = process.env.WORKER_MODEL ?? (backend === 'local' ? 'kimi-for-coding/kimi-k2-thinking' : 'gpt-4.1')
+  const model = process.env.WORKER_MODEL ?? (backend === 'local' ? 'kimi-for-coding/kimi-k2-thinking' : 'deepseek-v4-flash')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   // The arms under test. `random` = K independent blind shots (the equal-compute
   // control); `refineAudit` = blind shot 0, then trace-only-analyst-steered shots.
@@ -363,7 +383,6 @@ async function main(): Promise<void> {
   const needsRouterKey = backend === 'sandbox' || model.startsWith('openai/') || armNames.includes('refineAudit')
   const routerKey = needsRouterKey ? must('TANGLE_API_KEY') : (process.env.TANGLE_API_KEY ?? '')
   const sandboxBaseUrl = process.env.SANDBOX_BASE_URL ?? 'https://sandbox.tangle.tools'
-  const opencodeBin = process.env.OPENCODE_BIN ?? join(process.env.HOME ?? '', '.local/bin/opencode')
   // openai-compat = generic passthrough so cheap router models resolve in-box;
   // `openai` rejects non-registered model names. Override via WORKER_PROVIDER.
   const provider = process.env.WORKER_PROVIDER ?? 'openai-compat'
@@ -384,7 +403,17 @@ async function main(): Promise<void> {
 
   // Phase 1 — rollouts, concurrent. sandbox = remote box; local = cli-bridge (opencode
   // in a tmpdir, diff read from git). Both fault-isolated → a failure is a NO-DIFF, never a throw.
-  const cfg: ShotCfg = { sandboxBaseUrl, sandboxKey: routerKey, routerBaseUrl, routerKey, model, provider, timeoutMs, opencodeBin }
+  const cfg: ShotCfg = {
+    sandboxBaseUrl,
+    sandboxKey: routerKey,
+    routerBaseUrl,
+    routerKey,
+    model,
+    provider,
+    timeoutMs,
+    bridgeUrl: process.env.CLI_BRIDGE_URL ?? process.env.BRIDGE_URL,
+    bridgeBearer: process.env.CLI_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER,
+  }
   const runRollout = backend === 'local' ? runShotLocal : runShot
   const analyze: AnalystFn = llmAnalyst({ routerBaseUrl, routerKey, model: analystModel })
   const logShot = (armName: string, s: Shot) =>

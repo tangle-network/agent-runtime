@@ -1,6 +1,6 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type AgentSpec, createBudgetPool, createExecutor, createInbox } from '../../src/runtime'
+import { testAgentProfile } from './test-agent-profile'
 
 describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
@@ -85,7 +85,11 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const spec: AgentSpec = {
-      profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
+      profile: testAgentProfile('w', {
+        harness: 'cli-base',
+        model: { provider: 'test', default: 'test-model' },
+        prompt: { systemPrompt: 'sys' },
+      }),
       harness: null,
     } as AgentSpec
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
@@ -100,7 +104,7 @@ describe('router-tools executor drains the inbox', () => {
     expect(turn2.some((m) => m.content?.includes('also handle the wide-char edge case'))).toBe(true)
   })
 
-  it('a FORCEFUL steer aborts the in-flight turn; the worker re-plans and the aborted turn is free', async () => {
+  it('a FORCEFUL steer aborts the in-flight turn and records its unknown spend before re-planning', async () => {
     const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = []
     let calls = 0
     let deliver: (m: unknown) => void = () => {}
@@ -114,7 +118,13 @@ describe('router-tools executor drains the inbox', () => {
           throw new DOMException('aborted', 'AbortError')
         }
         bodies.push(JSON.parse(init?.body ?? '{}'))
-        return noToolReply()
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'done', tool_calls: [] } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1, cost_usd: 0.01 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
       }),
     )
 
@@ -127,7 +137,11 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const spec: AgentSpec = {
-      profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
+      profile: testAgentProfile('w', {
+        harness: 'cli-base',
+        model: { provider: 'test', default: 'test-model' },
+        prompt: { systemPrompt: 'sys' },
+      }),
       harness: null,
     } as AgentSpec
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
@@ -135,13 +149,21 @@ describe('router-tools executor drains the inbox', () => {
 
     const result = await exec.execute('edit the file', new AbortController().signal)
 
-    // The aborted turn was discarded and the worker re-planned on turn 2...
+    // The aborted response was discarded and the worker re-planned on turn 2...
     expect(calls).toBe(2)
-    // ...which carries the forceful steer, and the aborted turn did NOT count toward iterations.
+    // ...which carries the forceful steer. The accepted first request still consumed an iteration
+    // and one transport attempt; absent a terminal receipt its token and dollar totals are unknown.
     expect(
       bodies[0]?.messages.some((m) => m.content?.includes('wrong file, edit src/core.ts')),
     ).toBe(true)
-    expect(result.spent.iterations).toBe(1)
+    expect(result.spent).toMatchObject({
+      iterations: 2,
+      tokens: { input: 1, output: 1 },
+      tokensKnown: false,
+      usd: 0.01,
+      usdKnown: false,
+    })
+    expect((result.out as { transportAttempts: number }).transportAttempts).toBe(2)
   })
 
   it('marks dollar cost unknown for an unpriced model even when token usage is complete', async () => {
@@ -158,7 +180,13 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const exec = factory(
-      { profile: { name: 'w' }, harness: null },
+      {
+        profile: testAgentProfile('w', {
+          harness: 'cli-base',
+          model: { provider: 'test', default: 'unpriced-test-model' },
+        }),
+        harness: null,
+      },
       { signal: new AbortController().signal, seams: {} },
     )
 
@@ -196,7 +224,13 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const exec = factory(
-      { profile: { name: 'w' }, harness: null },
+      {
+        profile: testAgentProfile('w', {
+          harness: 'cli-base',
+          model: { provider: 'openai', default: 'gpt-4o' },
+        }),
+        harness: null,
+      },
       { signal: new AbortController().signal, seams: {} },
     )
 

@@ -261,53 +261,55 @@ function sha256(value) {
 }
 
 function renderRunner() {
-  const conversationEntry = resolve('dist/conversation.js')
+  const kernelEntry = resolve('dist/runtime/index.js')
   const primeEntry = resolve('dist/primeintellect/index.js')
-  return `import { runConversation } from ${JSON.stringify(conversationEntry)}
-import { createPrimeIntellectBackend, runPrimeIntellectProgram } from ${JSON.stringify(primeEntry)}
+  return `import { collectAgentTurn, createExecutor, streamAgentTurn } from ${JSON.stringify(kernelEntry)}
+import { primeIntellectExecutorConfig, runPrimeIntellectProgram } from ${JSON.stringify(primeEntry)}
 
-function roleBackend(base, kind, instruction) {
+function exactProfile(name, instruction, model) {
+  const provider = model.split('/')[0]
+  if (!provider) throw new Error('Prime model must include an explicit provider prefix')
   return {
-    kind,
-    async *stream(input, context) {
-      const existing = input.messages ?? [{ role: 'user', content: input.message ?? context.task.intent }]
-      yield* base.stream(
-        { ...input, messages: [{ role: 'system', content: instruction }, ...existing] },
-        context,
-      )
+    name,
+    harness: null,
+    model: {
+      provider,
+      default: model,
+      metadata: { temperature: 0, maxTokens: 192, maxRetries: 1 },
     },
+    prompt: { systemPrompt: instruction },
   }
 }
 
 await runPrimeIntellectProgram(async (episode) => {
   if (typeof episode.task.prompt !== 'string') throw new Error('live proof expects a string prompt')
-  const base = createPrimeIntellectBackend(episode, {
-    temperature: 0,
-    maxTokens: 192,
-    retry: { maxAttempts: 2, requestTimeoutMs: 60_000 },
-  })
-  const solver = roleBackend(
-    base,
+  const factory = createExecutor(primeIntellectExecutorConfig(episode))
+  const solver = exactProfile(
     'prime-solver',
     'You are the solver. Calculate the arithmetic and send one complete handoff beginning with REVIEW REQUEST:. Do not emit FINAL:.',
+    episode.model.name,
   )
-  const reviewer = roleBackend(
-    base,
+  const reviewer = exactProfile(
     'prime-reviewer',
     'You are the reviewer. Independently check the arithmetic in the solver handoff. Reply exactly FINAL: 42 only when the handoff is correct, with no other text.',
+    episode.model.name,
   )
-  const result = await runConversation(
-    {
-      participants: [
-        { name: 'solver', backend: solver, authSource: 'agent-owned' },
-        { name: 'reviewer', backend: reviewer, authSource: 'agent-owned' },
-      ],
-      policy: { maxTurns: 2, turnOrder: 'alternate' },
-    },
-    { seed: episode.task.prompt, runId: 'prime:' + episode.task.id },
+  const first = await collectAgentTurn(
+    streamAgentTurn({ kind: 'executor', profile: solver, factory }, episode.task.prompt, {
+      timeoutMs: 60_000,
+      callId: 'prime:' + episode.task.id + ':solver',
+    }),
   )
-  if (result.turns !== 2) throw new Error('expected two completed runtime turns, received ' + result.turns)
-  process.stdout.write(JSON.stringify({ turns: result.turns, halted: result.halted }) + '\\n')
+  if (first.status !== 'completed') throw new Error('solver failed: ' + (first.error?.message ?? first.status))
+  const second = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', profile: reviewer, factory },
+      { messages: [{ role: 'user', content: episode.task.prompt }, { role: 'assistant', content: first.finalText }] },
+      { timeoutMs: 60_000, callId: 'prime:' + episode.task.id + ':reviewer' },
+    ),
+  )
+  if (second.status !== 'completed') throw new Error('reviewer failed: ' + (second.error?.message ?? second.status))
+  process.stdout.write(JSON.stringify({ turns: 2, final: second.finalText }) + '\\n')
 })
 `
 }

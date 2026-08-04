@@ -9,17 +9,42 @@
  */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { createChatClient } from '@tangle-network/agent-eval'
-import { refine, runAgentic, runStrategyEvolution, sample } from '@tangle-network/agent-runtime/kernel'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  refine,
+  runAgentic,
+  runStrategyEvolution,
+  sample,
+  strategyAuthorSystemPrompt,
+} from '@tangle-network/agent-runtime/kernel'
 import { createSweBenchEnvironment } from './swe-bench-env'
 
 async function main(): Promise<void> {
   const routerKey = process.env.TANGLE_API_KEY
   if (!routerKey) throw new Error('TANGLE_API_KEY required (worker + author call the router)')
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
-  const workerModel = process.env.WORKER_MODEL ?? 'gemini-2.5-pro'
-  const authorModel = process.env.AUTHOR_MODEL ?? 'gemini-2.5-pro'
+  const workerModel = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
+  const authorModel = process.env.AUTHOR_MODEL ?? 'deepseek-v4-flash'
   const innerTurns = Number(process.env.INNER_TURNS ?? 40)
+  const workerProfile: AgentProfile = {
+    name: 'swe-worker',
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: workerModel,
+      metadata: { maxTokens: 8000, maxTurns: innerTurns },
+    },
+  }
+  const authorProfile = (model: string, name: string): AgentProfile => ({
+    name,
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      metadata: { maxTokens: 8000 },
+    },
+    prompt: { systemPrompt: strategyAuthorSystemPrompt },
+  })
   const { environment, tasks } = await createSweBenchEnvironment(Number(process.env.POOL_N ?? 80))
 
   if (process.env.CALIBRATE === '1') {
@@ -29,7 +54,15 @@ async function main(): Promise<void> {
     let resolved = 0
     for (const t of ts) {
       const t0 = Date.now()
-      const r = await runAgentic({ surface: environment, task: t, strategy: refine, routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns, budget: 1 })
+      const r = await runAgentic({
+        surface: environment,
+        task: t,
+        strategy: refine,
+        routerBaseUrl,
+        routerKey,
+        workerProfile,
+        budget: 1,
+      })
       if (r.resolved) resolved++
       console.log(`  ${t.id.padEnd(32)} resolved=${r.resolved} completions=${r.completions} shots=${r.shots} (${Math.round((Date.now() - t0) / 1000)}s)`)
     }
@@ -46,12 +79,14 @@ async function main(): Promise<void> {
         tasks,
         trainN: Number(process.env.TRAIN_N ?? 6),
         holdoutN: Number(process.env.HOLDOUT_N ?? 8),
-        worker: { routerBaseUrl, routerKey, model: workerModel, maxTokens: 8000, innerTurns },
+        worker: { routerBaseUrl, routerKey, workerProfile },
         author: {
-          chat: createChatClient({ transport: 'router', baseUrl: routerBaseUrl, apiKey: routerKey, defaultModel: authorModel }),
-          model: authorModel,
-          maxTokens: 8000,
-          fallbackModel: process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+          profile: authorProfile(authorModel, 'swe-strategy-author'),
+          executor: { backend: 'router', routerBaseUrl, routerKey },
+          fallbackProfile: authorProfile(
+            process.env.AUTHOR_FALLBACK ?? 'deepseek-v4-flash',
+            'swe-strategy-author-fallback',
+          ),
         },
         baselines: [sample, refine],
         budget: Number(process.env.BUDGET ?? 2),

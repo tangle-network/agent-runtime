@@ -41,6 +41,12 @@ import {
   createCandidateExperimentFixture,
 } from './helpers/candidate-experiment-fixture'
 
+const supervisorProfile: SupervisorProfile = {
+  name: 'knowledge-research-supervisor',
+  harness: 'cli-base',
+  model: { provider: 'test-provider', default: 'test-supervisor' },
+}
+
 afterEach(() => {
   cleanupCandidateExperimentFixtures()
   cleanupCandidateFixtures()
@@ -166,6 +172,7 @@ describe('runKnowledgeImprovementJob', () => {
           runId: 'runtime-job',
           strict: true,
           budget: { maxIterations: 2, maxTokens: 1000 },
+          supervisorProfile,
           readinessCheck: async ({ root: candidateRoot }) => {
             try {
               const text = await readFile(
@@ -267,6 +274,7 @@ describe('runKnowledgeImprovementJob', () => {
           strict: true,
           readinessSpecs: [readinessSpec],
           budget: { maxIterations: 2, maxTokens: 1000 },
+          supervisorProfile,
           runSupervised: async (_profile, task, opts) => {
             await writeRuntimeJobPage(rootFromTask(task))
             await expect(opts.deliverable?.check({})).resolves.toBe(true)
@@ -314,6 +322,7 @@ describe('runKnowledgeImprovementJob', () => {
           runId: 'runtime-job-approved',
           strict: true,
           budget: { maxIterations: 2, maxTokens: 1000 },
+          supervisorProfile,
           readinessCheck: async ({ root: candidateRoot }) => ({
             ready: await readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8')
               .then((text) => text.includes('source-backed evidence'))

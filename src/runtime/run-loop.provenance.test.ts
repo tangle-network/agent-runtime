@@ -21,6 +21,14 @@ const output: OutputAdapter<string> = {
   },
 }
 
+function exactProfile(name: string) {
+  return {
+    name,
+    harness: 'opencode' as const,
+    model: { provider: 'offline', default: 'offline-test-model' },
+  }
+}
+
 describe('runAgentRounds provenance', () => {
   it('surfaces a mount manifest recorded during prepareBox', async () => {
     const bytes = Buffer.from('fixture-contents')
@@ -31,7 +39,7 @@ describe('runAgentRounds provenance', () => {
       },
     }
     const agentRun: AgentRunSpec<string> = {
-      profile: { name: 'mounting-agent' },
+      profile: exactProfile('mounting-agent'),
       taskToPrompt: (task) => task,
       // The caller owns the bytes it writes; it declares each mount via the
       // recorder. The kernel never reads the box, so this is the only path the
@@ -86,7 +94,7 @@ describe('runAgentRounds provenance', () => {
 
     const result = await runAgentRounds({
       driver,
-      agentRun: { profile: { name: 'plain-agent' }, taskToPrompt: (t) => t },
+      agentRun: { profile: exactProfile('plain-agent'), taskToPrompt: (t) => t },
       output,
       task: 'hello',
       maxIterations: 1,
@@ -116,7 +124,7 @@ describe('runAgentRounds provenance', () => {
 
     const result = await runAgentRounds({
       driver,
-      agentRun: { profile: { name: 'fanout-agent' }, taskToPrompt: (t) => t },
+      agentRun: { profile: exactProfile('fanout-agent'), taskToPrompt: (t) => t },
       output,
       validator: {
         async validate(_out, ctx) {
@@ -180,7 +188,7 @@ describe('runAgentRounds provenance', () => {
 
     const result = await runAgentRounds({
       driver,
-      agentRun: { profile: { name: 'caller-select-agent' }, taskToPrompt: (t) => t },
+      agentRun: { profile: exactProfile('caller-select-agent'), taskToPrompt: (t) => t },
       output,
       task: 'go',
       maxIterations: 2,

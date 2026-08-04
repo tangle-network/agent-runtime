@@ -4,7 +4,6 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import {
   type AuthoredProfile,
   asAuthoredProfile,
-  canonicalizeAuthoredProfile,
   supervisorInstructions,
 } from '../../src/runtime/supervise/authoring'
 import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
@@ -21,6 +20,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 // A delivering leaf worker (settles valid) — stands in for a real model call in this offline proof.
 function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
@@ -30,6 +30,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       return (async function* () {
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
+        yield { kind: 'cost', usd: 0 } as UsageEvent
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
@@ -40,7 +41,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor: ex }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -58,13 +59,12 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
           {
             name: 'spawn_agent',
             arguments: {
-              profile: {
-                name: 'parser',
+              profile: testAgentProfile('parser', {
                 prompt: {
                   systemPrompt:
                     'You are a PARSER specialist. Tokenize the expression into numbers, operators and parens; emit a JSON token list. Validate balanced parens.',
                 },
-              },
+              }),
               task: 'parse the expression',
             },
           },
@@ -75,14 +75,13 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
           {
             name: 'spawn_agent',
             arguments: {
-              profile: {
-                name: 'evaluator',
+              profile: testAgentProfile('evaluator', {
                 prompt: {
                   systemPrompt:
                     'You are an EVALUATOR specialist. Given a token list, apply operator precedence and compute the numeric result. Return only the number.',
                 },
-                model: { default: 'deepseek-chat' },
-              },
+                model: { provider: 'tangle-router', default: 'deepseek-chat' },
+              }),
               task: 'evaluate the tokens',
             },
           },
@@ -136,64 +135,34 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
 
   it('rejects an empty/placeholder profile (a skill violation the system can catch)', () => {
     expect(asAuthoredProfile({})).toBeNull()
-    expect(asAuthoredProfile({ systemPrompt: '' })).toBeNull()
-    expect(asAuthoredProfile({ systemPrompt: '   ' })).toBeNull()
+    expect(asAuthoredProfile(testAgentProfile('w'))).toBeNull()
     expect(
-      asAuthoredProfile({ name: 'w', prompt: { systemPrompt: 'real instructions' } })?.name,
+      asAuthoredProfile(testAgentProfile('w', { prompt: { systemPrompt: 'real instructions' } }))
+        ?.name,
     ).toBe('w')
   })
 
-  // The skill asks for flat `systemPrompt` / `model`; every leaf reads `prompt.systemPrompt` and
-  // `model.default`, and the sandbox leaf hands the profile to a schema that rejects the flat key
-  // outright. What the supervisor writes has to be what the worker runs.
-  describe('canonicalizeAuthoredProfile', () => {
-    it('lifts the flat fields the skill asks for into the shape every leaf reads', () => {
-      const canonical = canonicalizeAuthoredProfile({
-        name: 'ok-writer',
-        systemPrompt: 'Write exactly OK.',
-        model: 'glm-5.2',
-      }) as { name: string; prompt?: { systemPrompt?: string }; model?: unknown }
-      expect(canonical.prompt?.systemPrompt).toBe('Write exactly OK.')
-      expect(canonical.model).toEqual({ default: 'glm-5.2' })
-      expect(canonical.name).toBe('ok-writer')
-      // The flat key is what a strict profile schema rejects — it must be gone, not duplicated.
-      expect(Object.keys(canonical)).not.toContain('systemPrompt')
-    })
-
-    it('leaves an already-canonical profile untouched, including its other prompt fields', () => {
-      const authored = {
-        name: 'w',
+  describe('asAuthoredProfile', () => {
+    it('preserves a complete canonical profile, including its other prompt fields', () => {
+      const authored = testAgentProfile('w', {
         prompt: { systemPrompt: 'canonical', instructions: ['one'] },
-        model: { default: 'm', small: 's' },
-      }
-      expect(canonicalizeAuthoredProfile(authored)).toEqual(authored)
+        model: { provider: 'offline', default: 'm', small: 's' },
+      })
+      expect(asAuthoredProfile(authored)).toEqual(authored)
     })
 
-    it('collapses BOTH shapes when they agree', () => {
-      const canonical = canonicalizeAuthoredProfile({
-        prompt: { systemPrompt: 'same instruction' },
-        systemPrompt: 'same instruction',
-      }) as { prompt?: { systemPrompt?: string } }
-      expect(canonical.prompt?.systemPrompt).toBe('same instruction')
-      expect(Object.keys(canonical)).not.toContain('systemPrompt')
+    it('refuses a canonical profile whose system prompt is blank', () => {
+      expect(
+        asAuthoredProfile(testAgentProfile('w', { prompt: { systemPrompt: '  ' } })),
+      ).toBeNull()
     })
 
-    // Two spellings of one standing instruction, set to different text, has no safe reading —
-    // the same rule the supervisor's own profile is held to.
-    it('fails loud when the two shapes disagree', () => {
-      expect(() =>
-        canonicalizeAuthoredProfile({
-          prompt: { systemPrompt: 'one instruction' },
-          systemPrompt: 'a different instruction',
-        }),
-      ).toThrow(/both set and differ/)
-    })
-
-    it('passes a blank flat prompt through rather than manufacturing an empty one', () => {
-      const canonical = canonicalizeAuthoredProfile({ name: 'w', systemPrompt: '  ' }) as {
-        prompt?: unknown
-      }
-      expect(canonical.prompt).toBeUndefined()
+    it('uses the canonical worker name when the optional name is omitted', () => {
+      const profile = testAgentProfile('temporary', {
+        prompt: { systemPrompt: 'Do the assigned work.' },
+      })
+      const { name: _name, ...unnamed } = profile
+      expect(asAuthoredProfile(unnamed)?.name).toBe('worker')
     })
   })
 

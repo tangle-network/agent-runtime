@@ -1,3 +1,15 @@
+import type {
+  OpenAICompatibleOptimizerModel,
+  OptimizerModelBudget,
+} from '@tangle-network/agent-eval/campaign'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
+import { profileOptimizerModelCall } from '../../src/runtime/profile-chat-client'
+import type { RouterSeam } from '../../src/runtime/supervise/runtime'
+
 function requiredNonNegativeNumber(
   env: NodeJS.ProcessEnv,
   name: string,
@@ -57,22 +69,59 @@ export function officialOptimizerModel(options: {
   maxCostUsd: number
   maxOutputTokensPerRequest: number
   envPrefix?: string
-}) {
+  provider?: string
+  temperature?: number
+  reasoningEffort?: NonNullable<AgentProfile['model']>['reasoningEffort']
+  callRef?: string
+  complete?: RouterSeam['complete']
+}): OpenAICompatibleOptimizerModel {
   const { env } = options
   const envPrefix = options.envPrefix ?? 'REFLECT'
+  const budget: OptimizerModelBudget = {
+    maxCostUsd: options.maxCostUsd,
+    maxRequests: positiveInteger(env, `${envPrefix}_MAX_REQUESTS`, 100),
+    maxRequestBytes: positiveInteger(env, `${envPrefix}_MAX_REQUEST_BYTES`, 2_000_000),
+    maxResponseBytes: positiveInteger(env, `${envPrefix}_MAX_RESPONSE_BYTES`, 2_000_000),
+    maxOutputTokensPerRequest: options.maxOutputTokensPerRequest,
+    requestTimeoutMs: positiveInteger(env, `${envPrefix}_REQUEST_TIMEOUT_MS`, 300_000),
+    pricing: requiredTokenPricing(env, envPrefix),
+  }
+  const profile: AgentProfile = {
+    name: 'official-optimizer-model',
+    harness: 'cli-base',
+    model: {
+      provider: options.provider ?? new URL(options.baseUrl).hostname,
+      default: options.model,
+      ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
+      metadata: {
+        maxTokens: options.maxOutputTokensPerRequest,
+        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+      },
+    },
+  }
+  const profileDigest = canonicalAgentProfileDigest(profile)
+  const executor: RouterSeam & { backend: 'router' } = {
+    backend: 'router',
+    routerBaseUrl: options.baseUrl,
+    routerKey: options.apiKey,
+    ...(options.complete ? { complete: options.complete } : {}),
+  }
+  const call = profileOptimizerModelCall({
+    profile,
+    context: 'official optimizer model',
+    executor,
+    pricing: budget.pricing,
+  })
   return {
     model: options.model,
-    baseUrl: options.baseUrl,
-    apiKey: options.apiKey,
-    budget: {
-      maxCostUsd: options.maxCostUsd,
-      maxRequests: positiveInteger(env, `${envPrefix}_MAX_REQUESTS`, 100),
-      maxRequestBytes: positiveInteger(env, `${envPrefix}_MAX_REQUEST_BYTES`, 2_000_000),
-      maxResponseBytes: positiveInteger(env, `${envPrefix}_MAX_RESPONSE_BYTES`, 2_000_000),
-      maxOutputTokensPerRequest: options.maxOutputTokensPerRequest,
-      requestTimeoutMs: positiveInteger(env, `${envPrefix}_REQUEST_TIMEOUT_MS`, 300_000),
-      pricing: requiredTokenPricing(env, envPrefix),
-    },
+    callRef:
+      options.callRef ??
+      `agent-runtime:${canonicalCandidateDigest({
+        profileDigest,
+        endpoint: new URL(options.baseUrl).origin,
+      })}`,
+    call,
+    budget,
   }
 }
 

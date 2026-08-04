@@ -22,6 +22,7 @@
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { withDriverExecutor } from '../supervise/driver-executor'
+import { executableAgentSpecSnapshot } from '../supervise/executable-spec'
 import { createExecutorRegistry } from '../supervise/runtime'
 import { createSupervisor } from '../supervise/supervisor'
 import type {
@@ -64,9 +65,10 @@ export function definePersona<D = unknown>(input: DefinePersonaInput<D>): Person
   if (!input.root || typeof input.root !== 'object' || !('harness' in input.root)) {
     throw new ValidationError(`definePersona("${input.name}"): root must be an AgentSpec`)
   }
+  const root = executableAgentSpecSnapshot(input.root, `definePersona("${input.name}")`)
   return Object.freeze({
     name: input.name,
-    root: input.root,
+    root,
     directive: input.directive,
     context: input.context,
     executors: input.executors,

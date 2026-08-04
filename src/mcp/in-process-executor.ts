@@ -4,7 +4,7 @@
  * carries the local coding-harness CLIs (claude / codex / opencode), delegations spawn the harness
  * AS A SUBPROCESS against a git worktree on the SAME filesystem instead of provisioning a sibling
  * sandbox. Zero provisioning latency; worker diffs land in-place; multi-harness fanout = N parallel
- * subprocesses in N parallel worktrees (round-robin `harnesses`).
+ * subprocesses in N parallel worktrees. Each authored profile selects its own harness.
  *
  * This is a THIN adapter over `runWorktreeHarness` (`./worktree-harness`) — the SAME core the
  * `Scope` leaf `createWorktreeCliExecutor` uses. It only adapts the core to the `SandboxClient`
@@ -18,11 +18,13 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { ConfigError } from '../errors'
 import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
+import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type { DelegationExecutor } from './executor'
-import { DEFAULT_LOCAL_HARNESS, type LocalHarness } from './local-harness'
+import { LOCAL_HARNESSES, type LocalHarness } from './local-harness'
 import type { GitRunner, WorktreeHandle } from './worktree'
 import { runWorktreeHarness } from './worktree-harness'
 
@@ -30,8 +32,6 @@ import { runWorktreeHarness } from './worktree-harness'
 export interface InProcessExecutorOptions {
   /** Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.agent-worktrees/`. */
   repoRoot: string
-  /** Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude-code']`. */
-  harnesses?: ReadonlyArray<LocalHarness>
   /** Optional per-delegation test command run in the worktree after the harness exits. */
   testCmd?: string
   /** Optional per-delegation typecheck command. Same shape as `testCmd`. */
@@ -82,10 +82,6 @@ const DEFAULT_POSTCHECK_TIMEOUT_MS = 2 * 60 * 1000
  * @experimental
  */
 export function createInProcessExecutor(options: InProcessExecutorOptions): DelegationExecutor {
-  const harnesses =
-    options.harnesses && options.harnesses.length > 0
-      ? [...options.harnesses]
-      : [DEFAULT_LOCAL_HARNESS]
   const runPostCheck = options.runPostCheck ?? defaultRunPostCheck
   // The core speaks one `runCommand` seam ({exitCode, output}); adapt the post-check seam
   // ({exitCode, stdout, stderr}) onto it, folding a throw into a non-fatal failure signal so a
@@ -108,24 +104,35 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
     }
   }
 
-  let callIndex = 0
-
   const client: SandboxClient = {
     async create(opts?: CreateSandboxOptions): Promise<SandboxInstance> {
+      // The authored profile is the sole execution authority. Refuse before creating a run id or
+      // worktree: ambient executor configuration must never choose a worker's harness or model.
+      const rawProfile = (opts?.backend as { profile?: unknown } | undefined)?.profile
+      if (rawProfile === undefined) {
+        throw new ConfigError(
+          'in-process executor: backend.profile is required and must select the exact harness, provider, and model',
+        )
+      }
+      const profile = agentProfileSchema.parse(rawProfile) as AgentProfile
+      assertExecutableAgentProfile(profile, 'in-process executor')
+      const harness = profile.harness
+      if (!LOCAL_HARNESSES.includes(harness as LocalHarness)) {
+        throw new ConfigError(
+          `in-process executor: AgentProfile.harness ${JSON.stringify(harness)} is not a local harness; expected ${LOCAL_HARNESSES.join(', ')}`,
+        )
+      }
+      if (opts?.backend?.type !== undefined && opts.backend.type !== harness) {
+        throw new ConfigError(
+          `in-process executor: backend.type ${JSON.stringify(opts.backend.type)} conflicts with AgentProfile.harness ${JSON.stringify(harness)}`,
+        )
+      }
+      const localHarness = harness as LocalHarness
       const runId = randomUUID()
-      const harness = harnesses[callIndex % harnesses.length] as LocalHarness
-      callIndex += 1
-      // §1.5: the authored profile rides in `backend.profile` (set by `buildBackendOptions`).
-      // Without one (a direct test `create()`), fall back to a name-only profile → the harness
-      // sees the task prompt with no system prepend, the pre-fix behavior.
-      const profile =
-        ((opts?.backend as { profile?: AgentProfile } | undefined)?.profile as
-          | AgentProfile
-          | undefined) ?? ({ name: `in-process-${harness}` } as AgentProfile)
 
       const virtual: VirtualSandbox = {
         id: `in-process-${runId}`,
-        __inProcess: { runId, harness },
+        __inProcess: { runId, harness: localHarness },
         async *streamPrompt(
           this: VirtualSandbox,
           message: string | unknown[],
@@ -147,7 +154,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
           const run = await runWorktreeHarness({
             repoRoot: options.repoRoot,
             profile,
-            harness,
+            harness: localHarness,
             taskPrompt,
             runId,
             harnessTimeoutMs: options.harnessTimeoutMs ?? DEFAULT_HARNESS_TIMEOUT_MS,
@@ -164,7 +171,12 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
           try {
             yield {
               type: 'in_process.harness.started',
-              data: { runId, harness, worktreePath: run.worktree.path, command: harness },
+              data: {
+                runId,
+                harness: localHarness,
+                worktreePath: run.worktree.path,
+                command: localHarness,
+              },
             }
             const h = run.result.harness
             yield {
@@ -184,7 +196,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
               data: {
                 result: run.result,
                 source: 'in-process-executor',
-                harness,
+                harness: localHarness,
                 runId,
               },
             }
@@ -212,7 +224,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
     client,
     placement: 'in-process',
     describe(): string {
-      return `in-process (repoRoot=${options.repoRoot}, harnesses=[${harnesses.join(',')}]${
+      return `in-process (repoRoot=${options.repoRoot}, harness=profile-selected${
         options.testCmd ? `, testCmd="${options.testCmd}"` : ''
       }${options.typecheckCmd ? `, typecheckCmd="${options.typecheckCmd}"` : ''})`
     },

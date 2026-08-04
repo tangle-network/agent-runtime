@@ -25,6 +25,7 @@ import type {
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── A worker leaf with a known, fixed spend (no network/LLM) ─────────────────────
 function workerLeaf(
@@ -37,6 +38,7 @@ function workerLeaf(
       return (async function* (): AsyncGenerator<UsageEvent> {
         yield { kind: 'iteration' }
         yield { kind: 'tokens', input: tokens.input, output: tokens.output }
+        yield { kind: 'cost', usd: 0 }
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
@@ -49,7 +51,11 @@ function workerLeaf(
       }
     },
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor }
+  const spec: AgentSpec = {
+    profile: testAgentProfile(name, { harness: 'cli-base' }),
+    harness: null,
+    executor,
+  }
   return { name, act: async () => ({ worker: name }), executorSpec: spec } as Agent<
     unknown,
     unknown
@@ -85,7 +91,10 @@ describe("driver inference metering — the driver's own tokens count against th
       },
     }
     const nested = driverChild(
-      { name: 'nested', metadata: { role: 'driver' } },
+      testAgentProfile('nested', {
+        harness: 'cli-base',
+        metadata: { role: 'driver' },
+      }),
       nestedDriver,
       journal,
     )
@@ -126,7 +135,12 @@ describe("driver inference metering — the driver's own tokens count against th
     // 3 driver turns, each with REAL usage: spawn → await → stop.
     const chat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }],
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: { profile: testAgentProfile('worker'), task: 'go' },
+          },
+        ],
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },
@@ -200,14 +214,21 @@ describe("driver inference metering — the driver's own tokens count against th
         toolCalls: [
           {
             name: 'spawn_agent',
-            arguments: { profile: { metadata: { kind: 'worker' } }, task: 'sub' },
+            arguments: {
+              profile: testAgentProfile('worker', { metadata: { kind: 'worker' } }),
+              task: 'sub',
+            },
           },
         ],
         usage: { input: 60, output: 40 },
         costUsd: 0.05,
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 30, output: 20 } },
-      { content: 'mid done', usage: { input: 10, output: 5 } },
+      {
+        toolCalls: [{ name: 'await_event', arguments: {} }],
+        usage: { input: 30, output: 20 },
+        costUsd: 0,
+      },
+      { content: 'mid done', usage: { input: 10, output: 5 }, costUsd: 0 },
     ]
     function makeAgent(
       profile: AgentProfile,
@@ -221,14 +242,17 @@ describe("driver inference metering — the driver's own tokens count against th
           ...(context.budget.maxUsd !== undefined ? { maxUsd: context.budget.maxUsd / 4 } : {}),
         }
         return driverChild(
-          'mid',
+          testAgentProfile('mid', {
+            harness: 'cli-base',
+            metadata: { kind: 'driver' },
+          }),
           driverAgent(driverOf('mid', meteredChat(midTurns), childBudget)),
           journal,
         )
       }
       return worker
     }
-    const midProfile: AgentProfile = { name: 'mid', metadata: { kind: 'driver' } }
+    const midProfile = testAgentProfile('mid', { metadata: { kind: 'driver' } })
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
@@ -236,8 +260,12 @@ describe("driver inference metering — the driver's own tokens count against th
         usage: { input: 100, output: 50 },
         costUsd: 0.02,
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 50, output: 30 } },
-      { content: 'root done', usage: { input: 20, output: 10 } },
+      {
+        toolCalls: [{ name: 'await_event', arguments: {} }],
+        usage: { input: 50, output: 30 },
+        costUsd: 0,
+      },
+      { content: 'root done', usage: { input: 20, output: 10 }, costUsd: 0 },
     ])
 
     const result = await createSupervisor<unknown, unknown>().run(
@@ -283,7 +311,10 @@ describe("driver inference metering — the driver's own tokens count against th
           throw new Error('sub-driver network crash')
         }
         return driverChild(
-          'mid',
+          testAgentProfile('mid', {
+            harness: 'cli-base',
+            metadata: { kind: 'driver' },
+          }),
           driverAgent({
             name: 'mid',
             brain: crashingChat,
@@ -303,7 +334,10 @@ describe("driver inference metering — the driver's own tokens count against th
         toolCalls: [
           {
             name: 'spawn_agent',
-            arguments: { profile: { metadata: { kind: 'driver' } }, task: 'go' },
+            arguments: {
+              profile: testAgentProfile('mid', { metadata: { kind: 'driver' } }),
+              task: 'go',
+            },
           },
         ],
         usage: { input: 100, output: 50 },
@@ -448,12 +482,21 @@ describe("driver inference metering — the driver's own tokens count against th
     const turnEvents: RuntimeHookEvent[] = []
     const chat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }],
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: { profile: testAgentProfile('worker'), task: 'go' },
+          },
+        ],
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },
-      { toolCalls: [{ name: 'await_event', arguments: {} }], usage: { input: 80, output: 40 } },
-      { content: 'done', usage: { input: 30, output: 10 } },
+      {
+        toolCalls: [{ name: 'await_event', arguments: {} }],
+        usage: { input: 80, output: 40 },
+        costUsd: 0,
+      },
+      { content: 'done', usage: { input: 30, output: 10 }, costUsd: 0 },
     ])
     const opts: DriverAgentOptions = {
       name: 'root',
@@ -464,7 +507,7 @@ describe("driver inference metering — the driver's own tokens count against th
       systemPrompt: 'drive',
       maxTurns: 8,
     }
-    await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'task', {
+    const result = await createSupervisor<unknown, unknown>().run(driverAgent(opts), 'task', {
       budget: { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
       runId: 'meter-obs',
       journal,
@@ -523,6 +566,7 @@ describe("driver inference metering — the driver's own tokens count against th
         toolCalls: [{ id: `call-${n}`, name: 'list_questions', arguments: '{}' }],
         usage: { input: 5, output: 5 },
         costUsd: 0.04,
+        costProvenance: 'provider-receipt',
       }
     }
     const opts: DriverAgentOptions = {
@@ -668,7 +712,12 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
     // its usage block (or a stream that lost its terminal usage chunk) produces.
     const chat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }],
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: { profile: testAgentProfile('worker'), task: 'go' },
+          },
+        ],
         usage: { input: 100, output: 50 },
         costUsd: 0.01,
       },

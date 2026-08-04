@@ -48,9 +48,8 @@ export interface DelegateCodeArgs {
   /** Optional free-form context the agent surfaces in the prompt prelude. */
   contextHint?: string
   /**
-   * When > 1, dispatches `multiHarnessCoderFanout` across N harnesses
-   * (claude-code, codex, opencode-glm) and picks the highest-scoring
-   * passing patch. Default 1.
+   * When > 1, dispatches `multiHarnessCoderFanout` across the delegate's configured exact profiles
+   * and picks the highest-scoring passing patch. Default 1.
    */
   variants?: number
   /** Validator + prompt overrides the agent knows for this repo. */

@@ -14,6 +14,7 @@
  * See `docs/agent-bus-protocol.md` for the cross-gateway header contract.
  */
 
+export { createProfileExecutionBackend } from '../runtime/profile-execution-backend'
 export {
   type BackendCallPolicy,
   type CircuitBreakerConfig,

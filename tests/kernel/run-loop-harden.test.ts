@@ -24,7 +24,15 @@ const output: OutputAdapter<Out> = {
 }
 
 function spec(name: string, taskToPrompt = (t: Task) => JSON.stringify(t)): AgentRunSpec<Task> {
-  return { profile: { name }, name, taskToPrompt }
+  return {
+    profile: {
+      name,
+      harness: 'opencode',
+      model: { provider: 'offline', default: 'offline-test-model' },
+    },
+    name,
+    taskToPrompt,
+  }
 }
 
 describe('runAgentRounds — abort short-circuits before launching a fresh batch', () => {

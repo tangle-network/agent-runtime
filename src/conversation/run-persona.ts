@@ -22,6 +22,8 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import { createIterableBackend } from '../backends'
+import { createProfileExecutionBackend } from '../runtime/profile-execution-backend'
+import type { ExecutorFactory } from '../runtime/supervise/types'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { defineConversation } from './define-conversation'
 import { runConversation } from './run-conversation'
@@ -38,11 +40,9 @@ export interface RunPersonaConversationOptions {
   worker: AgentProfile
   /** The simulated user driving the dialogue. */
   persona: PersonaDriver
-  /** Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
-   *  Applied to the worker and to a `profile`-kind persona. */
-  backendFor: (profile: AgentProfile, role: 'worker' | 'persona') => AgentExecutionBackend
-  /** Render a profile's system prompt — prepended to that profile's messages. */
-  systemPromptOf: (profile: AgentProfile) => string
+  /** Resolve transport/executable ports for the exact profile. Runtime still materializes the
+   * profile and owns every model call. Applied to the worker and a profile-driven persona. */
+  executorFor: (profile: AgentProfile, role: 'worker' | 'persona') => ExecutorFactory<unknown>
   /** Speaker-turn cap. Default for a scripted persona = `2 * turns.length`
    *  (worker answers each user turn). REQUIRED for a `profile` persona. */
   maxTurns?: number
@@ -64,36 +64,48 @@ export interface PersonaConversationResult {
   costUsd: number
   tokensIn: number
   tokensOut: number
+  /** Absent means every worker call reported complete token usage. */
+  tokensKnown?: false
+  /** Absent means every worker call reported provider-billed cost, including a known zero. */
+  costUsdKnown?: false
 }
 
 interface UsageCounter {
   tokensIn: number
   tokensOut: number
   costUsd: number
+  sawLlmCall: boolean
+  tokensKnown: boolean
+  usdKnown: boolean
 }
 
-/** Prefix a backend's requests with `systemPrompt`; when `counter` is given,
- *  accumulate its `llm_call` token/cost usage (used for the metered worker). */
-function withProfilePrompt(
-  inner: AgentExecutionBackend,
-  systemPrompt: string,
+/** Adapt one exact profile + Runtime executor into the conversation stream protocol. */
+function profileRuntimeBackend(
+  profile: AgentProfile,
+  factory: ExecutorFactory<unknown>,
   counter?: UsageCounter,
 ): AgentExecutionBackend {
+  const backend = createProfileExecutionBackend({ profile, executor: factory })
+  if (!counter) return backend
   return {
-    kind: inner.kind,
-    start: inner.start ? (input, ctx) => inner.start!(input, ctx) : undefined,
-    resume: inner.resume ? (session, input, ctx) => inner.resume!(session, input, ctx) : undefined,
-    stop: inner.stop ? (session, reason) => inner.stop!(session, reason) : undefined,
+    ...backend,
     async *stream(input, context) {
-      const base =
-        input.messages ?? (input.message ? [{ role: 'user', content: input.message }] : [])
-      const messages =
-        base[0]?.role === 'system' ? base : [{ role: 'system', content: systemPrompt }, ...base]
-      for await (const event of inner.stream({ ...input, messages }, context)) {
-        if (counter && event.type === 'llm_call') {
+      for await (const event of backend.stream(input, context)) {
+        if (event.type === 'llm_call') {
+          counter.sawLlmCall = true
           counter.tokensIn += event.tokensIn ?? 0
           counter.tokensOut += event.tokensOut ?? 0
           counter.costUsd += event.costUsd ?? 0
+          if (
+            event.tokensKnown === false ||
+            event.tokensIn === undefined ||
+            event.tokensOut === undefined
+          ) {
+            counter.tokensKnown = false
+          }
+          if (event.usdKnown === false || event.costUsd === undefined) {
+            counter.usdKnown = false
+          }
         }
         yield event
       }
@@ -133,11 +145,18 @@ function scriptedPersonaBackend(turns: readonly string[]): AgentExecutionBackend
 export async function runPersonaConversation(
   opts: RunPersonaConversationOptions,
 ): Promise<PersonaConversationResult> {
-  const counter: UsageCounter = { tokensIn: 0, tokensOut: 0, costUsd: 0 }
+  const counter: UsageCounter = {
+    tokensIn: 0,
+    tokensOut: 0,
+    costUsd: 0,
+    sawLlmCall: false,
+    tokensKnown: true,
+    usdKnown: true,
+  }
   const workerName = opts.workerName ?? 'agent'
-  const worker = withProfilePrompt(
-    opts.backendFor(opts.worker, 'worker'),
-    opts.systemPromptOf(opts.worker),
+  const worker = profileRuntimeBackend(
+    opts.worker,
+    opts.executorFor(opts.worker, 'worker'),
     counter,
   )
 
@@ -150,9 +169,9 @@ export async function runPersonaConversation(
     persona = scriptedPersonaBackend(opts.persona.turns)
     maxTurns = opts.maxTurns ?? 2 * opts.persona.turns.length
   } else {
-    persona = withProfilePrompt(
-      opts.backendFor(opts.persona.profile, 'persona'),
-      opts.systemPromptOf(opts.persona.profile),
+    persona = profileRuntimeBackend(
+      opts.persona.profile,
+      opts.executorFor(opts.persona.profile, 'persona'),
     )
     if (opts.maxTurns === undefined) {
       throw new Error('runPersonaConversation: maxTurns is required for a profile-driven persona')
@@ -179,12 +198,11 @@ export async function runPersonaConversation(
   // profile-driven persona the aggregate also includes the persona-driver's
   // spend, so attributing it to the worker would over-count; report the
   // worker's metered spend (0 if its backend reported none) instead.
-  const costUsd =
-    counter.costUsd > 0
-      ? counter.costUsd
-      : opts.persona.kind === 'scripted'
-        ? result.spentCreditsCents / 100
-        : 0
+  const fallbackCostKnown =
+    !counter.sawLlmCall && opts.persona.kind === 'scripted' && result.spentCreditsCents > 0
+  const costUsd = fallbackCostKnown ? result.spentCreditsCents / 100 : counter.costUsd
+  const tokensKnown = counter.sawLlmCall && counter.tokensKnown
+  const costUsdKnown = counter.sawLlmCall ? counter.usdKnown : fallbackCostKnown
   return {
     transcript: result.transcript,
     turns: result.turns,
@@ -192,14 +210,14 @@ export async function runPersonaConversation(
     costUsd,
     tokensIn: counter.tokensIn,
     tokensOut: counter.tokensOut,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
+    ...(costUsdKnown ? {} : { costUsdKnown: false }),
   }
 }
 
 export interface RunPersonaConfig<TScenario extends Scenario, TArtifact> {
-  /** Turn an `AgentProfile` into a runnable backend (router / sandbox / fake). */
-  backendFor: (profile: AgentProfile, role: 'worker' | 'persona') => AgentExecutionBackend
-  /** Render a profile's system prompt. */
-  systemPromptOf: (profile: AgentProfile) => string
+  /** Resolve transport/executable ports for each exact profile. */
+  executorFor: (profile: AgentProfile, role: 'worker' | 'persona') => ExecutorFactory<unknown>
   /** The persona driving each scenario — a driver profile or scripted turns. */
   personaOf: (scenario: TScenario) => PersonaDriver
   /** Build the scored artifact from the finished transcript. */
@@ -244,8 +262,7 @@ export function runPersonaDispatch<TScenario extends Scenario, TArtifact>(
         runPersonaConversation({
           worker,
           persona: config.personaOf(scenario),
-          backendFor: config.backendFor,
-          systemPromptOf: config.systemPromptOf,
+          executorFor: config.executorFor,
           maxTurns: config.maxTurns?.(scenario),
           seed: config.seed?.(scenario),
           signal: executionSignal,
@@ -255,7 +272,10 @@ export function runPersonaDispatch<TScenario extends Scenario, TArtifact>(
         model,
         inputTokens: result.tokensIn,
         outputTokens: result.tokensOut,
-        ...(result.costUsd > 0 ? { actualCostUsd: result.costUsd } : {}),
+        ...(result.tokensKnown === false ? { usageUnknown: true } : {}),
+        ...(result.costUsdKnown === false
+          ? { costUnknown: true }
+          : { actualCostUsd: result.costUsd }),
       }),
     })
     if (!paid.succeeded) throw paid.error

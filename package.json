@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.128.0",
+  "version": "0.129.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -127,6 +127,7 @@
     "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts",
     "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
     "check:skills": "node scripts/check-skills.mjs",
+    "check:model-execution-boundary": "node scripts/check-model-execution-boundary.mjs",
     "check:publish-workflow": "node scripts/check-publish-workflow.mjs",
     "check:version-bump": "node scripts/check-version-bump.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
@@ -135,7 +136,7 @@
     "verify:bench": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package:local-runtime",
     "verify:bench:published": "pnpm build && pnpm --filter @tangle-network/agent-bench run typecheck:public && pnpm --filter @tangle-network/agent-bench test && pnpm --filter @tangle-network/agent-bench run verify:package",
     "verify:cohort": "node scripts/verify-packed-cohort.mjs",
-    "verify:package": "pnpm run verify:static-imports && pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run verify:edge-tool-loop",
+    "verify:package": "pnpm run check:model-execution-boundary && pnpm run verify:static-imports && pnpm run build && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run verify:edge-tool-loop",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
     "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
     "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
@@ -152,7 +153,6 @@
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
     "miniflare": "4.20260722.0",
-    "playwright": "^1.62.0",
     "publint": "catalog:",
     "tsdown": "catalog:",
     "tsx": "catalog:",
@@ -169,20 +169,17 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.143.0 <0.144.0",
-    "@tangle-network/agent-interface": ">=0.43.0 <0.44.0",
-    "@tangle-network/sandbox": ">=0.17.2 <0.18.0",
-    "playwright": "^1.40.0"
+    "@tangle-network/agent-eval": ">=0.144.4 <0.145.0",
+    "@tangle-network/agent-interface": ">=0.43.1 <0.44.0",
+    "@tangle-network/sandbox": ">=0.19.1 <0.20.0"
   },
   "peerDependenciesMeta": {
     "@tangle-network/sandbox": {
       "optional": true
-    },
-    "playwright": {
-      "optional": true
     }
   },
   "dependencies": {
+    "@tangle-network/agent-core": "catalog:",
     "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-profile-materialize": "catalog:",
     "@tangle-network/agent-trace-contract": "catalog:",

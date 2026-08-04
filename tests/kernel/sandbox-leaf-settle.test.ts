@@ -13,10 +13,14 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import { describe, expect, it } from 'vitest'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
 import type { AgentSpec, ExecutorContext, UsageEvent } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const spec: AgentSpec = {
-  profile: { name: 'leaf', prompt: { systemPrompt: 'do the thing' } },
-  harness: null,
+  profile: testAgentProfile('leaf', {
+    harness: 'opencode',
+    prompt: { systemPrompt: 'do the thing' },
+  }),
+  harness: 'opencode',
 }
 
 function ctx(): ExecutorContext {
@@ -49,7 +53,6 @@ describe('sandbox leaf — the settle contract', () => {
   it('marks a completed round DELIVERED, so a run with no oracle has something to select', async () => {
     const executor = createExecutor({
       backend: 'sandbox',
-      harness: 'opencode',
       sandboxClient: sandboxClient(),
     })(spec, ctx())
     await drain(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
@@ -61,7 +64,6 @@ describe('sandbox leaf — the settle contract', () => {
   it('fails the worker with the round’s own error instead of an artifact it never produced', async () => {
     const executor = createExecutor({
       backend: 'sandbox',
-      harness: 'opencode',
       sandboxClient: sandboxClient({ createFails: 'billingOwnerId is required' }),
     })(spec, ctx())
     await expect(

@@ -25,7 +25,7 @@
  *      the ledger and all three shots' spend in the one conserved pool.
  */
 
-import { runGraph } from '@tangle-network/agent-runtime/kernel'
+import { runGraphWithTestBrain } from '@tangle-network/agent-runtime/testing'
 import { describe, expect, it } from 'vitest'
 import { analystAgentReview } from '../../examples/graphs/analyst-agent-review'
 import { bestOfN } from '../../examples/graphs/best-of-n'
@@ -37,7 +37,7 @@ import { watchdogSteer } from '../../examples/graphs/watchdog-steer'
 describe('examples/graphs — the six topologies run offline with truthful ledgers', () => {
   it('collaborates-review-loop: every peer hop is mediated, ledgered, and addressed', async () => {
     const { graph, opts } = collaboratesReviewLoop()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
     if (res.result.kind === 'winner') expect(res.result.out).toEqual({ revision: 2 })
@@ -66,7 +66,7 @@ describe('examples/graphs — the six topologies run offline with truthful ledge
 
   it('best-of-n: two delivered spawn traversals, winner decided by the deliverable', async () => {
     const { graph, opts } = bestOfN()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
     if (res.result.kind === 'winner') expect(res.result.out).toEqual({ candidate: 'b', pass: true })
@@ -81,7 +81,7 @@ describe('examples/graphs — the six topologies run offline with truthful ledge
 
   it('watchdog-steer: the corrective steer is the mid-run leg of the delegates edge', async () => {
     const { graph, opts } = watchdogSteer()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
     if (res.result.kind === 'winner') {
@@ -102,7 +102,7 @@ describe('examples/graphs — the six topologies run offline with truthful ledge
 
   it('shot-loop: two shots under the 3-traversal cap, each with a delivered verify report', async () => {
     const { graph, opts } = shotLoop()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
     if (res.result.kind === 'winner') expect(res.result.out).toEqual({ tests: 'pass' })
@@ -119,7 +119,7 @@ describe('examples/graphs — the six topologies run offline with truthful ledge
 
   it('shot-loop-resumed: shot 1 fresh, shots 2-3 resume the prior settled session, one conserved pool', async () => {
     const { graph, opts, contexts } = shotLoopResumed()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
     if (res.result.kind === 'winner') expect(res.result.out).toEqual({ tests: 'pass' })
@@ -152,7 +152,7 @@ describe('examples/graphs — the six topologies run offline with truthful ledge
 
   it('analyst-agent-review: the reviewer NODE runs as the analyst and its output is the finding', async () => {
     const { graph, opts } = analystAgentReview()
-    const res = await runGraph(graph, opts)
+    const res = await runGraphWithTestBrain(graph, opts)
 
     expect(res.result.kind).toBe('winner')
     if (res.result.kind === 'winner') {

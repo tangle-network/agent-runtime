@@ -1169,64 +1169,6 @@ In-memory `RuntimeSessionStore` for single-process use and tests.
 
 ## Interfaces
 
-### BackendRetryPolicy
-
-Retry policy for transient transport errors (rate limits, upstream
-timeouts). Defaults to 5 attempts with exponential backoff starting at
-1s, ±25% jitter, capped at 30s. Set `maxAttempts: 1` to disable retries.
-
-Retried status codes:
-  - 408 Request Timeout
-  - 425 Too Early
-  - 429 Too Many Requests
-  - 500 / 502 / 503 / 504 — upstream transient failures
-
-Hard failures (401, 403, 4xx other than the above) propagate immediately.
-
-#### Properties
-
-##### maxAttempts?
-
-> `optional` **maxAttempts?**: `number`
-
-Total attempts including the first try. Default 5.
-
-##### initialBackoffMs?
-
-> `optional` **initialBackoffMs?**: `number`
-
-Initial backoff in ms before the second attempt. Default 1000.
-
-##### maxBackoffMs?
-
-> `optional` **maxBackoffMs?**: `number`
-
-Hard ceiling on backoff in ms. Default 30000.
-
-##### jitter?
-
-> `optional` **jitter?**: `number`
-
-Jitter fraction in [0, 1]. Default 0.25 (±25%).
-
-##### retryStatuses?
-
-> `optional` **retryStatuses?**: readonly `number`[]
-
-Status codes that trigger a retry. Default: 408, 425, 429, 500, 502, 503, 504.
-
-##### requestTimeoutMs?
-
-> `optional` **requestTimeoutMs?**: `number`
-
-Per-attempt wall-clock deadline in ms. If a single fetch attempt does
-not return headers within this window the attempt is aborted and
-retried. Default 120000 (2 min). Without this a hung upstream blocks
-the attempt indefinitely — observed in production as a 15-minute
-`fetch failed` that burned an entire eval persona. Set to 0 to disable.
-
-***
-
 ### AgentCandidateCodeSurfaceSource
 
 The only accepted path from an agent-eval code candidate to executable bytes.
@@ -1377,7 +1319,7 @@ Immutable signed identity stored for one execution attempt.
 
 ##### retryPolicy
 
-> `readonly` **retryPolicy**: `"none"` \| `"pre-model-infrastructure-only"`
+> `readonly` **retryPolicy**: `"pre-model-infrastructure-only"` \| `"none"`
 
 ##### bundleDigest
 
@@ -1927,7 +1869,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -2233,7 +2175,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -3784,12 +3726,12 @@ The agent under test. Metered; its rendered prompt leads its turns.
 
 The simulated user driving the dialogue.
 
-##### backendFor
+##### executorFor
 
-> **backendFor**: (`profile`, `role`) => [`AgentExecutionBackend`](#agentexecutionbackend)
+> **executorFor**: (`profile`, `role`) => [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
-Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
- Applied to the worker and to a `profile`-kind persona.
+Resolve transport/executable ports for the exact profile. Runtime still materializes the
+profile and owns every model call. Applied to the worker and a profile-driven persona.
 
 ###### Parameters
 
@@ -3803,23 +3745,7 @@ Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
 
 ###### Returns
 
-[`AgentExecutionBackend`](#agentexecutionbackend)
-
-##### systemPromptOf
-
-> **systemPromptOf**: (`profile`) => `string`
-
-Render a profile's system prompt — prepended to that profile's messages.
-
-###### Parameters
-
-###### profile
-
-`AgentProfile`
-
-###### Returns
-
-`string`
+[`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
 ##### maxTurns?
 
@@ -3883,6 +3809,18 @@ Worker-only spend (the side under test).
 
 > **tokensOut**: `number`
 
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+Absent means every worker call reported complete token usage.
+
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+Absent means every worker call reported provider-billed cost, including a known zero.
+
 ***
 
 ### RunPersonaConfig
@@ -3899,11 +3837,11 @@ Worker-only spend (the side under test).
 
 #### Properties
 
-##### backendFor
+##### executorFor
 
-> **backendFor**: (`profile`, `role`) => [`AgentExecutionBackend`](#agentexecutionbackend)
+> **executorFor**: (`profile`, `role`) => [`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
-Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
+Resolve transport/executable ports for each exact profile.
 
 ###### Parameters
 
@@ -3917,23 +3855,7 @@ Turn an `AgentProfile` into a runnable backend (router / sandbox / fake).
 
 ###### Returns
 
-[`AgentExecutionBackend`](#agentexecutionbackend)
-
-##### systemPromptOf
-
-> **systemPromptOf**: (`profile`) => `string`
-
-Render a profile's system prompt.
-
-###### Parameters
-
-###### profile
-
-`AgentProfile`
-
-###### Returns
-
-`string`
+[`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
 
 ##### personaOf
 
@@ -4032,9 +3954,8 @@ within a `Conversation`.
 > **backend**: [`AgentExecutionBackend`](#agentexecutionbackend)
 
 Backend that runs this participant's turn. Reuses the existing
-`AgentExecutionBackend` contract from `runAgentTaskStream`, so any
-registered backend (iterable, sandbox, OpenAI-compatible) works without
-adaptation.
+`AgentExecutionBackend` contract from `runAgentTaskStream`, so an iterable,
+sandbox, or profile-backed Runtime executor works through the same runner.
 
 ##### label?
 
@@ -4069,9 +3990,9 @@ Who pays for THIS participant's outbound calls?
 - `(state) => AuthSource` — per-turn / per-condition decision, e.g. base
   sub-services are agent-owned but premium add-ons forward the user.
 
-The agent's own credentials live on the backend (set at construction
-time, e.g. `createOpenAICompatibleBackend({ apiKey })`); this field is
-purely about *whether to also forward the user's identity downstream*.
+The agent's own credentials live on its caller-owned backend or
+profile-bound Runtime executor; this field is purely about *whether to
+also forward the user's identity downstream*.
 
 ***
 
@@ -4471,17 +4392,27 @@ One-based shot number within this candidate.
 
 > `readonly` **maxShots**: `number`
 
+##### profileDigest
+
+> `readonly` **profileDigest**: `string`
+
+Exact profile identity admitted before the shot.
+
 ##### harness
 
-> `readonly` **harness**: [`LocalHarness`](mcp.md#localharness)
+> `readonly` **harness**: `HarnessType`
+
+##### provider
+
+> `readonly` **provider**: `string`
 
 ##### model
 
-> `readonly` **model**: `string` \| `null`
+> `readonly` **model**: `string`
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 
@@ -4499,53 +4430,19 @@ One-based shot number within this candidate.
 
 > `readonly` **durationMs**: `number`
 
-##### exitCode
+##### status
 
-> `readonly` **exitCode**: `number` \| `null`
-
-##### timedOut
-
-> `readonly` **timedOut**: `boolean`
-
-##### aborted?
-
-> `readonly` `optional` **aborted?**: `boolean`
-
-True when caller cancellation reached the author process; absent in older receipts.
-
-##### killedBySignal
-
-> `readonly` **killedBySignal**: `Signals` \| `null`
-
-##### stdoutBytes
-
-> `readonly` **stdoutBytes**: `number` \| `null`
-
-##### stdoutSha256
-
-> `readonly` **stdoutSha256**: `` `sha256:${string}` `` \| `null`
-
-##### stderrBytes
-
-> `readonly` **stderrBytes**: `number` \| `null`
-
-##### stderrSha256
-
-> `readonly` **stderrSha256**: `` `sha256:${string}` `` \| `null`
+> `readonly` **status**: [`AgentTaskStatus`](#agenttaskstatus) \| `null`
 
 ##### usage
 
-> `readonly` **usage**: [`CodexTokenUsage`](mcp.md#codextokenusage) \| `null`
+> `readonly` **usage**: `Readonly`\<[`AgentTurnUsage`](runtime.md#agentturnusage)\> \| `null`
 
-##### profileWorkspacePlanDigest
+Runtime-normalized usage. Unknown token or dollar totals remain marked unknown.
 
-> `readonly` **profileWorkspacePlanDigest**: `string` \| `null`
+##### transportAttempts
 
-Digest of the exact profile-file workspace plan applied for this shot.
-
-##### profileWorkspaceFileCount
-
-> `readonly` **profileWorkspaceFileCount**: `number`
+> `readonly` **transportAttempts**: `number` \| `null`
 
 ##### costCallId
 
@@ -4569,10 +4466,6 @@ Whether dollars came from the provider, the pricing table, or are unknown.
 
 True only for a provider-reported amount, never for a pricing estimate.
 
-##### evidence
-
-> `readonly` **evidence**: [`CodexExecutionEvidence`](mcp.md#codexexecutionevidence) \| `null`
-
 ##### error
 
 > `readonly` **error**: \{ `name`: `string`; `message`: `string`; \} \| `null`
@@ -4589,41 +4482,26 @@ git worktree through a pluggable `CandidateGenerator`.
 
 #### Properties
 
-##### harness?
+##### profile
 
-> `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
+> **profile**: `AgentProfile`
 
-Local coding harness to run in the worktree. Default `claude-code`.
+Complete author identity. Harness, provider, model, prompt, tools, and resources all come from here.
 
-##### profile?
+##### executorForWorktree
 
-> `optional` **profile?**: `AgentProfile`
+> **executorForWorktree**: [`AgenticGeneratorExecutorForWorktree`](#agenticgeneratorexecutorforworktree)
 
-Author profile rendered through the canonical harness mapper. Required
- for reproducible Codex so model and reasoning settings are explicit.
-
-##### codexReproducible?
-
-> `optional` **codexReproducible?**: `boolean`
-
-Run Codex with isolated configuration, exact prompt evidence, and required
- terminal token usage. Requires `harness: 'codex'` and `profile`.
-
-##### codexReadDeniedPaths?
-
-> `optional` **codexReadDeniedPaths?**: readonly `string`[] \| ((`worktreePath`) => readonly `string`[])
-
-Absolute paths reproducible Codex must not read. A function can derive
- candidate-specific paths after the driver creates its worktree.
+Place the exact profile on compute that can edit this existing worktree.
+A Pi author normally returns `{ backend:'bridge', cwd: worktreePath, ...transport }`.
 
 ##### onShotCompleted?
 
 > `optional` **onShotCompleted?**: (`receipt`, `execution`) => `void` \| `Promise`\<`void`\>
 
-Awaited once for every attempted author shot, including process failures.
- The second argument preserves the exact harness result, including stdout
- and stderr, before worktree inspection or verification can reject the
- shot. Throwing aborts the candidate so evidence persistence fails closed.
+Awaited once for every attempted author shot, including execution failures.
+The second argument is Runtime's exact terminal turn and event stream.
+Throwing aborts the candidate so evidence persistence fails closed.
 
 ###### Parameters
 
@@ -4633,7 +4511,7 @@ Awaited once for every attempted author shot, including process failures.
 
 ###### execution
 
-`Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\> \| `null`
+`Readonly`\<[`CollectedAgentTurn`](runtime.md#collectedagentturn)\> \| `null`
 
 ###### Returns
 
@@ -4664,22 +4542,19 @@ Awaited after worktree inspection and before the shot is accepted,
 
 > `optional` **maximumCharge?**: `MaximumCharge`
 
-Optional hard upper bound passed to the run-wide CostLedger before each
- author shot. This MUST be enforced by the provider or executor; a planning
- estimate is not an admissible bound. Omit for an uncapped ledger. A capped
- ledger rejects before model dispatch when this is absent.
+Optional hard upper bound passed to the run-wide CostLedger before each author shot.
 
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
 
-Per-shot wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
+Per-shot wall-clock timeout. Omit for no Runtime-imposed deadline.
 
-##### buildPrompt?
+##### buildPrompt
 
-> `optional` **buildPrompt?**: (`args`) => `string`
+> **buildPrompt**: (`args`) => `string`
 
-Build the harness task prompt from proposal findings.
+Build the task prompt from proposal findings. Required: Runtime invents no authoring policy.
 
 ###### Parameters
 
@@ -4700,47 +4575,8 @@ readonly `ProposalFinding`[]
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
  (verify-in-session), up to `maxShots`; a candidate that never verifies is
- discarded (`applied:false`), never shipped. Omitted ⇒ legacy behavior:
- the first dirty shot is the candidate. See `commandVerifier`.
-
-##### runHarness?
-
-> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
-
-Test seam — inject the harness runner (defaults to `runLocalHarness`).
-
-**`Experimental`**
-
-Spawn a local coding harness CLI as a subprocess + collect its output.
-
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
-
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
-
-Reproducible Codex additionally requires a terminal usage event. If cancellation
-prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
-returning an incomplete reproducibility receipt.
-
-###### Parameters
-
-###### options
-
-[`RunLocalHarnessOptions`](mcp.md#runlocalharnessoptions)
-
-###### Returns
-
-`Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
+ discarded (`applied:false`), never shipped. Omitted means the first dirty
+ shot is the candidate. See `commandVerifier`.
 
 ##### isDirty?
 
@@ -4769,158 +4605,6 @@ Evidence supplied to a generated tool or MCP build instruction.
 ##### findings
 
 > **findings**: readonly `ProposalFinding`[]
-
-***
-
-### DriverLoopGeneratorOptions
-
-#### Properties
-
-##### brain
-
-> **brain**: [`ToolLoopChat`](runtime.md#toolloopchat)
-
-The driver-LLM seam — ONE inference turn over the conversation + tool specs (the canonical
- `ToolLoopChat`, same seam as `driverAgent`): `routerBrain(cfg)` in production, a scripted
- mock in tests.
-
-##### harness?
-
-> `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
-
-Local coding harness the driver's worker sessions run in the worktree. Default `claude-code`.
-
-##### timeoutMs?
-
-> `optional` **timeoutMs?**: `number`
-
-Per-worker-session wall-clock timeout (ms). Default = `runLocalHarness` default (5m).
-
-##### buildPrompt?
-
-> `optional` **buildPrompt?**: (`args`) => `string`
-
-Build the driver's task briefing (domain framing + method + findings) — the same senior
- prompt the worker path uses (`toolBuildPrompt` / `mcpBuildPrompt`). The driver reads it and
- folds what each worker needs into its instruction. Default `defaultBuildPrompt`.
-
-###### Parameters
-
-###### args
-
-###### findings
-
-readonly `ProposalFinding`[]
-
-###### Returns
-
-`string`
-
-##### verify?
-
-> `optional` **verify?**: [`Verifier`](#verifier)
-
-Verify the worktree (the intrinsic check). Exposed to the driver as `run_verifier` AND
- re-run by code as the final keep/discard gate. Omitted ⇒ the final gate is dirty-tree only
- (legacy `agenticGenerator` behavior sans verifier).
-
-##### maxTurns?
-
-> `optional` **maxTurns?**: `number`
-
-Max driver inference turns. Default `max(8, 2 + maxShots * 3)` — room for one
- observe/rate/decide cycle per worker session plus orientation.
-
-##### research?
-
-> `optional` **research?**: (`query`) => `Promise`\<`string`\>
-
-The research seam (adopt-not-build): when set, the driver gets a
- `research{query}` tool + the `researchDriverNote` doctrine, so it can
- discover an EXISTING external MCP instead of building one. Wire a real
- web/search backend here — none is provisioned by default (the build
- harness has no live web access yet; flagged).
-
-###### Parameters
-
-###### query
-
-`string`
-
-###### Returns
-
-`Promise`\<`string`\>
-
-##### runHarness?
-
-> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
-
-Test seam — inject the harness runner (defaults to `runLocalHarness`).
-
-**`Experimental`**
-
-Spawn a local coding harness CLI as a subprocess + collect its output.
-
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
-
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
-
-Reproducible Codex additionally requires a terminal usage event. If cancellation
-prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
-returning an incomplete reproducibility receipt.
-
-###### Parameters
-
-###### options
-
-[`RunLocalHarnessOptions`](mcp.md#runlocalharnessoptions)
-
-###### Returns
-
-`Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
-
-##### readDiff?
-
-> `optional` **readDiff?**: (`worktreePath`) => `string`
-
-Test seam — inject the worktree diff reader (defaults to `git diff` in the worktree).
-
-###### Parameters
-
-###### worktreePath
-
-`string`
-
-###### Returns
-
-`string`
-
-##### changedPaths?
-
-> `optional` **changedPaths?**: (`worktreePath`) => `string`[]
-
-Test seam — inject the changed-paths reader (defaults to `git status --porcelain`).
-
-###### Parameters
-
-###### worktreePath
-
-`string`
-
-###### Returns
-
-`string`[]
 
 ***
 
@@ -5050,7 +4734,7 @@ Apply a complete winning component map to a detached profile.
 
 ***
 
-### ImproveCodeOptions
+### ImproveCodeBaseOptions
 
 #### Properties
 
@@ -5079,11 +4763,41 @@ Directory worktrees are created under. Default `<repoRoot>/.worktrees`.
 Git-compatible adapter override, primarily for tests. Candidate advancement
 still requires normal Git worktree and commit semantics.
 
-##### harness?
+##### profile
 
-> `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
+> **profile**: `AgentProfile`
 
-Coding harness the agentic generator runs in each worktree. Default `claude-code`.
+Complete identity of the code author. No execution field may be filled from ambient defaults.
+
+***
+
+### ImproveRuntimeCodeGeneratorOptions
+
+#### Properties
+
+##### executorForWorktree
+
+> **executorForWorktree**: [`AgenticGeneratorExecutorForWorktree`](#agenticgeneratorexecutorforworktree)
+
+Place the exact author profile on compute that can edit the supplied worktree.
+
+##### buildPrompt
+
+> **buildPrompt**: (`args`) => `string`
+
+Author the task from admitted findings. Required: Runtime invents no code-improvement prompt.
+
+###### Parameters
+
+###### args
+
+###### findings
+
+readonly `ProposalFinding`[]
+
+###### Returns
+
+`string`
 
 ##### verify?
 
@@ -5096,14 +4810,49 @@ feed the next shot (see `agenticGenerator.verify` / `commandVerifier`).
 
 > `optional` **timeoutMs?**: `number`
 
-Per-shot wall-clock timeout for the harness (ms).
+Per-shot wall-clock timeout. Omit for no Runtime-imposed deadline.
+
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `MaximumCharge`
+
+Optional provider-enforced maximum admitted by the run-wide cost ledger.
 
 ##### generator?
 
-> `optional` **generator?**: [`CandidateGenerator`](#candidategenerator)
+> `optional` **generator?**: `undefined`
 
-Byte-producer override, used for tests and custom candidate production.
-When set, `harness`, `verify`, and `timeoutMs` are unused.
+***
+
+### ImproveCustomCodeGeneratorOptions
+
+#### Properties
+
+##### generator
+
+> **generator**: [`CandidateGenerator`](#candidategenerator)
+
+Complete byte-producer replacement. Runtime still validates `profile` before creating worktrees.
+
+##### executorForWorktree?
+
+> `optional` **executorForWorktree?**: `undefined`
+
+##### buildPrompt?
+
+> `optional` **buildPrompt?**: `undefined`
+
+##### verify?
+
+> `optional` **verify?**: `undefined`
+
+##### timeoutMs?
+
+> `optional` **timeoutMs?**: `undefined`
+
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `undefined`
 
 ***
 
@@ -5939,17 +5688,9 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 > `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-##### harness?
+##### supervisorProfile
 
-> `optional` **harness?**: `string`
-
-##### supervisorModel?
-
-> `optional` **supervisorModel?**: `string`
-
-##### supervisorSystemPrompt?
-
-> `optional` **supervisorSystemPrompt?**: `string`
+> **supervisorProfile**: `AgentProfile`
 
 ##### superviseOptions?
 
@@ -5967,7 +5708,7 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ###### profile
 
-[`SupervisorProfile`](runtime.md#supervisorprofile)
+`AgentProfile`
 
 ###### task
 
@@ -6265,17 +6006,11 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 > `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
 
-##### harness?
+##### supervisorProfile
 
-> `optional` **harness?**: `string`
+> **supervisorProfile**: `AgentProfile`
 
-##### supervisorModel?
-
-> `optional` **supervisorModel?**: `string`
-
-##### supervisorSystemPrompt?
-
-> `optional` **supervisorSystemPrompt?**: `string`
+Caller-owned exact supervisor harness/provider/model identity.
 
 ##### superviseOptions?
 
@@ -6293,7 +6028,7 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ###### profile
 
-[`SupervisorProfile`](runtime.md#supervisorprofile)
+`AgentProfile`
 
 ###### task
 
@@ -6389,6 +6124,14 @@ Clock override for deterministic tests.
 Options for the local-repo `code` runner over the GENERIC recursive path.
 
 #### Properties
+
+##### rootProfile
+
+> **rootProfile**: `AgentProfile`
+
+**`Experimental`**
+
+Exact profile carried by the personified root that owns this fanout.
 
 ##### repoRoot
 
@@ -7223,152 +6966,6 @@ Idempotency-Key header (e.g. the runId) — safe retries + upsert.
 
 ***
 
-### ResolveAgentBackendOptions
-
-#### Extends
-
-- `OpenAICompatPassthrough`
-
-#### Type Parameters
-
-##### TInput
-
-`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
-
-#### Properties
-
-##### tools?
-
-> `optional` **tools?**: readonly [`OpenAIChatTool`](#openaichattool)[]
-
-OpenAI Chat Completions `tools[]` definitions surfaced to the model on
-every request. Omit to send a tool-free request (existing behavior).
-The runtime makes no assumption about the dispatcher — calls stream out
-as `tool_call` events and the caller is responsible for executing them
-and feeding `tool_result` messages back on a follow-up turn.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.tools`
-
-##### toolChoice?
-
-> `optional` **toolChoice?**: [`OpenAIChatToolChoice`](#openaichattoolchoice)
-
-OpenAI Chat Completions `tool_choice`. Default `undefined` (request
-omits the field; provider falls back to its own default — typically
-`'auto'`).
-
-###### Inherited from
-
-`OpenAICompatPassthrough.toolChoice`
-
-##### responseFormat?
-
-> `optional` **responseFormat?**: [`OpenAIChatResponseFormat`](#openaichatresponseformat)
-
-OpenAI Chat Completions `response_format`. Omit for provider default text.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.responseFormat`
-
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-OpenAI Chat Completions `temperature`. Omit for provider default.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.temperature`
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default.
-
-###### Inherited from
-
-`OpenAICompatPassthrough.maxTokens`
-
-##### fetchImpl?
-
-> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
-
-###### Parameters
-
-###### input
-
-`string` \| `URL` \| `Request`
-
-###### init?
-
-`RequestInit`
-
-###### Returns
-
-`Promise`\<`Response`\>
-
-###### Inherited from
-
-`OpenAICompatPassthrough.fetchImpl`
-
-##### retry?
-
-> `optional` **retry?**: [`BackendRetryPolicy`](#backendretrypolicy)
-
-###### Inherited from
-
-`OpenAICompatPassthrough.retry`
-
-##### kind
-
-> **kind**: [`AgentBackendKind`](#agentbackendkind)
-
-The chat transport to resolve.
-
-##### apiKey
-
-> **apiKey**: `string`
-
-Bearer credential for the OpenAI-compat kinds. Empty string is valid for a
-loopback-anonymous cli-bridge; a `router`/`tcloud` route with an empty key
-is a caller bug the product surfaces before calling in.
-
-##### baseUrl
-
-> **baseUrl**: `string`
-
-Base URL for the OpenAI-compat kinds. cli-bridge's is its `/v1`.
-
-##### model
-
-> **model**: `string`
-
-Model id sent on every request. cli-bridge rejects a request without it.
-
-##### label?
-
-> `optional` **label?**: `string`
-
-`kind` label stamped on the resolved backend + its traces. Defaults to `kind`.
-
-##### sandboxBackend?
-
-> `optional` **sandboxBackend?**: () => [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-`sandbox` kind: the product's own domain backend. Required for that kind —
-the substrate owns no product sandbox shape, so a `sandbox` resolution with
-no seam is a caller bug, not a silent fallback.
-
-###### Returns
-
-[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-***
-
 ### RuntimeHookEvent
 
 #### Type Parameters
@@ -8149,9 +7746,11 @@ executors omit it (returns `undefined`).
 
 ### AgentSpec
 
-`AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
-one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
-an executor directly, without changing the profile's behavioral identity.
+`AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling
+any registry, including one that resolves caller-supplied executors and factories. The default
+registry enforces the same rule when called directly. `AgentSpec.harness` records routing for one
+concrete run; where a backend consumes both fields, it must agree with `AgentProfile.harness` and
+cannot fill or override it.
 
 Resolution (in `runtime.ts`):
  - `executorFactory` present → BYO: build it after admission with the live context.
@@ -8190,16 +7789,16 @@ Per-spawn factory carrying caller configuration. Constructed only after admissio
 
 > `readonly` `optional` **executor?**: [`Executor`](#executor-2)\<`unknown`\>
 
-Bring-your-own executor: when set, overrides harness-based resolution entirely.
+Bring-your-own executor: highest routing precedence after exact-profile intake validation.
 
 ***
 
 ### ExecutorRegistry
 
-The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
-registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
-register more runtimes by name. NOT a closed switch — registration is the extension
-point, mirroring the open `Executor` interface.
+The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates
+before invoking any implementation; the default registry repeats validation for direct callers,
+resolves the three built-ins, and accepts a BYO `executor`/factory. Callers may register more
+runtimes by name, but registration does not waive exact-profile validation.
 
 #### Methods
 
@@ -8806,6 +8405,30 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 **`Experimental`**
 
 Sum of every iteration's `costUsd`.
+
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+**`Experimental`**
+
+False when `costUsd` is only the observed subtotal, not a complete bill.
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+**`Experimental`**
+
+Sum of separately-labelled local/catalog estimates.
+
+##### promptCache?
+
+> `optional` **promptCache?**: `Record`\<`string`, `string` \| `number`\>
+
+**`Experimental`**
+
+Aggregated provider-reported prompt-cache fields.
 
 ##### tokenUsage
 
@@ -9584,9 +9207,9 @@ Truncated response body (≤2 KiB). Diagnostic only — never machine-parsed.
 **`Stable`**
 
 OpenAI Chat Completions tool descriptor. The shape mirrors the
-`/v1/chat/completions` `tools[]` parameter so callers can pass tool
-definitions through `createOpenAICompatibleBackend({ tools })` without any
-runtime translation. The router proxies this shape verbatim to Anthropic
+`/v1/chat/completions` `tools[]` parameter so caller-owned compatible
+transports can pass tool definitions without translation. A router can
+proxy this shape to Anthropic
 (translated server-side), DeepSeek, Groq, OpenAI, and Gemini — every model
 that the eval surface targets.
 
@@ -10673,12 +10296,9 @@ Verifies the edited worktree. Sync or async; throws only on a setup fault
 
 ### AgenticGeneratorShotExecution
 
-> **AgenticGeneratorShotExecution** = `Readonly`\<`Omit`\<[`LocalHarnessResult`](mcp.md#localharnessresult), `"usage"` \| `"evidence"`\> & `object`\>
+> **AgenticGeneratorShotExecution** = `Readonly`\<[`CollectedAgentTurn`](runtime.md#collectedagentturn)\>
 
-Frozen exact harness result for an author shot: full streams, process state,
- token usage, and execution-policy evidence.
- The `onShotCompleted` callback receives `null` when execution failed before
- the harness returned.
+Runtime's exact terminal turn plus its complete normalized event stream.
 
 ***
 
@@ -10689,6 +10309,28 @@ Frozen exact harness result for an author shot: full streams, process state,
 Worktree decision emitted before a completed shot is retried, accepted, or
  discarded. The callback runs while `worktreePath` is still available, so
  callers can persist the exact diff.
+
+***
+
+### AgenticGeneratorExecutorForWorktree
+
+> **AgenticGeneratorExecutorForWorktree** = (`worktreePath`) => [`ExecutorConfig`](runtime.md#executorconfig)
+
+`@tangle-network/agent-runtime` improvement.
+
+The public entry point is `improve()`. Complete agent-eval methods optimize
+profile surfaces. Runtime owns only code candidates that mutate an isolated
+git worktree through a pluggable `CandidateGenerator`.
+
+#### Parameters
+
+##### worktreePath
+
+`string`
+
+#### Returns
+
+[`ExecutorConfig`](runtime.md#executorconfig)
 
 ***
 
@@ -10993,6 +10635,12 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 
 ***
 
+### ImproveCodeOptions
+
+> **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & [`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions)
+
+***
+
 ### ImprovementCandidate
 
 > **ImprovementCandidate** = [`ImprovementProfileCandidate`](#improvementprofilecandidate) \| [`ImprovementCodeCandidate`](#improvementcodecandidate)
@@ -11258,14 +10906,6 @@ The single shell-command-in-worktree runner seam (replaces the per-executor copi
 ### ChatModelValidation
 
 > **ChatModelValidation** = \{ `succeeded`: `true`; `value`: `string`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}
-
-***
-
-### AgentBackendKind
-
-> **AgentBackendKind** = `"router"` \| `"tcloud"` \| `"cli-bridge"` \| `"sandbox"`
-
-The transport a chat backend runs on.
 
 ***
 
@@ -11728,7 +11368,7 @@ pin `{ type: 'function', function: { name } }`.
 
 ### RuntimeStreamEvent
 
-> **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
+> **RuntimeStreamEvent** = \{ `type`: `"task_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `timestamp`: `string`; \} \| \{ `type`: `"readiness_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `knowledge`: `KnowledgeReadinessReport`; `decision`: [`KnowledgeReadinessDecision`](#knowledgereadinessdecision); `timestamp`: `string`; \} \| \{ `type`: `"questions_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `timestamp`: `string`; \} \| \{ `type`: `"questions_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `questions`: `UserQuestion`[]; `userAnswers`: `Record`\<`string`, `string`\>; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `timestamp`: `string`; \} \| \{ `type`: `"acquisition_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `acquisitionPlans`: `DataAcquisitionPlan`[]; `acquiredEvidenceIds`: `string`[]; `timestamp`: `string`; \} \| \{ `type`: `"session_created"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"session_resumed"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `timestamp`: `string`; \} \| \{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \} \| \{ `type`: `"text_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"reasoning_delta"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `text`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"tool_result"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; `timestamp?`: `string`; \} \| \{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"artifact"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `artifactId`: `string`; `name?`: `string`; `mimeType?`: `string`; `uri?`: `string`; `content?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp?`: `string`; \} \| \{ `type`: `"proposal_created"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `proposalId`: `string`; `title`: `string`; `status?`: `"pending"` \| `"approved"` \| `"rejected"`; `content?`: `string`; `timestamp?`: `string`; \} \| \{ `type`: `"backend_error"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `message`: `string`; `recoverable`: `boolean`; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \} \| \{ `type`: `"backend_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"task_end"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `timestamp`: `string`; \} \| \{ `type`: `"final"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `status`: [`AgentTaskStatus`](#agenttaskstatus); `reason`: `string`; `text?`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `error?`: [`BackendErrorDetail`](#backenderrordetail); `timestamp`: `string`; \}
 
 **`Stable`**
 
@@ -11790,7 +11430,35 @@ pin `{ type: 'function', function: { name } }`.
 
 ##### Type Literal
 
-\{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `timestamp`: `string`; \}
+\{ `type`: `"backend_start"`; `task`: [`AgentTaskSpec`](#agenttaskspec); `session`: [`RuntimeSession`](#runtimesession); `backend`: `string`; `metadata?`: `Record`\<`string`, `unknown`\>; `timestamp`: `string`; \}
+
+###### type
+
+> **type**: `"backend_start"`
+
+###### task
+
+> **task**: [`AgentTaskSpec`](#agenttaskspec)
+
+###### session
+
+> **session**: [`RuntimeSession`](#runtimesession)
+
+###### backend
+
+> **backend**: `string`
+
+###### metadata?
+
+> `optional` **metadata?**: `Record`\<`string`, `unknown`\>
+
+Canonical execution identity and materialization evidence for this turn, when Runtime
+ owns the selected executor. Generic metadata keeps the event vocabulary open while the
+ values use Runtime's existing identity/materialization receipt shapes.
+
+###### timestamp
+
+> **timestamp**: `string`
 
 ***
 
@@ -11820,7 +11488,71 @@ pin `{ type: 'function', function: { name } }`.
 
 ##### Type Literal
 
-\{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `costUsd?`: `number`; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \}
+\{ `type`: `"llm_call"`; `task?`: [`AgentTaskSpec`](#agenttaskspec); `session?`: [`RuntimeSession`](#runtimesession); `model`: `string`; `tokensIn?`: `number`; `tokensOut?`: `number`; `tokensKnown?`: `false`; `costUsd?`: `number`; `usdKnown?`: `false`; `estimatedCostUsd?`: `number`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `latencyMs?`: `number`; `finishReason?`: `string`; `timestamp?`: `string`; \}
+
+###### type
+
+> **type**: `"llm_call"`
+
+###### task?
+
+> `optional` **task?**: [`AgentTaskSpec`](#agenttaskspec)
+
+###### session?
+
+> `optional` **session?**: [`RuntimeSession`](#runtimesession)
+
+###### model
+
+> **model**: `string`
+
+###### tokensIn?
+
+> `optional` **tokensIn?**: `number`
+
+###### tokensOut?
+
+> `optional` **tokensOut?**: `number`
+
+###### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+False when the numeric token subtotal is incomplete or absent.
+
+###### costUsd?
+
+> `optional` **costUsd?**: `number`
+
+###### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+False when `costUsd` is only an observed floor, estimate, or absent.
+
+###### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+Separately-labelled local/catalog estimate; never billed spend.
+
+###### promptCache?
+
+> `optional` **promptCache?**: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>
+
+Provider-reported prompt-cache fields; absent fields remain unknown.
+
+###### latencyMs?
+
+> `optional` **latencyMs?**: `number`
+
+###### finishReason?
+
+> `optional` **finishReason?**: `string`
+
+###### timestamp?
+
+> `optional` **timestamp?**: `string`
 
 ***
 
@@ -12089,15 +11821,6 @@ Hard cap on chained gateway hops; refused beyond this. Default keeps recursion b
 
 ***
 
-### AGENTIC\_PROFILE\_RESOURCE\_ROOT
-
-> `const` **AGENTIC\_PROFILE\_RESOURCE\_ROOT**: `".agent-runtime-profile-resources"` = `'.agent-runtime-profile-resources'`
-
-Dedicated ephemeral root for generic author-profile files. Every declared
-file must live below this root so cleanup cannot alter candidate-owned files.
-
-***
-
 ### optimizerMethod
 
 > `const` **optimizerMethod**: `string`
@@ -12105,27 +11828,6 @@ file must live below this root so cleanup cannot alter candidate-owned files.
 The shared method block every build/author prompt embeds. Domain framing
 (what a tool/MCP/codebase-edit deliverable looks like) wraps around it; this
 is the process itself.
-
-***
-
-### buildDriverSystem
-
-> `const` **buildDriverSystem**: `string`
-
-The driver's stance for `driverLoopGenerator` — the build-domain instance of
-the supervisor doctrine (observe → rate → decide; refine / re-scope /
-decompose; the check decides delivery, never the driver's prose).
-
-***
-
-### researchDriverNote
-
-> `const` **researchDriverNote**: `string`
-
-The driver's ADOPT-not-build doctrine, appended to `buildDriverSystem` when
-a `research` tool is wired into the loop (`DriverLoopGeneratorOptions.
-research`). Kept separate so a driver WITHOUT the tool is never told to
-call a tool it does not have.
 
 ***
 
@@ -12261,119 +11963,6 @@ Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call
 ###### getSessionId?
 
 (`box`, `input`) => `string` \| `undefined`
-
-#### Returns
-
-[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-***
-
-### createOpenAICompatibleBackend()
-
-> **createOpenAICompatibleBackend**\<`TInput`\>(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-**`Stable`**
-
-OpenAI-compat streaming backend. Routes `runAgentTaskStream` through any
-`POST /chat/completions` endpoint that speaks OpenAI's SSE protocol —
-Tangle Router, OpenAI direct, OpenRouter, Groq, DeepSeek, Together. The
-router also fronts Anthropic models in Anthropic-native SSE shape; this
-backend handles both.
-
-### Tool calls
-
-Pass `tools` (and optionally `toolChoice`) to forward an OpenAI Chat
-Completions `tools[]` array on every request. Streamed `tool_call` chunks
-are buffered until the model finalizes them (either `finish_reason:
-'tool_calls'` for OpenAI shape or a `content_block_stop` for Anthropic
-`tool_use` blocks proxied through the router), then emitted as a single
-`tool_call` RuntimeStreamEvent with the assembled `args`.
-
-The backend does NOT execute tools — it surfaces calls for the caller's
-own dispatcher (typically the product's MCP / sandbox runtime) to fulfill
-and feed back as a subsequent `messages` turn. This keeps the transport
-thin and lets the agent host own tool dispatch policy.
-
-### Fail-loud errors
-
-Non-success HTTP responses (4xx/5xx) and exhausted retry budgets throw
-`BackendTransportError` from inside the `stream()` generator. The runtime
-catches the throw, yields a `backend_error` with a typed `error` field
-(`kind`, `status`, truncated `body`) and a terminal `final` event with
-`status: 'failed'` carrying the same detail. Consumers MUST map
-`final.error` onto their `RunRecord.error` — silently treating an empty
-`finalText` as "agent produced nothing" hides credit exhaustion, auth
-failure, and upstream outages.
-
-#### Type Parameters
-
-##### TInput
-
-`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
-
-#### Parameters
-
-##### options
-
-###### apiKey
-
-`string`
-
-###### baseUrl
-
-`string`
-
-###### model
-
-`string`
-
-###### kind?
-
-`string`
-
-###### tools?
-
-readonly [`OpenAIChatTool`](#openaichattool)[]
-
-OpenAI Chat Completions `tools[]` definitions surfaced to the model on
-every request. Omit to send a tool-free request (existing behavior).
-The runtime makes no assumption about the dispatcher — calls stream out
-as `tool_call` events and the caller is responsible for executing them
-and feeding `tool_result` messages back on a follow-up turn.
-
-###### toolChoice?
-
-[`OpenAIChatToolChoice`](#openaichattoolchoice)
-
-OpenAI Chat Completions `tool_choice`. Default `undefined` (request
-omits the field; provider falls back to its own default — typically
-`'auto'`).
-
-###### responseFormat?
-
-[`OpenAIChatResponseFormat`](#openaichatresponseformat)
-
-OpenAI Chat Completions `response_format`. Omit for provider default text.
-
-###### temperature?
-
-`number`
-
-OpenAI Chat Completions `temperature`. Omit for provider default.
-
-###### maxTokens?
-
-`number`
-
-Maximum completion tokens, sent as OpenAI-compatible `max_tokens`. Omit for provider default.
-
-###### fetchImpl?
-
-(`input`, `init?`) => `Promise`\<`Response`\>
-
-###### retry?
-
-[`BackendRetryPolicy`](#backendretrypolicy)
 
 #### Returns
 
@@ -13297,15 +12886,15 @@ unique-name check, so the slug only needs to be deterministic, not unique.
 
 ### agenticGenerator()
 
-> **agenticGenerator**(`opts?`): [`CandidateGenerator`](#candidategenerator)
+> **agenticGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
 
-Full-agentic `CandidateGenerator` (the `shots=N, sandbox=on` setting): run a real coding harness inside the candidate worktree so the agent makes the change in place.
+Full-agentic `CandidateGenerator`: run an exact profiled author inside the existing candidate worktree.
 
 #### Parameters
 
-##### opts?
+##### opts
 
-[`AgenticGeneratorOptions`](#agenticgeneratoroptions) = `{}`
+[`AgenticGeneratorOptions`](#agenticgeneratoroptions)
 
 #### Returns
 
@@ -13416,24 +13005,6 @@ Build the starting instruction for a coder agent tasked with implementing a new 
 #### Returns
 
 `string`
-
-***
-
-### driverLoopGenerator()
-
-> **driverLoopGenerator**(`opts`): [`CandidateGenerator`](#candidategenerator)
-
-Driver→worker `CandidateGenerator`: an LLM driver on the canonical tool-loop authors, observes, rates, and steers coding-harness sessions in the worktree until the verifier passes or the session budget is spent.
-
-#### Parameters
-
-##### opts
-
-[`DriverLoopGeneratorOptions`](#driverloopgeneratoroptions)
-
-#### Returns
-
-[`CandidateGenerator`](#candidategenerator)
 
 ***
 
@@ -13587,7 +13158,7 @@ Drop-in for `analyzeGeneration` on `improve({ surface: 'code' })`:
   await improve({
     surface: 'code',
     findings: seedFindings,
-    code: { repoRoot },
+    code: { repoRoot, profile, executorForWorktree, buildPrompt },
     runDir: '/abs/run',                 // MUST be a real path — the traces live here
     analyzeGeneration: rawTraceDistiller(),
     scenarios, judge, agent,
@@ -14494,31 +14065,6 @@ Map a `KnowledgeReadinessReport` to a three-state branch (`ready` / `blocked` / 
 
 ***
 
-### resolveAgentBackend()
-
-> **resolveAgentBackend**\<`TInput`\>(`opts`): [`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-Resolve the `AgentExecutionBackend` for the chosen `kind`. Reuse this instead
-of hand-rolling the `createOpenAICompatibleBackend` branch in each product.
-
-#### Type Parameters
-
-##### TInput
-
-`TInput` *extends* [`AgentBackendInput`](#agentbackendinput) = [`AgentBackendInput`](#agentbackendinput)
-
-#### Parameters
-
-##### opts
-
-[`ResolveAgentBackendOptions`](#resolveagentbackendoptions)\<`TInput`\>
-
-#### Returns
-
-[`AgentExecutionBackend`](#agentexecutionbackend)\<`TInput`\>
-
-***
-
 ### applyRunRecordDefaults()
 
 > **applyRunRecordDefaults**(`records`, `scenarioId`, `controlFailureClass`): `RunRecord`[]
@@ -14723,6 +14269,38 @@ lifetime; consumers should not share it across requests.
 #### Returns
 
 [`RuntimeRunHandle`](#runtimerunhandle)
+
+***
+
+### createProfileExecutionBackend()
+
+> **createProfileExecutionBackend**(`options`): [`AgentExecutionBackend`](#agentexecutionbackend)
+
+**`Stable`**
+
+Bind one exact profile and Runtime executor to the stable `AgentExecutionBackend` contract used
+by `runAgentTaskStream` and conversations.
+
+Runtime still owns the model call through `streamAgentTurn`.
+The adapter only translates the two stream protocols and carries the caller's request headers
+into `ExecutorContext` so an HTTP executor can preserve authorization, recursion depth, and
+trace identity.
+
+#### Parameters
+
+##### options
+
+###### profile
+
+`AgentProfile`
+
+###### executor
+
+[`ExecutorFactory`](runtime.md#executorfactory)\<`unknown`\>
+
+#### Returns
+
+[`AgentExecutionBackend`](#agentexecutionbackend)
 
 ***
 

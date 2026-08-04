@@ -131,7 +131,10 @@ export function extractLlmCallEvent(
  *     receipt: (turn) => {
  *       const u = sumSandboxUsage(turn.events)
  *       return { model, inputTokens: u.input, outputTokens: u.output,
- *         ...(u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}) }
+ *         ...(u.tokensKnown === false ? { usageUnknown: true } : {}),
+ *         ...(u.usdKnown !== false && u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}),
+ *         ...(u.usdKnown === false ? { costUnknown: true } : {}),
+ *         ...(u.estimatedCostUsd !== undefined ? { estimatedCostUsd: u.estimatedCostUsd } : {}) }
  *     }
  *
  * Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
@@ -140,18 +143,44 @@ export function extractLlmCallEvent(
 export function sumSandboxUsage(
   events: readonly SandboxEvent[],
   agentRunName = 'agent',
-): { input: number; output: number; costUsd: number } {
+): {
+  input: number
+  output: number
+  costUsd: number
+  tokensKnown?: false
+  usdKnown?: false
+  estimatedCostUsd?: number
+} {
   let input = 0
   let output = 0
   let costUsd = 0
+  let estimatedCostUsd = 0
+  let sawEstimate = false
+  let sawCall = false
+  let tokensKnown = true
+  let usdKnown = true
   for (const ev of events) {
     const call = extractLlmCallEvent(ev, agentRunName)
     if (!call) continue
+    sawCall = true
     input += call.tokensIn ?? 0
     output += call.tokensOut ?? 0
     costUsd += call.costUsd ?? 0
+    if (call.tokensKnown === false) tokensKnown = false
+    if (call.usdKnown === false) usdKnown = false
+    if (call.estimatedCostUsd !== undefined) {
+      estimatedCostUsd += call.estimatedCostUsd
+      sawEstimate = true
+    }
   }
-  return { input, output, costUsd }
+  return {
+    input,
+    output,
+    costUsd,
+    ...(sawCall && tokensKnown ? {} : { tokensKnown: false as const }),
+    ...(sawCall && usdKnown ? {} : { usdKnown: false as const }),
+    ...(sawEstimate ? { estimatedCostUsd } : {}),
+  }
 }
 
 function buildLlmCall(
@@ -165,8 +194,35 @@ function buildLlmCall(
     outputTokens !== undefined || reasoningTokens !== undefined
       ? (outputTokens ?? 0) + (reasoningTokens ?? 0)
       : undefined
-  const costUsd = pickFiniteNumber(data, ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'])
-  if (tokensIn === undefined && tokensOut === undefined && costUsd === undefined) {
+  const reportedCostUsd = pickFiniteNumber(data, ['costUsd', 'totalCostUsd', 'cost_usd', 'cost'])
+  const explicitTokensKnown = data.tokensKnown ?? data.tokens_known
+  const explicitCostKnown = data.costKnown ?? data.cost_known ?? data.usdKnown ?? data.usd_known
+  const costProvenance = data.costProvenance ?? data.cost_provenance
+  const explicitEstimate = pickFiniteNumber(data, ['estimatedCostUsd', 'estimated_cost_usd'])
+  const catalogEstimate =
+    costProvenance === 'catalog-estimate' ? (explicitEstimate ?? reportedCostUsd) : explicitEstimate
+  const costUsd = costProvenance === 'catalog-estimate' ? undefined : reportedCostUsd
+  const promptCache = finiteMetadata(data.promptCache ?? data.prompt_cache)
+  const tokensKnown =
+    explicitTokensKnown !== false && tokensIn !== undefined && tokensOut !== undefined
+  // Sandbox's canonical terminal `totalCostUsd` is already the provider-reported receipt. The
+  // current SDK carries no provenance tag, so absence means the canonical receipt rather than
+  // "unknown". Explicit estimates and explicit false-known markers remain unknown.
+  const usdKnown =
+    explicitCostKnown !== false &&
+    costUsd !== undefined &&
+    (costProvenance === undefined ||
+      costProvenance === 'provider-receipt' ||
+      costProvenance === 'billing-receipt')
+  if (
+    tokensIn === undefined &&
+    tokensOut === undefined &&
+    costUsd === undefined &&
+    catalogEstimate === undefined &&
+    promptCache === undefined &&
+    explicitTokensKnown !== false &&
+    explicitCostKnown !== false
+  ) {
     return undefined
   }
   const model = typeof data.model === 'string' && data.model.length > 0 ? data.model : agentRunName
@@ -176,8 +232,23 @@ function buildLlmCall(
   }
   if (tokensIn !== undefined) event.tokensIn = tokensIn
   if (tokensOut !== undefined) event.tokensOut = tokensOut
+  if (!tokensKnown) event.tokensKnown = false
   if (costUsd !== undefined) event.costUsd = costUsd
+  if (!usdKnown) event.usdKnown = false
+  if (catalogEstimate !== undefined) event.estimatedCostUsd = catalogEstimate
+  if (promptCache !== undefined) event.promptCache = promptCache
   return event
+}
+
+function finiteMetadata(value: unknown): Record<string, number | string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const result: Record<string, number | string> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    if ((typeof entry === 'number' && Number.isFinite(entry)) || typeof entry === 'string') {
+      result[key] = entry
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function pickFiniteNumber(data: Record<string, unknown>, keys: string[]): number | undefined {

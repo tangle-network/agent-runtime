@@ -12,7 +12,6 @@ import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import {
   type SuperviseOptions,
   type SuperviseRegistryTable,
-  supervise,
   workerFromBackend,
 } from '../../src/runtime/supervise/supervise'
 import type {
@@ -23,9 +22,19 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
+
+function rootProfile(overrides: Parameters<typeof testAgentProfile>[1] = {}): AgentProfile {
+  return testAgentProfile('root', { harness: 'cli-base', ...overrides })
+}
+
+function workerProfile(name = 'worker'): AgentProfile {
+  return testAgentProfile(name)
+}
 
 /** A registry table over a plain record — the resolver port every `opts.registry` entry speaks. */
 function table<T>(entries: Record<string, T>): SuperviseRegistryTable<T> {
@@ -40,6 +49,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       return (async function* () {
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
+        yield { kind: 'cost', usd: 0 } as UsageEvent
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
@@ -50,7 +60,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: workerProfile(name), harness: null, executor: ex }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -71,7 +81,7 @@ function failingLeaf(name: string, reason: string): Agent<unknown, unknown> {
       throw new Error('a failed leaf has no terminal artifact')
     },
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: workerProfile(name), harness: null, executor: ex }
   return { name, act: async () => undefined, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -81,19 +91,13 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
   it('runs a supervisor to delivery from just profile + task + worker seam + brain + budget', async () => {
     const brain = scriptedBrain([
       {
-        toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
-        ],
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } }],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
     const result = await supervise(
-      {
-        name: 'root',
-        harness: 'cli-base',
-        prompt: { systemPrompt: 'drive the worker' },
-      },
+      rootProfile({ prompt: { systemPrompt: 'drive the worker' } }),
       'solve it',
       { budget, makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }), brain },
     )
@@ -127,7 +131,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         },
       }
       const spec: AgentSpec = {
-        profile: { name: 'blocked-worker' } as AgentProfile,
+        profile: workerProfile('blocked-worker'),
         harness: null,
         executor,
       }
@@ -137,15 +141,13 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         executorSpec: spec,
       } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     }
-    const running = supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+    const running = supervise(rootProfile(), 'solve it', {
       budget,
       signal: controller.signal,
       makeWorkerAgent: blockedLeaf,
       brain: scriptedBrain([
         {
-          toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
-          ],
+          toolCalls: [{ name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } }],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
       ]),
@@ -171,7 +173,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     })
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     let turn = 0
-    const running = supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+    const running = supervise(rootProfile(), 'solve it', {
       budget,
       rootHandle: handle,
       makeWorkerAgent: () => deliveringLeaf('unused', {}),
@@ -213,7 +215,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { content: 'must not need another turn' },
     ])
     const result = await supervise(
-      { name: 'root', harness: null, systemPrompt: 'solve or delegate' },
+      rootProfile({ prompt: { systemPrompt: 'solve or delegate' } }),
       'solve it directly',
       {
         budget,
@@ -237,7 +239,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+              { name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -250,7 +252,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
       }
 
-      const first = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+      const first = await supervise(rootProfile(), 'solve it', {
         ...opts,
         brain: script(),
       })
@@ -268,7 +270,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       // A second `supervise()` against the SAME runDir + runId takes the resume path. Without the
       // `resume` flag threaded through, this would fail loud in `beginTree` ("already begun at …,
       // refusing to overwrite") because the wall-clock `at` differs between the two calls.
-      const second = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+      const second = await supervise(rootProfile(), 'solve it', {
         ...opts,
         brain: script(),
       })
@@ -317,12 +319,12 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
         onCoordinationEvent,
       }
-      const first = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+      const first = await supervise(rootProfile(), 'solve it', {
         ...common,
         brain: scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+              { name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -343,7 +345,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         expect(replayCommitted).toBe(true)
         return replayScript(...args)
       }
-      const second = await supervise({ name: 'root', harness: 'cli-base' }, 'solve it', {
+      const second = await supervise(rootProfile(), 'solve it', {
         ...common,
         brain: replayBrain,
       })
@@ -360,7 +362,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
   it('gives two attempts of one keyed assignment distinct worker and event identities', async () => {
     let attempt = 0
     const events: Array<{ eventId: string; workerId: string; assignmentId?: string }> = []
-    const result = await supervise({ name: 'root', harness: 'cli-base' }, 'retry once', {
+    const result = await supervise(rootProfile(), 'retry once', {
       budget,
       makeWorkerAgent: () =>
         attempt++ === 0
@@ -371,7 +373,11 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
           toolCalls: [
             {
               name: 'spawn_agent',
-              arguments: { profile: { name: 'same-worker' }, task: 'go', key: 'same-assignment' },
+              arguments: {
+                profile: workerProfile('same-worker'),
+                task: 'go',
+                key: 'same-assignment',
+              },
             },
           ],
         },
@@ -380,7 +386,11 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
           toolCalls: [
             {
               name: 'spawn_agent',
-              arguments: { profile: { name: 'same-worker' }, task: 'go', key: 'same-assignment' },
+              arguments: {
+                profile: workerProfile('same-worker'),
+                task: 'go',
+                key: 'same-assignment',
+              },
             },
           ],
         },
@@ -412,9 +422,8 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       backend: 'router-tools',
       routerBaseUrl: 'http://localhost',
       routerKey: 'k',
-      model: 'm',
     } as ExecutorConfig)
-    const w = make({ name: 'w' }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const w = make(workerProfile('w')) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     expect(w.name).toBe('w')
     expect(w.executorSpec.executorFactory).toBeDefined()
     expect(w.executorSpec.executor).toBeUndefined()
@@ -425,12 +434,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       backend: 'router',
       routerBaseUrl: 'http://router.test',
       routerKey: 'key',
-      model: 'safe-model',
     }
     const make = workerFromBackend(backend)
     const mutableBackend = backend as { backend: string }
     mutableBackend.backend = 'cli'
-    const worker = make({ name: 'worker' }) as Agent<unknown, unknown> & {
+    const worker = make(testAgentProfile('worker', { harness: 'cli-base' })) as Agent<
+      unknown,
+      unknown
+    > & {
       executorSpec: AgentSpec
     }
     const executor = worker.executorSpec.executorFactory?.(worker.executorSpec, {
@@ -441,20 +452,12 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(executor?.runtime).toBe('router')
   })
 
-  it('workerFromBackend rejects post-identity profile overlays and shared execution ids', () => {
+  it('workerFromBackend rejects shared execution ids', () => {
     const invalid: ExecutorConfig[] = [
       {
         backend: 'bridge',
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'model',
-        agentProfile: { name: 'late-overlay' },
-      },
-      {
-        backend: 'bridge',
-        bridgeUrl: 'http://bridge.test',
-        bridgeBearer: 'secret',
-        model: 'model',
         sessionId: 'SHARED',
       },
       {
@@ -469,7 +472,6 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         bridge: {
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'model',
           sessionId: 'SHARED',
         },
       },
@@ -485,19 +487,24 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       backend: 'router',
       routerBaseUrl: 'http://localhost',
       routerKey: 'k',
-      model: 'm',
     })
     expect(() =>
-      routerWorker({
-        name: 'rich-worker',
-        model: { default: 'm', reasoningEffort: 'high' },
-        tools: { shell: true },
-      }),
-    ).toThrow(/modelReasoningEffort, tools/)
+      routerWorker(
+        testAgentProfile('rich-worker', {
+          model: { provider: 'offline', default: 'm', reasoningEffort: 'high' },
+          tools: { shell: true },
+        }),
+      ),
+    ).toThrow(/would drop axis changes.*tools/s)
 
     const rawCliWorker = workerFromBackend({ backend: 'cli', bin: '/bin/true' })
     expect(() =>
-      rawCliWorker({ name: 'raw-cli', prompt: { systemPrompt: 'This used to be ignored.' } }),
+      rawCliWorker(
+        testAgentProfile('raw-cli', {
+          harness: 'cli-base',
+          prompt: { systemPrompt: 'This used to be ignored.' },
+        }),
+      ),
     ).toThrow(/systemPrompt/)
 
     const localWorktreeWorker = workerFromBackend({
@@ -506,22 +513,26 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       harness: 'claude-code',
     })
     expect(() =>
-      localWorktreeWorker({
-        name: 'local-worktree',
-        connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
-      }),
+      localWorktreeWorker(
+        testAgentProfile('local-worktree', {
+          harness: 'claude-code',
+          connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
+        }),
+      ),
     ).toThrow(/connections/)
 
     const bridgedWorktreeWorker = workerFromBackend({
       backend: 'cli-worktree',
       repoRoot: '/workspace',
-      bridge: { bridgeUrl: 'http://localhost', bridgeBearer: 'secret', model: 'm' },
+      bridge: { bridgeUrl: 'http://localhost', bridgeBearer: 'secret' },
     })
     expect(() =>
-      bridgedWorktreeWorker({
-        name: 'bridged-worktree',
-        connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
-      }),
+      bridgedWorktreeWorker(
+        testAgentProfile('bridged-worktree', {
+          harness: 'codex',
+          connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
+        }),
+      ),
     ).not.toThrow()
   })
 
@@ -529,7 +540,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const makeWorkerAgent = () => deliveringLeaf('w', {})
     expect(() =>
       supervise(
-        { name: 'root', harness: 'cli-base' },
+        rootProfile(),
         { value: 1n },
         {
           budget,
@@ -539,7 +550,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       ),
     ).toThrow(/canonical JSON/)
     expect(() =>
-      supervise({ name: 'root', harness: 'cli-base' }, 'task', {
+      supervise(rootProfile(), 'task', {
         budget,
         makeWorkerAgent,
         brain: scriptedBrain([{ content: 'unused' }]),
@@ -556,11 +567,10 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
           {
             name: 'spawn_agent',
             arguments: {
-              profile: {
-                name: 'unsafe-worker',
+              profile: testAgentProfile('unsafe-worker', {
                 prompt: { systemPrompt: 'run the task' },
                 hooks: { beforeTool: [{ command: 'curl https://example.test' }] },
-              },
+              }),
               task: 'go',
             },
           },
@@ -568,13 +578,12 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
       { content: 'profile was refused' },
     ])
-    const result = await supervise({ name: 'root', harness: 'cli-base' }, 't', {
+    const result = await supervise(rootProfile(), 't', {
       budget,
       backend: {
         backend: 'bridge',
         bridgeUrl: 'http://127.0.0.1:1',
         bridgeBearer: 'unused',
-        model: 'codex/test',
       },
       brain,
       journal,
@@ -591,19 +600,17 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
   it.each([
     {
       capability: 'remote MCP',
-      profile: {
-        name: 'remote-mcp-worker',
+      profile: testAgentProfile('remote-mcp-worker', {
         mcp: {
           metadata: { transport: 'http' as const, url: 'http://169.254.169.254/latest/meta-data' },
         },
-      },
+      }),
     },
     {
       capability: 'hub connection',
-      profile: {
-        name: 'connected-worker',
+      profile: testAgentProfile('connected-worker', {
         connections: [{ connectionId: 'private-mail', capabilities: ['read'] }],
-      },
+      }),
     },
   ])('fails closed on an authored $capability unless the caller grants it', async ({ profile }) => {
     const journal = new InMemorySpawnJournal()
@@ -614,13 +621,12 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { content: 'profile was refused' },
     ])
 
-    const result = await supervise({ name: 'root', harness: 'cli-base' }, 't', {
+    const result = await supervise(rootProfile(), 't', {
       budget,
       backend: {
         backend: 'bridge',
         bridgeUrl: 'http://127.0.0.1:1',
         bridgeBearer: 'unused',
-        model: 'codex/test',
       },
       brain,
       journal,
@@ -634,34 +640,32 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     ])
   })
 
-  // The seam is where the skill's flat vocabulary meets the leaves' canonical one: the profile the
-  // executor is built against must already be the shape it reads.
-  it('workerFromBackend hands the leaf the CANONICAL profile the supervisor authored flat', () => {
+  it('workerFromBackend preserves the exact canonical profile it receives', () => {
     const make = workerFromBackend({
       backend: 'router-tools',
       routerBaseUrl: 'http://localhost',
       routerKey: 'k',
-      model: 'm',
     } as ExecutorConfig)
-    const w = make({
-      name: 'w',
-      systemPrompt: 'authored instructions',
-      model: 'authored-model',
-    }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const authored = testAgentProfile('w', {
+      harness: 'cli-base',
+      prompt: { systemPrompt: 'authored instructions' },
+      model: { provider: 'offline', default: 'authored-model' },
+    })
+    const w = make(authored) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     const profile = w.executorSpec.profile as {
       prompt?: { systemPrompt?: string }
       model?: unknown
       systemPrompt?: unknown
     }
     expect(profile.prompt?.systemPrompt).toBe('authored instructions')
-    expect(profile.model).toEqual({ default: 'authored-model' })
+    expect(profile.model).toEqual({ provider: 'offline', default: 'authored-model' })
     expect(profile.systemPrompt).toBeUndefined()
   })
 
   it('fails loud with neither backend nor makeWorkerAgent', () => {
-    expect(() => supervise({ name: 'r', harness: 'cli-base' }, 't', { budget })).toThrow(
-      /backend|makeWorkerAgent/,
-    )
+    expect(() =>
+      supervise(testAgentProfile('r', { harness: 'cli-base' }), 't', { budget }),
+    ).toThrow(/backend|makeWorkerAgent/)
   })
 
   it('refuses spawn authorization with a caller-owned worker factory before anything starts', async () => {
@@ -671,7 +675,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     let authorizationCalls = 0
 
     expect(() =>
-      supervise({ name: 'r', harness: 'cli-base' }, 't', {
+      supervise(testAgentProfile('r', { harness: 'cli-base' }), 't', {
         budget,
         journal,
         runId: 'invalid-custom-authority',
@@ -700,11 +704,18 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
   it('allowedModels rejects a profile model outside the allowed set', () => {
     expect(() =>
-      supervise({ name: 'r', harness: 'cli-base', model: { default: 'gpt-4.1' } }, 't', {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        allowedModels: ['deepseek-v4-flash'],
-      }),
+      supervise(
+        testAgentProfile('r', {
+          harness: 'cli-base',
+          model: { provider: 'openai', default: 'gpt-4.1' },
+        }),
+        't',
+        {
+          budget,
+          makeWorkerAgent: () => deliveringLeaf('w', {}),
+          allowedModels: ['deepseek-v4-flash'],
+        },
+      ),
     ).toThrow(/gpt-4\.1.*not in the allowed set/)
   })
 
@@ -726,45 +737,35 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     },
   ])('allowedModels rejects a hidden $field', ({ profile, rejected }) => {
     expect(() =>
-      supervise({ name: 'r', harness: 'cli-base', ...profile }, 't', {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        allowedModels: ['safe'],
-      }),
-    ).toThrow(new RegExp(`${rejected}.*not in the allowed set`))
-  })
-
-  it('refuses every backend profile overlay before it can bypass authorization', () => {
-    expect(() =>
-      supervise({ name: 'r', harness: 'cli-base', model: { default: 'safe' } }, 't', {
-        budget,
-        backend: {
-          backend: 'bridge',
-          bridgeUrl: 'http://127.0.0.1:1',
-          bridgeBearer: 'unused',
-          model: 'safe',
-          agentProfile: { model: { default: 'unsafe-overlay' } },
+      supervise(
+        testAgentProfile('r', {
+          harness: 'cli-base',
+          model: { provider: 'offline', default: 'safe' },
+          ...profile,
+        }),
+        't',
+        {
+          budget,
+          makeWorkerAgent: () => deliveringLeaf('w', {}),
+          allowedModels: ['safe'],
         },
-        allowedModels: ['safe'],
-      }),
-    ).toThrow(/backend agentProfile overlays are not allowed/)
+      ),
+    ).toThrow(new RegExp(`${rejected}.*not in the allowed set`))
   })
 
   it('refuses a fixed session id on the reusable driver backend', () => {
     expect(() =>
-      supervise({ name: 'r', harness: 'codex' }, 't', {
+      supervise(testAgentProfile('r', { harness: 'codex' }), 't', {
         budget,
         backend: {
           backend: 'bridge',
           bridgeUrl: 'http://127.0.0.1:1',
           bridgeBearer: 'unused',
-          model: 'worker-model',
         },
         driverBackend: {
           backend: 'bridge',
           bridgeUrl: 'http://127.0.0.1:1',
           bridgeBearer: 'unused',
-          model: 'driver-model',
           sessionId: 'SHARED',
         },
       }),
@@ -773,51 +774,23 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
   it('refuses an automatic external supervisor on a backend that cannot receive coordination tools', () => {
     expect(() =>
-      supervise({ name: 'r', harness: 'codex' }, 't', {
+      supervise(testAgentProfile('r', { harness: 'codex' }), 't', {
         budget,
         backend: {
           backend: 'router-tools',
           routerBaseUrl: 'http://127.0.0.1:1',
           routerKey: 'unused',
-          model: 'safe',
         },
       }),
     ).toThrow(/requires a local bridge driverBackend.*explicit driveHarness.*resolveDriveHarness/)
   })
 
-  it('allowedModels rejects a router model outside the allowed set', () => {
-    expect(() =>
-      supervise({ name: 'r', harness: 'cli-base' }, 't', {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        router: { routerBaseUrl: 'http://localhost', routerKey: 'k', model: 'gpt-4.1' },
-        allowedModels: ['deepseek-v4-flash'],
-      }),
-    ).toThrow(/gpt-4\.1.*not in the allowed set/)
-  })
-
-  it('allowedModels rejects a backend model outside the allowed set', () => {
-    expect(() =>
-      supervise({ name: 'r', harness: 'cli-base' }, 't', {
-        budget,
-        backend: {
-          backend: 'router-tools',
-          routerBaseUrl: 'http://localhost',
-          routerKey: 'k',
-          model: 'gpt-4.1',
-        } as ExecutorConfig,
-        allowedModels: ['deepseek-v4-flash'],
-      }),
-    ).toThrow(/gpt-4\.1.*not in the allowed set/)
-  })
-
   it('allowedModels passes when every configured model is in the set', async () => {
     const result = await supervise(
-      {
-        name: 'root',
+      testAgentProfile('root', {
         harness: 'cli-base',
-        model: { default: 'deepseek-v4-flash' },
-      },
+        model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+      }),
       't',
       {
         budget,
@@ -825,18 +798,82 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         router: {
           routerBaseUrl: 'http://unused.test',
           routerKey: 'test',
-          model: 'deepseek-v4-flash',
-          complete: async () => ({ choices: [{ message: { content: 'done' } }] }),
+          complete: async () => ({
+            model: 'deepseek-v4-flash',
+            choices: [{ message: { content: 'done' } }],
+          }),
         },
         allowedModels: ['deepseek-v4-flash'],
       },
     )
     expect(result.kind).toBeDefined()
+  })
+
+  it('allowedModels rejects a dynamically authored child before spawn, execution, or metering', async () => {
+    const journal = new InMemorySpawnJournal()
+    let childTransportCalls = 0
+    const runId = 'forbidden-dynamic-child'
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'glm-5.2' },
+      }),
+      'keep every descendant on glm-5.2',
+      {
+        budget,
+        allowedModels: ['glm-5.2'],
+        backend: {
+          backend: 'router-tools',
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          tools: [],
+          executeToolCall: async () => '',
+          complete: async () => {
+            childTransportCalls += 1
+            return {
+              model: 'sonnet',
+              choices: [{ message: { content: 'must not execute', tool_calls: [] } }],
+              usage: { prompt_tokens: 1, completion_tokens: 1, cost_usd: 0.01 },
+            }
+          },
+        },
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              {
+                name: 'spawn_agent',
+                arguments: {
+                  profile: testAgentProfile('forbidden', {
+                    harness: 'pi',
+                    model: { provider: 'amazon-bedrock', default: 'sonnet' },
+                  }),
+                  task: 'must be refused',
+                },
+              },
+            ],
+          },
+          { content: 'stop after refusal' },
+        ]),
+        journal,
+        runId,
+      },
+    )
+
+    expect(result.kind).toBe('no-winner')
+    expect(childTransportCalls).toBe(0)
+    const events = await journal.loadTree(runId)
+    expect(events?.filter((event) => event.kind === 'spawned').map((event) => event.id)).toEqual([
+      runId,
+    ])
+    expect(events?.some((event) => event.kind === 'metered' && event.id !== runId)).toBe(false)
   })
 
   it('allowedModels unset is unrestricted (any model passes)', async () => {
     const result = await supervise(
-      { name: 'root', harness: 'cli-base', model: { default: 'anything' } },
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'anything' },
+      }),
       't',
       {
         budget,
@@ -844,21 +881,161 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         router: {
           routerBaseUrl: 'http://unused.test',
           routerKey: 'test',
-          model: 'anything',
-          complete: async () => ({ choices: [{ message: { content: 'done' } }] }),
+          complete: async () => ({
+            model: 'anything',
+            choices: [{ message: { content: 'done' } }],
+          }),
         },
       },
     )
     expect(result.kind).toBeDefined()
   })
 
+  it('binds the root Router call to Runtime identity and preserves model, cache, attempts, reasoning, and billed cost', async () => {
+    const turns: Array<Record<string, unknown>> = []
+    let requestHeaders: Readonly<Record<string, string>> | undefined
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+      }),
+      'finish without delegation',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async (_body, request) => {
+            requestHeaders = request?.headers
+            return {
+              model: 'deepseek-v4-flash',
+              choices: [{ message: { content: 'done' } }],
+              usage: {
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                completion_tokens_details: { reasoning_tokens: 3 },
+                prompt_tokens_details: { cached_tokens: 4 },
+                cost_usd: 0.02,
+              },
+            }
+          },
+        },
+        hooks: {
+          onEvent(event) {
+            if (event.target === 'agent.turn') {
+              turns.push(event.payload as Record<string, unknown>)
+            }
+          },
+        },
+      },
+    )
+
+    expect(result.spentTotal.tokens).toEqual({ input: 10, output: 5 })
+    expect(result.spentTotal.usd).toBe(0.02)
+    expect(turns).toHaveLength(1)
+    expect(turns[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      promptCache: { readTokens: 4 },
+      reasoningTokens: 3,
+      transportAttempts: 1,
+    })
+    expect(Object.isFrozen(turns[0]?.promptCache)).toBe(true)
+    expect(requestHeaders?.['idempotency-key']).toBe(turns[0]?.callId)
+    expect(requestHeaders?.['x-correlation-id']).toBe(turns[0]?.correlationId)
+  })
+
+  it('accounts for a mismatched observed model and then refuses its output', async () => {
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'declared-model' },
+      }),
+      'reject model drift',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async () => ({
+            model: 'ambient-model',
+            choices: [{ message: { content: 'must not be accepted' } }],
+            usage: { prompt_tokens: 7, completion_tokens: 2, cost_usd: 0.01 },
+          }),
+        },
+      },
+    )
+
+    expect(result.kind).toBe('no-winner')
+    expect(result.kind === 'no-winner' && result.reason).toBe('driver-failed')
+    expect(result.kind === 'no-winner' && result.error?.message).toMatch(
+      /reported model "ambient-model"; expected "declared-model"/u,
+    )
+    expect(result.spentTotal).toMatchObject({
+      tokens: { input: 7, output: 2 },
+      usd: 0.01,
+    })
+  })
+
+  it('cascades caller cancellation into an in-flight root Router request', async () => {
+    const controller = new AbortController()
+    let started!: () => void
+    const requestStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let transportSignal: AbortSignal | undefined
+    const running = supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+      }),
+      'cancel the root call',
+      {
+        budget,
+        signal: controller.signal,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async (_body, request) => {
+            transportSignal = request?.signal
+            started()
+            return new Promise((_resolve, reject) => {
+              request?.signal?.addEventListener(
+                'abort',
+                () => reject(request.signal?.reason ?? new Error('aborted')),
+                { once: true },
+              )
+            })
+          },
+        },
+      },
+    )
+
+    await requestStarted
+    controller.abort(new Error('caller stopped'))
+    const result = await running
+
+    expect(transportSignal?.aborted).toBe(true)
+    expect(result.kind).toBe('no-winner')
+    expect(result.kind === 'no-winner' && result.reason).toBe('aborted')
+  })
+
   it('allowedModels reads a canonical AgentProfile model through its resolved default id', () => {
     expect(() =>
-      supervise({ name: 'r', harness: null, model: { default: 'gpt-4.1' } }, 't', {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        allowedModels: ['deepseek-v4-flash'],
-      }),
+      supervise(
+        testAgentProfile('r', {
+          harness: 'cli-base',
+          model: { provider: 'openai', default: 'gpt-4.1' },
+        }),
+        't',
+        {
+          budget,
+          makeWorkerAgent: () => deliveringLeaf('w', {}),
+          allowedModels: ['deepseek-v4-flash'],
+        },
+      ),
     ).toThrow(/gpt-4\.1.*not in the allowed set/)
   })
 })
@@ -868,12 +1045,15 @@ describe('supervise — a canonical AgentProfile root reaches the router as a mo
     const sentModels: unknown[] = []
     // The offline seam (RouterConfig.complete): the real routerBrain path runs, no network.
     const result = await supervise(
-      {
-        name: 'root',
-        harness: null,
-        model: { default: 'anthropic/claude-opus-5', reasoningEffort: 'high' },
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        model: {
+          provider: 'anthropic',
+          default: 'anthropic/claude-opus-5',
+          reasoningEffort: 'high',
+        },
         prompt: { systemPrompt: 'delegate, do not solve' },
-      },
+      }),
       'solve it',
       {
         budget,
@@ -881,10 +1061,9 @@ describe('supervise — a canonical AgentProfile root reaches the router as a mo
         router: {
           routerBaseUrl: 'http://router.invalid',
           routerKey: 'k',
-          model: 'config-fallback-model',
           complete: async (body) => {
             sentModels.push(body.model)
-            return { choices: [{ message: { content: 'done' } }] }
+            return { model: body.model, choices: [{ message: { content: 'done' } }] }
           },
         },
       },
@@ -896,12 +1075,11 @@ describe('supervise — a canonical AgentProfile root reaches the router as a mo
   it('sends the instruction lines to the router inside the system message', async () => {
     const systemMessages: unknown[] = []
     await supervise(
-      {
-        name: 'root',
-        harness: null,
+      testAgentProfile('root', {
+        harness: 'cli-base',
         prompt: { systemPrompt: 'delegate, do not solve', instructions: ['keep it small'] },
         resources: { instructions: 'prefer the fewest workers' },
-      },
+      }),
       'solve it',
       {
         budget,
@@ -909,11 +1087,10 @@ describe('supervise — a canonical AgentProfile root reaches the router as a mo
         router: {
           routerBaseUrl: 'http://router.invalid',
           routerKey: 'k',
-          model: 'm',
           complete: async (body) => {
             const messages = body.messages as Array<{ role: string; content: unknown }>
             systemMessages.push(messages.find((m) => m.role === 'system')?.content)
-            return { choices: [{ message: { content: 'done' } }] }
+            return { model: body.model, choices: [{ message: { content: 'done' } }] }
           },
         },
       },
@@ -923,54 +1100,31 @@ describe('supervise — a canonical AgentProfile root reaches the router as a mo
     )
   })
 
-  it("keeps the router config's model when the profile's hints resolve to no id", async () => {
-    const sentModels: unknown[] = []
-    // `AgentProfileModelHints.default` is optional upstream — this profile passes
-    // `agentProfileSchema.safeParse`, so it must RUN, not be rejected.
-    const result = await supervise(
-      { name: 'root', harness: null, model: { provider: 'anthropic', small: 'cheap' } },
-      'solve it',
-      {
-        budget,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        router: {
-          routerBaseUrl: 'http://router.invalid',
-          routerKey: 'k',
-          model: 'config-fallback-model',
-          complete: async (body) => {
-            sentModels.push(body.model)
-            return { choices: [{ message: { content: 'done' } }] }
-          },
+  it('refuses an incomplete model identity instead of filling it from backend config', () => {
+    expect(() =>
+      supervise(
+        {
+          name: 'root',
+          harness: 'cli-base',
+          model: { provider: 'anthropic' },
+        } as AgentProfile,
+        'solve it',
+        {
+          budget,
+          makeWorkerAgent: () => deliveringLeaf('w', {}),
+          router: { routerBaseUrl: 'http://router.invalid', routerKey: 'k' },
         },
-      },
-    )
-    expect(result.kind).toBeDefined()
-    expect(sentModels).toEqual(['config-fallback-model'])
-  })
-
-  it("keeps the router config's own model when the profile names none", async () => {
-    const sentModels: unknown[] = []
-    await supervise({ name: 'root', harness: null }, 'solve it', {
-      budget,
-      makeWorkerAgent: () => deliveringLeaf('w', {}),
-      router: {
-        routerBaseUrl: 'http://router.invalid',
-        routerKey: 'k',
-        model: 'config-fallback-model',
-        complete: async (body) => {
-          sentModels.push(body.model)
-          return { choices: [{ message: { content: 'done' } }] }
-        },
-      },
-    })
-    expect(sentModels).toEqual(['config-fallback-model'])
+      ),
+    ).toThrow(/AgentProfile\.model\.default is missing/)
   })
 })
 
 describe('supervise — the code-valued options are nameable, so a run configuration can carry them', () => {
   const spawnAwaitStop = () =>
     scriptedBrain([
-      { toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go' } }] },
+      {
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } }],
+      },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
@@ -980,7 +1134,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
       { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
       { content: 'must not need another turn' },
     ])
-    const result = await supervise({ name: 'root', harness: null }, 'solve it directly', {
+    const result = await supervise(rootProfile(), 'solve it directly', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('unused', {}),
       brain,
@@ -996,7 +1150,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
   })
 
   it('a NAMED finalizer decides the run output', async () => {
-    const result = await supervise({ name: 'root', harness: null }, 'solve it', {
+    const result = await supervise(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
       brain: spawnAwaitStop(),
@@ -1013,7 +1167,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
 
   it('a registry TYPO is a ConfigError naming the option, the name, and the table', () => {
     expect(() =>
-      supervise({ name: 'root', harness: null }, 't', {
+      supervise(rootProfile(), 't', {
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         deliverable: 'answer-is-43',
@@ -1021,7 +1175,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
       }),
     ).toThrow(ConfigError)
     expect(() =>
-      supervise({ name: 'root', harness: null }, 't', {
+      supervise(rootProfile(), 't', {
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         deliverable: 'answer-is-43',
@@ -1032,7 +1186,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
 
   it('a name with no registry for that option fails loud saying so', () => {
     expect(() =>
-      supervise({ name: 'root', harness: null }, 't', {
+      supervise(rootProfile(), 't', {
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         finalizer: 'count-delivered',
@@ -1042,7 +1196,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
 
   it('names the probes option in its own resolution failure', () => {
     expect(() =>
-      supervise({ name: 'root', harness: null }, 't', {
+      supervise(rootProfile(), 't', {
         budget,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
         probes: 'file-exists',
@@ -1067,7 +1221,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
         return { check: () => true }
       },
     }
-    const result = await supervise({ name: 'root', harness: null }, 'solve it', {
+    const result = await supervise(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
       brain: spawnAwaitStop(),
@@ -1081,7 +1235,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
   })
 
   it('a non-string option value is untouched (existing callers keep passing values)', async () => {
-    const result = await supervise({ name: 'root', harness: null }, 'solve it', {
+    const result = await supervise(rootProfile(), 'solve it', {
       budget,
       makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
       brain: spawnAwaitStop(),
@@ -1100,7 +1254,7 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
 
   it('refuses a non-loopback coordination host with no acknowledgment', () => {
     expect(() =>
-      supervise({ name: 'root', harness: 'opencode' }, 't', {
+      supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
         ...harnessOpts,
         coordination: { host: '10.0.0.7', port: 8931 },
       }),
@@ -1109,7 +1263,7 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
 
   it('passes an acknowledged non-loopback bind through to the coordination server', async () => {
     let url = ''
-    await supervise({ name: 'root', harness: 'opencode' }, 't', {
+    await supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
       ...harnessOpts,
       driveHarness: async ({ coordinationMcpUrl }) => {
         url = coordinationMcpUrl
@@ -1121,7 +1275,7 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
 
   it('binds the requested loopback host with no acknowledgment needed', async () => {
     let url = ''
-    await supervise({ name: 'root', harness: 'opencode' }, 't', {
+    await supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
       ...harnessOpts,
       driveHarness: async ({ coordinationMcpUrl }) => {
         url = coordinationMcpUrl

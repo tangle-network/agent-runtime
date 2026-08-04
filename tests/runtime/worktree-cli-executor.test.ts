@@ -2,7 +2,7 @@ import type { ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { PassThrough, type Readable } from 'node:stream'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // The bridge transport (`streamBridgeSession`) POSTs over the `node:http` core client,
@@ -16,8 +16,8 @@ vi.mock('node:http', async () => {
   return {
     ...actual,
     request: (
-      _url: unknown,
-      _opts: unknown,
+      url: URL,
+      opts: unknown,
       cb: (res: Readable) => void,
     ): { write: (b: string) => void; end: () => void; on: () => void; destroy: () => void } => {
       let body = ''
@@ -26,6 +26,24 @@ vi.mock('node:http', async () => {
           body += chunk
         },
         end: () => {
+          if ((opts as { method?: string }).method === 'GET' && url.pathname === '/') {
+            const response = new PassThrough() as Readable & {
+              statusCode?: number
+              headers?: Record<string, string>
+            }
+            response.statusCode = 200
+            response.headers = { 'content-type': 'application/json' }
+            response.end(
+              JSON.stringify({
+                capabilities: {
+                  profileMaterialization: 'cli-bridge.profile-materialization.v2',
+                  usageCostProvenance: 'cli-bridge.usage-cost.v1',
+                },
+              }),
+            )
+            cb(response)
+            return
+          }
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
           const res = bridgeHttpHandler(payload) as Readable & {
@@ -46,11 +64,16 @@ vi.mock('node:http', async () => {
   }
 })
 
-import { type RunLocalHarnessOptions, runLocalHarness } from '../../src/mcp/local-harness'
+import {
+  type LocalHarness,
+  type RunLocalHarnessOptions,
+  runLocalHarness,
+} from '../../src/mcp/local-harness'
 import type { GitRunner } from '../../src/mcp/worktree'
 import { type AgentSpec, createExecutor } from '../../src/runtime'
 import {
   createWorktreeCliExecutor,
+  type WorktreeCliExecutorOptions,
   type WorktreePatchArtifact,
 } from '../../src/runtime/supervise/worktree-cli-executor'
 
@@ -95,27 +118,60 @@ function freshGitState(overrides?: Partial<FakeGitState>): FakeGitState {
   }
 }
 
-const authoredProfile: AgentProfile = {
-  name: 'careful-refactorer',
-  prompt: { systemPrompt: 'You are a careful refactorer. Keep diffs minimal.' },
-  model: { default: 'deepseek/deepseek-v4-flash' },
+function authoredProfile(harness: LocalHarness = 'claude-code'): AgentProfile {
+  const provider =
+    harness === 'codex' ? 'openai' : harness === 'claude-code' ? 'anthropic' : 'deepseek'
+  return {
+    name: 'careful-refactorer',
+    harness,
+    prompt: { systemPrompt: 'You are a careful refactorer. Keep diffs minimal.' },
+    model: { provider, default: 'deepseek/deepseek-v4-flash' },
+  }
 }
 
 const reproducibleCodexProfile: AgentProfile = {
   name: 'reproducible-codex',
+  harness: 'codex',
   prompt: {
     systemPrompt: 'You are a careful refactorer.',
     instructions: ['Never search for a public solution.'],
   },
-  model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+  model: { provider: 'openai', default: 'gpt-5.4', reasoningEffort: 'xhigh' },
 }
 
-function bridgeSseResponse(content: string): Readable {
+function bridgeSseResponse(content: string, request: Record<string, unknown>): Readable {
+  const profile = request.agent_profile as AgentProfile
+  const model = String(request.model)
+  const parts = model.split('/')
   const payload = [
     'id: 1',
     `data: ${JSON.stringify({
       choices: [{ delta: { content } }],
-      usage: { prompt_tokens: 3, completion_tokens: 5, cost: 0.02 },
+      usage: {
+        prompt_tokens: 3,
+        completion_tokens: 5,
+        cost: 0.02,
+        cost_known: true,
+        cost_provenance: 'provider-receipt',
+      },
+    })}`,
+    '',
+    'id: 2',
+    `data: ${JSON.stringify({
+      profile_materialization: {
+        schema: 'cli-bridge.profile-materialization.v2',
+        effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+        harness: parts[0],
+        provider: parts[1] ?? null,
+        model,
+        reasoningEffort: {
+          requested: profile.model?.reasoningEffort ?? null,
+          applied: profile.model?.reasoningEffort ?? null,
+        },
+        workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
+        files: [],
+        unsupported: [],
+      },
     })}`,
     '',
     'data: [DONE]',
@@ -171,8 +227,7 @@ describe('createWorktreeCliExecutor', () => {
 
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'fix the off-by-one',
       runGit: makeFakeGit(state),
       runHarness,
@@ -202,8 +257,7 @@ describe('createWorktreeCliExecutor', () => {
     })
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'codex',
+      profile: authoredProfile('codex'),
       taskPrompt: 'add a.ts',
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
@@ -231,8 +285,7 @@ describe('createWorktreeCliExecutor', () => {
     const state = freshGitState()
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'opencode',
+      profile: authoredProfile('opencode'),
       taskPrompt: 'noop',
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
@@ -257,8 +310,7 @@ describe('createWorktreeCliExecutor', () => {
   it('is budgetExempt by default (a harness CLI cannot account tokens)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -273,8 +325,7 @@ describe('createWorktreeCliExecutor', () => {
     // a ceiling that can never fire while believing it is protected.
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(async () => ({
@@ -302,8 +353,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
-        profile: authoredProfile,
-        harness: 'codex',
+        profile: authoredProfile('codex'),
         taskPrompt: 'x',
         codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
         runGit: makeFakeGit(freshGitState()),
@@ -318,10 +368,9 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: {
-          ...authoredProfile,
+          ...authoredProfile(),
           connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
         },
-        harness: 'claude-code',
         taskPrompt: 'x',
         runGit: makeFakeGit(state),
         runHarness: vi.fn(),
@@ -340,7 +389,6 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: reproducibleCodexProfile,
-      harness: 'codex',
       taskPrompt: 'fix the bug',
       codexReproducible: true,
       codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
@@ -458,12 +506,19 @@ describe('createWorktreeCliExecutor', () => {
     })
   })
 
-  it('rejects contradictory reproducible Codex configuration', () => {
+  it('rejects a separate harness override and contradictory reproducible Codex configuration', () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: reproducibleCodexProfile,
         harness: 'claude-code',
+        taskPrompt: 'x',
+      } as WorktreeCliExecutorOptions & { harness: LocalHarness }),
+    ).toThrow(/separate harness is forbidden/)
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: authoredProfile(),
         taskPrompt: 'x',
         codexReproducible: true,
       }),
@@ -472,7 +527,6 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: reproducibleCodexProfile,
-        harness: 'codex',
         taskPrompt: 'x',
         codexReproducible: true,
         budgetExempt: true,
@@ -485,7 +539,6 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: reproducibleCodexProfile,
-      harness: 'codex',
       taskPrompt: 'x',
       codexReproducible: true,
       runGit: makeFakeGit(state),
@@ -507,8 +560,7 @@ describe('createWorktreeCliExecutor', () => {
   it('budgetExempt: false opts the leaf into metering (explicit, not a buried hardcode)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       budgetExempt: false,
       runGit: makeFakeGit(freshGitState()),
@@ -521,7 +573,6 @@ describe('createWorktreeCliExecutor', () => {
     const factory = createExecutor({
       backend: 'cli-worktree',
       repoRoot: '/workspace',
-      harness: 'codex',
       taskPrompt: 'x',
       codexReproducible: true,
     })
@@ -538,8 +589,7 @@ describe('createWorktreeCliExecutor', () => {
     let seen: RunLocalHarnessOptions | undefined
     const executor = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async (options) => {
         seen = options
@@ -564,8 +614,7 @@ describe('createWorktreeCliExecutor', () => {
   it('resultArtifact() before execute() resolves throws (fail loud, no fabricated artifact)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -587,8 +636,7 @@ describe('createWorktreeCliExecutor', () => {
 
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'opencode',
+      profile: authoredProfile('opencode'),
       taskPrompt: 'do it',
       runGit: makeFakeGit(state),
       runHarness: realRunHarness,
@@ -608,8 +656,7 @@ describe('createWorktreeCliExecutor', () => {
     const ranIn: { command: string; cwd: string }[] = []
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'opencode',
+      profile: authoredProfile('opencode'),
       taskPrompt: 'do it',
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
@@ -643,8 +690,7 @@ describe('createWorktreeCliExecutor', () => {
   it('omits `checks` entirely when no verification command is configured', async () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(async () => ({
@@ -674,7 +720,7 @@ describe('createWorktreeCliExecutor', () => {
     const checks: Array<{ command: string; cwd: string }> = []
     bridgeHttpHandler = (payload) => {
       requests.push(payload as (typeof requests)[number])
-      return bridgeSseResponse('done from bridge')
+      return bridgeSseResponse('done from bridge', payload)
     }
 
     const factory = createExecutor({
@@ -684,7 +730,6 @@ describe('createWorktreeCliExecutor', () => {
       bridge: {
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'codex/live',
         sessionId: 'session-live',
       },
       testCmd: 'pnpm test',
@@ -694,7 +739,14 @@ describe('createWorktreeCliExecutor', () => {
         return { exitCode: 0, output: 'tests passed' }
       },
     })
-    const spec: AgentSpec = { profile: authoredProfile, harness: null }
+    const spec: AgentSpec = {
+      profile: {
+        ...authoredProfile('codex'),
+        harness: 'codex',
+        model: { provider: 'tangle-router', default: 'live' },
+      },
+      harness: null,
+    }
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
     const authorizedTask = {
       experimentId: 'bridge-exp-9',
@@ -731,28 +783,32 @@ describe('createWorktreeCliExecutor', () => {
     expect(state.worktreesRemoved).toEqual(state.worktreesCreated)
   })
 
-  it('fails loud on a missing repoRoot, harness, or both task sources', async () => {
+  it('fails loud on a missing repoRoot, incomplete profile, or both task sources', async () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '',
-        profile: authoredProfile,
-        harness: 'claude-code',
+        profile: authoredProfile(),
         taskPrompt: 'x',
       }),
     ).toThrow(/repoRoot required/)
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
-        profile: authoredProfile,
-        harness: 'claude-code',
+        profile: { ...authoredProfile(), harness: undefined },
+        taskPrompt: 'x',
+      }),
+    ).toThrow(/AgentProfile\.harness must be explicit/)
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: authoredProfile(),
         taskPrompt: '',
       }),
     ).toThrow(/taskPrompt required/)
 
     const noTask = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
     })
     await expect(noTask.execute(undefined, new AbortController().signal)).rejects.toThrow(
       /execute task required/,

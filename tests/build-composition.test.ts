@@ -10,11 +10,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeProposalFinding } from '@tangle-network/agent-eval'
 import { gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { agenticGenerator, commandVerifier } from '../src/improvement/agentic-generator'
+import {
+  type AgenticGeneratorExecutorForWorktree,
+  agenticGenerator,
+  commandVerifier,
+} from '../src/improvement/agentic-generator'
 import { mcpBuildPrompt, toolBuildPrompt } from '../src/improvement/build-prompts'
 import { mcpServeVerifier } from '../src/improvement/mcp-serve-verifier'
-import type { LocalHarnessResult } from '../src/mcp/local-harness'
 
 function git(a: string[], cwd: string): string {
   return execFileSync('git', a, { cwd, encoding: 'utf8' }).trim()
@@ -49,13 +53,33 @@ const FINDINGS = [
   }),
 ]
 
-const HARNESS_OK: LocalHarnessResult = {
-  exitCode: 0,
-  stdout: 'done',
-  stderr: '',
-  killedBySignal: null,
-  durationMs: 10,
-  timedOut: false,
+const PROFILE: AgentProfile = {
+  name: 'artifact-author',
+  harness: 'cli-base',
+  model: { provider: 'offline', default: 'deterministic-author' },
+  prompt: { systemPrompt: 'Build the requested artifact in this worktree.' },
+}
+
+function executorFor(
+  run: (input: { cwd: string; taskPrompt: string }) => void | Promise<void>,
+): AgenticGeneratorExecutorForWorktree {
+  return (cwd) => ({
+    backend: 'router',
+    routerBaseUrl: 'https://offline.invalid/v1',
+    routerKey: 'test',
+    complete: async (body) => {
+      const messages = body.messages as Array<{ role?: string; content?: unknown }>
+      const taskPrompt = String(
+        messages.findLast((message) => message.role === 'user')?.content ?? '',
+      )
+      await run({ cwd, taskPrompt })
+      return {
+        model: body.model,
+        choices: [{ message: { role: 'assistant', content: 'done' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 2, cost_usd: 0.001 },
+      }
+    },
+  })
 }
 
 const gen = (worktreePath: string) => ({
@@ -66,13 +90,13 @@ const gen = (worktreePath: string) => ({
 })
 
 it('build a tool: agenticGenerator + toolBuildPrompt + commandVerifier', async () => {
-  const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
+  const run = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
     expect(taskPrompt).toContain('building a new TOOL')
     writeFileSync(join(cwd, 'tool.ts'), 'export const ok = true\n')
-    return HARNESS_OK
   })
   const g = agenticGenerator({
-    runHarness: runHarness as never,
+    profile: PROFILE,
+    executorForWorktree: executorFor(run),
     buildPrompt: toolBuildPrompt,
     verify: commandVerifier('true'),
   })
@@ -89,13 +113,13 @@ it('build an MCP server: agenticGenerator + mcpBuildPrompt + mcpServeVerifier', 
     '  if (m.method === "initialize") send({ jsonrpc:"2.0", id:m.id, result:{ protocolVersion:"2024-11-05", capabilities:{}, serverInfo:{name:"f",version:"0"} } })',
     '  else if (m.method === "tools/list") send({ jsonrpc:"2.0", id:m.id, result:{ tools:[{ name:"t", inputSchema:{type:"object"} }] } }) })',
   ].join('\n')
-  const runHarness = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
+  const run = vi.fn(async ({ cwd, taskPrompt }: { cwd: string; taskPrompt: string }) => {
     expect(taskPrompt).toContain('MCP SERVER')
     writeFileSync(join(cwd, 'server.mjs'), server)
-    return HARNESS_OK
   })
   const g = agenticGenerator({
-    runHarness: runHarness as never,
+    profile: PROFILE,
+    executorForWorktree: executorFor(run),
     buildPrompt: mcpBuildPrompt,
     verify: mcpServeVerifier({ command: 'node', args: ['server.mjs'] }),
   })

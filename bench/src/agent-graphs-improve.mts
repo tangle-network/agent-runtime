@@ -20,21 +20,27 @@
 
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join, dirname, resolve as resolvePath } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  defineInlineResource,
+  harnessTypeSchema,
+  reasoningEffortSchema,
+  type AgentProfile,
+} from '@tangle-network/agent-interface'
 import {
   type AgentGraph,
   type AnalystRegistry,
+  collectAgentTurn,
+  createExecutor,
   defaultEdgeTraversalCap,
   type EdgeTraversal,
   GraphEdgeCapError,
   type GraphResult,
   promptHandle,
-  type RunGraphOptions,
-  runGraph,
+  streamAgentTurn,
 } from '../../src/runtime/index.ts'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing/index.ts'
 import { leafSeam, scriptedBrain, type ScriptedTurn } from './agent-graphs-improve/offline-seams.mts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -78,12 +84,6 @@ export function loadInputs(): { surface: string; cases: CaseSpec[]; source: stri
   return { surface, cases, source: `git:${SKILL_REF}` }
 }
 
-// The measured pi floor the floor-trap case scores against (src/runtime/supervise/budget-floor.ts).
-const PI_TOKEN_FLOOR = 31_211
-// "Budget generously" proxy for unmeasured harnesses: floor-unknown means per-child headroom
-// well above the one measured floor; 50k is the scorer's line, documented not tuned.
-const GENEROUS_PER_CHILD_TOKENS = 50_000
-
 // ── Case + artifact shapes ─────────────────────────────────────────────────────
 
 export interface CaseExpect {
@@ -92,16 +92,12 @@ export interface CaseExpect {
   correctAnswerIsGraph?: boolean
   nodes?: number
   analyzesWarranted?: boolean
-  floorTrap?: boolean
-  mustBudgetAtLeast?: number
-  correctAuthorOverridesBrief?: boolean
   maxTraversalsAtLeast?: number
   deliverableDescribeCarriesMission?: boolean
   checkIsMechanical?: boolean
   trapIsAnalyzesCapAsStop?: boolean
   correctStopIsDelegatesCapOrDeliverable?: boolean
   wrongIfAnalystIsNode?: boolean
-  generousBudgetsBecauseFloorUnknown?: boolean
   edges?: string[]
   reason?: string
 }
@@ -146,22 +142,16 @@ export interface AuthoredArtifact {
 
 // ── The author model call ──────────────────────────────────────────────────────
 
-const ROUTER_URL = 'https://router.tangle.tools/v1/chat/completions'
-const AUTHOR_MODEL = 'glm-5.2'
-
-function routerToken(): string {
-  const raw = readFileSync(join(homedir(), '.config', 'tangle', 'router-token.json'), 'utf8')
-  return (JSON.parse(raw) as { token: string }).token
+function positiveInteger(name: string, raw: string | undefined, fallback: number): number {
+  const value = raw === undefined ? fallback : Number(raw)
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`)
+  }
+  return value
 }
 
-function authorPrompt(surface: string, kase: CaseSpec): string {
+function authorPrompt(kase: CaseSpec): string {
   return [
-    'You are an agent-graph author. Follow the skill below EXACTLY — it is your only doctrine.',
-    '',
-    '<skill>',
-    surface,
-    '</skill>',
-    '',
     `<case-brief id="${kase.id}">`,
     kase.brief,
     '</case-brief>',
@@ -190,25 +180,61 @@ function extractJson(text: string): string {
   return stripped.slice(start, end + 1)
 }
 
-export async function callAuthor(prompt: string, temperature = 0.2, maxTokens = 6000): Promise<string> {
-  const res = await fetch(ROUTER_URL, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${routerToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: AUTHOR_MODEL,
-      temperature,
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-    signal: AbortSignal.timeout(240_000),
-  })
-  if (!res.ok) throw new Error(`router HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
-  const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content !== 'string' || content.trim().length === 0) {
-    throw new Error('router returned empty content')
+export function buildAgentGraphsAuthorProfile(
+  surface: string,
+  env: NodeJS.ProcessEnv = process.env,
+): AgentProfile {
+  return {
+    name: env.AGENT_GRAPHS_AUTHOR_PROFILE_NAME ?? 'agent-graphs-author',
+    harness: harnessTypeSchema.parse(env.AGENT_GRAPHS_AUTHOR_HARNESS ?? 'pi'),
+    model: {
+      provider: env.AGENT_GRAPHS_AUTHOR_PROVIDER ?? 'tangle-router',
+      default: env.AGENT_GRAPHS_AUTHOR_MODEL ?? 'deepseek-v4-flash',
+      reasoningEffort: reasoningEffortSchema.parse(
+        env.AGENT_GRAPHS_AUTHOR_REASONING_EFFORT ?? 'ultracode',
+      ),
+    },
+    prompt: {
+      systemPrompt:
+        env.AGENT_GRAPHS_AUTHOR_SYSTEM_PROMPT ??
+        'Apply the attached agent-graphs skill exactly. Return only the requested artifact.',
+    },
+    resources: {
+      failOnError: true,
+      skills: [defineInlineResource('agent-graphs', surface)],
+    },
   }
-  return content
+}
+
+export async function callAuthor(
+  profile: AgentProfile,
+  prompt: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const bridgeBearer = env.AGENT_GRAPHS_BRIDGE_BEARER ?? env.BRIDGE_BEARER
+  if (!bridgeBearer) throw new Error('AGENT_GRAPHS_BRIDGE_BEARER or BRIDGE_BEARER is required')
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl: env.AGENT_GRAPHS_BRIDGE_URL ?? env.BRIDGE_URL ?? 'http://127.0.0.1:3355',
+    bridgeBearer,
+  })
+  const timeoutRaw = env.AGENT_GRAPHS_AUTHOR_TIMEOUT_MS
+  const timeoutMs =
+    timeoutRaw === undefined
+      ? undefined
+      : positiveInteger('AGENT_GRAPHS_AUTHOR_TIMEOUT_MS', timeoutRaw, 1)
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile, agentRunName: profile.name ?? 'agent-graphs-author' },
+      prompt,
+      timeoutMs === undefined ? {} : { timeoutMs },
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `author turn ended with status ${turn.status}`)
+  }
+  if (!turn.finalText.trim()) throw new Error('author returned empty content')
+  return turn.finalText
 }
 
 interface AuthoredReply {
@@ -220,11 +246,17 @@ interface AuthoredReply {
 
 /** Prompt the author; one retry on unparseable JSON (or a transport fault). */
 async function authorOnce(surface: string, kase: CaseSpec): Promise<AuthoredReply> {
-  const prompt = authorPrompt(surface, kase)
+  const prompt = authorPrompt(kase)
+  const profile = buildAgentGraphsAuthorProfile(surface)
+  const attempts = positiveInteger(
+    'AGENT_GRAPHS_AUTHOR_ATTEMPTS',
+    process.env.AGENT_GRAPHS_AUTHOR_ATTEMPTS,
+    2,
+  )
   let lastErr: unknown
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      const raw = await callAuthor(prompt)
+      const raw = await callAuthor(profile, prompt)
       const parsed = JSON.parse(extractJson(raw)) as {
         decision?: string
         reason?: string
@@ -244,7 +276,9 @@ async function authorOnce(surface: string, kase: CaseSpec): Promise<AuthoredRepl
       lastErr = err
     }
   }
-  throw new Error(`author failed after retry: ${String((lastErr as Error)?.message ?? lastErr)}`)
+  throw new Error(
+    `author failed after ${attempts} attempt${attempts === 1 ? '' : 's'}: ${String((lastErr as Error)?.message ?? lastErr)}`,
+  )
 }
 
 // ── Lowering an authored spec to a real AgentGraph + offline execution ─────────
@@ -326,10 +360,19 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
     { content: 'done' },
   ]
 
-  const opts: RunGraphOptions = {
+  const perWorker =
+    spec.perWorker === undefined
+      ? undefined
+      : {
+          maxIterations:
+            spec.perWorker.maxIterations ?? Math.max(1, Math.floor(spec.budget.maxIterations / 4)),
+          maxTokens:
+            spec.perWorker.maxTokens ?? Math.max(1, Math.floor(spec.budget.maxTokens / 4)),
+        }
+  const opts: RunGraphTestOptions = {
     runId,
     maxLiveWorkers: Math.max(workerIds.length, 1),
-    ...(spec.perWorker !== undefined ? { perWorker: spec.perWorker } : {}),
+    ...(perWorker !== undefined ? { perWorker } : {}),
     ...(analysts !== undefined ? { analysts } : {}),
     makeWorkerAgent: leafSeam(
       received,
@@ -338,11 +381,19 @@ async function runAuthoredOffline(spec: AuthoredGraphSpec, runId: string): Promi
     brain: scriptedBrain(turns),
   }
 
+  const timeoutMs = positiveInteger(
+    'AGENT_GRAPHS_OFFLINE_TIMEOUT_MS',
+    process.env.AGENT_GRAPHS_OFFLINE_TIMEOUT_MS,
+    120_000,
+  )
   const timeout = new Promise<never>((_, reject) => {
-    const t = setTimeout(() => reject(new Error('offline run timed out (120s)')), 120_000)
+    const t = setTimeout(
+      () => reject(new Error(`offline run timed out (${timeoutMs}ms)`)),
+      timeoutMs,
+    )
     t.unref?.()
   })
-  const res: GraphResult = await Promise.race([runGraph(graph, opts), timeout])
+  const res: GraphResult = await Promise.race([runGraphWithTestBrain(graph, opts), timeout])
   return { resultKind: res.result.kind, ledger: res.ledger, exhaustedEdges: res.exhaustedEdges }
 }
 
@@ -400,11 +451,6 @@ function domainWords(brief: string): string[] {
   ]
 }
 
-function perChildTokens(spec: AuthoredGraphSpec): number {
-  // The skill's documented default: perWorker unset means a quarter of the pool.
-  return spec.perWorker?.maxTokens ?? Math.floor(spec.budget.maxTokens / 4)
-}
-
 function delegatesEdges(spec: AuthoredGraphSpec): Array<Extract<AuthoredEdge, { kind: 'delegates' }>> {
   return spec.edges.filter((e): e is Extract<AuthoredEdge, { kind: 'delegates' }> => e.kind === 'delegates')
 }
@@ -447,16 +493,6 @@ export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { sco
       key: 'correctAnswerIsGraph',
       pass: graphOk,
       note: `decision=${artifact.decision}${artifact.decision === 'graph' && g === undefined ? ' (no graph payload)' : ''}`,
-    })
-  }
-  if (e.mustBudgetAtLeast !== undefined) {
-    const perChild = graphOk ? perChildTokens(g) : 0
-    checks.push({
-      key: 'mustBudgetAtLeast',
-      pass: graphOk && perChild >= e.mustBudgetAtLeast,
-      note: graphOk
-        ? `per-child tokens ${perChild} vs floor ${e.mustBudgetAtLeast} (pi floor ${PI_TOKEN_FLOOR})`
-        : `no graph authored (decision=${artifact.decision})`,
     })
   }
   if (e.nodes !== undefined) {
@@ -539,16 +575,6 @@ export function judgeArtifact(artifact: AuthoredArtifact, kase: CaseSpec): { sco
         : 'no graph authored',
     })
   }
-  if (e.generousBudgetsBecauseFloorUnknown !== undefined) {
-    const perChild = graphOk ? perChildTokens(g) : 0
-    checks.push({
-      key: 'generousBudgetsBecauseFloorUnknown',
-      pass: graphOk && perChild >= GENEROUS_PER_CHILD_TOKENS,
-      note: graphOk
-        ? `per-child tokens ${perChild} vs generous line ${GENEROUS_PER_CHILD_TOKENS}`
-        : 'no graph authored',
-    })
-  }
   if (e.edges !== undefined) {
     for (const want of e.edges) {
       if (/delegates/i.test(want)) {
@@ -617,8 +643,16 @@ async function main(): Promise<void> {
   const only = process.env.CASE
   const cases: CaseSpec[] = inputs.cases.filter((c) => only === undefined || c.id === only)
 
+  const authorProfile = buildAgentGraphsAuthorProfile(surface)
+  const authorLabel = [
+    authorProfile.harness,
+    authorProfile.model?.provider,
+    authorProfile.model?.default,
+  ]
+    .filter(Boolean)
+    .join('/')
   console.log(
-    `codemode baseline: skill v1 (${surface.length} chars, source=${inputs.source}), ${cases.length} cases, author=${AUTHOR_MODEL}`,
+    `codemode baseline: skill v1 (${surface.length} chars, source=${inputs.source}), ${cases.length} cases, author=${authorLabel}`,
   )
 
   const results: CaseResult[] = []
@@ -676,8 +710,7 @@ async function main(): Promise<void> {
   const out = {
     skillVersion: 'v1',
     surfaceSource: inputs.source,
-    authorModel: AUTHOR_MODEL,
-    temperature: 0.2,
+    authorProfile,
     date: new Date().toISOString(),
     n: results.length,
     aggregate: { mean, median, min: scores[0] ?? 0, max: scores[scores.length - 1] ?? 0 },

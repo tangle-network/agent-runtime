@@ -81,21 +81,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-sdk
-          ref: fc00613985c86f917a679c9bf957e6af8cbedb7c # @tangle-network/agent-interface@0.43.0
+          ref: 36b8e3ecc57e9a62130eb2b0fdc1c3b5be01b338 # @tangle-network/agent-interface@0.43.1
           path: .cohort/agent-sdk
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: 42a044f29725f0587d6ab0d9783f4e889d5fb8f7 # v0.143.0
+          ref: cd4c3195fec79c79976ce2fbe43f307107544798 # v0.144.4
           path: .cohort/agent-eval
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: 3a41d557a5549c324fad2b101d02f0bf30657cac # v7.0.8
+          ref: b5c82eb9a508b13a32e14353a867c197cda517b8 # v7.0.11
           path: .cohort/agent-knowledge
           persist-credentials: false
 
@@ -132,6 +132,8 @@ jobs:
         run: pnpm run build
 
       - name: Verify agent-bench against current agent-runtime
+        env:
+          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
         run: pnpm run verify:bench
 
   official-optimizers:

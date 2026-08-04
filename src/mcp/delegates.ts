@@ -1,7 +1,7 @@
 /**
  *
  * `detachedSessionDelegate` — the sandbox-session coder delegate: a closure that drives `runAgentRounds`
- * against a `SandboxClient` + a caller-supplied (or minimal model-only default) worker profile, to a
+ * against a `SandboxClient` + a caller-supplied exact worker profile, to a
  * mechanically-validated `CoderOutput`. The caller invokes the returned delegate directly with its
  * coder args; when wired into a durable queue it also settles cross-restart-resumed records.
  *
@@ -11,15 +11,15 @@
  * CHOSEN backend (sandbox OR cli-bridge, via `createExecutor({ backend })`) with observe/steer/resume
  * + recursion, use `delegate()` / the coordination MCP.
  *
- * The worker profile is a parameter the caller supplies (§1.5: the system authors profiles). When
- * none is passed, a minimal model-only default profile is materialized in `./detached-coder` — no
- * hardcoded skills or tools. For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`
+ * The worker profile is a parameter the caller supplies (§1.5: the system authors profiles).
+ * For NEW local-repo coding use `worktreeFanout` / `worktreeLoopRunner`
  * (author one `AgentProfile` per harness → `createWorktreeCliExecutor` leaves → `gateOnDeliverable`).
  *
  * @experimental
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { ConfigError } from '../errors'
 import type { CoderTask } from '../profiles/coder'
 import type {
   AgentRunSpec,
@@ -82,10 +82,8 @@ export type CoderDelegate = (args: DelegateCodeArgs, ctx: DelegateRunCtx) => Pro
 
 /**
  * UI-auditor delegate — fully consumer-injected. agent-runtime ships no
- * default factory because the inputs are workspace path + judge function
- * + (optionally) a `SandboxClient`, and the judge is the consumer's
- * model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
- * `@tangle-network/agent-runtime/profiles` for the canonical wiring.
+ * default factory because execution belongs to a caller-supplied exact
+ * agent profile and Runtime executor.
  *
  * @experimental
  */
@@ -149,27 +147,13 @@ export interface DetachedSessionDelegateOptions {
    */
   sandboxClient?: SandboxClient
   /**
-   * The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
-   * sandbox-session run spec → `runAgentRounds` → the executor's `harnessInvocation`, so the harness runs
-   * under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
-   * `harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
-   * profile is used.
+   * The worker's exact authored `AgentProfile` (§1.5: the system authors profiles). It is the sole
+   * harness/provider/model/prompt authority for the single-coder path and the default identity for
+   * repeated fanout shots.
    */
-  workerProfile?: AgentProfile
-  /** Backend harness for the single-coder path (sets `metadata.backendType`). Default `claude-code`. */
-  harness?: string
-  /** Model override for the single-coder path. */
-  model?: string
-  /**
-   * The worker's authored system prompt (§1.5). Flows onto the run spec's
-   * `profile.prompt.systemPrompt` → through `runAgentRounds` → the executor's `harnessInvocation`, so the
-   * harness runs under this stance. Omit to keep the profile's own prompt.
-   */
-  systemPrompt?: string
-  /** Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1. */
-  fanoutHarnesses?: string[]
-  /** Optional per-harness model override for `variants > 1`. */
-  fanoutModels?: (string | undefined)[]
+  workerProfile: AgentProfile
+  /** Optional exact identities for heterogeneous fanout. Omit to repeat `workerProfile`. */
+  fanoutProfiles?: ReadonlyArray<AgentProfile>
   /** Hard cap on the kernel's per-batch concurrency. Default 4. */
   maxConcurrency?: number
   /**
@@ -217,23 +201,34 @@ export interface DetachedSessionDelegateOptions {
  * @experimental
  */
 export function detachedSessionDelegate(options: DetachedSessionDelegateOptions): CoderDelegate {
+  if (!options.workerProfile) {
+    throw new ConfigError('detachedSessionDelegate: workerProfile is required')
+  }
+  const workerProfile = coderRunSpec({ profile: options.workerProfile }).profile
+  const fanoutProfiles = options.fanoutProfiles?.map((profile) => coderRunSpec({ profile }).profile)
+  if (fanoutProfiles?.length === 0) {
+    throw new ConfigError('detachedSessionDelegate: fanoutProfiles must not be empty')
+  }
   const executor = resolveExecutor(options)
   const sandboxClient = executor.client
-  const fanoutHarnesses = options.fanoutHarnesses
   const maxConcurrency = options.maxConcurrency ?? 4
   const traceEmitter = options.traceEmitter
   return async (args, ctx) => {
     const task = coderTaskFromArgs(args)
     const variants = Math.max(1, Math.trunc(args.variants ?? 1))
+    const selectedFanoutProfiles =
+      variants <= 1
+        ? undefined
+        : (fanoutProfiles ?? Array.from({ length: variants }, () => workerProfile))
+    if (selectedFanoutProfiles && selectedFanoutProfiles.length < variants) {
+      throw new ConfigError(
+        `detachedSessionDelegate: ${variants} variants requested but only ${selectedFanoutProfiles.length} exact fanout profiles were configured`,
+      )
+    }
     const loopEmitter = composeLoopTraceEmitters(traceEmitter, ctx.traceEmitter)
     ctx.report({ iteration: 0, phase: 'starting' })
     if (variants <= 1) {
-      const agentRunSpec = coderRunSpec({
-        ...(options.workerProfile ? { profile: options.workerProfile } : {}),
-        ...(options.harness ? { harness: options.harness } : {}),
-        ...(options.model ? { model: options.model } : {}),
-        ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
-      })
+      const agentRunSpec = coderRunSpec({ profile: workerProfile })
       const output = coderOutputAdapter
       const validator = createCoderValidator(task)
       // Detached dispatch: one session on one box, driven by `driveTurn` ticks
@@ -265,8 +260,6 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
           task,
           sessionId,
           signal: ctx.signal,
-          ...(options.harness ? { harness: options.harness } : {}),
-          ...(options.model ? { model: options.model } : {}),
           ...(options.reviewer ? { reviewer: options.reviewer } : {}),
         })
         ctx.report({ iteration: 1, phase: 'completed' })
@@ -298,11 +291,7 @@ export function detachedSessionDelegate(options: DetachedSessionDelegateOptions)
       return chosen
     }
     const fanout = multiHarnessCoderFanout({
-      ...(options.workerProfile ? { profile: options.workerProfile } : {}),
-      ...(fanoutHarnesses && fanoutHarnesses.length > 0
-        ? { harnesses: fanoutHarnesses.slice(0, variants) }
-        : {}),
-      ...(options.fanoutModels ? { models: options.fanoutModels.slice(0, variants) } : {}),
+      profiles: selectedFanoutProfiles!.slice(0, variants),
     })
     const agentRuns = fanout.agentRuns.slice(0, variants)
     const result = await runAgentRounds({
@@ -442,8 +431,6 @@ export interface SettleDetachedCoderTurnOptions {
   /** Session id of the detached turn — used as the synthesized event id. */
   sessionId: string
   signal: AbortSignal
-  harness?: string
-  model?: string
   /** Same gate as the streaming path: an unapproved candidate cannot win. */
   reviewer?: CoderReviewer
 }

@@ -1,3 +1,4 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // The `delegate` tool routes through `delegate()` → `supervise()`. Mock the ONE front door so the
@@ -21,25 +22,24 @@ import {
   DELEGATE_TOOL_NAME,
   validateDelegateArgs,
 } from '../../src/mcp/tools/delegate'
+import type { RouterTransportConfig } from '../../src/runtime/router-client'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
-import type {
-  RouterConfig,
-  Spend,
-  SupervisedResult,
-  TreeView,
-} from '../../src/runtime/supervise/types'
+import type { Spend, SupervisedResult, TreeView } from '../../src/runtime/supervise/types'
 
-const router: RouterConfig = {
+const router: RouterTransportConfig = {
   routerBaseUrl: 'http://localhost/v1',
   routerKey: 'k',
-  model: 'deepseek-v4-flash',
+}
+const supervisorProfile: AgentProfile = {
+  name: 'delegate-supervisor',
+  harness: 'cli-base',
+  model: { provider: 'test-provider', default: 'deepseek-v4-flash' },
 }
 const backend: ExecutorConfig = {
   backend: 'router-tools',
   routerBaseUrl: 'http://localhost/v1',
   routerKey: 'k',
-  model: 'deepseek-v4-flash',
-} as ExecutorConfig
+}
 
 const emptyTree = { id: 'root', children: [] } as unknown as TreeView
 const spentTotal: Spend = {
@@ -69,7 +69,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
   })
 
   it('routes the intent to delegate()/supervise() and returns the delivered output WITH spentTotal', async () => {
-    const handler = createDelegateHandler({ router, backend })
+    const handler = createDelegateHandler({ router, backend, supervisorProfile })
     const result = (await handler({ intent: 'fix the bug' })) as {
       status: string
       out: unknown
@@ -94,7 +94,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
       downCount: 2,
       spentTotal,
     })
-    const handler = createDelegateHandler({ router, backend })
+    const handler = createDelegateHandler({ router, backend, supervisorProfile })
     const result = (await handler({ intent: 'do x' })) as {
       status: string
       reason: string
@@ -118,7 +118,7 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
       spentTotal,
       error: { name: 'Error', message: 'router 503: no provider configured for this model' },
     } as unknown as SupervisedResult<unknown>)
-    const handler = createDelegateHandler({ router, backend })
+    const handler = createDelegateHandler({ router, backend, supervisorProfile })
     const result = (await handler({ intent: 'do x' })) as {
       status: string
       reason: string
@@ -140,23 +140,24 @@ describe('delegate MCP tool — generic delegation verb that returns cost', () =
       downCount: 2,
       spentTotal,
     })
-    const handler = createDelegateHandler({ router, backend })
+    const handler = createDelegateHandler({ router, backend, supervisorProfile })
     const result = (await handler({ intent: 'do x' })) as Record<string, unknown>
     expect('error' in result).toBe(false)
   })
 
-  it('applies a per-call model override', async () => {
-    const handler = createDelegateHandler({ router, backend, model: 'deepseek-v4-flash' })
-    await handler({ intent: 'do x', model: 'glm-5.2' })
-    const [profile] = superviseSpy.mock.calls[0] as [{ model?: { default?: string } }]
-    expect(profile.model?.default).toBe('glm-5.2')
+  it('rejects per-call execution overrides before supervision', async () => {
+    const handler = createDelegateHandler({ router, backend, supervisorProfile })
+    await expect(handler({ intent: 'do x', model: 'glm-5.2' })).rejects.toThrow(/unknown.*model/)
+    expect(superviseSpy).not.toHaveBeenCalled()
   })
 
   it('createMcpServer registers `delegate` only when delegateSupervisor is wired', () => {
     const without = createMcpServer({})
     expect(without.tools.has(DELEGATE_TOOL_NAME)).toBe(false)
 
-    const withSupervisor = createMcpServer({ delegateSupervisor: { router, backend } })
+    const withSupervisor = createMcpServer({
+      delegateSupervisor: { router, backend, supervisorProfile },
+    })
     expect(withSupervisor.tools.has(DELEGATE_TOOL_NAME)).toBe(true)
   })
 })

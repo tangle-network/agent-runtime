@@ -15,10 +15,10 @@
  * Both arms spawn children through the SAME `makeWorkerAgent` seam and apply the SAME independent
  * deliverable check to direct submissions. Raw driver prose is never eligible.
  */
-import type {
-  AgentProfileModelHints,
-  AgentProfilePrompt,
-  AgentProfileResources,
+import {
+  type AgentProfile,
+  type AgentProfileResources,
+  agentProfileSchema,
 } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
@@ -33,7 +33,7 @@ import type {
 } from '../../mcp/tools/coordination'
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
 import { agentHarness } from '../harness-role'
-import { type RouterConfig, routerBrain } from '../router-client'
+import { type RouterTransportConfig, routerBrain } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import { driverAgent } from './coordination-driver'
@@ -43,7 +43,11 @@ import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import { createInbox } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
-import { concreteModelId } from './model-policy'
+import {
+  assertExecutableAgentProfile,
+  concreteProfileModel,
+  profileModelExecutionSettings,
+} from './model-policy'
 import { supervisorPolicyPrompt } from './prompt-registry'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
@@ -60,78 +64,15 @@ import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } fro
  *  ship two contradictory defaults selected by entry point. */
 export const defaultSupervisorPrompt = supervisorPolicyPrompt.text
 
-/**
- * The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
- * `harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
- *
- * A canonical `AgentProfile` from `@tangle-network/agent-interface` satisfies this interface
- * structurally: its `model` is a hints OBJECT and its system prompt lives at `prompt.systemPrompt`,
- * so both spellings are accepted here and reduced by {@link resolveSupervisorProfile}. Before that,
- * a canonical profile's model object reached `RouterConfig.model` (a string) as an object and its
- * `prompt.systemPrompt` was dropped — a request the provider rejects, and a supervisor running the
- * default strategy while its profile named another.
- *
- * WHAT EACH ARM HONORS — the two brains read different amounts of a profile, so state it rather
- * than let a caller infer that a field took effect:
- *
- *  - ROUTER arm (`harness` null): only `name`, the resolved model id (`model`, or
- *    `model.default`), and the resolved system prompt (`prompt.systemPrompt`/`systemPrompt` plus
- *    `prompt.instructions` and `resources.instructions`) reach the brain. A full `AgentProfile`'s
- *    `tools`, `mcp`, `permissions`, `resources.skills`/`files`, `hooks`, `modes`, `subagents`,
- *    `model.provider`, `model.small` and `model.reasoningEffort` are NOT honored here: the router
- *    brain is one `ToolLoopChat` over the coordination verbs, and neither of its two tool-calling
- *    transports (`routerChatWithTools` buffered, `streamRouterChatWithTools` when
- *    `RouterConfig.stream` is set) has a parameter for any of them.
- *  - HARNESS arm (`harness` set): the WHOLE profile object is handed to `deps.driveHarness`
- *    untouched, plus the resolved system prompt as a separate argument. Everything the profile
- *    declares is the harness's to materialize; this module changes none of it.
- */
-export interface SupervisorProfile {
-  readonly name?: string
-  /** null/undefined/`cli-base` → router brain (in-process tool-loop); a coding-CLI harness → an
-   *  external harness brain. */
-  readonly harness?: string | null
-  /** The router model when the brain is router-driven: a model id, or a canonical profile's model
-   *  hints whose `default` IS the id. Absent (including a hints object with no `default`) → the
-   *  deps router config's model applies. Other hints (`small`, `provider`, `reasoningEffort`) are
-   *  harness-arm material only. */
-  readonly model?: string | AgentProfileModelHints
-  /** Canonical `AgentProfile` prompt shaping. `prompt.systemPrompt` and the top-level `systemPrompt`
-   *  are the same standing instruction in two spellings; disagreeing values are a fault, not a pick.
-   *  `prompt.instructions` lines are appended to the resolved prompt, one per line. */
-  readonly prompt?: AgentProfilePrompt
-  /** Canonical `AgentProfile` resources. Only `instructions` shapes the brain here (appended to the
-   *  resolved system prompt); every other resource is the harness's to materialize. */
-  readonly resources?: AgentProfileResources
-  /** The standing instructions ("you delegate, you do not solve"). */
-  readonly systemPrompt?: string
-}
+/** A supervisor is an exact canonical AgentProfile; no looser model/prompt shape exists. */
+export type SupervisorProfile = AgentProfile
 
-/** A `SupervisorProfile` reduced to the scalars the two brain arms consume. `modelId`/`systemPrompt`
- *  stay `undefined` when the profile named none — the caller's fallback (`deps.router.model`,
- *  the built-in default supervisor prompt) then applies, and this type cannot hide which happened.
- *
- *  There is deliberately no `reasoningEffort` here: the router brain runs on `chatWithTools` (the
- *  buffered/streamed switch in the router client), and neither transport has a `reasoning_effort`
- *  parameter — only the chat-only `routerChatWithUsage` does — so a field carrying it would be a
- *  public promise nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the
- *  profile. */
+/** The exact profile fields consumed by supervisor materialization. */
 export interface ResolvedSupervisorProfile {
   readonly name: string
   readonly harness: string | null
-  readonly modelId?: string
+  readonly modelId: string
   readonly systemPrompt?: string
-}
-
-/** Longest prompt excerpt an error message may carry. A supervisor system prompt is routinely
- *  thousands of characters; two of them interpolated whole turn a configuration fault into an
- *  unreadable wall, so a fault reports each prompt's LENGTH plus a leading excerpt instead. */
-const PROMPT_EXCERPT_CHARS = 60
-
-/** `<n> chars starting "<first 60>…"` — enough to tell two prompts apart without printing either. */
-function describePrompt(value: string): string {
-  const head = value.slice(0, PROMPT_EXCERPT_CHARS)
-  return `${value.length} chars starting ${JSON.stringify(head)}${value.length > PROMPT_EXCERPT_CHARS ? '…' : ''}`
 }
 
 /**
@@ -157,31 +98,19 @@ function resourceInstructionLines(
 }
 
 /**
- * The standing instruction both arms run under, assembled from every canonical spelling that
- * carries one: the system prompt (`prompt.systemPrompt` or the top-level `systemPrompt`), then the
- * `prompt.instructions` lines, then `resources.instructions` — each on its own line, in that order.
+ * The standing instruction both arms run under: `prompt.systemPrompt`, then canonical prompt and
+ * resource instruction lines.
  * `undefined` only when the profile names none at all.
  *
- * Two disagreeing system prompts throw: they are the same standing instruction in two spellings, so
- * picking one silently changes what the supervisor runs and there is no defensible winner.
  */
 function resolveSupervisorSystemPrompt(
   profile: SupervisorProfile,
   activePrompt?: string,
 ): string | undefined {
   const promptSystem = profile.prompt?.systemPrompt
-  const topSystem = profile.systemPrompt
-  if (promptSystem !== undefined && topSystem !== undefined && promptSystem !== topSystem) {
-    throw new ValidationError(
-      'supervisorAgent: profile.prompt.systemPrompt and profile.systemPrompt are both set and ' +
-        'differ — they are the same standing instruction, so keep exactly one ' +
-        `(prompt.systemPrompt: ${describePrompt(promptSystem)}; ` +
-        `systemPrompt: ${describePrompt(topSystem)})`,
-    )
-  }
   // Instruction lines are APPENDED to the active prompt, so a profile that names only
   // instructions keeps whatever prompt the arm would otherwise run — never replaces it.
-  const base = promptSystem ?? topSystem ?? activePrompt
+  const base = promptSystem ?? activePrompt
   const lines = [
     ...(profile.prompt?.instructions ?? []),
     ...resourceInstructionLines(profile.resources?.instructions),
@@ -190,37 +119,24 @@ function resolveSupervisorSystemPrompt(
   return (base !== undefined ? [base, ...lines] : lines).join('\n')
 }
 
-/**
- * The router model id, or `undefined` when the profile names none. A string `model` IS the id; an
- * object `model` is canonical model hints and `default` is the id. `AgentProfileModelHints.default`
- * is OPTIONAL upstream (`{ provider: 'anthropic' }` is a valid canonical profile), so hints without
- * a resolvable id are the documented "profile names no model" case: the router config's own model
- * applies, exactly as when `model` is absent.
- */
-export function resolveSupervisorModelId(profile: SupervisorProfile): string | undefined {
-  if (typeof profile.model === 'string') return concreteModelId(profile.model)
-  return concreteModelId(profile.model?.default)
+/** Resolve the model after refusing any incomplete execution identity. */
+export function resolveSupervisorModelId(profile: SupervisorProfile): string {
+  assertExecutableAgentProfile(profile, 'supervisorAgent')
+  return concreteProfileModel(profile)!
 }
 
 /**
- * Reduce either profile spelling — a hand-written `SupervisorProfile` or a canonical `AgentProfile`
- * — to the scalars the brain arms consume:
- *
- *  - `modelId`: a string `model` verbatim, else `model.default`. Absent or unresolvable → the
- *    router config's own model applies unchanged.
- *  - `systemPrompt`: the system prompt plus the `prompt.instructions` and `resources.instructions`
- *    lines, one per line.
- *
- * `supervisorAgent` resolves each piece only where it is consumed (the model id on the router arm
- * only); this whole-profile reduction is the caller-facing view of the same rules.
+ * Reduce one canonical executable profile to the scalars the two brain arms consume.
  */
 export function resolveSupervisorProfile(profile: SupervisorProfile): ResolvedSupervisorProfile {
-  const systemPrompt = resolveSupervisorSystemPrompt(profile)
-  const modelId = resolveSupervisorModelId(profile)
+  const exact = agentProfileSchema.parse(profile)
+  assertExecutableAgentProfile(exact, 'resolveSupervisorProfile')
+  const systemPrompt = resolveSupervisorSystemPrompt(exact)
+  const modelId = resolveSupervisorModelId(exact)
   return {
-    name: profile.name ?? 'supervisor',
-    harness: profile.harness ?? null,
-    ...(modelId !== undefined ? { modelId } : {}),
+    name: exact.name ?? 'supervisor',
+    harness: agentHarness(exact.harness) ?? null,
+    modelId,
     ...(systemPrompt !== undefined ? { systemPrompt } : {}),
   }
 }
@@ -352,9 +268,7 @@ export interface SupervisorAgentDeps {
   readonly maxLiveWorkers?: number
   /** Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
    *  profile's model wins. */
-  readonly router?: RouterConfig
-  /** Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile. */
-  readonly brain?: ToolLoopChat
+  readonly router?: RouterTransportConfig
   /** Required to run an external-harness supervisor: runs the harness as the driver. */
   readonly driveHarness?: DriveHarness
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
@@ -427,12 +341,80 @@ export interface SupervisorAgentDeps {
   readonly coordination?: CoordinationBinding
 }
 
-/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker. */
+const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete'])
+
+/** Capture the transport-only Router seam before any profile lowering. TypeScript excess-property
+ * checks are not a runtime boundary: JavaScript and widened objects can otherwise smuggle private
+ * generation/retry fields through a spread and override an AgentProfile that omitted them. */
+function snapshotRouterTransportConfig(input: RouterTransportConfig): RouterTransportConfig {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new ValidationError('supervisorAgent: deps.router must be a RouterTransportConfig object')
+  }
+  const unsupported = Object.keys(input).filter((field) => !ROUTER_TRANSPORT_FIELDS.has(field))
+  if (unsupported.length > 0) {
+    throw new ValidationError(
+      `supervisorAgent: deps.router contains unsupported behavioral fields: ${unsupported.sort().join(', ')}`,
+    )
+  }
+  if (typeof input.routerBaseUrl !== 'string' || input.routerBaseUrl.length === 0) {
+    throw new ValidationError(
+      'supervisorAgent: deps.router.routerBaseUrl must be a non-empty string',
+    )
+  }
+  if (typeof input.routerKey !== 'string' || input.routerKey.length === 0) {
+    throw new ValidationError('supervisorAgent: deps.router.routerKey must be a non-empty string')
+  }
+  if (input.complete !== undefined && typeof input.complete !== 'function') {
+    throw new ValidationError(
+      'supervisorAgent: deps.router.complete must be a function when provided',
+    )
+  }
+  return Object.freeze({
+    routerBaseUrl: input.routerBaseUrl,
+    routerKey: input.routerKey,
+    ...(input.complete !== undefined ? { complete: input.complete } : {}),
+  })
+}
+
+/** Test-only dependency shape. It is exported only through the package's explicit `/testing`
+ * entry; production supervisor surfaces cannot replace profile-derived model execution. */
+export interface SupervisorAgentTestDeps extends SupervisorAgentDeps {
+  readonly brain: ToolLoopChat
+}
+
+/** Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness`
+ * (backend-as-data), the same resolution rule as every worker. */
 export function supervisorAgent(
   profile: SupervisorProfile,
   deps: SupervisorAgentDeps,
 ): Agent<unknown, unknown> {
-  const stableProfile = detachedSnapshot(profile, 'supervisorAgent profile')
+  if ('brain' in deps) {
+    throw new ValidationError(
+      'supervisorAgent: direct brain injection is test-only; production execution derives the model call from AgentProfile',
+    )
+  }
+  return buildSupervisorAgent(profile, deps)
+}
+
+/** Scripted-brain construction for deterministic tests. Not exported from Runtime's main entry. */
+export function supervisorAgentWithTestBrain(
+  profile: SupervisorProfile,
+  deps: SupervisorAgentTestDeps,
+): Agent<unknown, unknown> {
+  const { brain, ...runtimeDeps } = deps
+  return buildSupervisorAgent(profile, runtimeDeps, brain)
+}
+
+function buildSupervisorAgent(
+  profile: SupervisorProfile,
+  deps: SupervisorAgentDeps,
+  testBrain?: ToolLoopChat,
+): Agent<unknown, unknown> {
+  const exactProfile = agentProfileSchema.parse(profile)
+  assertExecutableAgentProfile(exactProfile, 'supervisorAgent')
+  const stableProfile = detachedSnapshot(exactProfile, 'supervisorAgent profile')
+  const stableRouter =
+    deps.router === undefined ? undefined : snapshotRouterTransportConfig(deps.router)
   const resolveTools = deps.resolveSupervisorTools
   const observeNodeEvent = deps.observeNodeEvent
   const nodeContextSeed =
@@ -476,9 +458,10 @@ export function supervisorAgent(
   }
 
   if (harness === null) {
-    // ROUTER arm: the in-process tool-loop. `routerBrain` is now an internal detail — the caller
-    // passes a profile, not a hand-built brain (a test may still inject `deps.brain`).
-    const brain = deps.brain ?? routerBrainFromProfile(stableProfile, deps)
+    // ROUTER arm: the in-process tool-loop. `routerBrain` is an internal detail — a production
+    // caller passes a profile, never a hand-built brain. Deterministic source tests use the
+    // separately exported `/testing` constructor.
+    const brain = testBrain ?? routerBrainFromProfile(stableProfile, stableRouter)
     const inbox = createInbox()
     const build = (
       priorCoordination?: PriorCoordination,
@@ -488,6 +471,9 @@ export function supervisorAgent(
       driverAgent({
         name,
         brain,
+        ...(testBrain === undefined
+          ? { expectedModel: resolveSupervisorModelId(stableProfile) }
+          : {}),
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
@@ -731,21 +717,31 @@ function bindSupervisorNodeObserver(
 
 function routerBrainFromProfile(
   profile: SupervisorProfile,
-  deps: SupervisorAgentDeps,
+  router: RouterTransportConfig | undefined,
 ): ToolLoopChat {
-  if (!deps.router) {
+  if (!router) {
     throw new ValidationError(
-      'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router (or deps.brain)',
+      'supervisorAgent: a router-brained supervisor (harness omitted or cli-base) needs deps.router',
     )
   }
-  // The model id is resolved HERE, the one place it is consumed. `model.reasoningEffort` is not
-  // carried with it: `routerBrain` runs on `chatWithTools` — `routerChatWithTools` buffered, or
-  // `streamRouterChatWithTools` when the spread `deps.router` sets `stream` — and neither transport
-  // has a `reasoning_effort` parameter (only the chat-only `routerChatWithUsage` does), so
-  // forwarding it would need a router-client change, not a local workaround.
   const modelId = resolveSupervisorModelId(profile)
-  return routerBrain({
-    ...deps.router,
-    ...(modelId !== undefined ? { model: modelId } : {}),
-  })
+  const settings = profileModelExecutionSettings(profile, 'supervisorAgent')
+  return routerBrain(
+    {
+      routerBaseUrl: router.routerBaseUrl,
+      routerKey: router.routerKey,
+      ...(router.complete !== undefined ? { complete: router.complete } : {}),
+      model: modelId,
+      ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
+      ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
+      ...(settings.stream !== undefined ? { stream: settings.stream } : {}),
+    },
+    {
+      ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
+      ...(settings.seed !== undefined ? { seed: settings.seed } : {}),
+      ...(settings.toolChoice !== undefined ? { toolChoice: settings.toolChoice } : {}),
+      ...(settings.extraBody !== undefined ? { extraBody: settings.extraBody } : {}),
+      ...(profile.model?.reasoningEffort ? { reasoningEffort: profile.model.reasoningEffort } : {}),
+    },
+  )
 }

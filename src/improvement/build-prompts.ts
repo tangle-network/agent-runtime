@@ -5,9 +5,11 @@
  * server is built by composing the pieces directly:
  *
  *   // a tool:
- *   agenticGenerator({ buildPrompt: toolBuildPrompt, verify: commandVerifier('pnpm', ['test']) })
+ *   agenticGenerator({ profile, executorForWorktree, buildPrompt: toolBuildPrompt,
+ *     verify: commandVerifier('pnpm', ['test']) })
  *   // an MCP server:
- *   agenticGenerator({ buildPrompt: mcpBuildPrompt, verify: mcpServeVerifier({ command: 'node', args: ['server.mjs'] }) })
+ *   agenticGenerator({ profile, executorForWorktree, buildPrompt: mcpBuildPrompt,
+ *     verify: mcpServeVerifier({ command: 'node', args: ['server.mjs'] }) })
  *
  * These are the only type-specific bit (the phrasing that points the agent at a
  * tool vs. an MCP); the worktree, resume-on-failure loop, and improvement-loop

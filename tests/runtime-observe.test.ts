@@ -1,32 +1,40 @@
-import type { ChatClient } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 
 import { observe } from '../src/runtime/observe'
 
+const observerProfile = {
+  name: 'test-observer',
+  harness: 'cli-base' as const,
+  model: { provider: 'offline', default: 'observer-test' },
+}
+
+function observerExecutor(content: string) {
+  return {
+    backend: 'router' as const,
+    routerBaseUrl: 'http://offline.invalid/v1',
+    routerKey: 'offline-test',
+    complete: async () => ({
+      model: 'observer-test',
+      choices: [{ message: { content }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0 },
+    }),
+  }
+}
+
 describe('runtime observe', () => {
   it('marks observed production behavior as proposal input from production', async () => {
-    const chat: ChatClient = {
-      transport: 'mock',
-      chat: async () => ({
-        content: JSON.stringify({
-          findings: [
-            {
-              area: 'verification',
-              severity: 'high',
-              claim: 'The worker returned before running the requested check.',
-              recommended_action: 'Run the requested check before returning.',
-              audience: 'agent',
-              confidence: 0.9,
-            },
-          ],
-        }),
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        costUsd: 0,
-        model: 'observer-test',
-        durationMs: 1,
-        raw: {},
-      }),
-    }
+    const content = JSON.stringify({
+      findings: [
+        {
+          area: 'verification',
+          severity: 'high',
+          claim: 'The worker returned before running the requested check.',
+          recommended_action: 'Run the requested check before returning.',
+          audience: 'agent',
+          confidence: 0.9,
+        },
+      ],
+    })
 
     const result = await observe(
       {
@@ -35,7 +43,7 @@ describe('runtime observe', () => {
         trace: [{ type: 'status', data: { status: 'completed' } }],
         runId: 'production-run-1',
       },
-      { chat },
+      { profile: observerProfile, executor: observerExecutor(content) },
     )
 
     expect(result.findings).toHaveLength(1)
@@ -48,28 +56,18 @@ describe('runtime observe', () => {
   })
 
   it('rejects malformed model findings before returning them to callers', async () => {
-    const chat: ChatClient = {
-      transport: 'mock',
-      chat: async () => ({
-        content: JSON.stringify({
-          findings: [
-            {
-              area: 'verification',
-              severity: 'urgent',
-              claim: 'The worker skipped the requested check.',
-              recommended_action: 'Run the requested check.',
-              audience: 'agent',
-              confidence: 0.9,
-            },
-          ],
-        }),
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-        costUsd: 0,
-        model: 'observer-test',
-        durationMs: 1,
-        raw: {},
-      }),
-    }
+    const content = JSON.stringify({
+      findings: [
+        {
+          area: 'verification',
+          severity: 'urgent',
+          claim: 'The worker skipped the requested check.',
+          recommended_action: 'Run the requested check.',
+          audience: 'agent',
+          confidence: 0.9,
+        },
+      ],
+    })
 
     await expect(
       observe(
@@ -78,7 +76,7 @@ describe('runtime observe', () => {
           output: 'Changed the code.',
           trace: [{ type: 'status', data: { status: 'completed' } }],
         },
-        { chat },
+        { profile: observerProfile, executor: observerExecutor(content) },
       ),
     ).rejects.toThrow(/observe findings: every finding must match AnalystFinding/)
   })

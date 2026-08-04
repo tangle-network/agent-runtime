@@ -30,6 +30,7 @@
 import { appendFileSync } from 'node:fs'
 import { resolveAdapter } from './adapters'
 import type { BenchScore, BenchTask } from './benchmarks/types'
+import { runBenchRouterTurn } from './router-turn'
 import { runPool } from './run-pool'
 
 function must(name: string): string {
@@ -61,33 +62,32 @@ async function workerComplete(
   cfg: { routerBaseUrl: string; routerKey: string; model: string; timeoutMs: number },
 ): Promise<{ answer: string; inputTokens: number; outputTokens: number; durationMs: number }> {
   const startedAt = Date.now()
-  const res = await fetch(`${cfg.routerBaseUrl}/chat/completions`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(cfg.timeoutMs),
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0,
-      max_tokens: 4096,
-      messages: [
-        { role: 'system', content: ANALYST_SYSTEM },
-        { role: 'user', content: task.prompt },
-      ],
-    }),
-  })
-  if (!res.ok) {
-    const body = (await res.text()).slice(0, 300)
-    throw new Error(`router ${res.status} for ${task.id}: ${body}`)
-  }
-  const j = (await res.json()) as {
-    choices?: Array<{ message?: { content?: string } }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
-  }
-  const answer = j.choices?.[0]?.message?.content ?? ''
+  const result = await runBenchRouterTurn(
+    {
+      routerBaseUrl: cfg.routerBaseUrl,
+      routerKey: cfg.routerKey,
+      profile: {
+        name: 'trata-financial-analyst',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: cfg.model,
+          metadata: {
+            temperature: 0,
+            maxTokens: Number(process.env.WORKER_MAX_TOKENS ?? 4096),
+          },
+        },
+        prompt: { systemPrompt: ANALYST_SYSTEM },
+      },
+      timeoutMs: cfg.timeoutMs,
+    },
+    task.prompt,
+  )
+  if (result.usage.tokensKnown === false) throw new Error('worker provider omitted token usage')
   return {
-    answer,
-    inputTokens: j.usage?.prompt_tokens ?? 0,
-    outputTokens: j.usage?.completion_tokens ?? 0,
+    answer: result.finalText,
+    inputTokens: result.usage.input,
+    outputTokens: result.usage.output,
     durationMs: Date.now() - startedAt,
   }
 }

@@ -6,6 +6,8 @@ import type { OutputAdapter, SandboxClient } from '../src/runtime'
 
 const BASE = {
   name: 'demo-agent',
+  harness: 'opencode' as const,
+  model: { provider: 'offline', default: 'offline-test-model' },
   prompt: { systemPrompt: 'base' },
   mcp: { domain: { transport: 'stdio' as const, command: 'domain-mcp', enabled: true } },
 }
@@ -67,7 +69,7 @@ describe('createSandboxAct — prod-profile eval parity', () => {
     expect(events).toEqual([
       { type: 'text_delta', text: 'Hel' },
       { type: 'text_delta', text: 'lo' },
-      { type: 'llm_call', model: 'gpt', tokensIn: 5, tokensOut: 3 },
+      { type: 'llm_call', model: 'gpt', tokensIn: 5, tokensOut: 3, usdKnown: false },
     ])
   })
 

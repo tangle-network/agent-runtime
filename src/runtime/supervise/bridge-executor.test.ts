@@ -1,12 +1,105 @@
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it } from 'vitest'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  type ReasoningEffort,
+} from '@tangle-network/agent-interface'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { spendFromUsageEvents } from './budget'
-import { bridgeExecutor } from './runtime'
+import { bridgeExecutor, createExecutor } from './runtime'
 import type { UsageEvent } from './types'
 
 const TEST_RUN_DIGEST = `sha256:${'b'.repeat(64)}`
+const TEST_WORKSPACE_DIGEST = `sha256:${'a'.repeat(64)}`
+
+function respondBridgeCapabilities(req: IncomingMessage, res: ServerResponse): boolean {
+  if (req.method !== 'GET' || req.url !== '/') return false
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(
+    JSON.stringify({
+      capabilities: {
+        profileMaterialization: 'cli-bridge.profile-materialization.v2',
+        usageCostProvenance: 'cli-bridge.usage-cost.v1',
+      },
+    }),
+  )
+  return true
+}
+
+function appliedReasoning(harness: string, requested: ReasoningEffort | null): string | null {
+  if (requested === null) return null
+  if (harness === 'pi') {
+    if (requested === 'none') return 'off'
+    return requested === 'ultracode' ? 'xhigh' : requested
+  }
+  if (harness === 'claude-code') {
+    if (requested === 'none' || requested === 'minimal') return 'low'
+    return requested === 'ultracode' ? 'max' : requested
+  }
+  if (harness === 'codex') {
+    if (requested === 'none') return 'minimal'
+    return requested === 'xhigh' || requested === 'ultracode' ? 'high' : requested
+  }
+  if (harness === 'kimi-code') {
+    if (requested === 'medium') return null
+    return requested === 'none' || requested === 'minimal' || requested === 'low'
+      ? '--no-thinking'
+      : '--thinking'
+  }
+  if (harness === 'gemini') return null
+  return requested
+}
+
+function bridgeProfileReceipt(body: Record<string, unknown>): Record<string, unknown> {
+  const profile = body.agent_profile as AgentProfile
+  const model = String(body.model)
+  const harness = model.split('/')[0] ?? model
+  const parts = model.split('/')
+  const requested = profile.model?.reasoningEffort ?? null
+  return {
+    schema: 'cli-bridge.profile-materialization.v2',
+    effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+    harness,
+    provider: parts.length >= 3 ? (parts[1] ?? null) : (profile.model?.provider ?? null),
+    model,
+    reasoningEffort: { requested, applied: appliedReasoning(harness, requested) },
+    workspacePlanDigest: TEST_WORKSPACE_DIGEST,
+    files: [],
+    unsupported: [],
+  }
+}
+
+/** Upgrade a fixture to the exact v2 wire: explicit cost provenance on every usage frame and one
+ * terminal profile acknowledgement before `[DONE]`. */
+function bridgeProtocolSse(body: string, requestBody: Record<string, unknown>): string {
+  const usageBound = body
+    .split('\n')
+    .map((line) => {
+      if (!line.startsWith('data: ') || line === 'data: [DONE]') return line
+      try {
+        const payload = JSON.parse(line.slice('data: '.length)) as Record<string, unknown>
+        if (payload.usage && typeof payload.usage === 'object') {
+          const usage = payload.usage as Record<string, unknown>
+          payload.usage = {
+            ...usage,
+            ...(typeof usage.cost === 'number'
+              ? { cost_known: true, cost_provenance: 'provider-receipt' }
+              : { cost_known: false }),
+          }
+        }
+        return `data: ${JSON.stringify(payload)}`
+      } catch {
+        return line
+      }
+    })
+    .join('\n')
+  if (!usageBound.includes('data: [DONE]')) return usageBound
+  return usageBound.replace(
+    'data: [DONE]',
+    `data: ${JSON.stringify({ profile_materialization: bridgeProfileReceipt(requestBody) })}\n\ndata: [DONE]`,
+  )
+}
 
 function numberSseDataFrames(body: string): string {
   let seq = 0
@@ -52,10 +145,12 @@ async function startBridgeStub(
   opts: {
     status?: number
     contentType?: string
+    protocol?: boolean
     onRequest?: (body: Record<string, unknown>) => void
   } = {},
 ): Promise<{ url: string; server: Server }> {
   const server = createServer(async (req, res) => {
+    if (respondBridgeCapabilities(req, res)) return
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(Buffer.from(chunk))
     const requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as Record<
@@ -72,7 +167,7 @@ async function startBridgeStub(
     })
     res.end(
       (opts.contentType ?? 'text/event-stream') === 'text/event-stream'
-        ? numberSseDataFrames(body)
+        ? numberSseDataFrames(opts.protocol === false ? body : bridgeProtocolSse(body, requestBody))
         : body,
     )
   })
@@ -82,12 +177,16 @@ async function startBridgeStub(
 }
 
 function makeExecutor(bridgeUrl: string) {
-  const profile: AgentProfile = { name: 'bridge-test-worker' }
+  const profile: AgentProfile = {
+    name: 'bridge-test-worker',
+    harness: 'pi',
+    model: { provider: 'tangle-router', default: 'glm-5.2' },
+  }
   return bridgeExecutor(
     { profile, harness: null },
     {
       signal: new AbortController().signal,
-      seams: { bridge: { bridgeUrl, bridgeBearer: 'test-bearer', model: 'kimi-k2' } },
+      seams: { bridge: { bridgeUrl, bridgeBearer: 'test-bearer' } },
     },
   )
 }
@@ -98,9 +197,57 @@ async function drain(stream: AsyncIterable<UsageEvent>): Promise<UsageEvent[]> {
   return events
 }
 
+function terminalOpenAiReceipt(input: number, output: number, finishReason: string): string {
+  return [
+    `data: ${JSON.stringify({
+      choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+      usage: { prompt_tokens: input, completion_tokens: output, total_tokens: input + output },
+    })}`,
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+}
+
+async function consumeDirectRouterReceipt(body: string) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } })),
+    ),
+  )
+  try {
+    const profile: AgentProfile = {
+      name: 'direct-router-receipt-test',
+      harness: 'cli-base',
+      model: {
+        provider: 'tangle-router',
+        default: 'glm-5.2',
+        metadata: { stream: true },
+      },
+    }
+    const executor = createExecutor({
+      backend: 'router',
+      routerBaseUrl: 'https://router.example.test/v1',
+      routerKey: 'test-key',
+      tools: [],
+    })(
+      {
+        profile,
+        harness: null,
+      },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    await executor.execute('do the task', new AbortController().signal)
+    return executor.resultArtifact()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+}
+
 describe('bridgeExecutor upstream-error propagation', () => {
   let server: Server | undefined
   afterEach(async () => {
+    vi.unstubAllGlobals()
     if (server) await new Promise((resolve) => server?.close(resolve))
     server = undefined
   })
@@ -145,6 +292,75 @@ describe('bridgeExecutor upstream-error propagation', () => {
     )
   })
 
+  it('refuses an old bridge before any model POST', async () => {
+    let posts = 0
+    server = createServer((req, res) => {
+      if (req.method === 'GET' && req.url === '/') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ capabilities: {} }))
+        return
+      }
+      posts += 1
+      res.writeHead(500)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+
+    await expect(
+      drain(
+        executor.execute(
+          'must not dispatch',
+          new AbortController().signal,
+        ) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/does not advertise cli-bridge\.profile-materialization\.v2/u)
+    expect(posts).toBe(0)
+  })
+
+  it('rejects a v2 bridge that completes without its terminal profile acknowledgement', async () => {
+    const stub = await startBridgeStub(
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'untrusted' } }] })}\n\ndata: [DONE]\n\n`,
+      { protocol: false },
+    )
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    await expect(
+      drain(
+        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/completed without cli-bridge\.profile-materialization\.v2/u)
+    expect(() => executor.resultArtifact()).toThrow(/before stream drained/u)
+  })
+
+  it('rejects a terminal profile acknowledgement with the wrong effective profile digest', async () => {
+    const badReceipt = {
+      schema: 'cli-bridge.profile-materialization.v2',
+      effectiveProfileDigest: `sha256:${'f'.repeat(64)}`,
+      harness: 'kimi-k2',
+      provider: null,
+      model: 'kimi-k2',
+      reasoningEffort: { requested: null, applied: null },
+      workspacePlanDigest: TEST_WORKSPACE_DIGEST,
+      files: [],
+      unsupported: [],
+    }
+    const stub = await startBridgeStub(
+      `data: ${JSON.stringify({ profile_materialization: badReceipt })}\n\ndata: [DONE]\n\n`,
+      { protocol: false },
+    )
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    await expect(
+      drain(
+        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/bridge materialized profile .* expected/u)
+  })
+
   it('drains a healthy stream unchanged and settles the artifact (tail parse is inert)', async () => {
     const chunks = [
       `data: ${JSON.stringify({ choices: [{ delta: { content: 'final answer' } }] })}`,
@@ -161,6 +377,46 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const artifact = executor.resultArtifact()
     expect(artifact.out).toMatchObject({ content: 'final answer' })
     expect(artifact.spent.tokens).toEqual({ input: 10, output: 4 })
+  })
+
+  it('meters the same terminal OpenAI receipt through direct Router and bridge paths', async () => {
+    const receipt = terminalOpenAiReceipt(3_020, 55, 'stop')
+    const direct = await consumeDirectRouterReceipt(receipt)
+    const stub = await startBridgeStub(receipt)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(direct).toMatchObject({
+      out: { finishReason: 'stop' },
+      spent: { tokens: { input: 3_020, output: 55 } },
+    })
+    expect(events.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', input: 3_020, output: 55 },
+    ])
+    expect(executor.resultArtifact().spent.tokens).toEqual(direct.spent.tokens)
+  })
+
+  it('meters an error-shaped terminal OpenAI receipt instead of treating it as free', async () => {
+    const receipt = terminalOpenAiReceipt(408, 12, 'error')
+    const direct = await consumeDirectRouterReceipt(receipt)
+    const stub = await startBridgeStub(receipt)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(direct).toMatchObject({
+      out: { finishReason: 'error' },
+      spent: { tokens: { input: 408, output: 12 } },
+    })
+    expect(events.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', input: 408, output: 12 },
+    ])
+    expect(executor.resultArtifact().spent.tokens).toEqual(direct.spent.tokens)
   })
 
   it('meters one iteration per bridge turn instead of one per content chunk', async () => {
@@ -201,7 +457,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
         systemPrompt: 'Lead the pursuit.',
         instructions: ['Prefer falsifiable hypotheses.'],
       },
-      model: { default: 'gpt-5.6', reasoningEffort: 'high' },
+      model: { provider: 'openai', default: 'gpt-5.6', reasoningEffort: 'high' },
       permissions: { shell: 'ask' },
       tools: { web: true },
       mcp: {
@@ -223,7 +479,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       {
         signal: new AbortController().signal,
         seams: {
-          bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer', model: 'kimi-code/k2' },
+          bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer' },
         },
       },
     )
@@ -234,7 +490,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       ) as AsyncIterable<UsageEvent>,
     )
 
-    expect(requestBody?.model).toBe('codex/gpt-5.6')
+    expect(requestBody?.model).toBe('codex/openai/gpt-5.6')
     expect(requestBody?.agent_profile).toEqual(profile)
     expect(requestBody?.messages).toEqual([{ role: 'user', content: 'design the experiment' }])
   })
@@ -255,10 +511,68 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
   })
 
+  it('lets a trusted terminal total supersede an earlier incomplete cost chunk', async () => {
+    const body = [
+      `data: ${JSON.stringify({
+        usage: {
+          prompt_tokens: 3,
+          completion_tokens: 2,
+          cost_known: false,
+          cost_scope: 'incremental',
+        },
+      })}`,
+      `data: ${JSON.stringify({
+        usage: {
+          cost: 0.012,
+          cost_known: true,
+          cost_provenance: 'billing-receipt',
+          cost_scope: 'total',
+        },
+      })}`,
+      'data: [DONE]',
+    ].join('\n\n')
+    const stub = await startBridgeStub(`${body}\n\n`)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(events).toContainEqual({ kind: 'cost', usd: 0.012 })
+    expect(executor.resultArtifact().spent).toMatchObject({ usd: 0.012 })
+    expect(executor.resultArtifact().spent.usdKnown).not.toBe(false)
+  })
+
+  it('preserves absent prompt-cache fields instead of inventing zeroes', async () => {
+    const body = `data: ${JSON.stringify({
+      usage: {
+        prompt_tokens: 7,
+        completion_tokens: 2,
+        fresh_input_tokens: 7,
+      },
+    })}\n\ndata: [DONE]\n\n`
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    const out = executor.resultArtifact().out as {
+      promptCache?: Record<string, number>
+    }
+    expect(out.promptCache).toEqual({ freshInput: 7 })
+    expect(out.promptCache).not.toHaveProperty('readInput')
+    expect(out.promptCache).not.toHaveProperty('writeInput')
+  })
+
   it('keeps dollar cost unknown when a later completed turn omits price', async () => {
     let requests = 0
     let deliver: (message: unknown) => void = () => {}
     server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
       const chunks: Buffer[] = []
       for await (const chunk of req) chunks.push(Buffer.from(chunk))
       const requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
@@ -278,7 +592,10 @@ describe('bridgeExecutor upstream-error propagation', () => {
           : { prompt_tokens: 4, completion_tokens: 1 }
       res.end(
         numberSseDataFrames(
-          `data: ${JSON.stringify({ choices: [{ delta: { content: `turn-${requests}` } }], usage })}\n\ndata: [DONE]\n\n`,
+          bridgeProtocolSse(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: `turn-${requests}` } }], usage })}\n\ndata: [DONE]\n\n`,
+            requestBody,
+          ),
         ),
       )
     })
@@ -310,6 +627,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       lastEventId: string | undefined
     }> = []
     server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
       const chunks: Buffer[] = []
       for await (const chunk of req) chunks.push(Buffer.from(chunk))
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
@@ -327,12 +645,14 @@ describe('bridgeExecutor upstream-error propagation', () => {
         'x-run-request-digest': responseDigest,
       })
       if (requests.length === 1) {
-        res.end(`id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 1 } })}\n\n`)
+        res.end(
+          `id: 1\n${bridgeProtocolSse(`data: ${JSON.stringify({ usage: { prompt_tokens: 1 } })}\n\n`, body)}`,
+        )
         return
       }
       const eventId = defect === 'skipped replay event' ? 3 : 2
       res.end(
-        `id: ${eventId}\ndata: ${JSON.stringify({ usage: { completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`,
+        `id: ${eventId}\n${bridgeProtocolSse(`data: ${JSON.stringify({ usage: { completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`, body)}`,
       )
     })
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
@@ -371,6 +691,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
 
     server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
       const cancelledId = cancelledRunId(req.url)
       if (cancelledId) {
         cancelledRuns.push(cancelledId)
@@ -400,7 +721,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       })
       if (chatRequests.length === 1) {
         res.write(
-          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n`,
+          `id: 1\n${bridgeProtocolSse(`data: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n`, body)}`,
         )
         setTimeout(() => res.destroy(), 5)
         return
@@ -451,6 +772,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const liveRuns = new Set<string>()
     const cancelledRuns: string[] = []
     server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
       const cancelledId = cancelledRunId(req.url)
       if (cancelledId) {
         cancelledRuns.push(cancelledId)
@@ -477,16 +799,19 @@ describe('bridgeExecutor upstream-error propagation', () => {
       })
       if (requestBodies.length === 1) {
         res.write(
-          `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n`,
+          `id: 1\n${bridgeProtocolSse(`data: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2 } })}\n\n`, requestBody)}`,
         )
         return
       }
       res.end(
         numberSseDataFrames(
-          `data: ${JSON.stringify({
-            choices: [{ delta: { content: 'corrected answer' } }],
-            usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.01 },
-          })}\n\ndata: [DONE]\n\n`,
+          bridgeProtocolSse(
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: 'corrected answer' } }],
+              usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.01 },
+            })}\n\ndata: [DONE]\n\n`,
+            requestBody,
+          ),
         ),
       )
       liveRuns.delete(runId)
@@ -534,6 +859,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       firstRequestSeen = resolve
     })
     server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
       const cancelledId = cancelledRunId(req.url)
       if (cancelledId) {
         cancelledRuns.push(cancelledId)
@@ -562,10 +888,13 @@ describe('bridgeExecutor upstream-error propagation', () => {
       })
       res.end(
         numberSseDataFrames(
-          `data: ${JSON.stringify({
-            choices: [{ delta: { content: 'resumed answer' } }],
-            usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.01 },
-          })}\n\ndata: [DONE]\n\n`,
+          bridgeProtocolSse(
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: 'resumed answer' } }],
+              usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.01 },
+            })}\n\ndata: [DONE]\n\n`,
+            requestBody,
+          ),
         ),
       )
     })
@@ -627,6 +956,8 @@ describe('bridgeExecutor harness control rides the profile, not argv', () => {
     // state between arms does not need its own executor.
     const profile: AgentProfile = {
       name: 'isolated-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'glm-5.2' },
       extensions: { pi: { load: [] } },
     }
     const executor = bridgeExecutor(
@@ -634,7 +965,7 @@ describe('bridgeExecutor harness control rides the profile, not argv', () => {
       {
         signal: new AbortController().signal,
         seams: {
-          bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer', model: 'pi/glm-5.2' },
+          bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer' },
         },
       },
     )
@@ -649,34 +980,5 @@ describe('bridgeExecutor harness control rides the profile, not argv', () => {
     })
     // And no argv channel was invented alongside it.
     expect(Object.keys(bodies[0] ?? {})).not.toContain('args')
-  })
-
-  it('forwards the seam overlay’s extension controls after the profile merge', async () => {
-    const bodies: Record<string, unknown>[] = []
-    const stub = await startBridgeStub(okFrame, { onRequest: (body) => bodies.push(body) })
-    server = stub.server
-    const executor = bridgeExecutor(
-      { profile: { name: 'worker', prompt: { systemPrompt: 'be exact' } }, harness: null },
-      {
-        signal: new AbortController().signal,
-        seams: {
-          bridge: {
-            bridgeUrl: stub.url,
-            bridgeBearer: 'test-bearer',
-            model: 'pi/glm-5.2',
-            agentProfile: { name: 'worker', extensions: { pi: { load: ['pi-zai-glm'] } } },
-          },
-        },
-      },
-    )
-    await drain(
-      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
-    )
-
-    // The merge must not drop either side: the spawn profile's prompt AND the overlay's controls.
-    expect(bodies[0]?.agent_profile).toMatchObject({
-      prompt: { systemPrompt: 'be exact' },
-      extensions: { pi: { load: ['pi-zai-glm'] } },
-    })
   })
 })

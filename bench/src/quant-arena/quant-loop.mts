@@ -1,6 +1,6 @@
 /**
  * QUANT-ARENA campaign loop — the improvement loop embodied for trading
- * strategies. One command runs: strategy authors (Claude, profile-pinned)
+ * strategies. One command runs: strategy authors (Runtime profile-pinned)
  * propose candidate strategies (v2 `onBar` contract, driven incrementally by
  * driver.ts) -> every candidate passes a two-stage leak audit -> survivors
  * are scored on K bootstrap in-sample windows against the pinned baselines
@@ -15,7 +15,7 @@
  * are never the acceptance currency.
  *
  *   tsx src/quant-arena/quant-loop.mts --out <dir> [--candidates 2] [--seed 20260722]
- *        [--author-model sonnet] [--audit-model haiku] [--skip-llm-audit]
+ *        [--author-model glm-5.2] [--audit-model glm-5.2] [--skip-llm-audit]
  *
  * Kernel reuse (import, not copy — see src/swe-arena/):
  *  - cost accounting: the lib's durable CostLedger (createRunCostLedger) +
@@ -38,12 +38,12 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import process from 'node:process'
 import { createRunCostLedger, fsCampaignStorage } from '@tangle-network/agent-eval/campaign'
+import { agentProfileSchema, type AgentProfile } from '@tangle-network/agent-interface'
+import { collectAgentTurn, createExecutor, streamAgentTurn } from '@tangle-network/agent-runtime/kernel'
 import { loadCampaignCells } from '../swe-arena/cell-evidence.mts'
 import { reconcileCrashOrphansOnDisk } from '../swe-arena/ledger-orphans.mts'
 import { loadLedgerReceipts } from '../swe-arena/manifest.mts'
-import { loadAuthorProfile, type ProposerSpec } from '../swe-arena/proposer-fanout.mts'
-import { proposerShotEnv } from '../swe-arena/outer-loop.mts'
-import { run } from '../swe-arena/proc.ts'
+import { resolveAuthorProfile, type ProposerSpec } from '../swe-arena/proposer-fanout.mts'
 import { runBacktest, statsForRange, type BacktestConfig, type RangeStats } from './backtest.ts'
 import { loadInSample, type AlignedBars } from './data.ts'
 import { loadStrategyFile } from './driver.ts'
@@ -57,6 +57,9 @@ import * as equalWeight from './strategies/equal-weight/strategy.ts'
 import * as smaCrossover from './strategies/sma-crossover/strategy.ts'
 
 export const QUANT_PROFILES_DIR = fileURLToPath(new URL('./profiles', import.meta.url))
+const DEFAULT_AUTHOR_PROFILE = fileURLToPath(
+  new URL('../swe-arena/profiles/default-author.profile.json', import.meta.url),
+)
 
 // ---------------------------------------------------------------------------
 // Config.
@@ -88,11 +91,17 @@ export const PINNED_BASELINES: Record<string, GenerateSignals> = {
 /** The two demo author seats: the plain author and the quant lens. */
 export function defaultQuantProposers(): ProposerSpec[] {
   return [
-    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' },
+    {
+      name: 'default-author',
+      profile: DEFAULT_AUTHOR_PROFILE,
+      harness: 'pi',
+      model: 'glm-5.2',
+    },
     {
       name: 'quant-researcher',
       profile: join(QUANT_PROFILES_DIR, 'quant-researcher.profile.json'),
-      harness: 'claude-code',
+      harness: 'pi',
+      model: 'glm-5.2',
       lens:
         'Favor ONE economically-motivated effect (trend, mean reversion, vol targeting) with few parameters. ' +
         'State the regime in which it should work and keep turnover low enough that 15bps a side cannot eat the edge.',
@@ -110,8 +119,8 @@ export function defaultConfig(outDir: string): QuantLoopConfig {
     warmupDays: 120,
     costBps: 10,
     slippageBps: 5,
-    authorModel: 'sonnet',
-    auditModel: 'haiku',
+    authorModel: 'glm-5.2',
+    auditModel: 'glm-5.2',
     skipLlmAudit: false,
     authorTimeoutMs: 480_000,
     auditTimeoutMs: 240_000,
@@ -183,10 +192,10 @@ export async function loadNotebookRows(notebookPath: string): Promise<Array<Reco
 const log = (msg: string): void => console.log(`[${new Date().toISOString().slice(11, 19)}] ${msg}`)
 
 // ---------------------------------------------------------------------------
-// Claude shots (author + auditor) — metered paid calls through the run ledger.
+// Exact-profile shots (author + auditor) — metered paid calls through Runtime + the run ledger.
 // ---------------------------------------------------------------------------
 
-interface ClaudeShotOutcome {
+interface ProfileShotOutcome {
   text: string
   model: string
   inputTokens: number
@@ -197,64 +206,81 @@ interface ClaudeShotOutcome {
 
 type Ledger = ReturnType<typeof createRunCostLedger>
 
-async function claudeShot(opts: {
+function withModel(profile: AgentProfile, model: string, name = profile.name): AgentProfile {
+  return agentProfileSchema.parse({
+    ...profile,
+    ...(name ? { name } : {}),
+    model: { ...profile.model, default: model },
+  })
+}
+
+function quantAuditProfile(model: string): AgentProfile {
+  return agentProfileSchema.parse({
+    name: 'quant-leak-auditor',
+    harness: 'pi',
+    model: { provider: 'tangle-router', default: model },
+    prompt: {
+      systemPrompt:
+        'Audit the supplied trading strategy for look-ahead bias and nondeterminism. Follow the requested JSON response contract exactly.',
+    },
+  })
+}
+
+async function profileShot(opts: {
   prompt: string
-  model: string
-  systemPrompt?: string
+  profile: AgentProfile
   timeoutMs: number
   cwd: string
-}): Promise<ClaudeShotOutcome> {
-  const argv = [
-    '-p',
-    '--output-format',
-    'json',
-    '--model',
-    opts.model,
-    // The shot is pure text generation: no filesystem, no shell, no web.
-    '--disallowed-tools',
-    'Bash,Edit,Write,Read,Glob,Grep,WebFetch,WebSearch,Task,NotebookEdit',
-    ...(opts.systemPrompt ? ['--append-system-prompt', opts.systemPrompt] : []),
-  ]
-  const res = await run('claude', argv, {
-    stdin: opts.prompt,
+}): Promise<ProfileShotOutcome> {
+  const bridgeUrl = process.env.CLI_BRIDGE_URL ?? process.env.BRIDGE_URL
+  const bridgeBearer = process.env.CLI_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+  if (!bridgeUrl || !bridgeBearer) {
+    throw new Error(
+      'quant profile shots require CLI_BRIDGE_URL/BRIDGE_URL and CLI_BRIDGE_BEARER/BRIDGE_BEARER',
+    )
+  }
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl,
+    bridgeBearer,
     cwd: opts.cwd,
-    env: proposerShotEnv('claude-code'),
     timeoutMs: opts.timeoutMs,
   })
-  if (res.code !== 0) {
-    throw new Error(`claude shot exited ${res.code}${res.timedOut ? ' (timeout)' : ''}: ${(res.stderr || res.stdout).slice(0, 800)}`)
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile: opts.profile },
+      opts.prompt,
+      { timeoutMs: opts.timeoutMs },
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `quant profile shot ended with ${turn.status}`)
   }
-  let parsed: Record<string, unknown>
-  try {
-    parsed = JSON.parse(res.stdout) as Record<string, unknown>
-  } catch {
-    throw new Error(`claude shot: unparseable --output-format json stdout: ${res.stdout.slice(0, 400)}`)
-  }
-  if (parsed.is_error === true) throw new Error(`claude shot errored: ${String(parsed.result).slice(0, 800)}`)
-  const usage = (parsed.usage ?? {}) as Record<string, unknown>
-  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const cachedTokens = Number(turn.usage.promptCache?.readTokens ?? 0)
   return {
-    text: typeof parsed.result === 'string' ? parsed.result : '',
-    model: typeof parsed.model === 'string' ? parsed.model : opts.model,
-    inputTokens: num(usage.input_tokens),
-    outputTokens: num(usage.output_tokens),
-    cachedTokens: num(usage.cache_read_input_tokens),
-    costUsd: typeof parsed.total_cost_usd === 'number' ? parsed.total_cost_usd : null,
+    text: turn.finalText,
+    model: turn.usage.model ?? opts.profile.model?.default ?? 'unknown',
+    inputTokens: turn.usage.input,
+    outputTokens: turn.usage.output,
+    cachedTokens: Number.isFinite(cachedTokens) ? cachedTokens : 0,
+    costUsd: turn.usage.costUsd ?? null,
   }
 }
 
-async function meteredClaudeShot(
+async function meteredProfileShot(
   ledger: Ledger,
   meta: { phase: string; actor: string; tags: Record<string, string> },
-  opts: Parameters<typeof claudeShot>[0],
-): Promise<{ outcome: ClaudeShotOutcome; costUsd: number | null }> {
-  const paid = await ledger.runPaidCall<ClaudeShotOutcome>({
+  opts: Parameters<typeof profileShot>[0],
+): Promise<{ outcome: ProfileShotOutcome; costUsd: number | null }> {
+  const model = opts.profile.model?.default
+  if (!model) throw new Error('meteredProfileShot: profile.model.default is required')
+  const paid = await ledger.runPaidCall<ProfileShotOutcome>({
     channel: 'driver',
     phase: meta.phase,
     actor: meta.actor,
-    model: opts.model,
+    model,
     tags: meta.tags,
-    execute: () => claudeShot(opts),
+    execute: () => profileShot(opts),
     receipt: (v) => ({
       model: v.model,
       inputTokens: v.inputTokens,
@@ -379,12 +405,12 @@ async function llmLeakAudit(
   code: string,
 ): Promise<{ verdict: 'clean' | 'leak' | 'inconclusive'; evidence: string }> {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { outcome } = await meteredClaudeShot(
+    const { outcome } = await meteredProfileShot(
       ledger,
-      { phase: 'audit.leak', actor: 'leak-auditor:claude', tags: { candidateId, attempt: String(attempt) } },
+      { phase: 'audit.leak', actor: 'leak-auditor:runtime', tags: { candidateId, attempt: String(attempt) } },
       {
         prompt: AUDIT_PROMPT_HEADER + '```ts\n' + code + '\n```',
-        model: config.auditModel,
+        profile: quantAuditProfile(config.auditModel),
         timeoutMs: config.auditTimeoutMs,
         cwd: config.outDir,
       },
@@ -630,7 +656,9 @@ async function runQuantCampaignWithWorker(worker: VbtWorker, config: QuantLoopCo
   const rows: CandidateRow[] = []
 
   for (const proposer of config.proposers) {
-    const profile = loadAuthorProfile(proposer)
+    const sourceProfile = resolveAuthorProfile(proposer)
+    if (!sourceProfile) throw new Error(`quant proposer ${proposer.name}: exact profile is required`)
+    const profile = withModel(sourceProfile, config.authorModel, `quant-${proposer.name}`)
     for (let shot = 0; shot < config.candidatesPerProposer; shot++) {
       nTried += 1
       const candidateId = `cand-${String(nTried).padStart(3, '0')}-${proposer.name}`
@@ -642,7 +670,7 @@ async function runQuantCampaignWithWorker(worker: VbtWorker, config: QuantLoopCo
         at: new Date().toISOString(),
         candidateId,
         proposer: proposer.name,
-        authorModel: config.authorModel,
+        authorModel: profile.model?.default ?? config.authorModel,
         strategyPath: null,
         sha256: null,
         authoringCostUsd: null,
@@ -663,13 +691,12 @@ async function runQuantCampaignWithWorker(worker: VbtWorker, config: QuantLoopCo
           nTried,
           ...(proposer.lens ? { lens: proposer.lens } : {}),
         })
-        const { outcome, costUsd } = await meteredClaudeShot(
+        const { outcome, costUsd } = await meteredProfileShot(
           ledger,
           { phase: 'search.proposal', actor: `proposer-shot:${proposer.name}`, tags: { candidateId } },
           {
             prompt,
-            model: config.authorModel,
-            ...(profile?.prompt?.systemPrompt ? { systemPrompt: profile.prompt.systemPrompt } : {}),
+            profile,
             timeoutMs: config.authorTimeoutMs,
             cwd: config.outDir,
           },
@@ -798,7 +825,7 @@ if (isMain) {
   if (!outDir) {
     console.error(
       'usage: tsx src/quant-arena/quant-loop.mts --out <dir> [--candidates 2] [--seed 20260722] ' +
-        '[--author-model sonnet] [--audit-model haiku] [--skip-llm-audit]  # SPENDS: author + audit shots',
+        '[--author-model glm-5.2] [--audit-model glm-5.2] [--skip-llm-audit]  # SPENDS: author + audit shots',
     )
     process.exit(2)
   }

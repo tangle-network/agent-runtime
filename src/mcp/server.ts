@@ -72,10 +72,8 @@ export interface McpServerOptions {
    */
   delegateSupervisor?: DelegateHandlerOptions
   /**
-   * Required to enable delegate_ui_audit. Wire one that closes over your
-   * `runAgentRounds` + `uiAuditorProfile` + a `SandboxClient` (the
-   * canonical in-process choice is `createInProcessUiAuditClient` from
-   * `@tangle-network/agent-runtime/profiles`) + your vision judge.
+   * Required to enable delegate_ui_audit. Wire one that executes an exact
+   * agent profile through Runtime and returns the provider-neutral UI audit result.
    */
   uiAuditorDelegate?: UiAuditorDelegate
   /** Override the default in-memory feedback store. */

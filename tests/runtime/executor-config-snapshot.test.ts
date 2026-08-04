@@ -12,8 +12,27 @@ import {
 import type { AgentSpec, ExecutorContext, Runtime } from '../../src/runtime/supervise/types'
 import type { ExecCtx, SandboxClient } from '../../src/runtime/types'
 
-const spec: AgentSpec = { profile: { name: 'snapshot-worker' }, harness: null }
 const context: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+
+function specFor(config: ExecutorConfig): AgentSpec {
+  const harness =
+    config.backend === 'bridge' || (config.backend === 'cli-worktree' && config.bridge)
+      ? 'pi'
+      : config.backend === 'cli-worktree'
+        ? 'codex'
+        : 'cli-base'
+  return {
+    profile: {
+      name: 'snapshot-worker',
+      harness,
+      model: {
+        provider: harness === 'codex' ? 'openai' : 'test-provider',
+        default: 'test-model',
+      },
+    },
+    harness: null,
+  }
+}
 
 describe('createExecutor config intake', () => {
   it('captures every backend variant while retaining only explicit live ports', () => {
@@ -48,7 +67,6 @@ describe('createExecutor config intake', () => {
           backend: 'router',
           routerBaseUrl: 'http://router.test',
           routerKey: 'key',
-          model: 'model',
         },
         runtime: 'router',
       },
@@ -58,7 +76,6 @@ describe('createExecutor config intake', () => {
           backend: 'router-tools',
           routerBaseUrl: 'http://router.test',
           routerKey: 'key',
-          model: 'model',
           tools: [],
           executeToolCall,
           onToolStep,
@@ -71,7 +88,6 @@ describe('createExecutor config intake', () => {
           backend: 'bridge',
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'model',
         },
         runtime: 'cli',
       },
@@ -85,7 +101,6 @@ describe('createExecutor config intake', () => {
         config: {
           backend: 'cli-worktree',
           repoRoot: '/repo',
-          harness: 'codex',
           runGit,
           runCommand,
         },
@@ -110,7 +125,6 @@ describe('createExecutor config intake', () => {
           backend: 'bridge',
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'pi/tangle-router/gpt-5-mini',
         },
         runtime: 'cli',
       },
@@ -118,7 +132,6 @@ describe('createExecutor config intake', () => {
         name: 'sandbox',
         config: {
           backend: 'sandbox',
-          harness: 'codex',
           sandboxClient,
           maxIterations: 1,
           lineage: { sessionContinuity: true },
@@ -139,6 +152,7 @@ describe('createExecutor config intake', () => {
     for (const testCase of cases) {
       const originalBackend = testCase.config.backend
       const factory = createExecutor(testCase.config)
+      const spec = specFor(testCase.config)
       const mutableConfig = testCase.config as { backend: string }
       mutableConfig.backend = originalBackend === 'router' ? 'cli' : 'router'
 
@@ -168,29 +182,21 @@ describe('createExecutor config intake', () => {
     })
     current = providerB
 
-    expect(factory(spec, context).runtime).toBe('provider-a')
+    const config: ExecutorConfig = { backend: 'provider', provider: providerA }
+    expect(factory(specFor(config), context).runtime).toBe('provider-a')
   })
 
-  it('rejects reusable profile overlays and fixed execution ids', () => {
+  it('rejects fixed execution ids on reusable backends', () => {
     const invalid: ExecutorConfig[] = [
       {
         backend: 'bridge',
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'model',
-        agentProfile: { name: 'late-overlay' },
-      },
-      {
-        backend: 'bridge',
-        bridgeUrl: 'http://bridge.test',
-        bridgeBearer: 'secret',
-        model: 'model',
         sessionId: 'SHARED',
       },
       {
         backend: 'cli-worktree',
         repoRoot: '/repo',
-        harness: 'codex',
         runId: 'SHARED',
       },
       {
@@ -199,7 +205,6 @@ describe('createExecutor config intake', () => {
         bridge: {
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'model',
           sessionId: 'SHARED',
         },
       },
@@ -218,19 +223,17 @@ describe('createExecutor config intake', () => {
         backend: 'bridge',
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'model',
         sessionId: 'PINNED-ONCE',
       },
       {
         backend: 'cli-worktree',
         repoRoot: '/repo',
-        harness: 'codex',
         runId: 'PINNED-ONCE',
       },
     ]
 
     for (const config of direct) {
-      const executor = createExecutor(config)(spec, context)
+      const executor = createExecutor(config)(specFor(config), context)
       expect(executor.runtime).toBe('cli')
     }
   })
@@ -241,7 +244,6 @@ describe('createExecutor config intake', () => {
         backend: 'bridge',
         bridgeUrl: 'http://bridge.test',
         bridgeBearer: 'secret',
-        model: 'model',
       },
       'bridge-test',
     )
@@ -252,7 +254,6 @@ describe('createExecutor config intake', () => {
         bridge: {
           bridgeUrl: 'http://bridge.test',
           bridgeBearer: 'secret',
-          model: 'model',
         },
       },
       'worktree-test',

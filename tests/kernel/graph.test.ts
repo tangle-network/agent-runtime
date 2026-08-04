@@ -43,7 +43,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../src/mcp/tools/coordination'
-import { type AgentGraph, GraphEdgeCapError, runGraph } from '../../src/runtime/supervise/graph'
+import { type AgentGraph, GraphEdgeCapError } from '../../src/runtime/supervise/graph'
 import {
   analyzesFindingsReportPrompt,
   createPromptRegistry,
@@ -61,7 +61,9 @@ import type {
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { runGraph } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Leaf fixtures (the offline execution seam; the graph machinery around them is real) ────────
 
@@ -177,11 +179,16 @@ const twoNodeGraph = (over?: Partial<AgentGraph>): AgentGraph => ({
   nodes: [
     {
       id: 'driver',
-      profile: { name: 'driver', prompt: { systemPrompt: 'Drive the worker until it delivers.' } },
+      profile: testAgentProfile('driver', {
+        harness: 'cli-base',
+        prompt: { systemPrompt: 'Drive the worker until it delivers.' },
+      }),
     },
     {
       id: 'worker',
-      profile: { name: 'worker', prompt: { systemPrompt: 'You build what the driver asks.' } },
+      profile: testAgentProfile('worker', {
+        prompt: { systemPrompt: 'You build what the driver asks.' },
+      }),
     },
   ],
   edges: [
@@ -202,8 +209,17 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     // ── The authored topology: 14 lines of plain data (the ≤20 LOC acceptance bar) ──
     const graph: AgentGraph = {
       nodes: [
-        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
-        { id: 'worker', profile: { name: 'worker', prompt: { systemPrompt: 'Build.' } } },
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', {
+            harness: 'cli-base',
+            prompt: { systemPrompt: 'Drive.' },
+          }),
+        },
+        {
+          id: 'worker',
+          profile: testAgentProfile('worker', { prompt: { systemPrompt: 'Build.' } }),
+        },
       ],
       edges: [
         {
@@ -557,9 +573,21 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     // authorized steer machinery a driver steer uses — not hardwired to the spawning driver.
     const graph = twoNodeGraph({
       nodes: [
-        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive both.' } } },
-        { id: 'builder', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
-        { id: 'fixer', profile: { name: 'fixer', prompt: { systemPrompt: 'Fix.' } } },
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', {
+            harness: 'cli-base',
+            prompt: { systemPrompt: 'Drive both.' },
+          }),
+        },
+        {
+          id: 'builder',
+          profile: testAgentProfile('builder', { prompt: { systemPrompt: 'Build.' } }),
+        },
+        {
+          id: 'fixer',
+          profile: testAgentProfile('fixer', { prompt: { systemPrompt: 'Fix.' } }),
+        },
       ],
       edges: [
         {
@@ -807,12 +835,29 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
    *  delegates edge — it is spawned by the settle hook, with its own pinned profile. */
   const inspectorGraph = (to: 'driver' | 'fixer'): AgentGraph => ({
     nodes: [
-      { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
-      { id: 'worker', profile: { name: 'worker', prompt: { systemPrompt: 'Build.' } } },
+      {
+        id: 'driver',
+        profile: testAgentProfile('driver', {
+          harness: 'cli-base',
+          prompt: { systemPrompt: 'Drive.' },
+        }),
+      },
+      {
+        id: 'worker',
+        profile: testAgentProfile('worker', { prompt: { systemPrompt: 'Build.' } }),
+      },
       ...(to === 'fixer'
-        ? [{ id: 'fixer', profile: { name: 'fixer', prompt: { systemPrompt: 'Fix.' } } }]
+        ? [
+            {
+              id: 'fixer',
+              profile: testAgentProfile('fixer', { prompt: { systemPrompt: 'Fix.' } }),
+            },
+          ]
         : []),
-      { id: 'inspector', profile: { name: 'inspector', prompt: { systemPrompt: 'Inspect.' } } },
+      {
+        id: 'inspector',
+        profile: testAgentProfile('inspector', { prompt: { systemPrompt: 'Inspect.' } }),
+      },
     ],
     edges: [
       {

@@ -43,9 +43,7 @@ export interface RunKnowledgeImprovementJobOptions
   readinessCheck?: KnowledgeReadinessCheck
   backend?: ExecutorConfig
   makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
-  harness?: string
-  supervisorModel?: string
-  supervisorSystemPrompt?: string
+  supervisorProfile: SupervisorProfile
   superviseOptions?: Partial<
     Omit<
       SuperviseOptions,
@@ -146,13 +144,11 @@ export async function runKnowledgeImprovementJob(
     backend,
     budget,
     candidateArtifacts,
-    harness,
     makeWorkerAgent,
     onMeasurement,
     readinessCheck,
     runSupervised,
-    supervisorModel,
-    supervisorSystemPrompt,
+    supervisorProfile,
     superviseOptions,
     ...knowledgeOptions
   } = options
@@ -173,9 +169,7 @@ export async function runKnowledgeImprovementJob(
     budget,
     backend,
     makeWorkerAgent,
-    harness,
-    supervisorModel,
-    supervisorSystemPrompt,
+    supervisorProfile,
     superviseOptions,
     allowedModels,
     runSupervised,

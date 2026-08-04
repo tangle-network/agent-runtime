@@ -20,12 +20,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import {
-  agentProfileId,
-  type ChatClient,
-  type ChatResponse,
-  createChatClient,
-} from '@tangle-network/agent-eval'
+import { agentProfileId, type ChatClient } from '@tangle-network/agent-eval'
 import {
   inMemoryCampaignStorage,
   type JudgeConfig,
@@ -35,12 +30,19 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   leaderboard,
   pairwiseSignificance,
+  profileChatClient,
   renderLeaderboardMarkdown,
   renderPairwiseMarkdown,
   type SandboxClient,
 } from '@tangle-network/agent-runtime/kernel'
 import { codingDispatch } from './dispatch'
-import { ensembleCodeJudge, type RubricDim, type RunArtifact, singleCodeJudge } from './eval'
+import {
+  codeJudgeSystemPrompt,
+  ensembleCodeJudge,
+  type RubricDim,
+  type RunArtifact,
+  singleCodeJudge,
+} from './eval'
 import { csvParserSource, lruCacheSource } from './fixtures'
 import { type OfflineScript, offlineSandboxClient } from './offline-box'
 import { harnessProfiles, type ToolPreset } from './profiles'
@@ -152,53 +154,60 @@ function clientFor(
 
 // ── the judge transport: a real router (live) or a deterministic mock (offline) ─
 // Offline the mock handler returns a fixed rubric verdict so the pipeline runs with
-// no creds. Live, `createChatClient({ transport: 'router', apiKey })` calls the real
-// router. The SAME `singleCodeJudge` / `ensembleCodeJudge` wiring runs either way.
-function judgeChat(live: boolean): ChatClient {
-  if (live) {
-    const apiKey = process.env.TANGLE_API_KEY
-    if (!apiKey) throw new Error('--live needs TANGLE_API_KEY for the judge router')
-    return createChatClient({
-      transport: 'router',
-      apiKey,
-      ...(process.env.TANGLE_ROUTER_URL ? { baseUrl: process.env.TANGLE_ROUTER_URL } : {}),
-      defaultModel: process.env.JUDGE_MODEL ?? 'openai/gpt-4.1-2025-04-14',
-    })
-  }
+// no creds. Live and offline both enter Runtime through one exact AgentProfile.
+function judgeChat(live: boolean, model: string, systemPrompt = ''): ChatClient {
   const verdict = JSON.stringify({
     dimensions: { correctness: 0.85, completeness: 0.8, code_quality: 0.8, robustness: 0.75 },
     notes: 'offline mock judge',
   })
-  return createChatClient({
-    transport: 'mock',
-    defaultModel: 'mock-judge',
-    handler: async (): Promise<ChatResponse> => ({
-      content: verdict,
-      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-      costUsd: 0,
-      model: 'mock-judge',
-      durationMs: 0,
-      raw: {},
-    }),
+  const apiKey = live ? process.env.TANGLE_API_KEY : 'injected-transport'
+  if (!apiKey) throw new Error('--live needs TANGLE_API_KEY for the judge router')
+  return profileChatClient({
+    context: 'coding benchmark judge',
+    profile: {
+      name: 'coding-benchmark-judge',
+      harness: 'cli-base',
+      model: {
+        provider: live ? 'tangle-router' : 'scripted',
+        default: model,
+        metadata: { temperature: 0.1, maxTokens: 800 },
+      },
+      ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+    },
+    executor: {
+      backend: 'router',
+      routerBaseUrl: process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools/v1',
+      routerKey: apiKey,
+      ...(live
+        ? {}
+        : {
+            complete: async () => ({
+              model,
+              choices: [{ message: { content: verdict } }],
+              usage: { prompt_tokens: 0, completion_tokens: 0, cost: 0 },
+            }),
+          }),
+    },
   })
 }
 
-function judges(
-  opts: BenchmarkOptions,
-  chat: ChatClient,
-): JudgeConfig<RunArtifact, CodingScenario>[] {
+function judges(opts: BenchmarkOptions, live: boolean): JudgeConfig<RunArtifact, CodingScenario>[] {
   if (opts.ensemble) {
     // The ensemble scores each panel model through the SAME chat transport — offline
     // that is the mock, live it is the router. It sees the SAME full context the
     // single judge does.
     const scoreOne = async (model: string, context: string): Promise<Record<RubricDim, number>> => {
-      const res = await chat.chat({ model, messages: [{ role: 'user', content: context }] })
+      const res = await judgeChat(live, model).chat({
+        model,
+        messages: [{ role: 'user', content: context }],
+      })
       const parsed = JSON.parse(res.content) as { dimensions: Record<RubricDim, number> }
       return parsed.dimensions
     }
     return [ensembleCodeJudge(scoreOne)]
   }
-  return [singleCodeJudge(chat)]
+  const model = process.env.JUDGE_MODEL ?? 'deepseek-v4-flash'
+  return [singleCodeJudge(judgeChat(live, model, codeJudgeSystemPrompt))]
 }
 
 // ── the sweep ─────────────────────────────────────────────────────────────────
@@ -223,7 +232,6 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
       `harnesses=${harnessProfiles.length} · scenarios=${scenarios.length}`,
   )
 
-  const chat = judgeChat(live)
   const resolveClient = clientFor(live, SandboxSdk)
 
   try {
@@ -236,7 +244,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<Benc
         profiles: harnessProfiles, // axis: harness × baseline
         scenarios: [scenario], // axis: tasks (one at a time so the offline client matches)
         dispatch: codingDispatch(toolPreset, resolveClient(scenario)),
-        judges: judges(opts, chat),
+        judges: judges(opts, live),
         reps,
         integrity: live ? 'assert' : 'off', // offline mock has no real backend; live proves it
         costCeiling: 5,

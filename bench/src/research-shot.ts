@@ -1,7 +1,7 @@
 /**
  * One research rollout as a reusable primitive: 2-step RAG — (1) provider-pinned web
  * search via the router's proven `/v1/search?provider=<id>` + `web_fetch` of the top-K
- * result pages, (2) answer with that evidence via `routerChatWithUsage` (no tools on the
+ * result pages, (2) answer with that evidence through Runtime's profile-bound turn (no tools on the
  * answer call → `content` always present, so a search arm differs from the parametric
  * control ONLY by the evidence). Pure router HTTP (bearer `TANGLE_API_KEY`).
  *
@@ -10,7 +10,7 @@
  * — the only difference is who drives the rounds (a flat best-of-k pool vs the real
  * `runAgentRounds` kernel with analyst steering).
  */
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from './router-turn'
 
 export interface ShotCfg {
   model: string
@@ -109,15 +109,25 @@ export async function runResearchShot(prompt: string, taskId: string, attempt: n
         : 'Answer from your own knowledge. ') +
       'If you are not fully certain, still COMMIT to your single best estimate — never refuse, defer, or reply with a question.'
     const userContent = useSearch && context ? `${prompt}\n\n=== WEB SEARCH RESULTS (provider: ${cfg.search}) ===\n${context}` : prompt
-    const { content } = await routerChatWithUsage(
-      { routerBaseUrl: cfg.routerBaseUrl, routerKey: cfg.routerKey, model: cfg.model },
-      [
-        { role: 'system', content: commit },
-        { role: 'user', content: userContent },
-      ],
-      { temperature: cfg.temperature, ...(cfg.timeoutMs ? { signal: AbortSignal.timeout(cfg.timeoutMs) } : {}) },
+    const turn = await runBenchRouterTurn(
+      {
+        routerBaseUrl: cfg.routerBaseUrl,
+        routerKey: cfg.routerKey,
+        profile: {
+          name: 'research-shot-answerer',
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: cfg.model,
+            metadata: { temperature: cfg.temperature },
+          },
+          prompt: { systemPrompt: commit },
+        },
+        ...(cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {}),
+      },
+      userContent,
     )
-    const answer = content.trim()
+    const answer = turn.finalText.trim()
     const ok = answer.length > 0
     return { taskId, attempt, answer, ok, searches, wallMs: Date.now() - startedAt, ...(ok ? {} : { detail: `empty answer (searches=${searches})` }) }
   } catch (err) {

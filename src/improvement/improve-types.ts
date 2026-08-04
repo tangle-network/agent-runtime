@@ -1,4 +1,4 @@
-import type { ProposalFinding } from '@tangle-network/agent-eval'
+import type { MaximumCharge, ProposalFinding } from '@tangle-network/agent-eval'
 import type {
   CampaignScenarioIdentity,
   CompareOptimizationMethodsOptions,
@@ -13,9 +13,8 @@ import type {
   SelfImproveOptions,
   SelfImproveResult,
 } from '@tangle-network/agent-eval/contract'
-import type { Sha256Digest } from '@tangle-network/agent-interface'
-import type { LocalHarness } from '../mcp/local-harness'
-import type { Verifier } from './agentic-generator'
+import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import type { AgenticGeneratorExecutorForWorktree, Verifier } from './agentic-generator'
 import type { CandidateGenerator } from './improvement-driver'
 import type { ReadonlyAgentProfile } from './profile-types'
 
@@ -183,7 +182,7 @@ export interface ImproveProfileComponents {
   ): ReadonlyAgentProfile
 }
 
-export interface ImproveCodeOptions {
+export interface ImproveCodeBaseOptions {
   /** Repo root candidate worktrees fork from. */
   repoRoot: string
   /** Base ref candidates fork from. Default `main`. */
@@ -193,17 +192,37 @@ export interface ImproveCodeOptions {
   /** Git-compatible adapter override, primarily for tests. Candidate advancement
    * still requires normal Git worktree and commit semantics. */
   worktree?: WorktreeAdapter
-  /** Coding harness the agentic generator runs in each worktree. Default `claude-code`. */
-  harness?: LocalHarness
+  /** Complete identity of the code author. No execution field may be filled from ambient defaults. */
+  profile: AgentProfile
+}
+
+export interface ImproveRuntimeCodeGeneratorOptions {
+  /** Place the exact author profile on compute that can edit the supplied worktree. */
+  executorForWorktree: AgenticGeneratorExecutorForWorktree
+  /** Author the task from admitted findings. Required: Runtime invents no code-improvement prompt. */
+  buildPrompt: (args: { findings: ReadonlyArray<ProposalFinding> }) => string
   /** Verify a candidate worktree before it becomes a measurable surface; failures
    * feed the next shot (see `agenticGenerator.verify` / `commandVerifier`). */
   verify?: Verifier
-  /** Per-shot wall-clock timeout for the harness (ms). */
+  /** Per-shot wall-clock timeout. Omit for no Runtime-imposed deadline. */
   timeoutMs?: number
-  /** Byte-producer override, used for tests and custom candidate production.
-   * When set, `harness`, `verify`, and `timeoutMs` are unused. */
-  generator?: CandidateGenerator
+  /** Optional provider-enforced maximum admitted by the run-wide cost ledger. */
+  maximumCharge?: MaximumCharge
+  generator?: never
 }
+
+export interface ImproveCustomCodeGeneratorOptions {
+  /** Complete byte-producer replacement. Runtime still validates `profile` before creating worktrees. */
+  generator: CandidateGenerator
+  executorForWorktree?: never
+  buildPrompt?: never
+  verify?: never
+  timeoutMs?: never
+  maximumCharge?: never
+}
+
+export type ImproveCodeOptions = ImproveCodeBaseOptions &
+  (ImproveRuntimeCodeGeneratorOptions | ImproveCustomCodeGeneratorOptions)
 
 export interface ImprovementProfileCandidate {
   /** Surface searched by this run. */

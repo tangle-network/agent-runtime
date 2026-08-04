@@ -69,4 +69,24 @@ describe('candidate cleanup timer bounds', () => {
     ).rejects.toBeInstanceOf(CandidateResultTimeoutError)
     expect(observedSignal?.aborted).toBe(true)
   })
+
+  it('interrupts hanging cleanup at the frozen deadline', async () => {
+    vi.useFakeTimers({ now: 100 })
+    let observedSignal: AbortSignal | undefined
+    const result = withinCandidateCleanupDeadline(
+      async (signal) => {
+        observedSignal = signal
+        return await new Promise<never>(() => undefined)
+      },
+      120,
+      'hanging cleanup',
+    )
+    const rejected = expect(result).rejects.toBeInstanceOf(CandidateCleanupTimeoutError)
+
+    await vi.advanceTimersByTimeAsync(20)
+    await rejected
+    expect(Date.now()).toBe(120)
+    expect(observedSignal?.aborted).toBe(true)
+    expect(observedSignal?.reason).toBeInstanceOf(CandidateCleanupTimeoutError)
+  })
 })

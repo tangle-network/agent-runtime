@@ -1,9 +1,18 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { JudgeConfig, Scenario } from '@tangle-network/agent-eval/campaign'
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import type {
+  JudgeConfig,
+  OpenAICompatibleOptimizerModel,
+  Scenario,
+} from '@tangle-network/agent-eval/campaign'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import { expect, it } from 'vitest'
+import { profileOptimizerModelCall } from '../runtime/profile-chat-client'
 import { improve } from './improve'
 import { officialGepa, officialSkillOpt } from './official-optimizers'
 import { startOptimizerModelServer } from './official-test-support'
@@ -241,11 +250,37 @@ const requiredRuleJudge: JudgeConfig<OptimizerArtifact, OptimizerScenario> = {
   },
 }
 
-function optimizerModel(baseUrl: string, maxOutputTokensPerRequest: number) {
+function optimizerModel(
+  baseUrl: string,
+  maxOutputTokensPerRequest: number,
+): OpenAICompatibleOptimizerModel {
+  const profile: AgentProfile = {
+    name: 'official-runtime-integration-optimizer',
+    harness: 'cli-base',
+    model: {
+      provider: 'local-openai-compatible',
+      default: 'local-model',
+      metadata: { maxTokens: maxOutputTokensPerRequest },
+    },
+  }
+  const profileDigest = canonicalAgentProfileDigest(profile)
+  const call = profileOptimizerModelCall({
+    profile,
+    context: 'official Runtime optimizer integration',
+    executor: {
+      backend: 'router',
+      routerBaseUrl: baseUrl,
+      routerKey: 'provider-secret',
+    },
+    pricing: {
+      inputUsdPerMillion: 1,
+      outputUsdPerMillion: 2,
+    },
+  })
   return {
     model: 'local-model',
-    baseUrl,
-    apiKey: 'provider-secret',
+    callRef: `official-runtime-integration:${profileDigest}:${new URL(baseUrl).origin}`,
+    call,
     budget: {
       maxCostUsd: 1,
       maxRequests: 10,

@@ -12,11 +12,13 @@ But three real commercial shapes show up in multi-agent systems, and the runtime
 | Reseller | `'agent-owned'` | The agent | Bundled-price agents that absorb sub-agent costs |
 | Mixed | `(state) => 'forward-user' \| 'agent-owned'` | Decided per turn | Tiered services — base is agent-owned, premium add-ons forward the user |
 
-The agent's *own* credentials (the sk-tan-AGENT or x402 wallet that pays when `authSource` is `agent-owned`) are configured **on the backend at construction**, not on this knob. This field is purely about whether to *additionally* forward the user's identity downstream.
+The agent's *own* credentials (the sk-tan-AGENT or x402 wallet that pays when `authSource` is `agent-owned`) are configured **on the executor at construction**, not on this knob.
+This field is purely about whether to *additionally* forward the user's identity downstream.
 
 ## How forwarding actually works
 
-The conversation runner reads `propagatedHeaders` on every `runConversation` call (typically threaded in by the gateway middleware that received the inbound request) and emits the [agent-bus headers](./agent-bus-protocol.md) on every outbound participant call. The forwarded-authorization header — `x-tangle-forwarded-authorization` — is the one that determines downstream billing identity.
+The conversation runner reads `propagatedHeaders` on every `runConversation` call (typically threaded in by the gateway middleware that received the inbound request) and emits the [agent-bus headers](../agent-bus-protocol.md) on every outbound participant call.
+The forwarded-authorization header — `x-tangle-forwarded-authorization` — is the one that determines downstream billing identity.
 
 ```
 user ──Bearer sk-tan-user-123──▶ gateway ──▶ runConversation({
@@ -36,7 +38,8 @@ user ──Bearer sk-tan-user-123──▶ gateway ──▶ runConversation({
                               })
 ```
 
-When the participant's backend issues HTTP (e.g. `createOpenAICompatibleBackend`), `context.propagatedHeaders` is merged into the outbound request automatically — the receiving gateway sees the user's token and bills accordingly.
+When a participant uses `createProfileExecutionBackend(...)` with Runtime's Router executor, `context.propagatedHeaders` is merged into the outbound request automatically — the receiving gateway sees the user's token and bills accordingly.
+A caller-owned HTTP backend must merge those headers itself.
 
 ## Mode 1 — Pass-through (`forward-user`, default)
 
@@ -65,21 +68,33 @@ Every outbound call from `researcher` and `critic` carries the user's `sk-tan-us
 
 ## Mode 2 — Reseller (`agent-owned`)
 
-The participant pays its own bill. The user's auth is stripped from outbound calls; the participant's backend uses its own credentials (set when you constructed the backend).
+The participant pays its own bill.
+The user's auth is stripped from outbound calls; the participant's profile-backed executor uses its own credentials.
 
 Use when the participant is a paid service that bundles upstream costs into a fixed price. Inbound revenue (whatever the user paid for the outer conversation) minus outbound costs (what this participant spends on its sub-LLM calls) is the participant's margin.
 
 ```ts
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
-  createOpenAICompatibleBackend,
+  createProfileExecutionBackend,
   defineConversation,
   runConversation,
 } from '@tangle-network/agent-runtime'
+import { createExecutor } from '@tangle-network/agent-runtime/kernel'
 
-const researcher = createOpenAICompatibleBackend({
-  baseURL: 'https://router.tangle.tools/v1',
-  apiKey: process.env.RESEARCHER_AGENT_SK_TAN!, // ← the AGENT's key, not the user's
-  model: 'openai/gpt-4o-mini',
+const researcherProfile = {
+  name: 'researcher',
+  harness: 'cli-base',
+  model: { provider: 'tangle-router', default: 'openai/gpt-4o-mini' },
+} satisfies AgentProfile
+
+const researcher = createProfileExecutionBackend({
+  profile: researcherProfile,
+  executor: createExecutor({
+    backend: 'router',
+    routerBaseUrl: 'https://router.tangle.tools/v1',
+    routerKey: process.env.RESEARCHER_AGENT_SK_TAN!, // ← the AGENT's key, not the user's
+  }),
 })
 
 const conv = defineConversation({
@@ -87,7 +102,7 @@ const conv = defineConversation({
     {
       name: 'researcher',
       backend: researcher,
-      authSource: 'agent-owned', // ← strip user auth on outbound; backend's apiKey takes over
+      authSource: 'agent-owned', // ← strip user auth; the executor's routerKey takes over
     },
     { name: 'critic', backend: criticBackend /* forwards user */ },
   ],
@@ -102,7 +117,7 @@ await runConversation(conv, {
 
 What changes on the wire:
 
-- `researcher`'s outbound call has **no** `x-tangle-forwarded-authorization`; the receiving gateway authenticates via the backend's `apiKey` (the agent's own sk-tan-AGENT) and bills the agent.
+- `researcher`'s outbound call has **no** `x-tangle-forwarded-authorization`; the receiving gateway authenticates via the executor's `routerKey` (the agent's own sk-tan-AGENT) and bills the agent.
 - `critic`'s outbound call **still has** the user's forwarded-authorization; that hop bills the user.
 
 You can mix the two freely within one conversation — the runtime resolves `authSource` per participant per turn.
@@ -139,7 +154,8 @@ The predicate receives `{ transcript, turnIndex, spentCreditsCents }` — enough
 
 ## What this is NOT
 
-- **Not authentication.** The agent's credentials live on the backend (constructed once, baked in). `authSource` does not set or change those — it only decides whether to also forward the user's identity downstream.
+- **Not authentication.** The agent's credentials live on the executor, which is constructed once and bound to the profile.
+  `authSource` does not set or change those credentials — it only decides whether to also forward the user's identity downstream.
 - **Not a policy engine.** The decision returns one of two strings; if you want richer routing (e.g. *which* downstream model to call), do that in your backend, not here.
 - **Not a substitute for `policy.maxCreditsCents`.** The hard credit ceiling still applies. A reseller participant that bills against its own creds is still counted against the conversation's `spentCreditsCents` budget so a runaway reseller can't drain the agent's wallet under cover of "the user isn't paying anyway."
 
@@ -152,6 +168,6 @@ The simplest way to verify a configuration: inspect the propagated headers your 
 
 ## Related
 
-- [agent-bus-protocol.md](./agent-bus-protocol.md) — the wire-level header contract this builds on.
-- [durability-adapters.md](./durability-adapters.md) — how to persist the resulting conversations across crashes.
+- [agent-bus-protocol.md](../agent-bus-protocol.md) — the wire-level header contract this builds on.
+- [durability-adapters.md](../durability-adapters.md) — how to persist the resulting conversations across crashes.
 - `src/conversation/types.ts` — full `AuthSource` and `ConversationDriveState` definitions.

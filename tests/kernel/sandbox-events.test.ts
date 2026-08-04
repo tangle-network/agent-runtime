@@ -24,6 +24,8 @@ describe('sumSandboxUsage — meter an openSandboxRun turn', () => {
       input: 0,
       output: 0,
       costUsd: 0,
+      tokensKnown: false,
+      usdKnown: false,
     })
   })
 })
@@ -92,7 +94,13 @@ describe('mapSandboxEvent — SandboxEvent → RuntimeStreamEvent', () => {
         { type: 'result', data: { usage: { inputTokens: 3, outputTokens: 4 } } },
         { agentRunName: 'r' },
       ),
-    ).toEqual({ type: 'llm_call', model: 'r', tokensIn: 3, tokensOut: 4 })
+    ).toEqual({
+      type: 'llm_call',
+      model: 'r',
+      tokensIn: 3,
+      tokensOut: 4,
+      usdKnown: false,
+    })
     expect(mapSandboxEvent({ type: 'result', data: { finalText: 'done' } })).toBeUndefined()
   })
 
@@ -117,7 +125,13 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
         { type: 'usage', data: { prompt_tokens: 100, completion_tokens: 20 } },
         'agent',
       ),
-    ).toEqual({ type: 'llm_call', model: 'agent', tokensIn: 100, tokensOut: 20 })
+    ).toEqual({
+      type: 'llm_call',
+      model: 'agent',
+      tokensIn: 100,
+      tokensOut: 20,
+      usdKnown: false,
+    })
   })
 
   it.each([
@@ -135,6 +149,7 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
       model: 'agent',
       tokensIn: 2,
       tokensOut: 10,
+      usdKnown: false,
     })
   })
 

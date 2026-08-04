@@ -15,7 +15,9 @@ import {
   type SurfaceProposer,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { immutableCandidateValue } from '../candidate-execution/digest'
+import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import { agenticGenerator } from './agentic-generator'
 import { rethrowAfterCleanup } from './cleanup'
 import { copyImproveCost } from './improve-result'
@@ -140,6 +142,8 @@ async function discardPreparedBaseline(
 
 /** Create a clean incumbent checkout and the candidate producer for a code run. */
 async function prepareCodeRun(code: ImproveCodeOptions): Promise<PreparedCodeRun> {
+  const authorProfile = agentProfileSchema.parse(code.profile)
+  assertExecutableAgentProfile(authorProfile, 'improve(code) author')
   const baseRef = code.baseRef ?? 'main'
   const worktree =
     code.worktree ??
@@ -151,13 +155,16 @@ async function prepareCodeRun(code: ImproveCodeOptions): Promise<PreparedCodeRun
   try {
     const baseline = await worktree.finalize(baselineWorktree, 'Incumbent code checkout')
     let baselineDiscarded = false
-    const generator =
-      code.generator ??
-      agenticGenerator({
-        ...(code.harness ? { harness: code.harness } : {}),
-        ...(code.verify ? { verify: code.verify } : {}),
-        ...(code.timeoutMs ? { timeoutMs: code.timeoutMs } : {}),
-      })
+    const generator = code.generator
+      ? code.generator
+      : agenticGenerator({
+          profile: authorProfile,
+          executorForWorktree: code.executorForWorktree,
+          buildPrompt: code.buildPrompt,
+          ...(code.verify ? { verify: code.verify } : {}),
+          ...(code.timeoutMs !== undefined ? { timeoutMs: code.timeoutMs } : {}),
+          ...(code.maximumCharge ? { maximumCharge: code.maximumCharge } : {}),
+        })
     const managed: ManagedImprovementDriver = improvementDriver({ worktree, generator, baseRef })
 
     return {

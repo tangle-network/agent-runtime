@@ -37,11 +37,12 @@
     "tangle-router.env"
   ],
   "generations": 1,
-  "populationSize": 4,
+  "populationSize": 3,
   "repsPerInstance": 2,
   "premeasuredBaselinePath": "/tmp/claude-1000/-home-drew-code-supervisor-lab/f06fd156-042a-4ef9-bd88-f2ec7f52b90c/scratchpad/hh/gen4/premeasured-baseline.json",
   "maxShots": 3,
-  "proposerHarness": "claude-code",
+  "proposerHarness": "pi",
+  "proposerProfile": "default-author.profile.json",
   "proposerTimeoutMs": 2400000,
   "analystModels": [
     "glm-5.2",
@@ -75,23 +76,22 @@
   "dispatchTimeoutMs": 7200000,
   "proposers": [
     {
-      "name": "claude-author",
-      "profile": "default-author.profile.json",
-      "harness": "claude"
-    },
-    {
       "name": "glm-author",
-      "harness": "opencode",
-      "model": "zai-coding-plan/glm-5.2"
+      "profile": "default-author.profile.json",
+      "harness": "pi",
+      "model": "glm-5.2"
     },
     {
-      "name": "codex-author",
-      "harness": "codex"
+      "name": "deepseek-author",
+      "profile": "deepseek-author.profile.json",
+      "harness": "pi",
+      "model": "deepseek-v4-flash"
     },
     {
       "name": "merge-author",
       "profile": "default-author.profile.json",
-      "harness": "claude",
+      "harness": "pi",
+      "model": "glm-5.2",
       "merge": true
     }
   ],

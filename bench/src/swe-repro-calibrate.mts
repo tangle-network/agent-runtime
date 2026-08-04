@@ -89,6 +89,11 @@ async function complete(messages: ChatMsg[]): Promise<Completion> {
   const { json, attempts } = await zaiChatRaw(
     { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS },
     { model: MODEL, max_tokens: MAX_TOKENS, temperature: TEMP, messages },
+    {
+      name: 'swe-reproduction-calibrator',
+      model: { provider: 'zai', default: MODEL, reasoningEffort: 'high' },
+      prompt: { systemPrompt: AUTHOR_SYSTEM },
+    },
   )
   const d = json as {
     choices?: Array<{ message?: { content?: string } }>

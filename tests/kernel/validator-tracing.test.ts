@@ -21,6 +21,13 @@ function makeSandboxClient() {
   }
 }
 
+const profile = {
+  name: 'test',
+  harness: 'opencode' as const,
+  model: { provider: 'offline', default: 'offline-test-model' },
+  systemPrompt: 'test',
+}
+
 describe('validator tracing', () => {
   it('validator receives traceEmitter in ctx when kernel has one', async () => {
     let receivedEmitter: LoopTraceEmitter | undefined
@@ -50,7 +57,7 @@ describe('validator tracing', () => {
         },
       },
       agentRun: {
-        profile: { name: 'test', systemPrompt: 'test' },
+        profile,
         taskToPrompt: (t: string) => t,
       },
       output: { parse: () => 'parsed-output' },
@@ -88,7 +95,7 @@ describe('validator tracing', () => {
         },
       },
       agentRun: {
-        profile: { name: 'test', systemPrompt: 'test' },
+        profile,
         taskToPrompt: (t: string) => t,
       },
       output: { parse: () => 'parsed-output' },
@@ -138,7 +145,7 @@ describe('validator tracing', () => {
         },
       },
       agentRun: {
-        profile: { name: 'test', systemPrompt: 'test' },
+        profile,
         taskToPrompt: (t: string) => t,
       },
       output: { parse: () => 'parsed-output' },

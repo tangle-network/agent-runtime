@@ -15,7 +15,6 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { LocalHarness } from '../../mcp/local-harness'
 import { fanout, selectValidWinner } from '../personify/combinators'
 import type { CombinatorShape, WinnerStrategy } from '../personify/wave-types'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
@@ -27,15 +26,13 @@ import {
   type WorktreePatchArtifact,
 } from './worktree-cli-executor'
 
-/** @experimental One authored harness profile in a worktree fanout: the §1.5 profile + which local
- *  harness CLI drives it. The supervisor authors `profile` per sub-task; `harness` chooses the leaf. */
+/** @experimental One authored profile in a worktree fanout. Its exact `harness` field chooses the
+ * local CLI; the supervisor authors the complete profile per sub-task. */
 export interface AuthoredHarness {
   /** A short label for the worktree branch + trace node. */
   name: string
   /** The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness via §1.5). */
   profile: AgentProfile
-  /** Which local harness CLI drives this leaf. */
-  harness: LocalHarness
   /** Require measured usage from this leaf. Budgeted supervision refuses the default unmetered
    *  local-CLI mode; set false only when the selected runner actually returns token usage. */
   budgetExempt?: WorktreeCliExecutorOptions['budgetExempt']
@@ -104,7 +101,6 @@ export function worktreeFanout<Task>(
         createWorktreeCliExecutor({
           repoRoot: options.repoRoot,
           profile: item.profile,
-          harness: item.harness,
           taskPrompt: options.taskPrompt,
           executionAttemptId: ctx.node.attemptId,
           ...(item.budgetExempt !== undefined ? { budgetExempt: item.budgetExempt } : {}),

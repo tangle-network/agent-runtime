@@ -1,4 +1,4 @@
-import { createOpenAICompatibleBackend } from '../backends'
+import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import type {
   PrimeIntellectEpisodeContext,
   PrimeIntellectPublicTask,
@@ -17,11 +17,6 @@ const ENV = {
 export interface RunPrimeIntellectProgramOptions {
   env?: NodeJS.ProcessEnv
 }
-
-export type PrimeIntellectBackendOptions = Omit<
-  Parameters<typeof createOpenAICompatibleBackend>[0],
-  'apiKey' | 'baseUrl' | 'model'
->
 
 /** Read and validate the private process contract installed by the generated Prime harness. */
 export function readPrimeIntellectEpisodeContext(
@@ -45,17 +40,15 @@ export function readPrimeIntellectEpisodeContext(
   }
 }
 
-/** Build the existing runtime backend against Prime's intercepted model endpoint. */
-export function createPrimeIntellectBackend(
+/** Resolve Prime's intercepted endpoint as transport-only Runtime executor configuration.
+ * The caller's exact `AgentProfile` remains the sole owner of model and behavior. */
+export function primeIntellectExecutorConfig(
   context: PrimeIntellectEpisodeContext,
-  options: PrimeIntellectBackendOptions = {},
-) {
-  return createOpenAICompatibleBackend({
-    ...options,
-    apiKey: context.model.apiKey,
-    baseUrl: context.model.baseUrl,
-    model: context.model.name,
-    kind: options.kind ?? 'primeintellect',
+): Extract<ExecutorConfig, { backend: 'router' }> {
+  return Object.freeze({
+    backend: 'router',
+    routerBaseUrl: context.model.baseUrl,
+    routerKey: context.model.apiKey,
   })
 }
 

@@ -3,12 +3,11 @@
  * OpenAI Chat Completions `tools[]` projection of the queue-bound agent-runtime
  * MCP delegation tools.
  *
- * Use when configuring `createOpenAICompatibleBackend({ tools: ... })` so the
- * model can call `delegate_feedback`, `delegation_status`, and
- * `delegation_history` through the OpenAI-compat transport (tcloud, OpenRouter,
- * OpenAI direct, cli-bridge). The runtime surfaces tool calls as `tool_call`
- * stream events — execution is the caller's responsibility (typically the
- * parent sandbox runtime's MCP mount).
+ * Use when a caller-owned OpenAI-compatible transport needs the model to call
+ * `delegate_feedback`, `delegation_status`, and `delegation_history`. Execution
+ * is the caller's responsibility (typically the parent sandbox runtime's MCP
+ * mount); Runtime's profile-bound model path materializes profile tools through
+ * its executor instead.
  *
  * Sandbox-SDK callers do NOT need this helper: the sandbox runtime mounts
  * MCP servers natively and the in-sandbox harness discovers tools via the
@@ -44,8 +43,8 @@ function buildTool(
   parameters: Readonly<Record<string, unknown>>,
 ): OpenAIChatTool {
   // `parameters` arrives as a deeply-readonly `as const` literal. The
-  // OpenAI-compat backend JSON-serializes the body so a shallow copy
-  // into a plain object is sufficient — and shields callers that mutate
+  // OpenAI-compatible transports JSON-serialize the body, so a shallow copy
+  // into a plain object is sufficient and shields callers that mutate
   // the returned descriptor from corrupting the source constant.
   return {
     type: 'function',

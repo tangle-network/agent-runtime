@@ -34,6 +34,7 @@ import {
 import { defaultRound4Config, type OuterLoopConfig } from './outer-loop.mts'
 import { fanOutLoopsGenerator, type ProposerSpec, type SmokeRunner, type SmokeVerdict } from './proposer-fanout.mts'
 import { captureProposerProvenance } from './proposer-provenance.mts'
+import { officialOptimizerModel } from '../official-optimizer-config.mts'
 import { runOk } from './proc.ts'
 
 const SURFACE = 'extensions/pi/prompts/worker-coding-system.md'
@@ -370,6 +371,7 @@ describe('recordGepaSeatInnerRun', () => {
       tokenUsage: result.tokenUsage,
       artifactDir: result.artifactDir,
       totalCostUsd: 0.25,
+      costProvenance: { kind: 'observed', usd: 0.25 },
       accountingComplete: true,
       incompleteReasons: [],
       durationMs: 5,
@@ -426,24 +428,26 @@ describe('recordGepaSeatInnerRun', () => {
 // ---------------------------------------------------------------------------
 
 const fakeCtx = {} as unknown as DispatchContext
-const testOptimizer = {
+const testOptimizerEnv: NodeJS.ProcessEnv = {
+  TEST_OPTIMIZER_INPUT_USD_PER_MILLION: '1',
+  TEST_OPTIMIZER_CACHED_INPUT_USD_PER_MILLION: '0.1',
+  TEST_OPTIMIZER_CACHE_WRITE_USD_PER_MILLION: '1.25',
+  TEST_OPTIMIZER_OUTPUT_USD_PER_MILLION: '5',
+  TEST_OPTIMIZER_MAX_REQUESTS: '10',
+  TEST_OPTIMIZER_MAX_REQUEST_BYTES: '100000',
+  TEST_OPTIMIZER_MAX_RESPONSE_BYTES: '100000',
+}
+
+const testOptimizer = officialOptimizerModel({
+  env: testOptimizerEnv,
+  envPrefix: 'TEST_OPTIMIZER',
   model: 'optimizer-model',
   baseUrl: 'http://127.0.0.1:1/v1',
   apiKey: 'optimizer-key',
-  budget: {
-    maxCostUsd: 1,
-    maxRequests: 10,
-    maxRequestBytes: 100_000,
-    maxResponseBytes: 100_000,
-    maxOutputTokensPerRequest: 2_000,
-    pricing: {
-      inputUsdPerMillion: 1,
-      cachedInputUsdPerMillion: 0.1,
-      cacheWriteUsdPerMillion: 1.25,
-      outputUsdPerMillion: 5,
-    },
-  },
-}
+  maxCostUsd: 1,
+  maxOutputTokensPerRequest: 2_000,
+  callRef: 'test:optimizer-model',
+})
 
 const fullProvenance = (
   runId = 'gepa-run',
@@ -504,7 +508,12 @@ const fakeGepaFactory =
         }
         return {
           winnerSurface: best.surface,
-          cost: { totalCostUsd: 0.125, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0.125,
+            costProvenance: { kind: 'observed', usd: 0.125 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
           durationMs: 1,
           provenance: fullProvenance(),
         }
@@ -737,7 +746,12 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
         ])
         return {
           winnerSurface: candidateA,
-          cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0,
+            costProvenance: { kind: 'observed', usd: 0 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
           durationMs: 1,
           provenance: fullProvenance('parallel-gepa', { evaluationCount: 2 }),
         }
@@ -823,6 +837,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
           winnerSurface: WINNER,
           cost: {
             totalCostUsd: 0.25,
+            costProvenance: { kind: 'uncaptured', usd: null },
             accountingComplete: false,
             incompleteReasons: ['optimizer model receipt missing'],
           },
@@ -873,7 +888,12 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
         if (rejected) throw rejected.reason
         return {
           winnerSurface: SEED,
-          cost: { totalCostUsd: 0, accountingComplete: false, incompleteReasons: [] },
+          cost: {
+            totalCostUsd: 0,
+            costProvenance: { kind: 'uncaptured', usd: null },
+            accountingComplete: false,
+            incompleteReasons: [],
+          },
           durationMs: 1,
           provenance: fullProvenance('runaway'),
         }
@@ -1009,24 +1029,16 @@ describe('integration: real adapter roundtrip', () => {
           },
           smokeInstanceId: 'astropy__astropy-13033',
           scoreSplit: null,
-          gepaOptimizer: {
+          gepaOptimizer: officialOptimizerModel({
+            env: testOptimizerEnv,
+            envPrefix: 'TEST_OPTIMIZER',
             model: 'test-optimizer',
             baseUrl: `http://127.0.0.1:${address.port}/v1`,
             apiKey: 'local-test-key',
-            budget: {
-              maxCostUsd: 1,
-              maxRequests: 10,
-              maxRequestBytes: 100_000,
-              maxResponseBytes: 100_000,
-              maxOutputTokensPerRequest: 2_000,
-              pricing: {
-                inputUsdPerMillion: 1,
-                cachedInputUsdPerMillion: 0.1,
-                cacheWriteUsdPerMillion: 1.25,
-                outputUsdPerMillion: 5,
-              },
-            },
-          },
+            maxCostUsd: 1,
+            maxOutputTokensPerRequest: 2_000,
+            callRef: 'test:integration-optimizer',
+          }),
         },
       )
       const result = await gen.generate({

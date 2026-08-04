@@ -24,10 +24,10 @@ case (idea brief) ──► author agent + skill-vN ──► graph ──► ru
 
 ## Cases
 
-`cases/` seeds eight idea-briefs, each with `expect`: the edges a correct graph must have, ledger outcomes, whether analysts are warranted, and a floor-trap flag (the case is under-budgetable and a correct author must budget above the floor).
+`cases/` seeds seven idea-briefs, each with `expect`: the edges a correct graph must have, ledger outcomes, and whether analysts are warranted.
 Case briefs are deliberately loose — "loose context in, correct graph out" is the skill's whole claim, so tidy specs would test the wrong thing.
 
-Holdout discipline: at least 3 of the 8 held out, never trained on; `runImprovementLoop` throws on overlap.
+Holdout discipline: 3 of the 7 are held out, never trained on; `runImprovementLoop` throws on overlap.
 
 ## What is deliberately NOT built
 
@@ -40,7 +40,7 @@ Holdout discipline: at least 3 of the 8 held out, never trained on; `runImprovem
 Two layers, different jobs.
 Foundation harnesses ship trained orchestration — Claude Code subagents, codex goal-mode, pi extensions — and prose is that layer's native API: instructing a claude-code node to "fan out subagents over these files" invokes an in-distribution capability, not vibes.
 The graph/script layer exists for what no single harness provides: cross-harness composition, one conserved budget across the whole tree, durable ledger evidence, resume, and heterogeneous model placement.
-Rule: outer layer coarse, inner layer maximal — one harness-sized node told to use its native fan-out beats N externally-choreographed thin nodes that each pay the harness floor while suppressing the orchestration the model was trained for.
+Rule: outer layer coarse, inner layer maximal — one harness-sized node told to use its native fan-out beats N externally-choreographed thin nodes that duplicate setup and context while suppressing the orchestration the model was trained for.
 Which harnesses qualify for native fan-out is a supervisor-lab harness-KB row, not a guess.
 
 ## Version history

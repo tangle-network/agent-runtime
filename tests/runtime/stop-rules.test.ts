@@ -11,7 +11,6 @@
  * as the post-run anytime report, and a rule can never keep a run alive past a hard ceiling.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { areaUnderCurve, bestSoFar, plateauLength } from '../../src/runtime/anytime'
@@ -42,6 +41,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { scriptedBrain } from '../kernel/scripted-brain'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 // ── A scored offline leaf: fixed token cost, a verdict score the rules read ─────────────────────
 
@@ -74,7 +74,7 @@ function scoredLeaf(name: string, score: number): Agent<unknown, unknown> {
       }
     },
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
   return { name, act: async () => ({ name, score }), executorSpec: spec } as Agent<
     unknown,
     unknown
@@ -504,7 +504,7 @@ describe('ProgressView reads the live worker feed off the scope', () => {
       name: 'hang',
       act: async () => ({}),
       executorSpec: {
-        profile: { name: 'hang' } as AgentProfile,
+        profile: testAgentProfile('hang'),
         harness: null,
         executor: hanging,
       },

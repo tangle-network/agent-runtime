@@ -59,6 +59,12 @@ import {
 // non-terminal 'refine' to keep going, and only the terminal 'pick-winner'/'fail' when truly done.
 type NoteDecision = 'refine' | 'pick-winner' | 'fail'
 
+const noteWriterProfile = {
+  name: 'note-writer',
+  harness: 'cli-base',
+  model: { provider: 'scripted', default: 'scripted/note-writer' },
+} satisfies AgentProfile
+
 function refineDriver(maxShots: number): Driver<NoteTask, NoteOutput, NoteDecision> {
   return {
     name: 'refine',
@@ -116,7 +122,7 @@ async function main(): Promise<void> {
   const result = await runAgentRounds<NoteTask, NoteOutput, NoteDecision>({
     driver: refineDriver(3),
     agentRun: {
-      profile: { name: 'note-writer' } as AgentProfile,
+      profile: noteWriterProfile,
       // Each shot's task carries the prompt the driver authored; this is how the rewritten
       // instruction actually reaches the worker.
       taskToPrompt: (t) => t.prompt,

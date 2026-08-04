@@ -156,7 +156,30 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
     const init = fetchMock.mock.calls[0]![1] as { body: string }
     const sent = JSON.parse(init.body)
     expect(sent.temperature).toBe(0.1)
-    expect(sent.tool_choice).toBe('auto')
+    expect(sent.tool_choice).toBeUndefined()
+  })
+
+  it('forwards profile-owned seed, tool choice, and provider request fields', async () => {
+    stubRouter({ choices: [{ message: { content: 'x' } }] })
+    const tools = [
+      {
+        type: 'function' as const,
+        function: { name: 'inspect', parameters: { type: 'object' } },
+      },
+    ]
+    await routerBrain(cfg, {
+      seed: 42,
+      toolChoice: 'none',
+      extraBody: { provider_options: { prompt_cache: true } },
+    })([], tools)
+
+    const init = fetchMock.mock.calls[0]![1] as { body: string }
+    const sent = JSON.parse(init.body)
+    expect(sent).toMatchObject({
+      seed: 42,
+      tool_choice: 'none',
+      provider_options: { prompt_cache: true },
+    })
   })
 
   it('forwards the router usage + cost so the driver can meter its inference', async () => {
@@ -220,7 +243,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
     expect(result.reasoning).toBe('The user wants me to calculate.')
     expect(result.finishReason).toBe('tool_calls')
     // The whole point: the streamed turn meters exactly what the buffered turn would have.
-    expect(result.usage).toEqual({ input: 162, output: 28 })
+    expect(result.usage).toEqual({ input: 162, output: 28, reasoning: 15 })
     expect(result.costUsd).toBeGreaterThan(0)
     // Usage arrived, so the turn is NOT marked unknown.
     expect(result.usageUnknown).toBeUndefined()
@@ -248,7 +271,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
       ])
       // Frame 4 — the terminal usage chunk, the one whose loss makes a real turn look free.
       expect(result.finishReason).toBe('tool_calls')
-      expect(result.usage).toEqual({ input: 162, output: 28 })
+      expect(result.usage).toEqual({ input: 162, output: 28, reasoning: 15 })
       expect(result.usageUnknown).toBeUndefined()
     }
   })
@@ -266,7 +289,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
     const result = await streamRouterChatWithTools(cfg, [], [])
     expect(result.reasoning).toBe('The user wants me to calculate.')
     expect(result.toolCalls).toHaveLength(1)
-    expect(result.usage).toEqual({ input: 162, output: 28 })
+    expect(result.usage).toEqual({ input: 162, output: 28, reasoning: 15 })
   })
 
   it('asks for the stream and for usage inside it, and keeps every other request field identical', async () => {
@@ -393,7 +416,55 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
 
   it('fails loud on a non-2xx with the same message shape as the buffered path', async () => {
     stubStream('gateway blew up', { status: 524 })
-    await expect(streamRouterChatWithTools(cfg, [], [])).rejects.toThrow(/router 524/)
+    await expect(
+      streamRouterChatWithTools({ ...cfg, retry: { maxAttempts: 1 } }, [], []),
+    ).rejects.toThrow(/router 524/)
+  })
+
+  it('streamed chat honors a caller-owned status set and retries through the shared request path', async () => {
+    const encoder = new TextEncoder()
+    let attempts = 0
+    fetchMock = vi.fn(async () => {
+      attempts += 1
+      if (attempts === 1) {
+        return { ok: false, status: 409, text: async () => 'retry this conflict' }
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                `${frame({ choices: [{ delta: { content: 'recovered' } }] })}data: [DONE]\n\n`,
+              ),
+            )
+            controller.close()
+          },
+        }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await streamRouterChatWithTools(
+      {
+        ...cfg,
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          retryStatuses: [409],
+          requestTimeoutMs: 0,
+        },
+      },
+      [],
+      [],
+    )
+
+    expect(result.content).toBe('recovered')
+    expect(result.transportAttempts).toBe(2)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('refuses to pair the streamed transport with the buffered injected transport', async () => {
@@ -427,7 +498,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
       { id: 'call_83f2da0d', name: 'calc', arguments: '{"expr":"21*2"}' },
     ])
     expect(result.finishReason).toBe('tool_calls')
-    expect(result.usage).toEqual({ input: 162, output: 28 })
+    expect(result.usage).toEqual({ input: 162, output: 28, reasoning: 15 })
     expect(result.usageUnknown).toBeUndefined()
   })
 
@@ -441,7 +512,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
     const result = await streamRouterChatWithTools(cfg, [], [])
     expect(result.reasoning).toBe('The user wants me to calculate.')
     expect(result.toolCalls).toHaveLength(1)
-    expect(result.usage).toEqual({ input: 162, output: 28 })
+    expect(result.usage).toEqual({ input: 162, output: 28, reasoning: 15 })
   })
 
   // A streamed turn stops reading its body EARLY on both of its exits: `[DONE]` arrives before the
@@ -452,7 +523,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
     const cancelled = stubUnclosedStream(fixture)
     const result = await streamRouterChatWithTools(cfg, [], [])
     // The turn still parsed completely — cancelling is cleanup, not truncation.
-    expect(result.usage).toEqual({ input: 162, output: 28 })
+    expect(result.usage).toEqual({ input: 162, output: 28, reasoning: 15 })
     expect(cancelled).toHaveBeenCalledTimes(1)
   })
 
@@ -498,7 +569,7 @@ describe('routerBrain transport selection', () => {
     const sent = JSON.parse(fetchMock.mock.calls[0]![1].body)
     expect(sent.stream).toBe(true)
     expect(sent.temperature).toBe(0.4)
-    expect(sent.tool_choice).toBe('auto')
+    expect(sent.tool_choice).toBeUndefined()
     expect(result.content).toBe('ok')
     // Same numbers the buffered brain reports for the same usage — the conserved pool is unaffected
     // by the transport choice.

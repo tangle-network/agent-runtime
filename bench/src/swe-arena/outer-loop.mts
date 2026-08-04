@@ -69,10 +69,10 @@ import {
   improve,
   rawTraceDistiller,
   type CandidateGenerator,
+  type ImproveCodeRunOptions,
   type Verifier,
 } from '@tangle-network/agent-runtime'
-import { runLocalHarness } from '@tangle-network/agent-runtime/mcp'
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest, type AgentProfile } from '@tangle-network/agent-interface'
 import {
   makeProposalFinding,
   type AnalystFinding,
@@ -89,7 +89,6 @@ import {
   type PremeasuredOptimizationBaseline,
   type Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import type { CostLedgerHandle } from '@tangle-network/agent-eval'
 import { runVenvPython } from '../benchmarks/_harness.ts'
 import { createSweBenchAdapter } from '../benchmarks/swe-bench.ts'
 import {
@@ -134,6 +133,7 @@ import {
   fanOutLoopsGenerator,
   materializeParetoParents,
   proposerShotHooks,
+  resolveAuthorProfile,
   type ParetoParentContext,
   type ParetoParentSeed,
   type PrefilterConfig,
@@ -646,7 +646,9 @@ export interface OuterLoopConfig {
    *  budget.maxImprovementShots; the LIB owns the dial (capabilities.mts
    *  fails loud on a substrate that would drop it). */
   maxShots: number
-  proposerHarness: 'claude-code' | 'codex' | 'opencode'
+  proposerHarness: 'pi'
+  /** Complete profile used by the single-author path and as the run's admitted author identity. */
+  proposerProfile: string
   proposerTimeoutMs: number
   /** GEN-3 proposer fan-out: N proposers author candidates CONCURRENTLY, each
    *  an AgentProfile-pinned harness invocation (see proposer-fanout.mts).
@@ -759,7 +761,8 @@ export function defaultRound4Config(
     // bootstrap run writes it; the lib validates it on every consumption.
     premeasuredBaselinePath: join(hh, 'r4', 'premeasured-baseline.json'),
     maxShots: 3,
-    proposerHarness: 'claude-code',
+    proposerHarness: 'pi',
+    proposerProfile: 'default-author.profile.json',
     // Per author SHOT (agenticGenerator timeoutMs). 20 min timed out 3× under
     // degraded capacity in gen-1 ("author shot timed out") — doubled to 40 min.
     proposerTimeoutMs: 2_400_000,
@@ -836,7 +839,7 @@ export function resolveSmokeInstance(
  * The gen-3 config: protocol round 4 continues (frozen arm, same holdout
  * registry, same roundsDir staircase) with the gen-3 machinery on:
  *
- *  - THREE parallel proposers (all claude, bare default-author profile) that
+ *  - THREE parallel Pi proposers using the exact GLM author profile that
  *    differ by diagnosis slice/lens — fan-out diversity without unproven
  *    harness seats; `populationSize` = `proposers.length`.
  *  - Pre-filter enabled at the mechanism bar on the cheapest-of-set smoke
@@ -858,18 +861,25 @@ export function defaultGen3Config(
   const base = defaultRound4Config(hh, opts)
   const outDirName = opts.outDirName ?? 'gen3'
   const proposers: ProposerSpec[] = [
-    { name: 'default-author', profile: 'default-author.profile.json', harness: 'claude-code' },
+    {
+      name: 'default-author',
+      profile: 'default-author.profile.json',
+      harness: 'pi',
+      model: 'glm-5.2',
+    },
     {
       name: 'mechanics-author',
       profile: 'default-author.profile.json',
-      harness: 'claude-code',
+      harness: 'pi',
+      model: 'glm-5.2',
       diagnosisSlice: 'mechanics',
       lens: 'Focus on MECHANICS: worker lifecycle, sandbox/clone contracts, settlement and delivery paths. Prefer code-path fixes over prompt wording.',
     },
     {
       name: 'prompts-author',
       profile: 'default-author.profile.json',
-      harness: 'claude-code',
+      harness: 'pi',
+      model: 'glm-5.2',
       diagnosisSlice: 'prompts',
       lens: 'Focus on PROMPTS: worker/brain instruction wording, placement guidance, self-check discipline. Prefer prompt/instruction changes over code-path rewrites.',
     },
@@ -921,13 +931,8 @@ export const GEN3_PARETO_PARENTS: ParetoParentSeed[] = [
  * The gen-4 config: protocol round 4 continues (frozen arm, same holdout
  * registry, same roundsDir staircase) with three changes as a unit:
  *
- *  1. PINNED PER-PROPOSER MODELS — four seats: claude-author (claude CLI on
- *     its own login; the resolved model + CLI version are captured into
- *     `<outDir>/proposer-provenance.json` at t=0), glm-author (opencode
- *     pinned to zai-coding-plan/glm-5.2 via `-m`), codex-author (codex CLI on
- *     its ChatGPT login, auth provenance-gated at launch; drop the seat via
- *     `includeCodex: false` when the CLI is absent), and merge-author (claude,
- *     merge seat).
+ *  1. PINNED PER-PROPOSER MODELS — GLM 5.2 and DeepSeek V4 Flash run through
+ *     Pi and Tangle Router; the merge seat uses the same exact GLM profile.
  *  2. PARETO PARENTS — the gen-3 winner + runner-up diffs and their measured
  *     per-instance results seed every author's prompt; the merge seat's task
  *     is their coherent union. Seeded at the buildPrompt seam (our seam): the
@@ -941,14 +946,33 @@ export const GEN3_PARETO_PARENTS: ParetoParentSeed[] = [
  */
 export function defaultGen4Config(
   hh = DEFAULT_HH_SCRATCHPAD,
-  opts: { outDirName?: string; includeCodex?: boolean } = {},
+  opts: { outDirName?: string; includeDeepseek?: boolean } = {},
 ): OuterLoopConfig {
   const base = defaultGen3Config(hh, { outDirName: opts.outDirName ?? 'gen4' })
   const proposers: ProposerSpec[] = [
-    { name: 'claude-author', profile: 'default-author.profile.json', harness: 'claude-code' },
-    { name: 'glm-author', harness: 'opencode', model: 'zai-coding-plan/glm-5.2' },
-    ...(opts.includeCodex === false ? [] : [{ name: 'codex-author', harness: 'codex' } satisfies ProposerSpec]),
-    { name: 'merge-author', profile: 'default-author.profile.json', harness: 'claude-code', merge: true },
+    {
+      name: 'glm-author',
+      profile: 'default-author.profile.json',
+      harness: 'pi',
+      model: 'glm-5.2',
+    },
+    ...(opts.includeDeepseek === false
+      ? []
+      : [
+          {
+            name: 'deepseek-author',
+            profile: 'deepseek-author.profile.json',
+            harness: 'pi',
+            model: 'deepseek-v4-flash',
+          } satisfies ProposerSpec,
+        ]),
+    {
+      name: 'merge-author',
+      profile: 'default-author.profile.json',
+      harness: 'pi',
+      model: 'glm-5.2',
+      merge: true,
+    },
   ]
   return {
     ...base,
@@ -979,11 +1003,11 @@ export function defaultGen4Config(
 
 export function defaultGen5Config(
   hh = DEFAULT_HH_SCRATCHPAD,
-  opts: { outDirName?: string; includeCodex?: boolean } = {},
+  opts: { outDirName?: string; includeDeepseek?: boolean } = {},
 ): OuterLoopConfig {
   const base = defaultGen4Config(hh, {
     outDirName: opts.outDirName ?? 'gen5',
-    ...(opts.includeCodex !== undefined ? { includeCodex: opts.includeCodex } : {}),
+    ...(opts.includeDeepseek !== undefined ? { includeDeepseek: opts.includeDeepseek } : {}),
   })
   return {
     ...base,
@@ -1261,7 +1285,7 @@ const CLAUDE_AMBIENT_AUTH_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', '
  *  leaked auth is stripped for the shot subprocess only. */
 const CODEX_AMBIENT_AUTH_VARS = ['OPENAI_API_KEY', 'OPENAI_BASE_URL'] as const
 
-export function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): NodeJS.ProcessEnv {
+export function proposerShotEnv(harness: NonNullable<ProposerSpec['harness']>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   if (harness === 'claude-code') {
     for (const name of CLAUDE_AMBIENT_AUTH_VARS) delete env[name]
@@ -1272,43 +1296,51 @@ export function proposerShotEnv(harness: OuterLoopConfig['proposerHarness']): No
   return env
 }
 
+function configuredAuthorProfile(config: OuterLoopConfig): AgentProfile {
+  const spec =
+    config.proposers?.find((proposer) => proposer.engine === undefined) ??
+    ({
+      name: 'single-author',
+      profile: config.proposerProfile,
+      harness: config.proposerHarness,
+    } satisfies ProposerSpec)
+  const profile = resolveAuthorProfile(spec)
+  if (!profile) throw new Error(`author ${spec.name}: an exact AgentProfile is required`)
+  return profile
+}
+
+function authorExecutorForWorktree(worktreePath: string) {
+  const bridgeUrl = process.env.CLI_BRIDGE_URL ?? process.env.BRIDGE_URL
+  const bridgeBearer = process.env.CLI_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+  if (!bridgeUrl || !bridgeBearer) {
+    throw new Error(
+      'authoring requires CLI_BRIDGE_URL/BRIDGE_URL and CLI_BRIDGE_BEARER/BRIDGE_BEARER',
+    )
+  }
+  return {
+    backend: 'bridge' as const,
+    bridgeUrl,
+    bridgeBearer,
+    cwd: worktreePath,
+  }
+}
+
 export function constrainedLoopsGenerator(config: OuterLoopConfig): CandidateGenerator {
   const shotDir = join(config.outDir, 'proposer-shots')
-  // The run-wide CostLedger the current generate() call rides — captured so
-  // onShotCompleted can settle each shot's spend into it. maxConcurrency is 1
-  // and shots run inside generate(), so a single slot cannot interleave.
-  let activeLedger: CostLedgerHandle | undefined
-  let activePhase: string | undefined
   const inner = agenticGenerator({
-    harness: config.proposerHarness,
+    profile: configuredAuthorProfile(config),
+    executorForWorktree: authorExecutorForWorktree,
     timeoutMs: config.proposerTimeoutMs,
     buildPrompt: round4BuildPrompt,
     verify: loopsCandidateVerifier(config.loopsRepo),
-    runHarness: (options) => runLocalHarness({ ...options, env: proposerShotEnv(config.proposerHarness) }),
-    // Three runs died as "author shot exited with code 1" with the shot's
-    // stderr lost (nothing wires receipt persistence by default). Persist every
-    // attempted shot — receipt plus bounded stream tails — so the NEXT failure
-    // names its cause from disk. Shared implementation with the gen-3 fan-out
-    // authors (proposer-fanout.mts): receipt persistence + spend settlement
-    // into the run ledger for the claude/opencode paths whose shots would
-    // otherwise read $0.
     onShotCompleted: proposerShotHooks({
       shotDir,
-      harness: config.proposerHarness,
-      ledger: () => activeLedger,
-      phase: () => activePhase,
     }),
   })
   return {
     kind: `round4-constrained:${inner.kind}`,
     proposesWithoutFindings: true,
-    generate: (args) => {
-      activeLedger = args.costLedger
-      activePhase = args.costPhase
-      // args.maxShots is the LIB's dial (budget.maxImprovementShots → the
-      // improvement driver); capabilities.mts guarantees it is threaded.
-      return inner.generate(args)
-    },
+    generate: (args) => inner.generate(args),
   }
 }
 
@@ -2001,12 +2033,9 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     evidence_refs: [],
     proposal_origin: 'search',
   })
-  const analyzeGeneration = async (input: {
-    generation: number
-    runDir: string
-    candidates: Array<{ surfaceHash: string; composite: number; campaign: unknown }>
-    history: unknown[]
-  }): Promise<ProposalFinding[]> => {
+  const analyzeGeneration: NonNullable<
+    ImproveCodeRunOptions<Scenario, R4Artifact>['analyzeGeneration']
+  > = async (input): Promise<ProposalFinding[]> => {
     signal?.throwIfAborted()
     const runs: SupRunArtifacts[] = []
     if (input.generation === -1) {
@@ -2030,9 +2059,11 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
     // Candidate failure artifacts come from the LIB's campaign cells (the
     // artifacts name their own runDir/patch) — resume-replayed cells included,
     // which the old recorder-based lookup silently dropped.
-    const worstFirst = [...input.candidates].sort((a, b) => a.composite - b.composite).slice(0, 4)
+    const worstFirst = [...input.candidates]
+      .sort((a, b) => (a.composite ?? -Infinity) - (b.composite ?? -Infinity))
+      .slice(0, 4)
     for (const cand of worstFirst) {
-      const cells = cellsFromCampaign(cand.campaign as CampaignResult<R4Artifact, Scenario>)
+      const cells = cellsFromCampaign(cand.campaign)
       for (const cell of cells) {
         const a = cell.artifact
         if (a === null || a.kind !== 'swe-arm' || !a.runDir) continue
@@ -2083,16 +2114,17 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
         : {
             ...input,
             candidates: input.candidates.map((cand) => {
-              const campaign = cand.campaign as { cells?: Array<{ scenarioId: string }> } | null
-              if (campaign === null || typeof campaign !== 'object' || !Array.isArray(campaign.cells)) return cand
               return {
                 ...cand,
-                campaign: { ...campaign, cells: campaign.cells.filter((c) => !privateIids.has(c.scenarioId)) },
+                campaign: {
+                  ...cand.campaign,
+                  cells: cand.campaign.cells.filter((cell) => !privateIids.has(cell.scenarioId)),
+                },
               }
             }),
           }
     signal?.throwIfAborted()
-    const rawFindings = await rawTrace(censoredInput as Parameters<typeof rawTrace>[0])
+    const rawFindings = await rawTrace(censoredInput)
     signal?.throwIfAborted()
     return [steeringFinding, ...ensembleFindings, ...rawFindings]
   }
@@ -2161,6 +2193,7 @@ export async function runRound(config: OuterLoopConfig, signal?: AbortSignal): P
       repoRoot: config.loopsRepo,
       baseRef: config.loopsBaseRef,
       worktreeDir: join(config.outDir, 'loops-worktrees'),
+      profile: configuredAuthorProfile(config),
       generator,
     },
     scenarios: sweScenarios,
@@ -2764,17 +2797,8 @@ if (isMain) {
       let config: OuterLoopConfig
       let flavor: string
       if (gen4 || gen5) {
-        // The codex seat rides only when the CLI is actually present — a config
-        // naming a missing harness would fail the whole launch at t=0.
-        const codexProbe = await run('codex', ['--version'])
-        const includeCodex = codexProbe.code === 0
-        if (!includeCodex) {
-          console.log(
-            `codex CLI unavailable (rc=${codexProbe.code}) — ${gen5 ? 'gen-5' : 'gen-4'} config written WITHOUT the codex-author seat`,
-          )
-        }
         const make = gen5 ? defaultGen5Config : defaultGen4Config
-        config = make(undefined, { ...(outDirName ? { outDirName } : {}), includeCodex })
+        config = make(undefined, { ...(outDirName ? { outDirName } : {}) })
         flavor = gen5 ? 'gen-5' : 'gen-4'
       } else {
         const make = gen3 ? defaultGen3Config : defaultRound4Config

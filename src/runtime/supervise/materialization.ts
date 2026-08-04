@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   agentProfileSchema,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -22,11 +23,25 @@ type RuntimeOwnedExecutorMaterialization =
       readonly declaration: ExecutorMaterialization
       readonly binding?: ExecutorExecutionBinding
     }
+  | {
+      /** A Runtime-owned external executor whose exact launch is known, but whose remote
+       * materializer has not yet returned its terminal acknowledgement. This private state lets
+       * Runtime validate the planned authority before execution without presenting it as proof
+       * that the remote process actually used that plan. */
+      readonly kind: 'pending'
+      readonly runtime: Runtime
+      readonly declaration: ExecutorMaterialization
+      readonly binding: ExecutorExecutionBinding
+    }
   | { readonly kind: 'deferred'; readonly runtime: Runtime }
+
+interface RuntimeOwnedExecutorMaterializationRef {
+  current: RuntimeOwnedExecutorMaterialization
+}
 
 const runtimeOwnedExecutorMaterializations = new WeakMap<
   object,
-  RuntimeOwnedExecutorMaterialization
+  RuntimeOwnedExecutorMaterializationRef
 >()
 const runtimeOwnedScopeOwners = new WeakMap<object, Runtime>()
 
@@ -62,9 +77,8 @@ export function attestRuntimeOwnedExecutor<Out>(
   declaration: ExecutorMaterialization,
   binding?: ExecutorExecutionBinding,
 ): Executor<Out> {
-  runtimeOwnedExecutorMaterializations.set(
-    executor as object,
-    Object.freeze({
+  runtimeOwnedExecutorMaterializations.set(executor as object, {
+    current: Object.freeze({
       kind: 'known',
       declaration: detachedSnapshot(declaration, 'runtime-owned executor materialization'),
       ...(binding === undefined
@@ -73,7 +87,48 @@ export function attestRuntimeOwnedExecutor<Out>(
             binding: detachedSnapshot(binding, 'runtime-owned executor execution binding'),
           }),
     }),
-  )
+  })
+  return executor
+}
+
+/** Brand an external Runtime executor whose exact remote materialization is provable only after
+ * its terminal protocol acknowledgement. The declaration is a planned authority check, never a
+ * known receipt; callers must finalize this same object after validating the acknowledgement. */
+export function attestRuntimeOwnedPendingExecutor<Out>(
+  executor: Executor<Out>,
+  runtime: Runtime,
+  declaration: ExecutorMaterialization,
+  binding: ExecutorExecutionBinding,
+): Executor<Out> {
+  runtimeOwnedExecutorMaterializations.set(executor as object, {
+    current: Object.freeze({
+      kind: 'pending',
+      runtime,
+      declaration: detachedSnapshot(declaration, 'pending executor materialization'),
+      binding: detachedSnapshot(binding, 'pending executor execution binding'),
+    }),
+  })
+  return executor
+}
+
+/** Replace a private pending brand with terminally acknowledged evidence. A caller-owned executor
+ * cannot enter this path because only this module can create the pending WeakMap entry. */
+export function finalizeRuntimeOwnedPendingExecutor<Out>(
+  executor: Executor<Out>,
+  declaration: ExecutorMaterialization,
+  binding: ExecutorExecutionBinding,
+): Executor<Out> {
+  const ref = runtimeOwnedExecutorMaterializations.get(executor as object)
+  if (ref?.current.kind !== 'pending' || ref.current.runtime !== executor.runtime) {
+    throw new ValidationError(
+      'executor materialization: terminal acknowledgement has no matching Runtime-owned pending executor',
+    )
+  }
+  ref.current = Object.freeze({
+    kind: 'known',
+    declaration: detachedSnapshot(declaration, 'runtime-owned executor materialization'),
+    binding: detachedSnapshot(binding, 'runtime-owned executor execution binding'),
+  })
   return executor
 }
 
@@ -83,21 +138,20 @@ export function attestRuntimeOwnedDeferredExecutor<Out>(
   executor: Executor<Out>,
   runtime: Runtime,
 ): Executor<Out> {
-  runtimeOwnedExecutorMaterializations.set(
-    executor as object,
-    Object.freeze({ kind: 'deferred', runtime }),
-  )
+  runtimeOwnedExecutorMaterializations.set(executor as object, {
+    current: Object.freeze({ kind: 'deferred', runtime }),
+  })
   return executor
 }
 
 /** Preserve the runtime-owned attestation when a trusted wrapper changes result semantics only. */
-export function inheritRuntimeOwnedExecutorAttestation<Out>(
-  source: Executor<Out>,
+export function inheritRuntimeOwnedExecutorAttestation<In, Out>(
+  source: Executor<In>,
   wrapper: Executor<Out>,
 ): Executor<Out> {
-  const attestation = runtimeOwnedExecutorMaterializations.get(source as object)
-  if (attestation !== undefined) {
-    runtimeOwnedExecutorMaterializations.set(wrapper as object, attestation)
+  const ref = runtimeOwnedExecutorMaterializations.get(source as object)
+  if (ref !== undefined) {
+    runtimeOwnedExecutorMaterializations.set(wrapper as object, ref)
   }
   return wrapper
 }
@@ -106,7 +160,7 @@ export function inheritRuntimeOwnedExecutorAttestation<Out>(
 export function runtimeOwnedExecutorMaterialization<Out>(
   executor: Executor<Out>,
 ): ExecutorMaterialization | undefined {
-  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)
+  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)?.current
   return attestation?.kind === 'known' ? attestation.declaration : undefined
 }
 
@@ -114,15 +168,34 @@ export function runtimeOwnedExecutorMaterialization<Out>(
 export function runtimeOwnedExecutorExecutionBinding<Out>(
   executor: Executor<Out>,
 ): ExecutorExecutionBinding | undefined {
-  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)
+  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)?.current
   return attestation?.kind === 'known' ? attestation.binding : undefined
+}
+
+/** Read a planned external declaration only for Runtime's private pending brand. This is useful for
+ * pre-execution authority checks, but must never be turned into a known durable receipt. */
+export function runtimeOwnedPendingExecutorMaterialization<Out>(executor: Executor<Out>):
+  | {
+      readonly runtime: Runtime
+      readonly declaration: ExecutorMaterialization
+      readonly binding: ExecutorExecutionBinding
+    }
+  | undefined {
+  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)?.current
+  return attestation?.kind === 'pending'
+    ? {
+        runtime: attestation.runtime,
+        declaration: attestation.declaration,
+        binding: attestation.binding,
+      }
+    : undefined
 }
 
 /** Read the expected leaf runtime only for a privately branded deferred orchestration executor. */
 export function runtimeOwnedDeferredExecutorRuntime<Out>(
   executor: Executor<Out>,
 ): Runtime | undefined {
-  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)
+  const attestation = runtimeOwnedExecutorMaterializations.get(executor as object)?.current
   return attestation?.kind === 'deferred' ? attestation.runtime : undefined
 }
 
@@ -158,9 +231,7 @@ export function knownMaterializationReceipt(
   let materializationPlanDigest: Sha256Digest
   let platformAttachmentsDigest: Sha256Digest | undefined
   try {
-    // AgentProfile parsing represents omitted optional fields as `undefined`, while the backend's
-    // JSON request omits them. Commit the exact JSON document that crosses that boundary.
-    effectiveProfileDigest = canonicalCandidateDigest(jsonWireSnapshot(effectiveProfile.data))
+    effectiveProfileDigest = canonicalAgentProfileDigest(effectiveProfile.data)
     materializationPlanDigest = canonicalCandidateDigest(jsonWireSnapshot(declaration.plan))
     platformAttachmentsDigest =
       declaration.platformAttachments === undefined
@@ -252,7 +323,7 @@ export function unknownExecutionBindingReceipt(
 /** Derive an authored-profile digest without turning non-canonical input into a fake identity. */
 export function authoredProfileDigest(profile: unknown): Sha256Digest | undefined {
   try {
-    return canonicalCandidateDigest(profile)
+    return canonicalAgentProfileDigest(agentProfileSchema.parse(profile))
   } catch {
     return undefined
   }

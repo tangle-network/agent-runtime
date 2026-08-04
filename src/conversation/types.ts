@@ -26,9 +26,8 @@ export interface ConversationParticipant {
   name: string
   /**
    * Backend that runs this participant's turn. Reuses the existing
-   * `AgentExecutionBackend` contract from `runAgentTaskStream`, so any
-   * registered backend (iterable, sandbox, OpenAI-compatible) works without
-   * adaptation.
+   * `AgentExecutionBackend` contract from `runAgentTaskStream`, so an iterable,
+   * sandbox, or profile-backed Runtime executor works through the same runner.
    */
   backend: AgentExecutionBackend
   /**
@@ -57,9 +56,9 @@ export interface ConversationParticipant {
    * - `(state) => AuthSource` — per-turn / per-condition decision, e.g. base
    *   sub-services are agent-owned but premium add-ons forward the user.
    *
-   * The agent's own credentials live on the backend (set at construction
-   * time, e.g. `createOpenAICompatibleBackend({ apiKey })`); this field is
-   * purely about *whether to also forward the user's identity downstream*.
+   * The agent's own credentials live on its caller-owned backend or
+   * profile-bound Runtime executor; this field is purely about *whether to
+   * also forward the user's identity downstream*.
    */
   authSource?: AuthSource
 }

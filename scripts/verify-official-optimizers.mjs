@@ -12,6 +12,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  assertPeerMatchesDevelopmentDependency,
+  currentMinorPeerRange,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
 } from './lib/packed-package-test.mjs'
@@ -45,6 +47,16 @@ assertVersion(
   currentMinorPeerRange(agentEvalVersion),
   '@tangle-network/agent-eval peer dependency',
 )
+assertVersion(
+  packageJson.peerDependencies?.['@tangle-network/agent-interface'],
+  currentMinorPeerRange(workspaceAgentInterfaceVersion),
+  '@tangle-network/agent-interface peer dependency',
+)
+assertVersion(
+  packageJson.peerDependencies?.['@tangle-network/sandbox'],
+  currentMinorPeerRange(workspaceSandboxVersion),
+  '@tangle-network/sandbox peer dependency',
+)
 
 try {
   run('pnpm', ['build'], repoRoot)
@@ -73,6 +85,13 @@ try {
   mkdirSync(unpackDir, { recursive: true })
   run('tar', ['-xzf', runtimeTarball, '-C', unpackDir], repoRoot)
   const packedPackageJson = readJson(join(unpackDir, 'package', 'package.json'))
+  for (const name of [
+    '@tangle-network/agent-eval',
+    '@tangle-network/agent-interface',
+    '@tangle-network/sandbox',
+  ]) {
+    assertPeerMatchesDevelopmentDependency(packedPackageJson, name)
+  }
   const packedAgentEvalVersion = requiredPackedDevelopmentDependency(
     packedPackageJson,
     '@tangle-network/agent-eval',
@@ -299,12 +318,6 @@ function assertVersion(actual, expected, label) {
   if (actual !== expected) {
     throw new Error(`${label} must be ${expected}, found ${String(actual)}`)
   }
-}
-
-function currentMinorPeerRange(version) {
-  const match = /^(\d+)\.(\d+)\.\d+(?:-.+)?$/.exec(version)
-  if (!match) throw new Error(`cannot derive peer range from version ${version}`)
-  return `>=${version} <${match[1]}.${Number(match[2]) + 1}.0`
 }
 
 function readJson(path) {

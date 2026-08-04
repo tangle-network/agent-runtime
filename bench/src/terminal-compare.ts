@@ -7,7 +7,7 @@
  * judge here.
  *
  * Per task:
- *   ROUND 1 (blind) — `tb run --agent opencode` → parse results.json →
+ *   ROUND 1 (blind) — Terminal-Bench runs one exact AgentProfile → parse results.json →
  *                     resolved_1. This IS blind pass@1.
  *   ROUND r (refine, only if blind failed AND rounds>1) — extract a compact
  *                     summary of round 1's commands + terminal state + the
@@ -26,11 +26,12 @@
  */
 
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, readdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { homedir } from 'node:os'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 
 import { appendRunRecord, type AttemptRecord, type RunRecord } from './corpus'
 import { runPool } from './run-pool'
@@ -38,7 +39,7 @@ import { runPool } from './run-pool'
 const BENCH_ROOT = fileURLToPath(new URL('..', import.meta.url))
 const TB = join(BENCH_ROOT, '.venv', 'bin', 'tb')
 const RUNS_DIR = join(BENCH_ROOT, 'runs')
-const REFINE_IMPORT = 'tb_agents.opencode_refine_agent:OpenCodeRefineAgent'
+const PROFILE_AGENT_IMPORT = 'tb_agents.opencode_router_agent:OpenCodeRouterAgent'
 // The durable learning-flywheel corpus (docs/learning-flywheel.md). terminal-bench
 // is bench-orchestrated (tb owns the containers) so it cannot use buildRunRecord,
 // which consumes runAgentRounds Iterations; instead each task's per-round tb artifacts are
@@ -47,7 +48,27 @@ const REFINE_IMPORT = 'tb_agents.opencode_refine_agent:OpenCodeRefineAgent'
 const CORPUS = process.env.CORPUS ?? join(BENCH_ROOT, 'corpus', 'terminal.jsonl')
 
 const DATASET = process.env.TB_DATASET ?? 'terminal-bench-core==0.1.1'
-const MODEL = process.env.TB_MODEL ?? 'deepseek/deepseek-v4-pro'
+const MODEL = process.env.TB_MODEL ?? 'deepseek-v4-flash'
+const PROVIDER = process.env.TB_PROVIDER ?? 'tangle-router'
+const PROFILE = agentProfileSchema.parse({
+  name: 'terminal-compare-worker',
+  harness: 'opencode',
+  model: { provider: PROVIDER, default: MODEL },
+  prompt: {
+    systemPrompt:
+      'Solve the Terminal-Bench task completely in the provided container and verify the result before finishing.',
+  },
+  permission: {
+    edit: 'allow',
+    bash: 'allow',
+    webfetch: 'allow',
+    read: 'allow',
+    write: 'allow',
+    external_directory: 'allow',
+  },
+})
+const PROFILE_MODEL = MODEL.includes('/') ? MODEL : `${PROVIDER}/${MODEL}`
+const PROFILE_PATH = join(RUNS_DIR, 'terminal-compare.profile.json')
 const ROUNDS = Math.max(1, Number(process.env.ROUNDS ?? 2))
 const CONCURRENCY = Math.max(1, Number(process.env.CONCURRENCY ?? 2))
 // Per-round wall-clock cap (ms). tb itself enforces task timeouts; this is the
@@ -330,7 +351,7 @@ async function captureRunRecord(
     benchmark: 'terminal-bench',
     instanceId: taskId,
     condition: ROUNDS > 1 ? `refine@${ROUNDS}` : 'blind',
-    model: MODEL,
+    model: PROFILE.model?.default ?? MODEL,
     blindResolved,
     resolved: last ? last.resolved : blindResolved,
     attempts,
@@ -392,7 +413,7 @@ async function runRound(taskId: string, round: number, prior: string): Promise<R
     'run',
     '-d', DATASET,
     '--task-id', taskId,
-    '-m', MODEL,
+    '-m', PROFILE_MODEL,
     '--output-path', RUNS_DIR,
     '--run-id', runId,
     '--n-concurrent', '1',
@@ -404,14 +425,12 @@ async function runRound(taskId: string, round: number, prior: string): Promise<R
   // literals in values. Hex-encode the prior with an 'h' sentinel so it survives
   // the split and is kept as a string; the refine agent decodes it.
   const priorHex = `h${Buffer.from(prior, 'utf8').toString('hex')}`
-  const args =
-    round === 1
-      ? [...baseArgs, '--agent', 'opencode']
-      : [
-          ...baseArgs,
-          '--agent-import-path', REFINE_IMPORT,
-          '--agent-kwarg', `prior_attempt_hex=${priorHex}`,
-        ]
+  const args = [
+    ...baseArgs,
+    '--agent-import-path', PROFILE_AGENT_IMPORT,
+    '--agent-kwarg', `profile_path=${PROFILE_PATH}`,
+    ...(round > 1 ? ['--agent-kwarg', `prior_attempt_hex=${priorHex}`] : []),
+  ]
   await runTb(args, runId)
   const resolved = await readResolved(outputDir, taskId)
   const trialDir = await findTrialDir(outputDir, taskId)
@@ -457,6 +476,7 @@ async function solveTask(taskId: string): Promise<{
 
 async function main(): Promise<void> {
   await mkdir(RUNS_DIR, { recursive: true })
+  await writeFile(PROFILE_PATH, JSON.stringify(PROFILE, null, 2) + '\n')
   // Validate auth up front — fail loud before spending a single container.
   must('OPENAI_API_KEY')
 

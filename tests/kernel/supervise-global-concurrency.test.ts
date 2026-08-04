@@ -4,9 +4,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import { driverChild } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import { supervisorAgent } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -14,7 +12,9 @@ import type {
   ExecutorResult,
   Scope,
 } from '../../src/runtime/supervise/types'
+import { supervise, supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 const zeroCost = { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }
 const knownZero = {
@@ -59,7 +59,11 @@ function trackedLeaf(name: string, activity?: Activity, holdMs = 0): Agent<unkno
     teardown: () => Promise.resolve({ destroyed: true }),
     resultArtifact: () => result,
   }
-  const spec: AgentSpec = { profile: { name }, harness: null, executor }
+  const spec: AgentSpec = {
+    profile: testAgentProfile(name, { harness: 'cli-base' }),
+    harness: null,
+    executor,
+  }
   return { name, act: async () => result.out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -77,7 +81,11 @@ function failingLeaf(name: string): Agent<unknown, unknown> {
       throw new Error('failed executor has no result')
     },
   }
-  const spec: AgentSpec = { profile: { name }, harness: null, executor }
+  const spec: AgentSpec = {
+    profile: testAgentProfile(name, { harness: 'cli-base' }),
+    harness: null,
+    executor,
+  }
   return { name, act: async () => undefined, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -103,7 +111,11 @@ function abortableLeaf(name: string): Agent<unknown, unknown> {
       throw new Error('aborted executor has no result')
     },
   }
-  const spec: AgentSpec = { profile: { name }, harness: null, executor }
+  const spec: AgentSpec = {
+    profile: testAgentProfile(name, { harness: 'cli-base' }),
+    harness: null,
+    executor,
+  }
   return { name, act: async () => undefined, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -123,7 +135,7 @@ describe('supervise tree-wide worker capacity', () => {
       executorSpec: AgentSpec
     }
     unkillable.executorSpec = {
-      profile: { name: 'unkillable' },
+      profile: testAgentProfile('unkillable', { harness: 'cli-base' }),
       harness: null,
       executor: {
         runtime: 'router',
@@ -182,17 +194,17 @@ describe('supervise tree-wide worker capacity', () => {
       const childProfiles: AgentProfile[] =
         depth === 1
           ? [
-              {
-                name: `${profile.name}-sub-manager`,
+              testAgentProfile(`${profile.name}-sub-manager`, {
                 harness: 'cli-base',
                 metadata: { role: 'driver', depth: 2 },
-              },
+              }),
             ]
-          : [0, 1].map((index) => ({
-              name: `${profile.name}-leaf-${index}`,
-              harness: 'cli-base',
-              metadata: { role: 'worker', depth: 3 },
-            }))
+          : [0, 1].map((index) =>
+              testAgentProfile(`${profile.name}-leaf-${index}`, {
+                harness: 'cli-base',
+                metadata: { role: 'worker', depth: 3 },
+              }),
+            )
       const brain = scriptedBrain([
         {
           toolCalls: childProfiles.map((child) => ({
@@ -232,11 +244,10 @@ describe('supervise tree-wide worker capacity', () => {
         toolCalls: [0, 1].map((index) => ({
           name: 'spawn_agent',
           arguments: {
-            profile: {
-              name: `manager-${index}`,
+            profile: testAgentProfile(`manager-${index}`, {
               harness: 'cli-base',
               metadata: { role: 'driver', depth: 1 },
-            },
+            }),
             task: `run branch ${index}`,
           },
         })),
@@ -247,7 +258,7 @@ describe('supervise tree-wide worker capacity', () => {
     ])
 
     const result = await supervise(
-      { name: 'root', harness: 'cli-base' },
+      testAgentProfile('root', { harness: 'cli-base' }),
       'run a three-level tree',
       {
         budget: { maxIterations: 500, maxTokens: 500_000 },

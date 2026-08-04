@@ -97,7 +97,12 @@ const method: ImproveMethodFactory<PackedScenario, string> = (context) => ({
     }
     return {
       winnerSurface: 'CANDIDATE',
-      cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+      cost: {
+        totalCostUsd: 0,
+        costProvenance: { kind: 'observed', usd: 0 },
+        accountingComplete: true,
+        incompleteReasons: [],
+      },
     }
   },
 })

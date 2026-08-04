@@ -619,7 +619,11 @@ describe('environment provider adapters', () => {
         },
       })
       const spec: AgentSpec = {
-        profile: { name: 'pi-worker', harness: 'pi' },
+        profile: {
+          name: 'pi-worker',
+          harness: 'pi',
+          model: { provider: 'offline', default: 'offline-test-model' },
+        },
         harness: null,
       }
       const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
@@ -773,6 +777,7 @@ describe('environment provider adapters', () => {
         instructions: ['Keep exact evidence.'],
       },
       model: {
+        provider: 'zai',
         default: 'zai/glm-5.2',
         reasoningEffort: 'high',
       },
@@ -832,7 +837,14 @@ describe('environment provider adapters', () => {
     const usage = await running
 
     expect(executor.runtime).toBe('session-provider')
-    expect(created?.profile).toBe(profile)
+    expect(created?.profile).toStrictEqual(profile)
+    expect(created?.profile).not.toBe(profile)
+    expect(Object.isFrozen(created?.profile)).toBe(true)
+    expect(typeof created?.profile).toBe('object')
+    if (typeof created?.profile !== 'object' || created.profile === null) {
+      throw new Error('expected the exact AgentProfile snapshot')
+    }
+    expect(Object.isFrozen(created.profile.model)).toBe(true)
     expect(created).toMatchObject({
       backend: 'pi',
       workspace: { cwd: '/repo' },
@@ -845,11 +857,12 @@ describe('environment provider adapters', () => {
     })
     expect(usage).toEqual([
       { kind: 'tokens', input: 2, output: 7 },
-      { kind: 'cost', usd: 0.1 },
+      { kind: 'cost', usd: 0.1, usdKnown: false },
       { kind: 'iteration' },
       { kind: 'tokens', input: 5, output: 13 },
-      { kind: 'cost', usd: 0.2 },
+      { kind: 'cost', usd: 0.2, usdKnown: false },
       { kind: 'iteration' },
+      { kind: 'cost', usd: 0, usdKnown: false },
     ])
     expect(turns).toHaveLength(3)
     expect(turns[0]).toMatchObject({ prompt: 'investigate' })
@@ -952,7 +965,7 @@ describe('environment provider adapters', () => {
       profile: {
         name: 'normalized-worker',
         harness: 'pi',
-        metadata: { backendType: 'codex' },
+        model: { provider: 'offline', default: 'offline-test-model' },
       },
       harness: null,
     }
@@ -1017,13 +1030,14 @@ describe('environment provider adapters', () => {
     const spec: AgentSpec = {
       profile: {
         name: 'missing-harness',
+        model: { provider: 'offline', default: 'offline-test-model' },
         metadata: { backendType: 'pi' },
       },
       harness: null,
     }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
 
-    expect(() => factory(spec, ctx)).toThrow(/AgentProfile\.harness is required/)
+    expect(() => factory(spec, ctx)).toThrow(/AgentProfile\.harness must be explicit/)
     expect({ capabilityCalls, createCalls }).toEqual({ capabilityCalls: 0, createCalls: 0 })
   })
 
@@ -1055,7 +1069,11 @@ describe('environment provider adapters', () => {
       },
     })
     const spec: AgentSpec = {
-      profile: { name: 'pi-worker', harness: 'pi' },
+      profile: {
+        name: 'pi-worker',
+        harness: 'pi',
+        model: { provider: 'offline', default: 'offline-test-model' },
+      },
       harness: 'specHarness' in conflict ? conflict.specHarness : null,
     }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
@@ -1077,7 +1095,14 @@ describe('environment provider adapters', () => {
       },
     }
     const factory = createExecutor({ backend: 'provider', provider })
-    const spec: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
+    const spec: AgentSpec = {
+      profile: {
+        name: 'worker',
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'offline-test-model' },
+      },
+      harness: null,
+    }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
     const executor = factory(spec, ctx)
 
@@ -1086,7 +1111,7 @@ describe('environment provider adapters', () => {
     expect(executor.resultArtifact().out).toMatchObject({ content: 'from-package' })
   })
 
-  it('keeps the runtime-selected model marker out of provider.create', async () => {
+  it('refuses the runtime-selected model marker before provider.create', () => {
     let createdProfile: AgentProfile | string | undefined
     let taskProfile: AgentProfile | undefined
     const provider: AgentEnvironmentProvider = {
@@ -1104,7 +1129,6 @@ describe('environment provider adapters', () => {
     const factory = createExecutor({
       backend: 'provider',
       provider,
-      profileForCreate: (profile) => ({ ...profile, description: 'create-only transform' }),
       taskToTurn: (task, profile) => {
         taskProfile = profile
         return { prompt: String(task) }
@@ -1112,6 +1136,7 @@ describe('environment provider adapters', () => {
     })
     const profile: AgentProfile = {
       name: 'runtime-model-worker',
+      harness: 'pi',
       model: {
         provider: 'tangle-router',
         default: ` ${HARNESS_NATIVE_MODEL} `,
@@ -1120,17 +1145,9 @@ describe('environment provider adapters', () => {
     }
     const spec: AgentSpec = { profile, harness: null }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
-    const executor = factory(spec, ctx)
-
-    await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
-
-    expect(createdProfile).toMatchObject({
-      name: 'runtime-model-worker',
-      description: 'create-only transform',
-      model: { provider: 'tangle-router', reasoningEffort: 'high' },
-    })
-    expect((createdProfile as AgentProfile).model?.default).toBeUndefined()
-    expect(taskProfile).toBe(profile)
+    expect(() => factory(spec, ctx)).toThrow(/model\.default is runtime-selected/)
+    expect(createdProfile).toBeUndefined()
+    expect(taskProfile).toBeUndefined()
   })
 
   it('resolves a named provider through the runtime registry', async () => {
@@ -1157,14 +1174,21 @@ describe('environment provider adapters', () => {
         workspace: { cwd: '/repo' },
       },
     })
-    const spec: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
+    const spec: AgentSpec = {
+      profile: {
+        name: 'worker',
+        harness: 'codex',
+        model: { provider: 'openai', default: 'offline-test-model' },
+      },
+      harness: null,
+    }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
     const executor = factory(spec, ctx)
 
     await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
 
     expect(created).toMatchObject({
-      profile: { name: 'worker' },
+      profile: spec.profile,
       backend: 'codex',
       workspace: { cwd: '/repo' },
     })

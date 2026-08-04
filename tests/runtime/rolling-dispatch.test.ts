@@ -33,6 +33,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const usage: UsageEvent[] = [{ kind: 'iteration' }, { kind: 'tokens', input: 10, output: 10 }]
 
@@ -67,7 +68,7 @@ function leaf(
     }),
   }
   const spec: AgentSpec = {
-    profile: { name } as AgentSpec['profile'],
+    profile: testAgentProfile(name),
     harness: null,
     executor: executor as Executor<unknown>,
   }
@@ -282,7 +283,7 @@ describe('fanout({ width })', () => {
    *  each item's executor can record when it ran. */
   function persona(live: { now: number; peak: number }) {
     const rootSpec: AgentSpec = {
-      profile: { name: 'root' } as AgentSpec['profile'],
+      profile: testAgentProfile('root'),
       harness: null,
       executor: (leaf('root', 0, live) as unknown as { executorSpec: AgentSpec }).executorSpec
         .executor,

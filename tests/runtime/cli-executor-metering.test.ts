@@ -3,7 +3,14 @@ import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
 import type { AgentSpec, ExecutorContext, UsageEvent } from '../../src/runtime/supervise/types'
 
-const spec: AgentSpec = { profile: { name: 'raw-cli-worker' }, harness: null }
+const spec: AgentSpec = {
+  profile: {
+    name: 'raw-cli-worker',
+    harness: 'cli-base',
+    model: { provider: 'offline', default: 'offline-test-model' },
+  },
+  harness: null,
+}
 const context: ExecutorContext = { signal: new AbortController().signal, seams: {} }
 
 async function drain(stream: AsyncIterable<UsageEvent>): Promise<UsageEvent[]> {
@@ -54,13 +61,7 @@ describe('cli backend reports unmetered work as unknown, never as measured zero'
     await executor.teardown('brutalKill')
   })
 
-  it('does NOT mark the dollar channel, which would refuse the exemption it was granted', async () => {
-    // A deliberate boundary, pinned so it reads as a decision rather than a missed field.
-    // `usdKnown: false` is not a marker on this channel but a REFUSAL: under a dollar-capped root
-    // `budget.ts` treats it as a reconcile violation and fails the child. `backend: 'cli'` is
-    // `budgetExempt`, i.e. the kernel already agreed to settle it OUT of the conserved pool, so
-    // marking it would make an explicitly-exempt worker fail after its work had already burned.
-    // Changing that is a policy decision about allowed configurations, not a reporting fix.
+  it('marks unknown dollars so a dollar-capped pool refuses an unmetered CLI result', async () => {
     const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1_000, maxUsd: 5 })
     const reservation = pool.reserve({ maxIterations: 1, maxTokens: 100, maxUsd: 1 })
     if (!reservation.ok) throw new Error(`reservation rejected: ${reservation.reason}`)
@@ -70,10 +71,8 @@ describe('cli backend reports unmetered work as unknown, never as measured zero'
     )
 
     const { spent } = executor.resultArtifact()
-    expect(spent.usdKnown).toBeUndefined()
-    expect(() => pool.reconcile(reservation.ticket, spent)).not.toThrow()
-    // The token taint still reaches the readout, so the accounting is not silently trusted.
-    expect(pool.readout().tokensKnown).toBe(false)
+    expect(spent.usdKnown).toBe(false)
+    expect(() => pool.reconcile(reservation.ticket, spent)).toThrow(/unknown dollar cost/)
     await executor.teardown('brutalKill')
   })
 })

@@ -316,7 +316,7 @@ A separate final-test partition is required because source labels alone cannot p
   substrate (`src/runtime/supervise/`), with `runAgentic`/`defineStrategy`/`runPersonified`.
 - **The published optimization suite**: `@tangle-network/agent-runtime/kernel` (source:
   `src/runtime/`):
-  `Environment`/`Strategy`/`defineStrategy`/`ShotPersona` (`strategy.ts`), `runBenchmark`
+  `Environment`/`Strategy`/`defineStrategy`/`ShotSpec.profile` (`strategy.ts`), `runBenchmark`
   (`run-benchmark.ts`), `createVerifierEnvironment`/`createMcpEnvironment`,
   `harvestCorpus`, `authorStrategy` (`strategy-author.ts`), `auditIntent`, and
   `promotionGate` (`promotion-gate.ts` — the seeded paired-bootstrap holdout gate over

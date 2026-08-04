@@ -184,7 +184,8 @@ describe('runWorktreeHarness profile materialization', () => {
       'src/value.ts': 'export const value = 1\n',
     })
     const profile: AgentProfile = {
-      model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
+      harness: 'codex',
+      model: { provider: 'openai', default: 'gpt-5.4', reasoningEffort: 'xhigh' },
       prompt: {
         systemPrompt: systemMarker,
         instructions: [promptInstructionMarker],
@@ -208,7 +209,6 @@ describe('runWorktreeHarness profile materialization', () => {
       const executor = createWorktreeCliExecutor({
         repoRoot,
         profile,
-        harness: 'codex',
         taskPrompt: taskMarker,
         runId,
         codexReproducible: true,
@@ -672,7 +672,7 @@ describe('runWorktreeHarness profile materialization', () => {
           runHarness,
         }),
       ).rejects.toThrow(
-        /profile materialization would drop axis changes.*modelSmall, modelProvider, modelMetadata, connections, confidential, extensions/su,
+        /profile materialization would drop axis changes.*modelSmall, modelMetadata, connections, confidential, extensions/su,
       )
       expect(runHarness).not.toHaveBeenCalled()
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)

@@ -11,7 +11,7 @@ describe('detectExecutor — in-process selection', () => {
     })
     expect(exec.describe()).toMatch(/in-process/)
     expect(exec.describe()).toContain('/workspace')
-    expect(exec.describe()).toContain('harnesses=[claude-code]')
+    expect(exec.describe()).toContain('harness=profile-selected')
     // In-process placement has no sandbox session — the bin keys detached
     // dispatch off this tag, so it must never read session-backed here.
     expect(exec.placement).toBe('in-process')
@@ -29,31 +29,6 @@ describe('detectExecutor — in-process selection', () => {
         env: { AGENT_RUNTIME_IN_SANDBOX: '1' },
       }),
     ).rejects.toThrow(/AGENT_RUNTIME_REPO_ROOT/)
-  })
-
-  it('passes through configured harnesses list', async () => {
-    const exec = await detectExecutor({
-      sandboxClient: stubClient,
-      env: {
-        AGENT_RUNTIME_IN_SANDBOX: '1',
-        AGENT_RUNTIME_REPO_ROOT: '/wk',
-        AGENT_RUNTIME_LOCAL_HARNESSES: 'claude-code,codex,opencode',
-      },
-    })
-    expect(exec.describe()).toContain('harnesses=[claude-code,codex,opencode]')
-  })
-
-  it('rejects unknown harness name', async () => {
-    await expect(
-      detectExecutor({
-        sandboxClient: stubClient,
-        env: {
-          AGENT_RUNTIME_IN_SANDBOX: '1',
-          AGENT_RUNTIME_REPO_ROOT: '/wk',
-          AGENT_RUNTIME_LOCAL_HARNESSES: 'claude-code,gemini',
-        },
-      }),
-    ).rejects.toThrow(/unknown harness "gemini"/)
   })
 
   it('threads test + typecheck commands into the executor description', async () => {

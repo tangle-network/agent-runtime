@@ -80,7 +80,7 @@ interface CellTrace {
  *   await improve({
  *     surface: 'code',
  *     findings: seedFindings,
- *     code: { repoRoot },
+ *     code: { repoRoot, profile, executorForWorktree, buildPrompt },
  *     runDir: '/abs/run',                 // MUST be a real path — the traces live here
  *     analyzeGeneration: rawTraceDistiller(),
  *     scenarios, judge, agent,

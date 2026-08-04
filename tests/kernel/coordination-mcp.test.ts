@@ -1,4 +1,3 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
@@ -13,6 +12,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 // A real (simple) delivering leaf — NOT a mock of the MCP path; the HTTP→MCP→Scope.spawn is real.
 function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
@@ -32,7 +32,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor: ex }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }

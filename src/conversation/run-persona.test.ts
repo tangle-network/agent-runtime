@@ -5,8 +5,8 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import { describe, expect, it } from 'vitest'
-import { createIterableBackend } from '../backends'
-import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
+import { createExecutor } from '../runtime/supervise/runtime'
+import type { ExecutorFactory } from '../runtime/supervise/types'
 import { runPersonaConversation, runPersonaDispatch } from './run-persona'
 import type { ConversationTurn } from './types'
 
@@ -14,78 +14,68 @@ interface PersonaScenario extends Scenario {
   turns: string[]
 }
 
-/** A fake worker: records the system prompt it saw, answers each turn, and
- *  reports token/cost usage via an llm_call event (so metering is exercised). */
-function fakeWorker(saw: { prompt?: string; calls: number }): AgentExecutionBackend {
-  let n = 0
-  return createIterableBackend({
-    kind: 'fake-worker',
-    async *stream(input, context) {
+/** An injected Router transport: the paid path still goes through the exact profile and Runtime. */
+function fakeExecutor(
+  saw: { prompt?: string; calls: number },
+  options: { role?: 'worker' | 'persona' } = {},
+): ExecutorFactory<unknown> {
+  return createExecutor({
+    backend: 'router',
+    routerBaseUrl: 'https://router.test/v1',
+    routerKey: 'test-key',
+    complete: async (body) => {
       saw.calls += 1
-      const first = input.messages?.[0]
-      if (first?.role === 'system') saw.prompt = first.content
-      n += 1
-      yield {
-        type: 'text_delta',
-        task: context.task,
-        session: context.session,
-        text: `agent-answer-${n}`,
-        timestamp: new Date().toISOString(),
-      } satisfies RuntimeStreamEvent
-      yield {
-        type: 'llm_call',
-        task: context.task,
-        session: context.session,
-        model: 'fake',
-        tokensIn: 10,
-        tokensOut: 5,
-        costUsd: 0.02,
-        latencyMs: 1,
-        timestamp: new Date().toISOString(),
-      } satisfies RuntimeStreamEvent
+      const first = (body.messages as Array<{ role?: string; content?: unknown }> | undefined)?.[0]
+      if (first?.role === 'system' && typeof first.content === 'string') saw.prompt = first.content
+      const persona = options.role === 'persona'
+      return {
+        model: body.model,
+        choices: [
+          {
+            message: { content: persona ? `user-turn-${saw.calls}` : `agent-answer-${saw.calls}` },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: {
+          prompt_tokens: persona ? 100 : 10,
+          completion_tokens: persona ? 50 : 5,
+          cost_usd: persona ? 0.5 : 0.02,
+        },
+      }
     },
   })
 }
 
-/** A profile-driven persona (LLM user-sim): emits a user turn AND reports its
- *  OWN (large) llm_call cost — used to prove the runner never attributes the
- *  persona-driver's spend to the worker. */
-function fakePersonaDriver(saw: { prompt?: string; calls: number }): AgentExecutionBackend {
-  return createIterableBackend({
-    kind: 'fake-persona',
-    async *stream(input, context) {
-      saw.calls += 1
-      const first = input.messages?.[0]
-      if (first?.role === 'system') saw.prompt = first.content
-      yield {
-        type: 'text_delta',
-        task: context.task,
-        session: context.session,
-        text: `user-turn-${saw.calls}`,
-        timestamp: new Date().toISOString(),
-      } satisfies RuntimeStreamEvent
-      yield {
-        type: 'llm_call',
-        task: context.task,
-        session: context.session,
-        model: 'fake-persona',
-        tokensIn: 100,
-        tokensOut: 50,
-        costUsd: 0.5,
-        latencyMs: 1,
-        timestamp: new Date().toISOString(),
-      } satisfies RuntimeStreamEvent
-    },
+function unknownUsageExecutor(): ExecutorFactory<unknown> {
+  return createExecutor({
+    backend: 'router',
+    routerBaseUrl: 'https://router.test/v1',
+    routerKey: 'test-key',
+    complete: async (body) => ({
+      model: body.model,
+      choices: [{ message: { content: 'answer without a provider receipt' } }],
+    }),
   })
 }
 
-const PROFILE = { model: { default: 'fake' } } as AgentProfile
+const PROFILE = {
+  name: 'worker',
+  harness: 'cli-base',
+  model: { provider: 'test', default: 'fake' },
+  prompt: { systemPrompt: 'WORKER PROMPT' },
+} as AgentProfile
 const WORKER_PROFILE = {
-  model: { default: 'fake' },
+  name: 'worker',
+  harness: 'cli-base',
+  model: { provider: 'test', default: 'fake' },
+  prompt: { systemPrompt: 'WORKER-PROMPT' },
   metadata: { tag: 'worker' },
 } as AgentProfile
 const PERSONA_PROFILE = {
-  model: { default: 'fake-persona' },
+  name: 'persona',
+  harness: 'cli-base',
+  model: { provider: 'test', default: 'fake-persona' },
+  prompt: { systemPrompt: 'PERSONA-PROMPT' },
   metadata: { tag: 'persona' },
 } as AgentProfile
 
@@ -116,8 +106,7 @@ describe('runPersonaConversation', () => {
     const result = await runPersonaConversation({
       worker: PROFILE,
       persona: { kind: 'scripted', turns: ['intake question', 'follow-up question'] },
-      backendFor: () => fakeWorker(saw),
-      systemPromptOf: () => 'WORKER PROMPT',
+      executorFor: () => fakeExecutor(saw),
     })
     const agentTurns = result.transcript.filter((t: ConversationTurn) => t.speaker === 'agent')
     expect(agentTurns).toHaveLength(2)
@@ -133,8 +122,7 @@ describe('runPersonaConversation', () => {
     const result = await runPersonaConversation({
       worker: PROFILE,
       persona: { kind: 'scripted', turns: ['q1', 'q2'] },
-      backendFor: () => fakeWorker(saw),
-      systemPromptOf: () => 'SYS',
+      executorFor: () => fakeExecutor(saw),
     })
     expect(result.tokensIn).toBe(20)
     expect(result.tokensOut).toBe(10)
@@ -146,10 +134,9 @@ describe('runPersonaConversation', () => {
     await runPersonaConversation({
       worker: PROFILE,
       persona: { kind: 'scripted', turns: ['hi'] },
-      backendFor: () => fakeWorker(saw),
-      systemPromptOf: () => 'PROFILE-PROMPT-XYZ',
+      executorFor: () => fakeExecutor(saw),
     })
-    expect(saw.prompt).toBe('PROFILE-PROMPT-XYZ')
+    expect(saw.prompt).toBe('WORKER PROMPT')
   })
 
   it('requires maxTurns for a profile-driven persona', async () => {
@@ -157,8 +144,7 @@ describe('runPersonaConversation', () => {
       runPersonaConversation({
         worker: PROFILE,
         persona: { kind: 'profile', profile: PROFILE },
-        backendFor: () => fakeWorker({ calls: 0 }),
-        systemPromptOf: () => 'SYS',
+        executorFor: () => fakeExecutor({ calls: 0 }),
       }),
     ).rejects.toThrow(/maxTurns is required/)
   })
@@ -169,9 +155,8 @@ describe('runPersonaConversation', () => {
     const result = await runPersonaConversation({
       worker: WORKER_PROFILE,
       persona: { kind: 'profile', profile: PERSONA_PROFILE },
-      backendFor: (_profile, role) =>
-        role === 'worker' ? fakeWorker(workerSaw) : fakePersonaDriver(personaSaw),
-      systemPromptOf: (p) => (p.metadata?.tag === 'persona' ? 'PERSONA-PROMPT' : 'WORKER-PROMPT'),
+      executorFor: (_profile, role) =>
+        role === 'worker' ? fakeExecutor(workerSaw) : fakeExecutor(personaSaw, { role: 'persona' }),
       maxTurns: 4,
     })
     // alternate, persona leads: persona, worker, persona, worker.
@@ -188,9 +173,10 @@ describe('runPersonaConversation', () => {
     const result = await runPersonaConversation({
       worker: WORKER_PROFILE,
       persona: { kind: 'profile', profile: PERSONA_PROFILE },
-      backendFor: (_profile, role) =>
-        role === 'worker' ? fakeWorker({ calls: 0 }) : fakePersonaDriver({ calls: 0 }),
-      systemPromptOf: () => 'SYS',
+      executorFor: (_profile, role) =>
+        role === 'worker'
+          ? fakeExecutor({ calls: 0 })
+          : fakeExecutor({ calls: 0 }, { role: 'persona' }),
       maxTurns: 4,
     })
     // worker: 2 calls × {in:10,out:5,$0.02}. persona-driver's 2×{in:100,out:50,$0.5}
@@ -205,10 +191,25 @@ describe('runPersonaConversation', () => {
       runPersonaConversation({
         worker: PROFILE,
         persona: { kind: 'scripted', turns: [] },
-        backendFor: () => fakeWorker({ calls: 0 }),
-        systemPromptOf: () => 'SYS',
+        executorFor: () => fakeExecutor({ calls: 0 }),
       }),
     ).rejects.toThrow(/no turns/)
+  })
+
+  it('marks missing worker usage and cost as unknown instead of measured zero', async () => {
+    const result = await runPersonaConversation({
+      worker: PROFILE,
+      persona: { kind: 'scripted', turns: ['q1'] },
+      executorFor: () => unknownUsageExecutor(),
+    })
+
+    expect(result).toMatchObject({
+      tokensIn: 0,
+      tokensOut: 0,
+      costUsd: 0,
+      tokensKnown: false,
+      costUsdKnown: false,
+    })
   })
 })
 
@@ -216,8 +217,7 @@ describe('runPersonaDispatch (matrix adapter)', () => {
   it('is a ProfileDispatchFn that meters through ctx.cost and builds the artifact', async () => {
     const saw = { calls: 0 } as { prompt?: string; calls: number }
     const dispatch = runPersonaDispatch<PersonaScenario, number>({
-      backendFor: () => fakeWorker(saw),
-      systemPromptOf: () => 'SYS',
+      executorFor: () => fakeExecutor(saw),
       personaOf: (s) => ({ kind: 'scripted', turns: s.turns }),
       artifactOf: (transcript) => transcript.filter((t) => t.speaker === 'agent').length,
     })
@@ -243,8 +243,7 @@ describe('runPersonaDispatch (matrix adapter)', () => {
   it('refuses a capped conversation before the worker runs when no hard maximum is supplied', async () => {
     const saw = { calls: 0 } as { prompt?: string; calls: number }
     const dispatch = runPersonaDispatch<PersonaScenario, number>({
-      backendFor: () => fakeWorker(saw),
-      systemPromptOf: () => 'SYS',
+      executorFor: () => fakeExecutor(saw),
       personaOf: (scenario) => ({ kind: 'scripted', turns: scenario.turns }),
       artifactOf: () => 0,
     })
@@ -259,8 +258,7 @@ describe('runPersonaDispatch (matrix adapter)', () => {
 
   it('admits a capped conversation with an executor-enforced maximum', async () => {
     const dispatch = runPersonaDispatch<PersonaScenario, number>({
-      backendFor: () => fakeWorker({ calls: 0 }),
-      systemPromptOf: () => 'SYS',
+      executorFor: () => fakeExecutor({ calls: 0 }),
       personaOf: (scenario) => ({ kind: 'scripted', turns: scenario.turns }),
       artifactOf: (transcript) => transcript.length,
       maximumCharge: { externallyEnforcedMaximumUsd: 0.05 },
@@ -272,6 +270,28 @@ describe('runPersonaDispatch (matrix adapter)', () => {
     ).resolves.toBe(2)
     expect(ctx.ledger.list()).toEqual([
       expect.objectContaining({ maximumCostUsd: 0.05, actualCostUsd: 0.02, costUsd: 0.02 }),
+    ])
+  })
+
+  it('carries missing Router usage and cost into the campaign receipt as unknown', async () => {
+    const dispatch = runPersonaDispatch<PersonaScenario, number>({
+      executorFor: () => unknownUsageExecutor(),
+      personaOf: (scenario) => ({ kind: 'scripted', turns: scenario.turns }),
+      artifactOf: (transcript) => transcript.length,
+    })
+    const ctx = fakeCtx()
+
+    await expect(
+      dispatch(PROFILE, { id: 'unknown-usage', kind: 'persona', turns: ['q1'] }, ctx),
+    ).resolves.toBe(2)
+    expect(ctx.ledger.list()).toEqual([
+      expect.objectContaining({
+        inputTokens: 0,
+        outputTokens: 0,
+        usageUnknown: true,
+        costUnknown: true,
+        costUsd: 0,
+      }),
     ])
   })
 })

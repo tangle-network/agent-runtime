@@ -14,7 +14,14 @@ import {
   type TbExecOutput,
 } from './tb-container-executor.mts'
 
-const spec: AgentSpec = { profile: { name: 'tb-test-worker' }, harness: null }
+const spec: AgentSpec = {
+  profile: {
+    name: 'tb-test-worker',
+    harness: 'opencode',
+    model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+  },
+  harness: null,
+}
 
 function context(): ExecutorContext {
   return { signal: new AbortController().signal, seams: {} }
@@ -78,10 +85,11 @@ printf 'argv:%s\\n' "$*"
   assert.equal(metered.budgetExempt, false, 'usage parser makes the executor metered')
   const meteredResult = await executeOneShot(metered, { command: 'echo hello' })
   assert.equal(meteredResult.out.containerId, 'cid')
-  assert.equal(meteredResult.out.command, 'echo hello')
+  assert.match(meteredResult.out.command, /'echo hello'/)
+  assert.match(meteredResult.out.command, /'tangle-router\/deepseek-v4-flash'/)
   assert.match(
     meteredResult.out.stdout,
-    /argv:exec -i --workdir \/work -e OPENAI_BASE_URL=http:\/\/router\.test cid \/bin\/sh -c echo hello/,
+    /argv:exec -i --workdir \/work -e OPENAI_BASE_URL=http:\/\/router\.test cid \/bin\/sh -c exec 'opencode' 'run' 'echo hello' '-m' 'tangle-router\/deepseek-v4-flash'/,
   )
   assert.deepEqual(meteredResult.spent.tokens, { input: 7, output: 11 })
   assert.equal(meteredResult.spent.usd, 0.004)

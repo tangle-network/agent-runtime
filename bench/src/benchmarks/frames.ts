@@ -25,6 +25,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { runBenchRouterTurn } from '../router-turn'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
 const execFileAsync = promisify(execFile)
@@ -322,24 +323,24 @@ async function tier2Judge(
   candidate: string,
   router: JudgeRouter,
 ): Promise<boolean> {
-  const res = await fetch(`${router.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${router.key}` },
-    body: JSON.stringify({
-      model: router.model,
-      temperature: 0,
-      seed: 0,
-      messages: [{ role: 'user', content: JUDGE_PROMPT(question, gold, candidate) }],
-    }),
-  })
-  if (!res.ok) {
-    throw new Error(`FRAMES Tier-2 judge HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  }
-  const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = body.choices?.[0]?.message?.content
-  if (typeof content !== 'string') {
-    throw new Error(`FRAMES Tier-2 judge returned no message content: ${JSON.stringify(body).slice(0, 300)}`)
-  }
+  const turn = await runBenchRouterTurn(
+    {
+      routerBaseUrl: router.baseUrl,
+      routerKey: router.key,
+      profile: {
+        name: 'frames-equivalence-judge',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: router.model,
+          metadata: { temperature: 0, seed: 0 },
+        },
+      },
+    },
+    JUDGE_PROMPT(question, gold, candidate),
+  )
+  const content = turn.finalText
+  if (!content) throw new Error('FRAMES Tier-2 judge returned no message content')
   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/)
   const raw = (fenced ? fenced[1] : content)?.trim() ?? ''
   let parsed: { verdict?: unknown }

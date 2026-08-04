@@ -17,15 +17,24 @@ interface ChatRequest {
 
 const task: AgenticTask = {
   id: 'task-1',
-  systemPrompt: 'Use the test surface.',
   userPrompt: 'Complete the task.',
 }
 
 const worker: AgenticOptions = {
   routerBaseUrl: 'http://router.test/v1',
   routerKey: 'test-key',
-  model: 'worker-model',
-  maxTokens: 8,
+  workerProfile: {
+    name: 'worker',
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: 'worker-model',
+      reasoningEffort: 'none',
+      metadata: { maxTokens: 8, temperature: 0.2 },
+    },
+    prompt: { systemPrompt: 'Use the test surface.' },
+    tools: {},
+  },
 }
 
 const oneShot = defineStrategy('one-shot', async ({ shot }) => {
@@ -61,8 +70,9 @@ function surface(events: string[]): AgenticSurface {
   }
 }
 
-function okResponse(): Response {
+function okResponse(model = 'worker-model'): Response {
   return Response.json({
+    model,
     choices: [{ message: { content: 'DONE' } }],
     usage: { prompt_tokens: 2, completion_tokens: 1 },
   })
@@ -71,7 +81,8 @@ function okResponse(): Response {
 function stubRouter(
   requests: ChatRequest[],
   events: string[],
-  respond: (request: ChatRequest, index: number) => Response = () => okResponse(),
+  respond: (request: ChatRequest, index: number) => Response = (request) =>
+    okResponse(request.model),
 ): void {
   vi.stubGlobal(
     'fetch',
@@ -85,7 +96,7 @@ function stubRouter(
 }
 
 function isModelCheck(request: ChatRequest): boolean {
-  return request.messages?.[0]?.content === 'Reply OK.'
+  return request.messages?.some((message) => message.content === 'Reply OK.') ?? false
 }
 
 afterEach(() => {
@@ -101,7 +112,19 @@ describe('runBenchmark model availability', () => {
     await runBenchmark({
       environment: surface(events),
       tasks: [task, { ...task, id: 'task-2' }],
-      worker: { ...worker, analystModel: 'analyst-model' },
+      worker: {
+        ...worker,
+        analystProfile: {
+          name: 'analyst',
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: 'analyst-model',
+            reasoningEffort: 'none',
+            metadata: { maxTokens: 8, temperature: 0.2 },
+          },
+        },
+      },
       strategies: [oneShot],
       budget: 1,
       concurrency: 2,
@@ -109,7 +132,7 @@ describe('runBenchmark model availability', () => {
 
     const checks = requests.filter(isModelCheck)
     expect(checks.map((request) => request.model).sort()).toEqual(['analyst-model', 'worker-model'])
-    expect(checks.every((request) => request.max_tokens === 1)).toBe(true)
+    expect(checks.every((request) => request.max_tokens === 8)).toBe(true)
     expect(checks.every((request) => request.reasoning_effort === 'none')).toBe(true)
     expect(events.indexOf('open')).toBe(2)
   })
@@ -123,7 +146,7 @@ describe('runBenchmark model availability', () => {
       tasks: [task],
       worker: {
         ...worker,
-        analystModel: worker.model,
+        analystProfile: worker.workerProfile,
         complete: async () => okResponse().json(),
       },
       strategies: [oneShot],
@@ -152,7 +175,7 @@ describe('runBenchmark model availability', () => {
         onTask,
       }),
     ).rejects.toThrow(
-      'Benchmark model "worker-model" preflight failed: router 404: model has been deprecated',
+      'Benchmark model "worker-model" preflight failed: runBenchmark model preflight (worker-model) failed: routerInlineExecutor: transport failed: router 404: model has been deprecated',
     )
 
     expect(requests).toHaveLength(1)
@@ -167,7 +190,18 @@ describe('runBenchmark model availability', () => {
       runBenchmark({
         environment: surface(events),
         tasks: [task],
-        worker: { ...worker, analystModel: 'analyst-model' },
+        worker: {
+          ...worker,
+          analystProfile: {
+            name: 'analyst',
+            harness: 'cli-base',
+            model: {
+              provider: 'tangle-router',
+              default: 'analyst-model',
+              reasoningEffort: 'none',
+            },
+          },
+        },
         strategies: [oneShot],
         budget: 1,
         modelPreflight: async (model) => {
@@ -252,7 +286,15 @@ describe('runBenchmark model availability', () => {
       tasks: [task],
       worker: {
         ...worker,
-        analystModel: 'analyst-model',
+        analystProfile: {
+          name: 'analyst',
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: 'analyst-model',
+            reasoningEffort: 'none',
+          },
+        },
         complete: async () => okResponse().json(),
       },
       strategies: [oneShot],
@@ -267,7 +309,7 @@ describe('runBenchmark model availability', () => {
     expect(events.indexOf('open')).toBe(2)
   })
 
-  it('retries at temperature one when the provider requires it', async () => {
+  it('does not change the profile temperature when the provider rejects it', async () => {
     const requests: ChatRequest[] = []
     const events: string[] = []
     stubRouter(requests, events, (_request, index) =>
@@ -276,15 +318,17 @@ describe('runBenchmark model availability', () => {
         : okResponse(),
     )
 
-    await runBenchmark({
-      environment: surface(events),
-      tasks: [task],
-      worker,
-      strategies: [oneShot],
-      budget: 1,
-    })
+    await expect(
+      runBenchmark({
+        environment: surface(events),
+        tasks: [task],
+        worker,
+        strategies: [oneShot],
+        budget: 1,
+      }),
+    ).rejects.toThrow('router 400: only temperature 1 is allowed for this model')
 
-    expect(requests.slice(0, 2).map((request) => request.temperature)).toEqual([0.2, 1])
-    expect(events.indexOf('open')).toBe(2)
+    expect(requests.map((request) => request.temperature)).toEqual([0.2])
+    expect(events).not.toContain('open')
   })
 })

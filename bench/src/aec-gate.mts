@@ -22,7 +22,13 @@ import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { composeStrategies } from './directives'
-import { type RouterConfig, routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import {
+  benchProfileModel,
+  benchRouterProfile,
+  type BenchRouterTarget,
+  runBenchRouterTurn,
+  withBenchProfile,
+} from './router-turn'
 import { pool } from './stats.mts'
 
 function must(name: string): string {
@@ -52,7 +58,7 @@ interface AttemptOutcome {
 }
 
 async function runAttempt(
-  cfg: RouterConfig,
+  cfg: BenchRouterTarget,
   adapter: BenchmarkAdapter,
   task: BenchTask,
   prompt: string,
@@ -65,8 +71,15 @@ async function runAttempt(
   let lastErr: unknown
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const res = await routerChatWithUsage(cfg, [{ role: 'user', content: prompt }])
-      const content = typeof res.content === 'string' ? res.content : ''
+      const res = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: withBenchProfile(cfg.profile, { name: 'aec-worker' }),
+        },
+        prompt,
+      )
+      const content = res.finalText
       const verdict = await adapter.judge(task, content)
       return {
         prompt,
@@ -74,8 +87,10 @@ async function runAttempt(
         score: verdict.score,
         resolved: verdict.resolved,
         wallMs: Date.now() - startedAt,
-        ...(res.costUsd !== undefined ? { costUsd: res.costUsd } : {}),
-        ...(res.usage ? { tokensIn: res.usage.input, tokensOut: res.usage.output } : {}),
+        ...(res.usage.costUsd !== undefined ? { costUsd: res.usage.costUsd } : {}),
+        ...(res.usage.tokensKnown === false
+          ? {}
+          : { tokensIn: res.usage.input, tokensOut: res.usage.output }),
       }
     } catch (err) {
       lastErr = err
@@ -115,7 +130,7 @@ interface ArmResult {
 
 async function runArm(
   arm: ArmSpec,
-  cfg: RouterConfig,
+  cfg: BenchRouterTarget,
   adapter: BenchmarkAdapter,
   tasks: BenchTask[],
   k: number,
@@ -144,7 +159,7 @@ async function runArm(
       benchmark: adapter.name,
       instanceId: task.id,
       condition: arm.condition,
-      model: cfg.model,
+      model: benchProfileModel(cfg.profile),
       // k-attempt outcome = any usable attempt resolved (the oracle@k ceiling for
       // this run; the deployable selector is scored separately by corpus-replay).
       resolved: taskOutcomes.some((o) => o.resolved),
@@ -175,7 +190,13 @@ async function main(): Promise<void> {
   if (!Number.isFinite(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isFinite(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
-  const cfg: RouterConfig = { routerBaseUrl, routerKey, model }
+  const cfg: BenchRouterTarget = {
+    routerBaseUrl,
+    routerKey,
+    profile: benchRouterProfile('aec-worker', model, {
+      retry: { maxAttempts: Number(process.env.MAX_ATTEMPTS ?? 3) },
+    }),
+  }
   const bench = process.env.BENCH ?? 'aec-bench'
   const adapter = resolveAdapter(bench)
 

@@ -1,4 +1,3 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { detachedSessionDelegate } from '../../src/mcp/delegates'
@@ -13,8 +12,9 @@ import {
   type OutputAdapter,
   runAgentRounds,
 } from '../../src/runtime'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
-const profile: AgentProfile = { name: 'stub' }
+const profile = testAgentProfile('stub')
 
 interface SimpleTask {
   goal: string
@@ -243,13 +243,13 @@ describe('detachedSessionDelegate with executor', () => {
       },
     }
     const executor = createSiblingSandboxExecutor({ client: fakeClient })
-    expect(() => detachedSessionDelegate({ executor, sandboxClient: fakeClient })).toThrow(
-      /exactly one/,
-    )
+    expect(() =>
+      detachedSessionDelegate({ executor, sandboxClient: fakeClient, workerProfile: profile }),
+    ).toThrow(/exactly one/)
   })
 
   it('rejects when neither is passed', () => {
-    expect(() => detachedSessionDelegate({})).toThrow(/required/)
+    expect(() => detachedSessionDelegate({ workerProfile: profile })).toThrow(/required/)
   })
 
   it('accepts the legacy sandboxClient shorthand (defaults to sibling)', () => {
@@ -258,7 +258,7 @@ describe('detachedSessionDelegate with executor', () => {
         return null as unknown as SandboxInstance
       },
     }
-    const delegate = detachedSessionDelegate({ sandboxClient: fakeClient })
+    const delegate = detachedSessionDelegate({ sandboxClient: fakeClient, workerProfile: profile })
     expect(typeof delegate).toBe('function')
   })
 })

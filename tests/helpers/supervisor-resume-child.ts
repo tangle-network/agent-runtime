@@ -12,7 +12,7 @@
  */
 
 import { appendFileSync } from 'node:fs'
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { createFileRunContext } from '../../src/runtime/supervise/run-context'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -25,6 +25,7 @@ import type {
   Settled,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const [dir, runId, phase] = process.argv.slice(2)
 if (dir === undefined || runId === undefined || (phase !== '1' && phase !== '2')) {
@@ -74,7 +75,7 @@ function leafAgent(
     }),
   }
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: executor as Executor<unknown>,
   }

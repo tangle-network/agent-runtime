@@ -12,9 +12,11 @@ import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  assertPeerMatchesDevelopmentDependency,
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
+  requiredPackedPackageVersion,
 } from './lib/packed-package-test.mjs'
 import {
   findLiteralModuleSpecifiers,
@@ -62,6 +64,13 @@ try {
   const packageDir = join(unpackDir, 'package')
   const packageJson = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   assertPublishableDependencySpecs(packageJson)
+  for (const name of [
+    '@tangle-network/agent-eval',
+    '@tangle-network/agent-interface',
+    '@tangle-network/sandbox',
+  ]) {
+    assertPeerMatchesDevelopmentDependency(packageJson, name)
+  }
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
     throw new Error('@tangle-network/agent-eval must stay required: root and ./kernel import it at runtime')
   }
@@ -132,7 +141,6 @@ try {
     '@tangle-network/agent-eval',
     '@tangle-network/agent-interface',
     '@tangle-network/sandbox',
-    'playwright',
   ]
   const peerDependencies = Object.fromEntries(
     peerPackages.map((name) => {
@@ -179,10 +187,17 @@ try {
         Sha256Digest,
       } from '@tangle-network/agent-interface'
       import {
+        driverAgent,
         type AgentProfileImprovementFixture,
+        type DriverAgentOptions,
         loadAgentImprovementProposalFixture,
         loadAgentProfileImprovementFixture,
+        type ToolLoopChat,
       } from '@tangle-network/agent-runtime/testing'
+      // @ts-expect-error Arbitrary driver construction is confined to the testing entrypoint.
+      import type { DriverAgentOptions as ForbiddenDriverAgentOptions } from '@tangle-network/agent-runtime/kernel'
+      // @ts-expect-error Arbitrary model callbacks are confined to the testing entrypoint.
+      import type { ToolLoopChat as ForbiddenToolLoopChat } from '@tangle-network/agent-runtime/kernel'
       import {
         deriveExecutionId,
         handleChatTurn,
@@ -327,12 +342,47 @@ try {
       void durableExecutionId
       void durableTurnHandler
       void durableTurnResult
+      void driverAgent
+      void (undefined as unknown as DriverAgentOptions)
+      void (undefined as unknown as ToolLoopChat)
+      void (undefined as unknown as ForbiddenDriverAgentOptions)
+      void (undefined as unknown as ForbiddenToolLoopChat)
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
   // install settings must not silently omit TypeScript or the Node declarations.
   run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], appDir)
-  assertNoEdgeUnsafeStaticImports(join(appDir, 'node_modules', '@tangle-network'))
+  const installedScope = join(appDir, 'node_modules', '@tangle-network')
+  const expectedFirstPartyVersions = {
+    '@tangle-network/agent-core': requiredPackedPackageVersion(
+      packageJson.dependencies?.['@tangle-network/agent-core'],
+      '@tangle-network/agent-core',
+      packageJson.name,
+    ),
+    '@tangle-network/agent-eval': requiredPackedDevelopmentDependency(
+      packageJson,
+      '@tangle-network/agent-eval',
+    ),
+    '@tangle-network/agent-interface': requiredPackedDevelopmentDependency(
+      packageJson,
+      '@tangle-network/agent-interface',
+    ),
+    '@tangle-network/agent-knowledge': requiredPackedPackageVersion(
+      packageJson.dependencies?.['@tangle-network/agent-knowledge'],
+      '@tangle-network/agent-knowledge',
+      packageJson.name,
+    ),
+    '@tangle-network/sandbox': requiredPackedDevelopmentDependency(
+      packageJson,
+      '@tangle-network/sandbox',
+    ),
+  }
+  for (const [packageName, expectedVersion] of Object.entries(
+    expectedFirstPartyVersions,
+  )) {
+    assertSingleFirstPartyPackageVersion(installedScope, packageName, expectedVersion)
+  }
+  assertNoEdgeUnsafeStaticImports(installedScope)
   run('npm', ['exec', '--', 'tsc', '-p', 'tsconfig.json'], appDir)
 
   run(
@@ -435,7 +485,7 @@ try {
           'createPrimeIntellectPackage',
           'writePrimeIntellectPackage',
           'readPrimeIntellectEpisodeContext',
-          'createPrimeIntellectBackend',
+          'primeIntellectExecutorConfig',
           'runPrimeIntellectProgram',
           'parsePrimeIntellectTraces',
           'primeIntellectTraceToRunRecord',
@@ -535,16 +585,43 @@ try {
       `
         const testing = await import('@tangle-network/agent-runtime/testing')
         const expected = [
+          'driverAgent',
           'loadAgentImprovementProposalFixture',
           'loadAgentProfileImprovementFixture',
+          'runGraphWithTestBrain',
+          'superviseWithTestBrain',
+          'supervisorAgentWithTestBrain',
         ]
         const names = Object.keys(testing).sort()
         if (JSON.stringify(names) !== JSON.stringify(expected)) {
-          throw new Error('testing entrypoint must export only the proposal fixture loaders')
+          throw new Error('testing entrypoint must export exactly the declared test helpers')
         }
         for (const name of expected) {
           if (typeof testing[name] !== 'function') {
-            throw new Error('testing fixture export must be a function: ' + name)
+            throw new Error('testing export must be a function: ' + name)
+          }
+        }
+        const kernel = await import('@tangle-network/agent-runtime/kernel')
+        for (const name of [
+          'driverAgent',
+          'runGraphWithTestBrain',
+          'superviseWithTestBrain',
+          'supervisorAgentWithTestBrain',
+        ]) {
+          if (name in kernel) {
+            throw new Error('test-only model execution export leaked into kernel: ' + name)
+          }
+        }
+        for (const [name, invoke] of [
+          ['runGraph', () => kernel.runGraph({}, { brain: async () => ({ toolCalls: [] }) })],
+          ['supervise', () => kernel.supervise({}, null, { brain: async () => ({ toolCalls: [] }) })],
+          ['supervisorAgent', () => kernel.supervisorAgent({}, { brain: async () => ({ toolCalls: [] }) })],
+        ]) {
+          try {
+            invoke()
+            throw new Error(name + ' accepted direct model injection')
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes('test-only')) throw error
           }
         }
         const first = testing.loadAgentImprovementProposalFixture()
@@ -710,6 +787,35 @@ function assertNoEdgeUnsafeStaticImports(scopeDir) {
   }
   process.stdout.write(
     `Edge module-load safety: ${packageDirs.length} first-party packages, ${scanned} shipped files, no blocked static imports.\n`,
+  )
+}
+
+function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expectedVersion) {
+  const installations = firstPartyPackageDirs(scopeDir)
+    .map((packageDir) => ({
+      packageDir,
+      packageJson: JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')),
+    }))
+    .filter(({ packageJson }) => packageJson.name === packageName)
+  if (installations.length === 0) {
+    throw new Error(`packed consumer did not install ${packageName}`)
+  }
+  if (
+    installations.length !== 1 ||
+    installations[0].packageJson.version !== expectedVersion
+  ) {
+    throw new Error(
+      [
+        `packed consumer must load exactly one ${packageName}@${expectedVersion}; found ${installations.length} installed path(s)`,
+        ...installations.map(
+          ({ packageDir, packageJson }) =>
+            `  - ${packageJson.version} at ${relative(scopeDir, packageDir)}`,
+        ),
+      ].join('\n'),
+    )
+  }
+  process.stdout.write(
+    `${packageName}: one ${expectedVersion} installation.\n`,
   )
 }
 

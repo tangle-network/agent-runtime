@@ -20,6 +20,7 @@ import type {
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 type SeenMessages = Array<ReadonlyArray<Record<string, unknown>>>
 
@@ -63,7 +64,7 @@ function workerLeaf(
   onTeardown?: () => void,
 ): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: workerExecutor(s, onTeardown),
   }
@@ -74,7 +75,7 @@ function workerLeaf(
 
 function hangingWorkerLeaf(name: string): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: {
       runtime: 'router',
@@ -324,7 +325,11 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
       if (profile.metadata?.kind === 'driver') {
         const childBrain = scriptedBrain(midTurns, midSeen)
-        return driverChild('mid', driverAgent(driverOpts('mid', childBrain, makeAgent)), journal)
+        return driverChild(
+          testAgentProfile('mid'),
+          driverAgent(driverOpts('mid', childBrain, makeAgent)),
+          journal,
+        )
       }
       return worker
     }
@@ -512,12 +517,11 @@ describe('driverAgent — maxTurns=0 lifts the turn cap; the conserved pool + de
     expect(result.kind).toBe('no-winner')
   })
 
-  it('runs the driver PAST the default 16-turn cap until it stops on its own', async () => {
+  it('runs past the former 2000-turn sentinel until the driver stops on its own', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const seen: SeenMessages = []
-    // 20 benign turns then a no-tool-call stop: a run the old default (16) would have force-finalized.
-    const turns: ScriptedTurn[] = Array.from({ length: 20 }, () => benignTurn)
+    const turns: ScriptedTurn[] = Array.from({ length: 2001 }, () => benignTurn)
     turns.push({ content: 'nothing left to do' })
     const chat = scriptedBrain(turns, seen)
 
@@ -532,9 +536,8 @@ describe('driverAgent — maxTurns=0 lifts the turn cap; the conserved pool + de
       now: () => 0,
     })
 
-    // 20 benign turns + 1 stop = 21 driver turns — proof maxTurns=0 blew past the old 16 cap
-    // instead of force-finalizing at it.
-    expect(seen.length).toBe(21)
+    // 2,001 benign turns + 1 stop proves Runtime did not remap 0 to the old 2,000 sentinel.
+    expect(seen.length).toBe(2002)
   })
 
   it('breaks the unlimited loop the moment the scope signal aborts (mid-loop)', async () => {
@@ -729,7 +732,7 @@ describe('driverAgent — the analyst up-leg (analysts + analyzeOnSettle pass-th
     ({
       name: 'w',
       act: async () => '',
-      executorSpec: { profile: { name: 'w' } as AgentProfile, harness: null },
+      executorSpec: { profile: testAgentProfile('w'), harness: null },
     }) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
   const analysts = {
     kinds: [{ id: 'progress', description: 'read the settled output', area: 'progress' }],

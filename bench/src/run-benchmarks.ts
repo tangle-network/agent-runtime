@@ -178,7 +178,6 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     backend: cell.backend ?? 'router',
     routerBaseUrl,
     routerKey,
-    model: cell.model,
     ...(bridgeUrl ? { bridgeUrl } : {}),
     ...(bridgeBearer ? { bridgeBearer } : {}),
     ...(sandboxBaseUrl ? { sandboxBaseUrl } : {}),
@@ -186,7 +185,13 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     ...(timeoutMs ? { timeoutMs } : {}),
   })
   const harness = cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
-  const profile: AgentProfile = cell.profile ?? { name: cell.label, metadata: { backendType: harness } }
+  const profile: AgentProfile =
+    cell.profile ?? {
+      name: cell.label,
+      harness: harness as AgentProfile['harness'],
+      model: { provider: 'tangle-router', default: cell.model },
+      metadata: { backendType: harness },
+    }
   // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the box
   // name and runId must not collide.
   const uniq = Math.random().toString(36).slice(2, 8)

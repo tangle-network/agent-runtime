@@ -11,7 +11,7 @@
  */
 import { writeFileSync } from 'node:fs'
 import { runPool } from '../run-pool'
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
+import { runBenchRouterTurn } from '../router-turn'
 import { freshTasks } from './tasks-fresh'
 import { scoreTask, taskToPrompt } from './tasks'
 
@@ -28,9 +28,24 @@ async function main(): Promise<void> {
 
   const outcomes = await runPool(freshTasks, conc, async (task) => {
     try {
-      const res = await routerChatWithUsage(cfg, [{ role: 'user', content: taskToPrompt(task) }])
-      const { score } = scoreTask(task, res.content)
-      return { id: task.id, score: score as 0 | 1 | null, cost: res.costUsd, err: undefined as string | undefined }
+      const res = await runBenchRouterTurn(
+        {
+          routerBaseUrl: cfg.routerBaseUrl,
+          routerKey: cfg.routerKey,
+          profile: {
+            name: 'search-parametric-check',
+            model: { provider: 'tangle-router', default: model },
+          },
+        },
+        taskToPrompt(task),
+      )
+      const { score } = scoreTask(task, res.finalText)
+      return {
+        id: task.id,
+        score: score as 0 | 1 | null,
+        cost: res.usage.usdKnown === false ? undefined : res.usage.costUsd,
+        err: undefined as string | undefined,
+      }
     } catch (err) {
       return { id: task.id, score: null as 0 | 1 | null, cost: undefined, err: err instanceof Error ? err.message : String(err) }
     }

@@ -40,13 +40,12 @@ describe('resolveSandboxClient', () => {
   it("backend 'bridge' wires createExecutor with the bridge seam and default url", () => {
     const client = resolveSandboxClient({
       backend: 'bridge',
-      bridge: { bearer: 'sk-b', model: 'opencode/kimi', timeoutMs: 90_000 },
+      bridge: { bearer: 'sk-b', timeoutMs: 90_000 },
     })
     expect(configOf(client)).toEqual({
       backend: 'bridge',
       bridgeUrl: 'http://127.0.0.1:3355',
       bridgeBearer: 'sk-b',
-      model: 'opencode/kimi',
       timeoutMs: 90_000,
     })
     expect(inlineSandboxClient).toHaveBeenCalledOnce()
@@ -55,46 +54,43 @@ describe('resolveSandboxClient', () => {
   it("backend 'bridge' honors an explicit bridge.url", () => {
     const client = resolveSandboxClient({
       backend: 'bridge',
-      bridge: { url: 'http://bridge.local:9000', bearer: 'sk-b', model: 'claude-code/sonnet' },
+      bridge: { url: 'http://bridge.local:9000', bearer: 'sk-b' },
     })
     expect((configOf(client) as { bridgeUrl: string }).bridgeUrl).toBe('http://bridge.local:9000')
   })
 
-  it("backend 'bridge' fails loud without bearer or model", () => {
-    expect(() =>
-      resolveSandboxClient({ backend: 'bridge', bridge: { bearer: '', model: 'x' } }),
-    ).toThrow(/bridge\.bearer and bridge\.model/)
-    expect(() => resolveSandboxClient({ backend: 'bridge' })).toThrow(
-      /bridge\.bearer and bridge\.model/,
+  it("backend 'bridge' fails loud without bearer", () => {
+    expect(() => resolveSandboxClient({ backend: 'bridge', bridge: { bearer: '' } })).toThrow(
+      /bridge\.bearer/,
     )
+    expect(() => resolveSandboxClient({ backend: 'bridge' })).toThrow(/bridge\.bearer/)
   })
 
   it("backend 'router' wires createExecutor with the router seam", () => {
     const client = resolveSandboxClient({
       backend: 'router',
-      router: { baseUrl: 'https://router.tangle.tools', key: 'sk-r', model: 'kimi' },
+      router: { baseUrl: 'https://router.tangle.tools', key: 'sk-r' },
     })
     expect(configOf(client)).toEqual({
       backend: 'router',
       routerBaseUrl: 'https://router.tangle.tools',
       routerKey: 'sk-r',
-      model: 'kimi',
     })
   })
 
   it("backend 'router' fails loud when a required field is missing", () => {
     expect(() =>
-      resolveSandboxClient({ backend: 'router', router: { baseUrl: '', key: 'k', model: 'm' } }),
-    ).toThrow(/router\.baseUrl, router\.key and router\.model/)
+      resolveSandboxClient({ backend: 'router', router: { baseUrl: '', key: 'k' } }),
+    ).toThrow(/router\.baseUrl and router\.key/)
     expect(() => resolveSandboxClient({ backend: 'router' })).toThrow(
-      /router\.baseUrl, router\.key and router\.model/,
+      /router\.baseUrl and router\.key/,
     )
   })
 
   it("backend 'local' wires the same-host client with the local options", () => {
     const keys = { get: vi.fn(async () => 'secret') }
     const local = {
-      router: { baseUrl: 'https://router.tangle.tools', key: 'sk-l', model: 'gem' },
+      router: { baseUrl: 'https://router.tangle.tools', key: 'sk-l' },
       keys,
     }
     const client = resolveSandboxClient({ backend: 'local', local })
@@ -104,12 +100,12 @@ describe('resolveSandboxClient', () => {
 
   it("backend 'local' fails loud when a router field is missing", () => {
     expect(() => resolveSandboxClient({ backend: 'local' })).toThrow(
-      /local\.router\.baseUrl, local\.router\.key and local\.router\.model/,
+      /local\.router\.baseUrl and local\.router\.key/,
     )
     expect(() =>
       resolveSandboxClient({
         backend: 'local',
-        local: { router: { baseUrl: 'x', key: '', model: 'm' } },
+        local: { router: { baseUrl: 'x', key: '' } },
       }),
     ).toThrow(/local\.router/)
   })

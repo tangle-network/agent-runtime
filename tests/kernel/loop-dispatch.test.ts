@@ -23,7 +23,11 @@ interface FakeScenario {
   kind: string
 }
 
-const sandboxProfile: SandboxAgentProfile = { name: 'stub', model: { default: 'm' } }
+const sandboxProfile: SandboxAgentProfile = {
+  name: 'stub',
+  harness: 'opencode',
+  model: { provider: 'offline', default: 'm' },
+}
 
 function spec(): AgentRunSpec<Task> {
   return { profile: sandboxProfile, name: 'agent', taskToPrompt: (t) => t.goal }

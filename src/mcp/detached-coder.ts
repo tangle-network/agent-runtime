@@ -2,7 +2,7 @@
  *
  * Sandbox-session coder decode layer. The sandbox-session delegate (`./delegates`) and the
  * cross-restart resume driver run the in-box harness over a `SandboxClient` and need to
- * (a) build an `AgentRunSpec` from the caller-authored (or minimal model-only default) worker
+ * (a) build an `AgentRunSpec` from the caller-authored exact worker
  * profile, (b) decode the harness event stream into a structured `CoderOutput`, and (c) gate it with
  * the shared mechanical checks. This sandbox-session path is kept separate from the generic recursive
  * path: `worktreeFanout` instead settles the raw `WorktreePatchArtifact` and gates via
@@ -17,23 +17,15 @@
  * @experimental
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
+import { ConfigError } from '../errors'
 import { type CoderTask, coderTaskToPrompt } from '../profiles/coder'
+import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import { type CoderCheckConstraints, runCoderChecks } from '../runtime/supervise/patch-checks'
 import type { AgentRunSpec, Driver, OutputAdapter, Validator } from '../runtime/types'
 
 const DEFAULT_MAX_DIFF_LINES = 400
-
-/**
- * The minimal default worker profile (§1.5: the system authors profiles — there is no hardcoded
- * coder). Model-only by construction: no skills, no tool grants, no standing prompt. Callers that
- * want a richer worker pass their own `AgentProfile` via `CoderRunSpecOptions.profile`. `harness` /
- * `model` / `systemPrompt` are layered onto whichever profile is used.
- */
-function minimalCoderProfile(): AgentProfile {
-  return { name: 'coder' }
-}
 
 /** @experimental The structured coder result the sandbox-session path decodes + gates. */
 export interface CoderOutput {
@@ -48,46 +40,21 @@ export interface CoderOutput {
   reviewerNotes?: string
 }
 
-/** @experimental Overrides for one authored coder run on the sandbox-session path. */
+/** @experimental Inputs for one authored coder run on the sandbox-session path. */
 export interface CoderRunSpecOptions {
-  /**
-   * The caller-authored worker `AgentProfile` (§1.5). When omitted, a minimal model-only default is
-   * used (no hardcoded skills/tools/prompt). `harness` / `model` / `systemPrompt` are layered onto it.
-   */
-  profile?: AgentProfile
-  /** Sandbox-SDK backend.type. Default `'claude-code'`. */
-  harness?: string
-  /** Default model id passed in `AgentProfile.model.default`. */
-  model?: string
-  /** Custom system prompt replacement. Default = the supplied profile's own prompt (or none). */
-  systemPrompt?: string
-  /** Stable name for `AgentRunSpec.name`. Default = `coder-${harness}`. */
+  /** Caller-authored exact worker identity. It is the sole harness/provider/model authority. */
+  profile: AgentProfile
+  /** Stable name for `AgentRunSpec.name`. Default = `profile.name`. */
   name?: string
 }
 
-/** Build the authored `AgentProfile` for one harness on the sandbox-session path: the caller's
- *  profile (or the minimal model-only default), with the per-run harness/model/prompt overrides. */
-function coderRunProfile(options: CoderRunSpecOptions): AgentProfile {
-  // A composition-root default on the SANDBOX-BACKEND axis (`HarnessType`), not the local-CLI
-  // axis that `DEFAULT_LOCAL_HARNESS` covers. Behavior varies on the profile's declared harness
-  // downstream, never on this name.
-  const harness = options.harness ?? 'claude-code'
-  const name = options.name ?? `coder-${harness}`
-  const base = options.profile ?? minimalCoderProfile()
-  return {
-    ...base,
-    name,
-    ...(options.systemPrompt ? { prompt: { systemPrompt: options.systemPrompt } } : {}),
-    model: options.model ? { default: options.model } : base.model,
-    metadata: { ...base.metadata, backendType: harness },
-  }
-}
-
 /** @experimental Build the `AgentRunSpec<CoderTask>` the sandbox-session `runAgentRounds` path drives. */
-export function coderRunSpec(options: CoderRunSpecOptions = {}): AgentRunSpec<CoderTask> {
+export function coderRunSpec(options: CoderRunSpecOptions): AgentRunSpec<CoderTask> {
+  const profile = agentProfileSchema.parse(options.profile) as AgentProfile
+  assertExecutableAgentProfile(profile, 'coderRunSpec')
   return {
-    name: options.name ?? `coder-${options.harness ?? 'claude-code'}`,
-    profile: coderRunProfile(options),
+    name: options.name ?? profile.name,
+    profile,
     taskToPrompt: coderTaskToPrompt,
   }
 }
@@ -97,18 +64,8 @@ export const coderOutputAdapter: OutputAdapter<CoderOutput> = { parse: parseCode
 
 /** @experimental */
 export interface MultiHarnessCoderFanoutOptions {
-  /**
-   * The caller-authored worker `AgentProfile` (§1.5), shared across every parallel harness. When
-   * omitted, the minimal model-only default is used.
-   */
-  profile?: AgentProfile
-  /**
-   * Sandbox-SDK backend.type identifiers, one per parallel agent. Default:
-   * `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']`.
-   */
-  harnesses?: string[]
-  /** Optional per-harness model override. Indexed parallel to `harnesses`. */
-  models?: (string | undefined)[]
+  /** Exact worker identities, one per parallel agent. Must contain at least one profile. */
+  profiles: ReadonlyArray<AgentProfile>
 }
 
 /**
@@ -117,24 +74,16 @@ export interface MultiHarnessCoderFanoutOptions {
  *
  * @experimental
  */
-export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions = {}): {
+export function multiHarnessCoderFanout(options: MultiHarnessCoderFanoutOptions): {
   agentRuns: AgentRunSpec<CoderTask>[]
   output: OutputAdapter<CoderOutput>
   validator: Validator<CoderOutput>
   driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'>
 } {
-  const harnesses =
-    options.harnesses && options.harnesses.length > 0
-      ? options.harnesses
-      : ['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']
-  const models = options.models ?? []
-  const agentRuns = harnesses.map((harness, i) =>
-    coderRunSpec({
-      ...(options.profile ? { profile: options.profile } : {}),
-      harness,
-      model: models[i],
-    }),
-  )
+  if (!options.profiles || options.profiles.length === 0) {
+    throw new ConfigError('multiHarnessCoderFanout: at least one exact profile is required')
+  }
+  const agentRuns = options.profiles.map((profile) => coderRunSpec({ profile }))
   const driver: Driver<CoderTask, CoderOutput, 'pick-winner' | 'fail'> = {
     name: 'fanout',
     plan: async (task, history) => (history.length === 0 ? agentRuns.map(() => task) : []),

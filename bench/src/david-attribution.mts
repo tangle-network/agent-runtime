@@ -20,24 +20,43 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadHumanEval, extractCode, type HumanEvalTask } from './benchmarks/humaneval'
+import { benchRouterProfile, runBenchRouterTurn } from './router-turn'
 
-const KEY = process.env.TANGLE_API_KEY!
+function requiredEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error(`${name} required`)
+  return value
+}
+
+const KEY = requiredEnv('TANGLE_API_KEY')
 const ROUTER = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
 const DAVID = process.env.DAVID ?? 'groq/llama-3.1-8b-instant'
 const N = Number(process.env.N ?? 8)
 const T = Number(process.env.T ?? 5)
 const NTASKS = Number(process.env.NTASKS ?? 60)
 const CONC = Number(process.env.CONCURRENCY ?? 6)
+const MAX_TOKENS = Number(process.env.MAX_TOKENS ?? 1000)
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 60_000)
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 async function chat(messages: { role: string; content: string }[], temp: number): Promise<string> {
-  for (let a = 0; ; a++) {
-    try {
-      const r = await fetch(`${ROUTER}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${KEY}` }, body: JSON.stringify({ model: DAVID, messages, temperature: temp, max_tokens: 1000 }), signal: AbortSignal.timeout(60_000) })
-      if ([408, 429, 500, 502, 503, 504, 520, 522, 524].includes(r.status)) { if (a >= 5) return ''; await sleep(700 * 2 ** a); continue }
-      if (!r.ok) return ''
-      return (((await r.json()) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content) ?? ''
-    } catch { if (a >= 5) return ''; await sleep(700 * 2 ** a) }
+  try {
+    const system = messages.find((message) => message.role === 'system')?.content
+    const turn = await runBenchRouterTurn(
+      {
+        routerBaseUrl: ROUTER,
+        routerKey: KEY,
+        profile: benchRouterProfile('david-attribution-worker', DAVID, {
+          ...(system ? { systemPrompt: system } : {}),
+          temperature: temp,
+          maxTokens: MAX_TOKENS,
+        }),
+        timeoutMs: LLM_TIMEOUT_MS,
+      },
+      { messages: messages.filter((message) => message.role !== 'system') },
+    )
+    return turn.finalText
+  } catch {
+    return ''
   }
 }
 const exec = (f: string, a: string[], o: object) => new Promise<number>((res) => execFile(f, a, { ...o, maxBuffer: 8e6 }, (e) => res((e as { code?: number } | null)?.code ?? (e ? 1 : 0))))

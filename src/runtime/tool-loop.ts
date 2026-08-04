@@ -8,27 +8,52 @@
  * steerable concerns the call sites add (a driver's conserved-pool + deadline bound; an inline
  * executor's inbox flush + abort) attach via optional `hooks`; the skeleton stays one copy.
  */
-import type { RouterToolCall, ToolSpec } from './router-client'
+
+import { ValidationError } from '../errors'
+import type { ToolSpec } from './router-client'
 
 /** Provider-neutral conversation record accepted by a tool-loop brain. */
 export type ToolLoopMessageRecord = Record<string, unknown>
+
+/** One provider-neutral tool request emitted by a tool-loop model. */
+export interface ToolLoopToolCall {
+  id: string
+  name: string
+  /** Raw JSON arguments emitted by the model. */
+  arguments: string
+}
+
+/** Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen
+ * before dispatch; a transport may observe the signal but cannot replace the authority it names. */
+export interface ToolLoopCallContext {
+  readonly signal: AbortSignal
+  readonly callId: string
+  readonly correlationId: string
+}
 
 /** One inference turn over the running conversation + the tool specs → the model's text, any
  *  tool calls, and token usage. The seam every brain satisfies. */
 export type ToolLoopChat = (
   messages: ReadonlyArray<ToolLoopMessageRecord>,
   tools: ReadonlyArray<ToolSpec>,
+  context?: ToolLoopCallContext,
 ) => Promise<{
   content?: string | null
-  toolCalls: RouterToolCall[]
-  usage?: { input: number; output: number }
-  /** The turn's inference cost (usd) when the provider priced it — for callers that meter usd
-   *  into a conserved pool (the supervisor brain). `runBrainLoop` itself ignores it. */
+  toolCalls: ToolLoopToolCall[]
+  usage?: { input: number; output: number; reasoning?: number }
+  /** Dollar value reported for the turn. It is not billed spend unless provenance says so. */
   costUsd?: number
+  costProvenance?: 'provider-receipt' | 'billing-receipt' | 'catalog-estimate'
   /** The turn ran but its usage was not reported when the transport EXPECTED one (the streamed
    *  router transport asks for usage and this says it never arrived). A metering caller records an
    *  unknown turn on it; `runBrainLoop` itself ignores it. */
   usageUnknown?: true
+  /** Provider-observed model identity. Profile-bound callers validate it before accepting output. */
+  model?: string
+  /** Provider-reported prompt-cache evidence; missing fields remain missing. */
+  promptCache?: Readonly<Record<string, number | string>>
+  /** Physical HTTP/injected-transport attempts spent by this one logical call. */
+  transportAttempts?: number
 }>
 
 /** Optional per-loop concerns the metered/steerable call sites attach. The loop is one copy;
@@ -132,8 +157,26 @@ export interface ToolLoopResult {
   /** The behavior trace: each call + its result, in order — what a trace-analyst steerer reads. */
   toolTrace: Array<{ name: string; args: string; result: string }>
   usage: { input: number; output: number }
+  /** False when any completed inference turn omitted token usage. */
+  tokensKnown?: false
   /** The full conversation after the loop — lets a caller CARRY the messages into the next shot. */
   messages: ToolLoopMessageRecord[]
+}
+
+/** Resolve one tool-loop turn limit. Zero removes only the turn-count cap; abort, time, and
+ * resource budgets remain available to callers. */
+export function resolveToolLoopMaxTurns(
+  value: number | undefined,
+  fallback: number,
+  context = 'tool loop',
+): number {
+  const resolved = value ?? fallback
+  if (!Number.isSafeInteger(resolved) || resolved < 0) {
+    throw new ValidationError(
+      `${context}: maxTurns must be a nonnegative safe integer (0 means unbounded)`,
+    )
+  }
+  return resolved
 }
 
 export async function runBrainLoop(opts: {
@@ -148,14 +191,16 @@ export async function runBrainLoop(opts: {
    *  free). Off by default — when unset the conversation accumulates exactly as before. */
   compaction?: ToolLoopCompaction
 }): Promise<ToolLoopResult> {
-  const maxTurns = opts.maxTurns ?? 4
+  const maxTurns = resolveToolLoopMaxTurns(opts.maxTurns, 4, 'runBrainLoop')
   const messages: ToolLoopMessageRecord[] = [...opts.initialMessages]
   let toolCalls = 0
   let lastText = ''
   const usage = { input: 0, output: 0 }
+  let tokensKnown = true
+  let completedTurns = 0
   const toolTrace: Array<{ name: string; args: string; result: string }> = []
 
-  for (let turn = 1; turn <= maxTurns; turn += 1) {
+  for (let turn = 1; maxTurns === 0 || turn <= maxTurns; turn += 1) {
     if (opts.hooks?.stopBefore?.(turn)) break
     await opts.hooks?.beforeTurn?.(turn, messages)
     // Close the chapter BEFORE the inference turn that would otherwise re-bill the whole transcript:
@@ -163,11 +208,12 @@ export async function runBrainLoop(opts: {
     // not O(total-history). A clean boundary — the prior turn's tool replies are already folded in.
     if (opts.compaction) await maybeCompact(messages, opts.compaction, turn)
     const r = await opts.chat(messages, opts.tools)
+    completedTurns = turn
     if (r.usage) {
       usage.input += r.usage.input
       usage.output += r.usage.output
       opts.hooks?.onUsage?.(r.usage)
-    }
+    } else tokensKnown = false
     if (r.content) lastText = r.content
     if (r.toolCalls.length === 0) {
       // The stopping reply is part of the conversation (the contract on `messages`: seed +
@@ -176,7 +222,15 @@ export async function runBrainLoop(opts: {
       // solution the model can't see, and candidate extraction (structural-rollout's
       // fenced-code fallback) reads an empty conversation on non-tool-calling models.
       if (r.content) messages.push({ role: 'assistant', content: r.content })
-      return { final: lastText, turns: turn, toolCalls, toolTrace, usage, messages }
+      return {
+        final: lastText,
+        turns: turn,
+        toolCalls,
+        toolTrace,
+        usage,
+        ...(tokensKnown ? {} : { tokensKnown: false }),
+        messages,
+      }
     }
 
     // Record the assistant turn verbatim (content + the tool_calls it requested), then run each
@@ -210,5 +264,13 @@ export async function runBrainLoop(opts: {
       toolTrace.push({ name: tc.name, args: tc.arguments, result: out })
     }
   }
-  return { final: lastText, turns: maxTurns, toolCalls, toolTrace, usage, messages }
+  return {
+    final: lastText,
+    turns: completedTurns,
+    toolCalls,
+    toolTrace,
+    usage,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
+    messages,
+  }
 }

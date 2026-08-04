@@ -7,7 +7,7 @@
  */
 
 export {
-  AGENTIC_PROFILE_RESOURCE_ROOT,
+  type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorOptions,
   type AgenticGeneratorShotDisposition,
   type AgenticGeneratorShotExecution,
@@ -25,16 +25,14 @@ export {
   toolBuildPrompt,
 } from './build-prompts'
 export {
-  type DriverLoopGeneratorOptions,
-  driverLoopGenerator,
-} from './driver-loop-generator'
-export {
   type ImproveCandidateValidationInput,
   type ImproveCandidateValidator,
+  type ImproveCodeBaseOptions,
   type ImproveCodeOptions,
   type ImproveCodeResult,
   type ImproveCodeRunOptions,
   type ImproveCost,
+  type ImproveCustomCodeGeneratorOptions,
   type ImproveLineage,
   type ImproveMethodContext,
   type ImproveMethodFactory,
@@ -51,6 +49,7 @@ export {
   type ImproveProfileComponents,
   type ImproveProfileSurface,
   type ImproveResult,
+  type ImproveRuntimeCodeGeneratorOptions,
   type ImproveScenarioPartitions,
   type ImproveSkillsOptions,
   type ImproveSurface,
@@ -68,9 +67,7 @@ export {
   officialSkillOpt,
 } from './official-optimizers'
 export {
-  buildDriverSystem,
   optimizerMethod,
-  researchDriverNote,
   strategyAuthorMethod,
 } from './optimizer-prompt'
 export type { DeepReadonly, ReadonlyAgentProfile } from './profile-types'

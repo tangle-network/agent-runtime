@@ -226,9 +226,9 @@ export interface BackendErrorDetail {
 /**
  *
  * OpenAI Chat Completions tool descriptor. The shape mirrors the
- * `/v1/chat/completions` `tools[]` parameter so callers can pass tool
- * definitions through `createOpenAICompatibleBackend({ tools })` without any
- * runtime translation. The router proxies this shape verbatim to Anthropic
+ * `/v1/chat/completions` `tools[]` parameter so caller-owned compatible
+ * transports can pass tool definitions without translation. A router can
+ * proxy this shape to Anthropic
  * (translated server-side), DeepSeek, Groq, OpenAI, and Gemini — every model
  * that the eval surface targets.
  *
@@ -320,6 +320,10 @@ export type RuntimeStreamEvent =
       task: AgentTaskSpec
       session: RuntimeSession
       backend: string
+      /** Canonical execution identity and materialization evidence for this turn, when Runtime
+       *  owns the selected executor. Generic metadata keeps the event vocabulary open while the
+       *  values use Runtime's existing identity/materialization receipt shapes. */
+      metadata?: Record<string, unknown>
       timestamp: string
     }
   | {
@@ -361,7 +365,15 @@ export type RuntimeStreamEvent =
       model: string
       tokensIn?: number
       tokensOut?: number
+      /** False when the numeric token subtotal is incomplete or absent. */
+      tokensKnown?: false
       costUsd?: number
+      /** False when `costUsd` is only an observed floor, estimate, or absent. */
+      usdKnown?: false
+      /** Separately-labelled local/catalog estimate; never billed spend. */
+      estimatedCostUsd?: number
+      /** Provider-reported prompt-cache fields; absent fields remain unknown. */
+      promptCache?: Readonly<Record<string, number | string>>
       latencyMs?: number
       finishReason?: string
       timestamp?: string

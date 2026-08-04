@@ -50,7 +50,7 @@ import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from 
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
+import { defaultAnalystInstruction, refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
 import {
@@ -63,6 +63,7 @@ import {
   tail,
   zaiChatRaw,
 } from './swe-jail'
+import { withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -138,7 +139,26 @@ const makeTransport =
   async (body: Record<string, unknown>): Promise<unknown> => {
     const msgs = (body.messages ?? []) as Array<{ role?: string; content?: unknown }>
     counter.guardedMsgs += assertNoHiddenLeak(marks, msgs)
-    const { json, attempts } = await zaiChatRaw({ base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS }, body)
+    const model = String(body.model ?? '')
+    const systemPrompt = msgs.find((message) => message.role === 'system')?.content
+    const toolNames = Array.isArray(body.tools)
+      ? (body.tools as Array<{ function?: { name?: unknown } }>).flatMap((tool) =>
+          typeof tool.function?.name === 'string' ? [tool.function.name] : [],
+        )
+      : []
+    const { json, attempts } = await zaiChatRaw(
+      { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS },
+      body,
+      {
+        name: 'swe-structural-worker',
+        harness: 'cli-base',
+        model: { provider: 'zai', default: model, reasoningEffort: 'high' },
+        ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
+        ...(toolNames.length > 0
+          ? { tools: Object.fromEntries(toolNames.map((name) => [name, true])) }
+          : {}),
+      },
+    )
     counter.calls += 1
     counter.httpAttempts += attempts
     const u = (json as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage
@@ -204,10 +224,31 @@ async function emitAttempt(
   }
   const task: AgenticTask = {
     id: bt.id,
-    systemPrompt: SWE_SEED_PROMPT,
     userPrompt: cfg.promptAppendix ? `${bt.prompt}\n\n${cfg.promptAppendix}` : bt.prompt,
     meta: { instanceId: bt.id },
   }
+  const workerProfile = withBenchProfile(
+    {
+      name: 'swe-structural-worker',
+      harness: 'cli-base',
+      model: { provider: 'zai', default: MODEL, reasoningEffort: 'high' },
+      tools: { list_files: true, read_file: true, edit_file: true },
+    },
+    {
+      systemPrompt: SWE_SEED_PROMPT,
+      maxTokens: MAX_TOKENS,
+      maxTurns: INNER_TURNS,
+      temperature: cfg.temperature,
+    },
+  )
+  const analystProfile = withBenchProfile(
+    {
+      name: 'swe-structural-analyst',
+      harness: 'cli-base',
+      model: { provider: 'zai', default: MODEL, reasoningEffort: 'high' },
+    },
+    { systemPrompt: defaultAnalystInstruction, maxTokens: MAX_TOKENS },
+  )
   let error: string | undefined
   try {
     const r = await runAgentic({
@@ -216,10 +257,8 @@ async function emitAttempt(
       strategy: refine,
       routerBaseUrl: 'zai-direct', // unused: the `complete` transport short-circuits the router
       routerKey: 'zai-direct',
-      model: MODEL,
-      maxTokens: MAX_TOKENS,
-      temperature: cfg.temperature,
-      innerTurns: INNER_TURNS,
+      workerProfile,
+      analystProfile,
       budget: 1,
       complete: makeTransport(cfg.marks, counter),
     })

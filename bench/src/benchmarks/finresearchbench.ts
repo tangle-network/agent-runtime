@@ -9,6 +9,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { runBenchRouterTurn } from '../router-turn'
 import { benchRoot } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
@@ -180,22 +181,25 @@ function parseJudgeScore(content: string): { score: number; raw: unknown } {
 async function runOfficialJudge(meta: FinResearchMeta, response: string): Promise<BenchScore> {
   if (!meta.judgeSystemPrompt) throw new Error(`FinResearchBench task ${meta.id} missing judge_system_prompt`)
   const router = routerConfig()
-  const res = await fetch(`${router.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${router.key}` },
-    body: JSON.stringify({
-      model: router.model,
-      temperature: 0,
-      messages: [
-        { role: 'system', content: meta.judgeSystemPrompt },
-        { role: 'user', content: fillTemplate(meta, response) },
-      ],
-    }),
-  })
-  if (!res.ok) throw new Error(`FinResearchBench judge HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  const body = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  const content = body.choices?.[0]?.message?.content
-  if (typeof content !== 'string') throw new Error(`FinResearchBench judge returned no message content: ${JSON.stringify(body).slice(0, 300)}`)
+  const turn = await runBenchRouterTurn(
+    {
+      routerBaseUrl: router.baseUrl,
+      routerKey: router.key,
+      profile: {
+        name: 'finresearchbench-judge',
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: router.model,
+          metadata: { temperature: 0 },
+        },
+        prompt: { systemPrompt: meta.judgeSystemPrompt },
+      },
+    },
+    fillTemplate(meta, response),
+  )
+  const content = turn.finalText
+  if (!content) throw new Error('FinResearchBench judge returned no message content')
   const { score, raw } = parseJudgeScore(content)
   return {
     resolved: score >= Number(process.env.FINRESEARCHBENCH_PASS_THRESHOLD ?? 0.8),

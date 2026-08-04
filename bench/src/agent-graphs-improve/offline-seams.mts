@@ -19,9 +19,9 @@ import {
   type Executor,
   type ExecutorResult,
   type MakeWorkerAgent,
-  type ToolLoopChat,
   type TraceSource,
 } from '../../../src/runtime/index.ts'
+import type { ToolLoopChat } from '../../../src/testing/index.ts'
 
 // ── The scripted driver brain ──────────────────────────────────────────────────
 

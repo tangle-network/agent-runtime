@@ -219,18 +219,18 @@ export interface ExecutorResult<Out> {
  * conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
  * `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
  *
- * KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
- * (`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
- * happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
- * upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
- * omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
- * non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
- * widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
- * threading it through `foldStream` — a change to the metering contract every executor implements,
- * which is why it is not folded into a streaming-transport fix. Filed separately.
+ * Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
+ * therefore remains unknown through live metering and terminal reconciliation instead of becoming
+ * a fabricated zero.
  */
 export type UsageEvent =
-  | { kind: 'tokens'; input: number; output: number }
+  | {
+      kind: 'tokens'
+      /** Known token subtotal. When false, these counts are only the observed/estimated floor. */
+      tokensKnown?: false
+      input: number
+      output: number
+    }
   | {
       kind: 'cost'
       /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
@@ -246,9 +246,11 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 // ── Executor resolution (OPEN registry, not a switch) ─────────────────────────
 
 /**
- * `AgentProfile.harness` is a portable preference; this wrapper records the executor decision for
- * one concrete run. A caller may honor the preference, override it for a comparison cell, or supply
- * an executor directly, without changing the profile's behavioral identity.
+ * `AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling
+ * any registry, including one that resolves caller-supplied executors and factories. The default
+ * registry enforces the same rule when called directly. `AgentSpec.harness` records routing for one
+ * concrete run; where a backend consumes both fields, it must agree with `AgentProfile.harness` and
+ * cannot fill or override it.
  *
  * Resolution (in `runtime.ts`):
  *  - `executorFactory` present → BYO: build it after admission with the live context.
@@ -267,7 +269,7 @@ export interface AgentSpec {
   /** Per-spawn factory carrying caller configuration. Constructed only after admission, with the
    *  real child signal and nested-scope context. */
   readonly executorFactory?: ExecutorFactory<unknown>
-  /** Bring-your-own executor: when set, overrides harness-based resolution entirely. */
+  /** Bring-your-own executor: highest routing precedence after exact-profile intake validation. */
   readonly executor?: Executor<unknown>
 }
 
@@ -327,6 +329,7 @@ export interface ExecutorExecutionBinding {
 /** Why exact materialization evidence is unavailable for a node. */
 export type UnknownMaterializationReason =
   | 'executor-did-not-report'
+  | 'executor-receipt-pending'
   | 'invalid-executor-report'
   | 'root-agent-did-not-report'
 
@@ -394,9 +397,9 @@ export interface ExecutorNodeContext {
 }
 
 /**
- * Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
- * shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
- * user supply construction args without pre-instantiating.
+ * Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared)
+ * so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a user supply
+ * construction args without pre-instantiating; it never bypasses exact-profile validation.
  */
 export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Executor<Out>
 
@@ -405,6 +408,12 @@ export type ExecutorFactory<Out> = (spec: AgentSpec, ctx: ExecutorContext) => Ex
  *  the factory reaching into module globals. */
 export interface ExecutorContext {
   readonly signal: AbortSignal
+  /**
+   * Request headers inherited from an enclosing task or conversation.
+   * Network executors forward these after their own connection headers so caller authorization,
+   * recursion depth, and trace identity survive the profile-to-executor boundary.
+   */
+  readonly propagatedHeaders?: Readonly<Record<string, string>>
   /** Present when Scope constructs the executor for a supervised node. */
   readonly node?: ExecutorNodeContext
   /** Opaque seams the registry threads through; a built-in narrows what it needs. */
@@ -412,10 +421,10 @@ export interface ExecutorContext {
 }
 
 /**
- * The OPEN resolver: maps an `AgentSpec` to a `ExecutorFactory`. The default
- * registry resolves the three built-ins AND accepts a BYO `executor`/factory; callers
- * register more runtimes by name. NOT a closed switch — registration is the extension
- * point, mirroring the open `Executor` interface.
+ * The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates
+ * before invoking any implementation; the default registry repeats validation for direct callers,
+ * resolves the three built-ins, and accepts a BYO `executor`/factory. Callers may register more
+ * runtimes by name, but registration does not waive exact-profile validation.
  */
 export interface ExecutorRegistry {
   /** Register a factory for a named runtime. Throws on a duplicate name (fail loud). */
@@ -507,17 +516,12 @@ export interface SpawnOpts {
  *  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, or a `key` that
  *  is still LIVE in this scope (the same assignment may not run twice concurrently).
  *
- *  `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
+ * `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  *  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
- *  refuses every amount until the ROOT budget names a `maxUsd`.
- *
- *  `below-runtime-floor` is separate for the same reason and points the opposite way from
- *  `budget-exhausted`: the request is under what that harness spends before it reads its task, so
- *  it is unsatisfiable at that SIZE and the fix is to RAISE it, never to retry smaller. */
+ * refuses every amount until the ROOT budget names a `maxUsd`. */
 export type SpawnRejection =
   | 'budget-exhausted'
   | 'usd-unbudgeted'
-  | 'below-runtime-floor'
   | 'depth-exceeded'
   | 'duplicate-key'
   | 'invalid-identity'

@@ -39,6 +39,7 @@ import type {
   Spend,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── A trace-derived vs judge-derived finding (the firewall's only discriminator) ─────
 
@@ -85,7 +86,7 @@ function leafAgent(name: string, out: unknown, events?: UsageEvent[]): Agent<unk
       return { outRef: `mock:${name}`, out, spent: spendFromUsageEvents(evs) }
     },
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -101,7 +102,7 @@ function boomAgent(name: string, reason: string): Agent<unknown, unknown> {
       throw new ValidationError('boom: resultArtifact unreachable')
     },
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
   return { name, act: async () => undefined, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -189,7 +190,7 @@ describe('cross-run corpus (G2)', () => {
     )
     expect(run1).toEqual({ succeeded: true })
 
-    const run2Profile: AgentProfile = { name: 'analyst' } as AgentProfile
+    const run2Profile = testAgentProfile('analyst')
     const run2 = await renderCorpusToInstructions({
       corpus,
       filter: { area: 'sourcing', minConfidence: 0.5 },
@@ -282,7 +283,7 @@ describe('analyst-on-scope (G1) firewall', () => {
  *  offline scope settles it via the BYO executor). Optionally threads a `ScopeAnalyst` so a
  *  combinator's gate sees its findings — the seam this wave connects. */
 function workerCtx(analyst?: ScopeAnalyst<unknown>): ShapeContext<unknown> {
-  const root: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
+  const root: AgentSpec = { profile: testAgentProfile('worker'), harness: null }
   const persona = { name: 'p', root } as Persona<unknown>
   const budget: ShapeBudget = { perChild: { maxIterations: 1, maxTokens: 1000 }, fanout: 1 }
   return {
@@ -318,7 +319,7 @@ function spyAnalyst(findings: ReadonlyArray<AnalystFinding>): {
 
 describe('analyst→steer wire (combinator gates read findings, not [])', () => {
   it('createShapeContext threads an analyst onto the ShapeContext (absent when omitted)', () => {
-    const root: AgentSpec = { profile: { name: 'w' } as AgentProfile, harness: null }
+    const root: AgentSpec = { profile: testAgentProfile('w'), harness: null }
     const persona = { name: 'p', root } as Persona<unknown>
     const budget: ShapeBudget = { perChild: { maxIterations: 1, maxTokens: 10 }, fanout: 1 }
     const { analyst } = spyAnalyst([traceFinding])

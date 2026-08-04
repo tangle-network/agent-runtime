@@ -12,6 +12,8 @@
  * `answerOutput`/the kernel's cost ledger already parse — no sessions, no fs,
  * no fork (those degrade gracefully via the optional `SandboxClient` methods).
  */
+
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 import type { SandboxClient } from './types'
@@ -41,17 +43,20 @@ async function settle(
  * instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
  * run once on the prompt, emit the terminal result event, tear down.
  */
-export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxClient {
+export function inlineSandboxClient(
+  factory: ExecutorFactory<unknown>,
+  defaults: { profile?: AgentProfile } = {},
+): SandboxClient {
+  const capturedDefaultProfile =
+    defaults.profile === undefined
+      ? undefined
+      : agentProfileSchema.parse(structuredClone(defaults.profile))
   let seq = 0
   return {
     async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
       const id = `inline-${seq++}`
-      // The `create(options)` backend override is threaded to the factory through
-      // the `ExecutorContext.seams` channel (the designed opaque-seam extension
-      // point), so a BYO executor that varies per-cell — e.g. the cli-bridge
-      // executor reading its harness/model off `backend.type`/`backend.model.model`
-      // — sees the same per-create config a real sandbox executor gets, without a
-      // second client per cell.
+      // The requested backend remains visible so Runtime can reject a conflicting redundant
+      // declaration. The exact profile below remains the sole behavioral source.
       const createOptions = options
       return {
         id,
@@ -70,32 +75,82 @@ export function inlineSandboxClient(factory: ExecutorFactory<unknown>): SandboxC
             if (callerSignal.aborted) onAbort()
             else callerSignal.addEventListener('abort', onAbort, { once: true })
           }
-          const spec: AgentSpec = { profile: { name: id }, harness: null }
+          const requestedProfile =
+            (options?.backend && typeof options.backend === 'object'
+              ? (options.backend as { profile?: unknown }).profile
+              : undefined) ?? capturedDefaultProfile
+          const parsedProfile = agentProfileSchema.safeParse(requestedProfile)
+          if (!parsedProfile.success) {
+            throw new Error(
+              'inlineSandboxClient: an exact AgentProfile is required; pass defaults.profile or create({ backend: { profile } })',
+            )
+          }
+          const spec: AgentSpec = { profile: parsedProfile.data, harness: null }
           const exec = factory(spec, { signal: controller.signal, seams: { createOptions } })
           try {
             const artifact = await settle(exec, message, controller.signal)
-            const out = artifact.out as { content?: string } | undefined
+            const out = artifact.out as
+              | {
+                  content?: string
+                  estimatedCostUsd?: number
+                  promptCache?: Readonly<Record<string, number | string>>
+                }
+              | undefined
             // Speak the runtime's metering protocol: `extractLlmCallEvent` reads
             // flat `llm_call` events, not the nested result payload — without
             // this the kernel meters the iteration as a fabricated $0 / 0 tokens.
             const tokensIn = artifact.spent.tokens.input
             const tokensOut = artifact.spent.tokens.output
             const costUsd = artifact.spent.usd
-            if (tokensIn || tokensOut || costUsd) {
+            const estimatedCostUsd = out?.estimatedCostUsd
+            if (
+              artifact.spent.iterations > 0 ||
+              artifact.spent.tokensKnown === false ||
+              artifact.spent.usdKnown === false ||
+              tokensIn > 0 ||
+              tokensOut > 0 ||
+              costUsd > 0 ||
+              estimatedCostUsd !== undefined
+            ) {
               yield {
                 type: 'llm_call',
-                data: { tokensIn, tokensOut, costUsd },
+                data: {
+                  ...(artifact.spent.tokensKnown === false ? {} : { tokensIn, tokensOut }),
+                  ...(artifact.spent.usdKnown !== false ? { costUsd } : {}),
+                  ...(artifact.spent.tokensKnown === false ? { tokensKnown: false } : {}),
+                  ...(artifact.spent.usdKnown === false ? { costKnown: false } : {}),
+                  ...(artifact.spent.usdKnown !== false
+                    ? {
+                        costKnown: true,
+                        costProvenance: 'provider-receipt',
+                      }
+                    : {}),
+                  ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+                  ...(out?.promptCache ? { promptCache: out.promptCache } : {}),
+                },
               } as unknown as SandboxEvent
             }
             yield {
               type: 'result',
               data: {
                 finalText: out?.content ?? '',
-                tokenUsage: {
-                  inputTokens: tokensIn,
-                  outputTokens: tokensOut,
-                },
-                costUsd,
+                ...(artifact.spent.tokensKnown === false
+                  ? { tokensKnown: false }
+                  : {
+                      tokenUsage: {
+                        inputTokens: tokensIn,
+                        outputTokens: tokensOut,
+                      },
+                    }),
+                ...(artifact.spent.usdKnown === false
+                  ? { costKnown: false, ...(costUsd > 0 ? { costUsd } : {}) }
+                  : {
+                      costUsd,
+                      costKnown: true,
+                      costProvenance: 'provider-receipt',
+                    }),
+                ...(estimatedCostUsd !== undefined ? { estimatedCostUsd } : {}),
+                ...(out?.promptCache ? { promptCache: out.promptCache } : {}),
               },
             } as unknown as SandboxEvent
           } finally {

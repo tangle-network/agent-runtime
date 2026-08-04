@@ -242,7 +242,7 @@ describe('profile materialization contracts', () => {
         contract: promptModelProfileMaterialization,
         changedAxes: requested,
       }).map((issue) => issue.axis),
-    ).toEqual(['modelSmall', 'modelReasoningEffort'])
+    ).toEqual(['modelSmall'])
     expect(
       validateProfileMaterialization({
         contract: controlProfileMaterialization,
@@ -352,23 +352,30 @@ describe('profile materialization contracts', () => {
 
   it('pins the resolver behavior the harness claim rests on', () => {
     // The contract claims `harness` only because buildBackendOptions resolves the runner from
-    // it. The order is sandboxOverrides, then metadata.backendType, then profile.harness — the
-    // metadata hint still wins so existing callers are unaffected.
-    expect(buildBackendOptions({ name: 'a', harness: 'codex' }, undefined).backend?.type).toBe(
-      'codex',
-    )
+    // it. A complete profile is mandatory, and neither metadata nor a sandbox override may select
+    // a different execution implementation.
+    const executable = {
+      name: 'a',
+      harness: 'codex',
+      model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    } as const satisfies AgentProfile
+    expect(buildBackendOptions(executable, undefined).backend?.type).toBe('codex')
     expect(
-      buildBackendOptions(
-        { name: 'a', harness: 'codex', metadata: { backendType: 'amp' } },
-        undefined,
-      ).backend?.type,
-    ).toBe('amp')
-    expect(buildBackendOptions({ name: 'a' }, undefined).backend?.type).toBe('opencode')
+      buildBackendOptions({ ...executable, metadata: { backendType: 'amp' } }, undefined).backend
+        ?.type,
+    ).toBe('codex')
+    expect(() => buildBackendOptions(executable, { backend: { type: 'amp' } })).toThrow(
+      /conflicts with AgentProfile/,
+    )
+    expect(() => buildBackendOptions({ ...executable, harness: undefined }, undefined)).toThrow(
+      /harness must be explicit/,
+    )
   })
 
-  it('keeps the runtime-selected model marker out of sandbox execution profiles', () => {
+  it('refuses a runtime-selected model marker before sandbox execution', () => {
     const profile: AgentProfile = {
       name: 'runtime-selected',
+      harness: 'codex',
       model: {
         default: HARNESS_NATIVE_MODEL,
         provider: 'tangle-router',
@@ -376,18 +383,24 @@ describe('profile materialization contracts', () => {
       },
     }
 
-    const executable = buildBackendOptions(profile, undefined).backend?.profile as AgentProfile
-    expect(executable).not.toBe(profile)
-    expect(executable.model).toEqual({ provider: 'tangle-router', reasoningEffort: 'high' })
-    expect(profile.model?.default).toBe(HARNESS_NATIVE_MODEL)
+    expect(() => buildBackendOptions(profile, undefined)).toThrow(
+      /model\.default is runtime-selected/,
+    )
   })
 
   it('refuses a declared harness the sandbox cannot run', () => {
     // Falling through to opencode would run a gemini profile on a different harness and
     // report success, so the mismatch has to surface as a failure.
-    expect(() => buildBackendOptions({ name: 'a', harness: 'gemini' }, undefined)).toThrow(
-      /no backend for/,
-    )
+    expect(() =>
+      buildBackendOptions(
+        {
+          name: 'a',
+          harness: 'gemini',
+          model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+        },
+        undefined,
+      ),
+    ).toThrow(/no backend for/)
   })
 
   it('deduplicates axes while preserving first-seen order', () => {

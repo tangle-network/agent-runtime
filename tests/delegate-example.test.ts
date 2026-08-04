@@ -9,9 +9,10 @@
  * green offline. The offline assertion (delegate fails loud without a brain/router) always runs.
  */
 import { existsSync, readFileSync } from 'node:fs'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { fileDeliverable, makeWriteFileBackend, scratchTarget } from '../examples/delegate/shared'
-import { delegate } from '../src/runtime/index'
+import { delegate, supervisorInstructions } from '../src/runtime/index'
 
 const routerKey = process.env.TANGLE_API_KEY
 const routerBaseUrl = process.env.TANGLE_ROUTER_URL ?? 'https://router.tangle.tools/v1'
@@ -20,14 +21,42 @@ const brainModel = process.env.MODEL ?? process.env.BRAIN_MODEL ?? model
 
 describe('delegate example', () => {
   it('fails loud without a supervisor brain or router (offline)', async () => {
-    await expect(delegate('do something', {})).rejects.toThrow(/router|brain/)
+    const supervisorProfile: AgentProfile = {
+      name: 'offline-delegator',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: 'offline-model' },
+    }
+
+    await expect(
+      delegate('do something', {
+        backend: {
+          backend: 'router',
+          routerBaseUrl: 'https://router.invalid/v1',
+          routerKey: 'unused',
+        },
+        supervisorProfile,
+        router: undefined as never,
+      }),
+    ).rejects.toThrow(/router|brain/)
   })
 
   it.skipIf(!routerKey)(
     'authors a worker that delivers the file on disk; cost rides through (live)',
     async () => {
       const { workDir, target, targetAbs } = scratchTarget()
-      const backend = makeWriteFileBackend({ workDir, routerBaseUrl, routerKey: routerKey!, model })
+      const backend = makeWriteFileBackend({ workDir, routerBaseUrl, routerKey: routerKey! })
+      const supervisorProfile: AgentProfile = {
+        name: 'file-delegator',
+        harness: 'cli-base',
+        model: { provider: 'tangle-router', default: brainModel },
+        prompt: {
+          systemPrompt:
+            supervisorInstructions() +
+            `\nFor this run, every worker you author must use harness="cli-base", ` +
+            `model.provider="tangle-router", model.default=${JSON.stringify(model)}, and ` +
+            'model.metadata.maxTurns=8.',
+        },
+      }
 
       const result = await delegate(
         `Create a file named ${target} containing exactly the word hello (lowercase, no quotes). ` +
@@ -35,8 +64,8 @@ describe('delegate example', () => {
           `reply with the single word DONE and STOP — do not call any more tools after the file is written.`,
         {
           backend,
-          router: { routerBaseUrl, routerKey: routerKey!, model: brainModel },
-          model: brainModel,
+          router: { routerBaseUrl, routerKey: routerKey! },
+          supervisorProfile,
           deliverable: fileDeliverable(targetAbs, target),
           budget: { maxIterations: 40, maxTokens: 200_000, maxUsd: 0.5 },
         },

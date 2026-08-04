@@ -16,7 +16,8 @@
  * @experimental
  */
 
-import type { RouterConfig } from '../../runtime/router-client'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { RouterTransportConfig } from '../../runtime/router-client'
 import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type DelegateOptions, delegate } from '../../runtime/supervise/delegate'
 import type { ExecutorConfig } from '../../runtime/supervise/runtime'
@@ -43,17 +44,13 @@ export const DELEGATE_DESCRIPTION = [
   'a success.',
 ].join('\n')
 
-/** JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`). @experimental */
+/** JSON Schema for `delegate` tool arguments (`intent` + optional trace id). @experimental */
 export const DELEGATE_INPUT_SCHEMA = {
   type: 'object',
   properties: {
     intent: {
       type: 'string',
       description: 'What you want accomplished, as an outcome. The supervisor authors the worker.',
-    },
-    model: {
-      type: 'string',
-      description: 'Optional per-call override for the supervisor brain model.',
     },
     runId: {
       type: 'string',
@@ -67,7 +64,6 @@ export const DELEGATE_INPUT_SCHEMA = {
 /** Parsed `delegate` tool arguments. */
 export interface DelegateArgs {
   intent: string
-  model?: string
   runId?: string
 }
 
@@ -77,15 +73,15 @@ export function validateDelegateArgs(raw: unknown): DelegateArgs {
     throw new TypeError('delegate: arguments must be an object')
   }
   const value = raw as Record<string, unknown>
+  const unknown = Object.keys(value).filter((key) => key !== 'intent' && key !== 'runId')
+  if (unknown.length > 0) {
+    throw new TypeError(`delegate: unknown arguments: ${unknown.join(', ')}`)
+  }
   const intent = value.intent
   if (typeof intent !== 'string' || intent.trim().length === 0) {
     throw new TypeError('delegate: `intent` must be a non-empty string')
   }
   const args: DelegateArgs = { intent: intent.trim() }
-  if (value.model !== undefined) {
-    if (typeof value.model !== 'string') throw new TypeError('delegate: `model` must be a string')
-    args.model = value.model
-  }
   if (value.runId !== undefined) {
     if (typeof value.runId !== 'string') throw new TypeError('delegate: `runId` must be a string')
     args.runId = value.runId
@@ -110,13 +106,13 @@ export interface DelegateError {
 /** @experimental */
 export interface DelegateHandlerOptions {
   /** The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained). */
-  router: RouterConfig
+  router: RouterTransportConfig
+  /** Exact executable supervisor identity selected by the trusted composition root. */
+  supervisorProfile: AgentProfile
   /** WHERE the authored workers run. Required for `supervise()` to spawn anything. */
   backend: ExecutorConfig
   /** The completion oracle the authored workers settle against (settled ⟺ delivered). */
   deliverable?: DeliverableSpec
-  /** Default supervisor brain model when a call omits `model`. */
-  model?: string
   /** Restrict the run to this subset of models. */
   allowedModels?: readonly string[]
 }
@@ -160,7 +156,7 @@ export function createDelegateHandler(
     const opts: DelegateOptions = {
       backend: options.backend,
       router: options.router,
-      model: args.model ?? options.model,
+      supervisorProfile: options.supervisorProfile,
       ...(options.deliverable ? { deliverable: options.deliverable } : {}),
       ...(options.allowedModels ? { allowedModels: options.allowedModels } : {}),
       ...(args.runId ? { runId: args.runId } : {}),

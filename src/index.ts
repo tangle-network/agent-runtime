@@ -21,13 +21,8 @@ export type {
   KnowledgeRequirement,
   RunRecord,
 } from '@tangle-network/agent-eval'
-export type { BackendRetryPolicy } from './backends'
 // ── Backends ──────────────────────────────────────────────────────────
-export {
-  createIterableBackend,
-  createOpenAICompatibleBackend,
-  createSandboxPromptBackend,
-} from './backends'
+export { createIterableBackend, createSandboxPromptBackend } from './backends'
 // ── Immutable candidate execution ─────────────────────────────────────
 // One verified bundle → one exact per-task plan → one protected run receipt.
 // This composes the shared profile materializer and agent-eval trace store;
@@ -73,6 +68,7 @@ export {
   CircuitOpenError,
   computeBackoff,
   createConversationBackend,
+  createProfileExecutionBackend,
   DEFAULT_MAX_DEPTH,
   DeadlineExceededError,
   d1ToSqlAdapter,
@@ -194,8 +190,6 @@ export {
 } from './otel-export'
 // ── Readiness ─────────────────────────────────────────────────────────
 export { decideKnowledgeReadiness } from './readiness'
-export type { AgentBackendKind, ResolveAgentBackendOptions } from './resolve-agent-backend'
-export { resolveAgentBackend } from './resolve-agent-backend'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
 // ── Execution kernel ─────────────────────────────────────────────────

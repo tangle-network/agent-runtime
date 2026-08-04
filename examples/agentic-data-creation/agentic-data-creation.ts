@@ -369,15 +369,27 @@ export async function createDataCreationLoop(
 
   // Build the three worker specs once (task → prompt + the profile the substrate materializes).
   const challengerSpec: AgentRunSpec<ChallengerTask> = {
-    profile: config.challengerProfile ?? ({ name: 'challenger' } as AgentProfile),
+    profile: config.challengerProfile ?? {
+      name: 'challenger',
+      harness: 'cli-base',
+      model: { provider: 'scripted', default: 'offline-challenger' },
+    },
     taskToPrompt: (t) => t.prompt,
   }
   const weakSolverSpec: AgentRunSpec<SolverTask> = {
-    profile: config.weakSolverProfile ?? ({ name: 'weak-solver' } as AgentProfile),
+    profile: config.weakSolverProfile ?? {
+      name: 'weak-solver',
+      harness: 'cli-base',
+      model: { provider: 'scripted', default: 'offline-weak-solver' },
+    },
     taskToPrompt: (t) => renderSolverPrompt(t.example, t.sampleIndex),
   }
   const strongSolverSpec: AgentRunSpec<SolverTask> = {
-    profile: config.strongSolverProfile ?? ({ name: 'strong-solver' } as AgentProfile),
+    profile: config.strongSolverProfile ?? {
+      name: 'strong-solver',
+      harness: 'cli-base',
+      model: { provider: 'scripted', default: 'offline-strong-solver' },
+    },
     taskToPrompt: (t) => renderSolverPrompt(t.example, t.sampleIndex),
   }
 

@@ -9,19 +9,41 @@
  */
 import { readFileSync } from 'node:fs'
 import { extractCode, loadHumanEval, runChecker, type HumanEvalTask } from './benchmarks/humaneval'
+import { runBenchRouterTurn } from './router-turn'
 
 const SEED_INSTRUCTION =
   'Complete the following Python function. Output the COMPLETE function definition (signature, docstring optional, body) inside a single ```python code block. Include any imports the function needs. Do not write tests or example calls.'
 
-async function complete(base: string, key: string, model: string, prompt: string, maxTokens: number): Promise<string> {
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }),
-  })
-  if (!res.ok) return ''
-  const d = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return d.choices?.[0]?.message?.content ?? ''
+async function complete(
+  base: string,
+  key: string,
+  model: string,
+  instruction: string,
+  prompt: string,
+  maxTokens: number,
+): Promise<string> {
+  try {
+    const turn = await runBenchRouterTurn(
+      {
+        routerBaseUrl: base,
+        routerKey: key,
+        profile: {
+          name: 'humaneval-worker',
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: model,
+            metadata: { temperature: 0.2, maxTokens },
+          },
+          prompt: { systemPrompt: instruction },
+        },
+      },
+      prompt,
+    )
+    return turn.finalText
+  } catch {
+    return ''
+  }
 }
 
 async function main(): Promise<void> {
@@ -55,7 +77,14 @@ async function main(): Promise<void> {
       const t = tasks[i]
       i += 1
       if (!t) continue
-      const reply = await complete(base, apiKey, model, `${instruction}\n\n\`\`\`python\n${t.prompt}\`\`\``, maxTokens)
+      const reply = await complete(
+        base,
+        apiKey,
+        model,
+        instruction,
+        `\`\`\`python\n${t.prompt}\`\`\``,
+        maxTokens,
+      )
       const { pass: p } = await runChecker(t, extractCode(reply))
       if (p === 1) pass += 1
       else fails.push(t.taskId)

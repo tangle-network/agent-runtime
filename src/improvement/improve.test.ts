@@ -89,7 +89,12 @@ function fixedMethod(
       inspect?.(input)
       return {
         winnerSurface,
-        cost: { totalCostUsd: 0, accountingComplete: true, incompleteReasons: [] },
+        cost: {
+          totalCostUsd: 0,
+          costProvenance: { kind: 'observed', usd: 0 },
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
         durationMs: 1,
       }
     },
@@ -127,6 +132,13 @@ function methodOptions(method: OptimizationMethod<TestScenario, TextArtifact>): 
 const promptProfile = (): AgentProfile => ({
   name: 'fixture-agent',
   prompt: { systemPrompt: 'baseline' },
+})
+
+const codeAuthorProfile = (): AgentProfile => ({
+  name: 'code-author',
+  harness: 'cli-base',
+  model: { provider: 'offline', default: 'deterministic-code-author' },
+  prompt: { systemPrompt: 'Edit the candidate worktree.' },
 })
 
 describe('improve method execution', () => {
@@ -601,6 +613,7 @@ describe('improve method execution', () => {
       winnerSurface: 'improved prompt',
       cost: {
         totalCostUsd: 0,
+        costProvenance: { kind: 'uncaptured', usd: null },
         accountingComplete: false,
         incompleteReasons: ['optimizer model cost unavailable'],
       },
@@ -620,6 +633,7 @@ describe('improve method execution', () => {
       winnerSurface: 'improved prompt',
       cost: {
         totalCostUsd: 2,
+        costProvenance: { kind: 'observed', usd: 2 },
         accountingComplete: true,
         incompleteReasons: [],
       },
@@ -757,6 +771,7 @@ describe('improve code execution', () => {
         agent: paidCodeText,
         code: {
           repoRoot: repo.repoRoot,
+          profile: codeAuthorProfile(),
           generator: {
             kind: 'test-generator',
             async generate({ worktreePath }: { worktreePath: string }) {
@@ -807,6 +822,7 @@ describe('improve code execution', () => {
         agent: paidCodeText,
         code: {
           repoRoot: repo.repoRoot,
+          profile: codeAuthorProfile(),
           generator: {
             kind: 'must-not-run',
             async generate() {
@@ -842,6 +858,7 @@ describe('improve code execution', () => {
           agent: paidCodeText,
           code: {
             repoRoot: repo.repoRoot,
+            profile: codeAuthorProfile(),
             generator: {
               kind: 'rejecting-generator',
               async generate() {
@@ -883,6 +900,7 @@ describe('improve code execution', () => {
           code: {
             repoRoot: repo.repoRoot,
             worktree: rejectingWorktree,
+            profile: codeAuthorProfile(),
             generator: {
               kind: 'unused',
               async generate() {

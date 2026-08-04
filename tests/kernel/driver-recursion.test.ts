@@ -1,4 +1,3 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { defaultSelectWinner } from '../../src/runtime/run-loop'
@@ -16,6 +15,7 @@ import type {
   SupervisorOpts,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Scripted leaf worker (offline; no network/sandbox/subprocess) ────────────────
 //
@@ -69,7 +69,7 @@ function workerExecutor(s: WorkerScript): Executor<unknown> {
  *  built-in router/sandbox/cli factory ever fires (the test stays fully offline). */
 function workerLeaf(name: string, s: WorkerScript): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: workerExecutor(s),
   }
@@ -167,10 +167,14 @@ describe('recursive driver: agents drive agents drive agents', () => {
     const root: Agent<unknown, unknown> = {
       name: 'root',
       async act(task, scope) {
-        const spawned = scope.spawn(driverChild('nested-manager', nested, journal), task, {
-          budget: perChild,
-          label: 'nested-manager',
-        })
+        const spawned = scope.spawn(
+          driverChild(testAgentProfile('nested-manager'), nested, journal),
+          task,
+          {
+            budget: perChild,
+            label: 'nested-manager',
+          },
+        )
         if (!spawned.ok) throw new Error(spawned.reason)
         expect(
           scope.send(spawned.handle.id, {
@@ -220,7 +224,9 @@ describe('recursive driver: agents drive agents drive agents', () => {
     // root driver: spawns the mid DRIVER child (which itself spawns the worker) — recursion.
     const rootDriver = scriptedDriver(
       'root',
-      (_scope) => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
+      (_scope) => [
+        { label: 'mid', agent: driverChild(testAgentProfile('mid'), midDriver, journal) },
+      ],
       observed,
     )
 
@@ -273,7 +279,7 @@ describe('recursive driver: agents drive agents drive agents', () => {
       name: 'root',
       async act(task, scope) {
         const spawned = scope.spawn(
-          driverChild('refusing-manager', refusingManager, journal),
+          driverChild(testAgentProfile('refusing-manager'), refusingManager, journal),
           task,
           { budget: perChild, label: 'refusing-manager' },
         )
@@ -312,7 +318,7 @@ describe('recursive driver: agents drive agents drive agents', () => {
     const midDriver = scriptedDriver('mid', () => [{ label: 'w', agent: worker }], observed)
     const rootDriver = scriptedDriver(
       'root',
-      () => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
+      () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), midDriver, journal) }],
       observed,
     )
     const rootCeiling = { maxIterations: 50, maxTokens: 5000 }
@@ -375,7 +381,7 @@ describe('recursive driver: agents drive agents drive agents', () => {
     })
     const rootDriver = scriptedDriver(
       'root',
-      () => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
+      () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), midDriver, journal) }],
       observed,
     )
     const result = await createSupervisor<unknown, unknown>().run(
@@ -409,7 +415,7 @@ describe('recursive driver: agents drive agents drive agents', () => {
     const midDriver = scriptedDriver('mid', () => [{ label: 'w', agent: worker }], observed)
     const rootDriver = scriptedDriver(
       'root',
-      () => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
+      () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), midDriver, journal) }],
       observed,
     )
     await createSupervisor<unknown, unknown>().run(
@@ -460,13 +466,15 @@ describe('recursive driver: agents drive agents drive agents', () => {
     // depth-1 driver spawns the inner DRIVER child.
     const midDriver = scriptedDriver(
       'mid',
-      () => [{ label: 'inner', agent: driverChild('inner', innerDriver, journal) }],
+      () => [
+        { label: 'inner', agent: driverChild(testAgentProfile('inner'), innerDriver, journal) },
+      ],
       observed,
     )
     // depth-0 root spawns the mid DRIVER child.
     const rootDriver = scriptedDriver(
       'root',
-      () => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
+      () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), midDriver, journal) }],
       observed,
     )
 
@@ -513,7 +521,7 @@ describe('recursive driver: agents drive agents drive agents', () => {
     const midDriver = scriptedDriver('mid', () => [{ label: 'w', agent: worker }], observed)
     const rootDriver = scriptedDriver(
       'root',
-      () => [{ label: 'mid', agent: driverChild('mid', midDriver, journal) }],
+      () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), midDriver, journal) }],
       observed,
     )
     const result = await createSupervisor<unknown, unknown>().run(

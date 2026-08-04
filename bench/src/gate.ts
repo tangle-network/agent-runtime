@@ -32,28 +32,26 @@ import type {
   AgentSpec,
   Budget,
   CombinatorShape,
-  DefaultVerdict,
   EqualKArm,
   EqualKVerdict,
   ExecutorContext,
   ExecutorRegistry,
   Executor,
   ExecutorFactory,
-  ExecutorResult,
   Outcome,
   Persona,
-  Runtime,
   Spend,
   SupervisedResult,
   TrajectoryReport,
 } from '@tangle-network/agent-runtime/kernel'
 import {
   definePersona,
-  routerChatWithUsage,
+  createExecutor,
   equalKOnCost,
   fanout,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
+  mapExecutorResult,
   runPersonified,
   trajectoryReport,
 } from '@tangle-network/agent-runtime/kernel'
@@ -73,10 +71,6 @@ export interface BenchSolverOptions {
   readonly adapter: BenchmarkAdapter
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly model: string
-  /** Sampling temperature. >0 is required for the blind arm to be more than k identical samples
-   *  (k copies at temperature 0 collapse to one answer — no compute control). Default 0.7. */
-  readonly temperature?: number
 }
 
 const fnv = (prefix: string, value: unknown): string => {
@@ -114,58 +108,27 @@ function extractArtifact(adapter: BenchmarkAdapter, content: string): string {
  * a judge throw rejects the leaf (the scope types it into a `down` settlement — never a silent 0).
  */
 export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: ExecutorContext): Executor<unknown> {
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
-
-  let artifact: ExecutorResult<unknown> | undefined
-
-  return {
-    runtime: 'bench-router' as Runtime,
-    async execute(task, signal): Promise<ExecutorResult<unknown>> {
+  const inner = createExecutor({
+    backend: 'router',
+    routerBaseUrl: opts.routerBaseUrl,
+    routerKey: opts.routerKey,
+  })(spec, ctx)
+  return mapExecutorResult(inner, async (result, task) => {
       const t = task as SolveTask
-      const system = spec.profile.prompt?.systemPrompt
-      const messages = [
-        ...(typeof system === 'string' && system.length > 0
-          ? [{ role: 'system', content: system }]
-          : []),
-        { role: 'user', content: t.prompt },
-      ]
-      const started = Date.now()
-      const linked = linkSignals(signal, controller.signal)
-      const chat = await routerChatWithUsage(
-        { routerBaseUrl: opts.routerBaseUrl, routerKey: opts.routerKey, model: opts.model },
-        messages,
-        { temperature: opts.temperature ?? 0.7, ...(linked ? { signal: linked } : {}) },
-      )
-      const candidate = extractArtifact(opts.adapter, chat.content)
+      const raw = result.out as { content?: unknown }
+      const content = typeof raw?.content === 'string' ? raw.content : ''
+      const candidate = extractArtifact(opts.adapter, content)
       const score = await opts.adapter.judge(t.instance, candidate)
-      const verdict: DefaultVerdict = {
-        valid: score.resolved,
-        score: score.score,
-        ...(score.detail ? { notes: score.detail } : {}),
+      return {
+        outRef: fnv('bench', { id: t.instance.id, candidate }),
+        out: candidate,
+        verdict: {
+          valid: score.resolved,
+          score: score.score,
+          ...(score.detail ? { notes: score.detail } : {}),
+        },
       }
-      const spent: Spend = {
-        iterations: 1,
-        tokens: chat.usage ? { input: chat.usage.input, output: chat.usage.output } : { input: 0, output: 0 },
-        usd: chat.costUsd ?? 0,
-        ms: Date.now() - started,
-      }
-      artifact = { outRef: fnv('bench', { id: t.instance.id, candidate }), out: candidate, verdict, spent }
-      return artifact
-    },
-    teardown(): Promise<{ destroyed: boolean }> {
-      controller.abort()
-      return Promise.resolve({ destroyed: true })
-    },
-    resultArtifact() {
-      if (!artifact) throw new Error('benchSolveLeaf: resultArtifact() read before execute()')
-      return artifact
-    },
-  }
+    })
 }
 
 /**
@@ -189,10 +152,9 @@ export function benchSolverRegistry(opts: BenchSolverOptions): ExecutorRegistry 
   }
 }
 
-/** Build the solver `Persona` from the developer's `AgentProfile` + a solve-and-grade registry.
- *  The deliverable type is the candidate text (`string`); `harness: null` is nominal — the
- *  supplied registry overrides resolution, so the root never falls through to the router/sandbox
- *  built-ins. */
+/** Build the solver `Persona` from the developer's exact `AgentProfile` + a solve-and-grade
+ *  registry. The profile still declares its execution identity; `AgentSpec.harness: null` only
+ *  says that the supplied registry owns placement instead of a built-in executor. */
 export function defineSolverPersona(
   profile: AgentProfile,
   registry: ExecutorRegistry,
@@ -233,8 +195,6 @@ export interface RunGateOptions {
   readonly strategies: ReadonlyArray<string>
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly model: string
-  readonly temperature?: number
   /** How many benchmark instances to run (the paired n). */
   readonly n?: number
   readonly ids?: string[]
@@ -447,15 +407,3 @@ export async function runGate(opts: RunGateOptions): Promise<GateReport> {
 }
 
 /** Link two abort signals into one that fires when either does; `undefined` when neither is set. */
-function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
-  if (a.aborted || b.aborted) {
-    const c = new AbortController()
-    c.abort()
-    return c.signal
-  }
-  const c = new AbortController()
-  const onAbort = () => c.abort()
-  a.addEventListener('abort', onAbort, { once: true })
-  b.addEventListener('abort', onAbort, { once: true })
-  return c.signal
-}

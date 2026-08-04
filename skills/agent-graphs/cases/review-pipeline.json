@@ -4,7 +4,6 @@
   "expect": {
     "nodes": 3,
     "analyzesWarranted": true,
-    "floorTrap": false,
     "edges": [
       "delegates to each reviewer",
       "analyzes routing findings to root"

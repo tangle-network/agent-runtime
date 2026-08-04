@@ -13,6 +13,12 @@
  * `opencode/zai-coding-plan/glm-5.1`), so `harness` here is just the label.
  */
 import { createExecutor } from '@tangle-network/agent-runtime/kernel'
+import {
+  defineAgentProfileSecretRef,
+  harnessProviders,
+  type AgentProfile,
+  type HarnessType,
+} from '@tangle-network/agent-interface'
 import type { SearchArm } from './profiles'
 import { armLabel } from './profiles'
 import type { SearchCellResult } from './run.mts'
@@ -22,17 +28,63 @@ const nativeWebDisallowed = ['WebSearch', 'WebFetch', 'web_search', 'web_fetch',
 
 /** Build the cli-bridge `agent_profile` for one arm (bridge dialect: disable via
  *  `metadata.disallowedTools`, search MCP via `mcp.<name>.transport:'http'`). */
-function bridgeProfile(arm: SearchArm, routerSearchMcp: string, tangleApiKey: string, label: string): Record<string, unknown> {
-  if (arm === 'native') return { name: `search-bench-${label}` }
-  const base = { name: `search-bench-${label}`, metadata: { disallowedTools: nativeWebDisallowed } }
+function bridgeProfile(
+  arm: SearchArm,
+  routerSearchMcp: string,
+  tangleApiKey: string,
+  label: string,
+  harness: HarnessType,
+  wireModel: string,
+): AgentProfile {
+  const prefix = `${harness}/`
+  if (!wireModel.startsWith(prefix)) {
+    throw new Error(
+      `bridgeProfile: wire model '${wireModel}' must start with harness '${prefix}'`,
+    )
+  }
+  const modelPath = wireModel.slice(prefix.length)
+  const segments = modelPath.split('/').filter(Boolean)
+  if (segments.length === 0) {
+    throw new Error(`bridgeProfile: wire model '${wireModel}' has no model id`)
+  }
+  let provider: string
+  let model: string
+  if (segments.length === 1) {
+    const providers = harnessProviders(harness)
+    if (providers?.length !== 1) {
+      throw new Error(
+        `bridgeProfile: wire model '${wireModel}' must include a provider for harness '${harness}'`,
+      )
+    }
+    provider = providers[0]!
+    model = segments[0]!
+  } else {
+    provider = segments[0]!
+    model = segments.slice(1).join('/')
+  }
+  const identity: AgentProfile = {
+    name: `search-bench-${label}`,
+    harness,
+    model: { provider, default: model },
+  }
+  if (arm === 'native') return identity
+  const base: AgentProfile = {
+    ...identity,
+    metadata: { disallowedTools: nativeWebDisallowed },
+  }
   if (arm === 'off') return base
+  if (!tangleApiKey) {
+    throw new Error(`bridgeProfile: provider arm requires TANGLE_API_KEY`)
+  }
   return {
     ...base,
     mcp: {
       tangle_search: {
         transport: 'http',
         url: `${routerSearchMcp}?provider=${encodeURIComponent(arm.provider)}`,
-        headers: { Authorization: `Bearer ${tangleApiKey}` },
+        headers: {
+          Authorization: defineAgentProfileSecretRef('TANGLE_API_KEY', 'bearer'),
+        },
         enabled: true,
       },
     },
@@ -58,7 +110,7 @@ export interface BridgeCfg {
 export async function runBridgeCell(
   cfg: BridgeCfg,
   task: SearchTask,
-  harness: string,
+  harness: HarnessType,
   arm: SearchArm,
 ): Promise<SearchCellResult> {
   const startedAt = Date.now()
@@ -76,14 +128,20 @@ export async function runBridgeCell(
   try {
     // One harness turn through the unified bridge executor — same backend the
     // loop path uses; this cell scorer just adds oracle scoring + citations.
+    const profile = bridgeProfile(
+      arm,
+      cfg.routerSearchMcp,
+      cfg.tangleApiKey,
+      `${harness}-${armId}`,
+      harness,
+      cfg.bridgeModels[harness] ?? harness,
+    )
     const exec = createExecutor({
       backend: 'bridge',
       bridgeUrl: cfg.bridgeUrl,
       bridgeBearer: cfg.bridgeBearer,
-      model: cfg.bridgeModels[harness] ?? harness,
-      agentProfile: bridgeProfile(arm, cfg.routerSearchMcp, cfg.tangleApiKey, `${harness}-${armId}`),
       timeoutMs: cfg.timeoutMs ?? 300_000,
-    })({ profile: { name: `${harness}-${armId}` }, harness: null }, { signal: controller.signal, seams: {} })
+    })({ profile, harness: null }, { signal: controller.signal, seams: {} })
     // bridgeExecutor is one-shot (async execute resolves an ExecutorResult).
     const artifact = (await exec.execute(taskToPrompt(task), controller.signal)) as {
       out: unknown

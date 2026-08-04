@@ -23,10 +23,9 @@ import {
   type AgentGraph,
   type AnalystRegistry,
   promptHandle,
-  type RunGraphOptions,
-  runGraph,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -43,13 +42,13 @@ const analysts: AnalystRegistry = {
       : { verdict: 'needs-changes', brief: 'add the missing tests' },
 }
 
-export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphOptions } {
+export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive the loop.' } } },
-      { id: 'implementer', profile: { name: 'implementer', prompt: { systemPrompt: 'Build.' } } },
-      { id: 'reviewer', profile: { name: 'reviewer', prompt: { systemPrompt: 'Review.' } } },
+      { id: 'driver', profile: offlineProfile('driver', 'Drive the loop.') },
+      { id: 'implementer', profile: offlineProfile('implementer', 'Build.') },
+      { id: 'reviewer', profile: offlineProfile('reviewer', 'Review.') },
     ],
     edges: [
       { kind: 'delegates', from: 'driver', to: 'implementer', directive: brief },
@@ -68,7 +67,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphOpt
   }
 
   const received: AgentProfile[] = []
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'collab',
     analysts,
     makeWorkerAgent: leafSeam(received, {
@@ -133,7 +132,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphOpt
 
 export async function main(): Promise<void> {
   const { graph, opts } = collaboratesReviewLoop()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('collaborates-review-loop', res)
 }
 

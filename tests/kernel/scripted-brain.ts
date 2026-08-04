@@ -5,7 +5,9 @@ export interface ScriptedTurn {
   content?: string
   toolCalls?: Array<{ id?: string; name: string; arguments: Record<string, unknown> }>
   usage?: { input: number; output: number }
+  /** Scripted costs model an exact provider receipt unless explicitly overridden. */
   costUsd?: number
+  costProvenance?: 'provider-receipt' | 'billing-receipt' | 'catalog-estimate'
 }
 
 /** Build a scripted `ToolLoopChat` brain from a fixed turn sequence: converts parsed tool args to
@@ -28,7 +30,12 @@ export function scriptedBrain(
         arguments: JSON.stringify(tc.arguments),
       })),
       ...(turn.usage ? { usage: turn.usage } : {}),
-      ...(turn.costUsd !== undefined ? { costUsd: turn.costUsd } : {}),
+      ...(turn.costUsd !== undefined
+        ? {
+            costUsd: turn.costUsd,
+            costProvenance: turn.costProvenance ?? ('provider-receipt' as const),
+          }
+        : {}),
     }
   }
 }

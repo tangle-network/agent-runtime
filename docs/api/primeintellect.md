@@ -484,12 +484,6 @@ The answer-free task exposed to the caller's runtime program.
 
 ## Type Aliases
 
-### PrimeIntellectBackendOptions
-
-> **PrimeIntellectBackendOptions** = `Omit`\<`Parameters`\<*typeof* [`createOpenAICompatibleBackend`](index.md#createopenaicompatiblebackend)\>\[`0`\], `"apiKey"` \| `"baseUrl"` \| `"model"`\>
-
-***
-
 ### PrimeIntellectImportDefaults
 
 > **PrimeIntellectImportDefaults** = [`PrimeIntellectTraceImportOptions`](#primeintellecttraceimportoptions)
@@ -594,11 +588,12 @@ Read and validate the private process contract installed by the generated Prime 
 
 ***
 
-### createPrimeIntellectBackend()
+### primeIntellectExecutorConfig()
 
-> **createPrimeIntellectBackend**(`context`, `options?`): [`AgentExecutionBackend`](index.md#agentexecutionbackend)\<[`AgentBackendInput`](index.md#agentbackendinput)\>
+> **primeIntellectExecutorConfig**(`context`): `object` & [`RouterSeam`](runtime.md#routerseam)
 
-Build the existing runtime backend against Prime's intercepted model endpoint.
+Resolve Prime's intercepted endpoint as transport-only Runtime executor configuration.
+The caller's exact `AgentProfile` remains the sole owner of model and behavior.
 
 #### Parameters
 
@@ -606,13 +601,9 @@ Build the existing runtime backend against Prime's intercepted model endpoint.
 
 [`PrimeIntellectEpisodeContext`](#primeintellectepisodecontext)
 
-##### options?
-
-[`PrimeIntellectBackendOptions`](#primeintellectbackendoptions) = `{}`
-
 #### Returns
 
-[`AgentExecutionBackend`](index.md#agentexecutionbackend)\<[`AgentBackendInput`](index.md#agentbackendinput)\>
+`object` & [`RouterSeam`](runtime.md#routerseam)
 
 ***
 

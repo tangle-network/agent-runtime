@@ -11,8 +11,16 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
-import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
+import { collectAgentTurn, streamAgentTurn, streamObservedAgentTurn } from './stream-agent-turn'
+import { attestRuntimeOwnedExecutor } from './supervise/materialization'
+import { createExecutor } from './supervise/runtime'
 import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
+
+const TEST_PROFILE = {
+  name: 'stream-agent-turn-test',
+  harness: 'cli-base',
+  model: { provider: 'offline', default: 'offline-test-model' },
+} as const
 
 function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'final' } {
   const final = events.at(-1)
@@ -35,7 +43,7 @@ describe('streamAgentTurn: box backend', () => {
     ] as SandboxEvent[])
 
     const seen: RuntimeStreamEvent[] = []
-    for await (const event of streamAgentTurn({ kind: 'box', box }, 'say hello')) {
+    for await (const event of streamObservedAgentTurn({ kind: 'box', box }, 'say hello')) {
       seen.push(event)
     }
     // Incremental events surface in order, before the terminal event.
@@ -62,9 +70,9 @@ describe('streamAgentTurn: box backend', () => {
       { type: 'done', data: { tokenUsage: { inputTokens: 7, outputTokens: 3 } } },
     ] as SandboxEvent[])
 
-    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'answer'))
+    const turn = await collectAgentTurn(streamObservedAgentTurn({ kind: 'box', box }, 'answer'))
     expect(turn.finalText).toBe('42')
-    expect(turn.usage).toEqual({ input: 7, output: 3 })
+    expect(turn.usage).toEqual({ input: 7, output: 3, usdKnown: false })
     expect(turn.status).toBe('completed')
     expect(turn.events.map((e) => e.type)).toEqual([
       'backend_start',
@@ -82,7 +90,7 @@ describe('streamAgentTurn: box backend', () => {
       },
     })
     const box = await client.create()
-    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'boom'))
+    const turn = await collectAgentTurn(streamObservedAgentTurn({ kind: 'box', box }, 'boom'))
     expect(turn.status).toBe('failed')
     expect(turn.error).toMatchObject({ kind: 'backend', message: 'box exploded' })
     const types = turn.events.map((e) => e.type)
@@ -113,8 +121,12 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
     })
     const box = await client.create()
     const turn = await collectAgentTurn(
-      streamAgentTurn(
-        { kind: 'box', box, options: { sessionId: 'sess-1', model: 'kimi-k2' } },
+      streamObservedAgentTurn(
+        {
+          kind: 'box',
+          box,
+          options: { sessionId: 'sess-1', model: 'kimi-k2' },
+        },
         'do the task',
       ),
     )
@@ -125,7 +137,12 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
     if (start?.type !== 'backend_start') throw new Error('expected backend_start')
     expect(start.backend).toBe('box')
     expect(turn.finalText).toBe('task output')
-    expect(turn.usage).toEqual({ input: 9, output: 4, costUsd: 0.01, model: 'kimi-k2' })
+    expect(turn.usage).toEqual({
+      input: 9,
+      output: 4,
+      costUsd: 0.01,
+      model: 'kimi-k2',
+    })
     expect(turn.status).toBe('completed')
   })
 
@@ -141,7 +158,7 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
     })
     const box = await client.create()
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box', box }, 'hang', { timeoutMs: 25 }),
+      streamObservedAgentTurn({ kind: 'box', box }, 'hang', { timeoutMs: 25 }),
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
@@ -196,7 +213,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
   it('preserveToolParts: true surfaces deduped tool_call/tool_result in-stream', async () => {
     const box = await makeBox(toolFrames)
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box', box }, 'list files', { preserveToolParts: true }),
+      streamObservedAgentTurn({ kind: 'box', box }, 'list files', { preserveToolParts: true }),
     )
     expect(turn.events.map((e) => e.type)).toEqual([
       'backend_start',
@@ -214,12 +231,12 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
     expect(result).toMatchObject({ toolName: 'bash', toolCallId: 'call-1', result: 'file.txt' })
     // The projection is additive: text/usage folding is unchanged.
     expect(turn.finalText).toBe('listed')
-    expect(turn.usage).toEqual({ input: 5, output: 2 })
+    expect(turn.usage).toEqual({ input: 5, output: 2, usdKnown: false })
   })
 
   it('default (off) leaves the stream vocabulary unchanged — no tool events', async () => {
     const box = await makeBox(toolFrames)
-    const turn = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'list files'))
+    const turn = await collectAgentTurn(streamObservedAgentTurn({ kind: 'box', box }, 'list files'))
     expect(turn.events.map((e) => e.type)).toEqual([
       'backend_start',
       'text_delta',
@@ -244,7 +261,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
       { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } } },
     ] as SandboxEvent[])
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box', box }, 'fetch', { preserveToolParts: true }),
+      streamObservedAgentTurn({ kind: 'box', box }, 'fetch', { preserveToolParts: true }),
     )
     const types = turn.events.map((e) => e.type)
     expect(types).toEqual(['backend_start', 'tool_call', 'tool_result', 'llm_call', 'final'])
@@ -264,7 +281,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
     })
     const box = await client.create()
     const turn = await collectAgentTurn(
-      streamAgentTurn({ kind: 'box', box }, 'search', { preserveToolParts: true }),
+      streamObservedAgentTurn({ kind: 'box', box }, 'search', { preserveToolParts: true }),
     )
     expect(turn.events.map((e) => e.type)).toEqual([
       'backend_start',
@@ -291,7 +308,7 @@ describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
         ] as SandboxEvent[],
     })
     const box = await client.create()
-    const stream = streamAgentTurn({ kind: 'box', box }, 'go', {
+    const stream = streamObservedAgentTurn({ kind: 'box', box }, 'go', {
       onRawEvent: async (event) => {
         // Async on purpose: the drive must AWAIT the tap before projecting.
         await Promise.resolve()
@@ -334,7 +351,7 @@ describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () 
       },
     })
     const box = await client.create()
-    for await (const event of streamAgentTurn({ kind: 'box', box }, 'go')) {
+    for await (const event of streamObservedAgentTurn({ kind: 'box', box }, 'go')) {
       log.push(`consumed:${event.type}`)
       // The mid-stream escape: arbitrary awaited work (a vault sync, a retry
       // decision) runs here while the producer is suspended.
@@ -380,11 +397,14 @@ describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () 
     let synced = false
 
     async function* withLifecycle(): AsyncGenerator<RuntimeStreamEvent> {
-      const first = await collectAgentTurn(streamAgentTurn({ kind: 'box', box }, 'attempt'))
+      const first = await collectAgentTurn(streamObservedAgentTurn({ kind: 'box', box }, 'attempt'))
       const noop = first.finalText === '' && first.status === 'completed'
       if (noop) {
         // Retry with a steering prompt — the first `final` is never forwarded.
-        for await (const event of streamAgentTurn({ kind: 'box', box }, 'attempt (retry)')) {
+        for await (const event of streamObservedAgentTurn(
+          { kind: 'box', box },
+          'attempt (retry)',
+        )) {
           if (event.type === 'final') {
             synced = true // pre-done lifecycle work completes before forwarding
           }
@@ -408,47 +428,145 @@ describe('streamAgentTurn: executor backend', () => {
     onTeardown?: () => void
     hangUntilAbort?: boolean
   }): ExecutorFactory<unknown> {
-    return (_spec, ctx): Executor<unknown> => ({
-      runtime: 'inline',
-      async execute(task, signal): Promise<ExecutorResult<unknown>> {
-        if (opts?.hangUntilAbort) {
-          await new Promise<never>((_resolve, reject) => {
-            const onAbort = () => reject(signal.reason ?? new Error('aborted'))
-            if (signal.aborted) onAbort()
-            else signal.addEventListener('abort', onAbort, { once: true })
-            // ctx.signal must be the same channel — assert linkage indirectly.
-            if (ctx.signal.aborted) onAbort()
-          })
-        }
-        return {
-          outRef: 'stub-1',
-          out: { content: `echo: ${String(task)}` },
-          spent: { iterations: 1, tokens: { input: 11, output: 6 }, usd: 0.005, ms: 1 },
-        }
-      },
-      async teardown() {
-        opts?.onTeardown?.()
-        return { destroyed: true }
-      },
-      resultArtifact(): ExecutorResult<unknown> {
-        throw new Error('one-shot executor: resultArtifact unused')
-      },
-    })
+    return (spec, ctx): Executor<unknown> => {
+      const attemptId = ctx.node?.attemptId ?? 'stub-attempt'
+      const executor: Executor<unknown> = {
+        runtime: 'inline',
+        async execute(task, signal): Promise<ExecutorResult<unknown>> {
+          if (opts?.hangUntilAbort) {
+            await new Promise<never>((_resolve, reject) => {
+              const onAbort = () => reject(signal.reason ?? new Error('aborted'))
+              if (signal.aborted) onAbort()
+              else signal.addEventListener('abort', onAbort, { once: true })
+              // ctx.signal must be the same channel — assert linkage indirectly.
+              if (ctx.signal.aborted) onAbort()
+            })
+          }
+          return {
+            outRef: 'stub-1',
+            out: { content: `echo: ${String(task)}`, transportAttempts: 2 },
+            spent: { iterations: 1, tokens: { input: 11, output: 6 }, usd: 0.005, ms: 1 },
+          }
+        },
+        async teardown() {
+          opts?.onTeardown?.()
+          return { destroyed: true }
+        },
+        resultArtifact(): ExecutorResult<unknown> {
+          throw new Error('one-shot executor: resultArtifact unused')
+        },
+      }
+      return attestRuntimeOwnedExecutor(
+        executor,
+        {
+          effectiveProfile: spec.profile,
+          backend: 'inline-test',
+          model: { status: 'known', id: 'offline-test-model' },
+          execution: { kind: 'request', id: attemptId },
+          materializer: 'offline-test-executor',
+          plan: { kind: 'offline-test' },
+        },
+        {
+          attemptId,
+          binding: { kind: 'offline-test', attemptId },
+          descriptor: { kind: 'offline-test', transport: 'in-process' },
+        },
+      )
+    }
   }
+
+  it('rejects an incomplete execution profile before constructing an executor', async () => {
+    let factoryCalls = 0
+    const factory: ExecutorFactory<unknown> = (...args) => {
+      factoryCalls += 1
+      return stubFactory()(...args)
+    }
+
+    await expect(
+      collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory,
+            profile: { name: 'incomplete', model: { default: 'offline-test-model' } },
+          },
+          'must not run',
+        ),
+      ),
+    ).rejects.toThrow(/AgentProfile\.harness must be explicit/u)
+    expect(factoryCalls).toBe(0)
+  })
 
   it('runs the factory once and terminates with the executor usage', async () => {
     let toreDown = 0
     const stream = streamAgentTurn(
-      { kind: 'executor', factory: stubFactory({ onTeardown: () => toreDown++ }) },
+      {
+        kind: 'executor',
+        factory: stubFactory({ onTeardown: () => toreDown++ }),
+        profile: TEST_PROFILE,
+      },
       'ping',
     )
     const turn = await collectAgentTurn(stream)
     expect(turn.finalText).toBe('echo: ping')
-    expect(turn.usage).toEqual({ input: 11, output: 6, costUsd: 0.005 })
+    expect(turn.usage).toEqual({
+      input: 11,
+      output: 6,
+      costUsd: 0.005,
+    })
     expect(turn.status).toBe('completed')
+    expect(turn.transportAttempts).toBe(2)
+    const final = turn.events.at(-1)
+    expect(final?.type).toBe('final')
+    if (final?.type !== 'final') throw new Error('expected final turn event')
+    expect(final.metadata).toMatchObject({ transportAttempts: 2 })
     // Incremental metering surfaces before the terminal event.
-    expect(turn.events.map((e) => e.type)).toEqual(['backend_start', 'llm_call', 'final'])
+    expect(turn.events.map((e) => e.type)).toEqual([
+      'backend_start',
+      'llm_call',
+      'artifact',
+      'final',
+    ])
     expect(toreDown).toBe(1)
+  })
+
+  it('uses one detached profile snapshot even when the caller mutates nested input mid-turn', async () => {
+    const providerOptions = { mode: 'before' }
+    const profile = {
+      ...TEST_PROFILE,
+      model: {
+        ...TEST_PROFILE.model,
+        metadata: { extraBody: { provider_options: providerOptions } },
+      },
+    }
+    let sent: Record<string, unknown> | undefined
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          profile,
+          factory: createExecutor({
+            backend: 'router',
+            routerBaseUrl: 'http://injected.invalid/v1',
+            routerKey: 'injected-transport',
+            complete: async (body) => {
+              sent = body
+              providerOptions.mode = 'after-transport-started'
+              return {
+                model: 'offline-test-model',
+                choices: [{ message: { content: 'stable response' } }],
+                usage: { prompt_tokens: 3, completion_tokens: 2 },
+              }
+            },
+          }),
+        },
+        'ping',
+      ),
+    )
+
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('stable response')
+    expect(sent).toMatchObject({ provider_options: { mode: 'before' } })
   })
 
   it('abort reaches the executor signal and terminates with status aborted', async () => {
@@ -458,6 +576,7 @@ describe('streamAgentTurn: executor backend', () => {
       {
         kind: 'executor',
         factory: stubFactory({ hangUntilAbort: true, onTeardown: () => toreDown++ }),
+        profile: TEST_PROFILE,
       },
       'hang',
       { signal: controller.signal },
@@ -492,7 +611,10 @@ describe('streamAgentTurn: chat backend', () => {
 
   it('streams normalized events and terminates with usage + model', async () => {
     const seen: RuntimeStreamEvent[] = []
-    for await (const event of streamAgentTurn({ kind: 'chat', backend: stubChatBackend() }, 'hi')) {
+    for await (const event of streamObservedAgentTurn(
+      { kind: 'chat', backend: stubChatBackend() },
+      'hi',
+    )) {
       seen.push(event)
     }
     expect(seen.map((e) => e.type)).toEqual([
@@ -512,13 +634,14 @@ describe('streamAgentTurn: chat backend', () => {
     expect(final.metadata).toMatchObject({
       tokenUsage: { input: 21, output: 9 },
       model: 'glm-4.6',
+      usdKnown: false,
     })
     expect(final.metadata).not.toHaveProperty('costUsd')
   })
 
   it('abort mid-stream terminates with status aborted after partial deltas', async () => {
     const controller = new AbortController()
-    const stream = streamAgentTurn(
+    const stream = streamObservedAgentTurn(
       { kind: 'chat', backend: stubChatBackend({ hangUntilAbort: true }) },
       'hang',
       { signal: controller.signal },
@@ -539,8 +662,11 @@ describe('streamAgentTurn: chat backend', () => {
 
   it('timeoutMs expiry terminates with status failed (not aborted)', async () => {
     const turn = await collectAgentTurn(
-      streamAgentTurn(
-        { kind: 'chat', backend: stubChatBackend({ hangUntilAbort: true }) },
+      streamObservedAgentTurn(
+        {
+          kind: 'chat',
+          backend: stubChatBackend({ hangUntilAbort: true }),
+        },
         'slow',
         {
           timeoutMs: 25,

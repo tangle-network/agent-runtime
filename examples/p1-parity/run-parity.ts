@@ -31,7 +31,13 @@
 
 import { parseArgs } from 'node:util'
 import type { MultishotTransport } from '@tangle-network/agent-eval/multishot'
-import { chatCompletionsTransport } from '@tangle-network/agent-runtime/kernel'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  collectAgentTurn,
+  createExecutor,
+  streamAgentTurn,
+  type ToolSpec,
+} from '@tangle-network/agent-runtime/kernel'
 import type { CellSpec, GraphArmBackend, MultishotArmBackend, ParityRecord } from './arms'
 import { runGraphArm, runMultishotArm } from './arms'
 import { offlineGraphBackend, offlineMultishotBackend } from './offline'
@@ -70,13 +76,27 @@ function parityCell(index: number, shots: number): CellSpec {
     // The coder model is PINNED on its profile (the arms refuse a model-less coder — a silent
     // fallback could let the two arms drift apart); offline it names the scripted transport.
     // The reviewer profile stays model-less: as the graph ROOT it is materialized by the driver
-    // brain, and the driver model is substrate config (multishot backend / graph RouterConfig).
+    // brain, and the driver model comes from the exact root profile in both arms.
     coderProfile: {
       name: 'coder',
-      model: { default: 'scripted/parity-coder' },
+      harness: 'cli-base',
+      model: {
+        provider: 'scripted',
+        default: 'scripted/parity-coder',
+        metadata: { temperature: 0.7, maxTokens: 2500 },
+      },
       prompt: { systemPrompt: 'Make tests pass.' },
     },
-    reviewerProfile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } },
+    reviewerProfile: {
+      name: 'reviewer',
+      harness: 'cli-base',
+      model: {
+        provider: 'scripted',
+        default: 'scripted/parity-reviewer',
+        metadata: { temperature: 0.9, maxTokens: 600 },
+      },
+      prompt: { systemPrompt: 'Verify.' },
+    },
     shots,
     budget: { maxIterations: 30, maxTokens: 100_000 },
   }
@@ -90,11 +110,23 @@ function liveParityCell(index: number, shots: number, env: LiveEnv): CellSpec {
     ...base,
     coderProfile: {
       ...base.coderProfile,
-      model: { default: env.coderModel },
+      model: {
+        ...base.coderProfile.model,
+        provider: 'cli-bridge',
+        default: env.coderModel,
+      },
       prompt: {
         systemPrompt:
           'Make tests pass. Print the exact line ' +
           `'${LIVE_PASS_MARKER}' when and ONLY when the full suite genuinely passes.`,
+      },
+    },
+    reviewerProfile: {
+      ...base.reviewerProfile,
+      model: {
+        ...base.reviewerProfile.model,
+        provider: 'tangle-router',
+        default: env.driverModel,
       },
     },
   }
@@ -144,47 +176,62 @@ function requireLiveEnv(): LiveEnv {
   }
 }
 
-/** A multishot transport over an OpenAI-compatible chat-completions surface — built on the SAME
- *  wire function (`chatCompletionsTransport`) the graph arm's `chatTransportExecutor` uses, so
- *  the two arms' substrate symmetry is by construction, not by parallel implementations. The
- *  response's own cost field (`usage.cost` / `usage.cost_usd`, the cli-bridge and OpenRouter
- *  conventions — the same read order `chatTransportExecutor` uses) maps to the result's
- *  `costUsd`, so `runMultishot` meters the MEASURED dollars instead of firing its price-table
- *  estimator on every live turn; a turn genuinely without one stays estimator-visible and the
- *  row states it (`ParityRecord.usdSource`). */
-function completionsTransport(url: string, bearer: string): MultishotTransport {
-  const post = chatCompletionsTransport({ url, bearer })
+/** Adapt Eval's transcript request to Runtime's exact profile turn. No provider call bypasses
+ * `createExecutor` + `streamAgentTurn`; request behavior must equal the declared profile. */
+function completionsTransport(
+  profile: AgentProfile,
+  url: string,
+  bearer: string,
+): MultishotTransport {
   return async (req) => {
-    const body = (await post(
-      {
-        model: req.model,
-        messages: req.messages,
-        ...(req.tools !== undefined && req.tools.length > 0 ? { tools: req.tools } : {}),
-        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
-      },
-      req.signal,
-    )) as {
-      choices?: Array<{ message?: { content?: string | null; tool_calls?: never[] } }>
-      usage?: {
-        prompt_tokens?: number
-        completion_tokens?: number
-        cost?: number
-        cost_usd?: number
-      }
+    if (req.model !== profile.model?.default) {
+      throw new Error('P1 transport request model conflicts with its AgentProfile')
     }
-    const message = body.choices?.[0]?.message
-    if (message === undefined) throw new Error('chat completion returned no message')
-    const costUsd =
-      typeof body.usage?.cost === 'number'
-        ? body.usage.cost
-        : typeof body.usage?.cost_usd === 'number'
-          ? body.usage.cost_usd
-          : undefined
+    const metadata = profile.model?.metadata ?? {}
+    if (req.temperature !== metadata.temperature || req.maxTokens !== metadata.maxTokens) {
+      throw new Error('P1 transport generation controls conflict with its AgentProfile')
+    }
+    const tools = (req.tools ?? []) as ToolSpec[]
+    const factory = createExecutor({
+      backend: 'router',
+      routerBaseUrl: url,
+      routerKey: bearer,
+      ...(tools.length > 0 ? { tools } : {}),
+    })
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory, profile },
+        { messages: req.messages as Array<Record<string, unknown>> },
+        req.signal ? { signal: req.signal } : {},
+      ),
+    )
+    if (turn.status !== 'completed') {
+      throw new Error(turn.error?.message ?? `P1 Runtime turn ended with ${turn.status}`)
+    }
     return {
-      message,
-      ...(body.usage !== undefined ? { usage: body.usage } : {}),
-      ...(costUsd !== undefined ? { costUsd } : {}),
+      message: {
+        content: turn.finalText,
+        ...(turn.toolCalls.length > 0
+          ? {
+              tool_calls: turn.toolCalls.map((call, index) => ({
+                id: call.id ?? `call_${index}`,
+                type: 'function' as const,
+                function: { name: call.name, arguments: call.arguments },
+              })),
+            }
+          : {}),
+      },
+      ...(turn.usage.tokensKnown === false
+        ? {}
+        : {
+            usage: {
+              prompt_tokens: turn.usage.input,
+              completion_tokens: turn.usage.output,
+            },
+          }),
+      ...(turn.usage.usdKnown === false || turn.usage.costUsd === undefined
+        ? {}
+        : { costUsd: turn.usage.costUsd }),
     }
   }
 }
@@ -194,7 +241,10 @@ function completionsTransport(url: string, bearer: string): MultishotTransport {
 const LIVE_PASS_MARKER = 'ALL TESTS PASS'
 const livePassed = (text: string): boolean => text.includes(LIVE_PASS_MARKER)
 
-function liveBackends(env: LiveEnv): {
+function liveBackends(
+  env: LiveEnv,
+  cell: CellSpec,
+): {
   multishot: MultishotArmBackend
   graph: GraphArmBackend
 } {
@@ -202,9 +252,8 @@ function liveBackends(env: LiveEnv): {
     multishot: {
       // Coder leg on the shared coder endpoint; reviewer (driver) leg on the shared router
       // substrate — each leg matching its graph-arm counterpart, including the driver model.
-      agentTransport: completionsTransport(env.url, env.bearer),
-      driverTransport: completionsTransport(env.routerUrl, env.routerKey),
-      driverModel: env.driverModel,
+      agentTransport: completionsTransport(cell.coderProfile, env.url, env.bearer),
+      driverTransport: completionsTransport(cell.reviewerProfile, env.routerUrl, env.routerKey),
       shotPassed: livePassed,
       apiKey: env.bearer,
       baseUrl: env.url,
@@ -213,8 +262,7 @@ function liveBackends(env: LiveEnv): {
       kind: 'chat',
       url: env.url,
       bearer: env.bearer,
-      model: env.coderModel,
-      router: { routerBaseUrl: env.routerUrl, routerKey: env.routerKey, model: env.driverModel },
+      router: { routerBaseUrl: env.routerUrl, routerKey: env.routerKey },
       shotPassed: livePassed,
     },
   }
@@ -264,8 +312,8 @@ export async function main(): Promise<void> {
       graphBackend = offlineGraphBackend(cell, script).backend
     } else {
       const env = requireLiveEnv()
-      const backends = liveBackends(env)
       cell = liveParityCell(i, cli.shots, env)
+      const backends = liveBackends(env, cell)
       multishotBackend = backends.multishot
       graphBackend = backends.graph
     }

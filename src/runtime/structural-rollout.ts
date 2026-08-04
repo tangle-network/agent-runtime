@@ -53,8 +53,6 @@ export interface StructuralRolloutPolicy {
   /** Per-slot strategy-lens prefixes on the k samples (attacks the all-k-fail bucket).
    *  Measured as a paired null (+0.6pp) — kept as an optional knob, off by default. */
   diverse?: boolean
-  /** Sampling temperature for every shot of this strategy; omitted ⇒ the worker default. */
-  temperature?: number
 }
 
 /** The measured default recipe: 5 samples, 2 guarded repair rounds, 6 authored checks. */
@@ -684,12 +682,5 @@ export function structuralRollout(
     },
   )
 
-  if (policy.temperature === undefined) return inner
-  // The shot temperature is an AgenticOptions concern; the policy override threads in at
-  // the driver seam so the strategy stays a plain defineStrategy member.
-  return {
-    name: inner.name,
-    driver: (surface, task, opts, budget) =>
-      inner.driver(surface, task, { ...opts, temperature: policy.temperature }, budget),
-  }
+  return inner
 }

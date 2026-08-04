@@ -120,7 +120,7 @@ export async function captureProposerProvenance(
   for (const harness of harnesses) {
     // The harness id is not the binary name (`claude-code` runs `claude`); read the executable
     // from the runtime's harness table rather than spawning the id.
-    const executable = localHarnessExecutable(harness)
+    const executable = harness === 'pi' ? 'pi' : localHarnessExecutable(harness)
     const res = await exec(executable, ['--version'])
     if (res.code !== 0) {
       throw new Error(

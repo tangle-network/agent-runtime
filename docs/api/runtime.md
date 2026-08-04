@@ -645,7 +645,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ##### load()
 
-> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Parameters
 
@@ -659,7 +659,7 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Implementation of
 
@@ -788,7 +788,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-19)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-18)
 
 ##### parent?
 
@@ -906,7 +906,7 @@ Conserved spend so far for this node.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`outRef`](#outref-5)
+[`NodeSnapshot`](#nodesnapshot).[`outRef`](#outref-6)
 
 ##### trace?
 
@@ -1769,19 +1769,17 @@ The loop-level purpose (meta-intent): what the WHOLE run is for — lets the aud
 
 #### Properties
 
-##### chat
+##### profile
 
-> **chat**: `ChatClient`
+> **profile**: `AgentProfile`
 
-##### model?
+Exact auditor identity.
 
-> `optional` **model?**: `string`
+##### executor
 
-##### auditorInstruction?
+> **executor**: [`ExecutorConfig`](#executorconfig)
 
-> `optional` **auditorInstruction?**: `string`
-
-Override the auditor instruction (optimizable like any analyst prompt).
+Execution substrate. All behavior comes from the profile.
 
 ##### maxTraceLines?
 
@@ -2665,12 +2663,13 @@ Harness × model axes for `expandProfileAxes`. Defaults: the canonical
 
 > `optional` **models?**: readonly `string`[]
 
-##### baseProfile?
+##### baseProfile
 
-> `optional` **baseProfile?**: `AgentProfile`
+> **baseProfile**: `AgentProfile`
 
-Base profile the axes expand over (prompt/tools/skills held fixed).
- Default: a minimal `{ name, model: { default: <first model> } }`.
+Exact base profile the axes expand over (prompt/tools/skills held fixed).
+ Its provider remains authoritative while each axis cell replaces the
+ harness and concrete model.
 
 ##### backends?
 
@@ -2689,14 +2688,6 @@ yields the `SandboxClient` every cell runs on. Merged over the defaults:
 > `optional` **flags?**: `Record`\<`string`, [`LeaderboardFlagSpec`](#leaderboardflagspec)\>
 
 Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`.
-
-##### modelBackend?
-
-> `optional` **modelBackend?**: `Record`\<`string`, `unknown`\>
-
-Extra fields merged into each cell's `backend.model` create override —
- e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
- sandbox. The cell's bare model id is set by the facade from the axis.
 
 ##### setup?
 
@@ -2786,13 +2777,10 @@ readonly `SandboxEvent`[]
 
 > `optional` **resolveModel?**: (`events`) => `string` \| `undefined`
 
-Resolve the model the backend ACTUALLY served off a shot's raw events.
-Required for HARNESS_NATIVE_MODEL-snapped cells (a vendor-locked harness ×
-an out-of-family model expands to the `default` sentinel): the RunRecord
-must pin a real snapshot-bearing model id, which only the dispatch —
-reading the backend's usage/terminal events — can know. When this returns
-a value the default dispatch records it on the paid-call receipt;
-in-family cells (concrete declared model) never need it.
+Resolve the model the backend actually served from a shot's raw events.
+When this returns a value the default dispatch records it on the paid-call
+receipt. It cannot complete an inexact planning profile: every expanded
+cell must already declare a concrete model before backend work starts.
 
 ###### Parameters
 
@@ -2929,15 +2917,17 @@ The same domain surface in the structural `BenchmarkAdapter` shape.
 
 The completed runs to analyze — map your store's rows to `ObserveInput`.
 
-##### chat
+##### profile
 
-> **chat**: `ChatClient`
+> **profile**: `AgentProfile`
 
-The model-call seam (agent-eval `createChatClient`).
+Exact analyst identity.
 
-##### model?
+##### executor
 
-> `optional` **model?**: `string`
+> **executor**: [`ExecutorConfig`](#executorconfig)
+
+Execution substrate. All behavior comes from the profile.
 
 ##### corpus
 
@@ -2950,12 +2940,6 @@ The durable corpus the facts accrete into.
 > `optional` **tags?**: readonly `string`[]
 
 Tags written onto learned facts (the product/domain key the read side queries by).
-
-##### analystInstruction?
-
-> `optional` **analystInstruction?**: `string`
-
-Override the analyst instruction (the GEPA-tunable knob).
 
 ##### concurrency?
 
@@ -3150,7 +3134,7 @@ Resolved secret env. Reaches only the child process; redacted everywhere else.
 
 > **router**: `object`
 
-The worker brain: router chat-completions with tool-calling. All three required.
+Router endpoint/auth. The exact per-create profile owns model and loop behavior.
 
 ###### baseUrl
 
@@ -3159,22 +3143,6 @@ The worker brain: router chat-completions with tool-calling. All three required.
 ###### key
 
 > **key**: `string`
-
-###### model
-
-> **model**: `string`
-
-##### maxTurns?
-
-> `optional` **maxTurns?**: `number`
-
-Tool-loop turns per prompt. Default 8.
-
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-Brain sampling temperature. Default: `routerBrain`'s (0.4).
 
 ##### profile?
 
@@ -3569,15 +3537,17 @@ Provenance back to the run.
 
 #### Properties
 
-##### chat
+##### profile
 
-> **chat**: `ChatClient`
+> **profile**: `AgentProfile`
 
-The model-call seam (agent-eval `createChatClient`: router / cli-bridge / …).
+Exact analyst identity.
 
-##### model?
+##### executor
 
-> `optional` **model?**: `string`
+> **executor**: [`ExecutorConfig`](#executorconfig)
+
+Execution substrate. All behavior comes from the profile.
 
 ##### corpus?
 
@@ -3601,16 +3571,6 @@ Tags written onto learned facts + used by the next run's corpus query.
 
 Cap the trace lines fed to the observer (keeps the call cheap). Default 80.
 
-##### analystInstruction?
-
-> `optional` **analystInstruction?**: `string`
-
-Override the analyst's system instruction — the prompt that turns a trace into
- findings + recommended_actions. The analyst IS the steerer, so this is the knob a
- prompt optimizer (GEPA) tunes. Omitted ⇒ the default observer instruction. The
- firewall (trace-only, never the verdict) is structural (input has no score), so a
- custom instruction cannot break it.
-
 ***
 
 ### Observation
@@ -3632,6 +3592,24 @@ Facts persisted to the corpus (empty when no corpus was supplied).
 > **report**: `string`
 
 Operator-facing markdown: what the observer noticed + what to change.
+
+##### usage
+
+> **usage**: `object`
+
+Measured model usage for this analysis turn.
+
+###### input
+
+> **input**: `number`
+
+###### output
+
+> **output**: `number`
+
+###### known
+
+> **known**: `boolean`
 
 ***
 
@@ -5713,7 +5691,7 @@ The execution transport for the driven loop.
 
 > `optional` **bridge?**: `object`
 
-`bridge` backend: local cli-bridge transport. `bearer` + `model` required.
+`bridge` backend: local cli-bridge transport. The per-create profile owns the model.
 
 ###### url?
 
@@ -5725,12 +5703,6 @@ cli-bridge base URL. Defaults to `http://127.0.0.1:3355`.
 
 > **bearer**: `string`
 
-###### model
-
-> **model**: `string`
-
-Bridge model id, doubling as the harness selector (e.g. `claude-code/sonnet`).
-
 ###### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
@@ -5741,7 +5713,7 @@ Per-turn deadline (ms).
 
 > `optional` **router?**: `object`
 
-`router` backend: router chat-completion transport. All three fields required.
+`router` backend: endpoint/auth only; the per-create profile owns behavior.
 
 ###### baseUrl
 
@@ -5750,10 +5722,6 @@ Per-turn deadline (ms).
 ###### key
 
 > **key**: `string`
-
-###### model
-
-> **model**: `string`
 
 ##### local?
 
@@ -5764,7 +5732,12 @@ Per-turn deadline (ms).
 
 ***
 
-### RouterConfig
+### RouterTransportConfig
+
+Connection details for Runtime's Router-backed executors.
+
+This is deliberately transport-only: model, prompt, tools, generation settings, and retry
+policy belong to the exact executable `AgentProfile` consumed by `streamAgentTurn`.
 
 #### Properties
 
@@ -5776,19 +5749,11 @@ Per-turn deadline (ms).
 
 > **routerKey**: `string`
 
-##### model
-
-> **model**: `string`
-
 ##### complete?
 
-> `optional` **complete?**: (`body`) => `Promise`\<`unknown`\>
+> `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
 
-Optional completion transport. When set, `routerChatWithUsage` / `routerChatWithTools` call it
-with the OpenAI-shape request body and use the parsed `/chat/completions` JSON it returns,
-INSTEAD of `fetch(routerBaseUrl + '/chat/completions')`. When absent the fetch path runs
-unchanged — the live router stays the default. The injection seam an offline benchmark uses to
-drive the worker with no network: a deterministic in-process responder satisfies it, no server.
+Injectable OpenAI-compatible transport for offline execution.
 
 ###### Parameters
 
@@ -5796,172 +5761,19 @@ drive the worker with no network: a deterministic in-process responder satisfies
 
 `Record`\<`string`, `unknown`\>
 
+###### request?
+
+###### headers
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+###### signal?
+
+`AbortSignal`
+
 ###### Returns
 
 `Promise`\<`unknown`\>
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Ceiling for one completion, forwarded as `max_tokens`. Defaults to 8192.
-
-A REASONING model spends this budget on hidden thinking BEFORE it emits a visible token, so
-the default can truncate one mid-thought and return no content at all — observed live with a
-model that spent 8,188 of the 8,192 on reasoning and answered with nothing. Raise it for a
-thinking model; the ceiling belongs to the router and model a caller chose, which is why it
-lives here rather than on one call site.
-
-##### stream?
-
-> `optional` **stream?**: `boolean`
-
-Take the tool-calling completion over SSE instead of one buffered POST. Off by default —
-`routerChatWithTools` never streams, and every existing caller keeps the buffered transport
-byte for byte.
-
-Why it exists: a buffered POST holds one connection idle for the WHOLE completion, and a
-supervisor turn is the longest completion in the system. An intermediary gateway with an
-idle-read timeout kills that connection mid-completion (the 524/503 family). A streamed
-response puts bytes on the wire from the first generated token on, so the connection is only
-idle through prefill. It does NOT shorten prefill, so a gateway whose deadline is
-time-to-FIRST-byte is unaffected; only an idle-timeout gateway is.
-
-Mutually exclusive with `complete`: the injected transport returns one parsed JSON body and has
-no stream to read, so setting both throws rather than silently taking the buffered path.
-
-WHICH PATHS CAN OPT IN. This flag is read in exactly one place (the private `chatWithTools` transport switch), so
-every entry point that takes a caller-supplied `RouterConfig` honors it: `routerBrain`,
-`routerToolLoop`, and `supervisorAgent` (which spreads `deps.router` into the brain's config —
-the supervisor turn this exists for). Two production call sites build a `RouterConfig` literal
-from their own options and therefore CANNOT express it today: the bench strategy's
-`routerToolLoop` config in `strategy.ts` and the local sandbox client's `routerBrain` config in
-`local-sandbox-client.ts`. Neither drives a supervisor-length turn; setting `stream` on a
-config handed to either has no path to reach them, and they stay buffered.
-
-***
-
-### RouterChatResult
-
-#### Properties
-
-##### content
-
-> **content**: `string`
-
-The final answer, with any inline `<think>...</think>` block stripped into `reasoning`.
-
-##### reasoning?
-
-> `optional` **reasoning?**: `string`
-
-Thinking-model reasoning, when the provider surfaced it — either as a separate
-`reasoning`/`reasoning_content` message field (OpenRouter style) or inlined into
-`content` as a `<think>` block (Groq style). Undefined for non-thinking models.
-Downstream parsers that match single-token answers must read `content`, which is
-clean either way; before this split, Groq-style inlining made the same model look
-broken on one provider and fine on another.
-
-##### usage?
-
-> `optional` **usage?**: `object`
-
-REAL usage, or undefined when the provider reported none.
-
-###### input
-
-> **input**: `number`
-
-###### output
-
-> **output**: `number`
-
-##### costUsd?
-
-> `optional` **costUsd?**: `number`
-
-Derived from usage via `estimateCost` when the model is priced; else undefined.
-
-***
-
-### RouterToolCall
-
-A tool-call the model emitted (provider-neutral; mirrors the runtime's ToolCallRequest).
-
-#### Properties
-
-##### id
-
-> **id**: `string`
-
-##### name
-
-> **name**: `string`
-
-##### arguments
-
-> **arguments**: `string`
-
-Raw JSON arguments string as emitted by the model.
-
-***
-
-### RouterChatToolsResult
-
-#### Properties
-
-##### content
-
-> **content**: `string` \| `null`
-
-##### toolCalls
-
-> **toolCalls**: [`RouterToolCall`](#routertoolcall)[]
-
-##### usage?
-
-> `optional` **usage?**: `object`
-
-###### input
-
-> **input**: `number`
-
-###### output
-
-> **output**: `number`
-
-##### costUsd?
-
-> `optional` **costUsd?**: `number`
-
-##### reasoning?
-
-> `optional` **reasoning?**: `string`
-
-Thinking-model reasoning, normalized the way `RouterChatResult.reasoning` is (a separate
-`reasoning_content`/`reasoning` field, or an inline `<think>` block split out of `content`).
-Populated by the STREAMED path only — `routerChatWithTools` discards reasoning today and its
-behavior is preserved unchanged, so a buffered turn still leaves this undefined.
-
-##### finishReason?
-
-> `optional` **finishReason?**: `string`
-
-The provider's `finish_reason` for the turn (`'stop'`, `'tool_calls'`, `'length'`, …).
-Populated by the STREAMED path only. `'length'` is the truncation signal the buffered path
-cannot surface: it says the turn hit `max_tokens`, not that the model chose to stop.
-
-##### usageUnknown?
-
-> `optional` **usageUnknown?**: `true`
-
-The turn happened and its token usage is UNKNOWN — not zero, not free. Set by the STREAMED
-transport when the stream ran to completion without a single usage-bearing chunk, which means
-the `stream_options.include_usage` contract was not honored upstream.
-
-It exists so a bare `usage: undefined` cannot read as a free turn: a metering caller branches
-on this marker and records an UNKNOWN turn (see the coordination driver's `meteredBrain`),
-rather than skipping the turn and letting a conserved budget pool believe it cost nothing.
 
 ***
 
@@ -5988,66 +5800,6 @@ rather than skipping the turn and letting a conserved budget pool believe it cos
 ###### parameters
 
 > **parameters**: `unknown`
-
-***
-
-### RouterToolLoopResult
-
-#### Properties
-
-##### final
-
-> **final**: `string`
-
-The model's final assistant text (the turn where it stopped calling tools, or the budget turn).
-
-##### turns
-
-> **turns**: `number`
-
-Inference turns spent (≤ maxTurns) — the equal-budget unit vs random@k.
-
-##### toolCalls
-
-> **toolCalls**: `number`
-
-##### toolTrace
-
-> **toolTrace**: `object`[]
-
-The behavior trace: each tool call + its result, in order. What a trace-analyst
- steerer reads (behavior, never the verdict) to diagnose + redirect the next shot.
-
-###### name
-
-> **name**: `string`
-
-###### args
-
-> **args**: `string`
-
-###### result
-
-> **result**: `string`
-
-##### usage
-
-> **usage**: `object`
-
-###### input
-
-> **input**: `number`
-
-###### output
-
-> **output**: `number`
-
-##### messages
-
-> **messages**: `Record`\<`string`, `unknown`\>[]
-
-The full conversation after the loop (seed + every assistant/tool turn). Lets a caller
- CARRY the messages into the next shot (depth continuation) and read the trajectory.
 
 ***
 
@@ -6190,6 +5942,10 @@ The progress curve (refine: score per shot; sample: best-so-far per rollout).
 
 > **usd**: `number`
 
+##### usdKnown
+
+> **usdKnown**: `boolean`
+
 ##### ms
 
 > **ms**: `number`
@@ -6205,6 +5961,10 @@ The progress curve (refine: score per shot; sample: best-so-far per rollout).
 ###### output
 
 > **output**: `number`
+
+##### tokensKnown
+
+> **tokensKnown**: `boolean`
 
 ***
 
@@ -6259,6 +6019,12 @@ Fraction of tasks fully resolved.
 > **usd**: `number`
 
 Mean cost vector per task.
+
+##### usdKnownRate
+
+> **usdKnownRate**: `number`
+
+Fraction of task cells whose billed-dollar total was complete.
 
 ##### ms
 
@@ -7394,21 +7160,23 @@ Kill every spawned server. Idempotent.
 
 #### Properties
 
-##### chat
+##### profile
 
-> **chat**: `ChatClient`
+> **profile**: `AgentProfile`
 
-The model-call seam (agent-eval `createChatClient`).
+Exact author identity. Runtime binds it to every authoring turn.
 
-##### model?
+##### executor
 
-> `optional` **model?**: `string`
+> **executor**: [`ExecutorConfig`](#executorconfig)
 
-##### fallbackModel?
+Execution substrate for the author. Behavioral settings are forbidden here.
 
-> `optional` **fallbackModel?**: `string`
+##### fallbackProfile?
 
-A NAMED fallback author tried once when the primary call fails or returns no code
+> `optional` **fallbackProfile?**: `AgentProfile`
+
+An exact fallback author tried once when the primary call fails or returns no code
  block (thinking models time out at the edge on long authoring prompts, or return
  empty content without `maxTokens`). Opt-in — absent means the primary's failure
  propagates.
@@ -7445,16 +7213,6 @@ The budget the strategy must respect (shots/width).
 
 Where the authored module file is written (created if missing).
 
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Completion cap — required by thinking-model authors that stream reasoning first.
-
 ##### signal?
 
 > `optional` **signal?**: `AbortSignal`
@@ -7483,27 +7241,23 @@ Completion cap — required by thinking-model authors that stream reasoning firs
 
 #### Properties
 
-##### chat
+##### profile
 
-> **chat**: `ChatClient`
+> **profile**: `AgentProfile`
 
-The model-call seam (agent-eval `createChatClient`).
+Exact author identity.
 
-##### model?
+##### executor
 
-> `optional` **model?**: `string`
+> **executor**: [`ExecutorConfig`](#executorconfig)
 
-##### fallbackModel?
+Execution substrate. All behavior comes from the profile.
 
-> `optional` **fallbackModel?**: `string`
+##### fallbackProfile?
 
-##### temperature?
+> `optional` **fallbackProfile?**: `AgentProfile`
 
-> `optional` **temperature?**: `number`
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
+Optional exact fallback identity.
 
 ***
 
@@ -8034,10 +7788,6 @@ SEARCH TELEMETRY, not evidence: each entry is that generation's own train-slice
 
 > `readonly` **id**: `string`
 
-##### systemPrompt
-
-> `readonly` **systemPrompt**: `string`
-
 ##### userPrompt
 
 > `readonly` **userPrompt**: `string`
@@ -8232,9 +7982,11 @@ A stateful, checkable environment an agent operates over with tools. Open behind
 
 > **routerKey**: `string`
 
-##### model
+##### workerProfile
 
-> **model**: `string`
+> **workerProfile**: `AgentProfile`
+
+Exact worker identity. Model and standing instructions are read only from this profile.
 
 ##### complete?
 
@@ -8256,36 +8008,11 @@ Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs
 
 `Promise`\<`unknown`\>
 
-##### temperature?
+##### analystProfile?
 
-> `optional` **temperature?**: `number`
+> `optional` **analystProfile?**: `AgentProfile`
 
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
- budgets on reasoning and return empty content without it). Omitted ⇒ provider default.
-
-##### innerTurns?
-
-> `optional` **innerTurns?**: `number`
-
-Turns the agent may take within ONE shot before the driver intervenes.
-
-##### analystInstruction?
-
-> `optional` **analystInstruction?**: `string`
-
-The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
- prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default.
-
-##### analystModel?
-
-> `optional` **analystModel?**: `string`
-
-The critic's model — lets the analyst be a stronger (or cheaper) model than the
- worker. Omitted ⇒ the worker's `model`.
+Exact critic identity. Omitted means the exact worker profile also runs the critic.
 
 ##### corpus?
 
@@ -8408,8 +8135,11 @@ DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-s
 
 > **usd**: `number`
 
-The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
- router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms.
+Observed billed subtotal. `usdKnown:false` means it is incomplete, never a measured zero.
+
+##### usdKnown
+
+> **usdKnown**: `boolean`
 
 ##### ms
 
@@ -8426,6 +8156,10 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 ###### output
 
 > **output**: `number`
+
+##### tokensKnown
+
+> **tokensKnown**: `boolean`
 
 ***
 
@@ -8473,28 +8207,6 @@ The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: r
 
 ***
 
-### ShotPersona
-
-A role for one shot — multi-agent loops (researcher + engineer, a panel of k
- researchers) give each shot its own system prompt and optionally its own model.
-
-#### Properties
-
-##### systemPrompt?
-
-> `optional` **systemPrompt?**: `string`
-
-Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it is
- injected as a hand-off message (the transcript's earlier roles stay intact).
-
-##### model?
-
-> `optional` **model?**: `string`
-
-Per-shot model override (e.g. a stronger model for the engineer shot).
-
-***
-
 ### ShotSpec
 
 #### Properties
@@ -8513,9 +8225,11 @@ present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh on
 
 > `optional` **steer?**: `string`
 
-##### persona?
+##### profile?
 
-> `optional` **persona?**: [`ShotPersona`](#shotpersona)
+> `optional` **profile?**: `AgentProfile`
+
+Exact profile for this shot. Omitted means `AgenticOptions.workerProfile`.
 
 ##### tools?
 
@@ -8735,13 +8449,15 @@ The tools THIS artifact's task actually offers (names + descriptions only — ne
 
 [`AgenticOptions`](#agenticoptions).[`routerKey`](#routerkey-1)
 
-##### model
+##### workerProfile
 
-> **model**: `string`
+> **workerProfile**: `AgentProfile`
+
+Exact worker identity. Model and standing instructions are read only from this profile.
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`model`](#model-7)
+[`AgenticOptions`](#agenticoptions).[`workerProfile`](#workerprofile)
 
 ##### complete?
 
@@ -8767,56 +8483,15 @@ Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs
 
 [`AgenticOptions`](#agenticoptions).[`complete`](#complete-1)
 
-##### temperature?
+##### analystProfile?
 
-> `optional` **temperature?**: `number`
+> `optional` **analystProfile?**: `AgentProfile`
 
-###### Inherited from
-
-[`AgenticOptions`](#agenticoptions).[`temperature`](#temperature-3)
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
- budgets on reasoning and return empty content without it). Omitted ⇒ provider default.
+Exact critic identity. Omitted means the exact worker profile also runs the critic.
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`maxTokens`](#maxtokens-3)
-
-##### innerTurns?
-
-> `optional` **innerTurns?**: `number`
-
-Turns the agent may take within ONE shot before the driver intervenes.
-
-###### Inherited from
-
-[`AgenticOptions`](#agenticoptions).[`innerTurns`](#innerturns)
-
-##### analystInstruction?
-
-> `optional` **analystInstruction?**: `string`
-
-The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
- prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default.
-
-###### Inherited from
-
-[`AgenticOptions`](#agenticoptions).[`analystInstruction`](#analystinstruction-2)
-
-##### analystModel?
-
-> `optional` **analystModel?**: `string`
-
-The critic's model — lets the analyst be a stronger (or cheaper) model than the
- worker. Omitted ⇒ the worker's `model`.
-
-###### Inherited from
-
-[`AgenticOptions`](#agenticoptions).[`analystModel`](#analystmodel)
+[`AgenticOptions`](#agenticoptions).[`analystProfile`](#analystprofile)
 
 ##### corpus?
 
@@ -8914,6 +8589,22 @@ Wall-clock deadline for the whole turn in ms. An expired deadline aborts
 the backend and terminates the stream with `final.status: 'failed'`
 (a blown deadline is a turn failure, not a caller cancellation).
 
+##### callId?
+
+> `optional` **callId?**: `string`
+
+**`Experimental`**
+
+Stable logical paid-call id, forwarded as the provider idempotency key and retained in evidence.
+
+##### correlationId?
+
+> `optional` **correlationId?**: `string`
+
+**`Experimental`**
+
+Caller trace tag retained in evidence and forwarded when the transport supports it.
+
 ##### preserveToolParts?
 
 > `optional` **preserveToolParts?**: `boolean`
@@ -8958,9 +8649,9 @@ has no sandbox events.
 **`Experimental`**
 
 Metered usage of one turn, summed over every cost-bearing event the backend
-emitted. `input`/`output` are token counts (0 when the backend reported
-none — the honest sum, never a fabricated estimate). `costUsd`/`model` are
-present only when the backend actually reported them.
+emitted. `input`/`output` are token counts and are accompanied by
+`tokensKnown: false` when the backend did not report them. `costUsd`/`model`
+are present only when the backend actually reported them.
 
 #### Properties
 
@@ -8976,11 +8667,51 @@ present only when the backend actually reported them.
 
 **`Experimental`**
 
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+**`Experimental`**
+
+Present when a real turn ran but the provider did not report token usage.
+
 ##### costUsd?
 
 > `optional` **costUsd?**: `number`
 
 **`Experimental`**
+
+##### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+**`Experimental`**
+
+Present when Runtime could not prove the full dollar amount.
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+**`Experimental`**
+
+Separately-labelled local/catalog estimate; never billed spend.
+
+##### promptCache?
+
+> `optional` **promptCache?**: `Readonly`\<`Record`\<`string`, `string` \| `number`\>\>
+
+**`Experimental`**
+
+Provider-reported prompt-cache fields; absent fields remain unknown.
+
+##### reasoningTokens?
+
+> `optional` **reasoningTokens?**: `number`
+
+**`Experimental`**
+
+Provider-reported reasoning-token subset of output, when available.
 
 ##### model?
 
@@ -9006,11 +8737,45 @@ turn stays inspectable without re-scanning `events`.
 
 **`Experimental`**
 
+##### output?
+
+> `optional` **output?**: `unknown`
+
+**`Experimental`**
+
+Exact terminal artifact output from a Runtime-owned executor.
+
 ##### usage
 
 > **usage**: [`AgentTurnUsage`](#agentturnusage)
 
 **`Experimental`**
+
+##### transportAttempts?
+
+> `optional` **transportAttempts?**: `number`
+
+**`Experimental`**
+
+Exact underlying transport calls when the Runtime-owned executor reports them.
+
+##### toolCalls
+
+> **toolCalls**: `object`[]
+
+**`Experimental`**
+
+###### id?
+
+> `optional` **id?**: `string`
+
+###### name
+
+> **name**: `string`
+
+###### arguments
+
+> **arguments**: `string`
 
 ##### events
 
@@ -9065,12 +8830,6 @@ Model-authored visible checks requested per task; 0 disables authoring.
 
 Per-slot strategy-lens prefixes on the k samples (attacks the all-k-fail bucket).
  Measured as a paired null (+0.6pp) — kept as an optional knob, off by default.
-
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-Sampling temperature for every shot of this strategy; omitted ⇒ the worker default.
 
 ***
 
@@ -9453,13 +9212,15 @@ How a worker runs the surface task (its router substrate + per-attempt bounds).
 
 > `readonly` **routerKey**: `string`
 
-##### model
+##### profile
 
-> `readonly` **model**: `string`
+> `readonly` **profile**: `AgentProfile`
 
-##### maxTokens?
+Exact worker behavior, tools, and model.
 
-> `readonly` `optional` **maxTokens?**: `number`
+##### analystProfile?
+
+> `readonly` `optional` **analystProfile?**: `AgentProfile`
 
 ##### innerTurns?
 
@@ -9498,10 +9259,9 @@ The conserved compute pool for the whole supervised run. Default: sized off the 
 
 ##### router?
 
-> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+> `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
 
-The driver brain's router substrate (its own inference). Default: the worker's router + model — the
- driver and workers share one router unless you separate them (e.g. a stronger driver model).
+The driver brain's Router endpoint/auth. Model and behavior remain owned by `profile`.
 
 ##### analysts?
 
@@ -9829,17 +9589,13 @@ Fail loud if any reservation is still open — the conserved-pool leak detector.
 
 ### ChatSessionStore
 
-Conversation history keyed by the settled worker id — the resume substrate. The kernel owns
- identity, ordering, ledger truth, and spend continuity; this store owns only the message
- lists a `'resume'` spawn continues (`WorkerSpawnContext.resume.ofWorker` is the load key).
- PROCESS-LOCAL by the same boundary the kernel documents for resume itself: a prior process's
- workers are not resume targets.
+Conversation history keyed by the settled Runtime worker id.
 
 #### Methods
 
 ##### load()
 
-> **load**(`workerId`): readonly `Record`\<`string`, `unknown`\>[] \| `undefined`
+> **load**(`workerId`): readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[] \| `undefined`
 
 ###### Parameters
 
@@ -9849,7 +9605,7 @@ Conversation history keyed by the settled worker id — the resume substrate. Th
 
 ###### Returns
 
-readonly `Record`\<`string`, `unknown`\>[] \| `undefined`
+readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[] \| `undefined`
 
 ##### save()
 
@@ -9863,7 +9619,7 @@ readonly `Record`\<`string`, `unknown`\>[] \| `undefined`
 
 ###### messages
 
-readonly `Record`\<`string`, `unknown`\>[]
+readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[]
 
 ###### Returns
 
@@ -9873,8 +9629,7 @@ readonly `Record`\<`string`, `unknown`\>[]
 
 ### ChatTransportTool
 
-One entry of the caller-provided tool table: the OpenAI function spec the model sees, and the
- host-side implementation run when the model calls it.
+One profile-authorized function tool and its host implementation.
 
 #### Properties
 
@@ -9885,10 +9640,6 @@ One entry of the caller-provided tool table: the OpenAI function spec the model 
 ##### execute
 
 > `readonly` **execute**: (`args`, `task`) => `Promise`\<`string`\>
-
-Runs ON THIS HOST; the returned string folds back as the `tool` message. A throw is fed
- back as an error message for the model to correct — a bad tool call is a real outcome, not
- an infra fault.
 
 ###### Parameters
 
@@ -9908,164 +9659,114 @@ Runs ON THIS HOST; the returned string folds back as the `tool` message. A throw
 
 ### ChatTransportExecutorOptions
 
+Transport and session data for one exact profile-driven conversation.
+Behavioral controls belong only in `profile.model.metadata`.
+
 #### Properties
 
-##### url
+##### profile
 
-> **url**: `string`
+> `readonly` **profile**: `AgentProfile`
 
-OpenAI-compatible base URL (with or without `/v1`); the executor POSTs to
- `${url}/chat/completions`. Ignored when `complete` is injected.
+##### url?
+
+> `readonly` `optional` **url?**: `string`
 
 ##### bearer?
 
-> `optional` **bearer?**: `string`
-
-Bearer token for the default transport. Omit for an unauthenticated endpoint.
-
-##### model
-
-> **model**: `string`
-
-The wire model id sent on every completion.
-
-##### system?
-
-> `optional` **system?**: `string`
-
-System prompt seeding a FRESH conversation. A resumed conversation keeps the system message
- it was recorded with — a session continues; it is not re-primed.
+> `readonly` `optional` **bearer?**: `string`
 
 ##### tools?
 
-> `optional` **tools?**: readonly [`ChatTransportTool`](#chattransporttool)[]
-
-Tool table. Omitted = a pure conversation (no `tools` field on the wire).
-
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Output-token ceiling for ONE completion, sent as `max_tokens` on every request when set.
- Omitted = no field on the wire, so the endpoint's own default governs. A harness pairing
- this executor against another sampling path (P1 parity) pins BOTH arms to one value.
-
-##### maxTurnsPerShot?
-
-> `optional` **maxTurnsPerShot?**: `number`
-
-Inference-turn cap for ONE shot (one `execute`). Default 200 — a runaway backstop, not a
- workflow limit (mirrors `routerToolsInlineExecutor.maxTurns`).
+> `readonly` `optional` **tools?**: readonly [`ChatTransportTool`](#chattransporttool)[]
 
 ##### complete?
 
-> `optional` **complete?**: [`ChatCompletionsTransport`](#chatcompletionstransport)
+> `readonly` `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
 
-Injected buffered transport — the offline seam (mirrors `RouterConfig.complete`). When set,
- `url`/`bearer` are unused and NO network is touched.
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### request?
+
+###### headers
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`unknown`\>
 
 ##### sessions?
 
-> `optional` **sessions?**: [`ChatSessionStore`](#chatsessionstore)
-
-Session store backing continuity. Required to record this conversation (with `sessionKey`)
- or to continue a prior one (with `resume`).
+> `readonly` `optional` **sessions?**: [`ChatSessionStore`](#chatsessionstore)
 
 ##### sessionKey?
 
-> `optional` **sessionKey?**: `string`
-
-The id this worker's conversation is recorded under at settle — the kernel node id when
- spawned through a scope, so a later `'resume'` spawn's `resume.ofWorker` finds it.
+> `readonly` `optional` **sessionKey?**: `string`
 
 ##### resume?
 
-> `optional` **resume?**: [`WorkerResumeContext`](#workerresumecontext)
-
-The resume lineage from `WorkerSpawnContext.resume`: this shot continues `ofWorker`'s
- recorded message list. Requires `sessions` holding that conversation — fails loud before
- any spend when it does not.
-
-##### profile?
-
-> `optional` **profile?**: `AgentProfile`
-
-Profile this executor materializes, for the kernel's materialization receipt. Omitted =
- the node's receipt reads `executor-did-not-report` (a direct, unsupervised use).
-
-##### attemptId?
-
-> `optional` **attemptId?**: `string`
-
-Kernel-minted attempt id (`ExecutorNodeContext.attemptId`) binding the receipt to this
- exact spawn.
+> `readonly` `optional` **resume?**: [`WorkerResumeContext`](#workerresumecontext)
 
 ***
 
 ### ChatWorkerSeamOptions
 
+Transport/session configuration shared by every spawned exact profile.
+
 #### Properties
 
-##### url
+##### url?
 
-> **url**: `string`
-
-OpenAI-compatible base URL every spawned worker speaks. Unused when `complete` is set.
+> `readonly` `optional` **url?**: `string`
 
 ##### bearer?
 
-> `optional` **bearer?**: `string`
-
-##### model?
-
-> `optional` **model?**: `string`
-
-Fallback wire model when a spawned profile carries none (`profile.model.default` wins).
+> `readonly` `optional` **bearer?**: `string`
 
 ##### tools?
 
-> `optional` **tools?**: readonly [`ChatTransportTool`](#chattransporttool)[]
-
-##### temperature?
-
-> `optional` **temperature?**: `number`
-
-##### maxTokens?
-
-> `optional` **maxTokens?**: `number`
-
-Per-completion `max_tokens` for every spawned worker (see
- [ChatTransportExecutorOptions.maxTokens](#maxtokens-6)).
-
-##### maxTurnsPerShot?
-
-> `optional` **maxTurnsPerShot?**: `number`
+> `readonly` `optional` **tools?**: readonly [`ChatTransportTool`](#chattransporttool)[]
 
 ##### complete?
 
-> `optional` **complete?**: [`ChatCompletionsTransport`](#chatcompletionstransport)
+> `readonly` `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
 
-Injected buffered transport — the offline seam; no network is touched when set.
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### request?
+
+###### headers
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`unknown`\>
 
 ##### sessions?
 
-> `optional` **sessions?**: [`ChatSessionStore`](#chatsessionstore)
-
-Session store backing continuity. Default: one fresh in-memory store PER SEAM, matching the
- kernel's process-local resume boundary (one seam = one run's sessions).
+> `readonly` `optional` **sessions?**: [`ChatSessionStore`](#chatsessionstore)
 
 ##### deliverable?
 
-> `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
-
-The completion oracle: each worker settles `valid` ⟺ this check passes on its final
- assistant text (`gateOnDeliverable` — settled ⟺ DELIVERED, exactly how `workerFromBackend`
- composes it). Pass the graph's deliverable so a keep-best driver can pick a winner; omitted,
- workers settle unverdicted and only a driver `submit_result` can win.
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 ***
 
@@ -10108,259 +9809,27 @@ What the spawn was supposed to produce — surfaced in traces/reports.
 
 ***
 
-### DriverAgentOptions
+### ExecutorResultMapping
+
+#### Type Parameters
+
+##### Out
+
+`Out`
 
 #### Properties
 
-##### name
+##### outRef
 
-> `readonly` **name**: `string`
+> **outRef**: `string`
 
-##### brain
+##### out
 
-> `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
+> **out**: `Out`
 
-The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
- (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
- production, or a sandboxed harness. The same seam every tool-loop uses; no bespoke shape.
+##### verdict?
 
-##### blobs
-
-> `readonly` **blobs**: [`ResultBlobStore`](#resultblobstore)
-
-Shared blob store — `observe_agent` reads settled outputs through it.
-
-##### makeWorkerAgent
-
-> `readonly` **makeWorkerAgent**: [`MakeWorkerAgent`](#makeworkeragent)
-
-Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam).
-
-##### authorizeDownMessage?
-
-> `readonly` `optional` **authorizeDownMessage?**: [`AuthorizeDownMessage`](#authorizedownmessage)
-
-##### perWorker
-
-> `readonly` **perWorker**: [`Budget`](index.md#budget-4)
-
-Per-child budget reserved from the conserved pool on each spawn.
-
-##### deliverable?
-
-> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
-
-Independent completion check for work the driver performs itself. When present, the driver
- receives `submit_result`; the first passing submission ends the loop and becomes the output.
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
- flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
-
-##### analysts?
-
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
-
-The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
- Unset → no analyst feed (status quo: the driver gets settled outputs, no findings).
-
-##### analyzeOnSettle?
-
-> `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
-
-Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
- `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
- loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`.
-
-##### watchWorkers?
-
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](#workerwatchoptions)
-
-Run the ONLINE detector panel over each worker's LIVE tool trace and raise a `finding` the
- moment it loops/error-storms — mid-run evidence to steer on, not a settle-time post-mortem.
- Omit = no online watching.
-
-##### stallAfterMs?
-
-> `readonly` `optional` **stallAfterMs?**: `number`
-
-Idle time after which `observe_agent` reports a worker as stalled (a derived read; nothing is
- killed). Omit = the runtime default.
-
-##### continuityByProfile?
-
-> `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
-
-Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
- to the node's latest settled worker (see
- `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
- argument overrides. Omit = every spawn fresh (status quo).
-
-##### systemPrompt
-
-> `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
-
-The driver's stance — a string, or built from the task (the worker-driver prompt /
- the generator). INJECTED so the prompt is a pluggable, optimizable role.
-
-##### nodeTools?
-
-> `readonly` `optional` **nodeTools?**: readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
-
-Product-selected tools already bound to this exact supervisor node. The same descriptors are
- served over MCP for external supervisors; this arm projects them into router ToolSpecs.
-
-##### extraTools?
-
-> `readonly` `optional` **extraTools?**: readonly `object`[]
-
-WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
- not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
- Each is a router tool spec; their names must not collide with the coordination verbs. Pair with
- `executeExtraTool`. Unset → coordination-only (the prior behavior).
-
-##### executeExtraTool?
-
-> `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
-
-Runs an `extraTools` call. Returns a string result, or null/undefined to signal "not handled"
- so the call falls through to the coordination dispatch. Required iff `extraTools` is set.
-
-###### Parameters
-
-###### name
-
-`string`
-
-###### args
-
-`Record`\<`string`, `unknown`\>
-
-###### Returns
-
-`Promise`\<`string` \| `null` \| `undefined`\>
-
-##### maxTurns?
-
-> `readonly` `optional` **maxTurns?**: `number`
-
-Max driver turns before the loop force-finalizes on the best settled child. Default 16.
- `0` lifts the turn-COUNT cap: the loop is bounded instead by the conserved budget pool,
- an absolute deadline, the driver's own stop, and abort (checked in-loop). A finite
- anti-runaway tripwire still guards a degenerate driver that loops on a no-spawn tool.
-
-##### now?
-
-> `readonly` `optional` **now?**: () => `number`
-
-Injected clock for the in-loop absolute-deadline guard — keeps the deadline check
- deterministic in tests. Defaults to `Date.now`.
-
-###### Returns
-
-`number`
-
-##### stopRule?
-
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
-
-PROGRESS-derived stop (mechanic D). Today a run ends on a ceiling — iterations, tokens,
-dollars, deadline, turn cap — which answers "may it continue?" and never "is it still getting
-anywhere?". A stop rule reads the run's own progress (best-so-far over settled work, time
-since the last settle, the live worker feed) and ends a run that has stopped learning BEFORE
-it exhausts a budget.
-
-Composes with, and can never override, the hard guards: `poolStarved` / `deadlinePassed` /
-abort / the driver's own stop are evaluated first, so a rule can only ADD a stop.
-
-THRESHOLDS are the caller's judgment, not this module's — build the rule with
-`plateau({window, minDelta})` / `noProgressFor({...})` / `allWorkersStalled({...})` from
-`supervise/stop-rules`. Omit ⇒ ceilings only (unchanged behavior).
-
-##### onProgressStop?
-
-> `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
-
-Called once with the rule's reason when a `stopRule` ends the run — so a caller can record
- WHY a run stopped early instead of inferring it from an unexhausted budget.
-
-###### Parameters
-
-###### reason
-
-`string`
-
-###### Returns
-
-`void`
-
-##### compaction?
-
-> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
-
-Give the driver brain a chapter-lifecycle on its OWN context window. The LLM-brain front doors
- lose to a dumb-Ralph respawn because the brain re-bills its whole coordination transcript every
- turn — the same context overflow a single steered agent suffers, one level up. With this set,
- once the brain's running conversation exceeds `thresholdTokens` it distills the accumulated
- history to a compact progress note and continues fresh: the supervisor analog of respawning
- against external tracking state, except the live `Scope` roster IS the durable state. Default
- off (no behavior change). `distill` defaults to a self-summary authored by the brain combined
- with the factual settled-worker roster; override to supply your own.
-
-##### onEvent?
-
-> `readonly` `optional` **onEvent?**: (`event`, `record`) => `void` \| `Promise`\<`void`\>
-
-Pass-through subscriber for every coordination bus event: settled/question/finding,
- pre-delivery instruction receipts, and steer/answer delivery outcomes. A durable caller uses
- this to append the coordination log. Omit = no observer.
-
-###### Parameters
-
-###### event
-
-[`CoordinationEvent`](index.md#coordinationevent)
-
-###### record
-
-[`BusRecord`](#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>
-
-###### Returns
-
-`void` \| `Promise`\<`void`\>
-
-##### replaySettlements?
-
-> `readonly` `optional` **replaySettlements?**: `boolean`
-
-Re-publish resume-time settlements through the awaited observer before the first brain turn.
-
-##### priorCoordination?
-
-> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination-1)
-
-Questions, findings, and authorized continuation receipts loaded from a prior process.
- Questions seed the ledger (`list_questions`, blocking-stop policy); all three feed the resume
- brief. Continuation receipts are evidence only and are never auto-delivered. Omit = fresh.
-
-##### finalizer?
-
-> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](index.md#supervisorfinalizer)
-
-How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
- highest-scoring DELIVERED child (the exact keep-best every existing caller had). Runs under
- the delivered-only invariant (`runFinalizer`): whatever the finalizer, an undelivered or
- invalid child's output stays unreachable.
-
-##### inbox?
-
-> `readonly` `optional` **inbox?**: [`Inbox`](#inbox-1)
-
-Optional shared manager inbox used by a wrapper that must accept messages before async node
-setup finishes. Ordinary callers omit it and the driver owns a fresh inbox.
+> `optional` **verdict?**: `DefaultVerdict`
 
 ***
 
@@ -10441,7 +9910,7 @@ The durable coordination side-log seam. `append` records one bus event (kinds it
 
 ##### load()
 
-> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+> **load**(`runId`, `ownerId?`): `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ###### Parameters
 
@@ -10455,7 +9924,7 @@ The durable coordination side-log seam. `append` records one bus event (kinds it
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ***
 
@@ -10582,7 +10051,7 @@ readonly [`SettledWorker`](mcp.md#settledworker)[]
 ### DelegateOptions
 
 Inputs to [delegate](#delegate). The intent is the first positional arg; everything here is optional
- with sensible defaults, so the common call is `delegate(intent, { backend, router })`.
+ with explicit execution identity, so the common call names one exact supervisor profile.
 
 #### Type Parameters
 
@@ -10614,41 +10083,17 @@ WHERE the authored workers run — the worker-execution backend (`router-tools` 
 
 The conserved compute pool for the whole delegation. Defaults to [defaultDelegateBudget](#defaultdelegatebudget).
 
-##### model?
+##### supervisorProfile
 
-> `readonly` `optional` **model?**: `string`
+> `readonly` **supervisorProfile**: `AgentProfile`
 
-The model the supervisor BRAIN runs on (the router model). The brain must tool-call
- (`spawn_agent` / `await_event`), so a delegator model, not a hidden-reasoning model.
+Exact executable authoring supervisor. Model, prompt, harness, and provider live here.
 
-##### router?
+##### router
 
-> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+> `readonly` **router**: [`RouterTransportConfig`](#routertransportconfig)
 
-The supervisor brain's router substrate. REQUIRED for the default router-brained supervisor
- (the brain is resolved from this), unless a test injects `brain` directly. `model` overrides
- `router.model`. (Design delta vs the bare `supervise()` profile: the brain needs a router.)
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the supervisor brain directly (tests / advanced) instead of resolving it from `router`.
-
-##### supervisor?
-
-> `readonly` `optional` **supervisor?**: `object`
-
-Override the default authoring-supervisor profile (name / extra system-prompt stance). The
- default already carries the authoring skill; override only to add a goal or rename.
-
-###### name?
-
-> `readonly` `optional` **name?**: `string`
-
-###### systemPrompt?
-
-> `readonly` `optional` **systemPrompt?**: `string`
+Router endpoint/auth for a `cli-base` supervisor; contains no behavioral settings.
 
 ##### allowedModels?
 
@@ -11203,6 +10648,10 @@ The concrete worker node id, once known.
 
 ### RunGraphOptions
 
+#### Extended by
+
+- [`RunGraphTestOptions`](testing.md#rungraphtestoptions)
+
 #### Properties
 
 ##### backend?
@@ -11220,7 +10669,7 @@ Leaf-execution override (offline tests / advanced). `runGraph` still owns node p
 
 ##### router?
 
-> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+> `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
 
 The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
 
@@ -11231,12 +10680,6 @@ The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
 Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
  graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
  seam supervise() exposes.
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the driver brain directly (offline tests / advanced).
 
 ##### analysts?
 
@@ -12147,9 +11590,7 @@ The worker LABEL the request targets (already resolved by the caller).
 
 ### RouterSeam
 
-Router/inline connection seam. A direct OpenAI-compatible Router endpoint —
-the cheapest leaf, no box, no tools. `model` overrides the profile's model
-hint when present; otherwise the profile's `model.default` is required.
+Router/inline transport seam. The profile owns model, prompt, and generation behavior.
 
 #### Properties
 
@@ -12161,9 +11602,37 @@ hint when present; otherwise the profile's `model.default` is required.
 
 > **routerKey**: `string`
 
-##### model?
+##### complete?
 
-> `optional` **model?**: `string`
+> `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
+
+Injectable transport for offline/local execution; still passes through Runtime metering.
+
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### request?
+
+###### headers
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### tools?
+
+> `optional` **tools?**: readonly [`ToolSpec`](#toolspec)[]
+
+When present, return one turn's requested tool calls without executing them.
 
 ***
 
@@ -12263,7 +11732,7 @@ Working directory for the subprocess.
 
 cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
 (claude / codex / opencode) on its own git worktree — the leaf `createWorktreeCliExecutor`
-named as data. `harness` + `repoRoot` are required; the task comes from `Executor.execute`.
+named as data. `repoRoot` is transport data; `AgentProfile.harness` selects the CLI.
 `taskPrompt` remains an optional direct-call fallback for callers that execute with `undefined`.
 The authored
 `profile.prompt.systemPrompt` + `profile.model.default` reach the harness via the §1.5
@@ -12274,12 +11743,6 @@ The authored
 ##### repoRoot
 
 > **repoRoot**: `string`
-
-##### harness?
-
-> `optional` **harness?**: [`LocalHarness`](mcp.md#localharness)
-
-Local CLI harness transport. Omit when `bridge` is set.
 
 ##### taskPrompt?
 
@@ -12362,18 +11825,6 @@ Test seam — forwarded to verification checks.
 
 > **bridgeBearer**: `string`
 
-##### model?
-
-> `optional` **model?**: `string`
-
-Bridge model/harness id. Defaults to the profile's model hint when omitted.
-
-##### agentProfile?
-
-> `optional` **agentProfile?**: `AgentProfile`
-
-Canonical profile overlay merged over the spawned profile.
-
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
@@ -12387,20 +11838,20 @@ Caller-owned deadline for each bridge turn. Runtime enforces it locally and send
 
 Stable cli-bridge session id. Defaults to `bridge-worktree-${runId}`.
 
-##### maxTurns?
+##### maxReconnects?
 
-> `optional` **maxTurns?**: `number`
+> `optional` **maxReconnects?**: `number`
+
+Transport reconnects allowed after the first POST. Default 3; set 0 to disable.
 
 ***
 
 ### BridgeSeam
 
 cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs
-(claude-code / opencode / kimi / pi) behind one HTTP surface; `model` doubles
-as the harness selector (e.g. `claude-code/sonnet`, `opencode/<provider>/<model>`).
-`agentProfile` is the bridge-dialect profile (metadata.disallowedTools, mcp)
-forwarded verbatim per request — how an arm disables native tools or injects
-a provider search MCP.
+(claude-code / opencode / kimi / pi) behind one HTTP surface. The spawned
+`AgentProfile` is the sole harness/provider/model and behavioral authority and
+is forwarded verbatim per request; this seam carries transport data only.
 
 The executor opens a resumable cli-bridge session. `sessionId` identifies the
 harness conversation across turns; each turn also receives its own durable run id.
@@ -12414,7 +11865,7 @@ context files, or prompt templates — because ambient state is how a paired exp
 loses its pairing: an installed extension that persists memory across runs carries arm A's state
 into arm B, and nothing reports it.
 
-That is what the `AgentProfile` on this seam (and on the spawn spec) is FOR. `agent_profile`
+That is what the spawned `AgentProfile` is FOR. `agent_profile`
 rides every request verbatim, and cli-bridge maps it onto each harness's own native controls:
 
   - Materializing any profile at all already starts the harness isolated from ambient
@@ -12451,23 +11902,11 @@ new harness capability there.
 
 > **bridgeBearer**: `string`
 
-##### model?
-
-> `optional` **model?**: `string`
-
-Fallback bridge wire id. A spawned profile may select its own harness and model.
-
 ##### cwd?
 
 > `optional` **cwd?**: `string`
 
 Optional working directory forwarded to cli-bridge and persisted with the session.
-
-##### agentProfile?
-
-> `optional` **agentProfile?**: `AgentProfile`
-
-Canonical profile overlay merged over the spawned profile.
 
 ##### timeoutMs?
 
@@ -12483,12 +11922,11 @@ Caller-owned deadline for each bridge turn. Runtime enforces it locally and send
 Stable, caller-owned cli-bridge session id for harness-side resume. Defaults
  to a freshly minted per-spawn id so each worker is its own resumable session.
 
-##### maxTurns?
+##### maxReconnects?
 
-> `optional` **maxTurns?**: `number`
+> `optional` **maxReconnects?**: `number`
 
-Per-resume-turn inference cap before the worker settles on its last output.
- Mirrors `routerToolsInlineExecutor.maxTurns`; default 200 (runaway backstop).
+Transport reconnects allowed after the first POST. Default 3; set 0 to disable.
 
 ##### activityWindow?
 
@@ -12636,9 +12074,29 @@ surfaces (e.g. a gym keyed by task) can dispatch correctly.
 
 > **routerKey**: `string`
 
-##### model?
+##### complete?
 
-> `optional` **model?**: `string`
+> `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### body
+
+`Record`\<`string`, `unknown`\>
+
+###### request?
+
+###### headers
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`unknown`\>
 
 ##### tools
 
@@ -12665,6 +12123,28 @@ surfaces (e.g. a gym keyed by task) can dispatch correctly.
 ###### Returns
 
 `Promise`\<`string`\>
+
+##### initialMessages?
+
+> `optional` **initialMessages?**: readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[]
+
+Exact conversation to continue. Runtime validates its system message against the profile.
+
+##### onMessages?
+
+> `optional` **onMessages?**: (`messages`) => `void` \| `Promise`\<`void`\>
+
+Observe the detached final conversation for session persistence.
+
+###### Parameters
+
+###### messages
+
+readonly `Readonly`\<`Record`\<`string`, `unknown`\>\>[]
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
 
 ##### onToolStep?
 
@@ -12706,14 +12186,6 @@ Online observer of each tool step — the seam a `DetectorMonitor` taps to watch
 ###### Returns
 
 `void`
-
-##### maxTurns?
-
-> `optional` **maxTurns?**: `number`
-
-Max inference turns. Default 200 (runaway backstop — set far above any
- legitimate workflow). For tighter per-workflow limits use a cost budget
- or wall-clock deadline at the call site.
 
 ***
 
@@ -12826,7 +12298,7 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 ##### inbox
 
-> `readonly` **inbox**: [`Inbox`](#inbox-1)
+> `readonly` **inbox**: [`Inbox`](#inbox)
 
 ##### taskToPrompt
 
@@ -13265,7 +12737,7 @@ Evaluate a rule against the current view.
 
 ###### rule
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ###### scope?
 
@@ -13458,6 +12930,10 @@ caller that owns the code registers it here once and names it from data thereaft
 ***
 
 ### SuperviseOptions
+
+#### Extended by
+
+- [`SuperviseTestOptions`](testing.md#supervisetestoptions)
 
 #### Properties
 
@@ -13663,16 +13139,10 @@ Decide whether an authorized child becomes another supervisor. By default only
 
 ##### router?
 
-> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+> `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
 
 The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
  model wins.
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the supervisor brain directly (tests / advanced).
 
 ##### driveHarness?
 
@@ -13871,7 +13341,7 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule)
 
 PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
 before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
@@ -14040,89 +13510,9 @@ Exact trusted context after a manager-authored spawn has passed product authoriz
 
 ***
 
-### SupervisorProfile
-
-The supervisor's profile — the subset of an `AgentProfile` that selects + shapes its brain.
-`harness` is the backend-as-data discriminant; `systemPrompt` is the standing instruction.
-
-A canonical `AgentProfile` from `@tangle-network/agent-interface` satisfies this interface
-structurally: its `model` is a hints OBJECT and its system prompt lives at `prompt.systemPrompt`,
-so both spellings are accepted here and reduced by [resolveSupervisorProfile](#resolvesupervisorprofile). Before that,
-a canonical profile's model object reached `RouterConfig.model` (a string) as an object and its
-`prompt.systemPrompt` was dropped — a request the provider rejects, and a supervisor running the
-default strategy while its profile named another.
-
-WHAT EACH ARM HONORS — the two brains read different amounts of a profile, so state it rather
-than let a caller infer that a field took effect:
-
- - ROUTER arm (`harness` null): only `name`, the resolved model id (`model`, or
-   `model.default`), and the resolved system prompt (`prompt.systemPrompt`/`systemPrompt` plus
-   `prompt.instructions` and `resources.instructions`) reach the brain. A full `AgentProfile`'s
-   `tools`, `mcp`, `permissions`, `resources.skills`/`files`, `hooks`, `modes`, `subagents`,
-   `model.provider`, `model.small` and `model.reasoningEffort` are NOT honored here: the router
-   brain is one `ToolLoopChat` over the coordination verbs, and neither of its two tool-calling
-   transports (`routerChatWithTools` buffered, `streamRouterChatWithTools` when
-   `RouterConfig.stream` is set) has a parameter for any of them.
- - HARNESS arm (`harness` set): the WHOLE profile object is handed to `deps.driveHarness`
-   untouched, plus the resolved system prompt as a separate argument. Everything the profile
-   declares is the harness's to materialize; this module changes none of it.
-
-#### Properties
-
-##### name?
-
-> `readonly` `optional` **name?**: `string`
-
-##### harness?
-
-> `readonly` `optional` **harness?**: `string` \| `null`
-
-null/undefined/`cli-base` → router brain (in-process tool-loop); a coding-CLI harness → an
- external harness brain.
-
-##### model?
-
-> `readonly` `optional` **model?**: `string` \| `AgentProfileModelHints`
-
-The router model when the brain is router-driven: a model id, or a canonical profile's model
- hints whose `default` IS the id. Absent (including a hints object with no `default`) → the
- deps router config's model applies. Other hints (`small`, `provider`, `reasoningEffort`) are
- harness-arm material only.
-
-##### prompt?
-
-> `readonly` `optional` **prompt?**: `AgentProfilePrompt`
-
-Canonical `AgentProfile` prompt shaping. `prompt.systemPrompt` and the top-level `systemPrompt`
- are the same standing instruction in two spellings; disagreeing values are a fault, not a pick.
- `prompt.instructions` lines are appended to the resolved prompt, one per line.
-
-##### resources?
-
-> `readonly` `optional` **resources?**: `AgentProfileResources`
-
-Canonical `AgentProfile` resources. Only `instructions` shapes the brain here (appended to the
- resolved system prompt); every other resource is the harness's to materialize.
-
-##### systemPrompt?
-
-> `readonly` `optional` **systemPrompt?**: `string`
-
-The standing instructions ("you delegate, you do not solve").
-
-***
-
 ### ResolvedSupervisorProfile
 
-A `SupervisorProfile` reduced to the scalars the two brain arms consume. `modelId`/`systemPrompt`
- stay `undefined` when the profile named none — the caller's fallback (`deps.router.model`,
- the built-in default supervisor prompt) then applies, and this type cannot hide which happened.
-
- There is deliberately no `reasoningEffort` here: the router brain runs on `chatWithTools` (the
- buffered/streamed switch in the router client), and neither transport has a `reasoning_effort`
- parameter — only the chat-only `routerChatWithUsage` does — so a field carrying it would be a
- public promise nothing keeps. `model.reasoningEffort` still reaches the harness arm inside the
- profile.
+The exact profile fields consumed by supervisor materialization.
 
 #### Properties
 
@@ -14134,9 +13524,9 @@ A `SupervisorProfile` reduced to the scalars the two brain arms consume. `modelI
 
 > `readonly` **harness**: `string` \| `null`
 
-##### modelId?
+##### modelId
 
-> `readonly` `optional` **modelId?**: `string`
+> `readonly` **modelId**: `string`
 
 ##### systemPrompt?
 
@@ -14217,7 +13607,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ##### profile
 
-> `readonly` **profile**: [`SupervisorProfile`](#supervisorprofile)
+> `readonly` **profile**: `AgentProfile`
 
 ##### task
 
@@ -14304,11 +13694,11 @@ Assignment identity within the parent manager; absent only for the root.
 
 ##### profile
 
-> `readonly` **profile**: [`SupervisorProfile`](#supervisorprofile)
+> `readonly` **profile**: `AgentProfile`
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-7)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-15)
 
 ##### task
 
@@ -14400,7 +13790,7 @@ How to run an external harness as the DRIVER, with the coordination verbs mounte
 
 ###### profile
 
-[`SupervisorProfile`](#supervisorprofile)
+`AgentProfile`
 
 The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
  `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
@@ -14461,6 +13851,10 @@ when no executor inbox is active instead of claiming a message was delivered.
 
 ### SupervisorAgentDeps
 
+#### Extended by
+
+- [`SupervisorAgentTestDeps`](testing.md#supervisoragenttestdeps)
+
 #### Properties
 
 ##### blobs
@@ -14501,16 +13895,10 @@ Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails
 
 ##### router?
 
-> `readonly` `optional` **router?**: [`RouterConfig`](#routerconfig)
+> `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
 
 Router substrate for a router-brained supervisor (`harness` omitted or `cli-base`). The
  profile's model wins.
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
-
-Inject the brain directly (tests / advanced) instead of resolving `routerBrain` from the profile.
 
 ##### driveHarness?
 
@@ -14606,7 +13994,7 @@ Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attache
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule-1)
+> `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule)
 
 PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
  exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
@@ -14664,7 +14052,7 @@ Pass-through subscriber for every coordination bus event (both arms) — the sea
 
 ##### priorCoordination?
 
-> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination-1)
+> `readonly` `optional` **priorCoordination?**: [`PriorCoordination`](#priorcoordination)
 
 Questions, findings, and authorized continuation receipts loaded from a prior process.
  Router arm: questions seed the ledger and all evidence enters the resume brief. External arm:
@@ -14672,7 +14060,7 @@ Questions, findings, and authorized continuation receipts loaded from a prior pr
 
 ##### loadPriorCoordination?
 
-> `readonly` `optional` **loadPriorCoordination?**: () => `Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+> `readonly` `optional` **loadPriorCoordination?**: () => `Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 Deferred owner-scoped replay for a recursive supervisor. Its stable owner is known while the
 parent authorizes the child, but loading remains asynchronous; Runtime calls this before the
@@ -14680,7 +14068,7 @@ nested brain can publish or act on coordination state.
 
 ###### Returns
 
-`Promise`\<[`PriorCoordination`](#priorcoordination-1)\>
+`Promise`\<[`PriorCoordination`](#priorcoordination)\>
 
 ##### finalizer?
 
@@ -15186,6 +14574,14 @@ Construction context handed to a `ExecutorFactory` — the seams a built-in need
 ##### signal
 
 > `readonly` **signal**: `AbortSignal`
+
+##### propagatedHeaders?
+
+> `readonly` `optional` **propagatedHeaders?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Request headers inherited from an enclosing task or conversation.
+Network executors forward these after their own connection headers so caller authorization,
+recursion depth, and trace identity survive the profile-to-executor boundary.
 
 ##### node?
 
@@ -16272,14 +15668,6 @@ The supervisor-authored prompt/model plus materializable structural resources.
 provider extensions, and `resources.failOnError` fail before execution because this path
 cannot honor them. Harness-specific values the materializer cannot preserve also fail closed.
 
-##### harness
-
-> **harness**: [`LocalHarness`](mcp.md#localharness)
-
-**`Experimental`**
-
-Local CLI for this leaf. This explicit choice overrides `profile.harness`.
-
 ##### taskPrompt?
 
 > `optional` **taskPrompt?**: `string`
@@ -16320,7 +15708,7 @@ Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness`
 **`Experimental`**
 
 Run Codex with an ephemeral session, isolated config/instructions, network disabled, and
- JSONL usage capture. Requires `harness: 'codex'`; metered by default.
+ JSONL usage capture. Requires `profile.harness: 'codex'`; metered by default.
 
 ##### codexReadDeniedPaths?
 
@@ -16438,8 +15826,8 @@ likewise return `LocalHarnessResult.usage`.
 
 **`Experimental`**
 
-One authored harness profile in a worktree fanout: the §1.5 profile + which local
- harness CLI drives it. The supervisor authors `profile` per sub-task; `harness` chooses the leaf.
+One authored profile in a worktree fanout. Its exact `harness` field chooses the
+local CLI; the supervisor authors the complete profile per sub-task.
 
 #### Properties
 
@@ -16458,14 +15846,6 @@ A short label for the worktree branch + trace node.
 **`Experimental`**
 
 The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness via §1.5).
-
-##### harness
-
-> **harness**: [`LocalHarness`](mcp.md#localharness)
-
-**`Experimental`**
-
-Which local harness CLI drives this leaf.
 
 ##### budgetExempt?
 
@@ -16686,6 +16066,28 @@ returning an incomplete reproducibility receipt.
 ##### name?
 
 > `optional` **name?**: `string`
+
+***
+
+### ToolLoopToolCall
+
+One provider-neutral tool request emitted by a tool-loop model.
+
+#### Properties
+
+##### id
+
+> **id**: `string`
+
+##### name
+
+> **name**: `string`
+
+##### arguments
+
+> **arguments**: `string`
+
+Raw JSON arguments emitted by the model.
 
 ***
 
@@ -17021,6 +16423,12 @@ campaign dispatch settles real usage instead of appearing as a stub.
 
 > **output**: `number`
 
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+False when the subtotal is incomplete.
+
 ***
 
 ### MountManifestEntry
@@ -17240,6 +16648,30 @@ Raw sandbox event stream collected for this iteration.
 > **costUsd**: `number`
 
 **`Experimental`**
+
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+**`Experimental`**
+
+False when `costUsd` is only the observed subtotal, not a complete bill.
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+**`Experimental`**
+
+Local/catalog estimates remain separate from billed spend.
+
+##### promptCache?
+
+> `optional` **promptCache?**: `Record`\<`string`, `string` \| `number`\>
+
+**`Experimental`**
+
+Provider-reported prompt-cache fields; absent fields remain unknown.
 
 ##### tokenUsage
 
@@ -17794,6 +17226,18 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 **`Experimental`**
 
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+**`Experimental`**
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
+
+**`Experimental`**
+
 ##### durationMs
 
 > **durationMs**: `number`
@@ -17871,6 +17315,18 @@ Truncated string preview of the parsed output — for a viewer's drawer.
 ##### totalCostUsd
 
 > **totalCostUsd**: `number`
+
+**`Experimental`**
+
+##### costUsdKnown?
+
+> `optional` **costUsdKnown?**: `false`
+
+**`Experimental`**
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
 
 **`Experimental`**
 
@@ -19058,65 +18514,32 @@ One provider-neutral conversation record carried between strategy shots.
 
 ### AgentTurnBackend
 
-> **AgentTurnBackend** = \{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \} \| \{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
+> **AgentTurnBackend** = `object`
 
 **`Experimental`**
 
 The execution substrate one turn runs on — a closed discriminated union over
 the three stream surfaces the runtime already owns.
 
-#### Union Members
+#### Properties
 
-##### Type Literal
-
-\{ `kind`: `"box"`; `box`: `SandboxInstance`; `options?`: `Omit`\<`PromptOptions`, `"signal"`\>; `agentRunName?`: `string`; \}
-
-###### kind
-
-> **kind**: `"box"`
-
-A live sandbox box: the turn is one `box.streamPrompt(prompt)` call.
-
-###### box
-
-> **box**: `SandboxInstance`
-
-###### options?
-
-> `optional` **options?**: `Omit`\<`PromptOptions`, `"signal"`\>
-
-Per-turn `PromptOptions` forwarded verbatim to `streamPrompt`
-(`sessionId`, `turnId`, `model`, `backend` profile, `timeoutMs`, …).
-The turn's derived abort signal (caller `signal` + `timeoutMs`
-deadline) is always installed as `signal` — pass cancellation through
-`StreamAgentTurnOptions`, not here.
-
-###### agentRunName?
-
-> `optional` **agentRunName?**: `string`
-
-Model label stamped on cost-only `llm_call` events. Default `'agent'`.
-
-***
-
-##### Type Literal
-
-\{ `kind`: `"executor"`; `factory`: [`ExecutorFactory`](#executorfactory)\<`unknown`\>; `agentRunName?`: `string`; \}
-
-###### kind
+##### kind
 
 > **kind**: `"executor"`
 
-A one-shot `Executor` (cli-bridge / router / BYO): the factory is
-instantiated fresh for the turn via `inlineSandboxClient`, run once on
-the prompt, and torn down — the same per-spawn lifecycle the supervise
-runtime gives it.
+A Runtime-owned executor factory materialized from this exact canonical profile.
 
-###### factory
+##### factory
 
 > **factory**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
 
-###### agentRunName?
+##### profile
+
+> **profile**: `AgentProfile`
+
+Exact canonical identity materialized by the executor.
+
+##### agentRunName?
 
 > `optional` **agentRunName?**: `string`
 
@@ -19124,20 +18547,11 @@ Model label stamped on cost-only `llm_call` events. Default `'agent'`.
 
 ***
 
-##### Type Literal
+### AgentTurnInput
 
-\{ `kind`: `"chat"`; `backend`: [`AgentExecutionBackend`](index.md#agentexecutionbackend); \}
+> **AgentTurnInput** = `string` \| \{ `messages`: `ReadonlyArray`\<`Readonly`\<`Record`\<`string`, `unknown`\>\>\>; \}
 
-###### kind
-
-> **kind**: `"chat"`
-
-An in-process `AgentExecutionBackend` (`resolveAgentBackend` output or
-any custom backend): the turn is one `backend.stream()` call.
-
-###### backend
-
-> **backend**: [`AgentExecutionBackend`](index.md#agentexecutionbackend)
+One prompt or an exact OpenAI-compatible conversation carried as the turn input.
 
 ***
 
@@ -19195,38 +18609,19 @@ Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`
 
 ### ReservationRejection
 
-> **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"below-runtime-floor"`
+> **ReservationRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"`
 
 Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
- budgets; `below-runtime-floor` means the request is under the amount that harness needs before
- it does any work at all, so it is unsatisfiable at that size and the fix is to RAISE it;
- `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
- unsatisfiable at any amount and the fix is to budget the root, not to ask for less.
+budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+unsatisfiable at any amount and the fix is to budget the root, not to ask for less.
 
 ***
 
 ### ChatCompletionsTransport
 
-> **ChatCompletionsTransport** = (`body`, `signal?`) => `Promise`\<`unknown`\>
+> **ChatCompletionsTransport** = `NonNullable`\<[`RouterToolsSeam`](#routertoolsseam)\[`"complete"`\]\>
 
-One buffered chat-completions call: the OpenAI-shape request body in, the parsed completion
- JSON out. The ONE wire function of this module — the executor's default transport is built
- from it, and a harness that must prove two arms share a substrate (P1 parity) drives BOTH
- through the same instance.
-
-#### Parameters
-
-##### body
-
-`Record`\<`string`, `unknown`\>
-
-##### signal?
-
-`AbortSignal`
-
-#### Returns
-
-`Promise`\<`unknown`\>
+Buffered OpenAI-compatible completion port used only for offline execution.
 
 ***
 
@@ -19435,6 +18830,14 @@ Exact trusted context for selecting one backend-derived leaf's completion check.
 
 ***
 
+### SupervisorProfile
+
+> **SupervisorProfile** = `AgentProfile`
+
+A supervisor is an exact canonical AgentProfile; no looser model/prompt shape exists.
+
+***
+
 ### SupervisorNodeContextSeed
 
 > **SupervisorNodeContextSeed** = `Omit`\<[`SupervisorNodeContext`](#supervisornodecontext), `"nodeId"` \| `"profile"` \| `"task"`\>
@@ -19516,27 +18919,39 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
 `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
 
-KNOWN LIMITATION (pre-existing): the `cost` variant can say its dollars are a subtotal
-(`usdKnown: false`), and the `tokens` variant has NO twin — there is no way to report "this turn
-happened and its token count is unknown". `Spend.tokensKnown` exists downstream, but nothing
-upstream of `foldStream` (`scope.ts`) can ever set it, so a STREAMING executor whose provider
-omitted usage reports the turn as costing zero tokens rather than as unmeasured. Only the
-non-streaming path, which returns a whole `Spend`, can carry the marker today. Closing it means
-widening this union (a `tokensKnown: false` field on `tokens`, or an `unknown` variant) and
-threading it through `foldStream` — a change to the metering contract every executor implements,
-which is why it is not folded into a streaming-transport fix. Filed separately.
+Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
+therefore remains unknown through live metering and terminal reconciliation instead of becoming
+a fabricated zero.
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"tokens"`; `input`: `number`; `output`: `number`; \}
+\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; \}
+
+###### kind
+
+> **kind**: `"tokens"`
+
+###### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+Known token subtotal. When false, these counts are only the observed/estimated floor.
+
+###### input
+
+> **input**: `number`
+
+###### output
+
+> **output**: `number`
 
 ***
 
@@ -19585,7 +19000,7 @@ A named model carried into an execution, or an explicit reason the exact model i
 
 ### UnknownMaterializationReason
 
-> **UnknownMaterializationReason** = `"executor-did-not-report"` \| `"invalid-executor-report"` \| `"root-agent-did-not-report"`
+> **UnknownMaterializationReason** = `"executor-did-not-report"` \| `"executor-receipt-pending"` \| `"invalid-executor-report"` \| `"root-agent-did-not-report"`
 
 Why exact materialization evidence is unavailable for a node.
 
@@ -19648,9 +19063,9 @@ Exact admitted profile used to validate the stable effective identity at publica
 
 > **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](index.md#executor-2)\<`Out`\>
 
-Builds a fresh `Executor` for one spawn from the resolved spec. Per-spawn (not
-shared) so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a
-user supply construction args without pre-instantiating.
+Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared)
+so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a user supply
+construction args without pre-instantiating; it never bypasses exact-profile validation.
 
 #### Type Parameters
 
@@ -19704,19 +19119,15 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"below-runtime-floor"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
  no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, or a `key` that
  is still LIVE in this scope (the same assignment may not run twice concurrently).
 
- `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
+`usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
- refuses every amount until the ROOT budget names a `maxUsd`.
-
- `below-runtime-floor` is separate for the same reason and points the opposite way from
- `budget-exhausted`: the request is under what that harness spends before it reads its task, so
- it is unsatisfiable at that SIZE and the fix is to RAISE it, never to retry smaller.
+refuses every amount until the ROOT budget names a `maxUsd`.
 
 ***
 
@@ -20325,29 +19736,6 @@ Provider-neutral conversation record accepted by a tool-loop brain.
 
 ***
 
-### ToolLoopChat
-
-> **ToolLoopChat** = (`messages`, `tools`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `usageUnknown?`: `true`; \}\>
-
-One inference turn over the running conversation + the tool specs → the model's text, any
- tool calls, and token usage. The seam every brain satisfies.
-
-#### Parameters
-
-##### messages
-
-`ReadonlyArray`\<[`ToolLoopMessageRecord`](#toolloopmessagerecord)\>
-
-##### tools
-
-`ReadonlyArray`\<[`ToolSpec`](#toolspec)\>
-
-#### Returns
-
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`RouterToolCall`](#routertoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; \}; `costUsd?`: `number`; `usageUnknown?`: `true`; \}\>
-
-***
-
 ### ToolLoopCompactionOptions
 
 > **ToolLoopCompactionOptions** = `Omit`\<[`ToolLoopCompaction`](#toolloopcompaction), `"distill"`\> & `object`
@@ -20479,6 +19867,14 @@ The default registry `runPersonified` resolves a shape name against. Empty by co
 > `const` **strategyAuthorContract**: "\nYou author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to\nspend a compute budget to beat a task's deployable check. You compose exactly two steps:\n\n  shot(spec?: \{ handle?, messages?, steer?, persona?, tools? \}): Promise\<ShotResult \| null\>\n    Runs ONE worker attempt (a bounded tool loop) over an artifact.\n    - omit handle  =\> the shot opens its OWN fresh artifact and closes it after (a sample).\n    - pass handle  =\> the shot CONTINUES that artifact (state accumulates across shots).\n    - messages     =\> the carried conversation (pass the previous ShotResult.messages to continue).\n    - steer        =\> a corrective instruction injected before the shot.\n    - persona      =\> \{ systemPrompt?, model? \} — give THIS shot its own role and/or model\n      (multi-agent strategies: a researcher shot then an engineer shot, a panel of k\n      personas over one budget). On a fresh shot the systemPrompt replaces the task's; on\n      a carried conversation it arrives as a hand-off message. Same conserved budget.\n    - tools        =\> string\[\] — restrict THIS shot to a subset of the task's tools by\n      name (focus an explore shot on read-only tools, an execute shot on write tools).\n      Restriction-only; unknown names make the shot fail. ALWAYS select from\n      await listTools(handle) — never hardcode. Omitted =\> the shot sees every tool.\n    ShotResult = \{ messages, score (0..1 on the task's check), passes, total, completions, toolErrors \}\n    Returns null if the attempt failed infra-wise.\n\n  critique(messages): Promise\<string \| null\>\n    A firewalled trace-analyst reads the attempt's trajectory and returns ONE corrective\n    instruction (or null when it judges the work complete). Costs ~1 completion.\n\n  consult(messages, instruction): Promise\<string \| null\>\n    The RAW analyst channel: the same firewalled critic answers YOUR instruction over the\n    trajectory verbatim (no reformatting) — use it when you need a specific reply format\n    (a decision, a prediction). Costs ~1 completion.\n\n  surface.open(task) / surface.close(handle)\n    Open a persistent artifact you manage yourself (remember to close in a finally).\n    close is idempotent — closing an already-closed handle is a safe no-op.\n\n  listTools(handle): Promise\<Array\<\{ name, description? \}\>\>\n    The tools THIS task actually offers. TOOL SETS VARY PER TASK — if you restrict a\n    shot with \`tools\`, you MUST pick names from await listTools(handle); hardcoding\n    names from an example kills your shots on every task whose tools differ.\n\nRules:\n- ALWAYS await every shot/critique/surface call — a floating promise that rejects\n  crashes the whole benchmark run.\n- Stay within ~budget total shots; every shot/critique spends from a conserved pool.\n- For a FRESH attempt OMIT \`messages\` entirely (never pass \`\[\]\` — an empty array is a\n  fresh conversation too, but be explicit). To CONTINUE, pass the previous\n  ShotResult.messages unchanged.\n- Return \{ score, resolved, completions, progression, shots \} — score = the BEST checkpoint\n  you reached (keep-best, never final-state), progression = score after each shot.\n- The module must be EXACTLY this shape (no other imports, no commentary outside code):\n\nimport \{ defineStrategy \} from '@tangle-network/agent-runtime/kernel'\nexport default defineStrategy('your-strategy-name', async (\{ surface, task, budget, shot, critique, listTools \}) =\> \{\n  // your composition (listTools comes from the destructured context — it is NOT a global)\n\})\n"
 
 The compressed consumable a skill carries: everything an author needs to emit a loop.
+
+***
+
+### strategyAuthorSystemPrompt
+
+> `const` **strategyAuthorSystemPrompt**: `string`
+
+Standing behavior callers put in the strategy-author AgentProfile.
 
 ***
 
@@ -21329,7 +20725,7 @@ this function, so call sites stay cast-free.
 
 ### inlineSandboxClient()
 
-> **inlineSandboxClient**(`factory`): [`SandboxClient`](#sandboxclient-5)
+> **inlineSandboxClient**(`factory`, `defaults?`): [`SandboxClient`](#sandboxclient-5)
 
 Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
 instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
@@ -21340,6 +20736,12 @@ run once on the prompt, emit the terminal result event, tear down.
 ##### factory
 
 [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+
+##### defaults?
+
+###### profile?
+
+`AgentProfile`
 
 #### Returns
 
@@ -22230,6 +21632,70 @@ readonly [`EqualKArm`](#equalkarm)[]
 
 ***
 
+### profileChatClient()
+
+> **profileChatClient**(`args`): `ChatClient`
+
+Profile-exact adapter for packages that consume agent-eval's ChatClient contract.
+Every call still enters Runtime through createExecutor -> streamAgentTurn, and every
+behavioral field is checked against the exact AgentProfile before any transport runs.
+
+#### Parameters
+
+##### args
+
+###### profile
+
+`AgentProfile`
+
+###### executor
+
+[`ExecutorConfig`](#executorconfig)
+
+###### context
+
+`string`
+
+#### Returns
+
+`ChatClient`
+
+***
+
+### profileOptimizerModelCall()
+
+> **profileOptimizerModelCall**(`args`): `ExternalOptimizerModelCall`
+
+Profile-exact adapter for agent-eval's external optimizer callback.
+Eval validates and freezes the provider-neutral request; Runtime owns the exact
+AgentProfile, execution route, retries, usage, and finite execution evidence.
+
+#### Parameters
+
+##### args
+
+###### profile
+
+`AgentProfile`
+
+###### executor
+
+[`ExecutorConfig`](#executorconfig)
+
+###### context
+
+`string`
+
+###### pricing?
+
+`CustomTokenPricing`
+
+#### Returns
+
+`ExternalOptimizerModelCall`
+
+***
+
 ### promotionGate()
 
 > **promotionGate**(`opts`): [`PromotionVerdict`](#promotionverdict)
@@ -22265,257 +21731,6 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 #### Returns
 
 [`SandboxClient`](#sandboxclient-5)
-
-***
-
-### routerChatWithUsage()
-
-> **routerChatWithUsage**(`cfg`, `messages`, `opts?`): `Promise`\<[`RouterChatResult`](#routerchatresult)\>
-
-One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0).
-
-#### Parameters
-
-##### cfg
-
-[`RouterConfig`](#routerconfig)
-
-##### messages
-
-`object`[]
-
-##### opts?
-
-###### temperature?
-
-`number`
-
-###### signal?
-
-`AbortSignal`
-
-###### maxTokens?
-
-`number`
-
-###### reasoningEffort?
-
-`"medium"` \| `"none"` \| `"high"` \| `"low"`
-
-Reasoning control for thinking models, forwarded as `reasoning_effort`.
-'none' is the load-bearing value: binary/single-token decisions (routing,
-gating) on a thinking model otherwise burn the whole token budget inside
-the think block — on slow backends (CPU-local) that turns into a client
-timeout, not just waste. Providers that ignore the field are handled by
-the reasoning/content split in `parseChatResult`.
-
-#### Returns
-
-`Promise`\<[`RouterChatResult`](#routerchatresult)\>
-
-***
-
-### routerChatWithTools()
-
-> **routerChatWithTools**(`cfg`, `messages`, `tools`, `opts?`): `Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
-
-A router completion WITH tool-calling — the operator driver's LLM seam. Passes OpenAI-shape
-`messages` (system/user/assistant-with-tool_calls/tool roles) + function `tools`, and returns the
-assistant text plus the tool calls the model wants run. Same fail-loud + real-usage discipline as
-`routerChatWithUsage`. `tool_choice: 'auto'` lets the model decide; the driver loops on the result.
-
-#### Parameters
-
-##### cfg
-
-[`RouterConfig`](#routerconfig)
-
-##### messages
-
-readonly `Record`\<`string`, `unknown`\>[]
-
-##### tools
-
-readonly `object`[]
-
-##### opts?
-
-###### temperature?
-
-`number`
-
-###### signal?
-
-`AbortSignal`
-
-###### toolChoice?
-
-`"auto"` \| `"none"` \| `"required"`
-
-###### maxTokens?
-
-`number`
-
-#### Returns
-
-`Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
-
-***
-
-### streamRouterChatWithTools()
-
-> **streamRouterChatWithTools**(`cfg`, `messages`, `tools`, `opts?`): `Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
-
-The SAME completion as `routerChatWithTools`, taken over SSE (`stream: true`) and reassembled
-into the identical `RouterChatToolsResult`. Opt in with `RouterConfig.stream` — the buffered
-function is untouched and stays the default for every existing caller.
-
-What it buys: a buffered POST holds one connection idle for the whole completion, and that idle
-window is what an intermediary gateway kills (524/503). Streaming puts bytes on the wire from the
-first generated token, so the connection is only idle through prefill.
-
-Usage accounting is preserved exactly: `stream_options.include_usage` asks the provider for a
-terminal usage chunk, and those tokens run through the same `meterTurn` the buffered path uses.
-
-When NO chunk reported usage, `usage`/`costUsd` stay undefined (never a fabricated 0) AND
-`usageUnknown: true` is set. A stream that finishes with no usage chunk means the
-`include_usage` request was not honored upstream, and returning a quiet `undefined` for it is
-indistinguishable from a free turn — the marker is what lets a metering caller record an UNKNOWN
-turn instead. Streaming raises the odds of this (one dropped terminal frame is enough), which is
-why the streamed transport says so explicitly and the buffered one has no equivalent claim to make.
-
-#### Parameters
-
-##### cfg
-
-[`RouterConfig`](#routerconfig)
-
-##### messages
-
-readonly `Record`\<`string`, `unknown`\>[]
-
-##### tools
-
-readonly [`ToolSpec`](#toolspec)[]
-
-##### opts?
-
-###### temperature?
-
-`number`
-
-###### signal?
-
-`AbortSignal`
-
-###### toolChoice?
-
-`"auto"` \| `"none"` \| `"required"`
-
-###### maxTokens?
-
-`number`
-
-#### Returns
-
-`Promise`\<[`RouterChatToolsResult`](#routerchattoolsresult)\>
-
-***
-
-### routerToolLoop()
-
-> **routerToolLoop**(`cfg`, `system`, `user`, `tools`, `execute`, `opts?`): `Promise`\<[`RouterToolLoopResult`](#routertoolloopresult)\>
-
-The tool-using router backend: a real agentic loop OVER the Tangle router (which
-supports tool-calling), off-box — no sandbox. Each turn is one router completion
-with `tools`; if the model emits tool_calls, `execute` runs them on the host and
-their results are folded back as `tool` messages; the loop repeats until the
-model answers without a tool call or the turn budget is hit. One turn = one
-inference call, so `maxTurns` is the equal-compute unit against random@k.
-
-This is the depth substrate for agentic gates (the worker ACTS, observes the real
-result, and continues) that the chat-only `routerChatWithUsage` cannot express.
-
-#### Parameters
-
-##### cfg
-
-[`RouterConfig`](#routerconfig)
-
-##### system
-
-`string`
-
-##### user
-
-`string`
-
-##### tools
-
-readonly [`ToolSpec`](#toolspec)[]
-
-##### execute
-
-(`name`, `args`) => `Promise`\<`string`\>
-
-##### opts?
-
-###### maxTurns?
-
-`number`
-
-###### temperature?
-
-`number`
-
-###### signal?
-
-`AbortSignal`
-
-###### maxTokens?
-
-`number`
-
-###### initialMessages?
-
-readonly `Record`\<`string`, `unknown`\>[]
-
-Seed the loop with an existing conversation (depth continuation) instead of
- `[system, user]`. When set, `system`/`user` are ignored. The array is copied.
-
-#### Returns
-
-`Promise`\<[`RouterToolLoopResult`](#routertoolloopresult)\>
-
-***
-
-### routerBrain()
-
-> **routerBrain**(`cfg`, `opts?`): [`ToolLoopChat`](#toolloopchat)
-
-The router as a supervisor BRAIN: the canonical `ToolLoopChat` seam backed by the router's
-tool-calling. The driver's spawn/observe/steer/await/stop turns become real router tool-calls.
-The turnkey production brain — tests script a mock `ToolLoopChat`; production passes
-`routerBrain(cfg)`. No message translation: the loop already speaks the router's OpenAI shape.
-
-Transport follows `cfg.stream`: buffered by default, SSE when the caller opts in. A supervisor
-turn is the longest completion in the system, so it is the call site streaming exists for.
-
-#### Parameters
-
-##### cfg
-
-[`RouterConfig`](#routerconfig)
-
-##### opts?
-
-###### temperature?
-
-`number`
-
-#### Returns
-
-[`ToolLoopChat`](#toolloopchat)
 
 ***
 
@@ -22726,7 +21941,10 @@ event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
     receipt: (turn) => {
       const u = sumSandboxUsage(turn.events)
       return { model, inputTokens: u.input, outputTokens: u.output,
-        ...(u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}) }
+        ...(u.tokensKnown === false ? { usageUnknown: true } : {}),
+        ...(u.usdKnown !== false && u.costUsd > 0 ? { actualCostUsd: u.costUsd } : {}),
+        ...(u.usdKnown === false ? { costUnknown: true } : {}),
+        ...(u.estimatedCostUsd !== undefined ? { estimatedCostUsd: u.estimatedCostUsd } : {}) }
     }
 
 Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
@@ -22757,6 +21975,18 @@ readonly `SandboxEvent`[]
 ##### costUsd
 
 > **costUsd**: `number`
+
+##### tokensKnown?
+
+> `optional` **tokensKnown?**: `false`
+
+##### usdKnown?
+
+> `optional` **usdKnown?**: `false`
+
+##### estimatedCostUsd?
+
+> `optional` **estimatedCostUsd?**: `number`
 
 ***
 
@@ -23250,7 +22480,7 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 ### streamAgentTurn()
 
-> **streamAgentTurn**(`backend`, `prompt`, `opts?`): `AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
+> **streamAgentTurn**(`backend`, `input`, `opts?`): `AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
 **`Experimental`**
 
@@ -23267,9 +22497,9 @@ timeout alike. The generator never throws; failures surface in-band as
 
 [`AgentTurnBackend`](#agentturnbackend)
 
-##### prompt
+##### input
 
-`string`
+[`AgentTurnInput`](#agentturninput)
 
 ##### opts?
 
@@ -23606,7 +22836,7 @@ Drive a team of agents (spawned + steered by `profile`) to solve a graded `Agent
 
 ##### profile
 
-[`SupervisorProfile`](#supervisorprofile)
+`AgentProfile`
 
 ##### task
 
@@ -23641,36 +22871,6 @@ Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or nul
 
 ***
 
-### canonicalizeAuthoredProfile()
-
-> **canonicalizeAuthoredProfile**(`raw`): `AgentProfile`
-
-Lift a profile the supervisor AUTHORED into the canonical shape every executor reads.
-
-The skill asks for `systemPrompt` and `model` as flat fields — the vocabulary a model writes
-well — while `AgentProfile` carries them as `prompt.systemPrompt` and `model.default`. Nothing
-downstream reads the flat form: the router and cli-bridge leaves read `profile.prompt
-.systemPrompt`, and the sandbox leaf hands the profile to a strict schema that REJECTS the flat
-key outright (`Unrecognized key: "systemPrompt"`), which fails the worker's every round. Lift
-both here, once, so what the supervisor writes is what the worker runs.
-
-Purely additive: a profile already canonical is returned untouched, and a flat field is dropped
-only after its canonical slot is filled. Both spellings of the same standing instruction, set to
-DIFFERENT text, is a contradiction with no safe reading — it fails loud, matching
-`resolveSupervisorProfile`'s rule for the supervisor's own profile.
-
-#### Parameters
-
-##### raw
-
-`unknown`
-
-#### Returns
-
-`AgentProfile`
-
-***
-
 ### supervisorInstructions()
 
 > **supervisorInstructions**(`opts?`): `string`
@@ -23694,43 +22894,6 @@ The supervisor SKILL — the how-to the supervisor reads (its system prompt). TH
 #### Returns
 
 `string`
-
-***
-
-### authoredWorker()
-
-> **authoredWorker**(`profile`, `opts`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
-
-Build a router-only worker from an authored profile. This helper executes the prompt/model axes;
- use `workerFromBackend` for full materialization of tools, MCP, resources, hooks, and subagents.
-
-#### Parameters
-
-##### profile
-
-[`AuthoredProfile`](#authoredprofile)
-
-##### opts
-
-###### cfg
-
-[`RouterConfig`](#routerconfig)
-
-###### taskPrompt
-
-`string`
-
-###### deliverable
-
-[`DeliverableSpec`](#deliverablespec)
-
-###### temperature?
-
-`number`
-
-#### Returns
-
-[`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
 ***
 
@@ -23843,37 +23006,11 @@ wall-clock limit. The readout is an absolute instant, not a shrinking remainder.
 
 ***
 
-### chatCompletionsTransport()
-
-> **chatCompletionsTransport**(`opts`): [`ChatCompletionsTransport`](#chatcompletionstransport)
-
-The default transport: POST `${url}/chat/completions` with an optional bearer. Fail-loud on
- any non-2xx — the status and body head become the settle reason.
-
-#### Parameters
-
-##### opts
-
-###### url
-
-`string`
-
-###### bearer?
-
-`string`
-
-#### Returns
-
-[`ChatCompletionsTransport`](#chatcompletionstransport)
-
-***
-
 ### createChatSessionStore()
 
 > **createChatSessionStore**(): [`ChatSessionStore`](#chatsessionstore)
 
-In-memory `ChatSessionStore`. Entries are detached copies — a caller mutating a saved array
- cannot corrupt a recorded session.
+In-memory, process-local conversation store with detached reads and writes.
 
 #### Returns
 
@@ -23885,16 +23022,8 @@ In-memory `ChatSessionStore`. Entries are detached copies — a caller mutating 
 
 > **chatTransportExecutor**(`opts`): [`Executor`](index.md#executor-2)\<`string`\>
 
-Build the chat-transport `Executor`: one `execute` = one conversation SHOT — seed (fresh system
-prompt, or the resumed session's recorded history) + the task as the next user message, then
-loop completion → host tool calls → tool messages until the model answers without a tool call
-(or the turn cap). Settles with the final assistant text as `out`.
-
-Fail-loud contract: transport failures (non-2xx, network faults, malformed completions) throw
-`ValidationError`, which the scope settles as an INFRA failure (`Settled.down.infra`) — never a
-fake success. The accumulated conversation is still recorded before the throw when a store is
-configured, because the inference HAPPENED and a resume may continue a failed session (the
-kernel deliberately allows resume-after-failure; the seam decides).
+Build one exact profile-driven chat executor through `createExecutor`.
+Prefer `chatWorkerSeam` for supervised work because it supplies trusted node identity.
 
 #### Parameters
 
@@ -23912,12 +23041,7 @@ kernel deliberately allows resume-after-failure; the seam decides).
 
 > **chatWorkerSeam**(`opts`): [`MakeWorkerAgent`](#makeworkeragent)
 
-The `makeWorkerAgent` seam over [chatTransportExecutor](#chattransportexecutor) — the continuity consumer
-`workerFromBackend` refuses to be. Every spawn becomes one conversation shot: the spawned
-profile's system prompt + instructions (which is where a graph's delegates directive lands)
-seed a fresh session, and a `'resume'` spawn re-attaches by loading `resume.ofWorker`'s
-recorded message list from the seam's session store. Conversations are recorded under the
-kernel node id, which is exactly what a later `resume.ofWorker` names.
+Session-owning worker factory for graph continuity.
 
 #### Parameters
 
@@ -23962,22 +23086,38 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 ***
 
-### driverAgent()
+### mapExecutorResult()
 
-> **driverAgent**(`opts`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
+> **mapExecutorResult**\<`In`, `Out`\>(`inner`, `map`): [`Executor`](index.md#executor-2)\<`Out`\>
 
-Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
-`driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
+Transform a Runtime executor's terminal artifact without losing its private
+profile-materialization attestation or altering its measured spend. This is
+the composition point for deterministic post-processing and grading; callers
+must not rebuild an Executor around a model transport merely to change `out`.
+
+#### Type Parameters
+
+##### In
+
+`In`
+
+##### Out
+
+`Out`
 
 #### Parameters
 
-##### opts
+##### inner
 
-[`DriverAgentOptions`](#driveragentoptions)
+[`Executor`](index.md#executor-2)\<`In`\>
+
+##### map
+
+(`result`, `task`) => [`ExecutorResultMapping`](#executorresultmapping)\<`Out`\> \| `Promise`\<[`ExecutorResultMapping`](#executorresultmapping)\<`Out`\>\>
 
 #### Returns
 
-[`Agent`](#agent-2)\<`unknown`, `unknown`\>
+[`Executor`](index.md#executor-2)\<`Out`\>
 
 ***
 
@@ -24150,7 +23290,7 @@ Product-selected tools already bound to this exact supervisor node. They share t
 
 ### delegate()
 
-> **delegate**\<`Out`\>(`intent`, `opts?`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`Out`\>\>
+> **delegate**\<`Out`\>(`intent`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`Out`\>\>
 
 Delegate an INTENT to a default authoring supervisor and return its `SupervisedResult` unchanged.
 
@@ -24170,9 +23310,9 @@ authored worker's delivered output; a `no-winner` result names why (never a fabr
 
 `string`
 
-##### opts?
+##### opts
 
-[`DelegateOptions`](#delegateoptions)\<`Out`\> = `{}`
+[`DelegateOptions`](#delegateoptions)\<`Out`\>
 
 #### Returns
 
@@ -24476,13 +23616,13 @@ traversal is ledgered and journaled.
 
 ### createInbox()
 
-> **createInbox**(): [`Inbox`](#inbox-1)
+> **createInbox**(): [`Inbox`](#inbox)
 
 Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle.
 
 #### Returns
 
-[`Inbox`](#inbox-1)
+[`Inbox`](#inbox)
 
 ***
 
@@ -25014,8 +24154,8 @@ Read every valid steer request in a worker's inbox. Corrupt or partial lines are
 
 The single built-in executor factory. Picks a leaf backend by data (`config.backend`),
 injects the matching seam, and delegates to that backend's built-in implementation.
-The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly
-and never pass through here. Use this (or `createExecutorRegistry`) instead of a
+The `Executor` port stays OPEN: bring-your-own agents implement `Executor` directly, while Scope
+or `createExecutorRegistry` still parses and seals their exact profile before use. Use this instead of a
 per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 `UsageEvent` reporting channel.
 
@@ -25037,9 +24177,8 @@ per-vendor adapter or a closed `inline|sandbox|cli` switch — those bypass the
 
 The open resolver/registry. Pre-registers the three built-ins under their
 runtime tags (`'router'`, `'sandbox'`, `'cli'`) and accepts `register(name,
-factory)` for any additional runtime — and a BYO `AgentSpec.executor` resolves
-without touching the registry at all. NOT a closed switch; registration + BYO
-ARE the extension points.
+factory)` for any additional runtime. A BYO `AgentSpec.executor` has highest routing precedence
+after the same exact-profile intake validation. Registration + BYO remain open extension points.
 
 `resolve` precedence (frozen in `ExecutorRegistry`): a BYO `spec.executorFactory` →
 `spec.executor` → `harness === null` → the `'router'` factory; else a registered factory for the
@@ -25170,7 +24309,7 @@ Build a `ProgressSample` from a scope settlement. The objective is the verdict s
 
 ### noProgressFor()
 
-> **noProgressFor**(`opts`): [`StopRule`](#stoprule-1)
+> **noProgressFor**(`opts`): [`StopRule`](#stoprule)
 
 "Nothing new has happened." Fires when the run has produced no new settled work for `ms`, or no
 IMPROVEMENT over the last `settles` settlements.
@@ -25186,13 +24325,13 @@ on CI is not a run that stopped making progress, and killing it there would defe
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### plateau()
 
-> **plateau**(`opts`): [`StopRule`](#stoprule-1)
+> **plateau**(`opts`): [`StopRule`](#stoprule)
 
 "The objective has stopped climbing." Fires when the best-so-far curve has risen by no more than
 `minDelta` across the last `window` settlements.
@@ -25209,13 +24348,13 @@ run was flat.
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### allWorkersStalled()
 
-> **allWorkersStalled**(`opts?`): [`StopRule`](#stoprule-1)
+> **allWorkersStalled**(`opts?`): [`StopRule`](#stoprule)
 
 "Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for
 longer than the stall threshold — and none of the tree is merely waiting.
@@ -25231,13 +24370,13 @@ reads it. A tree with armed waits never fires: waiting is not stalling.
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### anyOf()
 
-> **anyOf**(...`rules`): [`StopRule`](#stoprule-1)
+> **anyOf**(...`rules`): [`StopRule`](#stoprule)
 
 Stop when ANY rule stops — the ordinary composition (each rule is a separate reason to end).
 
@@ -25245,17 +24384,17 @@ Stop when ANY rule stops — the ordinary composition (each rule is a separate r
 
 ##### rules
 
-...readonly [`StopRule`](#stoprule-1)[]
+...readonly [`StopRule`](#stoprule)[]
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
 ### allOf()
 
-> **allOf**(...`rules`): [`StopRule`](#stoprule-1)
+> **allOf**(...`rules`): [`StopRule`](#stoprule)
 
 Stop only when EVERY rule stops — for a conservative gate that needs corroboration.
 
@@ -25263,11 +24402,11 @@ Stop only when EVERY rule stops — for a conservative gate that needs corrobora
 
 ##### rules
 
-...readonly [`StopRule`](#stoprule-1)[]
+...readonly [`StopRule`](#stoprule)[]
 
 #### Returns
 
-[`StopRule`](#stoprule-1)
+[`StopRule`](#stoprule)
 
 ***
 
@@ -25311,13 +24450,13 @@ ahead of the worker seam.
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
 
-One-call supervisor: build + run a supervisor from its profile with sensible defaults; the raw `supervisorAgent` + `createSupervisor().run` seams stay available for power use.
+One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Parameters
 
 ##### profile
 
-[`SupervisorProfile`](#supervisorprofile)
+`AgentProfile`
 
 ##### task
 
@@ -25337,22 +24476,13 @@ One-call supervisor: build + run a supervisor from its profile with sensible def
 
 > **resolveSupervisorProfile**(`profile`): [`ResolvedSupervisorProfile`](#resolvedsupervisorprofile)
 
-Reduce either profile spelling — a hand-written `SupervisorProfile` or a canonical `AgentProfile`
-— to the scalars the brain arms consume:
-
- - `modelId`: a string `model` verbatim, else `model.default`. Absent or unresolvable → the
-   router config's own model applies unchanged.
- - `systemPrompt`: the system prompt plus the `prompt.instructions` and `resources.instructions`
-   lines, one per line.
-
-`supervisorAgent` resolves each piece only where it is consumed (the model id on the router arm
-only); this whole-profile reduction is the caller-facing view of the same rules.
+Reduce one canonical executable profile to the scalars the two brain arms consume.
 
 #### Parameters
 
 ##### profile
 
-[`SupervisorProfile`](#supervisorprofile)
+`AgentProfile`
 
 #### Returns
 
@@ -25386,13 +24516,14 @@ explicit, recorded acknowledgment — never a silent bind.
 
 > **supervisorAgent**(`profile`, `deps`): [`Agent`](#agent-2)\<`unknown`, `unknown`\>
 
-Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness` (backend-as-data), the same resolution rule as every worker.
+Build a supervisor `Agent` from its profile: the brain resolves from `profile.harness`
+(backend-as-data), the same resolution rule as every worker.
 
 #### Parameters
 
 ##### profile
 
-[`SupervisorProfile`](#supervisorprofile)
+`AgentProfile`
 
 ##### deps
 
@@ -25973,9 +25104,10 @@ caller's own seam env so a deliberately-set id wins (see the precedence note abo
 Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a
 fanout of N profiles = N parallel worktrees that never clobber each other.
 
-Fail-loud: an empty `repoRoot`/`harness` or an explicitly empty `taskPrompt` throws at
-construction. Calling `execute(undefined, signal)` without a configured prompt throws before a
-worktree is created. `resultArtifact()` before `execute()` resolves throws.
+Fail-loud: an empty `repoRoot`, an incomplete/unsupported profile, a separate harness override,
+or an explicitly empty `taskPrompt` throws at construction. Calling `execute(undefined, signal)`
+without a configured prompt throws before a worktree is created. `resultArtifact()` before
+`execute()` resolves throws.
 
 #### Parameters
 

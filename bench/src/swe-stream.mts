@@ -66,7 +66,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { applyKnowledgeWriteBlocks, buildKnowledgeIndex, initKnowledgeBase, searchKnowledge } from '@tangle-network/agent-knowledge'
 import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
+import { defaultAnalystInstruction, refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
 import {
@@ -82,6 +82,7 @@ import {
   tail,
   zaiChatRaw,
 } from './swe-jail'
+import { withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -274,9 +275,29 @@ const makeTransport =
     counter.guardedMsgs += assertNoHiddenLeak(marks, msgs)
     // Inject the honored reasoning-budget knob (thinking) here at the single shared worker
     // chokepoint: makeTransport is byte-identical across arms F and L, so the budget is symmetric.
+    const model = String(body.model ?? '')
+    const systemPrompt = msgs.find((message) => message.role === 'system')?.content
+    const toolNames = Array.isArray(body.tools)
+      ? (body.tools as Array<{ function?: { name?: unknown } }>).flatMap((tool) =>
+          typeof tool.function?.name === 'string' ? [tool.function.name] : [],
+        )
+      : []
     const { json, attempts } = await zaiChatRaw(
       { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt: guard.deadlineAt },
       { ...body, ...WORKER_REASONING },
+      {
+        name: 'swe-stream-worker',
+        harness: 'cli-base',
+        model: {
+          provider: 'zai',
+          default: model,
+          reasoningEffort: REASONING_ON ? 'high' : 'none',
+        },
+        ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
+        ...(toolNames.length > 0
+          ? { tools: Object.fromEntries(toolNames.map((name) => [name, true])) }
+          : {}),
+      },
     )
     counter.calls += 1
     counter.httpAttempts += attempts
@@ -345,10 +366,44 @@ async function emitAttempt(
   }
   const task: AgenticTask = {
     id: bt.id,
-    systemPrompt: SWE_SEED_PROMPT,
     userPrompt: cfg.promptAppendix ? `${bt.prompt}\n\n${cfg.promptAppendix}` : bt.prompt,
     meta: { instanceId: bt.id },
   }
+  const workerProfile = withBenchProfile(
+    {
+      name: 'swe-stream-worker',
+      harness: 'cli-base',
+      model: {
+        provider: 'zai',
+        default: WORKER_MODEL,
+        reasoningEffort: REASONING_ON ? 'high' : 'none',
+      },
+      tools: { list_files: true, read_file: true, edit_file: true },
+    },
+    {
+      systemPrompt: SWE_SEED_PROMPT,
+      maxTokens: MAX_TOKENS,
+      maxTurns: INNER_TURNS,
+      temperature: cfg.temperature,
+      extraBody: WORKER_REASONING,
+    },
+  )
+  const analystProfile = withBenchProfile(
+    {
+      name: 'swe-stream-analyst',
+      harness: 'cli-base',
+      model: {
+        provider: 'zai',
+        default: WORKER_MODEL,
+        reasoningEffort: REASONING_ON ? 'high' : 'none',
+      },
+    },
+    {
+      systemPrompt: defaultAnalystInstruction,
+      maxTokens: MAX_TOKENS,
+      extraBody: WORKER_REASONING,
+    },
+  )
   let error: string | undefined
   try {
     const r = await runAgentic({
@@ -357,10 +412,8 @@ async function emitAttempt(
       strategy: refine,
       routerBaseUrl: 'zai-direct', // unused: the `complete` transport short-circuits the router
       routerKey: 'zai-direct',
-      model: WORKER_MODEL,
-      maxTokens: MAX_TOKENS,
-      temperature: cfg.temperature,
-      innerTurns: INNER_TURNS,
+      workerProfile,
+      analystProfile,
       budget: 1,
       complete: makeTransport(cfg.marks, counter, guard),
     })
@@ -643,6 +696,11 @@ async function acquireRepro(
       const { json } = await zaiChatRaw(
         { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
         { model: REPRO_MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages },
+        {
+          name: 'swe-reproduction-author',
+          model: { provider: 'zai', default: REPRO_MODEL, reasoningEffort: 'high' },
+          prompt: { systemPrompt: reproAuthorSystem(REPRO_TIMEOUT_S) },
+        },
       )
       const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
       out.authorCalls += 1
@@ -810,6 +868,10 @@ async function superviseRepair(
     const { json, attempts } = await zaiChatRaw(
       { base: ZAI_BASE, key: ZAI_KEY, timeoutMs: LLM_TIMEOUT_MS, deadlineAt },
       { model: SUPERVISOR_MODEL, max_tokens: SUPERVISOR_MAX_TOKENS, temperature: 0.2, messages },
+      {
+        name: 'swe-repair-supervisor',
+        model: { provider: 'zai', default: SUPERVISOR_MODEL, reasoningEffort: 'high' },
+      },
     )
     const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
     const planRaw = d.choices?.[0]?.message?.content ?? ''

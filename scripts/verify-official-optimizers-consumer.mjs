@@ -8,10 +8,12 @@ import {
   officialGepa,
   officialSkillOpt,
 } from '@tangle-network/agent-runtime'
+import { profileOptimizerModelCall } from '@tangle-network/agent-runtime/kernel'
 import {
   createOptimizationActivationReceipt,
   optimizationActivationReceiptFromMetadata,
 } from '@tangle-network/agent-runtime/intelligence'
+import { canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
 
 const python = process.env.AGENT_EVAL_TEST_PYTHON?.trim()
 if (!python) throw new Error('AGENT_EVAL_TEST_PYTHON is required')
@@ -490,13 +492,35 @@ const requiredRuleJudge = {
 }
 
 function optimizerModel(baseUrl, maxOutputTokensPerRequest) {
+  const profile = {
+    name: 'packed-official-optimizer',
+    harness: 'cli-base',
+    model: {
+      provider: 'local-openai-compatible',
+      default: 'local-model',
+      metadata: { maxTokens: maxOutputTokensPerRequest },
+    },
+  }
+  const profileDigest = canonicalAgentProfileDigest(profile)
   return {
     model: 'local-model',
-    baseUrl,
-    apiKey: 'provider-secret',
+    callRef: `packed-official-optimizers:${profileDigest}:${new URL(baseUrl).origin}`,
+    call: profileOptimizerModelCall({
+      profile,
+      context: 'packed official optimizer verification',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: baseUrl,
+        routerKey: 'provider-secret',
+      },
+      pricing: {
+        inputUsdPerMillion: 1,
+        outputUsdPerMillion: 2,
+      },
+    }),
     budget: {
       maxCostUsd: 1,
-      maxRequests: 10,
+      maxRequests: 100,
       maxRequestBytes: 100_000,
       maxResponseBytes: 100_000,
       maxOutputTokensPerRequest,

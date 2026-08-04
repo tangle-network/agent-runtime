@@ -8,14 +8,13 @@
  *
  * Fully offline — scripted leaf executors and a scripted driver, no network, sandbox, or subprocess.
  */
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { OtelExporter, OtelSpan } from '../../src/otel-export'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createSupervisorSpanRecorder } from '../../src/runtime/supervise/otel-spans'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
-import { type SuperviseOptions, supervise } from '../../src/runtime/supervise/supervise'
+import type { SuperviseOptions } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
@@ -29,7 +28,9 @@ import type {
   SupervisorOpts,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Offline fixtures ──────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ function workerLeaf(
       spent,
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -154,7 +155,7 @@ async function runNestedTree(exporter: OtelExporter) {
   )
   const root = scriptedDriver(
     'root',
-    () => [{ label: 'mid', agent: driverChild('mid', mid, journal) }],
+    () => [{ label: 'mid', agent: driverChild(testAgentProfile('mid'), mid, journal) }],
     [
       {
         spend: { iterations: 0, tokens: { input: 100, output: 40 }, usd: 0.5, ms: 12 },
@@ -491,24 +492,31 @@ describe('fixture integrity', () => {
 
 /** The whole `supervise()` call, minus the telemetry choice under test. */
 function superviseOnce(otel?: SuperviseOptions['otel']) {
-  return supervise({ name: 'root', harness: null, systemPrompt: 'drive the worker' }, 'solve it', {
-    budget: { maxIterations: 100, maxTokens: 100_000 },
-    runId: 'front-door',
-    // Injected clock: the two arms of the identical-result comparison must not diverge on a
-    // real-millisecond `settledAt` boundary.
-    now: () => 1_000,
-    makeWorkerAgent: () => workerLeaf('w', { answer: 42 }, { input: 5, output: 5 }, 1),
-    brain: scriptedBrain([
-      {
-        toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
-        ],
-      },
-      { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      { content: 'done' },
-    ]),
-    ...(otel ? { otel } : {}),
-  })
+  return supervise(
+    testAgentProfile('root', {
+      harness: 'cli-base',
+      prompt: { systemPrompt: 'drive the worker' },
+    }),
+    'solve it',
+    {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'front-door',
+      // Injected clock: the two arms of the identical-result comparison must not diverge on a
+      // real-millisecond `settledAt` boundary.
+      now: () => 1_000,
+      makeWorkerAgent: () => workerLeaf('w', { answer: 42 }, { input: 5, output: 5 }, 1),
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ]),
+      ...(otel ? { otel } : {}),
+    },
+  )
 }
 
 describe('supervise(): telemetry is opt-in at the front door', () => {

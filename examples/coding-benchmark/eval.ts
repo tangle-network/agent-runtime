@@ -65,6 +65,25 @@ const weights = Object.fromEntries(dimKeys.map((k) => [k, rubric[k].weight])) as
 >
 const dimensions = dimKeys.map((k) => ({ key: k, description: rubric[k].description }))
 
+/** The judge instructions — the rubric anchors, kept with the judge ONLY. */
+const judgePrompt = [
+  'You are a senior code reviewer scoring a candidate solution to a coding task.',
+  'Score each dimension from 0 to 1 (1 = excellent), using the criteria provided.',
+].join(' ')
+
+/** Exact system prompt llmJudge sends after appending its response contract. */
+export const codeJudgeSystemPrompt = [
+  judgePrompt,
+  '',
+  'Score the artifact on EACH of these dimensions:',
+  ...dimensions.map(
+    (dimension) => `  - "${dimension.key}": ${dimension.description} (score 0.0 to 1.0)`,
+  ),
+  '',
+  'Respond with JSON ONLY, no prose. Every dimension is a number in [0.0 to 1.0]:',
+  `{"dimensions": {${dimensions.map((dimension) => `"${dimension.key}": <number>`).join(', ')}}, "notes": "<one-line rationale>"}`,
+].join('\n')
+
 // ── the held-out result ────────────────────────────────────────────────────────
 // The substrate's canonical hidden-criteria grade: { passed, total, passRate, notes? }.
 // `passRate` is the PRIMARY correctness score; `hiddenGrade` makes a no-run an honest 0.
@@ -299,12 +318,6 @@ function parseTestCounts(output: string): { total: number; pass: number } {
 }
 
 // ── layer 3: the LLM judge(s) — SECONDARY quality signal ───────────────────────
-
-/** The judge instructions — the rubric anchors, kept with the judge ONLY. */
-const judgePrompt = [
-  'You are a senior code reviewer scoring a candidate solution to a coding task.',
-  'Score each dimension from 0 to 1 (1 = excellent), using the criteria provided.',
-].join(' ')
 
 /** The full context every judge sees: the code + the deterministic check results +
  *  the held-out pass rate + the eval-only rubric note. Shared by the single judge AND

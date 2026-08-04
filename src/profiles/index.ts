@@ -41,28 +41,18 @@ export {
   researcherProfile,
 } from './researcher'
 export type {
-  BrowserContextHandle,
-  BrowserHandle,
-  InProcessUiAuditClientOptions,
-  PageHandle,
   UiAuditCapture,
   UiAuditCaptureRequest,
   UiAuditOutput,
-  UiAuditorProfileOptions,
   UiAuditTask,
   UiAuditViewport,
   UiFinding,
   UiFindingScreenshot,
   UiFindingSeverity,
-  UiJudge,
-  UiJudgeInput,
-  UiJudgeOutput,
-  UiJudgeTokenUsage,
   UiLens,
 } from './ui-auditor'
 export {
   buildAuditorSystemPrompt,
-  createInProcessUiAuditClient,
   createUiAuditorValidator,
   decodeAuditTaskEnvelope,
   encodeAuditTaskEnvelope,
@@ -72,5 +62,4 @@ export {
   SHARED_AUDITOR_RULES,
   UI_FINDING_SEVERITIES,
   UI_LENSES,
-  uiAuditorProfile,
 } from './ui-auditor'

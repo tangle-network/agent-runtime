@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   type AgentProfile,
   defineAgentProfilePublicConfig,
@@ -34,6 +35,10 @@ const SECRET_SERVER = `
 require('node:fs').writeFileSync(process.env.MARKER_PATH, process.env.TEST_TOKEN || 'missing')
 ${HELLO_SERVER}
 `
+
+const PUBLIC_MCP_SERVER = fileURLToPath(
+  new URL('../../tests/fixtures/stdio-mcp-server.cjs', import.meta.url),
+)
 
 const ENV_BOUNDARY_SERVER = `
 require('node:fs').writeFileSync(process.env.MARKER_PATH, JSON.stringify({
@@ -137,6 +142,52 @@ describe('connectStdioMcp', () => {
 })
 
 describe('materializeLocalMcp', () => {
+  it('the same-host client snapshots and forwards profile-owned Router settings', async () => {
+    const providerOptions = { prompt_cache: true }
+    const profile: AgentProfile = {
+      name: 'profile-settings-worker',
+      harness: 'cli-base',
+      model: {
+        provider: 'offline',
+        default: 'offline-test-model',
+        metadata: { seed: 42, extraBody: { provider_options: providerOptions } },
+      },
+    }
+    let sent: Record<string, unknown> | undefined
+    const fetchMock = vi.fn(async (_url: string, init: { body?: string }) => {
+      sent = JSON.parse(init.body ?? '{}') as Record<string, unknown>
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          model: 'offline-test-model',
+          choices: [{ message: { content: 'done' } }],
+          usage: { prompt_tokens: 3, completion_tokens: 2 },
+        }),
+        text: async () => '',
+      }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = localSandboxClient({
+      router: { baseUrl: 'https://router.invalid', key: 'unused' },
+      profile,
+    })
+    providerOptions.prompt_cache = false
+    const box = await client.create()
+    try {
+      for await (const _event of box.streamPrompt('work')) {
+        // Draining the stream executes the Router turn.
+      }
+      expect(sent).toMatchObject({
+        seed: 42,
+        provider_options: { prompt_cache: true },
+      })
+    } finally {
+      await box.delete()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('spawns each enabled stdio server and namespaces its tools <server>__<tool>', async () => {
     const mat = await materializeLocalMcp(
       {
@@ -205,27 +256,30 @@ describe('materializeLocalMcp', () => {
     const marker = join(dir, 'received.txt')
     const get = vi.fn(async (name: string) => (name === 'GREETER_TOKEN' ? 'test-token' : undefined))
     const profile: AgentProfile = {
+      name: 'secret-mcp-worker',
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline-test-model' },
       mcp: {
         greeter: {
           transport: 'stdio',
           command: 'node',
-          args: [pub('-e'), pub(SECRET_SERVER)],
-          env: { MARKER_PATH: pub(marker) },
-          metadata: { secretEnv: { TEST_TOKEN: 'GREETER_TOKEN' } },
+          args: [pub(PUBLIC_MCP_SERVER)],
+          env: { MARKER_PATH: pub(marker), WRITE_MARKER: pub('1') },
+          metadata: { secretEnv: { MESSAGE: 'GREETER_TOKEN' } },
         },
       },
     }
     expect(JSON.stringify(profile)).not.toContain('test-token')
     await expect(
       localSandboxClient({
-        router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+        router: { baseUrl: 'https://router.invalid', key: 'unused' },
         profile,
         profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
       }).create(),
     ).rejects.toThrow(/no KeyProvider/)
 
     const client = localSandboxClient({
-      router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+      router: { baseUrl: 'https://router.invalid', key: 'unused' },
       keys: { get },
       profile,
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
@@ -304,26 +358,32 @@ describe('materializeLocalMcp', () => {
     const dir = mkdtempSync(join(tmpdir(), 'local-mcp-dynamic-'))
     const marker = join(dir, 'must-not-exist.txt')
     const trustedProfile: AgentProfile = {
+      name: 'trusted-mcp-worker',
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline-test-model' },
       mcp: {
         trusted: {
           transport: 'stdio',
           command: 'node',
-          args: [pub('-e'), pub(HELLO_SERVER)],
+          args: [pub(PUBLIC_MCP_SERVER)],
         },
       },
     }
     const client = localSandboxClient({
-      router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+      router: { baseUrl: 'https://router.invalid', key: 'unused' },
       profile: trustedProfile,
       profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
     })
     const dynamicProfile: AgentProfile = {
+      name: 'dynamic-mcp-worker',
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'offline-test-model' },
       mcp: {
         untrusted: {
           transport: 'stdio',
           command: 'node',
-          args: [pub('-e'), pub(SECRET_SERVER)],
-          env: { MARKER_PATH: pub(marker) },
+          args: [pub(PUBLIC_MCP_SERVER)],
+          env: { MARKER_PATH: pub(marker), WRITE_MARKER: pub('1') },
         },
       },
     }
@@ -340,7 +400,7 @@ describe('materializeLocalMcp', () => {
   it('rejects permissive host-process policy without fixed trusted profile bytes', () => {
     expect(() =>
       localSandboxClient({
-        router: { baseUrl: 'https://router.invalid', key: 'unused', model: 'unused' },
+        router: { baseUrl: 'https://router.invalid', key: 'unused' },
         profileSecurityPolicy: TRUSTED_LOCAL_MCP_POLICY,
       }),
     ).toThrow(/requires a fixed author-controlled profile/)

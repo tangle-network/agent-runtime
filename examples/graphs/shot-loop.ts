@@ -19,10 +19,9 @@ import {
   type AgentGraph,
   type AnalystRegistry,
   promptHandle,
-  type RunGraphOptions,
-  runGraph,
 } from '@tangle-network/agent-runtime/kernel'
-import { leafSeam, printLedger, scriptedBrain } from './shared'
+import { type RunGraphTestOptions, runGraphWithTestBrain } from '../../src/testing'
+import { leafSeam, offlineProfile, printLedger, scriptedBrain } from './shared'
 
 const brief = promptHandle('delegates/worker-brief/v1')
 const report = promptHandle('analyzes/findings-report/v1')
@@ -33,12 +32,12 @@ const analysts: AnalystRegistry = {
   run: async () => [{ check: 'test-suite', observed: 'see the settled output' }],
 }
 
-export function shotLoop(): { graph: AgentGraph; opts: RunGraphOptions } {
+export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'reviewer', profile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } } },
-      { id: 'coder', profile: { name: 'coder', prompt: { systemPrompt: 'Make tests pass.' } } },
+      { id: 'reviewer', profile: offlineProfile('reviewer', 'Verify.') },
+      { id: 'coder', profile: offlineProfile('coder', 'Make tests pass.') },
     ],
     edges: [
       { kind: 'delegates', from: 'reviewer', to: 'coder', directive: brief, maxTraversals: 3 },
@@ -52,7 +51,7 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphOptions } {
   }
 
   const received: AgentProfile[] = []
-  const opts: RunGraphOptions = {
+  const opts: RunGraphTestOptions = {
     runId: 'shots',
     analysts,
     makeWorkerAgent: leafSeam(received, {
@@ -98,7 +97,7 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphOptions } {
 
 export async function main(): Promise<void> {
   const { graph, opts } = shotLoop()
-  const res = await runGraph(graph, opts)
+  const res = await runGraphWithTestBrain(graph, opts)
   printLedger('shot-loop', res)
 }
 

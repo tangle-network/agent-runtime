@@ -468,21 +468,13 @@ Options for the source-grounded researcher profile preset.
 
 #### Properties
 
-##### harness?
+##### profile
 
-> `optional` **harness?**: `string`
-
-**`Experimental`**
-
-Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`.
-
-##### model?
-
-> `optional` **model?**: `string`
+> **profile**: `AgentProfile`
 
 **`Experimental`**
 
-Default model id passed in `AgentProfile.model.default`.
+Caller-owned exact harness/provider/model identity.
 
 ##### systemPrompt?
 
@@ -498,7 +490,7 @@ Custom system prompt replacement. Default = built-in researcher preset.
 
 **`Experimental`**
 
-Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`.
+Stable name for `AgentRunSpec.name`. Default = `profile.name`.
 
 ##### citationDensityMin?
 
@@ -517,21 +509,13 @@ Below this floor, citation_density scores < 1 and the item set is gated.
 
 #### Properties
 
-##### harnesses?
+##### profiles
 
-> `optional` **harnesses?**: `string`[]
-
-**`Experimental`**
-
-Backend.type identifiers, one per parallel agent.
-
-##### models?
-
-> `optional` **models?**: (`string` \| `undefined`)[]
+> **profiles**: readonly `AgentProfile`[]
 
 **`Experimental`**
 
-Optional per-harness model override. Indexed parallel to `harnesses`.
+Exact execution profiles, one per parallel researcher.
 
 ##### citationDensityMin?
 
@@ -548,432 +532,6 @@ Default citation density floor for the shared validator.
 **`Experimental`**
 
 Optional task — narrows the validator's namespace check.
-
-***
-
-### InProcessUiAuditClientOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### workspaceDir
-
-> **workspaceDir**: `string`
-
-**`Experimental`**
-
-Absolute path under which screenshots are written. Each capture lands
-at `<workspaceDir>/screenshots/<filename>`; finding screenshot paths
-are workspace-relative (`screenshots/<filename>`).
-
-##### judge
-
-> **judge**: [`UiJudge`](#uijudge)
-
-**`Experimental`**
-
-The vision judge that turns captures into findings.
-
-##### navPolicy?
-
-> `optional` **navPolicy?**: `"strict"` \| `"spa"`
-
-**`Experimental`**
-
-Navigation policy.
-
-`'strict'` (default) waits for `networkidle` and fails the iteration
-if the page does not settle. `'spa'` waits for `domcontentloaded` —
-use for single-page apps that hold open long-poll/websocket
-connections and never settle.
-
-##### launchBrowser?
-
-> `optional` **launchBrowser?**: () => `Promise`\<[`BrowserHandle`](#browserhandle)\>
-
-**`Experimental`**
-
-Browser launch override. Default: chromium headless via Playwright.
-Consumers pass a custom factory to target a remote browser, a
-different channel, or a fleet adapter.
-
-###### Returns
-
-`Promise`\<[`BrowserHandle`](#browserhandle)\>
-
-***
-
-### BrowserHandle
-
-**`Experimental`**
-
-#### Methods
-
-##### newContext()
-
-> **newContext**(`options?`): `Promise`\<[`BrowserContextHandle`](#browsercontexthandle)\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### options?
-
-###### viewport?
-
-\{ `width`: `number`; `height`: `number`; \}
-
-###### viewport.width
-
-`number`
-
-###### viewport.height
-
-`number`
-
-###### Returns
-
-`Promise`\<[`BrowserContextHandle`](#browsercontexthandle)\>
-
-##### close()
-
-> **close**(): `Promise`\<`void`\>
-
-**`Experimental`**
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### BrowserContextHandle
-
-**`Experimental`**
-
-#### Methods
-
-##### newPage()
-
-> **newPage**(): `Promise`\<[`PageHandle`](#pagehandle)\>
-
-**`Experimental`**
-
-###### Returns
-
-`Promise`\<[`PageHandle`](#pagehandle)\>
-
-##### close()
-
-> **close**(): `Promise`\<`void`\>
-
-**`Experimental`**
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### PageHandle
-
-**`Experimental`**
-
-#### Methods
-
-##### setViewportSize()
-
-> **setViewportSize**(`size`): `Promise`\<`void`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### size
-
-###### width
-
-`number`
-
-###### height
-
-`number`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### goto()
-
-> **goto**(`url`, `options?`): `Promise`\<`unknown`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### url
-
-`string`
-
-###### options?
-
-###### waitUntil?
-
-`string`
-
-###### timeout?
-
-`number`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-##### waitForSelector()
-
-> **waitForSelector**(`selector`, `options?`): `Promise`\<`unknown`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### selector
-
-`string`
-
-###### options?
-
-###### timeout?
-
-`number`
-
-###### Returns
-
-`Promise`\<`unknown`\>
-
-##### waitForTimeout()
-
-> **waitForTimeout**(`ms`): `Promise`\<`void`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### ms
-
-`number`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### screenshot()
-
-> **screenshot**(`options`): `Promise`\<`void`\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### options
-
-###### path
-
-`string`
-
-###### fullPage?
-
-`boolean`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-##### locator()
-
-> **locator**(`selector`): `object`
-
-**`Experimental`**
-
-###### Parameters
-
-###### selector
-
-`string`
-
-###### Returns
-
-`object`
-
-###### first()
-
-> **first**(): `object`
-
-###### Returns
-
-`object`
-
-###### screenshot()
-
-> **screenshot**(`options`): `Promise`\<`void`\>
-
-###### Parameters
-
-###### options
-
-###### path
-
-`string`
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### UiJudgeTokenUsage
-
-**`Experimental`**
-
-#### Properties
-
-##### input
-
-> **input**: `number`
-
-**`Experimental`**
-
-##### output
-
-> **output**: `number`
-
-**`Experimental`**
-
-***
-
-### UiJudgeInput
-
-**`Experimental`**
-
-#### Properties
-
-##### lens
-
-> **lens**: [`UiLens`](#uilens)
-
-**`Experimental`**
-
-##### captures
-
-> **captures**: readonly [`UiAuditCapture`](#uiauditcapture)[]
-
-**`Experimental`**
-
-##### productContext?
-
-> `optional` **productContext?**: `string`
-
-**`Experimental`**
-
-Free-form product context the consumer wants the judge to know.
-
-##### knownFindingIds?
-
-> `optional` **knownFindingIds?**: readonly `number`[]
-
-**`Experimental`**
-
-Findings already on file across earlier iterations — for similarTo linkage.
-
-##### promptText
-
-> **promptText**: `string`
-
-**`Experimental`**
-
-The full prompt the loop kernel synthesized for this iteration.
-
-##### signal
-
-> **signal**: `AbortSignal`
-
-**`Experimental`**
-
-Cooperative cancellation.
-
-***
-
-### UiJudgeOutput
-
-**`Experimental`**
-
-#### Properties
-
-##### findings
-
-> **findings**: [`UiFinding`](#uifinding)[]
-
-**`Experimental`**
-
-##### notes?
-
-> `optional` **notes?**: `string`
-
-**`Experimental`**
-
-Optional triage commentary.
-
-##### tokenUsage?
-
-> `optional` **tokenUsage?**: [`UiJudgeTokenUsage`](#uijudgetokenusage)
-
-**`Experimental`**
-
-Optional usage; folded into the kernel cost ledger when present.
-
-##### costUsd?
-
-> `optional` **costUsd?**: `number`
-
-**`Experimental`**
-
-Optional total cost in USD.
-
-***
-
-### UiAuditorProfileOptions
-
-**`Experimental`**
-
-#### Properties
-
-##### name?
-
-> `optional` **name?**: `string`
-
-**`Experimental`**
-
-Stable name surfaced in trace events. Defaults to `ui-auditor`.
-
-##### model?
-
-> `optional` **model?**: `string`
-
-**`Experimental`**
-
-Optional model identifier passed in `AgentProfile.model.default`.
-The consumer's `SandboxClient` chooses how to interpret it.
-
-##### task?
-
-> `optional` **task?**: [`UiAuditTask`](#uiaudittask)
-
-**`Experimental`**
-
-Task bound to the validator. Without it the validator uses the lens
-embedded in the iteration output as its expectation — fine for one-off
-use; less strict than passing the task explicitly.
 
 ***
 
@@ -1361,24 +919,6 @@ these — the caller decides.
 
 ***
 
-### UiJudge
-
-> **UiJudge** = (`input`) => `Promise`\<[`UiJudgeOutput`](#uijudgeoutput)\>
-
-**`Experimental`**
-
-#### Parameters
-
-##### input
-
-[`UiJudgeInput`](#uijudgeinput)
-
-#### Returns
-
-`Promise`\<[`UiJudgeOutput`](#uijudgeoutput)\>
-
-***
-
 ### UiLens
 
 > **UiLens** = `"consistency"` \| `"hierarchy"` \| `"layout"` \| `"ux-flow"` \| `"duplication"` \| `"accessibility"` \| `"responsive"` \| `"states"` \| `"content"` \| `"interaction"` \| `"performance-perceived"` \| `"other"`
@@ -1595,7 +1135,7 @@ Render a `CoderTask` into the per-task instruction handed to the coder profile.
 
 ### researcherProfile()
 
-> **researcherProfile**(`options?`): `object`
+> **researcherProfile**(`options`): `object`
 
 **`Experimental`**
 
@@ -1603,9 +1143,9 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 #### Parameters
 
-##### options?
+##### options
 
-[`ResearcherProfileOptions`](#researcherprofileoptions) & `object` = `{}`
+[`ResearcherProfileOptions`](#researcherprofileoptions) & `object`
 
 #### Returns
 
@@ -1645,7 +1185,7 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 ### multiHarnessResearcherFanout()
 
-> **multiHarnessResearcherFanout**(`options?`): `object`
+> **multiHarnessResearcherFanout**(`options`): `object`
 
 **`Experimental`**
 
@@ -1655,9 +1195,9 @@ picks the highest-scoring valid output.
 
 #### Parameters
 
-##### options?
+##### options
 
-[`MultiHarnessResearcherFanoutOptions`](#multiharnessresearcherfanoutoptions) = `{}`
+[`MultiHarnessResearcherFanoutOptions`](#multiharnessresearcherfanoutoptions)
 
 #### Returns
 
@@ -1725,24 +1265,6 @@ Aggregate score:
 
 ***
 
-### createInProcessUiAuditClient()
-
-> **createInProcessUiAuditClient**(`options`): [`SandboxClient`](runtime.md#sandboxclient-5) & `object`
-
-**`Experimental`**
-
-Create a `SandboxClient` that drives a local Playwright browser for in-process UI audits.
-
-#### Parameters
-
-##### options
-
-[`InProcessUiAuditClientOptions`](#inprocessuiauditclientoptions)
-
-#### Returns
-
-***
-
 ### buildAuditorSystemPrompt()
 
 > **buildAuditorSystemPrompt**(`lens`): `string`
@@ -1780,56 +1302,6 @@ Parse raw `SandboxEvent` emissions from an audit iteration into structured `UiAu
 #### Returns
 
 [`UiAuditOutput`](#uiauditoutput)
-
-***
-
-### uiAuditorProfile()
-
-> **uiAuditorProfile**(`options?`): `object`
-
-**`Experimental`**
-
-Preset `runAgentRounds` bundle for vision-driven UI audits: returns the `AgentRunSpec`, output adapter, validator, and prompt formatter the loop kernel needs.
-
-#### Parameters
-
-##### options?
-
-[`UiAuditorProfileOptions`](#uiauditorprofileoptions) = `{}`
-
-#### Returns
-
-`object`
-
-##### profile
-
-> **profile**: `AgentProfile`
-
-##### taskToPrompt
-
-> **taskToPrompt**: (`task`) => `string`
-
-###### Parameters
-
-###### task
-
-[`UiAuditTask`](#uiaudittask)
-
-###### Returns
-
-`string`
-
-##### output
-
-> **output**: [`OutputAdapter`](runtime.md#outputadapter)\<[`UiAuditOutput`](#uiauditoutput)\>
-
-##### validator
-
-> **validator**: [`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>
-
-##### agentRunSpec
-
-> **agentRunSpec**: [`AgentRunSpec`](runtime.md#agentrunspec)\<[`UiAuditTask`](#uiaudittask)\>
 
 ***
 

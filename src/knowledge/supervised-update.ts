@@ -1,6 +1,8 @@
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
-import { researcherProfile } from '../profiles/researcher'
+import { RESEARCHER_SYSTEM_PROMPT } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
+import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
@@ -67,9 +69,8 @@ export interface SupervisedKnowledgeUpdateOptions {
   budget: Budget
   backend?: ExecutorConfig
   makeWorkerAgent?: SuperviseOptions['makeWorkerAgent']
-  harness?: string
-  supervisorModel?: string
-  supervisorSystemPrompt?: string
+  /** Caller-owned exact supervisor harness/provider/model identity. */
+  supervisorProfile: SupervisorProfile
   superviseOptions?: Partial<
     Omit<
       SuperviseOptions,
@@ -128,17 +129,17 @@ export function createSupervisedKnowledgeUpdater(
 export async function runSupervisedKnowledgeUpdate(
   options: SupervisedKnowledgeUpdateOptions,
 ): Promise<SupervisedKnowledgeUpdateResult> {
-  const { profile: workerProfile } = researcherProfile({ harness: options.harness })
-  const baseInstructions = options.supervisorSystemPrompt ?? RESEARCH_SUPERVISOR_SYSTEM_PROMPT
-  const workerContract = workerProfile.prompt?.systemPrompt
+  const exactSupervisor = agentProfileSchema.parse(options.supervisorProfile) as SupervisorProfile
+  assertExecutableAgentProfile(exactSupervisor, 'runSupervisedKnowledgeUpdate')
+  const baseInstructions = exactSupervisor.prompt?.systemPrompt ?? RESEARCH_SUPERVISOR_SYSTEM_PROMPT
+  const workerContract = RESEARCHER_SYSTEM_PROMPT
   const systemPrompt = workerContract
     ? `${baseInstructions}\n\nEach researcher worker you spawn follows this contract:\n${workerContract}`
     : baseInstructions
 
   const profile: SupervisorProfile = {
-    name: 'knowledge-research-supervisor',
-    ...(options.supervisorModel ? { model: { default: options.supervisorModel } } : {}),
-    prompt: { systemPrompt },
+    ...exactSupervisor,
+    prompt: { ...exactSupervisor.prompt, systemPrompt },
   }
   const run = options.runSupervised ?? supervise
   const task = formatSupervisedKnowledgeTask(options)

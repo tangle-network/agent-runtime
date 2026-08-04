@@ -24,8 +24,8 @@ import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { routerChatWithUsage } from '@tangle-network/agent-runtime/kernel'
 import { scoreTask, taskToPrompt } from '../search-bench/tasks'
+import { runBenchRouterTurn } from '../router-turn'
 import { type EvalCertification, type GeneratedEval, generatedEvalSchemaVersion, parseCandidate } from './schema'
 
 const certifierId = 'agent-runtime/generate-eval@1'
@@ -121,10 +121,18 @@ export async function discriminationGate(
   const apiKey = opts.gateApiKey ?? process.env.EVAL_GATE_API_KEY ?? process.env.TANGLE_API_KEY
   const model = opts.gateModel ?? process.env.EVAL_GATE_MODEL ?? 'deepseek-v4-flash'
   if (!apiKey) throw new Error('discrimination gate needs EVAL_GATE_API_KEY (or TANGLE_API_KEY)')
-  const res = await routerChatWithUsage({ routerBaseUrl: baseUrl, routerKey: apiKey, model }, [
-    { role: 'user', content: taskToPrompt(candidate) },
-  ])
-  const { score, reasons } = scoreTask(candidate, res.content)
+  const res = await runBenchRouterTurn(
+    {
+      routerBaseUrl: baseUrl,
+      routerKey: apiKey,
+      profile: {
+        name: 'generated-eval-parametric-check',
+        model: { provider: 'tangle-router', default: model },
+      },
+    },
+    taskToPrompt(candidate),
+  )
+  const { score, reasons } = scoreTask(candidate, res.finalText)
   return score === 0
     ? { passed: true, detail: `parametric ${model} failed as required (${reasons.join('; ')})` }
     : { passed: false, detail: `parametric ${model} SOLVED the task from memory — not search-discriminating` }

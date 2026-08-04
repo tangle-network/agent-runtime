@@ -22,7 +22,6 @@ import {
   runFinalizer,
   type SupervisorFinalizer,
 } from '../../src/runtime/supervise/finalizer'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   Agent,
   AgentSpec,
@@ -33,9 +32,18 @@ import type {
   TreeView,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
+
+function offlineProfile(name: string): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: { provider: 'offline', default: `offline/${name}` },
+  }
+}
 
 const emptyTree: TreeView = { root: 'r', nodes: [], inFlight: 0, waiting: 0 }
 const poolReadout: Scope<unknown>['budget'] = {
@@ -217,7 +225,7 @@ function leaf(name: string, out: unknown, score: number, valid: boolean): Agent<
       spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: offlineProfile(name), harness: null, executor: ex }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -230,11 +238,11 @@ const twoWorkerScript = () =>
       toolCalls: [
         {
           name: 'spawn_agent',
-          arguments: { profile: { name: 'good' }, task: 'go', label: 'good' },
+          arguments: { profile: offlineProfile('good'), task: 'go', label: 'good' },
         },
         {
           name: 'spawn_agent',
-          arguments: { profile: { name: 'unchecked' }, task: 'go', label: 'unchecked' },
+          arguments: { profile: offlineProfile('unchecked'), task: 'go', label: 'unchecked' },
         },
       ],
     },
@@ -253,7 +261,7 @@ const makeWorker = (profile: unknown) => {
 
 describe('SupervisorFinalizer — end to end through supervise()', () => {
   it('the default keeps the delivered answer over a higher-scoring unchecked one', async () => {
-    const result = await supervise({ name: 'root', harness: 'cli-base' }, 'task', {
+    const result = await supervise(offlineProfile('root'), 'task', {
       budget,
       perWorker: { maxIterations: 5, maxTokens: 10_000 },
       makeWorkerAgent: makeWorker,
@@ -264,7 +272,7 @@ describe('SupervisorFinalizer — end to end through supervise()', () => {
   })
 
   it('an opted-in collectDelivered changes the SHAPE without ever widening eligibility', async () => {
-    const result = await supervise({ name: 'root', harness: 'cli-base' }, 'task', {
+    const result = await supervise(offlineProfile('root'), 'task', {
       budget,
       perWorker: { maxIterations: 5, maxTokens: 10_000 },
       makeWorkerAgent: makeWorker,
@@ -278,7 +286,7 @@ describe('SupervisorFinalizer — end to end through supervise()', () => {
   })
 
   it('a run whose only high scorer is unchecked is a no-winner, not a rescued output', async () => {
-    const result = await supervise({ name: 'root', harness: 'cli-base' }, 'task', {
+    const result = await supervise(offlineProfile('root'), 'task', {
       budget,
       perWorker: { maxIterations: 5, maxTokens: 10_000 },
       makeWorkerAgent: () => leaf('unchecked', 'UNCHECKED-PROSE', 0.99, false),

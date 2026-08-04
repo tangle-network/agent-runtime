@@ -15,7 +15,7 @@
  *
  *   - LEVEL 0 (declarative): `cases` / `prompt` / `score` / `axis`.
  *   - LEVEL 1 (seams): `backends`, `flags`, `parseOutput`, `onCellEvents`,
- *     `resolveModel`, `setup`/`teardown`, `export`, `modelBackend`, `matrix`
+ *     `resolveModel`, `setup`/`teardown`, `export`, `matrix`
  *     passthrough.
  *   - LEVEL 2 (replacement): `dispatch` and `judges` swap out the whole
  *     loop wiring or scoring; `runProfileMatrix` itself stays public as the
@@ -38,7 +38,6 @@ import {
   CODING_HARNESSES,
   expandProfileAxes,
   type HarnessType,
-  harnessAxisOf,
   type MaximumCharge,
 } from '@tangle-network/agent-eval'
 import {
@@ -53,7 +52,7 @@ import { collectAgentResponseText, type SandboxEvent } from '@tangle-network/san
 import { leaderboard, renderLeaderboardMarkdown } from './benchmark-report'
 import { loopDispatch } from './loop-dispatch'
 import { resolveSandboxClient } from './resolve-sandbox-client'
-import { isHarnessNativeModel } from './supervise/model-policy'
+import { assertExecutableAgentProfile } from './supervise/model-policy'
 import type { Driver, LoopResult, SandboxClient } from './types'
 
 /** Structured per-case verdict a `score` function may return (a bare number is
@@ -200,9 +199,10 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
    *  `CODING_HARNESSES` × the base profile's `model.default`. `--harnesses` /
    *  `--models` override per run. */
   axis?: { harnesses?: readonly HarnessType[]; models?: readonly string[] }
-  /** Base profile the axes expand over (prompt/tools/skills held fixed).
-   *  Default: a minimal `{ name, model: { default: <first model> } }`. */
-  baseProfile?: AgentProfile
+  /** Exact base profile the axes expand over (prompt/tools/skills held fixed).
+   *  Its provider remains authoritative while each axis cell replaces the
+   *  harness and concrete model. */
+  baseProfile: AgentProfile
   /**
    * Execution-backend registry: `--backend <name>` picks the factory that
    * yields the `SandboxClient` every cell runs on. Merged over the defaults:
@@ -215,10 +215,6 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
   backends?: Record<string, (() => SandboxClient) | undefined>
   /** Extra `--flag value` CLI args `run()` parses and surfaces via `ctx.args`. */
   flags?: Record<string, LeaderboardFlagSpec>
-  /** Extra fields merged into each cell's `backend.model` create override —
-   *  e.g. `{ provider: 'openai-compat', apiKey, baseUrl }` for a router-backed
-   *  sandbox. The cell's bare model id is set by the facade from the axis. */
-  modelBackend?: Record<string, unknown>
   /** Runs once before the matrix (fetch fixtures, warm caches). */
   setup?: (ctx: LeaderboardRunContext) => Promise<void> | void
   /** Runs once after the matrix, even on failure (reap boxes, close handles). */
@@ -240,13 +236,10 @@ export interface LeaderboardSpec<TCase, TArtifact = string> {
    *  this (or a LEVEL-2 `dispatch`). */
   parseOutput?: (events: readonly SandboxEvent[], c: TCase) => TArtifact
   /**
-   * Resolve the model the backend ACTUALLY served off a shot's raw events.
-   * Required for HARNESS_NATIVE_MODEL-snapped cells (a vendor-locked harness ×
-   * an out-of-family model expands to the `default` sentinel): the RunRecord
-   * must pin a real snapshot-bearing model id, which only the dispatch —
-   * reading the backend's usage/terminal events — can know. When this returns
-   * a value the default dispatch records it on the paid-call receipt;
-   * in-family cells (concrete declared model) never need it.
+   * Resolve the model the backend actually served from a shot's raw events.
+   * When this returns a value the default dispatch records it on the paid-call
+   * receipt. It cannot complete an inexact planning profile: every expanded
+   * cell must already declare a concrete model before backend work starts.
    */
   resolveModel?: (events: readonly SandboxEvent[]) => string | undefined
   /** Result export. Default: write `matrix-result.json` under the run dir and
@@ -314,11 +307,6 @@ function splitList(v: string | undefined): string[] | undefined {
  *  snapshot (`name@<snapshot>`). Unchanged when already stamped. */
 function withSnapshot(model: string, snapshot: string): string {
   return model.includes('@') ? model : `${model}@${snapshot}`
-}
-
-/** The bare model id the backend actually serves (identity snapshot stripped). */
-function bareModel(model: string): string {
-  return model.split('@')[0] ?? model
 }
 
 function gitSha(): string {
@@ -438,10 +426,10 @@ export function defineLeaderboard<TCase, TArtifact = string>(
     }
     const models = rawModels.map((m) => withSnapshot(m, snapshot))
 
-    const base: AgentProfile =
-      spec.baseProfile ??
-      ({ name: spec.name, model: { default: bareModel(models[0] ?? '') } } as AgentProfile)
-    const profiles = expandProfileAxes({ base, harnesses, models })
+    const profiles = expandProfileAxes({ base: spec.baseProfile, harnesses, models })
+    for (const profile of profiles) {
+      assertExecutableAgentProfile(profile, `defineLeaderboard(${spec.name})`)
+    }
 
     const ctx: LeaderboardRunContext = {
       name: spec.name,
@@ -477,7 +465,6 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           bridge: {
             url: process.env.CLI_BRIDGE_URL,
             bearer,
-            model: bareModel(models[0] ?? ''),
             timeoutMs: 900_000,
           },
         })
@@ -512,8 +499,7 @@ export function defineLeaderboard<TCase, TArtifact = string>(
     // per-cell resource cost) so the loop's finished iterations can be joined
     // with the campaign ctx: onCellEvents gets EVERY shot's outcome (a thrown
     // shot never reaches parse, so parse-time tapping would hide it), and a
-    // the cost receipt records the spec-resolved served model (the only way to
-    // pin HARNESS_NATIVE_MODEL-snapped cells to a real model).
+    // the cost receipt records the spec-resolved served model.
     const maximumCharge = spec.maximumCharge
     const dispatch: ProfileDispatchFn<LeaderboardScenario<TCase>, TArtifact> = spec.dispatch ??
     ((profile, scenario, dispatchCtx) => {
@@ -544,17 +530,6 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           return [...served][0] ?? cellProfile.model?.default
         },
         toLoopOptions: (cellScenario, cellProfile) => {
-          // The cell's harness + model come off the profile's axis stamp set
-          // by expandProfileAxes; the sandbox create override carries them to
-          // whichever backend client runs the cell.
-          const axis = harnessAxisOf(cellProfile)
-          const modelId = bareModel(axis?.model ?? models[0] ?? '')
-          const backendModel = {
-            ...spec.modelBackend,
-            ...(!isHarnessNativeModel(modelId) || backendName === 'cli-bridge'
-              ? { model: modelId }
-              : {}),
-          }
           return {
             // The no-signal retry floor: re-run the same case as an independent attempt until
             // one scores (>0) or the shot cap. The task is re-run verbatim — no grader findings
@@ -563,16 +538,6 @@ export function defineLeaderboard<TCase, TArtifact = string>(
             agentRun: {
               profile: cellProfile,
               taskToPrompt: (s) => `${promptOf(s)}\n\n<!-- independent-attempt:${shotNonce++} -->`,
-              ...(axis
-                ? {
-                    sandboxOverrides: {
-                      backend: {
-                        type: axis.harness,
-                        ...(Object.keys(backendModel).length > 0 ? { model: backendModel } : {}),
-                      },
-                    } as never,
-                  }
-                : {}),
             },
             output: {
               parse: (events) =>

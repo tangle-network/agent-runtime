@@ -24,7 +24,15 @@ const output: OutputAdapter<Out> = {
 }
 
 function spec(name: string): AgentRunSpec<Task> {
-  return { profile: { name }, name, taskToPrompt: (t) => JSON.stringify(t) }
+  return {
+    profile: {
+      name,
+      harness: 'opencode',
+      model: { provider: 'offline', default: 'offline-test-model' },
+    },
+    name,
+    taskToPrompt: (t) => JSON.stringify(t),
+  }
 }
 
 /** One `streamPrompt` call's recorded arguments — the box id it ran on, the

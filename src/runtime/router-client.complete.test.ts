@@ -5,7 +5,10 @@ import { routerChatWithTools, routerChatWithUsage } from './router-client'
 // clients call it with the OpenAI request body and parse what it returns, INSTEAD of `fetch`-ing
 // the router. The offline-benchmark path — a deterministic in-process responder, no network.
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('RouterConfig.complete — the injected completion transport', () => {
   it('routerChatWithUsage uses `complete` and never touches fetch', async () => {
@@ -15,6 +18,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       // The body is the OpenAI request the client built — assert it threaded the model + messages.
       expect(body.model).toBe('deepseek-v4-flash')
       expect(body.messages).toEqual([{ role: 'user', content: 'hi' }])
+      expect(body).not.toHaveProperty('max_tokens')
       return {
         choices: [{ message: { content: 'pong' } }],
         usage: { prompt_tokens: 7, completion_tokens: 3 },
@@ -31,6 +35,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.content).toBe('pong')
     expect(res.usage).toEqual({ input: 7, output: 3 })
+    expect(res.transportAttempts).toBe(1)
     expect(complete).toHaveBeenCalledOnce()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -64,6 +69,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.toolCalls).toEqual([{ id: 'c1', name: 'increment', arguments: '{}' }])
     expect(res.usage).toEqual({ input: 5, output: 2 })
+    expect(res.transportAttempts).toBe(1)
     expect(complete).toHaveBeenCalledOnce()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -84,7 +90,371 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       [{ role: 'user', content: 'hi' }],
     )
     expect(res.content).toBe('live')
+    expect(res.transportAttempts).toBe(1)
     expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it('buffered chat retries a thrown network failure and reports the exact attempt count', async () => {
+    let calls = 0
+    const idempotencyKeys: string[] = []
+    const fetchSpy = vi.fn(async (_url: unknown, init: RequestInit) => {
+      idempotencyKeys.push((init.headers as Record<string, string>)['idempotency-key'] ?? '')
+      calls += 1
+      if (calls === 1) throw new TypeError('fetch failed: socket reset')
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'recovered' } }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        }),
+        text: async (): Promise<string> => '',
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'recover' }],
+    )
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(idempotencyKeys[0]).toMatch(/^idem_/u)
+    expect(idempotencyKeys).toEqual([idempotencyKeys[0], idempotencyKeys[0]])
+    expect(result.transportAttempts).toBe(2)
+    expect(result.content).toBe('recovered')
+  })
+
+  it('keeps a caller-supplied logical-call id authoritative across retries', async () => {
+    const seen: string[] = []
+    let calls = 0
+    const complete = vi.fn(
+      async (
+        _body: Record<string, unknown>,
+        request?: { headers: Readonly<Record<string, string>> },
+      ) => {
+        seen.push(request?.headers['idempotency-key'] ?? '')
+        calls += 1
+        if (calls === 1) throw new TypeError('fetch failed: accepted response lost')
+        return { choices: [{ message: { content: 'recovered' } }] }
+      },
+    )
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'recover' }],
+      { callId: 'trusted-call-1' },
+    )
+
+    expect(seen).toEqual(['trusted-call-1', 'trusted-call-1'])
+  })
+
+  it.each(['', '   ', null])(
+    'rejects an invalid supplied logical-call id %j before transport',
+    async (callId) => {
+      const complete = vi.fn(async () => ({ choices: [{ message: { content: 'unused' } }] }))
+
+      await expect(
+        routerChatWithUsage(
+          {
+            routerBaseUrl: 'http://router.test/v1',
+            routerKey: 'k',
+            model: 'deepseek-v4-flash',
+            complete,
+          },
+          [{ role: 'user', content: 'do not dispatch' }],
+          { callId: callId as string },
+        ),
+      ).rejects.toThrow(/callId must be a non-empty, non-whitespace string/u)
+      expect(complete).not.toHaveBeenCalled()
+    },
+  )
+
+  it('fails loud with the final network cause after the configured attempts are exhausted', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('fetch failed: connection refused')
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await expect(
+      routerChatWithUsage(
+        {
+          routerBaseUrl: 'http://router.test/v1',
+          routerKey: 'k',
+          model: 'deepseek-v4-flash',
+          retry: {
+            maxAttempts: 2,
+            initialBackoffMs: 0,
+            maxBackoffMs: 0,
+            jitter: 0,
+            requestTimeoutMs: 0,
+          },
+        },
+        [{ role: 'user', content: 'cannot connect' }],
+      ),
+    ).rejects.toThrow(/router network failure: fetch failed: connection refused/u)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('enforces the per-attempt header timeout and retries the timed-out request', async () => {
+    let calls = 0
+    const fetchSpy = vi.fn(async (_url: unknown, init: { signal?: AbortSignal }) => {
+      calls += 1
+      if (calls === 1) {
+        return new Promise<never>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            'abort',
+            () => reject(init.signal?.reason ?? new Error('aborted')),
+            { once: true },
+          )
+        })
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'after timeout' } }] }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 2,
+          initialBackoffMs: 0,
+          maxBackoffMs: 0,
+          jitter: 0,
+          requestTimeoutMs: 10,
+        },
+      },
+      [{ role: 'user', content: 'timeout once' }],
+    )
+
+    expect(result.content).toBe('after timeout')
+    expect(result.transportAttempts).toBe(2)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('passes initial delay, exponential cap, and jitter to the shared retry primitive', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1)
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
+    let calls = 0
+    const fetchSpy = vi.fn(async () => {
+      calls += 1
+      if (calls < 3) throw new TypeError('fetch failed')
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: 'third try' } }] }),
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 3,
+          initialBackoffMs: 10,
+          maxBackoffMs: 15,
+          jitter: 0.2,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'back off' }],
+    )
+
+    expect(timerSpy.mock.calls.map((call) => call[1])).toEqual([12, 18])
+  })
+
+  it('cancels pending backoff and never starts another request after caller abort', async () => {
+    const controller = new AbortController()
+    const timerSpy = vi.spyOn(globalThis, 'setTimeout')
+    let firstAttemptStarted = () => {}
+    const started = new Promise<void>((resolve) => {
+      firstAttemptStarted = resolve
+    })
+    const fetchSpy = vi.fn(async () => {
+      firstAttemptStarted()
+      throw new TypeError('fetch failed: offline')
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const pending = routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        retry: {
+          maxAttempts: 3,
+          initialBackoffMs: 60_000,
+          maxBackoffMs: 60_000,
+          jitter: 0,
+          requestTimeoutMs: 0,
+        },
+      },
+      [{ role: 'user', content: 'stop retrying' }],
+      { signal: controller.signal },
+    )
+    await started
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(timerSpy).toHaveBeenCalledWith(expect.any(Function), 60_000)
+    controller.abort(new Error('caller stopped'))
+
+    await expect(pending).rejects.toThrow(/caller stopped/u)
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid maxAttempts %s before dispatch',
+    async (maxAttempts) => {
+      const fetchSpy = vi.fn()
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        routerChatWithUsage(
+          {
+            routerBaseUrl: 'http://router.test/v1',
+            routerKey: 'k',
+            model: 'deepseek-v4-flash',
+            retry: { maxAttempts },
+          },
+          [{ role: 'user', content: 'do not dispatch' }],
+        ),
+      ).rejects.toThrow(/maxAttempts must be a positive safe integer/u)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    },
+  )
+
+  it('uses the caller ceiling when set and otherwise leaves the provider default unrestricted', async () => {
+    const seen: Record<string, unknown>[] = []
+    const complete = async (body: Record<string, unknown>) => {
+      seen.push(body)
+      return { choices: [{ message: { content: 'done' } }] }
+    }
+    const config = {
+      routerBaseUrl: 'http://router.test/v1',
+      routerKey: 'k',
+      model: 'deepseek-v4-flash',
+      complete,
+    }
+    await routerChatWithUsage(config, [{ role: 'user', content: 'default' }])
+    await routerChatWithUsage({ ...config, maxTokens: 16_384 }, [
+      { role: 'user', content: 'configured' },
+    ])
+    await routerChatWithUsage(config, [{ role: 'user', content: 'per-call' }], {
+      maxTokens: 32_768,
+    })
+
+    expect(seen[0]).not.toHaveProperty('max_tokens')
+    expect(seen[1]?.max_tokens).toBe(16_384)
+    expect(seen[2]?.max_tokens).toBe(32_768)
+  })
+
+  it('accepts multimodal messages and provider fields without letting extras replace canonical fields', async () => {
+    const content = [
+      { type: 'text', text: 'describe this image' },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } },
+    ]
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content }],
+        temperature: 0.4,
+        max_tokens: 32_768,
+        seed: 7,
+        thinking: { type: 'enabled' },
+      })
+      return { choices: [{ message: { content: 'image' } }] }
+    })
+
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content }],
+      {
+        temperature: 0.4,
+        maxTokens: 32_768,
+        seed: 7,
+        extraBody: {
+          model: 'must-not-win',
+          messages: [],
+          temperature: 999,
+          max_tokens: 1,
+          thinking: { type: 'enabled' },
+        },
+      },
+    )
+    expect(complete).toHaveBeenCalledOnce()
+  })
+
+  it('omits tool fields for a no-tool request and protects canonical fields from provider extras', async () => {
+    const complete = vi.fn(async (body: Record<string, unknown>) => {
+      expect(body).toMatchObject({
+        model: 'deepseek-v4-flash',
+        messages: [{ role: 'user', content: 'answer' }],
+        temperature: 0.1,
+        thinking: { type: 'enabled' },
+      })
+      expect(body).not.toHaveProperty('tools')
+      expect(body).not.toHaveProperty('tool_choice')
+      return { choices: [{ message: { content: 'done' } }] }
+    })
+
+    const result = await routerChatWithTools(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        complete,
+      },
+      [{ role: 'user', content: 'answer' }],
+      [],
+      {
+        temperature: 0.1,
+        extraBody: {
+          model: 'must-not-win',
+          messages: [],
+          tools: [{ type: 'function' }],
+          tool_choice: 'required',
+          thinking: { type: 'enabled' },
+        },
+      },
+    )
+    expect(result.content).toBe('done')
+    expect(complete).toHaveBeenCalledOnce()
   })
 })
 

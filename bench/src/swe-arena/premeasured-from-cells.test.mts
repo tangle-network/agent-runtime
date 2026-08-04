@@ -49,6 +49,7 @@ const cell = (iid: string, rep: number, resolved: boolean, over: Partial<FullCel
     },
   },
   costUsd: 0.05,
+  costProvenance: { kind: 'observed', usd: 0.05 },
   costCallIds: [`call-${iid}-${rep}`],
   tokenUsage: { input: 100, output: 50 },
   resolvedModel: 'zai-coding-plan/glm-5.2',
@@ -85,7 +86,11 @@ describe('buildPremeasuredFromCells', () => {
     expect(out.campaign.cells.every((c) => c.cached)).toBe(true)
     expect(out.campaign.cells.every((c) => !('mtimeMs' in c))).toBe(true)
     // Honest spend rollup from the real cells.
-    expect(out.campaign.aggregates.totalCostUsd).toBeCloseTo(0.2)
+    expect(out.campaign.aggregates.cost.totalCostUsd).toBeCloseTo(0.2)
+    expect(out.campaign.aggregates.cost.costProvenance).toEqual({
+      kind: 'observed',
+      usd: 0.2,
+    })
     expect(out.campaign.aggregates.cost.inputTokens).toBe(400)
     expect(out.campaign.runDir).toBe('/prior/baseline')
     // Window reconstructed from mtimes: ends at the last cell write.
@@ -126,6 +131,21 @@ describe('buildPremeasuredFromCells', () => {
     expect(() =>
       buildPremeasuredFromCells({ cells: errored, instances: INSTANCES, reps: 2, surfaceHash: 'x', sourceDir: '/p' }),
     ).toThrow(/carries an error/)
+    const uncapturedCost = [
+      cell('inst-a', 0, false, { costProvenance: { kind: 'uncaptured', usd: null } }),
+      cell('inst-a', 1, true),
+      cell('inst-b', 0, true),
+      cell('inst-b', 1, true),
+    ]
+    expect(() =>
+      buildPremeasuredFromCells({
+        cells: uncapturedCost,
+        instances: INSTANCES,
+        reps: 2,
+        surfaceHash: 'x',
+        sourceDir: '/p',
+      }),
+    ).toThrow(/has uncaptured cost/)
   })
 })
 

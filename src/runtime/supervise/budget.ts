@@ -86,11 +86,9 @@ export type BudgetReadout = Readonly<{
   reservedTokens: number
 }>
 /** Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it
- *  budgets; `below-runtime-floor` means the request is under the amount that harness needs before
- *  it does any work at all, so it is unsatisfiable at that size and the fix is to RAISE it;
- *  `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
- *  unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
-export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted' | 'below-runtime-floor'
+ * budgets; `usd-unbudgeted` means the root declared no dollar ceiling, so a dollar request is
+ * unsatisfiable at any amount and the fix is to budget the root, not to ask for less. */
+export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
 
 /** State recovered from a prior process before new work is admitted. `committed` is measured spend
  * already present in the durable journal. Each `uncertainReservation` is a child that was recorded
@@ -183,12 +181,14 @@ export interface BudgetPool {
  *  pool does not read wall-clock). */
 export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   const tokens = zeroTokenUsage()
+  let tokensKnown = true
   let usd = 0
   let usdKnown = true
   let iterations = 0
   for (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
+      if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
       if (ev.usdKnown === false) usdKnown = false
@@ -199,6 +199,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   return {
     iterations,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: 0,
@@ -208,12 +209,14 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
 async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
   if (Array.isArray(events)) return spendFromUsageEvents(events)
   const tokens = zeroTokenUsage()
+  let tokensKnown = true
   let usd = 0
   let usdKnown = true
   let iterations = 0
   for await (const ev of events) {
     if (ev.kind === 'tokens') {
       addTokenUsage(tokens, { input: ev.input, output: ev.output })
+      if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
       if (ev.usdKnown === false) usdKnown = false
@@ -224,6 +227,7 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
   return {
     iterations,
     tokens,
+    ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
     ms: 0,

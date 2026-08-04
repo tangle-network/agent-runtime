@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeProposalFinding } from '@tangle-network/agent-eval'
+import type { OpenAICompatibleOptimizerModel } from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import {
   type AgentProfile,
@@ -214,10 +215,34 @@ function replacingRedactor(
   return redact
 }
 
-const testOptimizer = {
+const testOptimizer: OpenAICompatibleOptimizerModel = {
   model: 'optimizer-model',
-  baseUrl: 'http://127.0.0.1:1/v1',
-  apiKey: 'test-api-key',
+  callRef: 'official-optimizer-test/caller-owned-model',
+  call: async (request) => ({
+    succeeded: true,
+    response: {
+      content: 'test optimizer response',
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      costUsd: 0.000002,
+      model: request.request.model,
+      durationMs: 0,
+      finishReason: 'stop',
+      contentEmpty: false,
+      raw: {},
+    },
+    receipt: {
+      model: request.request.model,
+      inputTokens: 1,
+      outputTokens: 1,
+      actualCostUsd: 0.000002,
+    },
+    execution: {
+      kind: 'deterministic-test-model',
+      model: request.request.model,
+      callId: request.callId,
+      endpointFormat: request.endpointFormat ?? null,
+    },
+  }),
   budget: {
     maxCostUsd: 1,
     maxRequests: 10,

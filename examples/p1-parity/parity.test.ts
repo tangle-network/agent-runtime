@@ -44,10 +44,24 @@ const parityCell = (shots: number): CellSpec => ({
   // profile stays model-less — the driver model is each arm's substrate config.
   coderProfile: {
     name: 'coder',
-    model: { default: 'scripted/parity-coder' },
+    harness: 'cli-base',
+    model: {
+      provider: 'scripted',
+      default: 'scripted/parity-coder',
+      metadata: { temperature: 0.7, maxTokens: 2500 },
+    },
     prompt: { systemPrompt: 'Make tests pass.' },
   },
-  reviewerProfile: { name: 'reviewer', prompt: { systemPrompt: 'Verify.' } },
+  reviewerProfile: {
+    name: 'reviewer',
+    harness: 'cli-base',
+    model: {
+      provider: 'scripted',
+      default: 'scripted/parity-reviewer',
+      metadata: { temperature: 0.9, maxTokens: 600 },
+    },
+    prompt: { systemPrompt: 'Verify.' },
+  },
   shots,
   budget: { maxIterations: 30, maxTokens: 100_000 },
 })
@@ -257,8 +271,6 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
       kind: 'seam',
       makeWorkerAgent: chatWorkerSeam({
         url: 'http://offline.invalid',
-        temperature: PARITY_CODER_SAMPLING.temperature,
-        maxTokens: PARITY_CODER_SAMPLING.maxTokens,
         deliverable: {
           describe: cell.task,
           check: (out) => typeof out === 'string' && offlineShotPassed(out),

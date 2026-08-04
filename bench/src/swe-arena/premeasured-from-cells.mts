@@ -153,6 +153,16 @@ export function buildPremeasuredFromCells(input: {
     if (cell.artifact === null || cell.artifact.kind !== 'swe-arm') {
       throw new Error(`premeasured-from-cells: cell ${cell.cellId} has no swe-arm artifact`)
     }
+    if (cell.costProvenance.kind === 'uncaptured') {
+      throw new Error(`premeasured-from-cells: cell ${cell.cellId} has uncaptured cost`)
+    }
+    if (
+      cell.costProvenance.usd !== cell.costUsd
+    ) {
+      throw new Error(
+        `premeasured-from-cells: cell ${cell.cellId} cost provenance does not match costUsd`,
+      )
+    }
   }
 
   const scenarios: Scenario[] = instances.map((iid) => ({ id: iid, kind: 'swe-instance' }))
@@ -180,6 +190,11 @@ export function buildPremeasuredFromCells(input: {
     }),
   )
   const totalCostUsd = sorted.reduce((s, c) => s + c.costUsd, 0)
+  const costProvenance: CampaignCellResult<R4Artifact>['costProvenance'] = sorted.some(
+    (cell) => cell.costProvenance.kind === 'estimated',
+  )
+    ? { kind: 'estimated', usd: totalCostUsd }
+    : { kind: 'observed', usd: totalCostUsd }
   const inputTokens = sorted.reduce((s, c) => s + c.tokenUsage.input, 0)
   const outputTokens = sorted.reduce((s, c) => s + c.tokenUsage.output, 0)
   const totalCalls = sorted.reduce((s, c) => s + (c.costCallIds?.length ?? 0), 0)
@@ -213,6 +228,7 @@ export function buildPremeasuredFromCells(input: {
         outputTokens,
         cachedTokens: 0,
         totalCostUsd,
+        costProvenance,
         byChannel: [
           {
             channel: 'agent',
@@ -231,7 +247,6 @@ export function buildPremeasuredFromCells(input: {
         accountingComplete: true,
         incompleteReasons: [],
       },
-      totalCostUsd,
       cellsExecuted: sorted.length,
       cellsSkipped: 0,
       cellsCached: sorted.length,

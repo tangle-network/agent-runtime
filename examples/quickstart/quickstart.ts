@@ -17,6 +17,12 @@ import type { SandboxEvent } from '@tangle-network/sandbox'
 type Task = { prompt: string }
 type Note = { note: string }
 
+const noteWriterProfile = {
+  name: 'note-writer',
+  harness: 'cli-base',
+  model: { provider: 'scripted', default: 'scripted/note-writer' },
+} satisfies AgentProfile
+
 // A stand-in worker: it obeys the prompt it is given. Swap for a real backend later.
 const worker = inProcessSandboxClient({
   onPrompt: (prompt): SandboxEvent[] => [
@@ -51,7 +57,7 @@ const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail
           ? 'refine'
           : 'fail',
   },
-  agentRun: { profile: { name: 'note-writer' } as AgentProfile, taskToPrompt: (t) => t.prompt },
+  agentRun: { profile: noteWriterProfile, taskToPrompt: (t) => t.prompt },
   output: {
     parse: (events) => {
       for (const ev of events) {

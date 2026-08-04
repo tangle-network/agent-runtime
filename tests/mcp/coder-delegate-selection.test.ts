@@ -1,3 +1,4 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
@@ -55,6 +56,17 @@ function candidateClient() {
 const ctx = { signal: new AbortController().signal, report() {} }
 const args = { goal: 'fix it', repoRoot: '/repo', variants: 2 }
 
+function workerProfile(harness: AgentProfile['harness']): AgentProfile {
+  return {
+    name: `coder-${harness}`,
+    harness,
+    model: { provider: 'test-provider', default: `test-${harness}` },
+  }
+}
+
+const claudeWorker = workerProfile('claude-code')
+const codexWorker = workerProfile('codex')
+
 // Reviewer that approves both but rates the BIG candidate more ready.
 const readinessReviewer: CoderReviewer = (output) => ({
   approved: true,
@@ -66,7 +78,8 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   it('smallest-diff selects the smaller valid patch', async () => {
     const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
-      fanoutHarnesses: ['claude-code', 'codex'],
+      workerProfile: claudeWorker,
+      fanoutProfiles: [claudeWorker, codexWorker],
       winnerSelection: 'smallest-diff' satisfies DetachedWinnerSelection,
     })
     const out = await delegate(args, ctx)
@@ -76,7 +89,8 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   it('highest-readiness selects by the reviewer score, diverging from diff size', async () => {
     const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
-      fanoutHarnesses: ['claude-code', 'codex'],
+      workerProfile: claudeWorker,
+      fanoutProfiles: [claudeWorker, codexWorker],
       reviewer: readinessReviewer,
       winnerSelection: 'highest-readiness',
     })
@@ -92,7 +106,8 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
     })
     const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
-      fanoutHarnesses: ['claude-code', 'codex'],
+      workerProfile: claudeWorker,
+      fanoutProfiles: [claudeWorker, codexWorker],
       reviewer: rejectAll,
     })
     await expect(delegate(args, ctx)).rejects.toThrow(/validation \+ review/)
@@ -101,14 +116,15 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   it('default highest-score (no reviewer) still returns a valid winner', async () => {
     const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
-      fanoutHarnesses: ['claude-code', 'codex'],
+      workerProfile: claudeWorker,
+      fanoutProfiles: [claudeWorker, codexWorker],
     })
     const out = await delegate(args, ctx)
     // smaller diff → higher diffSize score → highest-score favors it; either way a valid winner.
     expect(['small', 'big']).toContain(out.branch)
   })
 
-  it('applies harness and model overrides on the single-coder path', async () => {
+  it('passes the exact worker profile through without execution overlays', async () => {
     let createOptions: CreateSandboxOptions | undefined
     const delegate = detachedSessionDelegate({
       sandboxClient: {
@@ -121,17 +137,22 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
           } as unknown as SandboxInstance
         },
       },
-      harness: 'opencode',
-      model: 'zai/glm-4.7',
+      workerProfile: {
+        name: 'exact-opencode-worker',
+        harness: 'opencode',
+        model: { provider: 'zai', default: 'glm-4.7' },
+      },
     })
 
     await delegate({ goal: 'fix it', repoRoot: '/repo' }, ctx)
 
     const profile = createOptions?.backend?.profile as
-      | { model?: { default?: string }; metadata?: Record<string, unknown> }
+      | { harness?: string; model?: { default?: string; provider?: string } }
       | undefined
-    expect(profile?.model?.default).toBe('zai/glm-4.7')
-    expect(profile?.metadata?.backendType).toBe('opencode')
+    expect(profile).toMatchObject({
+      harness: 'opencode',
+      model: { provider: 'zai', default: 'glm-4.7' },
+    })
   })
 })
 
@@ -143,7 +164,8 @@ describe('detachedSessionDelegate — trace emitter wiring (MCP → OTEL sink)',
     const traceEmitter: LoopTraceEmitter = { emit: (e) => void events.push(e) }
     const delegate = detachedSessionDelegate({
       sandboxClient: candidateClient(),
-      fanoutHarnesses: ['claude-code', 'codex'],
+      workerProfile: claudeWorker,
+      fanoutProfiles: [claudeWorker, codexWorker],
       traceEmitter,
     })
     await delegate(args, ctx)

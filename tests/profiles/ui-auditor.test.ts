@@ -8,7 +8,6 @@ import {
   type UiAuditOutput,
   type UiAuditTask,
   type UiFinding,
-  uiAuditorProfile,
 } from '../../src/profiles/ui-auditor'
 
 const ctx = { iteration: 0, signal: new AbortController().signal }
@@ -207,15 +206,5 @@ describe('parseAuditorEvents', () => {
     ]
     const out = parseAuditorEvents(events)
     expect(out.findings).toHaveLength(1)
-  })
-})
-
-describe('uiAuditorProfile', () => {
-  it('returns a stable AgentRunSpec name + envelope-prefixed prompt', () => {
-    const { agentRunSpec, taskToPrompt } = uiAuditorProfile()
-    expect(agentRunSpec.name).toBe('ui-auditor')
-    const prompt = taskToPrompt(baseTask())
-    expect(prompt.startsWith('<<UI_AUDIT_TASK>>')).toBe(true)
-    expect(prompt).toMatch(/LENS: consistency/)
   })
 })

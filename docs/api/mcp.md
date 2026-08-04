@@ -898,59 +898,23 @@ one or the other, not both.
 Convenience shorthand for sibling placement. Equivalent to
 `executor: createSiblingSandboxExecutor({ client: sandboxClient })`.
 
-##### workerProfile?
+##### workerProfile
 
-> `optional` **workerProfile?**: `AgentProfile`
-
-**`Experimental`**
-
-The worker's authored `AgentProfile` (§1.5: the system authors profiles). Spread onto the
-sandbox-session run spec → `runAgentRounds` → the executor's `harnessInvocation`, so the harness runs
-under the caller's stance. Omit to use a minimal model-only default (no hardcoded skills/tools);
-`harness` / `model` / `systemPrompt` below are convenience overrides layered onto whichever
-profile is used.
-
-##### harness?
-
-> `optional` **harness?**: `string`
+> **workerProfile**: `AgentProfile`
 
 **`Experimental`**
 
-Backend harness for the single-coder path (sets `metadata.backendType`). Default `claude-code`.
+The worker's exact authored `AgentProfile` (§1.5: the system authors profiles). It is the sole
+harness/provider/model/prompt authority for the single-coder path and the default identity for
+repeated fanout shots.
 
-##### model?
+##### fanoutProfiles?
 
-> `optional` **model?**: `string`
-
-**`Experimental`**
-
-Model override for the single-coder path.
-
-##### systemPrompt?
-
-> `optional` **systemPrompt?**: `string`
+> `optional` **fanoutProfiles?**: readonly `AgentProfile`[]
 
 **`Experimental`**
 
-The worker's authored system prompt (§1.5). Flows onto the run spec's
-`profile.prompt.systemPrompt` → through `runAgentRounds` → the executor's `harnessInvocation`, so the
-harness runs under this stance. Omit to keep the profile's own prompt.
-
-##### fanoutHarnesses?
-
-> `optional` **fanoutHarnesses?**: `string`[]
-
-**`Experimental`**
-
-Default `['claude-code', 'codex', 'opencode/zai-coding-plan/glm-5.1']` when variants > 1.
-
-##### fanoutModels?
-
-> `optional` **fanoutModels?**: (`string` \| `undefined`)[]
-
-**`Experimental`**
-
-Optional per-harness model override for `variants > 1`.
+Optional exact identities for heterogeneous fanout. Omit to repeat `workerProfile`.
 
 ##### maxConcurrency?
 
@@ -1036,18 +1000,6 @@ Session id of the detached turn — used as the synthesized event id.
 ##### signal
 
 > **signal**: `AbortSignal`
-
-**`Experimental`**
-
-##### harness?
-
-> `optional` **harness?**: `string`
-
-**`Experimental`**
-
-##### model?
-
-> `optional` **model?**: `string`
 
 **`Experimental`**
 
@@ -1572,8 +1524,8 @@ single-iteration loop span tree (`runId` = `sessionId`, driver
 `'detached-turn'`) so trace-context inheritance survives the detached
 path — the same events the streaming `runAgentRounds` path would emit, minus
 per-token telemetry: `driveTurn` yields one terminal payload, so token
-and cost figures are structurally unavailable and reported as 0 under
-this driver tag.
+and cost figures are structurally unavailable; zero observed subtotals are
+marked incomplete under this driver tag.
 
 ##### placement?
 
@@ -1982,14 +1934,6 @@ across all namespaces. Returns events in insertion order.
 
 Absolute path to the git repo (the workspace). Worktrees go under `<repoRoot>/.agent-worktrees/`.
 
-##### harnesses?
-
-> `optional` **harnesses?**: readonly [`LocalHarness`](#localharness)[]
-
-**`Experimental`**
-
-Harnesses to round-robin across `create()` calls. One entry = no fanout. Default `['claude-code']`.
-
 ##### testCmd?
 
 > `optional` **testCmd?**: `string`
@@ -2134,7 +2078,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-12)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-13)
 
 ##### sandboxId?
 
@@ -3081,10 +3025,8 @@ wire here.
 
 **`Experimental`**
 
-Required to enable delegate_ui_audit. Wire one that closes over your
-`runAgentRounds` + `uiAuditorProfile` + a `SandboxClient` (the
-canonical in-process choice is `createInProcessUiAuditClient` from
-`@tangle-network/agent-runtime/profiles`) + your vision judge.
+Required to enable delegate_ui_audit. Wire one that executes an exact
+agent profile through Runtime and returns the provider-neutral UI audit result.
 
 ##### feedbackStore?
 
@@ -4392,10 +4334,6 @@ Parsed `delegate` tool arguments.
 
 > **intent**: `string`
 
-##### model?
-
-> `optional` **model?**: `string`
-
 ##### runId?
 
 > `optional` **runId?**: `string`
@@ -4428,11 +4366,19 @@ What killed a delegation, projected for the calling agent: the rejection's name 
 
 ##### router
 
-> **router**: [`RouterConfig`](runtime.md#routerconfig)
+> **router**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
 
 **`Experimental`**
 
 The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained).
+
+##### supervisorProfile
+
+> **supervisorProfile**: `AgentProfile`
+
+**`Experimental`**
+
+Exact executable supervisor identity selected by the trusted composition root.
 
 ##### backend
 
@@ -4449,14 +4395,6 @@ WHERE the authored workers run. Required for `supervise()` to spawn anything.
 **`Experimental`**
 
 The completion oracle the authored workers settle against (settled ⟺ delivered).
-
-##### model?
-
-> `optional` **model?**: `string`
-
-**`Experimental`**
-
-Default supervisor brain model when a call omits `model`.
 
 ##### allowedModels?
 
@@ -4595,9 +4533,8 @@ Optional free-form context the agent surfaces in the prompt prelude.
 
 **`Experimental`**
 
-When > 1, dispatches `multiHarnessCoderFanout` across N harnesses
-(claude-code, codex, opencode-glm) and picks the highest-scoring
-passing patch. Default 1.
+When > 1, dispatches `multiHarnessCoderFanout` across the delegate's configured exact profiles
+and picks the highest-scoring passing patch. Default 1.
 
 ##### config?
 
@@ -5627,10 +5564,8 @@ The coder delegate closure — given the coder args + run context, drives the
 **`Experimental`**
 
 UI-auditor delegate — fully consumer-injected. agent-runtime ships no
-default factory because the inputs are workspace path + judge function
-+ (optionally) a `SandboxClient`, and the judge is the consumer's
-model seam. See `createInProcessUiAuditClient` + `uiAuditorProfile` in
-`@tangle-network/agent-runtime/profiles` for the canonical wiring.
+default factory because execution belongs to a caller-supplied exact
+agent profile and Runtime executor.
 
 #### Parameters
 
@@ -6401,7 +6336,7 @@ Human-readable description of the `delegate` MCP tool, injected into the tool ma
 
 **`Experimental`**
 
-JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runId`).
+JSON Schema for `delegate` tool arguments (`intent` + optional trace id).
 
 #### Type Declaration
 
@@ -6424,18 +6359,6 @@ JSON Schema for `delegate` tool arguments (`intent` + optional `model` and `runI
 ###### properties.intent.description
 
 > `readonly` **description**: `"What you want accomplished, as an outcome. The supervisor authors the worker."` = `'What you want accomplished, as an outcome. The supervisor authors the worker.'`
-
-###### properties.model
-
-> `readonly` **model**: `object`
-
-###### properties.model.type
-
-> `readonly` **type**: `"string"` = `'string'`
-
-###### properties.model.description
-
-> `readonly` **description**: `"Optional per-call override for the supervisor brain model."` = `'Optional per-call override for the supervisor brain model.'`
 
 ###### properties.runId
 
@@ -7114,50 +7037,11 @@ created, against the same table that emits the argv.
 
 ##### reasoningEffort
 
-`"medium"` \| `"none"` \| `"high"` \| `"low"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"`
+`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"`
 
 #### Returns
 
 `boolean`
-
-***
-
-### runLocalHarness()
-
-> **runLocalHarness**(`options`): `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
-
-**`Experimental`**
-
-Spawn a local coding harness CLI as a subprocess + collect its output.
-
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
-
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
-
-Reproducible Codex additionally requires a terminal usage event. If cancellation
-prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
-returning an incomplete reproducibility receipt.
-
-#### Parameters
-
-##### options
-
-[`RunLocalHarnessOptions`](#runlocalharnessoptions)
-
-#### Returns
-
-`Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
 
 ***
 

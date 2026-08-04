@@ -22,6 +22,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Two leaf-worker shapes, to exercise BOTH `execute` shapes the gate wraps ──────────────
 interface WorkerScript {
@@ -139,7 +140,7 @@ function gatedWorkerLeaf(
   deliverable: DeliverableSpec,
 ): Agent<unknown, unknown> {
   const spec: AgentSpec = {
-    profile: { name } as AgentProfile,
+    profile: testAgentProfile(name),
     harness: null,
     executor: gateOnDeliverable(streamingWorker(s), deliverable),
   }
@@ -259,7 +260,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
     const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
       if (profile.metadata?.kind === 'driver') {
         return driverChild(
-          'mid',
+          testAgentProfile('mid'),
           driverAgent(driverOpts('mid', scriptedBrain(spawnAwaitStop), makeAgent)),
           journal,
         )

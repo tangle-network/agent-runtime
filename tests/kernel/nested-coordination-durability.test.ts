@@ -4,13 +4,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { fullProfileMaterialization } from '../../src/agent/profile-materialization'
 import type { CoordinationEvent, QuestionRecord } from '../../src/mcp/tools/coordination'
-import { supervise } from '../../src/runtime/supervise/supervise'
 import type {
   DriveHarness,
   DriveHarnessOwnerContext,
 } from '../../src/runtime/supervise/supervisor-agent'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 async function callTool(
   url: string,
@@ -41,11 +42,10 @@ async function callTool(
 }
 
 function rootBrain() {
-  const manager = {
-    name: 'identical-manager',
+  const manager = testAgentProfile('identical-manager', {
     harness: 'codex',
     metadata: { role: 'driver' },
-  }
+  })
   return scriptedBrain([
     {
       toolCalls: [
@@ -106,11 +106,10 @@ describe('nested supervisor coordination durability', () => {
       driveHarnessMaterialization: fullProfileMaterialization,
       maxTurns: 8,
     }
-    const profile = {
-      name: 'root',
+    const profile = testAgentProfile('root', {
       harness: 'cli-base',
       prompt: { systemPrompt: 'Run both managers.' },
-    } as const
+    })
 
     await supervise(profile, 'root task', { ...options, brain: rootBrain() })
     await supervise(profile, 'root task', { ...options, brain: rootBrain() })
@@ -171,11 +170,10 @@ describe('nested supervisor coordination durability', () => {
     const brain: ToolLoopChat = async () => {
       turn += 1
       if (turn === 1) {
-        const manager = {
-          name: 'identical-manager',
+        const manager = testAgentProfile('identical-manager', {
           harness: 'codex',
           metadata: { role: 'driver' },
-        }
+        })
         return {
           toolCalls: [
             {
@@ -223,7 +221,10 @@ describe('nested supervisor coordination durability', () => {
     }
 
     await supervise(
-      { name: 'root', harness: 'cli-base', prompt: { systemPrompt: 'Run both managers.' } },
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        prompt: { systemPrompt: 'Run both managers.' },
+      }),
       'root task',
       {
         backend: {
@@ -267,7 +268,10 @@ describe('nested supervisor coordination durability', () => {
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
 
     await supervise(
-      { name: 'root', harness: 'cli-base', prompt: { systemPrompt: 'Run both managers.' } },
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        prompt: { systemPrompt: 'Run both managers.' },
+      }),
       'root task',
       {
         backend: {
@@ -288,11 +292,10 @@ describe('nested supervisor coordination durability', () => {
                 {
                   name: 'spawn_agent',
                   arguments: {
-                    profile: {
-                      name: 'identical-manager',
+                    profile: testAgentProfile('identical-manager', {
                       harness: 'codex',
                       metadata: { role: 'driver' },
-                    },
+                    }),
                     task: 'same task',
                     key: 'manager-a',
                   },
@@ -300,11 +303,10 @@ describe('nested supervisor coordination durability', () => {
                 {
                   name: 'spawn_agent',
                   arguments: {
-                    profile: {
-                      name: 'identical-manager',
+                    profile: testAgentProfile('identical-manager', {
                       harness: 'codex',
                       metadata: { role: 'driver' },
-                    },
+                    }),
                     task: 'same task',
                     key: 'manager-b',
                   },

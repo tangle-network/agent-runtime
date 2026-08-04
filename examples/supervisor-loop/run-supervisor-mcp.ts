@@ -31,56 +31,99 @@
  */
 
 import {
+  type AgentProfile,
+  harnessTypeSchema,
+  reasoningEffortSchema,
+} from '@tangle-network/agent-interface'
+import {
   type Agent,
+  collectAgentTurn,
+  createExecutor,
   createExecutorRegistry,
   createSupervisor,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   type Scope,
   serveCoordinationMcp,
+  streamAgentTurn,
   workerFromBackend,
 } from '@tangle-network/agent-runtime/kernel'
 import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
 
-/** The supervisor's standing instructions — it delegates, it does not solve. */
-const supervisorTask =
-  `A worker must produce the exact line "${expectedAnswer}".\n\n` +
+/** Standing role belongs to the profile; the concrete assignment is one user turn. */
+const supervisorSystem =
   'You are a SUPERVISOR with a "coordination" MCP exposing spawn_agent, await_event, and stop. ' +
-  'Do NOT write the answer yourself. Author a worker profile (a JSON object with a "name" and a ' +
+  'Delegate the assignment; do not solve it yourself. Author a worker profile (a JSON object with a "name" and a ' +
+  'rich "systemPrompt"), call spawn_agent with { profile, task }, use await_event to observe it, ' +
+  'and call stop only after a worker delivers a valid result.'
+
+const supervisorTask =
+  `A worker must produce the exact line "${expectedAnswer}". ` +
+  'Author a worker profile with a ' +
   `rich "systemPrompt" instructing the worker to emit the exact line "${expectedAnswer}") and call ` +
   'spawn_agent with { profile, task }. Then call await_event to wait for it to settle, and call ' +
   'stop once a worker has delivered (valid:true).'
 
 /** One real bridge harness turn, with the coordination MCP mounted so the supervisor can call
  *  spawn_agent as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
-async function supervisorBridgeChat(opts: { mcpUrl: string }): Promise<string> {
+async function supervisorBridgeChat(opts: {
+  mcpUrl: string
+  workerProfile: AgentProfile
+}): Promise<string> {
   const bridgeUrl = process.env.BRIDGE_URL ?? 'http://127.0.0.1:3344'
   const bridgeBearer = process.env.BRIDGE_BEARER ?? 'local'
   const model = process.env.SUPERVISOR_MODEL ?? process.env.WORKER_MODEL
   if (!model) throw new Error('supervisor needs SUPERVISOR_MODEL or WORKER_MODEL set')
-  const res = await fetch(`${bridgeUrl.replace(/\/$/, '')}/v1/chat/completions`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${bridgeBearer}`, 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: supervisorTask }],
-      // Mount the coordination MCP — the supervisor harness calls spawn_agent through it.
-      mcp: { mcpServers: { coordination: { type: 'http', url: opts.mcpUrl } } },
-    }),
+  const profile: AgentProfile = {
+    name: 'supervisor',
+    harness: harnessTypeSchema.parse(process.env.SUPERVISOR_HARNESS ?? 'pi'),
+    model: {
+      provider: process.env.SUPERVISOR_PROVIDER ?? 'tangle-router',
+      default: model,
+      reasoningEffort: reasoningEffortSchema.parse(
+        process.env.SUPERVISOR_REASONING_EFFORT ?? 'ultracode',
+      ),
+    },
+    prompt: {
+      systemPrompt:
+        supervisorSystem +
+        ` The spawned worker must use this exact execution identity: ${JSON.stringify({ harness: opts.workerProfile.harness, model: opts.workerProfile.model })}.`,
+    },
+    mcp: {
+      coordination: { transport: 'http', url: opts.mcpUrl, enabled: true },
+    },
+  }
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl,
+    bridgeBearer,
   })
-  if (!res.ok)
-    throw new Error(`supervisor bridge ${res.status}: ${(await res.text()).slice(0, 300)}`)
-  const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
-  return j.choices?.[0]?.message?.content ?? ''
+  const timeoutRaw = process.env.SUPERVISOR_TIMEOUT_MS
+  const timeoutMs = timeoutRaw === undefined ? undefined : Number(timeoutRaw)
+  if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error('SUPERVISOR_TIMEOUT_MS must be a positive integer')
+  }
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile, agentRunName: profile.name },
+      supervisorTask,
+      timeoutMs === undefined ? {} : { timeoutMs },
+    ),
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(turn.error?.message ?? `supervisor bridge ended with status ${turn.status}`)
+  }
+  return turn.finalText
 }
 
 async function main(): Promise<void> {
-  const backend = buildWorkerBackend()
+  const worker = buildWorkerBackend()
+  const { backend } = worker
   const blobs = new InMemoryResultBlobStore()
 
   console.log(
-    `supervisor + coordination MCP · workers via createExecutor({ backend: "${backend.backend}" })` +
-      `${backend.backend === 'bridge' ? ` (model=${(backend as { model: string }).model})` : ''}`,
+    `supervisor + coordination MCP · workers via createExecutor({ backend: "${backend.backend}" }) ` +
+      `(model=${worker.profile.model?.default})`,
   )
 
   // The supervisor agent: inside its act() we stand up the coordination MCP over the LIVE scope,
@@ -101,7 +144,10 @@ async function main(): Promise<void> {
       })
       try {
         console.log(`[mcp] coordination server at ${mcp.url}`)
-        const said = await supervisorBridgeChat({ mcpUrl: mcp.url })
+        const said = await supervisorBridgeChat({
+          mcpUrl: mcp.url,
+          workerProfile: worker.profile,
+        })
         console.log(`\n── supervisor said ──\n${said.slice(0, 800)}`)
 
         const settled = mcp.settled()

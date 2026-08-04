@@ -61,7 +61,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import type { RouterConfig } from '../router-client'
+import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import {
@@ -71,7 +71,12 @@ import {
   type PromptRegistry,
 } from './prompt-registry'
 import type { ExecutorConfig } from './runtime'
-import { type SuperviseOptions, supervise, workerFromBackend } from './supervise'
+import {
+  type SuperviseOptions,
+  supervise,
+  superviseWithTestBrain,
+  workerFromBackend,
+} from './supervise'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
@@ -202,13 +207,11 @@ export interface RunGraphOptions {
    *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours. */
   readonly makeWorkerAgent?: MakeWorkerAgent
   /** The driver brain's router substrate (`profile.harness` omitted or `cli-base`). */
-  readonly router?: RouterConfig
+  readonly router?: RouterTransportConfig
   /** Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
    *  graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
    *  seam supervise() exposes. */
   readonly hooks?: RuntimeHooks
-  /** Inject the driver brain directly (offline tests / advanced). */
-  readonly brain?: ToolLoopChat
   /** The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — needed only for
    *  lens analysts; an analyzes edge naming a graph NODE as its analyst needs no registry. */
   readonly analysts?: AnalystRegistry
@@ -250,6 +253,11 @@ export interface GraphResult<Out = unknown> {
    *  that run, and the exhaustion stays observable here. */
   readonly exhaustedEdges: ReadonlyArray<string>
   readonly runId: string
+}
+
+/** Test-only graph options, exported only through the package's explicit `/testing` entry. */
+export interface RunGraphTestOptions extends RunGraphOptions {
+  readonly brain: ToolLoopChat
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────────
@@ -517,6 +525,28 @@ function stringifyPayload(payload: unknown): string {
  * traversal is ledgered and journaled.
  */
 export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<GraphResult> {
+  if ('brain' in opts) {
+    throw new ValidationError(
+      'runGraph: direct brain injection is test-only; production execution derives the model call from the root AgentProfile',
+    )
+  }
+  return runGraphInternal(graph, opts)
+}
+
+/** Deterministic scripted-brain path for graph tests. Not exported from Runtime's main entry. */
+export function runGraphWithTestBrain(
+  graph: AgentGraph,
+  opts: RunGraphTestOptions,
+): Promise<GraphResult> {
+  const { brain, ...runtimeOptions } = opts
+  return runGraphInternal(graph, runtimeOptions, brain)
+}
+
+function runGraphInternal(
+  graph: AgentGraph,
+  opts: RunGraphOptions,
+  testBrain?: ToolLoopChat,
+): Promise<GraphResult> {
   const registry = opts.registry ?? kernelPromptRegistry()
   const { root, workers, delegatesByWorker, analyzes, analystNodes } = validateGraph(
     graph,
@@ -916,7 +946,7 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
   // Every configuration fault above throws SYNCHRONOUSLY (matching `supervise()`'s own
   // contract); only the run itself is asynchronous.
   const start = async (): Promise<GraphResult> => {
-    const result = await supervise(rootProfile, graphTask(graph, root), {
+    const superviseOptions = {
       budget: graph.budget,
       deliverable: graph.deliverable,
       makeWorkerAgent: graphWorker,
@@ -933,7 +963,6 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       ...(Object.keys(continuityByProfile).length > 0 ? { continuityByProfile } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.router ? { router: opts.router } : {}),
-      ...(opts.brain ? { brain: opts.brain } : {}),
       ...(authorizeMessage ? { authorizeMessage } : {}),
       ...(opts.perWorker ? { perWorker: opts.perWorker } : {}),
       ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
@@ -943,7 +972,14 @@ export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<Grap
       ...(opts.otel ? { otel: opts.otel } : {}),
       ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
       ...(opts.allowedModels ? { allowedModels: opts.allowedModels } : {}),
-    })
+    } satisfies SuperviseOptions
+    const result =
+      testBrain === undefined
+        ? await supervise(rootProfile, graphTask(graph, root), superviseOptions)
+        : await superviseWithTestBrain(rootProfile, graphTask(graph, root), {
+            ...superviseOptions,
+            brain: testBrain,
+          })
 
     // A spawn row is PROVISIONAL until the `agent.spawn` hook (fired synchronously once a worker
     // exists) binds it to a live worker id. A row still unbound here means the factory ran but no

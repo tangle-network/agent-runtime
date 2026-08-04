@@ -10,24 +10,50 @@
  * (a phantom 0 reads as a free call downstream, which the gate would act on).
  */
 
+import {
+  generateIdempotencyKey,
+  type RetryConfig,
+  SDKError,
+  withRetry,
+} from '@tangle-network/agent-core'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
+import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 
-export interface RouterConfig {
+/**
+ * Connection details for Runtime's Router-backed executors.
+ *
+ * This is deliberately transport-only: model, prompt, tools, generation settings, and retry
+ * policy belong to the exact executable `AgentProfile` consumed by `streamAgentTurn`.
+ */
+export interface RouterTransportConfig {
   routerBaseUrl: string
   routerKey: string
+  /** Injectable OpenAI-compatible transport for offline execution. */
+  complete?: (
+    body: Record<string, unknown>,
+    request?: {
+      readonly headers: Readonly<Record<string, string>>
+      readonly signal?: AbortSignal
+    },
+  ) => Promise<unknown>
+}
+
+/**
+ * Private request configuration used by Runtime's Router adapter.
+ *
+ * Do not export this through a package entry point. Public callers execute a concrete
+ * `AgentProfile` through `createExecutor` + `streamAgentTurn`; only Runtime may lower that profile
+ * into these provider request fields.
+ */
+export interface RouterConfig extends RouterTransportConfig {
   model: string
+  /** Exact retry controls lowered from `AgentProfile.model.metadata.retry`. */
+  retry?: RouterRetryPolicy
   /**
-   * Optional completion transport. When set, `routerChatWithUsage` / `routerChatWithTools` call it
-   * with the OpenAI-shape request body and use the parsed `/chat/completions` JSON it returns,
-   * INSTEAD of `fetch(routerBaseUrl + '/chat/completions')`. When absent the fetch path runs
-   * unchanged — the live router stays the default. The injection seam an offline benchmark uses to
-   * drive the worker with no network: a deterministic in-process responder satisfies it, no server.
-   */
-  complete?: (body: Record<string, unknown>) => Promise<unknown>
-  /**
-   * Ceiling for one completion, forwarded as `max_tokens`. Defaults to 8192.
+   * Optional ceiling for one completion, forwarded as `max_tokens`.
    *
    * A REASONING model spends this budget on hidden thinking BEFORE it emits a visible token, so
    * the default can truncate one mid-thought and return no content at all — observed live with a
@@ -76,19 +102,38 @@ export interface RouterChatResult {
    */
   reasoning?: string
   /** REAL usage, or undefined when the provider reported none. */
-  usage?: { input: number; output: number }
-  /** Derived from usage via `estimateCost` when the model is priced; else undefined. */
+  usage?: { input: number; output: number; reasoning?: number }
+  /** Local catalog estimate derived from usage; never a provider billing receipt. */
   costUsd?: number
+  /** Present with `costUsd` so consumers cannot mistake a catalog estimate for billed spend. */
+  costProvenance?: 'catalog-estimate'
+  /** Provider-reported billed cost. Absent means dollar spend is unknown. */
+  billedCostUsd?: number
+  /** Provider-reported prompt-cache fields; missing fields remain missing. */
+  cache?: PromptCacheUsage
+  /** Provider terminal reason (`stop`, `length`, ...), when reported. */
+  finishReason?: string
+  /** Exact HTTP/injected-transport calls consumed by this completion. */
+  transportAttempts: number
+  /** Model identity reported by the provider response. Absent when the provider omitted it. */
+  model?: string
 }
 
 /** One OpenAI-compatible chat completion through the Tangle router, returning text + REAL token usage (`undefined` when the provider omits it — never a fabricated 0). */
 export async function routerChatWithUsage(
   cfg: RouterConfig,
-  messages: Array<{ role: string; content: string }>,
+  messages: ReadonlyArray<{ role: string; content: unknown }>,
   opts?: {
     temperature?: number
     signal?: AbortSignal
     maxTokens?: number
+    /** OpenAI-compatible deterministic seed. Omit when the provider does not support it. */
+    seed?: number
+    /**
+     * Provider-specific request fields such as Z.AI's `thinking` object.
+     * Canonical fields are written after these extras and cannot be overridden here.
+     */
+    extraBody?: Readonly<Record<string, unknown>>
     /**
      * Reasoning control for thinking models, forwarded as `reasoning_effort`.
      * 'none' is the load-bearing value: binary/single-token decisions (routing,
@@ -97,80 +142,99 @@ export async function routerChatWithUsage(
      * timeout, not just waste. Providers that ignore the field are handled by
      * the reasoning/content split in `parseChatResult`.
      */
-    reasoningEffort?: 'none' | 'low' | 'medium' | 'high'
+    reasoningEffort?: ReasoningEffort
+    /** Stable logical-call id reused across transport retries. */
+    callId?: string
+    /** Caller trace correlation forwarded independently of idempotency. */
+    correlationId?: string
+    /** Headers inherited from an enclosing conversation or task. */
+    propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatResult> {
   const url = `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`
-  const headers = { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` }
-  let temperature = opts?.temperature ?? 0.2
-  // max_tokens default is generous: THINKING models (kimi-k2.6) spend the budget on
-  // reasoning_content first — a small router default yields EMPTY content.
+  const headers = routerRequestHeaders(cfg, opts)
+  const temperature = opts?.temperature
+  const maxTokens = opts?.maxTokens ?? cfg.maxTokens
   const body = (): Record<string, unknown> => ({
+    ...providerRequestExtras(opts?.extraBody, [
+      'model',
+      'messages',
+      'temperature',
+      'max_tokens',
+      'seed',
+      'reasoning_effort',
+      'stream',
+      'stream_options',
+    ]),
     model: cfg.model,
     messages,
-    temperature,
-    max_tokens: opts?.maxTokens ?? 8192,
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   })
+  const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   // Injected transport short-circuits the network: the offline benchmark seam. It owns its own
-  // determinism, so the fetch-specific transient-retry/temperature-handling below does not apply.
-  if (cfg.complete) return parseChatResult(await cfg.complete(body()), cfg.model)
-  // Retry TRANSIENT upstream failures (429/5xx) with backoff so a single capacity
-  // hiccup doesn't kill a whole multi-model benchmark run; and auto-handle the
-  // "only temperature 1 is allowed" 400 some thinking models (e.g. kimi-k2.6) return.
-  let lastErr = ''
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const res = await fetch(url, {
+  // determinism while sharing the HTTP path's retry, timeout, and cancellation behavior.
+  const complete = cfg.complete
+  if (complete) {
+    const { value, attempts } = await retryRouterOperation(retry, opts?.signal, (signal) =>
+      complete(body(), {
+        headers,
+        signal,
+      }),
+    )
+    return parseChatResult(value, cfg.model, attempts)
+  }
+  // Retry transient upstream failures (429/5xx) with backoff so a single capacity
+  // hiccup does not kill a whole multi-model benchmark run. Provider requests to
+  // change temperature fail: generation behavior belongs to the exact profile.
+  const { response, attempts } = await fetchRouterResponse(
+    url,
+    {
       method: 'POST',
       headers,
       body: JSON.stringify(body()),
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    })
-    if (res.ok) return parseChatResult(await res.json(), cfg.model)
-    const status = res.status
-    const text = (await res.text()).slice(0, 200)
-    lastErr = `router ${status}: ${text}`
-    if (status === 400 && /temperature/i.test(text) && temperature !== 1) {
-      temperature = 1 // model requires temperature 1 — retry once with it
-      continue
-    }
-    // Non-retryable (auth/quota/malformed) fails loud immediately; retryable
-    // statuses back off and continue until the loop's attempt bound, then the
-    // post-loop throw is the honest "exhausted retries" terminal. 408/425 + the
-    // Cloudflare-origin family (520/522/524) are transient under heavy parallel
-    // load — a fleet of concurrent gate runs hits 524 ("origin timeout") and must
-    // retry, not crash the whole run.
-    if (![408, 425, 429, 500, 502, 503, 504, 520, 522, 524].includes(status))
-      throw new Error(lastErr)
-    if (attempt < 4) await new Promise((r) => setTimeout(r, 800 * 2 ** attempt))
-  }
-  throw new Error(`${lastErr} (exhausted retries)`)
+    },
+    opts?.signal,
+    retry,
+  )
+  return parseChatResult(await routerResponseJson(response, attempts), cfg.model, attempts)
 }
 
-function parseChatResult(json: unknown, model: string): RouterChatResult {
+function parseChatResult(
+  json: unknown,
+  model: string,
+  transportAttempts: number,
+): RouterChatResult {
   const data = json as {
+    model?: unknown
     choices?: Array<{
       message?: { content?: string; reasoning?: string; reasoning_content?: string }
+      finish_reason?: string
     }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
+    usage?: RawUsage
   }
-  const u = data.usage
-  const usage =
-    u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number'
-      ? { input: u.prompt_tokens, output: u.completion_tokens }
-      : undefined
-  const costUsd =
-    usage && isModelPriced(model) ? estimateCost(usage.input, usage.output, model) : undefined
+  const { usage, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(data.usage, model)
   const msg = data.choices?.[0]?.message
+  if (!msg) throw new ValidationError('router completion: no choices[0].message')
   const { content, reasoning } = splitReasoning(
     msg?.content ?? '',
     msg?.reasoning ?? msg?.reasoning_content,
   )
   return {
     content,
+    transportAttempts,
+    ...(reportedModel(data.model) ? { model: reportedModel(data.model) } : {}),
     ...(reasoning ? { reasoning } : {}),
     ...(usage ? { usage } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costProvenance ? { costProvenance } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
+    ...(cache ? { cache } : {}),
+    ...(typeof data.choices?.[0]?.finish_reason === 'string'
+      ? { finishReason: data.choices[0].finish_reason }
+      : {}),
   }
 }
 
@@ -210,8 +274,14 @@ export interface RouterToolCall {
 export interface RouterChatToolsResult {
   content: string | null
   toolCalls: RouterToolCall[]
-  usage?: { input: number; output: number }
+  usage?: { input: number; output: number; reasoning?: number }
   costUsd?: number
+  /** Present with `costUsd` so consumers cannot mistake a catalog estimate for billed spend. */
+  costProvenance?: 'catalog-estimate'
+  /** Provider-reported billed cost. Absent means dollar spend is unknown. */
+  billedCostUsd?: number
+  /** Provider-reported prompt-cache fields; missing fields remain missing. */
+  cache?: PromptCacheUsage
   /**
    * Thinking-model reasoning, normalized the way `RouterChatResult.reasoning` is (a separate
    * `reasoning_content`/`reasoning` field, or an inline `<think>` block split out of `content`).
@@ -235,6 +305,10 @@ export interface RouterChatToolsResult {
    * rather than skipping the turn and letting a conserved budget pool believe it cost nothing.
    */
   usageUnknown?: true
+  /** Exact HTTP/injected-transport calls consumed by this completion. */
+  transportAttempts: number
+  /** Model identity reported by the provider response. Absent when the provider omitted it. */
+  model?: string
 }
 
 /**
@@ -255,43 +329,77 @@ export async function routerChatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    /** OpenAI-compatible deterministic seed. Omit when the provider does not support it. */
+    seed?: number
+    /** Provider-specific request fields; canonical fields cannot be overridden here. */
+    extraBody?: Readonly<Record<string, unknown>>
+    reasoningEffort?: ReasoningEffort
+    callId?: string
+    correlationId?: string
+    /** Headers inherited from an enclosing conversation or task. */
+    propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatToolsResult> {
   const body = toolCompletionBody(cfg, messages, tools, opts)
+  const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   // Injected transport short-circuits the network — the offline benchmark seam (see RouterConfig.complete).
-  const raw = cfg.complete
-    ? await cfg.complete(structuredClone(body))
+  let transportAttempts = 1
+  const headers = routerRequestHeaders(cfg, opts)
+  const complete = cfg.complete
+  const raw = complete
+    ? await (async () => {
+        const result = await retryRouterOperation(retry, opts?.signal, (signal) =>
+          complete(structuredClone(body), { headers, signal }),
+        )
+        transportAttempts = result.attempts
+        return result.value
+      })()
     : await (async () => {
-        const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', authorization: `Bearer ${cfg.routerKey}` },
-          body: JSON.stringify(body),
-          ...(opts?.signal ? { signal: opts.signal } : {}),
-        })
-        if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
-        return res.json()
+        const result = await fetchRouterResponse(
+          `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`,
+          {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+          },
+          opts?.signal,
+          retry,
+        )
+        transportAttempts = result.attempts
+        return routerResponseJson(result.response, result.attempts)
       })()
   const data = raw as {
+    model?: unknown
     choices?: Array<{
       message?: {
         content?: string | null
         tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>
       }
+      finish_reason?: string
     }>
-    usage?: { prompt_tokens?: number; completion_tokens?: number }
+    usage?: RawUsage
   }
   const msg = data.choices?.[0]?.message
+  if (!msg) throw new ValidationError('router completion: no choices[0].message')
   const toolCalls: RouterToolCall[] = (msg?.tool_calls ?? []).map((tc, i) => ({
     id: tc.id ?? `call_${i}`,
     name: tc.function?.name ?? '',
     arguments: tc.function?.arguments ?? '{}',
   }))
-  const { usage, costUsd } = meterTurn(data.usage, cfg.model)
+  const { usage, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(data.usage, cfg.model)
   return {
     content: msg?.content ?? null,
     toolCalls,
+    transportAttempts,
+    ...(reportedModel(data.model) ? { model: reportedModel(data.model) } : {}),
     ...(usage ? { usage } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costProvenance ? { costProvenance } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
+    ...(cache ? { cache } : {}),
+    ...(typeof data.choices?.[0]?.finish_reason === 'string'
+      ? { finishReason: data.choices[0].finish_reason }
+      : {}),
   }
 }
 
@@ -301,16 +409,46 @@ function toolCompletionBody(
   cfg: RouterConfig,
   messages: ReadonlyArray<Record<string, unknown>>,
   tools: ReadonlyArray<ToolSpec>,
-  opts?: { temperature?: number; toolChoice?: 'auto' | 'required' | 'none'; maxTokens?: number },
+  opts?: {
+    temperature?: number
+    toolChoice?: 'auto' | 'required' | 'none'
+    maxTokens?: number
+    seed?: number
+    extraBody?: Readonly<Record<string, unknown>>
+    reasoningEffort?: ReasoningEffort
+  },
 ): Record<string, unknown> {
   return {
+    ...providerRequestExtras(opts?.extraBody, [
+      'model',
+      'messages',
+      'tools',
+      'tool_choice',
+      'temperature',
+      'max_tokens',
+      'seed',
+      'reasoning_effort',
+      'stream',
+      'stream_options',
+    ]),
     model: cfg.model,
     messages,
-    tools,
-    tool_choice: opts?.toolChoice ?? 'auto',
-    temperature: opts?.temperature ?? 0.3,
+    ...(tools.length > 0 ? { tools, tool_choice: opts?.toolChoice ?? 'auto' } : {}),
+    ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+    ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
+    ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   }
+}
+
+function providerRequestExtras(
+  extraBody: Readonly<Record<string, unknown>> | undefined,
+  reservedFields: ReadonlyArray<string>,
+): Record<string, unknown> {
+  if (!extraBody) return {}
+  const extras = { ...extraBody }
+  for (const field of reservedFields) delete extras[field]
+  return extras
 }
 
 /**
@@ -321,16 +459,33 @@ function toolCompletionBody(
 function meterTurn(
   raw: RawUsage | undefined,
   model: string,
-): { usage?: { input: number; output: number }; costUsd?: number; cache?: PromptCacheUsage } {
+): {
+  usage?: { input: number; output: number; reasoning?: number }
+  costUsd?: number
+  costProvenance?: 'catalog-estimate'
+  billedCostUsd?: number
+  cache?: PromptCacheUsage
+} {
+  const reasoning = providerReasoningTokens(raw)
   const usage =
     raw && typeof raw.prompt_tokens === 'number' && typeof raw.completion_tokens === 'number'
-      ? { input: raw.prompt_tokens, output: raw.completion_tokens }
+      ? {
+          input: raw.prompt_tokens,
+          output: raw.completion_tokens,
+          ...(reasoning !== undefined ? { reasoning } : {}),
+        }
       : undefined
-  if (!usage) return {}
+  const cache = readPromptCache(raw)
+  const billedCostUsd = providerBilledCost(raw)
+  if (!usage) {
+    return {
+      ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
+      ...(cache ? { cache } : {}),
+    }
+  }
   const localEstimate = isModelPriced(model)
     ? estimateCost(usage.input, usage.output, model)
     : undefined
-  const cache = readPromptCache(raw?.prompt_cache)
   // A cached prefix token is billed at a discount the local price table does not know about, so
   // subtract the provider's OWN reported saving rather than re-deriving a discount here. Without
   // this a long supervisor run — which re-sends a growing transcript every turn — is reported at
@@ -341,18 +496,37 @@ function meterTurn(
       : localEstimate
   return {
     usage,
-    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costUsd !== undefined ? { costUsd, costProvenance: 'catalog-estimate' as const } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
     ...(cache ? { cache } : {}),
   }
+}
+
+function providerReasoningTokens(raw: RawUsage | undefined): number | undefined {
+  if (!raw) return undefined
+  for (const value of [raw.completion_tokens_details?.reasoning_tokens, raw.reasoning_tokens]) {
+    if (Number.isSafeInteger(value) && (value as number) >= 0) return value as number
+  }
+  return undefined
+}
+
+function providerBilledCost(raw: RawUsage | undefined): number | undefined {
+  if (!raw) return undefined
+  for (const value of [raw.cost, raw.cost_usd]) {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
+  }
+  return undefined
 }
 
 /** What the router reports about prefix caching for one completion. Absent when the provider
  *  said nothing — an unreported cache is not a miss, and a miss is not a zero saving. */
 export interface PromptCacheUsage {
   /** Prompt tokens served from a cached prefix. */
-  readonly readTokens: number
+  readonly readTokens?: number
   /** Prompt tokens written INTO the cache by this call. */
-  readonly writeTokens: number
+  readonly writeTokens?: number
+  /** Prompt tokens that missed a provider cache. */
+  readonly missTokens?: number
   /** Dollars the provider says the cache read saved on this call. */
   readonly readSavingsUsd?: number
   /** The provider's own word for what happened: `hit`, `miss`, `read`, … Kept verbatim rather
@@ -363,22 +537,49 @@ export interface PromptCacheUsage {
 interface RawUsage {
   prompt_tokens?: number
   completion_tokens?: number
+  cost?: number
+  cost_usd?: number
+  prompt_cache_hit_tokens?: number
+  prompt_cache_miss_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number }
+  completion_tokens_details?: { reasoning_tokens?: number }
+  reasoning_tokens?: number
   prompt_cache?: unknown
 }
 
-function readPromptCache(raw: unknown): PromptCacheUsage | undefined {
+export function readPromptCache(raw: unknown): PromptCacheUsage | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const o = raw as Record<string, unknown>
   const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
-  const readTokens = num(o.read_tokens)
-  const writeTokens = num(o.write_tokens)
-  if (readTokens === undefined && writeTokens === undefined) return undefined
-  const savings = num(o.read_savings_usd)
+  const nested =
+    o.prompt_cache && typeof o.prompt_cache === 'object'
+      ? (o.prompt_cache as Record<string, unknown>)
+      : o
+  const details =
+    o.prompt_tokens_details && typeof o.prompt_tokens_details === 'object'
+      ? (o.prompt_tokens_details as Record<string, unknown>)
+      : undefined
+  const readTokens =
+    num(nested.read_tokens) ?? num(o.prompt_cache_hit_tokens) ?? num(details?.cached_tokens)
+  const writeTokens = num(nested.write_tokens)
+  const missTokens = num(o.prompt_cache_miss_tokens)
+  const savings = num(nested.read_savings_usd)
+  const status = typeof nested.status === 'string' ? nested.status : undefined
+  if (
+    readTokens === undefined &&
+    writeTokens === undefined &&
+    missTokens === undefined &&
+    savings === undefined &&
+    status === undefined
+  ) {
+    return undefined
+  }
   return {
-    readTokens: readTokens ?? 0,
-    writeTokens: writeTokens ?? 0,
+    ...(readTokens !== undefined ? { readTokens } : {}),
+    ...(writeTokens !== undefined ? { writeTokens } : {}),
+    ...(missTokens !== undefined ? { missTokens } : {}),
     ...(savings !== undefined ? { readSavingsUsd: savings } : {}),
-    ...(typeof o.status === 'string' ? { status: o.status } : {}),
+    ...(status !== undefined ? { status } : {}),
   }
 }
 
@@ -389,6 +590,7 @@ function readPromptCache(raw: unknown): PromptCacheUsage | undefined {
  *  `delta.reasoning_content` token-by-token, one `delta.tool_calls` entry carrying
  *  `index`/`id`/`function`, then a terminal chunk with `finish_reason` + `usage`. */
 interface ChatCompletionChunk {
+  model?: unknown
   choices?: Array<{
     index?: number
     finish_reason?: string | null
@@ -403,7 +605,7 @@ interface ChatCompletionChunk {
       }>
     }
   }>
-  usage?: { prompt_tokens?: number; completion_tokens?: number }
+  usage?: RawUsage
   error?: { message?: string; type?: string }
 }
 
@@ -442,8 +644,17 @@ export async function streamRouterChatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    seed?: number
+    /** Provider-specific request fields; canonical streaming fields cannot be overridden here. */
+    extraBody?: Readonly<Record<string, unknown>>
+    reasoningEffort?: ReasoningEffort
+    callId?: string
+    correlationId?: string
+    /** Headers inherited from an enclosing conversation or task. */
+    propagatedHeaders?: Readonly<Record<string, string>>
   },
 ): Promise<RouterChatToolsResult> {
+  const retry = resolveRouterRetryPolicy(cfg.retry, 'RouterConfig.retry')
   if (cfg.complete) {
     throw new ValidationError(
       'streamRouterChatWithTools: RouterConfig.complete is a BUFFERED transport (it returns one ' +
@@ -459,18 +670,19 @@ export async function streamRouterChatWithTools(
     // fact by `usageUnknown`, not assumed away.
     stream_options: { include_usage: true },
   }
-  const res = await fetch(`${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${cfg.routerKey}`,
-      accept: 'text/event-stream',
+  const { response: res, attempts: transportAttempts } = await fetchRouterResponse(
+    `${cfg.routerBaseUrl.replace(/\/$/, '')}/chat/completions`,
+    {
+      method: 'POST',
+      headers: {
+        ...routerRequestHeaders(cfg, opts),
+        accept: 'text/event-stream',
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-    ...(opts?.signal ? { signal: opts.signal } : {}),
-  })
-  // Identical failure surface to the buffered path: fail loud on any non-2xx, same message shape.
-  if (!res.ok) throw new Error(`router ${res.status}: ${(await res.text()).slice(0, 200)}`)
+    opts?.signal,
+    retry,
+  )
   if (!res.body) {
     throw new ValidationError(
       `router ${res.status}: streamed completion returned no response body to read`,
@@ -481,15 +693,25 @@ export async function streamRouterChatWithTools(
   let sawContent = false
   let fieldReasoning = ''
   let finishReason: string | undefined
-  let rawUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined
+  let rawUsage: RawUsage | undefined
+  let observedModel: string | undefined
   const calls = new Map<number, StreamingToolCall>()
   let lastCallIndex = -1
 
-  for await (const chunk of readChatCompletionChunks(res.body)) {
+  for await (const chunk of readChatCompletionChunksWithAttempts(res.body, transportAttempts)) {
     if (chunk.error) {
       throw new ValidationError(
         `router stream error: ${chunk.error.message ?? chunk.error.type ?? 'unknown'}`,
       )
+    }
+    const chunkModel = reportedModel(chunk.model)
+    if (chunkModel !== undefined) {
+      if (observedModel !== undefined && observedModel !== chunkModel) {
+        throw new ValidationError(
+          `router stream changed reported model from ${JSON.stringify(observedModel)} to ${JSON.stringify(chunkModel)}`,
+        )
+      }
+      observedModel = chunkModel
     }
     // With `include_usage` the terminal chunk may carry usage and an EMPTY choices array.
     if (chunk.usage) rawUsage = chunk.usage
@@ -537,18 +759,189 @@ export async function streamRouterChatWithTools(
       name: call.name ?? '',
       arguments: call.arguments || '{}',
     }))
-  const { usage, costUsd } = meterTurn(rawUsage, cfg.model)
+  const { usage, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(rawUsage, cfg.model)
   return {
     // `null` only when NO content field was ever sent — the buffered path's `msg?.content ?? null`.
     content: sawContent ? split.content : null,
     toolCalls,
+    transportAttempts,
+    ...(observedModel !== undefined ? { model: observedModel } : {}),
     ...(split.reasoning ? { reasoning: split.reasoning } : {}),
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(usage ? { usage } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(costProvenance ? { costProvenance } : {}),
+    ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
+    ...(cache ? { cache } : {}),
     // The turn ran; its tokens are unknown. Marked rather than left as a bare `undefined`, which a
     // metering caller cannot tell apart from a turn that genuinely cost nothing.
     ...(usage ? {} : { usageUnknown: true as const }),
+  }
+}
+
+function routerRequestHeaders(
+  cfg: Pick<RouterConfig, 'routerKey'>,
+  opts:
+    | {
+        callId?: string
+        correlationId?: string
+        propagatedHeaders?: Readonly<Record<string, string>>
+      }
+    | undefined,
+): Record<string, string> {
+  // Every POST is retryable. Mint the logical-call identity once while the request headers are
+  // assembled, outside `withRetry`, so an accepted response whose connection dies cannot make a
+  // retry look like a new billable completion. A trusted caller identity remains authoritative.
+  const suppliedCallId: unknown = opts?.callId
+  if (
+    suppliedCallId !== undefined &&
+    (typeof suppliedCallId !== 'string' || suppliedCallId.trim().length === 0)
+  ) {
+    throw new ValidationError('router request: callId must be a non-empty, non-whitespace string')
+  }
+  const callId = typeof suppliedCallId === 'string' ? suppliedCallId : generateIdempotencyKey()
+  return {
+    ...(opts?.propagatedHeaders ?? {}),
+    'content-type': 'application/json',
+    authorization: `Bearer ${cfg.routerKey}`,
+    'idempotency-key': callId,
+    ...(opts?.correlationId ? { 'x-correlation-id': opts.correlationId } : {}),
+  }
+}
+
+function reportedModel(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
+}
+
+async function fetchRouterResponse(
+  url: string,
+  init: Omit<RequestInit, 'signal'>,
+  callerSignal: AbortSignal | undefined,
+  retry: ReturnType<typeof resolveRouterRetryPolicy>,
+): Promise<{ response: Response; attempts: number }> {
+  const result = await retryRouterOperation(retry, callerSignal, async (signal) => {
+    const candidate = await fetch(url, { ...init, signal })
+    if (candidate.ok) return candidate
+    const text = await candidate.text().catch(() => '<failed to read response body>')
+    throw new SDKError(`router ${candidate.status}: ${text.slice(0, 200)}`, {
+      code: 'UNKNOWN',
+      status: candidate.status,
+      retryable: retry.retryStatuses.includes(candidate.status),
+      context: { body: text.slice(0, 200) },
+    })
+  })
+  return { response: result.value, attempts: result.attempts }
+}
+
+async function retryRouterOperation<T>(
+  retry: ReturnType<typeof resolveRouterRetryPolicy>,
+  callerSignal: AbortSignal | undefined,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<{ value: T; attempts: number }> {
+  let attempts = 0
+  try {
+    const value = await withRetry(
+      async (attempt) => {
+        attempts = attempt + 1
+        const attemptSignal = withRouterRequestTimeout(callerSignal, retry.requestTimeoutMs)
+        try {
+          return await operation(attemptSignal.signal)
+        } catch (error) {
+          if (callerSignal?.aborted) throw callerSignal.reason ?? error
+          if (attemptSignal.signal.aborted) {
+            throw new SDKError(`router request timeout after ${retry.requestTimeoutMs}ms`, {
+              code: 'TIMEOUT',
+              cause: error instanceof Error ? error : new Error(String(error)),
+            })
+          }
+          if (error instanceof TypeError && error.message.includes('fetch')) {
+            throw new SDKError(`router network failure: ${error.message}`, {
+              code: 'NETWORK',
+              cause: error,
+            })
+          }
+          throw error
+        } finally {
+          attemptSignal.dispose()
+        }
+      },
+      agentCoreRetryConfig(retry, callerSignal),
+    )
+    return { value, attempts }
+  } catch (error) {
+    throwRouterFailureWithAttempts(error, attempts)
+  }
+}
+
+const routerFailureAttempts = new WeakMap<object, number>()
+
+/** Internal evidence carried alongside a failed Router call without replacing the original error.
+ * Runtime uses it when an intentional interrupt resumes the worker instead of surfacing the error. */
+export function routerTransportAttemptsFromError(error: unknown): number | undefined {
+  const identity = routerErrorIdentity(error)
+  return identity === undefined ? undefined : routerFailureAttempts.get(identity)
+}
+
+function throwRouterFailureWithAttempts(error: unknown, attempts: number): never {
+  const identity = routerErrorIdentity(error)
+  if (identity !== undefined) routerFailureAttempts.set(identity, attempts)
+  throw error
+}
+
+function routerErrorIdentity(error: unknown): object | undefined {
+  return (typeof error === 'object' && error !== null) || typeof error === 'function'
+    ? (error as object)
+    : undefined
+}
+
+async function routerResponseJson(response: Response, attempts: number): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch (error) {
+    throwRouterFailureWithAttempts(error, attempts)
+  }
+}
+
+function agentCoreRetryConfig(
+  retry: ReturnType<typeof resolveRouterRetryPolicy>,
+  callerSignal: AbortSignal | undefined,
+): RetryConfig {
+  return {
+    maxAttempts: retry.maxAttempts,
+    initialDelayMs: retry.initialBackoffMs,
+    maxDelayMs: retry.maxBackoffMs,
+    multiplier: 2,
+    jitter: retry.jitter,
+    ...(callerSignal ? { signal: callerSignal } : {}),
+    shouldRetry: (error) => {
+      if (callerSignal?.aborted) return false
+      if (error.status !== undefined) return retry.retryStatuses.includes(error.status)
+      return error.code === 'NETWORK' || error.code === 'TIMEOUT'
+    },
+  }
+}
+
+function withRouterRequestTimeout(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): { signal: AbortSignal; dispose: () => void } {
+  if (timeoutMs === 0) {
+    return { signal: callerSignal ?? new AbortController().signal, dispose: () => undefined }
+  }
+  const controller = new AbortController()
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`router request timeout after ${timeoutMs}ms`)),
+    timeoutMs,
+  )
+  const onCallerAbort = () => controller.abort(callerSignal?.reason ?? new Error('aborted'))
+  if (callerSignal?.aborted) onCallerAbort()
+  else callerSignal?.addEventListener('abort', onCallerAbort, { once: true })
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timeout)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
+    },
   }
 }
 
@@ -614,6 +1007,17 @@ async function* readChatCompletionChunks(
   }
 }
 
+async function* readChatCompletionChunksWithAttempts(
+  body: ReadableStream<Uint8Array>,
+  attempts: number,
+): AsyncIterable<ChatCompletionChunk> {
+  try {
+    yield* readChatCompletionChunks(body)
+  } catch (error) {
+    throwRouterFailureWithAttempts(error, attempts)
+  }
+}
+
 /**
  * Normalize an SSE body's line terminators to `\n`. The SSE grammar accepts CRLF, LF, AND a lone
  * CR, so a `\r`-separated body is legal — and left unnormalized it decodes to zero frames, which
@@ -661,6 +1065,9 @@ function chatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    seed?: number
+    extraBody?: Readonly<Record<string, unknown>>
+    reasoningEffort?: ReasoningEffort
   },
 ): Promise<RouterChatToolsResult> {
   return cfg.stream === true
@@ -683,6 +1090,8 @@ export interface RouterToolLoopResult {
    *  steerer reads (behavior, never the verdict) to diagnose + redirect the next shot. */
   toolTrace: Array<{ name: string; args: string; result: string }>
   usage: { input: number; output: number }
+  /** False when any completed router turn omitted usage. */
+  tokensKnown?: false
   /** The full conversation after the loop (seed + every assistant/tool turn). Lets a caller
    *  CARRY the messages into the next shot (depth continuation) and read the trajectory. */
   messages: Array<Record<string, unknown>>
@@ -710,6 +1119,7 @@ export async function routerToolLoop(
     temperature?: number
     signal?: AbortSignal
     maxTokens?: number
+    reasoningEffort?: ReasoningEffort
     /** Seed the loop with an existing conversation (depth continuation) instead of
      *  `[system, user]`. When set, `system`/`user` are ignored. The array is copied. */
     initialMessages?: ReadonlyArray<Record<string, unknown>>
@@ -725,7 +1135,8 @@ export async function routerToolLoop(
     chat: (messages, toolSpecs) =>
       chatWithTools(cfg, messages, toolSpecs, {
         ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
-        ...(opts?.maxTokens ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts?.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
+        ...(opts?.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
         ...(opts?.signal ? { signal: opts.signal } : {}),
       }),
     tools,
@@ -744,14 +1155,45 @@ export async function routerToolLoop(
  * Transport follows `cfg.stream`: buffered by default, SSE when the caller opts in. A supervisor
  * turn is the longest completion in the system, so it is the call site streaming exists for.
  */
-export function routerBrain(cfg: RouterConfig, opts: { temperature?: number } = {}): ToolLoopChat {
+export function routerBrain(
+  cfg: RouterConfig,
+  opts: {
+    temperature?: number
+    reasoningEffort?: ReasoningEffort
+    seed?: number
+    toolChoice?: 'auto' | 'required' | 'none'
+    extraBody?: Readonly<Record<string, unknown>>
+  } = {},
+): ToolLoopChat {
   const temperature = opts.temperature ?? 0.4
-  return (messages, tools) =>
-    chatWithTools(cfg, messages, tools, {
+  return async (messages, tools, context) => {
+    const result = await chatWithTools(cfg, messages, tools, {
       temperature,
-      toolChoice: 'auto',
+      toolChoice: opts.toolChoice ?? 'auto',
       // The config's ceiling reaches the completion, so a caller driving a reasoning model can
       // raise it. Without this a router-brained supervisor is stuck on the 8192 default.
       ...(cfg.maxTokens !== undefined ? { maxTokens: cfg.maxTokens } : {}),
+      ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
+      ...(opts.extraBody !== undefined ? { extraBody: opts.extraBody } : {}),
+      ...(opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : {}),
+      ...(context?.signal ? { signal: context.signal } : {}),
+      ...(context?.callId ? { callId: context.callId } : {}),
+      ...(context?.correlationId ? { correlationId: context.correlationId } : {}),
     })
+    const hasBilledCost = result.billedCostUsd !== undefined
+    return {
+      content: result.content,
+      toolCalls: result.toolCalls,
+      ...(result.usage !== undefined ? { usage: result.usage } : {}),
+      ...(result.usageUnknown === true ? { usageUnknown: true as const } : {}),
+      ...(result.model !== undefined ? { model: result.model } : {}),
+      ...(result.cache !== undefined ? { promptCache: Object.freeze({ ...result.cache }) } : {}),
+      transportAttempts: result.transportAttempts,
+      ...(hasBilledCost
+        ? { costUsd: result.billedCostUsd, costProvenance: 'billing-receipt' as const }
+        : result.costUsd !== undefined
+          ? { costUsd: result.costUsd, costProvenance: result.costProvenance }
+          : {}),
+    }
+  }
 }

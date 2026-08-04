@@ -32,6 +32,29 @@ function makeFakeGit(state: FakeGitState): GitRunner {
   }
 }
 
+type TestHarness = 'claude-code' | 'codex' | 'opencode'
+
+function exactProfile(harness: TestHarness = 'claude-code') {
+  return {
+    name: `worker-${harness}`,
+    harness,
+    model: {
+      provider:
+        harness === 'codex' ? 'openai' : harness === 'claude-code' ? 'anthropic' : 'offline',
+      default: 'offline-test-model',
+    },
+  } as const
+}
+
+async function createBox(
+  exec: ReturnType<typeof createInProcessExecutor>,
+  harness: TestHarness = 'claude-code',
+) {
+  return exec.client.create({
+    backend: { type: harness, profile: exactProfile(harness) },
+  } as unknown as Parameters<typeof exec.client.create>[0])
+}
+
 describe('createInProcessExecutor', () => {
   it('streamPrompt emits started → ended → result events with the raw patch artifact', async () => {
     const state: FakeGitState = {
@@ -44,7 +67,6 @@ describe('createInProcessExecutor', () => {
     }
     const exec = createInProcessExecutor({
       repoRoot: '/workspace',
-      harnesses: ['claude-code'],
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
         exitCode: 0,
@@ -56,7 +78,7 @@ describe('createInProcessExecutor', () => {
       })),
     })
 
-    const box = await exec.client.create()
+    const box = await createBox(exec)
     const events: Array<{ type: string; data: Record<string, unknown> }> = []
     for await (const event of (
       box as unknown as {
@@ -87,7 +109,7 @@ describe('createInProcessExecutor', () => {
     expect(state.worktreesRemoved.length).toBe(1)
   })
 
-  it('rotates harnesses round-robin across create() calls', async () => {
+  it('uses each exact profile harness across create() calls', async () => {
     const state: FakeGitState = {
       worktreesCreated: [],
       worktreesRemoved: [],
@@ -105,13 +127,20 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude-code', 'codex', 'opencode'],
       runGit: makeFakeGit(state),
       runHarness,
     })
 
-    for (let i = 0; i < 6; i++) {
-      const box = await exec.client.create()
+    const authoredHarnesses: TestHarness[] = [
+      'claude-code',
+      'codex',
+      'opencode',
+      'claude-code',
+      'codex',
+      'opencode',
+    ]
+    for (const [i, harness] of authoredHarnesses.entries()) {
+      const box = await createBox(exec, harness)
       for await (const _ of (
         box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
       ).streamPrompt(`task ${i}`)) {
@@ -119,14 +148,7 @@ describe('createInProcessExecutor', () => {
       }
     }
     const harnesses = runHarness.mock.calls.map((c) => (c[0] as { harness: string }).harness)
-    expect(harnesses).toEqual([
-      'claude-code',
-      'codex',
-      'opencode',
-      'claude-code',
-      'codex',
-      'opencode',
-    ])
+    expect(harnesses).toEqual(authoredHarnesses)
   })
 
   it('runs testCmd + typecheckCmd against the worktree and folds results into the artifact checks', async () => {
@@ -144,7 +166,6 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude-code'],
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
       runGit: makeFakeGit(state),
@@ -159,7 +180,7 @@ describe('createInProcessExecutor', () => {
       runPostCheck,
     })
 
-    const box = await exec.client.create()
+    const box = await createBox(exec)
     const events: Array<{ type: string; data: Record<string, unknown> }> = []
     for await (const event of (
       box as unknown as {
@@ -200,7 +221,7 @@ describe('createInProcessExecutor', () => {
         timedOut: false,
       })),
     })
-    const box = await exec.client.create()
+    const box = await createBox(exec)
     const events: Array<{ type: string; data: Record<string, unknown> }> = []
     for await (const event of (
       box as unknown as {
@@ -231,7 +252,7 @@ describe('createInProcessExecutor', () => {
         throw new Error('boom')
       }),
     })
-    const box = await exec.client.create()
+    const box = await createBox(exec)
     await expect(
       (async () => {
         for await (const _ of (
@@ -255,7 +276,6 @@ describe('createInProcessExecutor', () => {
     }
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['codex'],
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
         exitCode: 0,
@@ -266,7 +286,7 @@ describe('createInProcessExecutor', () => {
         timedOut: false,
       })),
     })
-    const box = await exec.client.create()
+    const box = await createBox(exec, 'codex')
     for await (const _ of (
       box as unknown as { streamPrompt: (m: string) => AsyncGenerator<unknown> }
     ).streamPrompt('x')) {
@@ -300,7 +320,6 @@ describe('createInProcessExecutor', () => {
     }))
     const exec = createInProcessExecutor({
       repoRoot: '/w',
-      harnesses: ['claude-code'],
       runGit: makeFakeGit(state),
       runHarness,
     })
@@ -310,8 +329,9 @@ describe('createInProcessExecutor', () => {
         type: 'claude-code',
         profile: {
           name: 'w',
+          harness: 'claude-code',
           prompt: { systemPrompt: 'BE RIGOROUS' },
-          model: { default: 'deepseek-v4-flash' },
+          model: { provider: 'anthropic', default: 'deepseek-v4-flash' },
         },
       },
     } as unknown as Parameters<typeof exec.client.create>[0])
@@ -327,5 +347,30 @@ describe('createInProcessExecutor', () => {
     expect(args).toContain('BE RIGOROUS')
     expect(args).toContain('add util(a,b)')
     expect(args).toContain('deepseek-v4-flash')
+  })
+
+  it('refuses missing or conflicting profile authority before starting a harness', async () => {
+    const runHarness = vi.fn()
+    const exec = createInProcessExecutor({ repoRoot: '/w', runHarness })
+
+    await expect(exec.client.create()).rejects.toThrow(/backend\.profile is required/)
+    await expect(
+      exec.client.create({
+        backend: {
+          type: 'codex',
+          profile: exactProfile('claude-code'),
+        },
+      } as unknown as Parameters<typeof exec.client.create>[0]),
+    ).rejects.toThrow(/conflicts with AgentProfile\.harness/)
+    await expect(
+      exec.client.create({
+        backend: {
+          type: 'claude-code',
+          profile: { name: 'incomplete', harness: 'claude-code' },
+        },
+      } as unknown as Parameters<typeof exec.client.create>[0]),
+    ).rejects.toThrow(/model\.default/)
+
+    expect(runHarness).not.toHaveBeenCalled()
   })
 })

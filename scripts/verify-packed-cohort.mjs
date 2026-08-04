@@ -19,6 +19,7 @@ import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import {
+  assertPeerMatchesDevelopmentDependency,
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
@@ -529,6 +530,12 @@ function assertCohortPackageContracts({
   assertExactDependency(agentKnowledge, agentInterface)
   assertExactDependency(agentKnowledge, agentEval)
   assertExactDependency(agentRuntime, agentKnowledge)
+  assertPeerMatchesDevelopmentDependency(agentRuntime.packageJson, agentInterface.name)
+  assertPeerMatchesDevelopmentDependency(agentRuntime.packageJson, agentEval.name)
+  assertPeerMatchesDevelopmentDependency(
+    agentRuntime.packageJson,
+    '@tangle-network/sandbox',
+  )
   assertRequiredPeer(agentRuntime, agentInterface)
   assertRequiredPeer(agentRuntime, agentEval)
 }

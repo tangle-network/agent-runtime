@@ -9,6 +9,12 @@ import type { SuperviseOptions } from '../src/runtime/supervise/supervise'
 import type { SupervisorProfile } from '../src/runtime/supervise/supervisor-agent'
 import type { SupervisedResult } from '../src/runtime/supervise/types'
 
+const supervisorProfile: SupervisorProfile = {
+  name: 'knowledge-research-supervisor',
+  harness: 'cli-base',
+  model: { provider: 'test-provider', default: 'test-supervisor' },
+}
+
 function winner(): SupervisedResult<unknown> {
   return {
     kind: 'winner',
@@ -58,6 +64,7 @@ describe('knowledge supervisor integration', () => {
       goal: 'base goal',
       readiness: ({ root }) => root === '/kb/candidate',
       budget: { maxIterations: 2, maxTokens: 1000 },
+      supervisorProfile,
       runSupervised: async (profile, task, opts) => {
         captured = { profile, task, opts }
         await expect(opts.deliverable?.check({})).resolves.toBe(true)
@@ -102,6 +109,7 @@ describe('knowledge supervisor integration', () => {
       goal: 'blocked goal',
       readiness: () => false,
       budget: { maxIterations: 2, maxTokens: 1000 },
+      supervisorProfile,
       runSupervised: async () =>
         ({
           kind: 'no-winner',
