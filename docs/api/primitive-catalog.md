@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.128.1` and `@tangle-network/agent-eval@0.144.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.129.0` and `@tangle-network/agent-eval@0.144.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1297,7 +1297,7 @@ Import from `@tangle-network/agent-runtime/testing` — 4 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 211 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 210 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1343,7 +1343,6 @@ Import from `@tangle-network/agent-runtime/mcp` — 211 exports.
 | `removeWorktree` | function | Remove a git worktree and delete its branch. Already-removed paths are harmless; every other |
 | `resolveMemoryFromEnv` | function | Resolve the bin's memory from `AGENT_MEMORY_FILE` (durable store) and/or |
 | `runDetachedTurn` | function | Dispatch one detached turn and advance it to a terminal state with |
-| `runLocalHarness` | function | Spawn a local coding harness CLI as a subprocess + collect its output. |
 | `settleDetachedCoderTurn` | function | Settle a completed detached coder turn through the same gate the streaming |
 | `traceContextToEnv` | function | Build env vars to pass to a child subprocess so it inherits the current trace context. |
 | `validateDelegateArgs` | function | Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input. |

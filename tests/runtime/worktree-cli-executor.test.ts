@@ -64,11 +64,16 @@ vi.mock('node:http', async () => {
   }
 })
 
-import { type RunLocalHarnessOptions, runLocalHarness } from '../../src/mcp/local-harness'
+import {
+  type LocalHarness,
+  type RunLocalHarnessOptions,
+  runLocalHarness,
+} from '../../src/mcp/local-harness'
 import type { GitRunner } from '../../src/mcp/worktree'
 import { type AgentSpec, createExecutor } from '../../src/runtime'
 import {
   createWorktreeCliExecutor,
+  type WorktreeCliExecutorOptions,
   type WorktreePatchArtifact,
 } from '../../src/runtime/supervise/worktree-cli-executor'
 
@@ -113,10 +118,15 @@ function freshGitState(overrides?: Partial<FakeGitState>): FakeGitState {
   }
 }
 
-const authoredProfile: AgentProfile = {
-  name: 'careful-refactorer',
-  prompt: { systemPrompt: 'You are a careful refactorer. Keep diffs minimal.' },
-  model: { default: 'deepseek/deepseek-v4-flash' },
+function authoredProfile(harness: LocalHarness = 'claude-code'): AgentProfile {
+  const provider =
+    harness === 'codex' ? 'openai' : harness === 'claude-code' ? 'anthropic' : 'deepseek'
+  return {
+    name: 'careful-refactorer',
+    harness,
+    prompt: { systemPrompt: 'You are a careful refactorer. Keep diffs minimal.' },
+    model: { provider, default: 'deepseek/deepseek-v4-flash' },
+  }
 }
 
 const reproducibleCodexProfile: AgentProfile = {
@@ -217,8 +227,7 @@ describe('createWorktreeCliExecutor', () => {
 
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'fix the off-by-one',
       runGit: makeFakeGit(state),
       runHarness,
@@ -248,8 +257,7 @@ describe('createWorktreeCliExecutor', () => {
     })
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'codex',
+      profile: authoredProfile('codex'),
       taskPrompt: 'add a.ts',
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
@@ -277,8 +285,7 @@ describe('createWorktreeCliExecutor', () => {
     const state = freshGitState()
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'opencode',
+      profile: authoredProfile('opencode'),
       taskPrompt: 'noop',
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async () => ({
@@ -303,8 +310,7 @@ describe('createWorktreeCliExecutor', () => {
   it('is budgetExempt by default (a harness CLI cannot account tokens)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -319,8 +325,7 @@ describe('createWorktreeCliExecutor', () => {
     // a ceiling that can never fire while believing it is protected.
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(async () => ({
@@ -348,8 +353,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
-        profile: authoredProfile,
-        harness: 'codex',
+        profile: authoredProfile('codex'),
         taskPrompt: 'x',
         codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
         runGit: makeFakeGit(freshGitState()),
@@ -364,10 +368,9 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: {
-          ...authoredProfile,
+          ...authoredProfile(),
           connections: [{ connectionId: 'github', capabilities: ['issues:read'] }],
         },
-        harness: 'claude-code',
         taskPrompt: 'x',
         runGit: makeFakeGit(state),
         runHarness: vi.fn(),
@@ -386,7 +389,6 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: reproducibleCodexProfile,
-      harness: 'codex',
       taskPrompt: 'fix the bug',
       codexReproducible: true,
       codexReadDeniedPaths: ['/usr/lib/example/gold.py'],
@@ -504,12 +506,19 @@ describe('createWorktreeCliExecutor', () => {
     })
   })
 
-  it('rejects contradictory reproducible Codex configuration', () => {
+  it('rejects a separate harness override and contradictory reproducible Codex configuration', () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: reproducibleCodexProfile,
         harness: 'claude-code',
+        taskPrompt: 'x',
+      } as WorktreeCliExecutorOptions & { harness: LocalHarness }),
+    ).toThrow(/separate harness is forbidden/)
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: authoredProfile(),
         taskPrompt: 'x',
         codexReproducible: true,
       }),
@@ -518,7 +527,6 @@ describe('createWorktreeCliExecutor', () => {
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
         profile: reproducibleCodexProfile,
-        harness: 'codex',
         taskPrompt: 'x',
         codexReproducible: true,
         budgetExempt: true,
@@ -531,7 +539,6 @@ describe('createWorktreeCliExecutor', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
       profile: reproducibleCodexProfile,
-      harness: 'codex',
       taskPrompt: 'x',
       codexReproducible: true,
       runGit: makeFakeGit(state),
@@ -553,8 +560,7 @@ describe('createWorktreeCliExecutor', () => {
   it('budgetExempt: false opts the leaf into metering (explicit, not a buried hardcode)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       budgetExempt: false,
       runGit: makeFakeGit(freshGitState()),
@@ -583,8 +589,7 @@ describe('createWorktreeCliExecutor', () => {
     let seen: RunLocalHarnessOptions | undefined
     const executor = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       runGit: makeFakeGit(state),
       runHarness: vi.fn(async (options) => {
         seen = options
@@ -609,8 +614,7 @@ describe('createWorktreeCliExecutor', () => {
   it('resultArtifact() before execute() resolves throws (fail loud, no fabricated artifact)', () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(),
@@ -632,8 +636,7 @@ describe('createWorktreeCliExecutor', () => {
 
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'opencode',
+      profile: authoredProfile('opencode'),
       taskPrompt: 'do it',
       runGit: makeFakeGit(state),
       runHarness: realRunHarness,
@@ -653,8 +656,7 @@ describe('createWorktreeCliExecutor', () => {
     const ranIn: { command: string; cwd: string }[] = []
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'opencode',
+      profile: authoredProfile('opencode'),
       taskPrompt: 'do it',
       testCmd: 'pnpm test',
       typecheckCmd: 'pnpm typecheck',
@@ -688,8 +690,7 @@ describe('createWorktreeCliExecutor', () => {
   it('omits `checks` entirely when no verification command is configured', async () => {
     const exec = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
       taskPrompt: 'x',
       runGit: makeFakeGit(freshGitState()),
       runHarness: vi.fn(async () => ({
@@ -740,7 +741,7 @@ describe('createWorktreeCliExecutor', () => {
     })
     const spec: AgentSpec = {
       profile: {
-        ...authoredProfile,
+        ...authoredProfile('codex'),
         harness: 'codex',
         model: { provider: 'tangle-router', default: 'live' },
       },
@@ -782,28 +783,32 @@ describe('createWorktreeCliExecutor', () => {
     expect(state.worktreesRemoved).toEqual(state.worktreesCreated)
   })
 
-  it('fails loud on a missing repoRoot, harness, or both task sources', async () => {
+  it('fails loud on a missing repoRoot, incomplete profile, or both task sources', async () => {
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '',
-        profile: authoredProfile,
-        harness: 'claude-code',
+        profile: authoredProfile(),
         taskPrompt: 'x',
       }),
     ).toThrow(/repoRoot required/)
     expect(() =>
       createWorktreeCliExecutor({
         repoRoot: '/workspace',
-        profile: authoredProfile,
-        harness: 'claude-code',
+        profile: { ...authoredProfile(), harness: undefined },
+        taskPrompt: 'x',
+      }),
+    ).toThrow(/AgentProfile\.harness must be explicit/)
+    expect(() =>
+      createWorktreeCliExecutor({
+        repoRoot: '/workspace',
+        profile: authoredProfile(),
         taskPrompt: '',
       }),
     ).toThrow(/taskPrompt required/)
 
     const noTask = createWorktreeCliExecutor({
       repoRoot: '/workspace',
-      profile: authoredProfile,
-      harness: 'claude-code',
+      profile: authoredProfile(),
     })
     await expect(noTask.execute(undefined, new AbortController().signal)).rejects.toThrow(
       /execute task required/,

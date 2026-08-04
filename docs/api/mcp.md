@@ -7045,45 +7045,6 @@ created, against the same table that emits the argv.
 
 ***
 
-### runLocalHarness()
-
-> **runLocalHarness**(`options`): `Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
-
-**`Experimental`**
-
-Spawn a local coding harness CLI as a subprocess + collect its output.
-
-NOT responsible for parsing the harness's output or extracting a diff —
-the in-process executor's `streamPrompt` orchestrates `git diff` against
-the worktree after this resolves. This function is intentionally narrow:
-spawn, wait, capture, return.
-
-Fails loud — throws when:
-  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
-  - the harness binary is not on PATH (ENOENT)
-  - the caller signal was already aborted before process launch
-
-Does NOT throw when:
-  - the subprocess exits non-zero (`result.exitCode` carries the code)
-  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
-    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
-
-Reproducible Codex additionally requires a terminal usage event. If cancellation
-prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
-returning an incomplete reproducibility receipt.
-
-#### Parameters
-
-##### options
-
-[`RunLocalHarnessOptions`](#runlocalharnessoptions)
-
-#### Returns
-
-`Promise`\<[`LocalHarnessResult`](#localharnessresult)\>
-
-***
-
 ### parseCodexTokenUsage()
 
 > **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)

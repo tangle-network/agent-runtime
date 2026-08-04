@@ -15922,14 +15922,6 @@ The supervisor-authored prompt/model plus materializable structural resources.
 provider extensions, and `resources.failOnError` fail before execution because this path
 cannot honor them. Harness-specific values the materializer cannot preserve also fail closed.
 
-##### harness
-
-> **harness**: [`LocalHarness`](mcp.md#localharness)
-
-**`Experimental`**
-
-Local CLI for this leaf. This explicit choice overrides `profile.harness`.
-
 ##### taskPrompt?
 
 > `optional` **taskPrompt?**: `string`
@@ -15970,7 +15962,7 @@ Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness`
 **`Experimental`**
 
 Run Codex with an ephemeral session, isolated config/instructions, network disabled, and
- JSONL usage capture. Requires `harness: 'codex'`; metered by default.
+ JSONL usage capture. Requires `profile.harness: 'codex'`; metered by default.
 
 ##### codexReadDeniedPaths?
 
@@ -16088,8 +16080,8 @@ likewise return `LocalHarnessResult.usage`.
 
 **`Experimental`**
 
-One authored harness profile in a worktree fanout: the §1.5 profile + which local
- harness CLI drives it. The supervisor authors `profile` per sub-task; `harness` chooses the leaf.
+One authored profile in a worktree fanout. Its exact `harness` field chooses the
+local CLI; the supervisor authors the complete profile per sub-task.
 
 #### Properties
 
@@ -16108,14 +16100,6 @@ A short label for the worktree branch + trace node.
 **`Experimental`**
 
 The supervisor-authored `AgentProfile` (systemPrompt + model reach the harness via §1.5).
-
-##### harness
-
-> **harness**: [`LocalHarness`](mcp.md#localharness)
-
-**`Experimental`**
-
-Which local harness CLI drives this leaf.
 
 ##### budgetExempt?
 
@@ -25421,9 +25405,10 @@ caller's own seam env so a deliberately-set id wins (see the precedence note abo
 Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a
 fanout of N profiles = N parallel worktrees that never clobber each other.
 
-Fail-loud: an empty `repoRoot`/`harness` or an explicitly empty `taskPrompt` throws at
-construction. Calling `execute(undefined, signal)` without a configured prompt throws before a
-worktree is created. `resultArtifact()` before `execute()` resolves throws.
+Fail-loud: an empty `repoRoot`, an incomplete/unsupported profile, a separate harness override,
+or an explicitly empty `taskPrompt` throws at construction. Calling `execute(undefined, signal)`
+without a configured prompt throws before a worktree is created. `resultArtifact()` before
+`execute()` resolves throws.
 
 #### Parameters
 

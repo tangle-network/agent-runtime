@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
-import type { LocalHarness, runLocalHarness } from '../../mcp/local-harness'
+import { LOCAL_HARNESSES, type LocalHarness, type runLocalHarness } from '../../mcp/local-harness'
 import type { GitRunner } from '../../mcp/worktree'
 import {
   runWorktreeHarness,
@@ -36,6 +36,7 @@ import {
   type WorktreeProfileMaterializationReceipt,
   worktreeProfileExecutionPlan,
 } from '../../mcp/worktree-harness'
+import { executableAgentProfileSnapshot } from './executable-spec'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { concreteProfileModel } from './model-policy'
 import type { Executor, ExecutorResult, Spend } from './types'
@@ -56,8 +57,6 @@ export interface WorktreeCliExecutorOptions {
    * cannot honor them. Harness-specific values the materializer cannot preserve also fail closed.
    */
   profile: AgentProfile
-  /** Local CLI for this leaf. This explicit choice overrides `profile.harness`. */
-  harness: LocalHarness
   /** Default instruction for direct `execute(undefined, signal)` calls. An execution-time task
    *  is authoritative. Omit when the caller always supplies the task to `execute`. */
   taskPrompt?: string
@@ -68,7 +67,7 @@ export interface WorktreeCliExecutorOptions {
   /** Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default). */
   harnessTimeoutMs?: number
   /** Run Codex with an ephemeral session, isolated config/instructions, network disabled, and
-   *  JSONL usage capture. Requires `harness: 'codex'`; metered by default. */
+   *  JSONL usage capture. Requires `profile.harness: 'codex'`; metered by default. */
   codexReproducible?: boolean
   /** Absolute host paths denied to reproducible Codex (for benchmark answer copies, credentials,
    *  or other task-specific ambient state). */
@@ -105,9 +104,10 @@ export interface WorktreeCliExecutorOptions {
  * Build a worktree-CLI leaf `Executor`. Per-spawn (a fresh worktree + abort + teardown each), so a
  * fanout of N profiles = N parallel worktrees that never clobber each other.
  *
- * Fail-loud: an empty `repoRoot`/`harness` or an explicitly empty `taskPrompt` throws at
- * construction. Calling `execute(undefined, signal)` without a configured prompt throws before a
- * worktree is created. `resultArtifact()` before `execute()` resolves throws.
+ * Fail-loud: an empty `repoRoot`, an incomplete/unsupported profile, a separate harness override,
+ * or an explicitly empty `taskPrompt` throws at construction. Calling `execute(undefined, signal)`
+ * without a configured prompt throws before a worktree is created. `resultArtifact()` before
+ * `execute()` resolves throws.
  *
  * @experimental
  */
@@ -117,9 +117,13 @@ export function createWorktreeCliExecutor(
   if (!options.repoRoot) {
     throw new ValidationError('createWorktreeCliExecutor: repoRoot required')
   }
-  if (!options.harness) {
-    throw new ValidationError('createWorktreeCliExecutor: harness required')
+  if ('harness' in options) {
+    throw new ValidationError(
+      'createWorktreeCliExecutor: separate harness is forbidden; set AgentProfile.harness',
+    )
   }
+  const profile = executableAgentProfileSnapshot(options.profile, 'createWorktreeCliExecutor')
+  const harness = localHarnessFromProfile(profile)
   if (
     options.taskPrompt !== undefined &&
     (typeof options.taskPrompt !== 'string' || options.taskPrompt.length === 0)
@@ -128,7 +132,7 @@ export function createWorktreeCliExecutor(
   }
   // KEPT harness-name test: `codexReproducible` is a codex-SPECIFIC public option, so this
   // asserts caller self-consistency and throws loudly instead of varying behavior by name.
-  if (options.codexReproducible && options.harness !== 'codex') {
+  if (options.codexReproducible && harness !== 'codex') {
     throw new ValidationError(
       'createWorktreeCliExecutor: codexReproducible requires harness "codex"',
     )
@@ -150,8 +154,11 @@ export function createWorktreeCliExecutor(
   let run: WorktreeHarnessRun | undefined
   let artifact: ExecutorResult<WorktreePatchArtifact> | undefined
 
-  const profilePlan = worktreeProfileExecutionPlan(options.profile, options.harness)
-  const profileModel = concreteProfileModel(options.profile)
+  const profilePlan = worktreeProfileExecutionPlan(profile, harness)
+  const profileModel = concreteProfileModel(profile)
+  if (!profileModel) {
+    throw new ValidationError('createWorktreeCliExecutor: exact profile model unexpectedly missing')
+  }
   return attestRuntimeOwnedExecutor(
     {
       runtime: 'cli',
@@ -163,8 +170,8 @@ export function createWorktreeCliExecutor(
 
         run = await runWorktreeHarness({
           repoRoot: options.repoRoot,
-          profile: options.profile,
-          harness: options.harness,
+          profile,
+          harness,
           taskPrompt,
           runId,
           ...(options.baseRef ? { baseRef: options.baseRef } : {}),
@@ -238,17 +245,15 @@ export function createWorktreeCliExecutor(
       },
     },
     {
-      effectiveProfile: options.profile,
-      backend: `cli-worktree:${options.harness}`,
-      model: profileModel
-        ? { status: 'known', id: profileModel }
-        : { status: 'unknown', reason: `${options.harness} selected its configured default model` },
+      effectiveProfile: profile,
+      backend: `cli-worktree:${harness}`,
+      model: { status: 'known', id: profileModel },
       execution: { kind: 'worktree-run', id: runId },
       materializer: 'agent-profile-worktree-plan',
       plan: {
         kind: 'worktree-cli',
         profilePlan,
-        harness: options.harness,
+        harness,
         baseRef: options.baseRef ?? 'HEAD',
         harnessTimeoutMs: options.harnessTimeoutMs ?? null,
         codexReproducible: options.codexReproducible === true,
@@ -264,16 +269,24 @@ export function createWorktreeCliExecutor(
       binding: {
         repoRoot: options.repoRoot,
         runId,
-        harness: options.harness,
-        model: profileModel ?? null,
+        harness,
+        model: profileModel,
         baseRef: options.baseRef ?? 'HEAD',
       },
       descriptor: {
         kind: 'worktree-cli-run',
         transport: 'process',
-        backend: options.harness,
+        backend: harness,
       },
     },
+  )
+}
+
+function localHarnessFromProfile(profile: AgentProfile): LocalHarness {
+  const harness = profile.harness
+  if (LOCAL_HARNESSES.includes(harness as LocalHarness)) return harness as LocalHarness
+  throw new ValidationError(
+    `createWorktreeCliExecutor: AgentProfile.harness must select ${LOCAL_HARNESSES.join(', ')}`,
   )
 }
 

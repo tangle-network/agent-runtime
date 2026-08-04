@@ -57,7 +57,39 @@ const lowLevelModelCalls = new Set([
   'routerChatWithTools',
   'routerChatWithUsage',
   'routerToolLoop',
+  'runLocalHarness',
   'streamRouterChatWithTools',
+])
+
+// `runLocalHarness` is the physical process adapter under the profiled worktree executors. It is
+// deliberately callable in exactly one implementation module and must never become a public or
+// benchmark-facing shortcut around AgentProfile intake.
+const lowLevelModelCallOwners = new Map([
+  ['runLocalHarness', new Set(['src/mcp/worktree-harness.ts'])],
+])
+
+const forbiddenPublicModelCalls = new Set(['runLocalHarness'])
+
+// These two files are the implementation owners that translate a validated AgentProfile into a
+// local process. Everywhere else, naming a coding-agent CLI in an executable command is a second
+// model-execution path.
+const directCliOwners = new Set([
+  'src/mcp/local-harness.ts',
+  'scripts/check-model-execution-boundary.test.mjs',
+])
+
+const processLaunchCalls = new Set([
+  'dotenvxBash',
+  'exec',
+  'execFile',
+  'execFileSync',
+  'execSync',
+  'run',
+  'runOk',
+  'runTb',
+  'sh',
+  'spawn',
+  'spawnSync',
 ])
 
 const sourceExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.py', '.sh'])
@@ -116,7 +148,7 @@ export function checkJavaScript(path, text) {
     : ts.ScriptKind.JS
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind)
   const initializers = new Map()
-  const lowLevelBindings = new Set()
+  const lowLevelBindings = new Map()
   const lowLevelNamespaces = new Set()
   const failures = []
 
@@ -126,13 +158,38 @@ export function checkJavaScript(path, text) {
       ts.isIdentifier(node.name) &&
       node.initializer !== undefined
     ) {
-      initializers.set(node.name.text, node.initializer)
+      const declarations = initializers.get(node.name.text) ?? []
+      declarations.push(node)
+      initializers.set(node.name.text, declarations)
     }
     ts.forEachChild(node, collect)
   }
   collect(source)
 
+  function initializerFor(identifier) {
+    const declarations = initializers.get(identifier.text) ?? []
+    let closest
+    for (const declaration of declarations) {
+      if (declaration.pos >= identifier.pos) continue
+      if (!closest || declaration.pos > closest.pos) closest = declaration
+    }
+    return closest?.initializer
+  }
+
   for (const statement of source.statements) {
+    if (ts.isExportDeclaration(statement) && statement.exportClause) {
+      if (ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          const exported = element.propertyName?.text ?? element.name.text
+          if (forbiddenPublicModelCalls.has(exported) && !element.isTypeOnly) {
+            failures.push({
+              node: element,
+              detail: `public low-level model executor ${JSON.stringify(exported)}`,
+            })
+          }
+        }
+      }
+    }
     if (!ts.isImportDeclaration(statement)) continue
     const moduleName = ts.isStringLiteral(statement.moduleSpecifier)
       ? statement.moduleSpecifier.text
@@ -147,7 +204,7 @@ export function checkJavaScript(path, text) {
     } else {
       for (const element of bindings.elements) {
         const imported = element.propertyName?.text ?? element.name.text
-        if (lowLevelModelCalls.has(imported)) lowLevelBindings.add(element.name.text)
+        if (lowLevelModelCalls.has(imported)) lowLevelBindings.set(element.name.text, imported)
       }
     }
   }
@@ -175,7 +232,7 @@ export function checkJavaScript(path, text) {
           for (const element of node.name.elements) {
             if (!ts.isIdentifier(element.name)) continue
             const imported = element.propertyName?.getText(source) ?? element.name.text
-            if (lowLevelModelCalls.has(imported)) lowLevelBindings.add(element.name.text)
+            if (lowLevelModelCalls.has(imported)) lowLevelBindings.set(element.name.text, imported)
           }
         }
       }
@@ -185,7 +242,7 @@ export function checkJavaScript(path, text) {
         isRequireCall(node.initializer.expression) &&
         lowLevelModelCalls.has(node.initializer.name.text)
       ) {
-        lowLevelBindings.add(node.name.text)
+        lowLevelBindings.set(node.name.text, node.initializer.name.text)
       }
     }
     ts.forEachChild(node, collectCommonJs)
@@ -196,7 +253,7 @@ export function checkJavaScript(path, text) {
     if (ts.isStringLiteralLike(node)) return node.text
     if (ts.isIdentifier(node)) {
       if (seen.has(node.text)) return undefined
-      const initializer = initializers.get(node.text)
+      const initializer = initializerFor(node)
       if (initializer === undefined) return undefined
       const nextSeen = new Set(seen)
       nextSeen.add(node.text)
@@ -223,13 +280,55 @@ export function checkJavaScript(path, text) {
   function expressionText(node, seen = new Set()) {
     if (ts.isIdentifier(node)) {
       if (seen.has(node.text)) return node.getText(source)
-      const initializer = initializers.get(node.text)
+      const initializer = initializerFor(node)
       if (initializer !== undefined) {
         seen.add(node.text)
         return `${node.getText(source)}=${expressionText(initializer, seen)}`
       }
     }
     return node.getText(source)
+  }
+
+  function lowLevelModelCallName(node) {
+    if (ts.isIdentifier(node.expression)) return lowLevelBindings.get(node.expression.text)
+    if (
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      lowLevelNamespaces.has(node.expression.expression.text) &&
+      lowLevelModelCalls.has(node.expression.name.text)
+    ) {
+      return node.expression.name.text
+    }
+    if (
+      ts.isElementAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      lowLevelNamespaces.has(node.expression.expression.text) &&
+      ts.isStringLiteral(node.expression.argumentExpression) &&
+      lowLevelModelCalls.has(node.expression.argumentExpression.text)
+    ) {
+      return node.expression.argumentExpression.text
+    }
+    return undefined
+  }
+
+  function isAllowedLowLevelModelCall(name) {
+    return lowLevelModelCallOwners.get(name)?.has(path) === true
+  }
+
+  function isProcessLaunchCall(node) {
+    const callee = node.expression
+    if (ts.isIdentifier(callee)) return processLaunchCalls.has(callee.text)
+    if (ts.isPropertyAccessExpression(callee)) return processLaunchCalls.has(callee.name.text)
+    return false
+  }
+
+  function isInsideProcessLaunchCall(node) {
+    let parent = node.parent
+    while (parent && !ts.isStatement(parent)) {
+      if (ts.isCallExpression(parent) && isProcessLaunchCall(parent)) return true
+      parent = parent.parent
+    }
+    return false
   }
 
   function inspect(node) {
@@ -253,20 +352,34 @@ export function checkJavaScript(path, text) {
         /^(?:https?|request|axios)(?:\.|$)/.test(callee) &&
         namesModelEndpoint(call) &&
         !isLocalTestTarget(path, call)
+      const lowLevelCallName = lowLevelModelCallName(node)
       const lowLevelRuntimeCall =
-        (ts.isIdentifier(node.expression) && lowLevelBindings.has(callee)) ||
-        (ts.isPropertyAccessExpression(node.expression) &&
-          ts.isIdentifier(node.expression.expression) &&
-          lowLevelNamespaces.has(node.expression.expression.text) &&
-          lowLevelModelCalls.has(node.expression.name.text)) ||
-        (ts.isElementAccessExpression(node.expression) &&
-          ts.isIdentifier(node.expression.expression) &&
-          lowLevelNamespaces.has(node.expression.expression.text) &&
-          ts.isStringLiteral(node.expression.argumentExpression) &&
-          lowLevelModelCalls.has(node.expression.argumentExpression.text))
-      if (directFetch || providerSdk || rawHttp || lowLevelRuntimeCall) {
+        lowLevelCallName !== undefined && !isAllowedLowLevelModelCall(lowLevelCallName)
+      const cliLaunch =
+        !directCliOwners.has(path) &&
+        isProcessLaunchCall(node) &&
+        namesModelCliInvocation(
+          [callee, ...node.arguments.map((argument) => expressionText(argument))].join(' '),
+        )
+      if (directFetch || providerSdk || rawHttp || lowLevelRuntimeCall || cliLaunch) {
         failures.push({ node, detail: call.slice(0, 180).replace(/\s+/g, ' ') })
       }
+    }
+    if (
+      !directCliOwners.has(path) &&
+      (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
+      !isInsideProcessLaunchCall(node) &&
+      namesModelCliInvocation(node.text)
+    ) {
+      failures.push({ node, detail: node.getText(source).slice(0, 180).replace(/\s+/g, ' ') })
+    }
+    if (
+      !directCliOwners.has(path) &&
+      ts.isTemplateExpression(node) &&
+      !isInsideProcessLaunchCall(node) &&
+      namesModelCliInvocation(node.getText(source))
+    ) {
+      failures.push({ node, detail: node.getText(source).slice(0, 180).replace(/\s+/g, ' ') })
     }
     if (
       ts.isNewExpression(node) &&
@@ -278,6 +391,18 @@ export function checkJavaScript(path, text) {
   }
   inspect(source)
   return failures.map(({ node, detail }) => ({ location: sourceLocation(source, node), detail }))
+}
+
+function namesModelCliInvocation(text) {
+  const cli =
+    /(?:^|[^A-Za-z0-9_])(?:claude|codex|opencode|pi)(?:Bin|Path|Executable)?\b/i.exec(text)
+  if (!cli) return false
+  const afterCli = text.slice((cli.index ?? 0) + cli[0].length)
+  const namesExecutionMode =
+    /(?:^|[\s'"`,:[\]()])(?:-p|--print|exec|run)(?=$|[\s'"`,:[\]()])/i.test(afterCli)
+  const selectsCliAgent =
+    /--agent(?:-import-path)?[\s'"`,:[\]()]+(?:claude|codex|opencode|pi)\b/i.test(text)
+  return namesExecutionMode || selectsCliAgent
 }
 
 function executablePythonLines(text) {
@@ -314,11 +439,16 @@ function executablePythonLines(text) {
 
 export function checkPython(text) {
   const failures = []
-  for (const [index, line] of executablePythonLines(text).entries()) {
+  const lines = executablePythonLines(text)
+  for (const [index, line] of lines.entries()) {
+    const commandWindow = lines.slice(index, index + 3).join(' ')
     if (
       /chat\/completions|api\.anthropic\.com|\.chat\.completions\.create\s*\(|\.responses\.create\s*\(|\.messages\.create\s*\(/i.test(
         line,
-      )
+      ) ||
+      (/(?:^|[^A-Za-z0-9_])(?:claude|codex|opencode|pi)(?:Bin|Path|Executable)?\b/i.test(
+        line,
+      ) && namesModelCliInvocation(commandWindow))
     ) {
       failures.push({ location: `${index + 1}:1`, detail: line.trim().slice(0, 180) })
     }
@@ -331,7 +461,8 @@ export function checkShell(text) {
   for (const [index, line] of text.split(/\r?\n/).entries()) {
     const code = line.replace(/^\s*#.*$/, '')
     if (
-      /(?:curl|wget|http)\b.*(?:chat\/completions|\/responses\b|api\.anthropic\.com)/i.test(code)
+      /(?:curl|wget|http)\b.*(?:chat\/completions|\/responses\b|api\.anthropic\.com)/i.test(code) ||
+      namesModelCliInvocation(code)
     ) {
       failures.push({ location: `${index + 1}:1`, detail: code.trim().slice(0, 180) })
     }

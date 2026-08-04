@@ -60,13 +60,11 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
         {
           name: 'claude',
           profile: profile('claude', 'claude-code'),
-          harness: 'claude-code',
           budgetExempt: false,
         },
         {
           name: 'opencode',
           profile: profile('opencode', 'opencode'),
-          harness: 'opencode',
           budgetExempt: false,
         },
       ],
@@ -97,7 +95,6 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
         {
           name: 'claude',
           profile: profile('claude', 'claude-code'),
-          harness: 'claude-code',
           budgetExempt: false,
         },
       ],
@@ -124,7 +121,6 @@ describe('worktreeLoopRunner — the migrated generic coder path', () => {
         {
           name: 'claude',
           profile: profile('claude', 'claude-code'),
-          harness: 'claude-code',
           budgetExempt: false,
         },
       ],

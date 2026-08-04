@@ -106,7 +106,6 @@ export {
   LOCAL_HARNESSES,
   localHarnessExecutable,
   parseCodexTokenUsage,
-  runLocalHarness,
 } from './local-harness'
 export {
   type AgentMemorySpec,

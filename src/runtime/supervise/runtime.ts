@@ -45,7 +45,6 @@ import {
   defineProfileMaterializationContract,
 } from '../../agent/profile-materialization'
 import { ValidationError } from '../../errors'
-import type { LocalHarness } from '../../mcp/local-harness'
 import { mergeTraceEnv } from '../../mcp/trace-propagation'
 import {
   captureWorktreeDiff,
@@ -3445,16 +3444,9 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (seam.bridge) return bridgeWorktreeExecutor(spec, ctx, seam)
   const effectiveProfile = agentProfileSchema.parse(spec.profile)
   assertExecutableAgentProfile(effectiveProfile, 'cliWorktreeExecutor')
-  const harness = localWorktreeHarness(agentHarness(effectiveProfile.harness))
-  if (!harness) {
-    throw new ValidationError(
-      'cliWorktreeExecutor: AgentProfile.harness must select claude-code, codex, or opencode when bridge is not set',
-    )
-  }
   return createWorktreeCliExecutor({
     repoRoot: seam.repoRoot,
     profile: effectiveProfile,
-    harness,
     ...(seam.taskPrompt !== undefined ? { taskPrompt: seam.taskPrompt } : {}),
     ...(seam.runId ? { runId: seam.runId } : {}),
     ...(seam.baseRef ? { baseRef: seam.baseRef } : {}),
@@ -3470,12 +3462,6 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     ...(seam.budgetExempt !== undefined ? { budgetExempt: seam.budgetExempt } : {}),
     ...(ctx.node?.attemptId !== undefined ? { executionAttemptId: ctx.node.attemptId } : {}),
   }) as Executor<unknown>
-}
-
-function localWorktreeHarness(harness: string | undefined): LocalHarness | undefined {
-  return harness === 'claude-code' || harness === 'codex' || harness === 'opencode'
-    ? harness
-    : undefined
 }
 
 // ── createExecutor: the ONE built-in factory (backend as data) ──────────────────

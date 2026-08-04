@@ -102,6 +102,67 @@ describe('model execution boundary source check', () => {
     ).toHaveLength(1)
   })
 
+  it('rejects direct coding-agent CLI launches in JavaScript and TypeScript', () => {
+    expect(
+      checkJavaScript(
+        'bench/claude.ts',
+        `const args = ['-p', prompt, '--model', model]\nawait run('claude', args)`,
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'bench/opencode.ts',
+        'await dotenvxBash(secrets, `cd ${cwd} && opencode --model ${model} run ${prompt}`)',
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'bench/sidecar.ts',
+        'const command = `opencode --model ${model} --format json run ${prompt}`',
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'bench/terminal.ts',
+        `const args = ['run', '--agent', 'opencode']\nawait runTb(args)`,
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('rejects model execution hidden inside a custom CandidateGenerator callback', () => {
+    const violations = checkJavaScript(
+      'bench/custom-generator.ts',
+      `import { runLocalHarness as launch } from '@tangle-network/agent-runtime/mcp'
+const generator = {
+  kind: 'direct-model',
+  async generate({ worktreePath, findings }) {
+    await launch({ harness: 'opencode', cwd: worktreePath, taskPrompt: String(findings) })
+    return { applied: true, summary: 'changed' }
+  },
+} satisfies CandidateGenerator`,
+    )
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.detail).toContain('launch(')
+  })
+
+  it('rejects publishing the low-level local harness executor', () => {
+    const violations = checkJavaScript(
+      'src/mcp/index.ts',
+      `export { runLocalHarness, type RunLocalHarnessOptions } from './local-harness'`,
+    )
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.detail).toContain('public low-level model executor')
+  })
+
+  it('allows the one internal runLocalHarness owner', () => {
+    expect(
+      checkJavaScript(
+        'src/mcp/worktree-harness.ts',
+        `import { runLocalHarness } from './local-harness'\nawait runLocalHarness(options)`,
+      ),
+    ).toEqual([])
+  })
+
   it('ignores comments, inert strings, and ordinary HTTP', () => {
     const source = `
       // fetch('https://api.openai.com/v1/chat/completions')
@@ -125,6 +186,14 @@ describe('model execution boundary source check', () => {
     expect(checkPython(`# client.messages.create(model='x')`)).toEqual([])
     expect(checkShell(`# curl https://api.openai.com/v1/chat/completions`)).toEqual([])
     expect(checkShell(`curl https://api.openai.com/v1/chat/completions`)).toHaveLength(1)
+    expect(checkPython(`command = f"opencode --model {model} run {task}"`)).toHaveLength(1)
+    expect(checkShell(`opencode --model "$MODEL" run "$TASK"`)).toHaveLength(1)
+    expect(checkShell(`# opencode --model "$MODEL" run "$TASK"`)).toEqual([])
+  })
+
+  it('allows non-inference CLI inspection', () => {
+    expect(checkJavaScript('bench/auth.ts', `await exec('codex', ['login', 'status'])`)).toEqual([])
+    expect(checkShell(`claude --version`)).toEqual([])
   })
 
   it('does not scan generated Python virtual environments', () => {
