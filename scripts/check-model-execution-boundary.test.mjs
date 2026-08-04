@@ -1,8 +1,12 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   checkJavaScript,
   checkPython,
   checkShell,
+  findSourceFiles,
 } from './check-model-execution-boundary.mjs'
 
 describe('model execution boundary source check', () => {
@@ -121,5 +125,20 @@ describe('model execution boundary source check', () => {
     expect(checkPython(`# client.messages.create(model='x')`)).toEqual([])
     expect(checkShell(`# curl https://api.openai.com/v1/chat/completions`)).toEqual([])
     expect(checkShell(`curl https://api.openai.com/v1/chat/completions`)).toHaveLength(1)
+  })
+
+  it('does not scan generated Python virtual environments', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'model-boundary-'))
+    try {
+      const virtualEnvironment = join(fixture, '.venv', 'lib')
+      mkdirSync(virtualEnvironment, { recursive: true })
+      writeFileSync(join(virtualEnvironment, 'provider.py'), `client.responses.create(model='x')`)
+      const source = join(fixture, 'source.ts')
+      writeFileSync(source, `export const value = 'source'\n`)
+
+      expect(findSourceFiles(fixture)).toEqual([source])
+    } finally {
+      rmSync(fixture, { force: true, recursive: true })
+    }
   })
 })

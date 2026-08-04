@@ -7,9 +7,8 @@
  *   - emit `proposedWrites[]` — never call materialize itself
  *   - describe `gaps` it could not answer
  *
- * The profile is stateless and agent-agnostic. `harness` selects the
- * sandbox-SDK backend. For heterogeneous fanout, use
- * `multiHarnessResearcherFanout`.
+ * The profile is stateless and agent-agnostic. The caller supplies the exact execution profile;
+ * this preset adds only the researcher prompt, tools, parser, and validator.
  *
  * Propose-don't-apply: the profile NEVER writes to the knowledge base.
  * It produces `proposedWrites: KnowledgeUpdate[]` in the output. The
@@ -23,8 +22,10 @@
  * @experimental
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
+import { ConfigError } from '../errors'
+import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type {
   AgentRunSpec,
   DefaultVerdict,
@@ -106,13 +107,11 @@ export interface ResearchOutput {
 
 /** Options for the source-grounded researcher profile preset. @experimental */
 export interface ResearcherProfileOptions {
-  /** Sandbox-SDK backend.type. Default `'opencode/zai-coding-plan/glm-5.1'`. */
-  harness?: string
-  /** Default model id passed in `AgentProfile.model.default`. */
-  model?: string
+  /** Caller-owned exact harness/provider/model identity. */
+  profile: AgentProfile
   /** Custom system prompt replacement. Default = built-in researcher preset. */
   systemPrompt?: string
-  /** Stable name for `AgentRunSpec.name`. Default = `researcher-${harness}`. */
+  /** Stable name for `AgentRunSpec.name`. Default = `profile.name`. */
   name?: string
   /**
    * Default 0.7. Minimum (citations with quote) / items ratio for `valid=true`.
@@ -121,30 +120,28 @@ export interface ResearcherProfileOptions {
   citationDensityMin?: number
 }
 
-const DEFAULT_HARNESS = 'opencode/zai-coding-plan/glm-5.1'
 const DEFAULT_CITATION_DENSITY_MIN = 0.7
 
 /** Build a source-grounded researcher profile with output parsing and validation. @experimental */
-export function researcherProfile(
-  options: ResearcherProfileOptions & { task?: ResearchTask } = {},
-): {
+export function researcherProfile(options: ResearcherProfileOptions & { task?: ResearchTask }): {
   profile: AgentProfile
   taskToPrompt: (task: ResearchTask) => string
   output: OutputAdapter<ResearchOutput>
   validator: Validator<ResearchOutput>
   agentRunSpec: AgentRunSpec<ResearchTask>
 } {
-  const harness = options.harness ?? DEFAULT_HARNESS
-  const name = options.name ?? `researcher-${harness}`
-  const systemPrompt = options.systemPrompt ?? DEFAULT_RESEARCHER_SYSTEM_PROMPT
+  const base = agentProfileSchema.parse(options.profile) as AgentProfile
+  assertExecutableAgentProfile(base, 'researcherProfile')
+  const name = options.name ?? base.name
+  const systemPrompt = options.systemPrompt ?? RESEARCHER_SYSTEM_PROMPT
   const citationDensityMin = options.citationDensityMin ?? DEFAULT_CITATION_DENSITY_MIN
   const profile: AgentProfile = {
+    ...base,
     name,
-    description: "Source-grounded research agent. Propose-don't-apply.",
-    prompt: { systemPrompt },
-    model: options.model ? { default: options.model } : undefined,
-    tools: { web_search: true, fs: true, shell: true },
-    metadata: { backendType: harness, role: 'researcher' },
+    description: base.description ?? "Source-grounded research agent. Propose-don't-apply.",
+    prompt: { ...base.prompt, systemPrompt },
+    tools: { web_search: true, fs: true, shell: true, ...base.tools },
+    metadata: { ...base.metadata, role: 'researcher' },
   }
   const output: OutputAdapter<ResearchOutput> = { parse: parseResearcherEvents }
   const validator: Validator<ResearchOutput> = options.task
@@ -163,10 +160,8 @@ export function researcherProfile(
 
 /** @experimental */
 export interface MultiHarnessResearcherFanoutOptions {
-  /** Backend.type identifiers, one per parallel agent. */
-  harnesses?: string[]
-  /** Optional per-harness model override. Indexed parallel to `harnesses`. */
-  models?: (string | undefined)[]
+  /** Exact execution profiles, one per parallel researcher. */
+  profiles: ReadonlyArray<AgentProfile>
   /** Default citation density floor for the shared validator. */
   citationDensityMin?: number
   /** Optional task — narrows the validator's namespace check. */
@@ -180,22 +175,21 @@ export interface MultiHarnessResearcherFanoutOptions {
  *
  * @experimental
  */
-export function multiHarnessResearcherFanout(options: MultiHarnessResearcherFanoutOptions = {}): {
+export function multiHarnessResearcherFanout(options: MultiHarnessResearcherFanoutOptions): {
   agentRuns: AgentRunSpec<ResearchTask>[]
   output: OutputAdapter<ResearchOutput>
   validator: Validator<ResearchOutput>
   driver: Driver<ResearchTask, ResearchOutput, 'done'>
 } {
-  const harnesses =
-    options.harnesses && options.harnesses.length > 0
-      ? options.harnesses
-      : ['opencode/zai-coding-plan/glm-5.1', 'claude-code', 'codex']
-  const models = options.models ?? []
-  const agentRuns = harnesses.map((harness, i) => {
-    const { agentRunSpec } = researcherProfile({ harness, model: models[i] })
+  if (options.profiles.length === 0) {
+    throw new ConfigError('multiHarnessResearcherFanout: at least one exact profile is required')
+  }
+  const agentRuns = options.profiles.map((profile) => {
+    const { agentRunSpec } = researcherProfile({ profile })
     return agentRunSpec
   })
   const { output, validator } = researcherProfile({
+    profile: options.profiles[0]!,
     citationDensityMin: options.citationDensityMin,
     task: options.task,
   })
@@ -205,7 +199,7 @@ export function multiHarnessResearcherFanout(options: MultiHarnessResearcherFano
   const driver: Driver<ResearchTask, ResearchOutput, 'done'> = {
     name: 'researcher-fanout',
     async plan(task, history) {
-      return history.length === 0 ? Array.from({ length: harnesses.length }, () => task) : []
+      return history.length === 0 ? Array.from({ length: agentRuns.length }, () => task) : []
     },
     // 'done' is a terminal decision in the kernel; the loop finalizes after
     // the single fanout round and selects the winner via `defaultSelectWinner`.
@@ -349,7 +343,7 @@ function recencyMatchScore(items: KnowledgeItem[], window: ResearchTask['recency
   return total === 0 ? 0 : hits / total
 }
 
-const DEFAULT_RESEARCHER_SYSTEM_PROMPT = [
+export const RESEARCHER_SYSTEM_PROMPT = [
   'You are a research agent. Your job is to answer a research question with',
   'source-grounded knowledge items that the caller will choose whether to',
   'persist to a multi-tenant knowledge base.',

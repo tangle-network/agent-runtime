@@ -3491,7 +3491,7 @@ export type ExecutorConfig =
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
   | ({ backend: 'provider' } & ProviderSeam)
-  | ({ backend: 'sandbox'; harness?: BackendType } & SandboxSeam)
+  | ({ backend: 'sandbox' } & SandboxSeam)
 
 function assertExactConfigKeys(
   value: Readonly<Record<string, unknown>>,
@@ -3561,6 +3561,11 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       })
     }
     case 'sandbox': {
+      assertExactConfigKeys(
+        config as unknown as Readonly<Record<string, unknown>>,
+        new Set(['backend', 'lineage', 'loopCtx', 'maxIterations', 'sandboxClient', 'steering']),
+        'createExecutor sandbox config',
+      )
       const { sandboxClient, loopCtx, ...decisionData } = config
       if (loopCtx === undefined) {
         const snapshot = detachedSnapshot(decisionData, 'createExecutor sandbox config')
@@ -3740,9 +3745,12 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         })(spec, seamed)
       }
       case 'sandbox': {
-        // The sandbox executor requires a concrete harness; a spec-level harness
-        // wins, else the config names it (fail-loud inside if both are absent).
-        const harness = spec.harness ?? captured.harness ?? null
+        const harness = spec.profile.harness as BackendType
+        if (spec.harness != null && spec.harness !== harness) {
+          throw new ValidationError(
+            `createExecutor(sandbox): AgentSpec.harness ${JSON.stringify(spec.harness)} conflicts with AgentProfile.harness ${JSON.stringify(harness)}`,
+          )
+        }
         return sandboxExecutor({ ...spec, harness }, seamed)
       }
     }

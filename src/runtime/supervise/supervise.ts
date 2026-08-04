@@ -354,9 +354,7 @@ function driveHarnessFromBackend(
     const spec: AgentSpec = {
       profile: effectiveProfile,
       harness:
-        boundBackend.backend === 'sandbox'
-          ? ((effectiveProfile.harness ?? boundBackend.harness ?? null) as BackendType | null)
-          : null,
+        boundBackend.backend === 'sandbox' ? (effectiveProfile.harness as BackendType) : null,
     }
     const executor = baseFactory(spec, {
       signal: scope.signal,

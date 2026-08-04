@@ -352,8 +352,8 @@ describe('profile materialization contracts', () => {
 
   it('pins the resolver behavior the harness claim rests on', () => {
     // The contract claims `harness` only because buildBackendOptions resolves the runner from
-    // it. A complete profile is mandatory, and its optional backendType selects a deliberate
-    // execution implementation while model identity remains fixed by the profile.
+    // it. A complete profile is mandatory, and neither metadata nor a sandbox override may select
+    // a different execution implementation.
     const executable = {
       name: 'a',
       harness: 'codex',
@@ -363,7 +363,10 @@ describe('profile materialization contracts', () => {
     expect(
       buildBackendOptions({ ...executable, metadata: { backendType: 'amp' } }, undefined).backend
         ?.type,
-    ).toBe('amp')
+    ).toBe('codex')
+    expect(() => buildBackendOptions(executable, { backend: { type: 'amp' } })).toThrow(
+      /conflicts with AgentProfile/,
+    )
     expect(() => buildBackendOptions({ ...executable, harness: undefined }, undefined)).toThrow(
       /harness must be explicit/,
     )

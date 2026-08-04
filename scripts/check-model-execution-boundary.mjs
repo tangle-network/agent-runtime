@@ -63,6 +63,7 @@ const lowLevelModelCalls = new Set([
 const sourceExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.py', '.sh'])
 const ignoredDirectories = new Set([
   '.git',
+  '.venv',
   'coverage',
   'dist',
   'fixtures',
@@ -75,14 +76,14 @@ function extension(path) {
   return match?.[0] ?? ''
 }
 
-function walk(path) {
+export function findSourceFiles(path) {
   const entries = readdirSync(path)
   const files = []
   for (const name of entries) {
     if (ignoredDirectories.has(name)) continue
     const child = resolve(path, name)
     const stats = statSync(child)
-    if (stats.isDirectory()) files.push(...walk(child))
+    if (stats.isDirectory()) files.push(...findSourceFiles(child))
     else if (sourceExtensions.has(extension(name))) files.push(child)
   }
   return files
@@ -342,7 +343,7 @@ export function scanRepository() {
   const violations = []
   for (const sourceRoot of sourceRoots) {
     const path = resolve(root, sourceRoot)
-    for (const file of walk(path)) {
+    for (const file of findSourceFiles(path)) {
       const repoPath = relative(root, file).replaceAll('\\', '/')
       if (directTransportOwners.has(repoPath)) continue
       const text = readFileSync(file, 'utf8')

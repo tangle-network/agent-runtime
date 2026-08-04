@@ -45,9 +45,7 @@ function harnessAsBackendType(harness: HarnessType): BackendType | undefined {
 }
 
 /**
- * Resolve the backend `type`: the profile's `metadata.backendType` hint, then
- * its declared `harness`, else the
- * SDK's profile-driven default (`'opencode'` on the platform side).
+ * Resolve the backend `type` from the exact profile's declared `harness`.
  *
  * A declared `harness` the sandbox cannot run throws rather than falling
  * through: silently running a `gemini` profile on opencode returns a result
@@ -57,28 +55,18 @@ function resolveBackendType(
   profile: AgentProfile,
   override: Partial<BackendOverride> | undefined,
 ): BackendType {
-  const explicit = profile.metadata?.backendType
-  let selected: BackendType | undefined
-  if (typeof explicit === 'string') selected = explicit as BackendType
   const declared = profile.harness
-  if (selected === undefined && declared !== undefined) {
-    const backend = harnessAsBackendType(declared)
-    if (backend === undefined) {
-      throw new Error(
-        `buildBackendOptions: profile declares harness "${declared}", which the sandbox has no backend for. ` +
-          `Runnable harnesses: ${harnessBackends.join(', ')}. ` +
-          'Set metadata.backendType to run it on a different backend deliberately.',
-      )
-    }
-    selected = backend
+  const selected = declared === undefined ? undefined : harnessAsBackendType(declared)
+  if (selected === undefined) {
+    throw new Error(
+      `buildBackendOptions: profile declares harness ${JSON.stringify(declared)}, which the sandbox has no backend for. ` +
+        `Runnable harnesses: ${harnessBackends.join(', ')}.`,
+    )
   }
   if (override?.type && selected && override.type !== selected) {
     throw new Error(
       `buildBackendOptions: backend override ${JSON.stringify(override.type)} conflicts with AgentProfile backend ${JSON.stringify(selected)}`,
     )
-  }
-  if (selected === undefined) {
-    throw new Error('buildBackendOptions: AgentProfile.harness must select the sandbox backend')
   }
   return selected
 }
