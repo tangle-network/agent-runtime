@@ -21,9 +21,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
+import { defaultAnalystInstruction, refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { BenchScore } from './benchmarks/types'
-import { createSweBenchEnvironment } from './swe-bench-env'
+import { createSweBenchEnvironment, SWE_SEED_PROMPT, SWE_SEED_PROMPT_WITH_RUN } from './swe-bench-env'
+import { benchRouterProfile, withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -45,6 +46,28 @@ async function main(): Promise<void> {
   console.log(`router=${routerBaseUrl}`)
 
   const { environment, tasks, adapter } = await createSweBenchEnvironment(ids.length, { ids, enableRun })
+  const workerProfile = withBenchProfile(
+    {
+      name: 'swe-local-proof-worker',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: model },
+      tools: {
+        list_files: true,
+        read_file: true,
+        edit_file: true,
+        ...(enableRun ? { run: true } : {}),
+      },
+    },
+    {
+      systemPrompt: enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT,
+      maxTokens,
+      maxTurns: innerTurns,
+    },
+  )
+  const analystProfile = benchRouterProfile('swe-local-proof-analyst', model, {
+    systemPrompt: defaultAnalystInstruction,
+    maxTokens,
+  })
   const taskList = await tasks(0, ids.length)
   const benchTaskById = new Map(
     (await adapter.loadTasks({ ids, split: 'test' })).map((task) => [task.id, task]),
@@ -145,9 +168,8 @@ async function main(): Promise<void> {
       strategy: refine,
       routerBaseUrl,
       routerKey,
-      model,
-      maxTokens,
-      innerTurns,
+      workerProfile,
+      analystProfile,
       budget,
     })
     const rec = captured.get(task.id)

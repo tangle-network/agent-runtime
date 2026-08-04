@@ -20,7 +20,6 @@ import { makeTbContainerWorkerAgent, type ParseUsage } from './tb-container-exec
 const CONTAINER_ID = (process.env.TB_TARGET_CONTAINER ?? '').trim()
 const ROUTER_KEY = process.env.OPENAI_API_KEY ?? ''
 const ROUTER_BASE = process.env.OPENAI_BASE_URL ?? 'https://router.tangle.tools/v1'
-const WORKER_MODEL = process.env.WORKER_MODEL ?? 'zai-coding-plan/glm-5.2'
 const DOCKER_BRIDGE_GATEWAY = process.env.DOCKER_BRIDGE_GATEWAY ?? '172.17.0.1'
 const PORT_FILE = process.env.TB_SIDECAR_PORT_FILE ?? '.tb-sidecar-port'
 const LOG_FILE = process.env.TB_SIDECAR_LOG ?? '.tb-sidecar-events.jsonl'
@@ -40,30 +39,6 @@ function logEvent(kind: string, payload: unknown): void {
     /* logging is never fatal */
   }
   console.error(`[sidecar] ${kind} ${JSON.stringify(payload).slice(0, 300)}`)
-}
-
-function workerWrapCommand(task: unknown): string {
-  const instr =
-    typeof task === 'string'
-      ? task
-      : task && typeof task === 'object'
-        ? ((): string => {
-            const o = task as Record<string, unknown>
-            for (const k of ['task', 'prompt', 'content', 'command', 'message', 'instruction']) {
-              if (typeof o[k] === 'string') return o[k] as string
-            }
-            return JSON.stringify(task)
-          })()
-        : String(task)
-  const q = `'${instr.replace(/'/g, `'\\''`)}'`
-  return [
-    'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
-    '{ [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; } 2>/dev/null || true',
-    '{ [ -s /root/.nvm/nvm.sh ] && . /root/.nvm/nvm.sh; } 2>/dev/null || true',
-    `export OPENCODE_CONFIG=${WORKER_CONFIG_PATH}`,
-    `cd ${WORKER_WORKDIR} 2>/dev/null || true`,
-    `opencode --model ${WORKER_MODEL} --format json run ${q}`,
-  ].join('; ')
 }
 
 const parseWorkerUsage: ParseUsage = ({ stdout }) => {
@@ -115,9 +90,18 @@ async function main(): Promise<void> {
   const makeWorkerAgent = makeTbContainerWorkerAgent({
     containerId: CONTAINER_ID,
     workdir: WORKER_WORKDIR,
-    wrapCommand: workerWrapCommand,
+    commandPrefix: [
+      'export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"',
+      '{ [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; } 2>/dev/null || true',
+      '{ [ -s /root/.nvm/nvm.sh ] && . /root/.nvm/nvm.sh; } 2>/dev/null || true',
+    ],
     parseUsage: parseWorkerUsage,
-    env: { OPENAI_API_KEY: ROUTER_KEY, OPENAI_BASE_URL: ROUTER_BASE, HOME: '/root' },
+    env: {
+      OPENAI_API_KEY: ROUTER_KEY,
+      OPENAI_BASE_URL: ROUTER_BASE,
+      OPENCODE_CONFIG: WORKER_CONFIG_PATH,
+      HOME: '/root',
+    },
     runtime: 'tb-container',
   })
 

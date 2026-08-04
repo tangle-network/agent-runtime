@@ -17,6 +17,13 @@ import { chmod, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  collectAgentTurn,
+  createExecutor,
+  streamAgentTurn,
+  type CollectedAgentTurn,
+} from '@tangle-network/agent-runtime/kernel'
 import { run, runOk, type RunResult, shq } from './proc'
 import { materializeWorkspace } from './materialize'
 import type { ArmSpec, SoloUsage } from './types'
@@ -192,12 +199,15 @@ export interface SoloArmSpec {
   kind: 'solo'
   /** Ledger/run-dir label, e.g. 'SOLO'. */
   name: string
-  /** opencode model id, e.g. 'zai-coding-plan/glm-5.2'. */
-  model: string
+  /** Complete worker identity. Runtime reads harness/provider/model/prompt only from here. */
+  profile: AgentProfile
   /** Appended to the problem statement. Default: the shared worker suffix. */
   promptSuffix?: string
   /** Whole-run ceiling. solo.sh used `timeout 1000` (s). */
   timeoutMs?: number
+  /** Runtime bridge transport. Defaults to the CLI_BRIDGE environment variables. */
+  bridgeUrl?: string
+  bridgeBearer?: string
 }
 
 export interface SupervisorArmSpec {
@@ -271,8 +281,8 @@ export async function toArmIdentity(spec: ExecutableArmSpec): Promise<ArmSpec> {
     return {
       name: spec.name,
       kind: 'solo',
-      env: { model: spec.model },
-      provenance: { repo: 'opencode', commit: 'cli' },
+      env: { model: spec.profile.model?.default ?? 'missing' },
+      provenance: { repo: spec.profile.harness ?? 'missing', commit: 'runtime-bridge' },
     }
   }
   const loopsRepo = spec.loopsRepo ?? DEFAULT_LOOPS_REPO
@@ -450,7 +460,29 @@ async function verifyWorkspace(
   return res.code
 }
 
-/** solo.sh port: materialize → prompt → opencode run → patch extract → verify. */
+function runtimeSoloUsage(turn: CollectedAgentTurn): SoloUsage {
+  const calls = turn.events.filter((event) => event.type === 'llm_call')
+  const maxCtx = calls.reduce(
+    (max, event) => Math.max(max, (event.tokensIn ?? 0) + (event.tokensOut ?? 0)),
+    0,
+  )
+  const cacheRead = Number(turn.usage.promptCache?.readTokens ?? 0)
+  const cacheWrite = Number(turn.usage.promptCache?.writeTokens ?? 0)
+  const reasoning = turn.usage.reasoningTokens ?? 0
+  return {
+    steps: calls.length,
+    in: turn.usage.input,
+    out: turn.usage.output,
+    reasoning,
+    cache_w: Number.isFinite(cacheWrite) ? cacheWrite : 0,
+    cache_r: Number.isFinite(cacheRead) ? cacheRead : 0,
+    max_ctx: maxCtx,
+    oc_cost: turn.usage.costUsd ?? turn.usage.estimatedCostUsd ?? 0,
+    total_io: turn.usage.input + turn.usage.output + reasoning,
+  }
+}
+
+/** Solo arm: materialize → exact Runtime profile turn → patch extract → verify. */
 export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise<SoloArmResult> {
   const runDir = join(ctx.outDir, 'runs', ctx.instanceId, spec.name)
   const ws = join(runDir, 'ws')
@@ -469,18 +501,44 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
     })
 
   const promptFile = join(runDir, 'prompt.txt')
-  await writeFile(promptFile, ctx.problemStatement + (spec.promptSuffix ?? WORKER_PROMPT_SUFFIX))
+  const prompt = ctx.problemStatement + (spec.promptSuffix ?? WORKER_PROMPT_SUFFIX)
+  await writeFile(promptFile, prompt)
+
+  const bridgeUrl = spec.bridgeUrl ?? process.env.CLI_BRIDGE_URL ?? process.env.BRIDGE_URL
+  const bridgeBearer =
+    spec.bridgeBearer ?? process.env.CLI_BRIDGE_BEARER ?? process.env.BRIDGE_BEARER
+  if (!bridgeUrl || !bridgeBearer) {
+    throw new Error(
+      'runSoloArm requires CLI_BRIDGE_URL/BRIDGE_URL and CLI_BRIDGE_BEARER/BRIDGE_BEARER',
+    )
+  }
 
   const t0 = Date.now()
-  const oc = await dotenvxBash(
-    ctx.secrets,
-    `cd ${shq(ws)} && opencode run "$(cat ${shq(promptFile)})" -m ${shq(spec.model)} --format json`,
-    { timeoutMs: spec.timeoutMs ?? 1_000_000, env: cell.env, signal: ctx.signal },
+  const timeoutMs = spec.timeoutMs ?? 1_000_000
+  const factory = createExecutor({
+    backend: 'bridge',
+    bridgeUrl,
+    bridgeBearer,
+    cwd: ws,
+    timeoutMs,
+  })
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', factory, profile: spec.profile },
+      prompt,
+      { timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) },
+    ),
   )
   const wall_s = Math.round((Date.now() - t0) / 1000)
-  await writeFile(join(runDir, 'oc.jsonl'), oc.stdout)
-  await writeFile(join(runDir, 'oc.err'), oc.stderr)
-  assertSoloProcessCompleted(oc, `runSoloArm ${ctx.instanceId}/${spec.name}`)
+  await writeFile(
+    join(runDir, 'runtime-events.jsonl'),
+    turn.events.map((event) => JSON.stringify(event)).join('\n') + '\n',
+  )
+  if (turn.status !== 'completed') {
+    throw new Error(
+      `runSoloArm ${ctx.instanceId}/${spec.name}: ${turn.error?.message ?? turn.status}`,
+    )
+  }
   if (ctx.signal?.aborted) throw ctx.signal.reason
 
   const patch = await extractPatch(ws, ctx.baseCommit, ctx.excludes, ctx.signal)
@@ -492,12 +550,12 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   return {
     arm: spec.name,
     iid: ctx.instanceId,
-    oc_rc: oc.code,
+    oc_rc: 0,
     wall_s,
     patch_lines: patchLineCount(patch),
     verify_rc,
     verify_pass: verify_rc === 0,
-    usage: parseOcUsage(oc.stdout),
+    usage: runtimeSoloUsage(turn),
     patchPath,
     ws,
   }

@@ -66,7 +66,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { applyKnowledgeWriteBlocks, buildKnowledgeIndex, initKnowledgeBase, searchKnowledge } from '@tangle-network/agent-knowledge'
 import type { AgenticSurface, AgenticTask, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
+import { defaultAnalystInstruction, refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { BenchTask } from './benchmarks/types'
 import { createSweBenchEnvironment, resolveImageForMetadata, SWE_SEED_PROMPT } from './swe-bench-env'
 import {
@@ -82,6 +82,7 @@ import {
   tail,
   zaiChatRaw,
 } from './swe-jail'
+import { withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -286,6 +287,7 @@ const makeTransport =
       { ...body, ...WORKER_REASONING },
       {
         name: 'swe-stream-worker',
+        harness: 'cli-base',
         model: {
           provider: 'zai',
           default: model,
@@ -364,10 +366,44 @@ async function emitAttempt(
   }
   const task: AgenticTask = {
     id: bt.id,
-    systemPrompt: SWE_SEED_PROMPT,
     userPrompt: cfg.promptAppendix ? `${bt.prompt}\n\n${cfg.promptAppendix}` : bt.prompt,
     meta: { instanceId: bt.id },
   }
+  const workerProfile = withBenchProfile(
+    {
+      name: 'swe-stream-worker',
+      harness: 'cli-base',
+      model: {
+        provider: 'zai',
+        default: WORKER_MODEL,
+        reasoningEffort: REASONING_ON ? 'high' : 'none',
+      },
+      tools: { list_files: true, read_file: true, edit_file: true },
+    },
+    {
+      systemPrompt: SWE_SEED_PROMPT,
+      maxTokens: MAX_TOKENS,
+      maxTurns: INNER_TURNS,
+      temperature: cfg.temperature,
+      extraBody: WORKER_REASONING,
+    },
+  )
+  const analystProfile = withBenchProfile(
+    {
+      name: 'swe-stream-analyst',
+      harness: 'cli-base',
+      model: {
+        provider: 'zai',
+        default: WORKER_MODEL,
+        reasoningEffort: REASONING_ON ? 'high' : 'none',
+      },
+    },
+    {
+      systemPrompt: defaultAnalystInstruction,
+      maxTokens: MAX_TOKENS,
+      extraBody: WORKER_REASONING,
+    },
+  )
   let error: string | undefined
   try {
     const r = await runAgentic({
@@ -376,10 +412,8 @@ async function emitAttempt(
       strategy: refine,
       routerBaseUrl: 'zai-direct', // unused: the `complete` transport short-circuits the router
       routerKey: 'zai-direct',
-      model: WORKER_MODEL,
-      maxTokens: MAX_TOKENS,
-      temperature: cfg.temperature,
-      innerTurns: INNER_TURNS,
+      workerProfile,
+      analystProfile,
       budget: 1,
       complete: makeTransport(cfg.marks, counter, guard),
     })

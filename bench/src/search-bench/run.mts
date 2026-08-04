@@ -135,14 +135,13 @@ async function runCell(
   const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? 300_000)
   try {
     const agentRun = sandboxAgentRun({
-      model: cfg.model,
-      routerBaseUrl: cfg.routerBaseUrl,
-      backendType: harness,
-      ...(cfg.provider ? { provider: cfg.provider } : {}),
       profile: buildArmProfile({
         arm,
         routerBaseUrl: cfg.routerBaseUrl,
         tangleApiKey: cfg.tangleApiKey,
+        harness,
+        model: cfg.model,
+        provider: cfg.provider ?? 'openai',
         name: `search-bench-${harness}-${armId}`,
         metadata: { harness, arm: armId, taskId: task.id },
       }),

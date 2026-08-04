@@ -66,6 +66,15 @@ _USAGE_OUT_PATH = f"{_CONTAINER_DIR}/opencode-events.jsonl"
 _USAGE_ERR_PATH = f"{_CONTAINER_DIR}/opencode-run.err"
 
 
+REFINE_DIRECTIVE = (
+    "REFINE PASS — your previous attempt failed the task's automated tests. "
+    "Use the evidence below to correct the concrete failure without discarding work "
+    "that was already right. Verify the task's success criteria before finishing.\n\n"
+    "<previous_attempt>\n{prior}\n</previous_attempt>\n\n"
+    "--- ORIGINAL TASK ---\n{instruction}"
+)
+
+
 class OpenCodeRouterAgent(OpenCodeAgent):
     """`OpenCodeAgent` + Tangle-router routing + real token metering.
 
@@ -77,26 +86,70 @@ class OpenCodeRouterAgent(OpenCodeAgent):
     a real `AgentResult`.
     """
 
-    def __init__(self, model_name: str, *args, **kwargs):
-        # The stock __init__ does `self._provider, _ = model_name.split("/")`, which
-        # raises on a 3-segment or bare id. Derive the provider robustly ourselves,
-        # then hand the base class a value it can split without raising.
-        self._model_name = model_name
-        provider, _, sub = model_name.partition("/")
+    def __init__(
+        self,
+        model_name: str,
+        profile_path: str,
+        prior_attempt_hex: str | None = None,
+        *args,
+        **kwargs,
+    ):
+        self._profile = json.loads(Path(profile_path).read_text())
+        if self._profile.get("harness") != "opencode":
+            raise ValueError("AgentProfile.harness must be 'opencode'")
+        model = self._profile.get("model")
+        if not isinstance(model, dict):
+            raise ValueError("AgentProfile.model is required")
+        provider = model.get("provider")
+        declared = model.get("default")
+        if not isinstance(provider, str) or not provider.strip():
+            raise ValueError("AgentProfile.model.provider must be explicit")
+        if not isinstance(declared, str) or not declared.strip() or declared == "runtime-selected":
+            raise ValueError("AgentProfile.model.default must be concrete")
+        wire_model = declared if "/" in declared else f"{provider}/{declared}"
+        if model_name != wire_model:
+            raise ValueError(
+                f"Terminal-Bench model {model_name!r} conflicts with AgentProfile {wire_model!r}"
+            )
+        self._model_name = wire_model
         self._provider = provider
-        # Model id opencode sees, minus the provider segment (e.g. "glm-5.2").
-        self._provider_model = sub or provider
+        self._provider_model = declared.split("/", 1)[-1]
+        self._prior_attempt = self._decode_prior(prior_attempt_hex)
+        prompt = self._profile.get("prompt")
+        self._profile_instructions: list[str] = []
+        if isinstance(prompt, dict):
+            system = prompt.get("systemPrompt")
+            if isinstance(system, str) and system.strip():
+                self._profile_instructions.append(system.strip())
+            instructions = prompt.get("instructions")
+            if isinstance(instructions, list):
+                self._profile_instructions.extend(
+                    value.strip()
+                    for value in instructions
+                    if isinstance(value, str) and value.strip()
+                )
         self._router_base_url = (
             os.environ.get("OPENAI_BASE_URL")
             or os.environ.get("ROUTER_BASE_URL")
             or DEFAULT_ROUTER_BASE_URL
         )
         self._router_api_key = os.environ.get("OPENAI_API_KEY", "")
-        # Call the grandparent (AbstractInstalledAgent) init via OpenCodeAgent, but
-        # avoid the base split-crash by not delegating provider derivation to it.
-        super(OpenCodeAgent, self).__init__(*args, **kwargs)
-        self._version = kwargs.get("version", "latest")
+        super().__init__(wire_model, *args, **kwargs)
         self._logger = logger.getChild(__name__)
+
+    @staticmethod
+    def _decode_prior(value: str | None) -> str:
+        if not value:
+            return ""
+        raw = str(value).strip()
+        if raw.startswith("h"):
+            raw = raw[1:]
+        if not raw:
+            return ""
+        try:
+            return bytes.fromhex(raw).decode("utf-8").strip()
+        except ValueError as error:
+            raise ValueError("prior_attempt_hex must be 'h' + hex-encoded UTF-8") from error
 
     @staticmethod
     def name() -> str:
@@ -136,16 +189,6 @@ class OpenCodeRouterAgent(OpenCodeAgent):
             "OPENAI_BASE_URL": self._router_base_url,
             "OPENCODE_CONFIG": _CONFIG_PATH,
         }
-        # Pass through any provider-native key the user already exported, so the same
-        # agent also works when pointed at a vendor endpoint rather than the router.
-        for passthrough in (
-            "ANTHROPIC_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "GROQ_API_KEY",
-            "ZAI_API_KEY",
-        ):
-            if passthrough in os.environ:
-                env.setdefault(passthrough, os.environ[passthrough])
         return {k: v for k, v in env.items() if v}
 
     def _build_router_config(self) -> str:
@@ -159,14 +202,7 @@ class OpenCodeRouterAgent(OpenCodeAgent):
             "$schema": "https://opencode.ai/config.json",
             # Headless benchmark runs cannot answer interactive permission prompts.
             # Keep this identical for raw and supervisor arms.
-            "permission": {
-                "edit": "allow",
-                "bash": "allow",
-                "webfetch": "allow",
-                "read": "allow",
-                "write": "allow",
-                "external_directory": "allow",
-            },
+            "permission": self._profile.get("permission", {}),
             "provider": {
                 self._provider: {
                     "npm": "@ai-sdk/openai-compatible",
@@ -184,25 +220,24 @@ class OpenCodeRouterAgent(OpenCodeAgent):
         return json.dumps(config)
 
     def _run_agent_commands(self, instruction: str):
-        """Same command as the stock agent, but `--format json` with the event
-        stream captured to a file so we can meter token usage after the run."""
+        """Instrument Terminal-Bench's stock command without selecting a model here."""
         from terminal_bench.terminal.models import TerminalCommand
 
-        escaped_instruction = shlex.quote(instruction)
-        command = (
-            f"opencode --model {self._model_name} --format json "
-            f"run {escaped_instruction} "
-            f"> {_USAGE_OUT_PATH} 2> {_USAGE_ERR_PATH}"
-        )
-        return [
-            TerminalCommand(
+        instrumented = []
+        for base in super()._run_agent_commands(instruction):
+            marker = " run "
+            if marker not in base.command:
+                raise ValueError("stock OpenCodeAgent command has no run subcommand")
+            command = base.command.replace(marker, " --format json run ", 1)
+            command += f" > {_USAGE_OUT_PATH} 2> {_USAGE_ERR_PATH}"
+            instrumented.append(TerminalCommand(
                 command=command,
                 min_timeout_sec=0.0,
                 max_timeout_sec=float("inf"),
                 block=True,
                 append_enter=True,
-            )
-        ]
+            ))
+        return instrumented
 
     def _write_config_to_container(self, session: TmuxSession) -> None:
         config_json = self._build_router_config()
@@ -364,6 +399,13 @@ class OpenCodeRouterAgent(OpenCodeAgent):
             self._logger.error(
                 "OPENAI_API_KEY (router key) is not set; opencode has no credential "
                 "to reach the router."
+            )
+        if self._profile_instructions:
+            instruction = "\n\n".join([*self._profile_instructions, instruction])
+        if self._prior_attempt:
+            instruction = REFINE_DIRECTIVE.format(
+                prior=self._prior_attempt,
+                instruction=instruction,
             )
         # Publish container id + inject router config BEFORE the base flow runs the
         # agent. The base perform_task copies the install script into _CONTAINER_DIR,

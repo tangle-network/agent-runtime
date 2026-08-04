@@ -14,10 +14,12 @@ import {
   type AgentRunSpec,
   type OutputAdapter,
 } from '@tangle-network/agent-runtime/kernel'
-// `BackendType` is the sandbox SDK's harness union and its canonical home. agent-runtime consumes
-// it from there too; it is not re-exported from the kernel barrel.
+import { parseExactAgentProfile } from '@tangle-network/agent-runtime'
+// `BackendType` is the sandbox SDK's harness union and its canonical home. Runtime consumes it
+// from there too; benchmark profiles use the same values as their exact harness identity.
 import type { BackendType } from '@tangle-network/sandbox'
-import { runBenchRouterTurn } from './router-turn'
+import { assertExecutableAgentProfile } from '../../src/runtime/supervise/model-policy'
+import { benchRouterProfile, runBenchRouterTurn } from './router-turn'
 
 /** Parse the agent's final answer from the event stream (harness-agnostic).
  *  The default deliverable; a benchmark whose artifact is a file overrides via
@@ -69,11 +71,7 @@ export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; mode
       {
         routerBaseUrl: cfg.routerBaseUrl,
         routerKey: cfg.routerKey,
-        profile: {
-          name: 'sandbox-run-analyst',
-          model: { provider: 'tangle-router', default: cfg.model },
-          prompt: { systemPrompt },
-        },
+        profile: benchRouterProfile('sandbox-run-analyst', cfg.model, { systemPrompt }),
       },
       `Task:\n${task ?? '(task unavailable)'}\n\nPrevious answer:\n${last?.output ?? '(none)'}\n\nTrace tail:\n${traceTail}`,
     )
@@ -86,43 +84,24 @@ export const llmAnalyst = (cfg: { routerBaseUrl: string; routerKey: string; mode
  *  agent runs — no per-backend worker. */
 export type WorkerBackendType = BackendType
 
-/** Build the standard sandbox `AgentRunSpec` for a benchmark — the worker the
- *  kernel injects. `backendType` is the cost dial. Model auth is the BOX'S OWN
- *  provisioned credential: `backend.model` pins provider/model/baseUrl only, and
- *  the platform generates the in-box provider config keyed to
- *  `{env:OPENCODE_MODEL_API_KEY}`. Never pass an external router key into the
- *  box — the egress proxy rejects foreign credentials (403, empty output). */
+/** Build the standard sandbox `AgentRunSpec` for a benchmark. The complete profile is the only
+ * behavioral input: its harness selects the box backend and its provider/model select inference.
+ * Extra sandbox env remains infrastructure, not a second model-selection path. */
 export function sandboxAgentRun(opts: {
-  model: string
-  routerBaseUrl: string
-  backendType?: WorkerBackendType
-  /** In-box model provider. Default `openai` (registered models like gpt-4.1).
-   *  Cheap router models (deepseek/kimi/glm) are not in opencode's `openai`
-   *  registry and 404 in-box — pass `openai-compat` (generic passthrough). */
-  provider?: string
-  name?: string
+  profile: AgentProfile
   taskToPrompt?: (task: string) => string
   /** Extra box-level env (e.g. `TANGLE_SEARCH_DEFAULT_PROVIDER` to pin the in-box
    *  agent's web-search provider, provider keys like EXA_API_KEY). Allowlisted
    *  keys only reach the spawned CLI. Must NOT carry router/model credentials. */
   env?: Record<string, string>
-  /** The developer's AgentProfile — the one knob for "which agent" (prompt / model /
-   *  tools / mcp). Spread through verbatim; the backend cost-dial is tagged into
-   *  metadata. Omitted ⇒ a minimal worker profile. */
-  profile?: AgentProfile
 }): AgentRunSpec<string> {
-  const backendType = opts.backendType ?? 'opencode'
-  const name = opts.profile?.name ?? opts.name ?? `${backendType}-worker`
+  const profile = parseExactAgentProfile(opts.profile, 'sandboxAgentRun profile')
+  assertExecutableAgentProfile(profile, 'sandboxAgentRun profile')
+  const name = profile.name ?? 'sandbox-worker'
   return {
-    profile: { ...opts.profile, name, metadata: { ...opts.profile?.metadata, backendType } },
+    profile,
     name,
     taskToPrompt: opts.taskToPrompt ?? ((t) => t),
-    sandboxOverrides: {
-      ...(opts.env ? { env: opts.env } : {}),
-      backend: {
-        type: backendType,
-        model: { provider: opts.provider ?? 'openai', model: opts.model, baseUrl: opts.routerBaseUrl },
-      },
-    },
+    ...(opts.env ? { sandboxOverrides: { env: opts.env } } : {}),
   }
 }

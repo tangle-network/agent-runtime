@@ -72,6 +72,7 @@ function tools(events: ReadonlyArray<unknown>): string[] {
 async function main(): Promise<void> {
   const routerKey = env('TANGLE_API_KEY')
   const model = env('MODEL', 'deepseek-v4-flash')
+  const workerProvider = env('WORKER_PROVIDER', 'openai-compat')
   const routerBaseUrl = env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1')
   const rounds = Number(env('ROUNDS', '3'))
   const client = new Sandbox({ baseUrl: env('SANDBOX_BASE_URL', 'https://sandbox.tangle.tools'), apiKey: routerKey })
@@ -97,7 +98,13 @@ async function main(): Promise<void> {
     let output = ''
     let events: unknown[] = []
     try {
-      const agentRun = sandboxAgentRun({ model, routerBaseUrl, backendType: 'opencode', name: `worker-r${round}` })
+      const agentRun = sandboxAgentRun({
+        profile: {
+          name: `worker-r${round}`,
+          harness: 'opencode',
+          model: { provider: workerProvider, default: model },
+        },
+      })
       const run = await openSandboxRun<string>(
         client,
         { agentRun, signal: controller.signal },

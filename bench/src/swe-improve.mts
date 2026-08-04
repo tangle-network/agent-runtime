@@ -30,10 +30,11 @@ import {
 } from '@tangle-network/agent-runtime'
 import {
   canonicalCandidateDigest,
+  agentProfileSchema,
   type AgentProfile,
 } from '@tangle-network/agent-interface'
 import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
+import { defaultAnalystInstruction, refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { createSweBenchAdapter } from './benchmarks/swe-bench'
 import type { BenchTask } from './benchmarks/types'
@@ -43,6 +44,7 @@ import {
   requiredTokenPricing,
 } from './official-optimizer-config.mjs'
 import { createSweBenchEnvironment, SWE_SEED_PROMPT, SWE_SEED_PROMPT_WITH_RUN } from './swe-bench-env'
+import { benchRouterProfile, withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -70,6 +72,24 @@ async function main(): Promise<void> {
   const enableRun = ['1', 'true', 'yes'].includes((process.env.RUN_TOOL ?? '').toLowerCase())
   const SEED_PROMPT = enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT
   const allIds = [...new Set([...trainIds, ...selectionIds, ...testIds])]
+  const workerProfile = withBenchProfile(
+    {
+      name: 'swe-agent-worker',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: workerModel },
+      tools: {
+        list_files: true,
+        read_file: true,
+        edit_file: true,
+        ...(enableRun ? { run: true } : {}),
+      },
+    },
+    { systemPrompt: SEED_PROMPT, maxTokens: workerMaxTokens, maxTurns: innerTurns },
+  )
+  const analystProfile = benchRouterProfile('swe-agent-analyst', workerModel, {
+    systemPrompt: defaultAnalystInstruction,
+    maxTokens: workerMaxTokens,
+  })
 
   console.log('=== SWE-bench prompt optimization with official GEPA ===')
   console.log(`worker=${workerModel} reflect=${reflectModel} router=${routerBaseUrl}`)
@@ -103,11 +123,12 @@ async function main(): Promise<void> {
   // score() BEFORE runAgentic closes (rm) the workspace; its score is a cheap
   // patch-exists proxy so the ONLY Docker run per cell is the improve judge.
   const agent = async (candidate: ReadonlyAgentProfile, scenario: Scenario, ctx: DispatchContext): Promise<string | null> => {
-    const promptText = candidate.prompt?.systemPrompt
+    const exactCandidate = agentProfileSchema.parse(candidate)
+    const promptText = exactCandidate.prompt?.systemPrompt
     if (promptText === undefined) throw new Error('agent: candidate profile has no system prompt')
     const bt = byId.get(scenario.id)
     if (!bt) throw new Error(`agent: unknown scenario ${scenario.id}`)
-    const task = { id: bt.id, systemPrompt: promptText, userPrompt: bt.prompt, meta: { instanceId: bt.id } }
+    const task = { id: bt.id, userPrompt: bt.prompt, meta: { instanceId: bt.id } }
     let capturedPatch = ''
     const stats = { list: 0, read: 0, edit_ok: 0, edit_fail: 0, run: 0, run_err: 0 }
     const proxy: AgenticSurface = {
@@ -143,9 +164,8 @@ async function main(): Promise<void> {
           strategy: refine,
           routerBaseUrl,
           routerKey,
-          model: workerModel,
-          maxTokens: workerMaxTokens,
-          innerTurns,
+          workerProfile: exactCandidate,
+          analystProfile,
           budget: budgetShots,
         }),
       receipt: (result) => {
@@ -201,10 +221,9 @@ async function main(): Promise<void> {
     },
   }
 
-  const profile: AgentProfile = { name: 'swe-agent-glm46', prompt: { systemPrompt: SEED_PROMPT } }
   const scenario = (id: string): Scenario => ({ id, kind: 'swe-bench-verified' })
 
-  const out = await improve(profile, {
+  const out = await improve(workerProfile, {
     surface: 'prompt',
     executionRef: canonicalCandidateDigest({
       callback: 'bench/swe-improve',

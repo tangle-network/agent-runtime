@@ -17,7 +17,7 @@
  * shape — a `transport:'http'` server at the router's `/v1/search/mcp` endpoint,
  * provider pinned via the `?provider=` query param.
  */
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, type HarnessType, agentProfileSchema } from '@tangle-network/agent-interface'
 
 export type SearchArm = 'native' | 'off' | { provider: string }
 
@@ -45,37 +45,45 @@ export interface BuildArmProfileArgs {
    *  foreign router credentials (403), so the provider arm needs the box-side
    *  credential flow before sandbox-backed provider runs are trustworthy. */
   tangleApiKey: string
+  harness: HarnessType
+  model: string
+  provider: string
   /** Optional name/metadata to merge. */
   name?: string
   metadata?: Record<string, unknown>
 }
 
 /**
- * Build the AgentProfile fragment (tools / permission / mcp) for one search arm.
- * Returned as a partial profile to be spread into `sandboxAgentRun({ profile })`.
+ * Build the complete executable AgentProfile for one search arm.
  */
 export function buildArmProfile(args: BuildArmProfileArgs): AgentProfile {
   const { arm, routerBaseUrl, tangleApiKey } = args
   const base: AgentProfile = {
     name: args.name ?? 'search-bench-worker',
+    harness: args.harness,
+    model: { provider: args.provider, default: args.model },
     ...(args.metadata ? { metadata: args.metadata } : {}),
-  } as AgentProfile
+  }
 
   if (arm === 'native') {
     // Native web tools stay on (harness default). No search MCP. For codex,
     // whose web_search ships off, explicitly enable it so the native arm is real.
-    return { ...base, tools: { web_search: true } } as AgentProfile
+    return agentProfileSchema.parse({ ...base, tools: { web_search: true } })
   }
 
   if (arm === 'off') {
     // No web access at all — the parametric floor (search contributes nothing).
-    return { ...base, tools: { ...nativeWebToolsDisabled }, permission: { webfetch: 'deny' } } as AgentProfile
+    return agentProfileSchema.parse({
+      ...base,
+      tools: { ...nativeWebToolsDisabled },
+      permission: { webfetch: 'deny' },
+    })
   }
 
   if (!tangleApiKey) {
     throw new Error(`buildArmProfile: provider arm "${arm.provider}" requires a tangleApiKey for the search MCP`)
   }
-  return {
+  return agentProfileSchema.parse({
     ...base,
     tools: { ...nativeWebToolsDisabled },
     permission: { webfetch: 'deny' },
@@ -87,7 +95,7 @@ export function buildArmProfile(args: BuildArmProfileArgs): AgentProfile {
         enabled: true,
       },
     },
-  } as AgentProfile
+  })
 }
 
 /** Stable condition label for the corpus: `<harness>:<arm>`. */

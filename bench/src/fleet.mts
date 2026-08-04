@@ -46,7 +46,7 @@ interface WorkerResult {
 
 async function runWorker(
   client: Sandbox,
-  cfg: { backendType: WorkerBackendType; model: string; routerBaseUrl: string },
+  cfg: { backendType: WorkerBackendType; model: string; provider: string; routerBaseUrl: string },
   id: string,
   task: string,
   priorLearnings: string,
@@ -56,7 +56,13 @@ async function runWorker(
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), Number(process.env.TIMEOUT_MS ?? 240_000))
   try {
-    const agentRun = sandboxAgentRun({ ...cfg, name: id })
+    const agentRun = sandboxAgentRun({
+      profile: {
+        name: id,
+        harness: cfg.backendType,
+        model: { provider: cfg.provider, default: cfg.model },
+      },
+    })
     const run = await openSandboxRun<string>(
       client,
       { agentRun, signal: controller.signal },
@@ -80,6 +86,7 @@ async function main(): Promise<void> {
   const cfg = {
     backendType: env('BACKEND', 'opencode') as WorkerBackendType,
     model: env('MODEL', 'deepseek-v4-flash'),
+    provider: env('WORKER_PROVIDER', 'openai-compat'),
     routerBaseUrl: env('ROUTER_BASE_URL', 'https://router.tangle.tools/v1'),
   }
   const n = Math.min(Number(env('N', '2')), subtasks.length)

@@ -37,12 +37,14 @@ import {
   defaultStructuralRolloutPolicy,
   runAgentic,
   type StructuralRolloutResult,
+  defaultAnalystInstruction,
   sandboxCheckRunner,
   selectBestIndex,
   structuralRollout,
   visibleCheckScore,
 } from '../../src/runtime/index'
 import { basePrompt, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
+import { withBenchProfile } from './router-turn'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -173,20 +175,34 @@ async function runTask(t: HumanEvalTask): Promise<TaskRow> {
     name: 'humaneval-inert',
     check: () => ({ passes: 0, total: 1, errored: 0 }),
   })
+  const workerProfile = withBenchProfile(
+    {
+      name: 'humaneval-structural-worker',
+      harness: 'cli-base',
+      model: { provider: 'together', default: MODEL },
+      tools: { submit_answer: true },
+    },
+    { systemPrompt, temperature: TEMP, maxTokens: MAX_TOKENS, maxTurns: 2 },
+  )
+  const analystProfile = withBenchProfile(
+    {
+      name: 'humaneval-structural-analyst',
+      harness: 'cli-base',
+      model: { provider: 'together', default: MODEL },
+    },
+    { systemPrompt: defaultAnalystInstruction, temperature: TEMP, maxTokens: MAX_TOKENS },
+  )
   const result = (await runAgentic({
     surface,
     task: {
       id: t.taskId,
-      systemPrompt,
       userPrompt: basePrompt(t),
       meta: { entryPoint: t.entryPoint },
     },
     routerBaseUrl: BASE,
     routerKey: must('TOGETHER_API_KEY'),
-    model: MODEL,
-    temperature: TEMP,
-    maxTokens: MAX_TOKENS,
-    innerTurns: 2,
+    workerProfile,
+    analystProfile,
     strategy,
     // The strategy's documented sizing: k samples + repair rounds + the check-author consult.
     budget: policy.k + policy.repairRounds + 1,

@@ -5,6 +5,7 @@
  * provided container id and reports the captured process artifact back through the runtime.
  */
 import { spawn } from 'node:child_process'
+import { agentProfileSchema } from '@tangle-network/agent-interface'
 import type {
   Agent,
   AgentProfile,
@@ -17,6 +18,8 @@ import type {
   Runtime,
   Spend,
 } from '../../src/runtime/index'
+import { harnessInvocation, type LocalHarness } from '../../src/mcp/local-harness'
+import { assertExecutableAgentProfile } from '../../src/runtime/supervise/model-policy'
 
 export interface TbExecOutput {
   /** Primary artifact consumed by drivers that read `{ content }`. */
@@ -40,7 +43,8 @@ export interface TbContainerConfig {
   readonly workdir?: string
   readonly shell?: string
   readonly env?: Readonly<Record<string, string>>
-  readonly wrapCommand?: (task: unknown) => string
+  /** Shell setup required inside the existing task container before the canonical invocation. */
+  readonly commandPrefix?: ReadonlyArray<string>
   readonly parseUsage?: ParseUsage
   readonly budgetExempt?: boolean
   readonly dockerBin?: string
@@ -62,7 +66,7 @@ function resolveContainerId(config: TbContainerConfig): string {
   return id.trim()
 }
 
-function taskToCommand(task: unknown): string {
+function taskToPrompt(task: unknown): string {
   if (typeof task === 'string') return task
   if (task && typeof task === 'object') {
     const obj = task as Record<string, unknown>
@@ -71,6 +75,31 @@ function taskToCommand(task: unknown): string {
     }
   }
   return JSON.stringify(task)
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function profileCommand(
+  profile: AgentProfile,
+  task: unknown,
+  prefix: ReadonlyArray<string> = [],
+): string {
+  const harness = profile.harness
+  if (harness !== 'claude-code' && harness !== 'codex' && harness !== 'opencode') {
+    throw new Error(
+      `tbContainerExecutor: profile harness ${JSON.stringify(harness)} is not available in the task container`,
+    )
+  }
+  const invocation = harnessInvocation(
+    harness as LocalHarness,
+    profile,
+    taskToPrompt(task),
+    { dangerouslySkipPermissions: true },
+  )
+  const run = [invocation.command, ...invocation.args].map(shellQuote).join(' ')
+  return [...prefix, `exec ${run}`].join('; ')
 }
 
 /**
@@ -113,6 +142,8 @@ export function createTbContainerExecutor(
   config: TbContainerConfig = {},
 ): ExecutorFactory<TbExecOutput> {
   return (_spec: AgentSpec, ctx: ExecutorContext): Executor<TbExecOutput> => {
+    const profile = agentProfileSchema.parse(_spec.profile)
+    assertExecutableAgentProfile(profile, 'tbContainerExecutor')
     const containerId = resolveContainerId(config)
     const dockerBin = config.dockerBin ?? 'docker'
     const metered = config.parseUsage !== undefined
@@ -133,7 +164,7 @@ export function createTbContainerExecutor(
       runtime,
       budgetExempt,
       execute(task, signal): Promise<ExecutorResult<TbExecOutput>> {
-        const command = (config.wrapCommand ?? taskToCommand)(task)
+        const command = profileCommand(profile, task, config.commandPrefix)
         const args = buildTbDockerExecArgs(containerId, command, {
           ...(config.shell ? { shell: config.shell } : {}),
           ...(config.workdir ? { workdir: config.workdir } : {}),
@@ -221,9 +252,10 @@ export function createTbContainerExecutor(
 export function makeTbContainerWorkerAgent(config: TbContainerConfig = {}): MakeWorkerAgent {
   const factory = createTbContainerExecutor(config)
   return (rawProfile) => {
-    const p = (rawProfile ?? {}) as { name?: unknown }
-    const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : 'tb-worker'
-    const spec: AgentSpec = { profile: rawProfile as AgentProfile, harness: null }
+    const profile = agentProfileSchema.parse(rawProfile)
+    assertExecutableAgentProfile(profile, 'tbContainerWorkerAgent')
+    const name = profile.name ?? 'tb-worker'
+    const spec: AgentSpec = { profile, harness: null }
     const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
     const executor = factory(spec, ctx)
     return { name, act: async () => '', executorSpec: { ...spec, executor } } as Agent<

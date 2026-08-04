@@ -23,8 +23,9 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { AgenticSurface, ArtifactHandle, SurfaceScore } from '@tangle-network/agent-runtime/kernel'
-import { refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
+import { defaultAnalystInstruction, refine, runAgentic } from '@tangle-network/agent-runtime/kernel'
 import { createSweBenchEnvironment, SWE_SEED_PROMPT, SWE_SEED_PROMPT_WITH_RUN } from './swe-bench-env'
+import { benchRouterProfile, withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -56,10 +57,31 @@ async function main(): Promise<void> {
 
   const task = {
     id: bt.id,
-    systemPrompt: enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT,
     userPrompt: bt.prompt,
     meta: { instanceId: bt.id },
   }
+  const workerProfile = withBenchProfile(
+    {
+      name: 'swe-emit-patch-worker',
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: model },
+      tools: {
+        list_files: true,
+        read_file: true,
+        edit_file: true,
+        ...(enableRun ? { run: true } : {}),
+      },
+    },
+    {
+      systemPrompt: enableRun ? SWE_SEED_PROMPT_WITH_RUN : SWE_SEED_PROMPT,
+      maxTokens,
+      maxTurns: innerTurns,
+    },
+  )
+  const analystProfile = benchRouterProfile('swe-emit-patch-analyst', model, {
+    systemPrompt: defaultAnalystInstruction,
+    maxTokens,
+  })
 
   // Capture the patch from inside score() (called during the refine loop, BEFORE the surface closes
   // and rms the checkout). Keep the LATEST non-empty diff so accumulated refinements win and a later
@@ -85,9 +107,8 @@ async function main(): Promise<void> {
     strategy: refine,
     routerBaseUrl,
     routerKey,
-    model,
-    maxTokens,
-    innerTurns,
+    workerProfile,
+    analystProfile,
     budget,
   })
   const files = capturedPatch ? [...capturedPatch.matchAll(/^diff --git a\/(\S+)/gm)].map((m) => m[1]) : []
