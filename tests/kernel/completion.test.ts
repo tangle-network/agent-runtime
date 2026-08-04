@@ -13,6 +13,7 @@ import {
   type Validator,
 } from '../../src/runtime'
 import { type ScriptedPlanner, scriptedDriver } from './refine-driver'
+import { testAgentProfile } from './test-agent-profile'
 
 const output: OutputAdapter<string> = {
   parse(events) {
@@ -32,7 +33,7 @@ const validator: Validator<string> = {
   },
 }
 const agentRuns: AgentRunSpec<string>[] = [
-  { profile: { name: 'a' }, name: 'a', taskToPrompt: (t) => t },
+  { profile: testAgentProfile('a'), name: 'a', taskToPrompt: (t) => t },
 ]
 function echoClient() {
   return {

@@ -35,6 +35,7 @@ import {
   authorStrategy,
   strategyAuthorContract,
 } from '../../src/runtime/strategy-author'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────────
 
@@ -79,10 +80,12 @@ function stubRouter(): CapturedChatRequest[] {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (_url: string, init?: { body?: string }) => {
-      captured.push(JSON.parse(init?.body ?? '{}') as CapturedChatRequest)
+      const request = JSON.parse(init?.body ?? '{}') as CapturedChatRequest & { model?: string }
+      captured.push(request)
       const body = {
         choices: [{ message: { content: 'DONE' } }],
         usage: { prompt_tokens: 10, completion_tokens: 5 },
+        model: request.model,
       }
       // Both response-reading styles: runShot uses json(); agent-eval's llm-client
       // reads text() — a stub missing either silently downs the analyst leaf.
@@ -104,7 +107,7 @@ function memoryComplete(
   return async (body) => {
     const req = body as CapturedChatRequest & { model?: string }
     const text = req.messages.map((m) => m.content).join('\n')
-    if (text.includes('third-person OBSERVER')) {
+    if (text.includes('TRACE (in order;')) {
       return {
         choices: [
           {
@@ -125,12 +128,14 @@ function memoryComplete(
           },
         ],
         usage: { prompt_tokens: 7, completion_tokens: 3 },
+        model: req.model,
       }
     }
     capturedWorkers.push(req)
     return {
       choices: [{ message: { content: 'DONE' } }],
       usage: { prompt_tokens: 10, completion_tokens: 5 },
+      model: req.model,
     }
   }
 }
@@ -138,7 +143,11 @@ function memoryComplete(
 const worker = {
   routerBaseUrl: 'http://router.test/v1',
   routerKey: 'test-key',
-  model: 'test-model',
+  workerProfile: testAgentProfile('strategy-worker', {
+    harness: 'cli-base',
+    model: { provider: 'offline', default: 'test-model' },
+    prompt: { systemPrompt: task.systemPrompt },
+  }),
 }
 
 afterEach(() => {
@@ -431,7 +440,7 @@ describe('addressable optimization coordinates', () => {
     expect(strategyAuthorContract).toContain('systemPrompt')
   })
 
-  it('analystModel routes the critique call to the critic model, not the worker', async () => {
+  it('analystProfile routes the critique call to the critic model, not the worker', async () => {
     const captured = stubRouter()
     const surface = fixtureSurface(() => ({ passes: 0, total: 1 }))
     const critiqued = defineStrategy('critiqued', async ({ shot, critique }) => {
@@ -443,7 +452,10 @@ describe('addressable optimization coordinates', () => {
       surface,
       task,
       ...worker,
-      analystModel: 'critic-model',
+      analystProfile: testAgentProfile('strategy-critic', {
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'critic-model' },
+      }),
       strategy: critiqued,
       budget: 2,
     })
@@ -478,14 +490,27 @@ describe('addressable optimization coordinates', () => {
     const module = [
       "export default { name: 'noop', driver: () => ({ name: 'noop', act: async () => ({ kind: 'done', deliverable: {} }) }) }",
     ].join('\n')
-    const chat = {
-      chat: async (req: { messages: Array<{ content: string }> }) => {
-        seen.push(req.messages.map((m) => m.content).join('\n'))
-        return { content: `\`\`\`ts\n${module}\n\`\`\`` }
+    const profile = testAgentProfile('strategy-author', {
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'author-model' },
+    })
+    const executor = {
+      backend: 'router' as const,
+      routerBaseUrl: 'http://router.test/v1',
+      routerKey: 'test-key',
+      complete: async (body: Record<string, unknown>) => {
+        const messages = body.messages as Array<{ content: string }>
+        seen.push(messages.map((m) => m.content).join('\n'))
+        return {
+          choices: [{ message: { content: `\`\`\`ts\n${module}\n\`\`\`` } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+          model: 'author-model',
+        }
       },
-    } as unknown as Parameters<typeof authorStrategy>[0]['chat']
+    }
     const { strategy } = await authorStrategy({
-      chat,
+      profile,
+      executor,
       contract: 'CUSTOM CONTRACT vNEXT',
       environmentName: 'fixture',
       lossesJson: '[]',
@@ -531,7 +556,19 @@ describe('shot tool selection', () => {
       await shot({ tools: ['read_thing'] })
       return { score: 0, resolved: false, completions: 1, progression: [0], shots: 1 }
     })
-    await runAgentic({ surface, task, ...worker, strategy: focused, budget: 1 })
+    await runAgentic({
+      surface,
+      task,
+      ...worker,
+      workerProfile: testAgentProfile('focused-worker', {
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'test-model' },
+        prompt: { systemPrompt: task.systemPrompt },
+        tools: { read_thing: true },
+      }),
+      strategy: focused,
+      budget: 1,
+    })
     const body = captured[0] as { tools?: Array<{ function: { name: string } }> }
     expect(body.tools?.map((t) => t.function.name)).toEqual(['read_thing'])
   })
@@ -790,8 +827,10 @@ describe('consult', () => {
     await runAgentic({ surface, task, ...worker, strategy: controller, budget: 2 })
     // The consult call is the SECOND router request; its system prompt is the raw instruction.
     const consultReq = captured[1] as { messages?: Array<{ role: string; content: string }> }
-    expect(consultReq?.messages?.[0]?.role).toBe('system')
-    expect(consultReq?.messages?.[0]?.content).toContain('VERDICT: STOP')
+    const instruction = consultReq?.messages?.find((message) =>
+      message.content.includes('VERDICT: STOP'),
+    )
+    expect(instruction?.content).toContain('VERDICT: STOP')
     // The stubbed model replies 'DONE'; consult returns it verbatim (no findings filter).
     expect(reply).toBe('DONE')
   })

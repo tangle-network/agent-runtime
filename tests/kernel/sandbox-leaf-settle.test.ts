@@ -13,10 +13,14 @@ import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangl
 import { describe, expect, it } from 'vitest'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
 import type { AgentSpec, ExecutorContext, UsageEvent } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const spec: AgentSpec = {
-  profile: { name: 'leaf', prompt: { systemPrompt: 'do the thing' } },
-  harness: null,
+  profile: testAgentProfile('leaf', {
+    harness: 'opencode',
+    prompt: { systemPrompt: 'do the thing' },
+  }),
+  harness: 'opencode',
 }
 
 function ctx(): ExecutorContext {

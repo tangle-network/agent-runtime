@@ -9,10 +9,9 @@ import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/dri
 import {
   attestRuntimeOwnedExecutor,
   attestRuntimeOwnedScopeOwner,
-  knownExecutionBindingReceipt,
-  knownMaterializationReceipt,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
 } from '../../src/runtime/supervise/materialization'
 import { bridgeExecutor, createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -25,13 +24,16 @@ import type {
   Scope,
   SpawnEvent,
 } from '../../src/runtime/supervise/types'
+import { testAgentProfile } from './test-agent-profile'
 
 const budget = { maxIterations: 4, maxTokens: 1_000 }
 const spent = { iterations: 1, tokens: { input: 2, output: 3 }, usd: 0, ms: 1 }
 
 function leafAgent(name: string, factory: ExecutorFactory<unknown>): Agent<unknown, unknown> {
   const executorSpec: AgentSpec = {
-    profile: { name, model: { default: 'test/model' } },
+    profile: testAgentProfile(name, {
+      model: { provider: 'offline', default: 'test/model' },
+    }),
     harness: null,
     executorFactory: factory,
   }
@@ -218,10 +220,12 @@ describe('kernel-owned materialization evidence', () => {
   })
 
   it('keeps the built-in bridge profile identity stable while endpoints change per attempt', () => {
-    const profile = { name: 'manager', model: { default: 'test/model' } }
+    const profile = testAgentProfile('manager', {
+      model: { provider: 'test', default: 'model' },
+    })
     const executorFor = (bridgeUrl: string, attemptId: string) =>
       bridgeExecutor(
-        { profile, harness: null },
+        { profile, harness: 'opencode' },
         {
           signal: new AbortController().signal,
           node: {
@@ -242,27 +246,19 @@ describe('kernel-owned materialization evidence', () => {
       )
     const receiptFor = (bridgeUrl: string, attemptId: string) => {
       const executor = executorFor(bridgeUrl, attemptId)
-      const declaration = runtimeOwnedExecutorMaterialization(executor)
-      const binding = runtimeOwnedExecutorExecutionBinding(executor)
-      expect(declaration).toBeDefined()
-      expect(binding).toBeDefined()
-      const materialization = knownMaterializationReceipt({
-        authoredProfileDigest: canonicalCandidateDigest(profile),
-        runtime: 'cli',
-        declaration: declaration!,
-      })
+      const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+      expect(runtimeOwnedExecutorMaterialization(executor)).toBeUndefined()
+      expect(runtimeOwnedExecutorExecutionBinding(executor)).toBeUndefined()
+      expect(pending).toBeDefined()
       return {
-        materialization,
-        binding: knownExecutionBindingReceipt(materialization, binding!),
+        declarationDigest: canonicalCandidateDigest(pending!.declaration),
+        bindingDigest: canonicalCandidateDigest(pending!.binding),
       }
     }
     const first = receiptFor('http://127.0.0.1:31001', 'attempt-1')
     const second = receiptFor('http://127.0.0.1:31002', 'attempt-2')
 
-    expect(first.materialization).toEqual(second.materialization)
-    expect(first.binding.materializationReceiptDigest).toBe(
-      second.binding.materializationReceiptDigest,
-    )
-    expect(first.binding.bindingDigest).not.toBe(second.binding.bindingDigest)
+    expect(first.declarationDigest).toBe(second.declarationDigest)
+    expect(first.bindingDigest).not.toBe(second.bindingDigest)
   })
 })

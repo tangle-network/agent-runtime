@@ -16,12 +16,9 @@
  * the environment that process actually observed — not on the options object we built for it.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { deriveHexId } from '@tangle-network/agent-trace-contract'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import type { OtelExporter, OtelSpan } from '../../src/otel-export'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
@@ -41,6 +38,7 @@ import type {
   SupervisorOpts,
 } from '../../src/runtime/supervise/types'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -83,8 +81,8 @@ function registryOf(factory: ExecutorFactory<unknown>): ExecutorRegistry {
   })
 }
 
-const OUTER_CHILD_BUDGET: Budget = { maxIterations: 8, maxTokens: 5_000, maxUsd: 5 }
-const INNER_CHILD_BUDGET: Budget = { maxIterations: 4, maxTokens: 1_000, maxUsd: 1 }
+const OUTER_CHILD_BUDGET: Budget = { maxIterations: 8, maxTokens: 5_000 }
+const INNER_CHILD_BUDGET: Budget = { maxIterations: 4, maxTokens: 1_000 }
 
 /** Spawns its declared children, drains them, and returns the first `done` child's output. */
 function scriptedDriver(
@@ -112,14 +110,14 @@ function scriptedDriver(
 function resolvedLeaf(name: string): Agent<unknown, unknown> {
   return {
     name,
-    executorSpec: { profile: { name }, harness: null },
+    executorSpec: { profile: testAgentProfile(name), harness: null },
     act: () => Promise.resolve(undefined),
   } as unknown as Agent<unknown, unknown>
 }
 
 function supervisorOpts(over: Partial<SupervisorOpts>): SupervisorOpts {
   return {
-    budget: over.budget ?? { maxIterations: 100, maxTokens: 100_000, maxUsd: 10 },
+    budget: over.budget ?? { maxIterations: 100, maxTokens: 100_000 },
     runId: over.runId ?? 'run',
     journal: over.journal ?? new InMemorySpawnJournal(),
     blobs: over.blobs ?? new InMemoryResultBlobStore(),
@@ -476,39 +474,28 @@ describe('the sandbox arm carries the context onto the box itself', () => {
  * this whole change exists to remove. This case is the guard on that.
  */
 describe('supervise({ backend, otel }) stamps its workers too', () => {
-  let dir: string
-  beforeAll(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'worker-trace-'))
-  })
-  afterAll(async () => {
-    await rm(dir, { recursive: true, force: true })
-  })
-
-  /** The worker writes its inherited environment to a file, so the assertion does not depend on how
-   *  the finalizer treats an ungated CLI artifact. */
-  function probeArgs(outPath: string): string[] {
-    return [
-      '-e',
-      'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({' +
-        'TRACE_ID: process.env.TRACE_ID ?? null,' +
-        'PARENT_SPAN_ID: process.env.PARENT_SPAN_ID ?? null,' +
-        'TRACEPARENT: process.env.TRACEPARENT ?? null}))',
-      outPath,
-    ]
-  }
-
-  function superviseOnce(outPath: string, exporter?: OtelExporter) {
-    return supervise(
-      { name: 'root', harness: null, systemPrompt: 'drive the worker' },
+  async function superviseOnce(exporter?: OtelExporter) {
+    const fake = fakeSandboxClient()
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        prompt: { systemPrompt: 'drive the worker' },
+      }),
       'solve it',
       {
         budget: { maxIterations: 100, maxTokens: 100_000 },
         runId: 'front-door',
-        backend: { backend: 'cli', bin: process.execPath, args: probeArgs(outPath) },
+        backend: { backend: 'sandbox', harness: 'opencode', sandboxClient: fake.client },
         brain: scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+              {
+                name: 'spawn_agent',
+                arguments: {
+                  profile: testAgentProfile('worker'),
+                  task: 'go',
+                },
+              },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -517,14 +504,15 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
         ...(exporter ? { otel: { exporter } } : {}),
       },
     )
+    return { result, created: fake.created }
   }
 
   it('hands the front door worker the run trace id and the root span id', async () => {
     const { exporter, spans } = recordingExporter()
-    const outPath = join(dir, 'traced.json')
-    await superviseOnce(outPath, exporter)
+    const { result, created } = await superviseOnce(exporter)
 
-    const env = JSON.parse(await readFile(outPath, 'utf8')) as InheritedEnv
+    expect(result.kind).toBe('winner')
+    const env = created[0]?.env
     const root = spans.find((s) => s.name === 'supervisor.run')
     expect(root).toBeDefined()
     expect(env.TRACE_ID).toBe(root?.traceId)
@@ -535,12 +523,8 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
   })
 
   it('stamps nothing when the front door configures no telemetry', async () => {
-    const outPath = join(dir, 'untraced.json')
-    await superviseOnce(outPath)
-    expect(JSON.parse(await readFile(outPath, 'utf8'))).toEqual({
-      TRACE_ID: null,
-      PARENT_SPAN_ID: null,
-      TRACEPARENT: null,
-    })
+    const { result, created } = await superviseOnce()
+    expect(result.kind).toBe('winner')
+    expect(created[0]?.env).toBeUndefined()
   })
 })

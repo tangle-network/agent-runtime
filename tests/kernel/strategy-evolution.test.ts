@@ -17,6 +17,7 @@ import type { BenchmarkReport } from '../../src/runtime/run-benchmark'
 import type { AgenticSurface, AgenticTask } from '../../src/runtime/strategy'
 import { sample } from '../../src/runtime/strategy'
 import { runStrategyEvolution, selectChampion } from '../../src/runtime/strategy-evolution'
+import { testAgentProfile } from './test-agent-profile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────────
 
@@ -87,15 +88,30 @@ export default defineStrategy('one-shot', async ({ shot }) => {
 function scriptedChat(replies: string[]) {
   const seen: string[] = []
   let i = 0
+  const profile = testAgentProfile('strategy-author', {
+    harness: 'cli-base',
+    model: { provider: 'offline', default: 'author-model' },
+  })
   const chat = {
-    chat: async (req: { messages: Array<{ content: string }> }) => {
-      seen.push(req.messages.map((m) => m.content).join('\n'))
-      const reply = replies[Math.min(i, replies.length - 1)] as string
-      i += 1
-      return { content: reply }
+    profile,
+    executor: {
+      backend: 'router' as const,
+      routerBaseUrl: 'http://router.test/v1',
+      routerKey: 'test-key',
+      complete: async (body: Record<string, unknown>) => {
+        const messages = body.messages as Array<{ content: string }>
+        seen.push(messages.map((m) => m.content).join('\n'))
+        const reply = replies[Math.min(i, replies.length - 1)] as string
+        i += 1
+        return {
+          choices: [{ message: { content: reply } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+          model: 'author-model',
+        }
+      },
     },
   }
-  return { chat: chat as never, seen }
+  return { chat, seen }
 }
 
 const fenced = (code: string) => `\`\`\`ts\n${code}\n\`\`\``
@@ -103,20 +119,27 @@ const fenced = (code: string) => `\`\`\`ts\n${code}\n\`\`\``
 function stubWorkerRouter(): void {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => ({
-      ok: true,
-      json: async () => ({
-        choices: [{ message: { content: 'DONE' } }],
-        usage: { prompt_tokens: 10, completion_tokens: 5 },
-      }),
-    })),
+    vi.fn(async (_url: string, init?: { body?: string }) => {
+      const request = JSON.parse(init?.body ?? '{}') as { model?: string }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: 'DONE' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+          model: request.model,
+        }),
+      }
+    }),
   )
 }
 
 const worker = {
   routerBaseUrl: 'http://router.test/v1',
   routerKey: 'test-key',
-  model: 'test-model',
+  workerProfile: testAgentProfile('strategy-worker', {
+    harness: 'cli-base',
+    model: { provider: 'offline', default: 'test-model' },
+  }),
 }
 
 const sliceTasks = (calls: Array<{ offset: number; n: number }>) => {
@@ -185,7 +208,7 @@ describe('runStrategyEvolution', () => {
       modelPreflight: async (model) => {
         checkedModels.push(model)
       },
-      author: { chat, model: 'author-model' },
+      author: chat,
       budget: 3,
       concurrency: 2,
       generations: 1,
@@ -221,7 +244,7 @@ describe('runStrategyEvolution', () => {
       trainN: 8,
       holdoutN: 8,
       worker,
-      author: { chat },
+      author: chat,
       budget: 3,
       generations: 1,
       populationSize: 2,
@@ -244,7 +267,7 @@ describe('runStrategyEvolution', () => {
         trainN: 4,
         holdoutN: 4,
         worker,
-        author: { chat },
+        author: chat,
         budget: 2,
         generations: 1,
         populationSize: 1,
@@ -265,7 +288,7 @@ describe('runStrategyEvolution', () => {
       trainN: 4,
       holdoutN: 4,
       worker,
-      author: { chat },
+      author: chat,
       budget: 2,
       generations: 1,
       populationSize: 2,
@@ -290,7 +313,7 @@ describe('runStrategyEvolution', () => {
       trainN: 4,
       holdoutN: 4,
       worker,
-      author: { chat },
+      author: chat,
       budget: 2,
       generations: 1,
       populationSize: 1,
@@ -395,7 +418,7 @@ describe('band-aware scoring', () => {
       trainN: 6,
       holdoutN: minimumPairedTasks,
       worker,
-      author: { chat },
+      author: chat,
       budget: 3,
       generations: 1,
       populationSize: 1,
@@ -428,7 +451,7 @@ describe('band-aware scoring', () => {
         trainN: 4,
         holdoutN: 4,
         worker,
-        author: { chat },
+        author: chat,
         budget: 2,
         generations: 1,
         populationSize: 1,
@@ -467,7 +490,7 @@ describe('tool catalog', () => {
       trainN: 4,
       holdoutN: 4,
       worker,
-      author: { chat },
+      author: chat,
       budget: 2,
       generations: 1,
       populationSize: 1,
@@ -491,7 +514,7 @@ describe('lossesDetail binary', () => {
       trainN: 4,
       holdoutN: 4,
       worker,
-      author: { chat },
+      author: chat,
       budget: 2,
       generations: 1,
       populationSize: 1,
@@ -522,7 +545,7 @@ describe('reproducer certification', () => {
       trainN: 6,
       holdoutN: 6,
       worker,
-      author: { chat },
+      author: chat,
       budget: 3,
       generations: 1,
       populationSize: 1,
@@ -549,7 +572,7 @@ describe('reproducer certification', () => {
       trainN: 4,
       holdoutN: 4,
       worker,
-      author: { chat },
+      author: chat,
       budget: 2,
       generations: 1,
       populationSize: 1,
@@ -567,13 +590,17 @@ describe('reproducer certification', () => {
 import { readFileSync, writeFileSync } from 'node:fs'
 
 describe('checkpoint and resume', () => {
-  const baseCfg = (chat: never, ckptPath: string, extra: Record<string, unknown> = {}) => ({
+  const baseCfg = (
+    chat: ReturnType<typeof scriptedChat>['chat'],
+    ckptPath: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
     environment: shotCountingSurface(),
     tasks: sliceTasks([]),
     trainN: 6,
     holdoutN: 6,
     worker,
-    author: { chat },
+    author: chat,
     budget: 3,
     generations: 1,
     populationSize: 1,
@@ -640,7 +667,7 @@ describe('checkpoint and resume', () => {
       trainN: 4,
       holdoutN: 4,
       worker,
-      author: { chat },
+      author: chat,
       budget: 2,
       generations: 1,
       populationSize: 1,

@@ -1,4 +1,3 @@
-import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
@@ -24,6 +23,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { scriptedBrain } from './scripted-brain'
+import { testAgentProfile } from './test-agent-profile'
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
@@ -35,6 +35,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       return (async function* () {
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
+        yield { kind: 'cost', usd: 0 } as UsageEvent
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
@@ -45,7 +46,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       spent: { iterations: 1, tokens: { input: 5, output: 5 }, usd: 0, ms: 0 },
     }),
   }
-  const spec: AgentSpec = { profile: { name } as AgentProfile, harness: null, executor: ex }
+  const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor: ex }
   return { name, act: async () => out, executorSpec: spec } as Agent<unknown, unknown> & {
     executorSpec: AgentSpec
   }
@@ -85,18 +86,20 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const brain = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+          {
+            name: 'spawn_agent',
+            arguments: { profile: testAgentProfile('worker'), task: 'go' },
+          },
         ],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
     const root = supervisorAgent(
-      {
-        name: 'root',
+      testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
-      },
+      }),
       { brain, blobs, makeWorkerAgent: () => worker, perWorker, maxTurns: 8 },
     )
     const result = await runSupervisor(root, blobs, journal)
@@ -111,17 +114,16 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
         name: 'spawn_agent',
-        arguments: { profile: {}, task: 'go' },
+        arguments: { profile: testAgentProfile('worker'), task: 'go' },
       })
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
     const root = supervisorAgent(
-      {
-        name: 'sup',
+      testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
-      },
+      }),
       { blobs, makeWorkerAgent: () => deliveringLeaf('w', { answer: 7 }), perWorker, driveHarness },
     )
     const result = await runSupervisor(root, blobs, journal)
@@ -139,7 +141,10 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       throw new Error('backend exited after submission')
     }
     const root = supervisorAgent(
-      { name: 'sup', harness: 'pi', systemPrompt: 'solve or delegate' },
+      testAgentProfile('sup', {
+        harness: 'pi',
+        prompt: { systemPrompt: 'solve or delegate' },
+      }),
       {
         blobs,
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
@@ -160,20 +165,22 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
   it('fails loud when a sandboxed-harness supervisor has no driveHarness substrate', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
-      supervisorAgent(
-        { name: 'sup', harness: 'opencode' },
-        { blobs, makeWorkerAgent: () => deliveringLeaf('w', {}), perWorker },
-      ),
+      supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        perWorker,
+      }),
     ).toThrow(/driveHarness/)
   })
 
   it('fails loud when a router-brained supervisor has neither a brain nor a router config', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
-      supervisorAgent(
-        { name: 'root', harness: 'cli-base' },
-        { blobs, makeWorkerAgent: () => deliveringLeaf('w', {}), perWorker },
-      ),
+      supervisorAgent(testAgentProfile('root', { harness: 'cli-base' }), {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        perWorker,
+      }),
     ).toThrow(/router/)
   })
 
@@ -240,17 +247,14 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     }
     const routerBlobs = new InMemoryResultBlobStore()
     await runSupervisor(
-      supervisorAgent(
-        { name: 'router-manager', harness: 'cli-base' },
-        {
-          brain,
-          blobs: routerBlobs,
-          makeWorkerAgent: () => deliveringLeaf('unused', {}),
-          perWorker,
-          nodeContext,
-          resolveSupervisorTools,
-        },
-      ),
+      supervisorAgent(testAgentProfile('router-manager', { harness: 'cli-base' }), {
+        brain,
+        blobs: routerBlobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        nodeContext,
+        resolveSupervisorTools,
+      }),
       routerBlobs,
       new InMemorySpawnJournal(),
     )
@@ -274,17 +278,14 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       })
     }
     await runSupervisor(
-      supervisorAgent(
-        { name: 'external-manager', harness: 'opencode' },
-        {
-          blobs: externalBlobs,
-          makeWorkerAgent: () => deliveringLeaf('unused', {}),
-          perWorker,
-          driveHarness,
-          nodeContext,
-          resolveSupervisorTools,
-        },
-      ),
+      supervisorAgent(testAgentProfile('external-manager', { harness: 'opencode' }), {
+        blobs: externalBlobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness,
+        nodeContext,
+        resolveSupervisorTools,
+      }),
       externalBlobs,
       new InMemorySpawnJournal(),
     )
@@ -341,59 +342,55 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       toolCancelled = resolve
     })
     let nestedSignal: AbortSignal | undefined
-    const nested = supervisorAgent(
-      { name: 'nested-manager', harness: 'cli-base' },
-      {
-        brain: scriptedBrain([
-          { toolCalls: [{ name: 'run_experiment', arguments: { candidate: 'a' } }] },
-          { content: 'must not continue after cancellation' },
-        ]),
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('unused', {}),
-        perWorker,
-        nodeContext: {
-          runId: 'recursive-tool-abort',
-          runNamespace: 'recursive-tool-abort-namespace',
-          ownerId: 'owner-nested',
-          depth: 1,
-          assignmentId: 'nested-assignment',
-          identity: {
-            profileDigest: `sha256:${'e'.repeat(64)}`,
-            taskDigest: `sha256:${'f'.repeat(64)}`,
+    const nested = supervisorAgent(testAgentProfile('nested-manager', { harness: 'cli-base' }), {
+      brain: scriptedBrain([
+        { toolCalls: [{ name: 'run_experiment', arguments: { candidate: 'a' } }] },
+        { content: 'must not continue after cancellation' },
+      ]),
+      blobs,
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker,
+      nodeContext: {
+        runId: 'recursive-tool-abort',
+        runNamespace: 'recursive-tool-abort-namespace',
+        ownerId: 'owner-nested',
+        depth: 1,
+        assignmentId: 'nested-assignment',
+        identity: {
+          profileDigest: `sha256:${'e'.repeat(64)}`,
+          taskDigest: `sha256:${'f'.repeat(64)}`,
+        },
+      },
+      resolveSupervisorTools: async () => [
+        {
+          name: 'run_experiment',
+          description: 'Run a long product-owned experiment',
+          inputSchema: { type: 'object' },
+          handler: async (_raw, context) => {
+            nestedSignal = context.signal
+            toolStarted()
+            await new Promise<void>((_resolve, reject) => {
+              const onAbort = () => {
+                toolCancelled()
+                reject(new DOMException(String(context.signal.reason), 'AbortError'))
+              }
+              if (context.signal.aborted) onAbort()
+              else context.signal.addEventListener('abort', onAbort, { once: true })
+            })
+            return { unreachable: true }
           },
         },
-        resolveSupervisorTools: async () => [
-          {
-            name: 'run_experiment',
-            description: 'Run a long product-owned experiment',
-            inputSchema: { type: 'object' },
-            handler: async (_raw, context) => {
-              nestedSignal = context.signal
-              toolStarted()
-              await new Promise<void>((_resolve, reject) => {
-                const onAbort = () => {
-                  toolCancelled()
-                  reject(new DOMException(String(context.signal.reason), 'AbortError'))
-                }
-                if (context.signal.aborted) onAbort()
-                else context.signal.addEventListener('abort', onAbort, { once: true })
-              })
-              return { unreachable: true }
-            },
-          },
-        ],
-      },
-    )
+      ],
+    })
     const root: Agent<unknown, unknown> = {
       name: 'root',
       async act(task, scope) {
         const spawned = scope.spawn(
           driverChild(
-            {
-              name: 'nested-manager',
+            testAgentProfile('nested-manager', {
               harness: 'cli-base',
               metadata: { role: 'driver' },
-            },
+            }),
             nested,
             journal,
           ),
@@ -458,45 +455,42 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
         harnessFinished()
       }
     }
-    const root = supervisorAgent(
-      { name: 'external-manager', harness: 'opencode' },
-      {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('unused', {}),
-        perWorker,
-        driveHarness,
-        nodeContext: {
-          runId: 'external-tool-abort',
-          runNamespace: 'external-tool-abort-namespace',
-          ownerId: 'owner-external',
-          depth: 0,
-          identity: {
-            profileDigest: `sha256:${'1'.repeat(64)}`,
-            taskDigest: `sha256:${'2'.repeat(64)}`,
+    const root = supervisorAgent(testAgentProfile('external-manager', { harness: 'opencode' }), {
+      blobs,
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker,
+      driveHarness,
+      nodeContext: {
+        runId: 'external-tool-abort',
+        runNamespace: 'external-tool-abort-namespace',
+        ownerId: 'owner-external',
+        depth: 0,
+        identity: {
+          profileDigest: `sha256:${'1'.repeat(64)}`,
+          taskDigest: `sha256:${'2'.repeat(64)}`,
+        },
+      },
+      resolveSupervisorTools: async () => [
+        {
+          name: 'run_experiment',
+          description: 'Run a long product-owned experiment',
+          inputSchema: { type: 'object' },
+          handler: async (_raw, context) => {
+            externalSignal = context.signal
+            toolStarted()
+            await new Promise<void>((_resolve, reject) => {
+              const onAbort = () => {
+                toolCancelled()
+                reject(new DOMException(String(context.signal.reason), 'AbortError'))
+              }
+              if (context.signal.aborted) onAbort()
+              else context.signal.addEventListener('abort', onAbort, { once: true })
+            })
+            return { unreachable: true }
           },
         },
-        resolveSupervisorTools: async () => [
-          {
-            name: 'run_experiment',
-            description: 'Run a long product-owned experiment',
-            inputSchema: { type: 'object' },
-            handler: async (_raw, context) => {
-              externalSignal = context.signal
-              toolStarted()
-              await new Promise<void>((_resolve, reject) => {
-                const onAbort = () => {
-                  toolCancelled()
-                  reject(new DOMException(String(context.signal.reason), 'AbortError'))
-                }
-                if (context.signal.aborted) onAbort()
-                else context.signal.addEventListener('abort', onAbort, { once: true })
-              })
-              return { unreachable: true }
-            },
-          },
-        ],
-      },
-    )
+      ],
+    })
     const running = createSupervisor<unknown, unknown>().run(root, 'run the external experiment', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'external-tool-abort',
@@ -559,7 +553,10 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       return { content: 'must not run', toolCalls: [] }
     }
     const mutableRouterDeps = { ...deps, brain }
-    const router = supervisorAgent({ name: 'router', harness: 'cli-base' }, mutableRouterDeps)
+    const router = supervisorAgent(
+      testAgentProfile('router', { harness: 'cli-base' }),
+      mutableRouterDeps,
+    )
     mutableRouterDeps.resolveSupervisorTools = async () => {
       replacementCalls += 1
       return []
@@ -571,24 +568,21 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     expect(brainCalls).toBe(0)
 
     const externalBlobs = new InMemoryResultBlobStore()
-    const external = supervisorAgent(
-      { name: 'external', harness: 'opencode' },
-      {
-        ...deps,
-        blobs: externalBlobs,
-        resolveSupervisorTools: async () => [
-          {
-            name: 'spawn_agent',
-            description: 'collision',
-            inputSchema: { type: 'object' },
-            handler: async () => ({}),
-          },
-        ],
-        driveHarness: async () => {
-          harnessCalls += 1
+    const external = supervisorAgent(testAgentProfile('external', { harness: 'opencode' }), {
+      ...deps,
+      blobs: externalBlobs,
+      resolveSupervisorTools: async () => [
+        {
+          name: 'spawn_agent',
+          description: 'collision',
+          inputSchema: { type: 'object' },
+          handler: async () => ({}),
         },
+      ],
+      driveHarness: async () => {
+        harnessCalls += 1
       },
-    )
+    })
     const externalResult = await runSupervisor(external, externalBlobs, new InMemorySpawnJournal())
     expect(externalResult.kind).toBe('no-winner')
     expect(harnessCalls).toBe(0)
@@ -597,12 +591,15 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
 
 describe('resolveSupervisorProfile — a canonical AgentProfile IS a supervisor profile', () => {
   it('reduces a canonical AgentProfile: model.default is the id, prompt.systemPrompt is the prompt', () => {
-    const profile: AgentProfile = {
-      name: 'root',
+    const profile = testAgentProfile('root', {
       harness: 'claude-code',
-      model: { default: 'anthropic/claude-opus-5', small: 'anthropic/claude-haiku-5' },
+      model: {
+        provider: 'anthropic',
+        default: 'anthropic/claude-opus-5',
+        small: 'anthropic/claude-haiku-5',
+      },
       prompt: { systemPrompt: 'delegate, do not solve' },
-    }
+    })
     expect(resolveSupervisorProfile(profile)).toEqual({
       name: 'root',
       harness: 'claude-code',
@@ -611,99 +608,72 @@ describe('resolveSupervisorProfile — a canonical AgentProfile IS a supervisor 
     })
   })
 
-  it('takes the hints default as the id and defaults name/harness (no reasoningEffort field)', () => {
-    expect(resolveSupervisorProfile({ model: { default: 'm', reasoningEffort: 'xhigh' } })).toEqual(
-      {
-        name: 'supervisor',
-        harness: null,
-        modelId: 'm',
-      },
-    )
-  })
-
-  it('leaves a plain string model and a top-level systemPrompt exactly as given', () => {
-    expect(resolveSupervisorProfile({ name: 'r', model: 'gpt-5.4', systemPrompt: 'go' })).toEqual({
-      name: 'r',
-      harness: null,
-      modelId: 'gpt-5.4',
-      systemPrompt: 'go',
+  it('defaults only the optional name while preserving exact execution identity', () => {
+    const { name: _name, ...unnamed } = testAgentProfile('temporary', {
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'm', reasoningEffort: 'xhigh' },
     })
-  })
-
-  it('accepts two IDENTICAL spellings of the same system prompt', () => {
-    expect(
-      resolveSupervisorProfile({ prompt: { systemPrompt: 'same' }, systemPrompt: 'same' })
-        .systemPrompt,
-    ).toBe('same')
-  })
-
-  it('fails loud when prompt.systemPrompt and systemPrompt disagree, naming both values', () => {
-    expect(() =>
-      resolveSupervisorProfile({
-        prompt: { systemPrompt: 'from the prompt block' },
-        systemPrompt: 'from the top level',
-      }),
-    ).toThrow(/prompt\.systemPrompt.*from the prompt block.*systemPrompt.*from the top level/s)
-  })
-
-  // `AgentProfileModelHints.default` is OPTIONAL in the canonical schema — `{ provider: 'anthropic' }`
-  // is a profile the schema accepts — so hints with no id name NO model, which is the documented
-  // "the router config's model applies" case, not a fault.
-  it('resolves hints with no usable default to no model id at all', () => {
-    expect(resolveSupervisorProfile({ model: { small: 'cheap' } })).toEqual({
+    expect(resolveSupervisorProfile(unnamed)).toEqual({
       name: 'supervisor',
       harness: null,
+      modelId: 'm',
     })
-    expect(resolveSupervisorProfile({ model: { provider: 'anthropic' } }).modelId).toBeUndefined()
-    expect(resolveSupervisorProfile({ model: { default: '' } }).modelId).toBeUndefined()
-    expect(
-      resolveSupervisorProfile({ model: { default: HARNESS_NATIVE_MODEL } }).modelId,
-    ).toBeUndefined()
+  })
+
+  it('refuses an incomplete execution identity', () => {
+    expect(() =>
+      resolveSupervisorProfile({
+        name: 'root',
+        harness: 'cli-base',
+        model: { provider: 'anthropic' },
+      } as AgentProfile),
+    ).toThrow(/AgentProfile\.model\.default is missing/)
   })
 
   it('appends prompt.instructions and resources.instructions to the system prompt, in that order', () => {
     expect(
-      resolveSupervisorProfile({
-        prompt: { systemPrompt: 'delegate, do not solve', instructions: ['one', 'two'] },
-        resources: { instructions: 'from resources' },
-      }).systemPrompt,
+      resolveSupervisorProfile(
+        testAgentProfile('root', {
+          harness: 'cli-base',
+          prompt: { systemPrompt: 'delegate, do not solve', instructions: ['one', 'two'] },
+          resources: { instructions: 'from resources' },
+        }),
+      ).systemPrompt,
     ).toBe('delegate, do not solve\none\ntwo\nfrom resources')
   })
 
   it('reads an INLINE resources.instructions resource as its content', () => {
     expect(
-      resolveSupervisorProfile({
-        systemPrompt: 'base',
-        resources: { instructions: { kind: 'inline', name: 'memory', content: 'learned: X' } },
-      }).systemPrompt,
+      resolveSupervisorProfile(
+        testAgentProfile('root', {
+          harness: 'cli-base',
+          prompt: { systemPrompt: 'base' },
+          resources: { instructions: { kind: 'inline', name: 'memory', content: 'learned: X' } },
+        }),
+      ).systemPrompt,
     ).toBe('base\nlearned: X')
   })
 
   it('resolves instruction lines even when no system prompt is named', () => {
-    expect(resolveSupervisorProfile({ prompt: { instructions: ['only this'] } }).systemPrompt).toBe(
-      'only this',
-    )
+    expect(
+      resolveSupervisorProfile(
+        testAgentProfile('root', {
+          harness: 'cli-base',
+          prompt: { instructions: ['only this'] },
+        }),
+      ).systemPrompt,
+    ).toBe('only this')
   })
 
   it('fails loud on a github resources.instructions reference it cannot fetch', () => {
     expect(() =>
-      resolveSupervisorProfile({
-        resources: { instructions: { kind: 'github', path: 'docs/INSTRUCTIONS.md' } },
-      }),
+      resolveSupervisorProfile(
+        testAgentProfile('root', {
+          harness: 'cli-base',
+          resources: { instructions: { kind: 'github', path: 'docs/INSTRUCTIONS.md' } },
+        }),
+      ),
     ).toThrow(/github resource reference.*docs\/INSTRUCTIONS\.md/s)
-  })
-
-  it('bounds the disagreeing-prompt message: lengths and excerpts, never two whole prompts', () => {
-    const long = 'A'.repeat(4000)
-    let message = ''
-    try {
-      resolveSupervisorProfile({ prompt: { systemPrompt: long }, systemPrompt: `${long}B` })
-    } catch (error) {
-      message = (error as Error).message
-    }
-    expect(message).toMatch(/4000 chars/)
-    expect(message).toMatch(/4001 chars/)
-    expect(message.length).toBeLessThan(400)
   })
 })
 
@@ -713,12 +683,11 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const journal = new InMemorySpawnJournal()
     // A canonical AgentProfile: the schema rejects unknown top-level keys, so a `systemPrompt`
     // hoisted onto this object would make the profile fail its own validator.
-    const profile: AgentProfile = {
-      name: 'sup',
+    const profile = testAgentProfile('sup', {
       harness: 'opencode',
       prompt: { systemPrompt: 'delegate, do not solve', instructions: ['keep it small'] },
       resources: { instructions: 'prefer the fewest workers' },
-    }
+    })
     let seen: SupervisorProfile | undefined
     let seenPrompt: string | undefined
     const driveHarness: DriveHarness = async (args) => {
@@ -740,13 +709,15 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     expect(seenPrompt).toBe('delegate, do not solve\nkeep it small\nprefer the fewest workers')
   })
 
-  it('SANDBOX arm builds and runs with a model the router could not resolve', async () => {
+  it('SANDBOX arm runs the exact profile model without router configuration', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     let ran = false
     const root = supervisorAgent(
-      // Valid canonical profile: `model.default` is optional upstream.
-      { name: 'sup', harness: 'opencode', model: { provider: 'anthropic' } },
+      testAgentProfile('sup', {
+        harness: 'opencode',
+        model: { provider: 'anthropic', default: 'claude-sonnet-4' },
+      }),
       {
         blobs,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
@@ -767,7 +738,10 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     // A profile that names ONLY instructions: the default standing prompt must survive, with
     // the lines appended to it.
     const root = supervisorAgent(
-      { name: 'sup', harness: null, prompt: { instructions: ['never edit main'] } },
+      testAgentProfile('sup', {
+        harness: 'cli-base',
+        prompt: { instructions: ['never edit main'] },
+      }),
       {
         blobs,
         makeWorkerAgent: () => deliveringLeaf('w', {}),
@@ -788,17 +762,14 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const journal = new InMemorySpawnJournal()
     let seen: unknown = 'unset'
     // The harness carries its own standing prompt, so the router's default must NOT leak in.
-    const root = supervisorAgent(
-      { name: 'sup', harness: 'opencode' },
-      {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        perWorker,
-        driveHarness: async (args: Parameters<DriveHarness>[0]) => {
-          seen = args.systemPrompt
-        },
+    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+      blobs,
+      makeWorkerAgent: () => deliveringLeaf('w', {}),
+      perWorker,
+      driveHarness: async (args: Parameters<DriveHarness>[0]) => {
+        seen = args.systemPrompt
       },
-    )
+    })
     await runSupervisor(root, blobs, journal)
     expect(seen).toBeUndefined()
   })
@@ -806,32 +777,26 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
   it('refuses a coordination binding on a router-brained supervisor', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
-      supervisorAgent(
-        { name: 'sup', harness: null },
-        {
-          blobs,
-          makeWorkerAgent: () => deliveringLeaf('w', {}),
-          perWorker,
-          brain: async () => ({ content: '', toolCalls: [] }),
-          coordination: { host: '127.0.0.1' },
-        },
-      ),
+      supervisorAgent(testAgentProfile('sup', { harness: 'cli-base' }), {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        perWorker,
+        brain: async () => ({ content: '', toolCalls: [] }),
+        coordination: { host: '127.0.0.1' },
+      }),
     ).toThrow(ConfigError)
   })
 
   it('refuses a non-loopback coordination host with no acknowledgment (a ConfigError)', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
-      supervisorAgent(
-        { name: 'sup', harness: 'opencode' },
-        {
-          blobs,
-          makeWorkerAgent: () => deliveringLeaf('w', {}),
-          perWorker,
-          driveHarness: async () => {},
-          coordination: { host: '0.0.0.0' },
-        },
-      ),
+      supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        perWorker,
+        driveHarness: async () => {},
+        coordination: { host: '0.0.0.0' },
+      }),
     ).toThrow(ConfigError)
   })
 
@@ -840,18 +805,15 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const journal = new InMemorySpawnJournal()
     let url = ''
     const coordination: { host: string } = { host: '127.0.0.1' }
-    const root = supervisorAgent(
-      { name: 'sup', harness: 'opencode' },
-      {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        perWorker,
-        driveHarness: async ({ coordinationMcpUrl }) => {
-          url = coordinationMcpUrl
-        },
-        coordination,
+    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+      blobs,
+      makeWorkerAgent: () => deliveringLeaf('w', {}),
+      perWorker,
+      driveHarness: async ({ coordinationMcpUrl }) => {
+        url = coordinationMcpUrl
       },
-    )
+      coordination,
+    })
     coordination.host = '0.0.0.0'
     await runSupervisor(root, blobs, journal)
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
@@ -860,16 +822,13 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
   it('refuses a non-loopback coordination host with no acknowledgment', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
-      supervisorAgent(
-        { name: 'sup', harness: 'opencode' },
-        {
-          blobs,
-          makeWorkerAgent: () => deliveringLeaf('w', {}),
-          perWorker,
-          driveHarness: async () => {},
-          coordination: { host: '0.0.0.0' },
-        },
-      ),
+      supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        perWorker,
+        driveHarness: async () => {},
+        coordination: { host: '0.0.0.0' },
+      }),
     ).toThrow(/not a loopback address.*allowUnauthenticatedRemote/s)
   })
 
@@ -878,16 +837,13 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     (host) => {
       const blobs = new InMemoryResultBlobStore()
       expect(() =>
-        supervisorAgent(
-          { name: 'sup', harness: 'opencode' },
-          {
-            blobs,
-            makeWorkerAgent: () => deliveringLeaf('w', {}),
-            perWorker,
-            driveHarness: async () => {},
-            coordination: { host },
-          },
-        ),
+        supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+          blobs,
+          makeWorkerAgent: () => deliveringLeaf('w', {}),
+          perWorker,
+          driveHarness: async () => {},
+          coordination: { host },
+        }),
       ).not.toThrow()
     },
   )
@@ -899,16 +855,13 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       url = coordinationMcpUrl
     }
-    const root = supervisorAgent(
-      { name: 'sup', harness: 'opencode' },
-      {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        perWorker,
-        driveHarness,
-        coordination: { host: '0.0.0.0', allowUnauthenticatedRemote: true },
-      },
-    )
+    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+      blobs,
+      makeWorkerAgent: () => deliveringLeaf('w', {}),
+      perWorker,
+      driveHarness,
+      coordination: { host: '0.0.0.0', allowUnauthenticatedRemote: true },
+    })
     await runSupervisor(root, blobs, journal)
     expect(url).toMatch(/^http:\/\/0\.0\.0\.0:\d+\/mcp$/)
   })

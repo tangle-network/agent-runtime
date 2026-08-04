@@ -1,6 +1,6 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type AgentSpec, createBudgetPool, createExecutor, createInbox } from '../../src/runtime'
+import { testAgentProfile } from './test-agent-profile'
 
 describe('worker inbox (down-leg receive end)', () => {
   it('parses the down-message shapes; ignores malformed', () => {
@@ -85,7 +85,11 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const spec: AgentSpec = {
-      profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
+      profile: testAgentProfile('w', {
+        harness: 'cli-base',
+        model: { provider: 'test', default: 'test-model' },
+        prompt: { systemPrompt: 'sys' },
+      }),
       harness: null,
     } as AgentSpec
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
@@ -127,7 +131,11 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const spec: AgentSpec = {
-      profile: { name: 'w', prompt: { systemPrompt: 'sys' } } as unknown as AgentProfile,
+      profile: testAgentProfile('w', {
+        harness: 'cli-base',
+        model: { provider: 'test', default: 'test-model' },
+        prompt: { systemPrompt: 'sys' },
+      }),
       harness: null,
     } as AgentSpec
     const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
@@ -158,7 +166,13 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const exec = factory(
-      { profile: { name: 'w' }, harness: null },
+      {
+        profile: testAgentProfile('w', {
+          harness: 'cli-base',
+          model: { provider: 'test', default: 'unpriced-test-model' },
+        }),
+        harness: null,
+      },
       { signal: new AbortController().signal, seams: {} },
     )
 
@@ -196,7 +210,13 @@ describe('router-tools executor drains the inbox', () => {
       executeToolCall: async () => '',
     })
     const exec = factory(
-      { profile: { name: 'w' }, harness: null },
+      {
+        profile: testAgentProfile('w', {
+          harness: 'cli-base',
+          model: { provider: 'openai', default: 'gpt-4o' },
+        }),
+        harness: null,
+      },
       { signal: new AbortController().signal, seams: {} },
     )
 

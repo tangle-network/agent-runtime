@@ -672,7 +672,7 @@ describe('runWorktreeHarness profile materialization', () => {
           runHarness,
         }),
       ).rejects.toThrow(
-        /profile materialization would drop axis changes.*modelSmall, modelProvider, modelMetadata, connections, confidential, extensions/su,
+        /profile materialization would drop axis changes.*modelSmall, modelMetadata, connections, confidential, extensions/su,
       )
       expect(runHarness).not.toHaveBeenCalled()
       expect(existsSync(join(repoRoot, '.agent-worktrees', runId))).toBe(false)
