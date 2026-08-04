@@ -177,7 +177,7 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
 
 /**
  * AppWorld in its NATIVE protocol, run by OUR runtime: the worker is
- * `routerToolLoop` (the runtime's off-box agentic tool loop) with one tool —
+ * Runtime's profile-bound `router-tools` executor with one tool —
  * `execute_python` — bound to a persistent AppWorld world session. The driver's
  * `session` subcommand is a dumb world shim (stdin JSONL: execute → output,
  * evaluate → verdict); every inference turn, the metering, and the typed
@@ -196,7 +196,7 @@ export function createAppWorldAdapter(): BenchmarkAdapter {
  * (AppWorld's evaluator ran in-world); judge() parses it, never re-executes.
  */
 
-interface ReactResult {
+export interface ReactResult {
   success?: boolean
   passes?: number
   fails?: number
@@ -205,7 +205,59 @@ interface ReactResult {
   turns?: number
   input_tokens?: number
   output_tokens?: number
+  cost_usd?: number
   transcript?: string
+}
+
+interface ReactRuntimeUsage {
+  input: number
+  output: number
+  costUsd?: number
+  tokensKnown?: boolean
+  usdKnown?: boolean
+}
+
+/** Preserve a completed scientific/task result even when one accounting dimension is incomplete.
+ * Unknown usage fields stay absent; later comparison/reporting can refuse a cost claim without
+ * discarding the episode's task evidence. */
+export function appworldReactResultWithUsage(
+  verdict: ReactResult,
+  usage: ReactRuntimeUsage,
+  turns: number | undefined,
+  transcript: string,
+): ReactResult {
+  return {
+    ...verdict,
+    ...(turns !== undefined ? { turns } : {}),
+    ...(usage.tokensKnown === false
+      ? {}
+      : { input_tokens: usage.input, output_tokens: usage.output }),
+    ...(usage.usdKnown === false || usage.costUsd === undefined
+      ? {}
+      : { cost_usd: usage.costUsd }),
+    transcript,
+  }
+}
+
+/** Emit only usage the Runtime actually knows. Catalog estimates never become observed dollars. */
+export function appworldReactUsageEvent(
+  result: ReactResult,
+  model: string,
+): { type: 'llm_call'; data: Record<string, unknown> } | undefined {
+  const hasTokens =
+    typeof result.input_tokens === 'number' && typeof result.output_tokens === 'number'
+  const hasCost = typeof result.cost_usd === 'number'
+  if (!hasTokens && !hasCost) return undefined
+  return {
+    type: 'llm_call',
+    data: {
+      model,
+      ...(hasTokens
+        ? { tokensIn: result.input_tokens, tokensOut: result.output_tokens }
+        : {}),
+      ...(hasCost ? { costUsd: result.cost_usd } : {}),
+    },
+  }
 }
 
 const REACT_HEADER = /^@appworld-react (\S+) (\S+)\n?/
@@ -319,7 +371,12 @@ export function appworldToolLoopClient(cfg: {
             const transcriptSteps: Array<{ args: string; result: string }> = []
             const profile = {
               name: 'appworld-react-worker',
-              model: { provider: 'tangle-router', default: cfg.model },
+              harness: 'cli-base' as const,
+              model: {
+                provider: 'tangle-router',
+                default: cfg.model,
+                metadata: { maxTurns },
+              },
               prompt: { systemPrompt: system },
               tools: { execute_python: true },
             }
@@ -327,9 +384,7 @@ export function appworldToolLoopClient(cfg: {
               backend: 'router-tools',
               routerBaseUrl: cfg.routerBaseUrl,
               routerKey: cfg.routerKey,
-              model: cfg.model,
               tools: [EXECUTE_TOOL],
-              maxTurns,
               executeToolCall: async (name, args) => {
                 if (name !== 'execute_python') return `error: unknown tool ${name}`
                 const res = await call({ op: 'execute', code: String(args.code ?? '') })
@@ -359,22 +414,15 @@ export function appworldToolLoopClient(cfg: {
               finalEvent?.type === 'final' && finalEvent.metadata?.result
                 ? (finalEvent.metadata.result as { spent?: { iterations?: number } })
                 : undefined
-            return {
-              ...verdict,
-              turns: resultMetadata?.spent?.iterations,
-              ...(loop.usage.tokensKnown === false
-                ? {}
-                : { input_tokens: loop.usage.input, output_tokens: loop.usage.output }),
+            return appworldReactResultWithUsage(
+              verdict,
+              loop.usage,
+              resultMetadata?.spent?.iterations,
               transcript,
-            } satisfies ReactResult
+            )
           })
-          // Real usage from the episode — flat llm_call so the kernel meters it.
-          if (out.input_tokens || out.output_tokens) {
-            yield {
-              type: 'llm_call',
-              data: { tokensIn: out.input_tokens ?? 0, tokensOut: out.output_tokens ?? 0, model: cfg.model },
-            }
-          }
+          const usageEvent = appworldReactUsageEvent(out, cfg.model)
+          if (usageEvent) yield usageEvent
           yield { type: 'result', data: { finalText: JSON.stringify(out) } }
         },
         async delete() {},

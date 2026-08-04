@@ -16,7 +16,7 @@
 import { OUTPUT_VALUE, type TraceAnalysisStore } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
-import type { RouterConfig } from './router-client'
+import type { RouterTransportConfig } from './router-client'
 import {
   type AgenticSurface,
   type AgenticTask,
@@ -185,8 +185,9 @@ function missingRunTestsEvidence(): { summary: string } {
 export interface SurfaceWorkerConfig {
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly model: string
-  readonly maxTokens?: number
+  /** Exact worker behavior, tools, and model. */
+  readonly profile: AgentProfile
+  readonly analystProfile?: AgentProfile
   readonly innerTurns?: number
   /** Refine-shot budget for ONE worker attempt (max steered shots). Default 1. */
   readonly budget?: number
@@ -210,7 +211,7 @@ function surfaceWorkerExecutor(
       const attemptTask: AgenticTask = guidance
         ? {
             ...task,
-            systemPrompt: `${task.systemPrompt ?? ''}\n\n— Supervisor guidance for THIS attempt (incorporate it; do not just repeat a prior approach) —\n${guidance}`,
+            userPrompt: `${task.userPrompt}\n\n— Supervisor guidance for THIS attempt (incorporate it; do not just repeat a prior approach) —\n${guidance}`,
           }
         : task
       const r = await runAgentic({
@@ -220,8 +221,8 @@ function surfaceWorkerExecutor(
         budget: worker.budget ?? 1,
         routerBaseUrl: worker.routerBaseUrl,
         routerKey: worker.routerKey,
-        model: worker.model,
-        ...(worker.maxTokens !== undefined ? { maxTokens: worker.maxTokens } : {}),
+        workerProfile: worker.profile,
+        ...(worker.analystProfile ? { analystProfile: worker.analystProfile } : {}),
         ...(worker.innerTurns !== undefined ? { innerTurns: worker.innerTurns } : {}),
       })
       const out: SurfaceWorkerOut = {
@@ -231,7 +232,14 @@ function surfaceWorkerExecutor(
         summary: `${strategy.name} ${r.shots} shot(s) → ${(100 * r.score).toFixed(0)}% (${r.resolved ? 'resolved' : 'unresolved'})`,
         failing: r.resolved ? [] : traced.failing(),
       }
-      const spent: Spend = { iterations: r.completions, tokens: r.tokens, usd: r.usd, ms: r.ms }
+      const spent: Spend = {
+        iterations: r.completions,
+        tokens: r.tokens,
+        ...(r.tokensKnown ? {} : { tokensKnown: false }),
+        usd: r.usd,
+        ...(r.usdKnown ? {} : { usdKnown: false }),
+        ms: r.ms,
+      }
       artifact = {
         outRef: `surface-worker:${task.id}:${r.shots}:${r.resolved ? 'ok' : 'no'}`,
         out,
@@ -257,9 +265,8 @@ export interface SuperviseSurfaceOptions {
   /** The conserved compute pool for the whole supervised run. Default: sized off the worker's inner-loop
    *  bounds for a handful of worker spawns — raise it to let the driver try more. */
   readonly budget?: Budget
-  /** The driver brain's router substrate (its own inference). Default: the worker's router + model — the
-   *  driver and workers share one router unless you separate them (e.g. a stronger driver model). */
-  readonly router?: RouterConfig
+  /** The driver brain's Router endpoint/auth. Model and behavior remain owned by `profile`. */
+  readonly router?: RouterTransportConfig
   /** The self-improvement lens fed to the driver on each settled worker. Default `failuresAnalyst()`
    *  (target the still-failing tests). Pass a custom registry to change it, or `null` to turn the
    *  within-run self-improvement OFF (the driver sees raw settled outputs). */
@@ -296,15 +303,16 @@ export async function superviseSurface(
   // Default the driver to the worker's router (one router unless separated) and the pool to a handful of
   // worker spawns sized off the worker bounds — so the minimal call is
   // `superviseSurface(profile, task, { surface, worker })`.
-  const router = opts.router ?? {
+  const router: RouterTransportConfig = opts.router ?? {
     routerBaseUrl: opts.worker.routerBaseUrl,
     routerKey: opts.worker.routerKey,
-    model: opts.worker.model,
   }
   const budget = opts.budget ?? {
     maxIterations: (innerTurns + 2) * 5 + 16,
-    maxTokens: (opts.worker.maxTokens ?? 4000) * 8,
+    maxTokens: 1_000_000_000,
   }
+  const workerMaxTokens =
+    profileMaxTokens(opts.worker.profile) ?? Math.max(1, Math.floor(budget.maxTokens / 8))
 
   // Every spawned worker is a BYO executor that runs the surface task; the deliverable is the completion
   // oracle (delivered ⟺ the surface check passed).
@@ -341,7 +349,7 @@ export async function superviseSurface(
     maxLiveWorkers: opts.maxLiveWorkers ?? 1,
     // A SMALL per-worker reservation so MULTIPLE workers fit the pool (the default reserves the whole pool
     // per worker → only one ever spawns, defeating the spawn-a-targeted-worker steering).
-    perWorker: { maxIterations: innerTurns + 2, maxTokens: opts.worker.maxTokens ?? 4000 },
+    perWorker: { maxIterations: innerTurns + 2, maxTokens: workerMaxTokens },
     router,
     ...(analysts ? { analysts, analyzeOnSettle: analysts.kinds.map((k) => k.id) } : {}),
   })
@@ -357,4 +365,15 @@ export async function superviseSurface(
     ms: sp.ms,
     completions: sp.iterations,
   }
+}
+
+function profileMaxTokens(profile: AgentProfile): number | undefined {
+  const value = profile.model?.metadata?.maxTokens
+  if (value === undefined) return undefined
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
+    throw new Error(
+      'superviseSurface: AgentProfile.model.metadata.maxTokens must be a positive safe integer',
+    )
+  }
+  return value as number
 }

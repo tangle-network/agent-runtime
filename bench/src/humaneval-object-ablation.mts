@@ -55,14 +55,21 @@ async function router(messages: ChatMsg[], tools?: Tool[]): Promise<{ content: s
           routerKey: ROUTER_KEY,
           profile: {
             name: 'humaneval-object-ablation-worker',
-            model: { provider: 'tangle-router', default: MODEL },
+            harness: 'cli-base',
+            model: {
+              provider: 'tangle-router',
+              default: MODEL,
+              metadata: {
+                temperature: 0.4,
+                ...(tools ? { toolChoice: 'auto' } : {}),
+              },
+            },
             ...(system ? { prompt: { systemPrompt: system } } : {}),
             ...(tools
               ? { tools: Object.fromEntries(tools.map((tool) => [tool.function.name, true])) }
               : {}),
           },
-          temperature: 0.4,
-          ...(tools ? { tools, toolChoice: 'auto' as const } : {}),
+          ...(tools ? { tools } : {}),
           timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 60_000),
         },
         { messages: messages.filter((message) => message.role !== 'system') },

@@ -26,7 +26,7 @@ import {
   GraphEdgeCapError,
   type MakeWorkerAgent,
   promptHandle,
-  type RouterConfig,
+  type RouterTransportConfig,
   type RunGraphOptions,
   runGraph,
   type Spend,
@@ -127,7 +127,7 @@ export type GraphArmBackend =
       readonly model?: string
       readonly cwd?: string
       /** Router substrate for the reviewer (driver) brain. */
-      readonly router?: RouterConfig
+      readonly router?: RouterTransportConfig
       readonly shotPassed: (workerOutText: string) => boolean
     }
 

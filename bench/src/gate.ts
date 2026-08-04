@@ -71,10 +71,6 @@ export interface BenchSolverOptions {
   readonly adapter: BenchmarkAdapter
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly model: string
-  /** Sampling temperature. >0 is required for the blind arm to be more than k identical samples
-   *  (k copies at temperature 0 collapse to one answer — no compute control). Default 0.7. */
-  readonly temperature?: number
 }
 
 const fnv = (prefix: string, value: unknown): string => {
@@ -116,8 +112,6 @@ export function benchSolveLeaf(opts: BenchSolverOptions, spec: AgentSpec, ctx: E
     backend: 'router',
     routerBaseUrl: opts.routerBaseUrl,
     routerKey: opts.routerKey,
-    model: opts.model,
-    temperature: opts.temperature ?? 0.7,
   })(spec, ctx)
   return mapExecutorResult(inner, async (result, task) => {
       const t = task as SolveTask
@@ -202,8 +196,6 @@ export interface RunGateOptions {
   readonly strategies: ReadonlyArray<string>
   readonly routerBaseUrl: string
   readonly routerKey: string
-  readonly model: string
-  readonly temperature?: number
   /** How many benchmark instances to run (the paired n). */
   readonly n?: number
   readonly ids?: string[]

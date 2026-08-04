@@ -31,7 +31,12 @@ import {
   type SupervisorArmResult,
 } from './arms.ts'
 import { containerName, materializeWorkspace } from './materialize.ts'
-import { gatesForArmKind, probeBody, probeWindow, waitForCapacity, httpCapacityProbe } from './capacity.ts'
+import {
+  gatesForArmKind,
+  httpCapacityProbe,
+  probeWindow,
+  waitForCapacity,
+} from './capacity.ts'
 import { run, runOk } from './proc.ts'
 import {
   createSerializedJudge,
@@ -1065,15 +1070,6 @@ describe('capacity gate', () => {
     expect(await waitForCapacity(gate)).toBe(false)
   })
 
-  it('probe body defaults to max_tokens 8000 (glm-5.2 starves below it)', () => {
-    expect(JSON.parse(probeBody('glm-5.2', 8000))).toEqual({
-      model: 'glm-5.2',
-      messages: [{ role: 'user', content: 'Reply with the single word OK.' }],
-      max_tokens: 8000,
-      temperature: 0,
-    })
-  })
-
   it('supervisor arms gate on BOTH worker and router paths; solo on worker only', () => {
     const secrets = { secretsDir: '/dev/null', envFiles: ['agent-state.env'] }
     expect(gatesForArmKind('solo', secrets).map((g) => g.name)).toEqual(['z.ai-coding'])
@@ -1081,9 +1077,13 @@ describe('capacity gate', () => {
   })
 
   it('rejects a non-env-shaped key name (no value smuggling)', () => {
-    const secrets = { secretsDir: '/dev/null', envFiles: [] }
     expect(() =>
-      httpCapacityProbe({ url: 'https://x', apiKeyEnv: 'k; cat /etc/passwd', model: 'm', secrets }),
+      httpCapacityProbe({
+        url: 'https://x',
+        apiKeyEnv: 'k; cat /etc/passwd',
+        provider: 'test',
+        model: 'm',
+      }),
     ).toThrow(/apiKeyEnv/)
   })
 })

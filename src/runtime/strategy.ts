@@ -21,14 +21,22 @@
  * surface-closed registry — the open `Executor` seam, not bespoke per-benchmark glue.
  */
 
-import { createChatClient, estimateCost, isModelPriced } from '@tangle-network/agent-eval'
+import type { ChatClient } from '@tangle-network/agent-eval'
+import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../durable/spawn-journal'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { observe } from './observe'
 import type { Outcome } from './personify/types'
 import type { Corpus } from './personify/wave-types'
-import { routerToolLoop } from './router-client'
+import { profileChatClient } from './profile-chat-client'
+import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import { withDriverExecutor } from './supervise/driver-executor'
+import {
+  assertExecutableAgentProfile,
+  concreteModelId,
+  profileModelExecutionSettings,
+} from './supervise/model-policy'
+import { createExecutor } from './supervise/runtime'
 import { createSupervisor } from './supervise/supervisor'
 import type {
   Agent,
@@ -47,7 +55,6 @@ import type {
 
 export interface AgenticTask {
   readonly id: string
-  readonly systemPrompt: string
   readonly userPrompt: string
   /** Opaque domain payload the surface reads (EOPS: servers/verifiers/tools). Drivers never read it. */
   readonly meta?: Record<string, unknown>
@@ -85,25 +92,16 @@ export interface AgenticSurface {
 export interface AgenticOptions {
   routerBaseUrl: string
   routerKey: string
-  model: string
+  /** Exact worker identity. Model and standing instructions are read only from this profile. */
+  workerProfile: AgentProfile
   /** Optional completion transport (see `RouterConfig.complete`): when set, BOTH legs of an
    *  offline run use it instead of `fetch`-ing the router — the worker's tool loop (threaded into
    *  its `routerToolLoop` cfg) AND the analyst's critic (its `ChatClient` is bound to this same
    *  transport). One injected responder serves both, as a localhost mock endpoint would. Absent ⇒
    *  the live router fetch path (the default). */
   complete?: (body: Record<string, unknown>) => Promise<unknown>
-  temperature?: number
-  /** Completion cap per worker turn — REQUIRED for thinking models (they burn unbounded
-   *  budgets on reasoning and return empty content without it). Omitted ⇒ provider default. */
-  maxTokens?: number
-  /** Turns the agent may take within ONE shot before the driver intervenes. */
-  innerTurns?: number
-  /** The depth STEERER's analyst instruction (observe()'s system prompt). The knob a
-   *  prompt optimizer (GEPA) tunes — the analyst IS the steerer. Omitted ⇒ the default. */
-  analystInstruction?: string
-  /** The critic's model — lets the analyst be a stronger (or cheaper) model than the
-   *  worker. Omitted ⇒ the worker's `model`. */
-  analystModel?: string
+  /** Exact critic identity. Omitted means the exact worker profile also runs the critic. */
+  analystProfile?: AgentProfile
   /** Across-run learning: when set, the analyst's observe() pass appends trace-derived
    *  facts here (the flywheel write side). Read-back is opt-in via `corpusReadback`
    *  because unconditional priming can pollute context on some domains. */
@@ -140,7 +138,7 @@ interface ShotTask {
   handle?: ArtifactHandle // present ⇒ DEPTH (shared artifact); absent ⇒ BREADTH (open own)
   messages?: StrategyMessage[] // carried conversation (depth); fresh when absent
   steer?: string // analyst-derived steer injected before this shot (depth)
-  persona?: ShotPersona // role override — multi-agent loops give each shot its own hat
+  profile?: AgentProfile // exact role/model override for this shot
   tools?: string[] // restrict THIS shot to these domain tools (names); unknown names throw
   /** analyst leaf only: a RAW instruction — the analyst answers it over the trajectory
    *  directly (no findings schema). The verdict-capable channel. */
@@ -154,12 +152,75 @@ interface ShotOut {
   toolErrors: number
   /** Real router usage summed over the shot's turns; zeros only when the provider omits usage. */
   tokens: { input: number; output: number }
+  /** False when any Router turn omitted usage. */
+  tokensKnown?: false
 }
 
 const taskNudge =
   'Use the available tools to bring the artifact to the required final state. Address EVERY distinct ' +
   'change the request implies. After each tool result, check what remains and continue. Re-read the ' +
   'values you set to confirm they took. Reply DONE only once every required change is made and verified.'
+
+function exactAgenticProfile(profile: AgentProfile, context: string): AgentProfile {
+  const parsed = agentProfileSchema.safeParse(profile)
+  if (!parsed.success) throw new Error(`${context}: invalid AgentProfile: ${parsed.error.message}`)
+  return parsed.data
+}
+
+function requiredProfileModel(profile: AgentProfile, context: string): string {
+  assertExecutableAgentProfile(profile, context)
+  const model = concreteModelId(profile.model?.default)
+  if (!model) {
+    throw new Error(
+      `${context}: AgentProfile.model.default must name the exact provider model; runtime-selected and missing models are not executable`,
+    )
+  }
+  return model
+}
+
+function profileSystemPrompt(profile: AgentProfile): string {
+  const sections = [profile.prompt?.systemPrompt, ...(profile.prompt?.instructions ?? [])].filter(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  )
+  const instructions = profile.resources?.instructions
+  if (typeof instructions === 'string' && instructions.trim()) sections.push(instructions)
+  else if (
+    instructions &&
+    typeof instructions === 'object' &&
+    instructions.kind === 'inline' &&
+    instructions.content.trim()
+  ) {
+    sections.push(instructions.content)
+  } else if (instructions && typeof instructions === 'object' && instructions.kind === 'github') {
+    throw new Error(
+      'agentic profile: github resource instructions require a workspace materializer; use inline instructions for the direct Router worker',
+    )
+  }
+  return sections.join('\n\n')
+}
+
+function assertProfileTools(
+  profile: AgentProfile,
+  tools: ReadonlyArray<AgenticTool>,
+  context: string,
+): void {
+  const supplied = new Set(tools.map((tool) => tool.function.name))
+  const declared = profile.tools ?? {}
+  for (const name of supplied) {
+    if (declared[name] !== true) {
+      throw new Error(
+        `${context}: tool ${JSON.stringify(name)} is not enabled by AgentProfile.tools`,
+      )
+    }
+  }
+  for (const [name, enabled] of Object.entries(declared)) {
+    if (enabled && !supplied.has(name)) {
+      throw new Error(
+        `${context}: AgentProfile enables tool ${JSON.stringify(name)} but the surface did not supply it`,
+      )
+    }
+  }
+}
 
 /** One shot: run the agent's tool loop (≤ innerTurns) over the handle, mutating the artifact via
  *  `surface.call`, carrying `messages`. Returns the updated conversation + counts. */
@@ -170,7 +231,7 @@ async function runShot(
   tools: AgenticTool[],
   messages: StrategyMessage[],
   opts: AgenticOptions,
-  modelOverride?: string,
+  profileOverride?: AgentProfile,
 ): Promise<ShotOut> {
   // The canonical off-box tool loop (routerToolLoop) drives the turns; this shot supplies
   // the carried conversation (depth continuation, via initialMessages) and the tool dispatch
@@ -187,30 +248,37 @@ async function runShot(
       return `ERROR: ${e instanceof Error ? e.message : String(e)}`
     }
   }
-  const r = await routerToolLoop(
-    {
-      routerBaseUrl: opts.routerBaseUrl,
-      routerKey: opts.routerKey,
-      model: modelOverride ?? opts.model,
-      ...(opts.complete ? { complete: opts.complete } : {}),
-    },
-    '',
-    '',
+  const profile = exactAgenticProfile(profileOverride ?? opts.workerProfile, 'agentic shot')
+  requiredProfileModel(profile, 'agentic shot')
+  profileModelExecutionSettings(profile, 'agentic shot')
+  assertProfileTools(profile, tools, 'agentic shot')
+  const factory = createExecutor({
+    backend: 'router-tools',
+    routerBaseUrl: opts.routerBaseUrl,
+    routerKey: opts.routerKey,
     tools,
-    execute,
-    {
-      maxTurns: opts.innerTurns ?? 4,
-      temperature: opts.temperature ?? 0.7,
-      initialMessages: messages,
-      ...(opts.maxTokens ? { maxTokens: opts.maxTokens } : {}),
-    },
+    executeToolCall: execute,
+    ...(opts.complete ? { complete: opts.complete } : {}),
+  })
+  const turn = await collectAgentTurn(
+    streamAgentTurn(
+      { kind: 'executor', profile, factory },
+      { messages: messages as Array<{ role: string; content: unknown }> },
+    ),
   )
+  if (turn.status !== 'completed') {
+    throw new Error(`agentic shot failed: ${turn.error?.message ?? turn.status}`)
+  }
+  const out = turn.output as
+    | { messages?: StrategyMessage[]; turns?: number; toolCalls?: number }
+    | undefined
   return {
-    messages: r.messages,
-    completions: r.turns,
-    toolCalls: r.toolCalls,
+    messages: out?.messages ?? messages,
+    completions: out?.turns ?? 0,
+    toolCalls: out?.toolCalls ?? 0,
     toolErrors,
-    tokens: r.usage,
+    tokens: { input: turn.usage.input, output: turn.usage.output },
+    ...(turn.usage.tokensKnown === false ? { tokensKnown: false } : {}),
   }
 }
 
@@ -223,6 +291,8 @@ async function runShot(
 interface AnalyzeOut {
   steer: string
   tokens: { input: number; output: number }
+  /** False when any analyst call omitted usage. */
+  tokensKnown?: false
 }
 
 /** The firewall's input shape: the trajectory as compacted text — calls, results,
@@ -246,49 +316,15 @@ function compactTrajectory(messages: StrategyMessage[]): string {
  *  worker and the analyst share the one injected responder, exactly as a localhost mock would
  *  serve both). The critic speaks the OpenAI request shape; we forward it to `complete` and lift
  *  the parsed `/chat/completions` JSON back into a `ChatResponse`. */
-function analystChat(
-  opts: AgenticOptions,
-  defaultModel: string,
-): ReturnType<typeof createChatClient> {
-  if (!opts.complete) {
-    return createChatClient({
-      transport: 'router',
-      apiKey: opts.routerKey,
-      baseUrl: opts.routerBaseUrl,
-      defaultModel,
-    })
-  }
-  const complete = opts.complete
-  return createChatClient({
-    transport: 'mock',
-    defaultModel,
-    handler: async (req) => {
-      const raw = (await complete({
-        model: req.model ?? defaultModel,
-        messages: req.messages,
-        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-        ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
-      })) as {
-        choices?: Array<{ message?: { content?: string | null }; finish_reason?: string | null }>
-        usage?: { prompt_tokens?: number; completion_tokens?: number }
-      }
-      const content = raw.choices?.[0]?.message?.content ?? ''
-      const promptTokens = raw.usage?.prompt_tokens ?? 0
-      const completionTokens = raw.usage?.completion_tokens ?? 0
-      return {
-        content,
-        usage: {
-          promptTokens,
-          completionTokens,
-          totalTokens: promptTokens + completionTokens,
-        },
-        costUsd: null,
-        model: req.model ?? defaultModel,
-        durationMs: 0,
-        finishReason: raw.choices?.[0]?.finish_reason ?? null,
-        contentEmpty: content.trim().length === 0,
-        raw: raw as Record<string, unknown>,
-      }
+function analystChat(opts: AgenticOptions, profile: AgentProfile): ChatClient {
+  return profileChatClient({
+    profile,
+    context: 'agentic analyst',
+    executor: {
+      backend: 'router',
+      routerBaseUrl: opts.routerBaseUrl,
+      routerKey: opts.routerKey,
+      ...(opts.complete ? { complete: opts.complete } : {}),
     },
   })
 }
@@ -305,32 +341,24 @@ async function consultAnalyst(
   opts: AgenticOptions,
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
-  const analystModel = opts.analystModel ?? opts.model
-  const chat = analystChat(opts, analystModel)
-  // With a trajectory, the analyst framing (instruction as system, behavior as the user
-  // turn) is the channel's shape. With NO trajectory (pre-task consults, e.g. authored
-  // check generation), that framing breaks: the user turn is then just the task, which
-  // reads as a solve request — measured on Llama-3-8B, the model ignores the system
-  // instruction and answers the task (authored-assert yield 6/18 reps vs 18/18 with the
-  // instruction and task fused into one user message, the proven rig shape).
-  const consultMessages = trajectory
-    ? [
-        { role: 'system' as const, content: instruction },
-        {
-          role: 'user' as const,
-          content: `TASK: ${task.userPrompt.slice(0, 1500)}\n\nTRAJECTORY:\n${trajectory}`,
-        },
-      ]
-    : [
-        {
-          role: 'user' as const,
-          content: `${instruction}\n\nTASK:\n${task.userPrompt.slice(0, 1500)}`,
-        },
-      ]
+  const analystProfile = exactAgenticProfile(
+    opts.analystProfile ?? opts.workerProfile,
+    'agentic analyst',
+  )
+  const analystModel = requiredProfileModel(analystProfile, 'agentic analyst')
+  const chat = analystChat(opts, analystProfile)
+  // The profile owns the standing system instruction. This strategy-authored question is task
+  // input, so it stays in the user turn even when a trajectory is present.
+  const consultMessages = [
+    {
+      role: 'user' as const,
+      content: trajectory
+        ? `${instruction}\n\nTASK: ${task.userPrompt.slice(0, 1500)}\n\nTRAJECTORY:\n${trajectory}`
+        : `${instruction}\n\nTASK:\n${task.userPrompt.slice(0, 1500)}`,
+    },
+  ]
   const res = await chat.chat({
     model: analystModel,
-    temperature: 0.2,
-    maxTokens: 1024,
     messages: consultMessages,
   })
   const usage = (
@@ -340,15 +368,21 @@ async function consultAnalyst(
         prompt_tokens?: number
         completionTokens?: number
         completion_tokens?: number
+        captured?: boolean
       }
     }
   ).usage
+  const input = usage?.promptTokens ?? usage?.prompt_tokens
+  const output = usage?.completionTokens ?? usage?.completion_tokens
+  const tokensKnown =
+    usage?.captured !== false && typeof input === 'number' && typeof output === 'number'
   return {
     steer: res.content.trim(),
     tokens: {
-      input: usage?.promptTokens ?? usage?.prompt_tokens ?? 0,
-      output: usage?.completionTokens ?? usage?.completion_tokens ?? 0,
+      input: input ?? 0,
+      output: output ?? 0,
     },
+    ...(tokensKnown ? {} : { tokensKnown: false }),
   }
 }
 
@@ -358,32 +392,10 @@ async function analyze(
   opts: AgenticOptions,
 ): Promise<AnalyzeOut> {
   const trajectory = compactTrajectory(messages)
-  const analystModel = opts.analystModel ?? opts.model
-  const inner = analystChat(opts, analystModel)
-  // The critic's calls are REAL spend — capture usage so the cost vector bills them
-  // (an unbilled critic makes every steering-vs-sampling cost comparison dishonest).
-  const tokens = { input: 0, output: 0 }
-  const chat: typeof inner = {
-    ...inner,
-    chat: async (req, callOpts) => {
-      const res = await inner.chat(req, callOpts)
-      const u = (
-        res as {
-          usage?: {
-            promptTokens?: number
-            completionTokens?: number
-            prompt_tokens?: number
-            completion_tokens?: number
-          }
-        }
-      ).usage
-      if (u) {
-        tokens.input += u.promptTokens ?? u.prompt_tokens ?? 0
-        tokens.output += u.completionTokens ?? u.completion_tokens ?? 0
-      }
-      return res
-    },
-  }
+  const analystProfile = exactAgenticProfile(
+    opts.analystProfile ?? opts.workerProfile,
+    'agentic analyst',
+  )
   const obs = await observe(
     {
       task: task.userPrompt,
@@ -393,9 +405,13 @@ async function analyze(
       runId: task.id,
     },
     {
-      chat,
-      model: analystModel,
-      ...(opts.analystInstruction ? { analystInstruction: opts.analystInstruction } : {}),
+      profile: analystProfile,
+      executor: {
+        backend: 'router',
+        routerBaseUrl: opts.routerBaseUrl,
+        routerKey: opts.routerKey,
+        ...(opts.complete ? { complete: opts.complete } : {}),
+      },
       ...(opts.corpus ? { corpus: opts.corpus, tags: opts.corpusTags ?? [] } : {}),
     },
   )
@@ -405,7 +421,11 @@ async function analyze(
     .filter((a): a is string => typeof a === 'string' && a.trim().length > 0)
     .join('\n')
     .trim()
-  return { steer: steer || 'COMPLETE', tokens }
+  return {
+    steer: steer || 'COMPLETE',
+    tokens: { input: obs.usage.input, output: obs.usage.output },
+    ...(obs.usage.known ? {} : { tokensKnown: false }),
+  }
 }
 
 async function renderCorpusReadback(opts: AgenticOptions): Promise<string> {
@@ -476,21 +496,23 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
         }
         // An EMPTY messages array means "fresh" too — an authored body passing
         // `messages: []` must not silently blank the worker's system/task prompt.
+        const profile = exactAgenticProfile(t.profile ?? opts.workerProfile, 'agentic shot')
+        const systemPrompt = profileSystemPrompt(profile)
         const messages: StrategyMessage[] = t.messages?.length
           ? [...t.messages]
           : [
-              { role: 'system', content: t.persona?.systemPrompt ?? t.task.systemPrompt },
+              ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
               { role: 'user', content: `${t.task.userPrompt}\n\n${taskNudge}` },
             ]
-        // On a CARRIED conversation, a persona switch arrives as a role hand-off message.
-        if (t.messages?.length && t.persona?.systemPrompt) {
+        // On a CARRIED conversation, a profile switch arrives as a role hand-off message.
+        if (t.messages?.length && t.profile && systemPrompt) {
           messages.push({
             role: 'user',
-            content: `[hand-off] You are now acting as: ${t.persona.systemPrompt}`,
+            content: `[hand-off] You are now acting as: ${systemPrompt}`,
           })
         }
         if (t.steer) messages.push({ role: 'user', content: t.steer })
-        const shot = await runShot(surface, t.task, handle, tools, messages, opts, t.persona?.model)
+        const shot = await runShot(surface, t.task, handle, tools, messages, opts, profile)
         const s = await surface.score(t.task, handle)
         const score = s.total > 0 ? s.passes / s.total : 0
         const out: StrategyShotResult = {
@@ -510,9 +532,9 @@ function shotExecutor(surface: AgenticSurface, opts: AgenticOptions): Executor<u
           spent: {
             iterations: shot.completions,
             tokens: shot.tokens,
-            usd: isModelPriced(opts.model)
-              ? estimateCost(shot.tokens.input, shot.tokens.output, opts.model)
-              : 0,
+            ...(shot.tokensKnown === false ? { tokensKnown: false } : {}),
+            usd: 0,
+            usdKnown: false,
             ms: 0,
           },
         }
@@ -535,19 +557,18 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
     runtime: 'agentic-analyst',
     async execute(task: unknown): Promise<ExecutorResult<unknown>> {
       const t = task as { task: AgenticTask; messages: StrategyMessage[]; rawInstruction?: string }
-      const { steer, tokens } = t.rawInstruction
+      const { steer, tokens, tokensKnown } = t.rawInstruction
         ? await consultAnalyst(t.task, t.messages, t.rawInstruction, opts)
         : await analyze(t.task, t.messages, opts)
-      const analystModel = opts.analystModel ?? opts.model
       artifact = {
         outRef: `analyst:${steer.length}`,
         out: steer,
         spent: {
           iterations: 1,
           tokens,
-          usd: isModelPriced(analystModel)
-            ? estimateCost(tokens.input, tokens.output, analystModel)
-            : 0,
+          ...(tokensKnown === false ? { tokensKnown: false } : {}),
+          usd: 0,
+          usdKnown: false,
           ms: 0,
         },
       }
@@ -583,10 +604,22 @@ function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): Executo
   return withDriverExecutor(leaves)
 }
 
-function leaf(name: string, role: 'shot' | 'analyst'): Agent<unknown, Outcome<unknown>> {
+function leaf(
+  name: string,
+  role: 'shot' | 'analyst',
+  profile: AgentProfile,
+): Agent<unknown, Outcome<unknown>> {
+  const exactProfile = exactAgenticProfile(profile, `agentic ${role}`)
   const agent = {
     name,
-    executorSpec: { profile: { name, metadata: { role } }, harness: null } as unknown as AgentSpec,
+    executorSpec: {
+      profile: {
+        ...exactProfile,
+        name,
+        metadata: { ...exactProfile.metadata, role },
+      },
+      harness: null,
+    } as AgentSpec,
     act(): Promise<Outcome<unknown>> {
       // SPAWNED, not run: its `executorSpec` (role shot/analyst) resolves a leaf executor
       // the scope drives. `act` is never called for a spawned child; it fails loud if
@@ -616,15 +649,22 @@ export interface AgenticRunResult {
   /** DEPTH: score after each shot — the progress-over-rounds curve. BREADTH: best-so-far per rollout. */
   progression: number[]
   shots: number
-  /** The cost vector, stamped by `runAgentic` from the Supervisor's conserved pool: real
-   *  router tokens, priced usd (0 when the model is unpriced — never fabricated), wall ms. */
+  /** Observed billed subtotal. `usdKnown:false` means it is incomplete, never a measured zero. */
   usd: number
+  usdKnown: boolean
   ms: number
   tokens: { input: number; output: number }
+  tokensKnown: boolean
 }
 
-const perChild = (innerTurns: number): Budget => ({
-  maxIterations: innerTurns + 1,
+const UNBOUNDED_TURN_RESERVATION = 1_000_000_000
+
+function profileTurnLimit(profile: AgentProfile, context: string): number {
+  return profileModelExecutionSettings(profile, context).maxTurns ?? 0
+}
+
+const perChild = (maxTurns: number): Budget => ({
+  maxIterations: maxTurns === 0 ? UNBOUNDED_TURN_RESERVATION : maxTurns + 1,
   maxTokens: 1_000_000,
 })
 
@@ -635,7 +675,7 @@ export function depthStrategy(
   opts: AgenticOptions,
   cfg: { maxShots: number },
 ): Agent<unknown, Outcome<unknown>> {
-  const innerTurns = opts.innerTurns ?? 4
+  const innerTurns = profileTurnLimit(opts.workerProfile, 'depth worker')
   let pendingSteer: string | undefined // analyst-derived steer carried between shots
   return {
     name: 'depth',
@@ -647,7 +687,7 @@ export function depthStrategy(
       let shots = 0
       try {
         for (shots = 0; shots < cfg.maxShots; shots += 1) {
-          const child = leaf(`shot:${shots}`, 'shot')
+          const child = leaf(`shot:${shots}`, 'shot', opts.workerProfile)
           const memorySteer = await renderCorpusReadback(opts)
           const steer = [shots === 0 ? undefined : pendingSteer, memorySteer]
             .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
@@ -665,7 +705,11 @@ export function depthStrategy(
           progression.push(out.score)
           if (out.score >= 1 || shots === cfg.maxShots - 1) break
           // Analyst reads the trajectory (firewalled) → steer the resumed session.
-          const aChild = leaf(`analyst:${shots}`, 'analyst')
+          const aChild = leaf(
+            `analyst:${shots}`,
+            'analyst',
+            opts.analystProfile ?? opts.workerProfile,
+          )
           const aRes = scope.spawn(
             aChild,
             { task, messages },
@@ -706,16 +750,20 @@ export function breadthStrategy(
   opts: AgenticOptions,
   cfg: { width: number },
 ): Agent<unknown, Outcome<unknown>> {
-  const innerTurns = opts.innerTurns ?? 4
+  const innerTurns = profileTurnLimit(opts.workerProfile, 'breadth worker')
   return {
     name: 'breadth',
     async act(_t, scope): Promise<Outcome<unknown>> {
       let opened = 0
       for (let k = 0; k < cfg.width; k += 1) {
-        const res = scope.spawn(leaf(`rollout:${k}`, 'shot'), { task } as ShotTask, {
-          budget: perChild(innerTurns),
-          label: `rollout:${k}`,
-        })
+        const res = scope.spawn(
+          leaf(`rollout:${k}`, 'shot', opts.workerProfile),
+          { task } as ShotTask,
+          {
+            budget: perChild(innerTurns),
+            label: `rollout:${k}`,
+          },
+        )
         if (res.ok) opened += 1
       }
       if (opened === 0) return { kind: 'blocked', blockers: ['breadth: pool admitted no rollout'] }
@@ -791,22 +839,13 @@ export const refine: Strategy = {
 // driver. (depthStrategy/breadthStrategy are the hand-written reference impls; refine/sample
 // stay on them — proven — while NEW strategies are authored compactly here.)
 
-/** A role for one shot — multi-agent loops (researcher + engineer, a panel of k
- *  researchers) give each shot its own system prompt and optionally its own model. */
-export interface ShotPersona {
-  /** Replaces the task's systemPrompt for a FRESH shot; on a carried conversation it is
-   *  injected as a hand-off message (the transcript's earlier roles stay intact). */
-  systemPrompt?: string
-  /** Per-shot model override (e.g. a stronger model for the engineer shot). */
-  model?: string
-}
-
 export interface ShotSpec {
   /** present ⇒ continue this artifact (depth); absent ⇒ the shot opens a fresh one (sample/restart). */
   handle?: ArtifactHandle
   messages?: StrategyMessage[]
   steer?: string
-  persona?: ShotPersona
+  /** Exact profile for this shot. Omitted means `AgenticOptions.workerProfile`. */
+  profile?: AgentProfile
   /** Restrict THIS shot to a subset of the domain's tools (by name) — focus a shot on
    *  the relevant capabilities. Restriction-only; unknown names throw. Omitted ⇒ all. */
   tools?: string[]
@@ -861,7 +900,6 @@ export function defineStrategy<Result extends StrategyResult>(
       name,
       async act(_t, scope): Promise<Outcome<unknown>> {
         let seq = 0
-        const innerTurns = opts.innerTurns ?? 4
         // HARNESS-VERIFIED scoring: the deliverable score is computed HERE from the shots
         // the harness actually brokered + scored via surface.score() — NEVER the value the
         // (possibly authored / adversarial) body returns. An authored strategy cannot
@@ -893,7 +931,9 @@ export function defineStrategy<Result extends StrategyResult>(
           budget,
           scope,
           async shot(spec) {
-            const child = leaf(`shot:${seq}`, 'shot')
+            const profile = spec?.profile ?? opts.workerProfile
+            const innerTurns = profileTurnLimit(profile, 'authored strategy shot')
+            const child = leaf(`shot:${seq}`, 'shot', profile)
             seq += 1
             const res = scope.spawn(
               child,
@@ -902,7 +942,7 @@ export function defineStrategy<Result extends StrategyResult>(
                 handle: spec?.handle,
                 messages: spec?.messages,
                 steer: spec?.steer,
-                persona: spec?.persona,
+                profile,
                 tools: spec?.tools,
               } as ShotTask,
               { budget: perChild(innerTurns), label: child.name },
@@ -923,7 +963,11 @@ export function defineStrategy<Result extends StrategyResult>(
             }))
           },
           async critique(messages) {
-            const child = leaf(`analyst:${seq}`, 'analyst')
+            const child = leaf(
+              `analyst:${seq}`,
+              'analyst',
+              opts.analystProfile ?? opts.workerProfile,
+            )
             seq += 1
             const res = scope.spawn(
               child,
@@ -937,7 +981,11 @@ export function defineStrategy<Result extends StrategyResult>(
             return /^\s*COMPLETE\b/i.test(findings) ? null : findings
           },
           async consult(messages, instruction) {
-            const child = leaf(`analyst:${seq}`, 'analyst')
+            const child = leaf(
+              `analyst:${seq}`,
+              'analyst',
+              opts.analystProfile ?? opts.workerProfile,
+            )
             seq += 1
             const res = scope.spawn(
               child,
@@ -1096,11 +1144,25 @@ export interface RunAgenticOptions<Result extends StrategyResult = StrategyResul
 export async function runAgentic<Result extends StrategyResult = StrategyResult>(
   opts: RunAgenticOptions<Result>,
 ): Promise<AgenticRunResult & Result> {
+  const workerProfile = exactAgenticProfile(opts.workerProfile, 'runAgentic worker')
+  requiredProfileModel(workerProfile, 'runAgentic worker')
+  const analystProfile = exactAgenticProfile(
+    opts.analystProfile ?? workerProfile,
+    'runAgentic analyst',
+  )
+  requiredProfileModel(analystProfile, 'runAgentic analyst')
+  const exactOpts: RunAgenticOptions<Result> = {
+    ...opts,
+    workerProfile,
+    analystProfile,
+  }
   const strategy: Strategy = opts.strategy ?? (opts.mode === 'breadth' ? sample : refine)
-  const driver = strategy.driver(opts.surface, opts.task, opts, opts.budget)
+  const driver = strategy.driver(opts.surface, opts.task, exactOpts, opts.budget)
   const supervisor = createSupervisor<unknown, Outcome<unknown>>()
+  const rootTurnLimit = profileTurnLimit(workerProfile, 'runAgentic worker')
   const root: Budget = opts.rootBudget ?? {
-    maxIterations: opts.budget * ((opts.innerTurns ?? 4) + 2),
+    maxIterations:
+      opts.budget * ((rootTurnLimit === 0 ? UNBOUNDED_TURN_RESERVATION : rootTurnLimit) + 2),
     maxTokens: 1_000_000_000,
   }
   const started = Date.now()
@@ -1109,7 +1171,7 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
     runId: `agentic:${strategy.name}:${opts.task.id}`,
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
-    executors: agenticRegistry(opts.surface, opts),
+    executors: agenticRegistry(opts.surface, exactOpts),
     maxDepth: 3,
     ...(opts.hooks ? { hooks: opts.hooks } : {}),
   })
@@ -1122,11 +1184,16 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
   }
   // Drivers deliver the strategy outcome; the cost vector is stamped here from `result.spentTotal`
   // (the journal aggregate: settled child work + metered driver inference) + wall clock.
-  const core = result.out.deliverable as Omit<AgenticRunResult & Result, 'usd' | 'ms' | 'tokens'>
+  const core = result.out.deliverable as Omit<
+    AgenticRunResult & Result,
+    'usd' | 'usdKnown' | 'ms' | 'tokens' | 'tokensKnown'
+  >
   return {
     ...core,
     usd: result.spentTotal.usd,
+    usdKnown: result.spentTotal.usdKnown !== false,
     tokens: result.spentTotal.tokens,
+    tokensKnown: result.spentTotal.tokensKnown !== false,
     ms: Date.now() - started,
   } as AgenticRunResult & Result
 }

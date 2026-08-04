@@ -441,15 +441,8 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     expect(executor?.runtime).toBe('router')
   })
 
-  it('workerFromBackend rejects post-identity profile overlays and shared execution ids', () => {
+  it('workerFromBackend rejects shared execution ids', () => {
     const invalid: ExecutorConfig[] = [
-      {
-        backend: 'bridge',
-        bridgeUrl: 'http://bridge.test',
-        bridgeBearer: 'secret',
-        model: 'model',
-        agentProfile: { name: 'late-overlay' },
-      },
       {
         backend: 'bridge',
         bridgeUrl: 'http://bridge.test',
@@ -732,22 +725,6 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         allowedModels: ['safe'],
       }),
     ).toThrow(new RegExp(`${rejected}.*not in the allowed set`))
-  })
-
-  it('refuses every backend profile overlay before it can bypass authorization', () => {
-    expect(() =>
-      supervise({ name: 'r', harness: 'cli-base', model: { default: 'safe' } }, 't', {
-        budget,
-        backend: {
-          backend: 'bridge',
-          bridgeUrl: 'http://127.0.0.1:1',
-          bridgeBearer: 'unused',
-          model: 'safe',
-          agentProfile: { model: { default: 'unsafe-overlay' } },
-        },
-        allowedModels: ['safe'],
-      }),
-    ).toThrow(/backend agentProfile overlays are not allowed/)
   })
 
   it('refuses a fixed session id on the reusable driver backend', () => {

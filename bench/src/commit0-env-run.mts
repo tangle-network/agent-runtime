@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { adaptiveRefine, printBenchmarkReport, refine, runBenchmark, sample, type Strategy } from '@tangle-network/agent-runtime/kernel'
 import { type Commit0Row, createCommit0Environment, rowToTask } from './commit0-env'
+import { benchRouterProfile } from './router-turn'
 
 function must(name: string): string {
   const v = process.env[name]
@@ -42,9 +43,11 @@ async function main(): Promise<void> {
     worker: {
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       routerKey: must('TANGLE_API_KEY'),
-      model,
-      innerTurns: Number(process.env.INNER_TURNS ?? 10),
-      temperature: 0.4,
+      workerProfile: benchRouterProfile('commit0-worker', model, {
+        systemPrompt: 'You are a senior Python engineer. Work through the available tools until the task is verified complete.',
+        maxTurns: Number(process.env.INNER_TURNS ?? 10),
+        temperature: 0.4,
+      }),
     },
     strategies,
     budget,

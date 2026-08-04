@@ -55,10 +55,16 @@ async function judgeCriteria(
       routerKey: key,
       profile: {
         name: 'cadbench-vision-judge',
-        model: { provider: 'tangle-router', default: model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: model,
+          metadata: {
+            temperature: 0,
+            maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 1500),
+          },
+        },
       },
-      temperature: 0,
-      maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 1500),
     },
     { messages: [{ role: 'user', content }] },
   )

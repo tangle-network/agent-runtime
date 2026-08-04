@@ -1,5 +1,5 @@
 /**
- * Sandbox->router egress probe: spins a box and makes one authed chat call to
+ * Sandbox->router egress probe: spins a box and makes one model-free authenticated API read from
  * https://router.tangle.tools/v1 using the BOX-PROVISIONED key (OPENCODE_MODEL_API_KEY
  * inside the box). That is the sanctioned flow: the egress proxy validates/injects
  * credentials at the boundary and 403s foreign keys passed in from outside — a raw
@@ -19,8 +19,8 @@ try {
     const r = await box.exec(`curl -s -o /dev/null -w '%{http_code}' --max-time 15 https://${h}/ || echo FAIL`)
     console.log(h, '→', out(r))
   }
-  const chat = await box.exec(`curl -s --max-time 30 -X POST https://router.tangle.tools/v1/chat/completions -H "Authorization: Bearer $OPENCODE_MODEL_API_KEY" -H 'Content-Type: application/json' -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"say ok"}],"max_tokens":5}' -o /tmp/b -w '%{http_code}'; echo ' |'; head -c 250 /tmp/b`)
-  console.log('chat (box-provisioned key):', out(chat) || 'EMPTY — egress broken')
+  const models = await box.exec(`curl -s --max-time 30 https://router.tangle.tools/v1/models -H "Authorization: Bearer $OPENCODE_MODEL_API_KEY" -o /tmp/b -w '%{http_code}'; echo ' |'; head -c 250 /tmp/b`)
+  console.log('models API (box-provisioned key):', out(models) || 'EMPTY — egress broken')
 } finally {
   await box.delete()
 }

@@ -199,10 +199,16 @@ async function callJudge(router: JudgeRouter, prompt: string, maxAttempts = 2): 
           routerKey: router.key,
           profile: {
             name: 'trata-hedge-judge',
-            model: { provider: 'tangle-router', default: router.model },
+            harness: 'cli-base',
+            model: {
+              provider: 'tangle-router',
+              default: router.model,
+              metadata: {
+                temperature: 0,
+                maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 16384),
+              },
+            },
           },
-          temperature: 0,
-          maxTokens: Number(process.env.JUDGE_MAX_TOKENS ?? 16384),
         },
         prompt,
       )

@@ -24,8 +24,9 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
-import type { ChatClient } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { RuntimeHooks } from '../runtime-hooks'
+import { profileChatClient } from './profile-chat-client'
 import { type PromotionVerdict, promotionGate } from './promotion-gate'
 import {
   type BenchmarkConfig,
@@ -43,14 +44,15 @@ import {
   sampleThenRefine,
 } from './strategy'
 import { authorStrategy, strategyAuthorContract } from './strategy-author'
+import type { ExecutorConfig } from './supervise/runtime'
 
 export interface EvolutionAuthor {
-  /** The model-call seam (agent-eval `createChatClient`). */
-  chat: ChatClient
-  model?: string
-  fallbackModel?: string
-  temperature?: number
-  maxTokens?: number
+  /** Exact author identity. */
+  profile: AgentProfile
+  /** Execution substrate. All behavior comes from the profile. */
+  executor: ExecutorConfig
+  /** Optional exact fallback identity. */
+  fallbackProfile?: AgentProfile
 }
 
 export type ChampionPolicy = 'score' | 'costAware'
@@ -519,11 +521,9 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
       const contract = `${strategyAuthorContract}${objectiveNote}\n\nEXAMPLE TOOLS FROM ONE TASK (tool sets VARY per task on this domain — a strategy MUST select tool names from await listTools(handle) at runtime; hardcoding these example names will zero your score on most tasks):\n${toolCatalog}\n\nSTRATEGIES ALREADY IN THE TOURNAMENT (author something MEANINGFULLY different — a new composition, not a rename):\n${fieldSummary(archive)}\n\nYou are authoring candidate ${i + 1} of ${populationSize} this generation; explore a distinct region of the strategy space from your siblings.`
       try {
         const authored = await authorStrategy({
-          chat: cfg.author.chat,
-          ...(cfg.author.model ? { model: cfg.author.model } : {}),
-          ...(cfg.author.fallbackModel ? { fallbackModel: cfg.author.fallbackModel } : {}),
-          ...(cfg.author.temperature !== undefined ? { temperature: cfg.author.temperature } : {}),
-          ...(cfg.author.maxTokens !== undefined ? { maxTokens: cfg.author.maxTokens } : {}),
+          profile: cfg.author.profile,
+          executor: cfg.author.executor,
+          ...(cfg.author.fallbackProfile ? { fallbackProfile: cfg.author.fallbackProfile } : {}),
           contract,
           environmentName: cfg.environment.name,
           lossesJson,
@@ -686,28 +686,28 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     const tolerance = cfg.reproducerCheck.tolerance ?? 0.05
     const championHoldoutScore = holdout.perStrategy[incumbent.name]?.score ?? 0
     try {
-      const summaryRes = await cfg.author.chat.chat({
-        ...(cfg.author.model ? { model: cfg.author.model } : {}),
-        temperature: 0.2,
-        maxTokens: 512,
-        messages: [
-          {
-            role: 'system',
-            content: `Summarize the optimization strategy implemented by this code in at most ${words} words. Describe the COMPOSITION (shots, critique, artifact handling, restarts, stopping) — not the code. Output only the summary.`,
-          },
-          { role: 'user', content: championCode },
-        ],
+      const summaryProfile: AgentProfile = {
+        ...cfg.author.profile,
+        prompt: {
+          ...cfg.author.profile.prompt,
+          systemPrompt: `Summarize the optimization strategy implemented by this code in at most ${words} words. Describe the COMPOSITION (shots, critique, artifact handling, restarts, stopping) — not the code. Output only the summary.`,
+        },
+      }
+      const summaryRes = await profileChatClient({
+        profile: summaryProfile,
+        executor: cfg.author.executor,
+        context: 'strategy reproducer summary',
+      }).chat({
+        messages: [{ role: 'user', content: championCode }],
       })
       const summary = summaryRes.content.trim()
       // The reproducer sees the summary and the contract — never the losses, never the
       // original code. If its implementation matches the champion on the SAME holdout,
       // the champion's win fits through the summary and cannot be holdout-specific.
       const reproduced = await authorStrategy({
-        chat: cfg.author.chat,
-        ...(cfg.author.model ? { model: cfg.author.model } : {}),
-        ...(cfg.author.fallbackModel ? { fallbackModel: cfg.author.fallbackModel } : {}),
-        ...(cfg.author.maxTokens !== undefined ? { maxTokens: cfg.author.maxTokens } : {}),
-        temperature: 0.2,
+        profile: cfg.author.profile,
+        executor: cfg.author.executor,
+        ...(cfg.author.fallbackProfile ? { fallbackProfile: cfg.author.fallbackProfile } : {}),
         contract: `${strategyAuthorContract}\n\nIMPLEMENT EXACTLY THIS STRATEGY (a colleague's description — do not invent a different approach):\n${summary}`,
         environmentName: cfg.environment.name,
         lossesJson: '[]',

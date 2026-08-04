@@ -14,9 +14,11 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ChatClient } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { strategyAuthorMethod } from '../improvement/optimizer-prompt'
+import { profileChatClient } from './profile-chat-client'
 import type { Strategy } from './strategy'
+import type { ExecutorConfig } from './supervise/runtime'
 
 /** The compressed consumable a skill carries: everything an author needs to emit a loop. */
 export const strategyAuthorContract = `
@@ -76,14 +78,15 @@ export default defineStrategy('your-strategy-name', async ({ surface, task, budg
 `
 
 export interface AuthorStrategyOptions {
-  /** The model-call seam (agent-eval `createChatClient`). */
-  chat: ChatClient
-  model?: string
-  /** A NAMED fallback author tried once when the primary call fails or returns no code
+  /** Exact author identity. Runtime binds it to every authoring turn. */
+  profile: AgentProfile
+  /** Execution substrate for the author. Behavioral settings are forbidden here. */
+  executor: ExecutorConfig
+  /** An exact fallback author tried once when the primary call fails or returns no code
    *  block (thinking models time out at the edge on long authoring prompts, or return
    *  empty content without `maxTokens`). Opt-in — absent means the primary's failure
    *  propagates. */
-  fallbackModel?: string
+  fallbackProfile?: AgentProfile
   /** The contract text shown to the author. Default `strategyAuthorContract`. The
    *  meta-optimization coordinate: a GEPA/skill loop can evolve this text and gate each
    *  variant on the same frozen holdout as any strategy. */
@@ -96,11 +99,14 @@ export interface AuthorStrategyOptions {
   budget: number
   /** Where the authored module file is written (created if missing). */
   outDir: string
-  temperature?: number
-  /** Completion cap — required by thinking-model authors that stream reasoning first. */
-  maxTokens?: number
   signal?: AbortSignal
 }
+
+/** Standing behavior callers put in the strategy-author AgentProfile. */
+export const strategyAuthorSystemPrompt =
+  'You are a senior researcher authoring optimization strategies for agent loops: you read ' +
+  'per-task losses like experimental data, form a mechanism-level hypothesis, and author the ' +
+  'one composition that tests it. Output exactly one fenced ```ts code block and nothing else.'
 
 /** Static CONTRACT lint over an authored strategy module — the module-boundary
  *  enforcement of the harness's two measurement invariants:
@@ -145,21 +151,16 @@ export interface AuthoredStrategy {
  *  when the reply carries no code block. */
 async function requestAuthoredCode(
   opts: AuthorStrategyOptions,
-  model: string | undefined,
+  profile: AgentProfile,
 ): Promise<string> {
-  const res = await opts.chat.chat(
+  const chat = profileChatClient({
+    profile,
+    executor: opts.executor,
+    context: 'strategy author',
+  })
+  const res = await chat.chat(
     {
-      ...(model ? { model } : {}),
-      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
-      ...(opts.maxTokens !== undefined ? { maxTokens: opts.maxTokens } : {}),
       messages: [
-        {
-          role: 'system',
-          content:
-            'You are a senior researcher authoring optimization strategies for agent loops: you read ' +
-            'per-task losses like experimental data, form a mechanism-level hypothesis, and author the ' +
-            'one composition that tests it. Output exactly one fenced ```ts code block and nothing else.',
-        },
         {
           role: 'user',
           content: `${opts.contract ?? strategyAuthorContract}\n\nBASELINE RESULTS on the "${opts.environmentName}" environment (budget=${opts.budget}) — the per-task losses are your gradient:\n${opts.lossesJson}\n\nAuthor ONE new strategy that you expect to beat the baselines on THIS environment at the same budget.\n${strategyAuthorMethod}\n\nOutput only the module code block.`,
@@ -171,7 +172,7 @@ async function requestAuthoredCode(
   const match = res.content.match(/```(?:ts|typescript)?\s*\n([\s\S]*?)```/)
   if (!match?.[1]) {
     throw new Error(
-      `authorStrategy: no code block in the author's reply (model=${model ?? 'default'}): ${res.content.slice(0, 300)}`,
+      `authorStrategy: no code block in the author's reply: ${res.content.slice(0, 300)}`,
     )
   }
   return match[1]
@@ -182,10 +183,10 @@ async function requestAuthoredCode(
 export async function authorStrategy(opts: AuthorStrategyOptions): Promise<AuthoredStrategy> {
   let code: string
   try {
-    code = await requestAuthoredCode(opts, opts.model)
+    code = await requestAuthoredCode(opts, opts.profile)
   } catch (primaryError) {
-    if (!opts.fallbackModel) throw primaryError
-    code = await requestAuthoredCode(opts, opts.fallbackModel)
+    if (!opts.fallbackProfile) throw primaryError
+    code = await requestAuthoredCode(opts, opts.fallbackProfile)
   }
   assertStrategyContract(code)
   mkdirSync(opts.outDir, { recursive: true })

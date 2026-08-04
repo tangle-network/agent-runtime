@@ -20,9 +20,7 @@
  */
 
 import { ConfigError } from '../../errors'
-import type { RouterConfig } from '../router-client'
-import type { ToolLoopChat } from '../tool-loop'
-import { supervisorInstructions } from './authoring'
+import type { RouterTransportConfig } from '../router-client'
 import type { DeliverableSpec } from './completion-gate'
 import type { ExecutorConfig } from './runtime'
 import { supervise } from './supervise'
@@ -35,7 +33,7 @@ import type { Budget, SupervisedResult } from './types'
 export const defaultDelegateBudget: Budget = { maxIterations: 50, maxTokens: 200_000 }
 
 /** Inputs to {@link delegate}. The intent is the first positional arg; everything here is optional
- *  with sensible defaults, so the common call is `delegate(intent, { backend, router })`. */
+ *  with explicit execution identity, so the common call names one exact supervisor profile. */
 export interface DelegateOptions<Out = unknown> {
   /** The completion oracle (settled ⟺ delivered) the authored workers settle against. Strongly
    *  recommended — without it the supervisor trusts a worker's self-report. For a code intent,
@@ -47,39 +45,13 @@ export interface DelegateOptions<Out = unknown> {
   readonly backend?: ExecutorConfig
   /** The conserved compute pool for the whole delegation. Defaults to {@link defaultDelegateBudget}. */
   readonly budget?: Budget
-  /** The model the supervisor BRAIN runs on (the router model). The brain must tool-call
-   *  (`spawn_agent` / `await_event`), so a delegator model, not a hidden-reasoning model. */
-  readonly model?: string
-  /** The supervisor brain's router substrate. REQUIRED for the default router-brained supervisor
-   *  (the brain is resolved from this), unless a test injects `brain` directly. `model` overrides
-   *  `router.model`. (Design delta vs the bare `supervise()` profile: the brain needs a router.) */
-  readonly router?: RouterConfig
-  /** Inject the supervisor brain directly (tests / advanced) instead of resolving it from `router`. */
-  readonly brain?: ToolLoopChat
-  /** Override the default authoring-supervisor profile (name / extra system-prompt stance). The
-   *  default already carries the authoring skill; override only to add a goal or rename. */
-  readonly supervisor?: {
-    readonly name?: string
-    readonly systemPrompt?: string
-  }
+  /** Exact executable authoring supervisor. Model, prompt, harness, and provider live here. */
+  readonly supervisorProfile: SupervisorProfile
+  /** Router endpoint/auth for a `cli-base` supervisor; contains no behavioral settings. */
+  readonly router: RouterTransportConfig
   /** Restrict the run to this subset of models (forwarded to `supervise()`). */
   readonly allowedModels?: readonly string[]
   readonly runId?: string
-}
-
-/** Build the DEFAULT authoring supervisor profile: a router-brained supervisor (`harness: cli-base`)
- *  whose standing instruction IS the authoring-agent-profiles skill, so it decomposes the intent and
- *  AUTHORS a worker profile per sub-task. No worker profile is baked in here. */
-function authoringSupervisorProfile(
-  model: string | undefined,
-  override?: { readonly name?: string; readonly systemPrompt?: string },
-): SupervisorProfile {
-  return {
-    name: override?.name ?? 'delegate-supervisor',
-    harness: 'cli-base',
-    ...(model ? { model: { default: model } } : {}),
-    prompt: { systemPrompt: override?.systemPrompt ?? supervisorInstructions() },
-  }
 }
 
 /**
@@ -91,25 +63,16 @@ function authoringSupervisorProfile(
  */
 export async function delegate<Out = unknown>(
   intent: string,
-  opts: DelegateOptions<Out> = {},
+  opts: DelegateOptions<Out>,
 ): Promise<SupervisedResult<Out>> {
   if (typeof intent !== 'string' || intent.trim().length === 0) {
     throw new ConfigError('delegate: `intent` must be a non-empty string')
   }
-  if (!opts.brain && !opts.router) {
-    throw new ConfigError(
-      'delegate: provide opts.router (the supervisor brain substrate) or opts.brain (tests)',
-    )
-  }
-
-  const profile = authoringSupervisorProfile(opts.model, opts.supervisor)
-
-  return supervise(profile, intent, {
+  return supervise(opts.supervisorProfile, intent, {
     budget: opts.budget ?? defaultDelegateBudget,
     ...(opts.backend ? { backend: opts.backend } : {}),
     ...(opts.deliverable ? { deliverable: opts.deliverable as DeliverableSpec<unknown> } : {}),
-    ...(opts.router ? { router: opts.router } : {}),
-    ...(opts.brain ? { brain: opts.brain } : {}),
+    router: opts.router,
     ...(opts.allowedModels ? { allowedModels: opts.allowedModels } : {}),
     ...(opts.runId ? { runId: opts.runId } : {}),
   }) as Promise<SupervisedResult<Out>>

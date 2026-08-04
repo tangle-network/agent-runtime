@@ -116,6 +116,8 @@ export interface OutputAdapter<Output> {
 export interface LoopTokenUsage {
   input: number
   output: number
+  /** False when the subtotal is incomplete. */
+  tokensKnown?: false
 }
 
 /**
@@ -206,6 +208,12 @@ export interface Iteration<Task, Output> {
   startedAt: number
   endedAt: number
   costUsd: number
+  /** False when `costUsd` is only the observed subtotal, not a complete bill. */
+  costUsdKnown?: false
+  /** Local/catalog estimates remain separate from billed spend. */
+  estimatedCostUsd?: number
+  /** Provider-reported prompt-cache fields; absent fields remain unknown. */
+  promptCache?: Record<string, number | string>
   /** Summed LLM token usage across every `llm_call` event in this iteration. */
   tokenUsage: LoopTokenUsage
 }
@@ -284,6 +292,12 @@ export interface LoopResult<Task, Output, Decision> {
   durationMs: number
   /** Sum of every iteration's `costUsd`. */
   costUsd: number
+  /** False when `costUsd` is only the observed subtotal, not a complete bill. */
+  costUsdKnown?: false
+  /** Sum of separately-labelled local/catalog estimates. */
+  estimatedCostUsd?: number
+  /** Aggregated provider-reported prompt-cache fields. */
+  promptCache?: Record<string, number | string>
   /** Sum of every iteration's token usage. `loopDispatch` commits it through
    *  the campaign's paid-call receipt. */
   tokenUsage: LoopTokenUsage
@@ -510,6 +524,8 @@ export interface LoopIterationEndedPayload {
   verdict?: DefaultVerdict
   error?: string
   costUsd: number
+  costUsdKnown?: false
+  estimatedCostUsd?: number
   durationMs: number
   /** Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
    *  branch span. Omitted when no `llm_call` events carried token counts. */
@@ -533,6 +549,8 @@ export interface LoopDecisionPayload {
 export interface LoopEndedPayload {
   winnerIterationIndex?: number
   totalCostUsd: number
+  costUsdKnown?: false
+  estimatedCostUsd?: number
   durationMs: number
   iterations: number
 }

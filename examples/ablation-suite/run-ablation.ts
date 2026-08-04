@@ -14,6 +14,8 @@
  *   EVAL=verkit     swap the synthetic eval for the real-library reconstruction (verkit-env).
  *   HOLDOUT_N / BUDGET / WORKER_MODEL / DRIVER_MODEL / MAX_TOKENS / OFFSET override the defaults.
  */
+
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { printAutopsy, runAblation } from './ablation'
 import { longCodingEnv, longCodingTasks } from './long-coding-env-lite'
 import { persistentSurface } from './persistent-surface'
@@ -44,14 +46,32 @@ const results = await runAblation({
   worker: {
     routerBaseUrl: base,
     routerKey,
-    model: workerModel,
-    maxTokens: Number(process.env.MAX_TOKENS ?? 4000),
-    innerTurns: 6,
+    profile: routerProfile('worker', workerModel, Number(process.env.MAX_TOKENS ?? 4000), 6),
   },
-  supervisor: { model: driverModel },
+  supervisor: { profile: routerProfile('driver', driverModel) },
   onArm: (r) =>
     console.log(
       `  ${r.name.padEnd(14)} resolve=${(100 * r.resolve).toFixed(0)}% score=${r.scoreMean.toFixed(2)} $${r.costUsd.toFixed(3)} (n=${r.n})`,
     ),
 })
 printAutopsy(results)
+
+function routerProfile(
+  name: string,
+  model: string,
+  maxTokens?: number,
+  maxTurns?: number,
+): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      metadata: {
+        ...(maxTokens !== undefined ? { maxTokens } : {}),
+        ...(maxTurns !== undefined ? { maxTurns } : {}),
+      },
+    },
+  }
+}

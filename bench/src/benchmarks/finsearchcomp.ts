@@ -213,10 +213,14 @@ async function runRecordJudge(meta: FinSearchMeta, response: string, router: Jud
       routerKey: router.key,
       profile: {
         name: 'finsearchcomp-judge',
-        model: { provider: 'tangle-router', default: router.model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: router.model,
+          metadata: { temperature: 0 },
+        },
         prompt: { systemPrompt: meta.judgeSystemPrompt },
       },
-      temperature: 0,
     },
     fillJudgePrompt(meta, response),
   )

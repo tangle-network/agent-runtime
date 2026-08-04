@@ -61,7 +61,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import type { RouterConfig } from '../router-client'
+import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import {
@@ -202,7 +202,7 @@ export interface RunGraphOptions {
    *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours. */
   readonly makeWorkerAgent?: MakeWorkerAgent
   /** The driver brain's router substrate (`profile.harness` omitted or `cli-base`). */
-  readonly router?: RouterConfig
+  readonly router?: RouterTransportConfig
   /** Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
    *  graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
    *  seam supervise() exposes. */

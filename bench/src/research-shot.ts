@@ -115,10 +115,14 @@ export async function runResearchShot(prompt: string, taskId: string, attempt: n
         routerKey: cfg.routerKey,
         profile: {
           name: 'research-shot-answerer',
-          model: { provider: 'tangle-router', default: cfg.model },
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: cfg.model,
+            metadata: { temperature: cfg.temperature },
+          },
           prompt: { systemPrompt: commit },
         },
-        temperature: cfg.temperature,
         ...(cfg.timeoutMs ? { timeoutMs: cfg.timeoutMs } : {}),
       },
       userContent,

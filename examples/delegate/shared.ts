@@ -45,13 +45,11 @@ export function makeWriteFileBackend(args: {
   workDir: string
   routerBaseUrl: string
   routerKey: string
-  model: string
 }): ExecutorConfig {
   return {
     backend: 'router-tools',
     routerBaseUrl: args.routerBaseUrl,
     routerKey: args.routerKey,
-    model: args.model,
     tools: [
       {
         type: 'function' as const,
@@ -72,6 +70,5 @@ export function makeWriteFileBackend(args: {
     ],
     executeToolCall: async (name, toolArgs) =>
       name === 'write_file' ? writeFileTool(args.workDir, toolArgs) : `unknown tool ${name}`,
-    maxTurns: 8,
   }
 }

@@ -73,9 +73,15 @@ import {
   knownMaterializationReceipt,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './supervise/materialization'
+import {
+  concreteModelId,
+  profileBridgeWireModel,
+  profileProviderModel,
+} from './supervise/model-policy'
 import type {
   ExecutionBindingReceipt,
   Executor,
@@ -236,6 +242,81 @@ function executorEvidence(
   }
 }
 
+/** Exact turns require the model-bearing profile to be the sole behavioral authority. Runtime
+ * checks the trusted declaration before execution so a seam fallback cannot hide behind the same
+ * profile digest. */
+function assertExactExecutorDeclaration(executor: Executor<unknown>, profile: AgentProfile): void {
+  const profileModel = profileProviderModel(profile)
+  if (!profileModel) {
+    throw new ValidationError(
+      'streamAgentTurn: exact AgentProfile.model.default must name the concrete model',
+    )
+  }
+  const declaration =
+    runtimeOwnedExecutorMaterialization(executor) ??
+    runtimeOwnedPendingExecutorMaterialization(executor)?.declaration
+  if (!declaration) return
+  if (declaration.model.status !== 'known') {
+    throw new ValidationError(
+      'streamAgentTurn: exact executor did not materialize a known model identity',
+    )
+  }
+  if (declaration.backend === 'router' || declaration.backend === 'router-tools') {
+    const plan = declaration.plan as {
+      configuredModel?: unknown
+      configuredReasoningEffort?: unknown
+      reasoningEffort?: unknown
+    }
+    if (declaration.model.id !== profileModel) {
+      throw new ValidationError(
+        'streamAgentTurn: Router executor model differs from AgentProfile.model.default',
+      )
+    }
+    if (
+      plan.configuredModel !== null &&
+      plan.configuredModel !== undefined &&
+      concreteModelId(String(plan.configuredModel)) !== profileModel
+    ) {
+      throw new ValidationError(
+        'streamAgentTurn: configured Router model conflicts with AgentProfile.model.default',
+      )
+    }
+    const expectedEffort = profile.model?.reasoningEffort ?? null
+    if (
+      plan.configuredReasoningEffort !== null &&
+      plan.configuredReasoningEffort !== undefined &&
+      plan.configuredReasoningEffort !== expectedEffort
+    ) {
+      throw new ValidationError(
+        'streamAgentTurn: configured Router reasoning conflicts with AgentProfile.model.reasoningEffort',
+      )
+    }
+    if ((plan.reasoningEffort ?? null) !== expectedEffort) {
+      throw new ValidationError(
+        'streamAgentTurn: Router reasoning effort must come from AgentProfile.model.reasoningEffort',
+      )
+    }
+  }
+  if (declaration.backend === 'bridge' || declaration.backend === 'bridge-worktree') {
+    const expectedWireModel = profileBridgeWireModel(profile)
+    if (!expectedWireModel || declaration.model.id !== expectedWireModel) {
+      throw new ValidationError(
+        'streamAgentTurn: bridge executor model differs from the AgentProfile harness/provider/model wire id',
+      )
+    }
+    const plan = declaration.plan as { configuredModel?: unknown }
+    if (
+      plan.configuredModel !== null &&
+      plan.configuredModel !== undefined &&
+      concreteModelId(String(plan.configuredModel)) !== expectedWireModel
+    ) {
+      throw new ValidationError(
+        'streamAgentTurn: configured bridge model conflicts with the AgentProfile harness/provider/model wire id',
+      )
+    }
+  }
+}
+
 function turnProvenance(
   startedAt: number,
   timeoutMs: number | undefined,
@@ -274,6 +355,10 @@ export interface AgentTurnUsage {
   costUsd?: number
   /** Present when Runtime could not prove the full dollar amount. */
   usdKnown?: false
+  /** Separately-labelled local/catalog estimate; never billed spend. */
+  estimatedCostUsd?: number
+  /** Provider-reported prompt-cache fields; absent fields remain unknown. */
+  promptCache?: Readonly<Record<string, number | string>>
   model?: string
 }
 
@@ -286,7 +371,11 @@ export interface AgentTurnUsage {
  */
 export interface CollectedAgentTurn {
   finalText: string
+  /** Exact terminal artifact output from a Runtime-owned executor. */
+  output?: unknown
   usage: AgentTurnUsage
+  /** Exact underlying transport calls when the Runtime-owned executor reports them. */
+  transportAttempts?: number
   toolCalls: Array<{ id?: string; name: string; arguments: string }>
   events: RuntimeStreamEvent[]
   status: AgentTaskStatus
@@ -304,11 +393,15 @@ interface TurnAccumulator {
   input: number
   output: number
   costUsd: number
+  estimatedCostUsd: number
+  sawEstimatedCost: boolean
+  promptCache: Record<string, number | string>
   tokensKnown: boolean
   usdKnown: boolean
   sawLlmCall: boolean
   model?: string
   stopReason?: string
+  transportAttempts?: number
   result?: ExecutorResult<unknown>
 }
 
@@ -327,6 +420,12 @@ export async function* streamAgentTurn(
   input: AgentTurnInput,
   opts: StreamAgentTurnOptions = {},
 ): AsyncGenerator<RuntimeStreamEvent> {
+  assertTurnTimeout(opts.timeoutMs)
+  if ((backend as { kind?: unknown }).kind !== 'executor') {
+    throw new ValidationError(
+      "streamAgentTurn: exact execution accepts only kind 'executor'; use Runtime-owned creation",
+    )
+  }
   yield* streamAgentTurnInternal(backend, input, opts)
 }
 
@@ -336,7 +435,15 @@ export async function* streamObservedAgentTurn(
   input: AgentTurnInput,
   opts: StreamAgentTurnOptions = {},
 ): AsyncGenerator<RuntimeStreamEvent> {
+  assertTurnTimeout(opts.timeoutMs)
   yield* streamAgentTurnInternal(backend, input, opts)
+}
+
+function assertTurnTimeout(timeoutMs: number | undefined): void {
+  if (timeoutMs === undefined) return
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647) {
+    throw new ValidationError('streamAgentTurn: timeoutMs must be an integer from 1 to 2147483647')
+  }
 }
 
 async function* streamAgentTurnInternal(
@@ -347,7 +454,7 @@ async function* streamAgentTurnInternal(
   const label = backend.kind === 'chat' ? backend.backend.kind : backend.kind
   const profile =
     backend.kind === 'executor' ? agentProfileSchema.parse(backend.profile) : undefined
-  const profileDigest = profile ? canonicalCandidateDigest(profile) : undefined
+  const profileDigest = profile ? authoredProfileDigest(profile) : undefined
   const taskInput = input
   const taskDigest = canonicalCandidateDigest(taskInput)
   const task: AgentTaskSpec = {
@@ -366,6 +473,9 @@ async function* streamAgentTurnInternal(
     input: 0,
     output: 0,
     costUsd: 0,
+    estimatedCostUsd: 0,
+    sawEstimatedCost: false,
+    promptCache: {},
     tokensKnown: false,
     usdKnown: false,
     sawLlmCall: false,
@@ -395,16 +505,32 @@ async function* streamAgentTurnInternal(
           },
         },
       )
-      ;({ materialization, executionBinding } = executorEvidence(executor, profile!, attemptId))
-      if (materialization.status !== 'known' || executionBinding.status !== 'known') {
-        throw new ValidationError(
-          'streamAgentTurn: exact profile execution requires a Runtime-owned executor with valid materialization and execution binding evidence',
+      assertExactExecutorDeclaration(executor, profile!)
+      const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+      if (pending !== undefined) {
+        if (pending.runtime !== executor.runtime || pending.binding.attemptId !== attemptId) {
+          throw new ValidationError(
+            'streamAgentTurn: pending executor did not bind the kernel-minted attempt',
+          )
+        }
+        if (authoredProfileDigest(pending.declaration.effectiveProfile) !== profileDigest) {
+          throw new ValidationError(
+            'streamAgentTurn: pending executor changed the authored AgentProfile before execution',
+          )
+        }
+        materialization = unknownMaterializationReceipt({
+          authoredProfileDigest: profileDigest!,
+          runtime: executor.runtime,
+          reason: 'executor-receipt-pending',
+        })
+        executionBinding = unknownExecutionBindingReceipt(
+          materialization,
+          attemptId,
+          'executor-receipt-pending',
         )
-      }
-      if (materialization.effectiveProfileDigest !== materialization.authoredProfileDigest) {
-        throw new ValidationError(
-          'streamAgentTurn: executor changed the authored AgentProfile; exact turn execution refuses profile overlays',
-        )
+      } else {
+        ;({ materialization, executionBinding } = executorEvidence(executor, profile!, attemptId))
+        assertExactExecutorEvidence(materialization, executionBinding)
       }
     } else {
       materialization = unknownMaterializationReceipt({
@@ -463,6 +589,11 @@ async function* streamAgentTurnInternal(
       throwIfAborted(deadline.signal)
     }
 
+    if (backend.kind === 'executor') {
+      ;({ materialization, executionBinding } = executorEvidence(executor!, profile!, attemptId))
+      assertExactExecutorEvidence(materialization, executionBinding)
+    }
+
     yield buildFinalEvent(
       task,
       session,
@@ -515,6 +646,22 @@ async function* streamAgentTurnInternal(
   }
 }
 
+function assertExactExecutorEvidence(
+  materialization: ProfileMaterializationReceipt,
+  executionBinding: ExecutionBindingReceipt,
+): void {
+  if (materialization.status !== 'known' || executionBinding.status !== 'known') {
+    throw new ValidationError(
+      'streamAgentTurn: exact profile execution requires terminally validated Runtime materialization and execution binding evidence',
+    )
+  }
+  if (materialization.effectiveProfileDigest !== materialization.authoredProfileDigest) {
+    throw new ValidationError(
+      'streamAgentTurn: executor changed the authored AgentProfile; exact turn execution refuses profile overlays',
+    )
+  }
+}
+
 /**
  * Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that
  * honors its terminal contract) into the turn summary plus the full event
@@ -535,6 +682,10 @@ export async function collectAgentTurn(
     )
   }
   const metadata = final.metadata ?? {}
+  const resultMetadata =
+    metadata.result && typeof metadata.result === 'object'
+      ? (metadata.result as Record<string, unknown>)
+      : undefined
   const tokenUsage =
     metadata.tokenUsage && typeof metadata.tokenUsage === 'object'
       ? (metadata.tokenUsage as Record<string, unknown>)
@@ -547,9 +698,15 @@ export async function collectAgentTurn(
   const costUsd = finiteNumber(metadata.costUsd)
   if (costUsd !== undefined) usage.costUsd = costUsd
   if (metadata.usdKnown === false) usage.usdKnown = false
+  const estimatedCostUsd = finiteNumber(metadata.estimatedCostUsd)
+  if (estimatedCostUsd !== undefined) usage.estimatedCostUsd = estimatedCostUsd
+  if (metadata.promptCache && typeof metadata.promptCache === 'object') {
+    usage.promptCache = metadata.promptCache as Record<string, number | string>
+  }
   if (typeof metadata.model === 'string' && metadata.model.length > 0) {
     usage.model = metadata.model
   }
+  const transportAttempts = finiteNumber(metadata.transportAttempts)
   const toolCalls = events
     .filter((event) => event.type === 'tool_call')
     .map((event) => ({
@@ -559,7 +716,9 @@ export async function collectAgentTurn(
     }))
   return {
     finalText: final.text ?? '',
+    ...(resultMetadata && 'output' in resultMetadata ? { output: resultMetadata.output } : {}),
     usage,
+    ...(transportAttempts !== undefined ? { transportAttempts } : {}),
     toolCalls,
     events,
     status: final.status,
@@ -679,6 +838,12 @@ async function* driveExecutorTurn(
   acc.input = result.spent.tokens.input
   acc.output = result.spent.tokens.output
   acc.costUsd = result.spent.usd
+  const estimatedCostUsd = executorResultEstimatedCost(result.out)
+  if (estimatedCostUsd !== undefined) {
+    acc.estimatedCostUsd = estimatedCostUsd
+    acc.sawEstimatedCost = true
+  }
+  Object.assign(acc.promptCache, executorResultPromptCache(result.out))
   acc.tokensKnown = result.spent.tokensKnown !== false
   acc.usdKnown = result.spent.usdKnown !== false
   acc.sawLlmCall = true
@@ -686,6 +851,7 @@ async function* driveExecutorTurn(
   const model = executorResultModel(result.out) ?? declaredModel
   if (model) acc.model = model
   acc.stopReason = executorResultStopReason(result.out)
+  acc.transportAttempts = executorResultTransportAttempts(result.out)
   const latencyMs = result.spent.ms
   yield {
     type: 'llm_call',
@@ -694,6 +860,10 @@ async function* driveExecutorTurn(
     model: model ?? executor.runtime,
     ...(acc.tokensKnown ? { tokensIn: acc.input, tokensOut: acc.output } : {}),
     ...(acc.usdKnown ? { costUsd: acc.costUsd } : {}),
+    ...(acc.tokensKnown ? {} : { tokensKnown: false }),
+    ...(acc.usdKnown ? {} : { usdKnown: false }),
+    ...(acc.sawEstimatedCost ? { estimatedCostUsd: acc.estimatedCostUsd } : {}),
+    ...(Object.keys(acc.promptCache).length > 0 ? { promptCache: acc.promptCache } : {}),
     latencyMs,
     timestamp: nowIso(),
   }
@@ -745,6 +915,32 @@ function executorResultStopReason(value: unknown): string | undefined {
   return typeof reason === 'string' && reason.length > 0 ? reason : undefined
 }
 
+function executorResultTransportAttempts(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const attempts = (value as Record<string, unknown>).transportAttempts
+  return typeof attempts === 'number' && Number.isSafeInteger(attempts) && attempts > 0
+    ? attempts
+    : undefined
+}
+
+function executorResultEstimatedCost(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  return finiteNumber((value as Record<string, unknown>).estimatedCostUsd)
+}
+
+function executorResultPromptCache(value: unknown): Record<string, number | string> {
+  if (!value || typeof value !== 'object') return {}
+  const raw = (value as Record<string, unknown>).promptCache
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const cache: Record<string, number | string> = {}
+  for (const [key, entry] of Object.entries(raw)) {
+    if ((typeof entry === 'number' && Number.isFinite(entry)) || typeof entry === 'string') {
+      cache[key] = entry
+    }
+  }
+  return cache
+}
+
 function executorResultToolCalls(
   value: unknown,
 ): Array<{ id?: string; name: string; arguments: string }> {
@@ -781,8 +977,9 @@ function foldEvent(
     return
   }
   if (event.type === 'llm_call') {
-    const tokensReported = event.tokensIn !== undefined && event.tokensOut !== undefined
-    const usdReported = event.costUsd !== undefined
+    const tokensReported =
+      event.tokensKnown !== false && event.tokensIn !== undefined && event.tokensOut !== undefined
+    const usdReported = event.usdKnown !== false && event.costUsd !== undefined
     if (!acc.sawLlmCall) {
       acc.tokensKnown = tokensReported
       acc.usdKnown = usdReported
@@ -794,6 +991,11 @@ function foldEvent(
     acc.input += event.tokensIn ?? 0
     acc.output += event.tokensOut ?? 0
     acc.costUsd += event.costUsd ?? 0
+    if (event.estimatedCostUsd !== undefined) {
+      acc.estimatedCostUsd += event.estimatedCostUsd
+      acc.sawEstimatedCost = true
+    }
+    if (event.promptCache) Object.assign(acc.promptCache, event.promptCache)
     if (event.model && event.model !== fallbackModelLabel) acc.model = event.model
   }
 }
@@ -833,12 +1035,16 @@ function buildFinalEvent(
       tokenUsage: { input: acc.input, output: acc.output },
       ...(acc.tokensKnown ? {} : { tokensKnown: false }),
       ...(acc.usdKnown ? { costUsd: acc.costUsd } : { usdKnown: false }),
+      ...(acc.sawEstimatedCost ? { estimatedCostUsd: acc.estimatedCostUsd } : {}),
+      ...(Object.keys(acc.promptCache).length > 0 ? { promptCache: acc.promptCache } : {}),
       ...(acc.model ? { model: acc.model } : {}),
       ...(acc.stopReason ? { stopReason: acc.stopReason } : {}),
+      ...(acc.transportAttempts !== undefined ? { transportAttempts: acc.transportAttempts } : {}),
       ...(acc.result
         ? {
             result: {
               outRef: acc.result.outRef,
+              output: acc.result.out,
               ...(acc.result.verdict ? { verdict: acc.result.verdict } : {}),
               spent: acc.result.spent,
             },

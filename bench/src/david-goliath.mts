@@ -68,11 +68,14 @@ async function chat(model: string, messages: { role: string; content: string }[]
         routerKey: ROUTER_KEY,
         profile: {
           name: 'david-goliath-worker',
-          model: { provider: 'tangle-router', default: model },
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: model,
+            metadata: { temperature, maxTokens: MAX_TOKENS },
+          },
           ...(system ? { prompt: { systemPrompt: system } } : {}),
         },
-        temperature,
-        maxTokens: MAX_TOKENS,
         timeoutMs: LLM_TIMEOUT,
       },
       { messages: messages.filter((message) => message.role !== 'system') },

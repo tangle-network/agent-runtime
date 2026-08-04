@@ -202,9 +202,13 @@ async function gradeAnswer(
       routerKey: router.key,
       profile: {
         name: 'simpleqa-grader',
-        model: { provider: 'tangle-router', default: router.model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: router.model,
+          metadata: { temperature: 0 },
+        },
       },
-      temperature: 0,
     },
     GRADER_PROMPT(question, gold, predicted),
   )

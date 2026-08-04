@@ -55,16 +55,14 @@ export async function optimizeDriverPrompt(opts: {
   worker: {
     routerBaseUrl: string
     routerKey: string
-    model: string
-    maxTokens?: number
-    innerTurns?: number
+    profile: AgentProfile
     /** Refine-shot budget per worker — MUST match the deployment arm's budget, or the prompt is tuned
      *  against a different per-attempt compute than it serves with. */
     budget?: number
   }
   /** The supervisor brain's router substrate for each candidate's supervised run (the driver's own
    *  inference). Defaults to the worker's router + model when omitted. */
-  supervisorRouter?: { baseUrl: string; apiKey: string; model: string }
+  supervisorRouter?: { baseUrl: string; apiKey: string; profile: AgentProfile }
   reflectionModel?: string
   maxEvaluations?: number
   maxProposerCostUsd?: number
@@ -79,8 +77,12 @@ export async function optimizeDriverPrompt(opts: {
   const supervisorRouter = opts.supervisorRouter ?? {
     baseUrl: worker.routerBaseUrl,
     apiKey: worker.routerKey,
-    model: worker.model,
+    profile: worker.profile,
   }
+  const supervisorModel = profileModel(supervisorRouter.profile, 'supervisor')
+  const workerModel = profileModel(worker.profile, 'worker')
+  const workerMaxTokens = profileNumber(worker.profile, 'maxTokens')
+  const workerMaxTurns = profileNumber(worker.profile, 'maxTurns')
 
   const selectionN = opts.selectionN ?? opts.trainN
   const testN = opts.testN ?? opts.trainN
@@ -127,27 +129,30 @@ export async function optimizeDriverPrompt(opts: {
     const paid = await ctx.cost.runPaidCall({
       channel: 'agent',
       actor: 'supervised-run',
-      model: supervisorRouter.model,
+      model: supervisorModel,
       signal: ctx.signal,
       execute: () =>
-        superviseSurface({ name: 'driver', prompt: { systemPrompt } }, scenario.task, {
-          surface,
-          worker,
-          // A small conserved pool: enough for the driver's turns plus several worker spawns so the
-          // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
-          budget: {
-            maxIterations: (worker.innerTurns ?? 6) * 3 + 16,
-            maxTokens: (worker.maxTokens ?? 4000) * 6,
+        superviseSurface(
+          withSystemPrompt(supervisorRouter.profile, 'driver', systemPrompt),
+          scenario.task,
+          {
+            surface,
+            worker,
+            // A small conserved pool: enough for the driver's turns plus several worker spawns so the
+            // spawn-targeted-worker loop runs, sized off the worker's inner-loop bounds.
+            budget: {
+              maxIterations: (workerMaxTurns ?? 6) * 3 + 16,
+              maxTokens: (workerMaxTokens ?? 4000) * 6,
+            },
+            router: {
+              routerBaseUrl: supervisorRouter.baseUrl,
+              routerKey: supervisorRouter.apiKey,
+            },
+            analysts: failuresAnalyst(),
           },
-          router: {
-            routerBaseUrl: supervisorRouter.baseUrl,
-            routerKey: supervisorRouter.apiKey,
-            model: supervisorRouter.model,
-          },
-          analysts: failuresAnalyst(),
-        }),
+        ),
       receipt: (sup) => ({
-        model: supervisorRouter.model,
+        model: supervisorModel,
         inputTokens: sup.tokensIn,
         outputTokens: sup.tokensOut,
         ...(sup.usd > 0 ? { actualCostUsd: sup.usd } : {}),
@@ -185,10 +190,7 @@ export async function optimizeDriverPrompt(opts: {
     }),
   }
 
-  const profile: AgentProfile = {
-    name: 'ablation-driver',
-    prompt: { systemPrompt: opts.baselinePrompt },
-  }
+  const profile = withSystemPrompt(supervisorRouter.profile, 'ablation-driver', opts.baselinePrompt)
   const maxProposerCostUsd = opts.maxProposerCostUsd ?? 3
   const optimizer = officialOptimizerModel({
     env: process.env,
@@ -202,11 +204,11 @@ export async function optimizeDriverPrompt(opts: {
     surface: 'prompt',
     executionRef: canonicalCandidateDigest({
       callback: 'examples/ablation-suite/gepa-driver-prompt',
-      workerModel: worker.model,
-      workerMaxTokens: worker.maxTokens ?? null,
-      workerTurns: worker.innerTurns ?? null,
+      workerModel,
+      workerMaxTokens: workerMaxTokens ?? null,
+      workerTurns: workerMaxTurns ?? null,
       workerShots: worker.budget ?? null,
-      supervisorModel: supervisorRouter.model,
+      supervisorModel,
       workerEndpoint: new URL(worker.routerBaseUrl).origin,
       supervisorEndpoint: new URL(supervisorRouter.baseUrl).origin,
     }),
@@ -231,7 +233,6 @@ export async function optimizeDriverPrompt(opts: {
       trustResumeState: true,
       describeScenario: (scenario) => ({
         id: scenario.id,
-        systemPrompt: scenario.task.systemPrompt,
         userPrompt: scenario.task.userPrompt,
       }),
     }),
@@ -257,4 +258,25 @@ export async function optimizeDriverPrompt(opts: {
     shipped: result.decision === 'ship',
     usd: result.cost.totalCostUsd,
   }
+}
+
+function withSystemPrompt(profile: AgentProfile, name: string, systemPrompt: string): AgentProfile {
+  return {
+    ...profile,
+    name,
+    prompt: { ...profile.prompt, systemPrompt },
+  }
+}
+
+function profileModel(profile: AgentProfile, role: string): string {
+  const model = profile.model?.default
+  if (typeof model !== 'string' || model.length === 0 || model === 'runtime-selected') {
+    throw new Error(`optimizeDriverPrompt: ${role} profile needs a concrete model.default`)
+  }
+  return model
+}
+
+function profileNumber(profile: AgentProfile, key: 'maxTokens' | 'maxTurns'): number | undefined {
+  const value = profile.model?.metadata?.[key]
+  return typeof value === 'number' ? value : undefined
 }

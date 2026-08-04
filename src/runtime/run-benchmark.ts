@@ -25,6 +25,7 @@ import {
   type Strategy,
   sample,
 } from './strategy'
+import { concreteModelId } from './supervise/model-policy'
 
 /** A checkable task domain — implement these 5 hooks and the suite does the rest. The
  *  same seam as `AgenticSurface`; `Environment` is the RL/gym-standard name for it. */
@@ -79,8 +80,10 @@ export interface BenchmarkCell {
   /** The progress curve (refine: score per shot; sample: best-so-far per rollout). */
   progression: number[]
   usd: number
+  usdKnown: boolean
   ms: number
   tokens: { input: number; output: number }
+  tokensKnown: boolean
 }
 
 export interface BenchmarkTaskRow {
@@ -102,6 +105,8 @@ export interface BenchmarkStrategySummary {
   resolved: number
   /** Mean cost vector per task. */
   usd: number
+  /** Fraction of task cells whose billed-dollar total was complete. */
+  usdKnownRate: number
   ms: number
 }
 
@@ -144,7 +149,20 @@ async function preflightModels(cfg: BenchmarkConfig): Promise<void> {
   if (cfg.modelPreflight === false) return
   if (cfg.worker.complete && !cfg.modelPreflight) return
 
-  const models = [...new Set([cfg.worker.model, cfg.worker.analystModel ?? cfg.worker.model])]
+  const profiles = [cfg.worker.workerProfile, cfg.worker.analystProfile ?? cfg.worker.workerProfile]
+  const models = [
+    ...new Set(
+      profiles.map((profile, index) => {
+        const model = concreteModelId(profile.model?.default)
+        if (!model) {
+          throw new Error(
+            `Benchmark ${index === 0 ? 'worker' : 'analyst'} AgentProfile.model.default must name an exact model`,
+          )
+        }
+        return model
+      }),
+    ),
+  ]
   const timeoutMs = cfg.modelPreflightTimeoutMs ?? 30_000
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
     throw new Error('modelPreflightTimeoutMs must be a positive finite number')
@@ -236,8 +254,10 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
             resolved: r.resolved,
             progression: r.progression,
             usd: r.usd,
+            usdKnown: r.usdKnown,
             ms: r.ms,
             tokens: r.tokens,
+            tokensKnown: r.tokensKnown,
           }
         } catch (e) {
           errors[s.name] = e instanceof Error ? e.message.slice(0, 300) : String(e)
@@ -246,8 +266,10 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
             resolved: false,
             progression: [],
             usd: 0,
+            usdKnown: true,
             ms: 0,
             tokens: { input: 0, output: 0 },
+            tokensKnown: true,
           }
         }
       }
@@ -275,6 +297,7 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
       score: mean(cells.map((c) => c.score)),
       resolved: mean(cells.map((c) => (c.resolved ? 1 : 0))),
       usd: mean(cells.map((c) => c.usd)),
+      usdKnownRate: mean(cells.map((c) => (c.usdKnown ? 1 : 0))),
       ms: mean(cells.map((c) => c.ms)),
     }
   }

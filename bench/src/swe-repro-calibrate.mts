@@ -91,7 +91,7 @@ async function complete(messages: ChatMsg[]): Promise<Completion> {
     { model: MODEL, max_tokens: MAX_TOKENS, temperature: TEMP, messages },
     {
       name: 'swe-reproduction-calibrator',
-      model: { provider: 'tangle-router', default: MODEL },
+      model: { provider: 'zai', default: MODEL, reasoningEffort: 'high' },
       prompt: { systemPrompt: AUTHOR_SYSTEM },
     },
   )

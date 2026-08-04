@@ -130,11 +130,14 @@ async function chatComplete(
       routerKey: key,
       profile: {
         name: 'trata-gepa-worker',
-        model: { provider: 'tangle-router', default: model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: model,
+          metadata: { temperature: 0, maxTokens },
+        },
         ...(system ? { prompt: { systemPrompt: system } } : {}),
       },
-      temperature: 0,
-      maxTokens,
       signal,
     },
     { messages: messages.filter((message) => message.role !== 'system') },

@@ -13,30 +13,32 @@
  * local MCP process applies only when its full canonical bytes match the fixed
  * constructor profile; a different generated profile is refused.
  *
- * Event protocol matches `inlineSandboxClient`: one `llm_call` metering event
- * + one terminal `result` event with finalText/tokenUsage/costUsd.
+ * Event protocol matches `inlineSandboxClient`: known token usage is emitted as one `llm_call`;
+ * Router catalog cost remains a separately-labelled estimate, never billed spend.
  */
 
 import {
   type AgentProfile,
   type AgentProfileSecurityPolicy,
-  canonicalCandidateDigest,
+  agentProfileSchema,
+  canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import type { KeyProvider } from './key-provider'
 import { routerBrain } from './router-client'
 import { materializeLocalMcp } from './stdio-mcp-client'
+import {
+  assertExecutableAgentProfile,
+  profileModelExecutionSettings,
+  profileProviderModel,
+} from './supervise/model-policy'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 import type { SandboxClient } from './types'
 
 export interface LocalSandboxClientOptions {
-  /** The worker brain: router chat-completions with tool-calling. All three required. */
-  router: { baseUrl: string; key: string; model: string }
-  /** Tool-loop turns per prompt. Default 8. */
-  maxTurns?: number
-  /** Brain sampling temperature. Default: `routerBrain`'s (0.4). */
-  temperature?: number
+  /** Router endpoint/auth. The exact per-create profile owns model and loop behavior. */
+  router: { baseUrl: string; key: string }
   /** Fallback profile when `create(options)` carries none on `backend.profile`. */
   profile?: AgentProfile
   /** Resolves profile-declared MCP secret names at child-process spawn time. */
@@ -57,19 +59,23 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
   }
   const trustedProfileDigest =
     opts.profileSecurityPolicy?.allowLocalMcp && opts.profile !== undefined
-      ? canonicalCandidateDigest(opts.profile)
+      ? canonicalAgentProfileDigest(opts.profile)
       : undefined
-  const maxTurns = opts.maxTurns ?? 8
   let seq = 0
   return {
     async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
-      const profile =
-        (options?.backend as { profile?: AgentProfile } | undefined)?.profile ?? opts.profile ?? {}
+      const profile = agentProfileSchema.parse(
+        (options?.backend as { profile?: AgentProfile } | undefined)?.profile ?? opts.profile,
+      )
+      assertExecutableAgentProfile(profile, 'localSandboxClient')
+      const profileModel = profileProviderModel(profile)
+      const model = profileModel!
+      const settings = profileModelExecutionSettings(profile, 'localSandboxClient')
       const policyApplies =
         opts.profileSecurityPolicy !== undefined &&
         (!opts.profileSecurityPolicy.allowLocalMcp ||
           (trustedProfileDigest !== undefined &&
-            canonicalCandidateDigest(profile) === trustedProfileDigest))
+            canonicalAgentProfileDigest(profile) === trustedProfileDigest))
       // Materialize NOW: a declared server that cannot boot fails the create,
       // not the first prompt — matching the real sandbox backend, where a box
       // whose MCP cannot start never comes up.
@@ -81,9 +87,17 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
         {
           routerBaseUrl: opts.router.baseUrl,
           routerKey: opts.router.key,
-          model: opts.router.model,
+          model,
+          ...(settings.maxAttempts !== undefined ? { maxAttempts: settings.maxAttempts } : {}),
+          ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
+          ...(settings.stream !== undefined ? { stream: settings.stream } : {}),
         },
-        opts.temperature !== undefined ? { temperature: opts.temperature } : {},
+        {
+          ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
+          ...(profile.model?.reasoningEffort
+            ? { reasoningEffort: profile.model.reasoningEffort }
+            : {}),
+        },
       )
       const system = [profile.prompt?.systemPrompt, ...(profile.prompt?.instructions ?? [])]
         .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
@@ -95,10 +109,14 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
           message: string,
           popts?: { signal?: AbortSignal },
         ): AsyncGenerator<SandboxEvent> {
-          let costUsd = 0
+          let estimatedCostUsd = 0
+          let sawEstimatedCost = false
           const chat: ToolLoopChat = async (messages, tools) => {
             const r = await brain(messages, tools)
-            if (r.costUsd) costUsd += r.costUsd
+            if (r.costProvenance === 'catalog-estimate' && r.costUsd !== undefined) {
+              estimatedCostUsd += r.costUsd
+              sawEstimatedCost = true
+            }
             return r
           }
           const r = await runBrainLoop({
@@ -109,23 +127,33 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
               ...(system ? [{ role: 'system', content: system }] : []),
               { role: 'user', content: message },
             ],
-            maxTurns,
+            maxTurns: settings.maxTurns ?? 0,
             hooks: { stopBefore: () => popts?.signal?.aborted === true },
           })
-          // Speak the runtime's metering protocol (see inlineSandboxClient):
-          // a flat `llm_call` event so the kernel never meters a fabricated $0.
-          if (r.usage.input || r.usage.output || costUsd) {
+          // RouterClient prices locally. Emit measured tokens only when every turn reported them;
+          // never project the catalog estimate into SandboxEvent.costUsd.
+          if (r.turns > 0) {
             yield {
               type: 'llm_call',
-              data: { tokensIn: r.usage.input, tokensOut: r.usage.output, costUsd },
+              data: {
+                model,
+                ...(r.tokensKnown === false
+                  ? { tokensKnown: false }
+                  : { tokensIn: r.usage.input, tokensOut: r.usage.output }),
+                costKnown: false,
+                ...(sawEstimatedCost ? { estimatedCostUsd } : {}),
+              },
             } as unknown as SandboxEvent
           }
           yield {
             type: 'result',
             data: {
               finalText: r.final,
-              tokenUsage: { inputTokens: r.usage.input, outputTokens: r.usage.output },
-              costUsd,
+              ...(r.tokensKnown === false
+                ? { tokensKnown: false }
+                : { tokenUsage: { inputTokens: r.usage.input, outputTokens: r.usage.output } }),
+              costKnown: false,
+              ...(sawEstimatedCost ? { estimatedCostUsd } : {}),
             },
           } as unknown as SandboxEvent
         },

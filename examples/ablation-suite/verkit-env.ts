@@ -255,7 +255,7 @@ export const verkitTasks = async (offset: number, n: number): Promise<AgenticTas
     const trial = offset + i
     return {
       id: `verkit-${trial}`,
-      systemPrompt:
+      userPrompt:
         'You are a Python engineer. verkit.py defines a Release version value type — a ' +
         'three-part MAJOR.MINOR.PATCH version with an optional prerelease and an optional build ' +
         'segment — together with about a dozen module-level helper functions over it. Every ' +
@@ -273,9 +273,6 @@ export const verkitTasks = async (offset: number, n: number): Promise<AgenticTas
         'cases (empty / shortest inputs, leading zeros, prerelease vs build precedence, the ' +
         'first and undefined index positions, the major-0 special case, exact error messages). ' +
         'Do not edit the test files or conftest.py.',
-      userPrompt:
-        'Read the test files, implement verkit.py for the Release type and every module-level ' +
-        'function, then run_tests and fix the failing tests until all pass.',
       meta: { seed: trial },
     } satisfies AgenticTask
   })

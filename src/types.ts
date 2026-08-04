@@ -365,7 +365,15 @@ export type RuntimeStreamEvent =
       model: string
       tokensIn?: number
       tokensOut?: number
+      /** False when the numeric token subtotal is incomplete or absent. */
+      tokensKnown?: false
       costUsd?: number
+      /** False when `costUsd` is only an observed floor, estimate, or absent. */
+      usdKnown?: false
+      /** Separately-labelled local/catalog estimate; never billed spend. */
+      estimatedCostUsd?: number
+      /** Provider-reported prompt-cache fields; absent fields remain unknown. */
+      promptCache?: Readonly<Record<string, number | string>>
       latencyMs?: number
       finishReason?: string
       timestamp?: string

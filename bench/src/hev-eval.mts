@@ -29,11 +29,14 @@ async function complete(
         routerKey: key,
         profile: {
           name: 'humaneval-worker',
-          model: { provider: 'tangle-router', default: model },
+          harness: 'cli-base',
+          model: {
+            provider: 'tangle-router',
+            default: model,
+            metadata: { temperature: 0.2, maxTokens },
+          },
           prompt: { systemPrompt: instruction },
         },
-        temperature: 0.2,
-        maxTokens,
       },
       prompt,
     )

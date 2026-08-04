@@ -123,7 +123,7 @@ function makeWorker(rawProfile: unknown, ws: Workspace, n: number): Agent<unknow
   const inner: Executor<unknown> = {
     runtime: 'router',
     async execute() {
-      const sys = p?.systemPrompt ?? TASK
+      const sys = p?.prompt.systemPrompt ?? TASK
       const run = await runInWorkspace(
         ws,
         async (cwd) => {

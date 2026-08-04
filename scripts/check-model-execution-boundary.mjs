@@ -8,17 +8,28 @@ import ts from 'typescript'
 const root = resolve(import.meta.dirname, '..')
 const sourceRoots = ['src', 'bench', 'examples', 'scripts']
 
-// Runtime owns provider transport. These four bench programs intentionally test the wire itself;
-// adding another exception requires editing this reviewed list rather than dropping a magic comment
-// beside the bypass.
+// Runtime owns provider transport. This list is deliberately limited to implementation adapters;
+// benchmarks, examples, and probes must enter through an exact AgentProfile.
 const directTransportOwners = new Set([
   'src/backends.ts',
+  'src/improvement/driver-loop-generator.ts',
+  'src/runtime/local-sandbox-client.ts',
   'src/runtime/router-client.ts',
+  'src/runtime/router-client.complete.test.ts',
+  'src/runtime/run-benchmark.ts',
+  'src/runtime/strategy.ts',
+  'src/runtime/supervise/authoring.ts',
+  'src/runtime/supervise/coordination-driver.ts',
   'src/runtime/supervise/runtime.ts',
-  'bench/src/atom-mcp-e2e.mts',
-  'bench/src/egress-probe.mts',
-  'bench/src/mcp-mount-probe.mts',
-  'bench/src/swe-arena/capacity.ts',
+  'src/runtime/supervise/supervisor-agent.ts',
+])
+
+const lowLevelModelCalls = new Set([
+  'routerBrain',
+  'routerChatWithTools',
+  'routerChatWithUsage',
+  'routerToolLoop',
+  'streamRouterChatWithTools',
 ])
 
 const sourceExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.py', '.sh'])
@@ -76,6 +87,8 @@ export function checkJavaScript(path, text) {
     : ts.ScriptKind.JS
   const source = ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true, kind)
   const initializers = new Map()
+  const lowLevelBindings = new Set()
+  const lowLevelNamespaces = new Set()
   const failures = []
 
   function collect(node) {
@@ -89,6 +102,52 @@ export function checkJavaScript(path, text) {
     ts.forEachChild(node, collect)
   }
   collect(source)
+
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings) continue
+    const bindings = statement.importClause.namedBindings
+    if (ts.isNamespaceImport(bindings)) {
+      lowLevelNamespaces.add(bindings.name.text)
+    } else {
+      for (const element of bindings.elements) {
+        const imported = element.propertyName?.text ?? element.name.text
+        if (lowLevelModelCalls.has(imported)) lowLevelBindings.add(element.name.text)
+      }
+    }
+  }
+
+  function isRequireCall(node) {
+    return (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'require'
+    )
+  }
+
+  function collectCommonJs(node) {
+    if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+      if (isRequireCall(node.initializer)) {
+        if (ts.isIdentifier(node.name)) lowLevelNamespaces.add(node.name.text)
+        if (ts.isObjectBindingPattern(node.name)) {
+          for (const element of node.name.elements) {
+            if (!ts.isIdentifier(element.name)) continue
+            const imported = element.propertyName?.getText(source) ?? element.name.text
+            if (lowLevelModelCalls.has(imported)) lowLevelBindings.add(element.name.text)
+          }
+        }
+      }
+      if (
+        ts.isIdentifier(node.name) &&
+        ts.isPropertyAccessExpression(node.initializer) &&
+        isRequireCall(node.initializer.expression) &&
+        lowLevelModelCalls.has(node.initializer.name.text)
+      ) {
+        lowLevelBindings.add(node.name.text)
+      }
+    }
+    ts.forEachChild(node, collectCommonJs)
+  }
+  collectCommonJs(source)
 
   function expressionText(node, seen = new Set()) {
     if (ts.isIdentifier(node)) {
@@ -118,7 +177,18 @@ export function checkJavaScript(path, text) {
         /^(?:https?|request|axios)(?:\.|$)/.test(callee) &&
         namesModelEndpoint(call) &&
         !isLocalTestTarget(path, call)
-      if (directFetch || providerSdk || rawHttp) {
+      const lowLevelRuntimeCall =
+        (ts.isIdentifier(node.expression) && lowLevelBindings.has(callee)) ||
+        (ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          lowLevelNamespaces.has(node.expression.expression.text) &&
+          lowLevelModelCalls.has(node.expression.name.text)) ||
+        (ts.isElementAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          lowLevelNamespaces.has(node.expression.expression.text) &&
+          ts.isStringLiteral(node.expression.argumentExpression) &&
+          lowLevelModelCalls.has(node.expression.argumentExpression.text))
+      if (directFetch || providerSdk || rawHttp || lowLevelRuntimeCall) {
         failures.push({ node, detail: call.slice(0, 180).replace(/\s+/g, ' ') })
       }
     }
@@ -219,7 +289,7 @@ function main() {
   if (violations.length > 0) {
     process.stderr.write(
       'Model-provider calls must go through agent-runtime. Use AgentProfile + streamAgentTurn, ' +
-        'supervise, or routerChatWithUsage/routerChatWithTools.\n',
+        'or a profile-based supervise operation. Low-level Router clients are Runtime internals.\n',
     )
     for (const violation of violations) {
       process.stderr.write(`- ${violation.path}:${violation.location} ${violation.detail}\n`)

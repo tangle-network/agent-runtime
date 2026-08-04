@@ -65,12 +65,11 @@ function parsePytest(out: string): { passed: number; failed: number } {
 export function rowToTask(row: Commit0Row): AgenticTask {
   return {
     id: row.instance_id,
-    systemPrompt:
+    userPrompt:
       'You are a senior Python engineer implementing a stubbed library so its existing test suite passes. ' +
       'Workflow: list_files and read the tests + stubs to learn the required behavior, write COMPLETE implementations ' +
       `with write_file (source under ${row.src_dir} only — the test dir is read-only), then run_tests and fix failures. ` +
-      'Iterate until the suite passes. Reply DONE only when run_tests shows no failures.',
-    userPrompt:
+      'Iterate until the suite passes. Reply DONE only when run_tests shows no failures.\n\n' +
       `Implement the stubbed library "${row.repo}". The public functions/classes under \`${row.src_dir}\` have empty bodies. ` +
       `Make the existing tests under \`${row.test.test_dir}\` pass.${row.setup.specification ? ` Spec: ${row.setup.specification}` : ''}`,
     meta: { instanceId: row.instance_id },

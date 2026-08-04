@@ -88,7 +88,6 @@ const report = await runGate({
   strategies: ['plain restate', 'use the STRONG verified approach', 'enumerate edge cases'],
   routerBaseUrl: 'http://unused',
   routerKey: 'unused',
-  model: 'stub-model',
   solverRegistry: stubRegistry,
 })
 

@@ -20,6 +20,7 @@ import {
   sample,
   sampleThenRefine,
 } from '@tangle-network/agent-runtime/kernel'
+import { benchRouterProfile } from '../router-turn'
 
 // GSM8K-style problems; meta.answer is the ground truth the deployable check compares to.
 const problems: Array<{ q: string; answer: number }> = [
@@ -95,9 +96,15 @@ async function main(): Promise<void> {
     worker: {
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       routerKey,
-      model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
-      innerTurns: 6,
-      temperature: 0.6,
+      workerProfile: benchRouterProfile(
+        'math-worker',
+        process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+        {
+          systemPrompt: 'Solve the requested math task with the available tools and verify the result.',
+          maxTurns: 6,
+          temperature: 0.6,
+        },
+      ),
     },
     strategies: [sample, refine, sampleThenRefine],
     budget: Number(process.env.BUDGET ?? 3),

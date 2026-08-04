@@ -354,11 +354,14 @@ async function complete(cfg: ClientCfg, messages: Array<{ role: string; content:
           routerKey: cfg.key,
           profile: {
             name: 'humaneval-structural-worker',
-            model: { provider: 'tangle-router', default: cfg.model },
+            harness: 'cli-base',
+            model: {
+              provider: 'tangle-router',
+              default: cfg.model,
+              metadata: { temperature: cfg.temperature, maxTokens: cfg.maxTokens },
+            },
             ...(system ? { prompt: { systemPrompt: system } } : {}),
           },
-          temperature: cfg.temperature,
-          maxTokens: cfg.maxTokens,
           timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 240_000),
         },
         { messages: messages.filter((message) => message.role !== 'system') },

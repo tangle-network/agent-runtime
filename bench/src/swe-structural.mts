@@ -150,7 +150,7 @@ const makeTransport =
       body,
       {
         name: 'swe-structural-worker',
-        model: { provider: 'tangle-router', default: model },
+        model: { provider: 'zai', default: model, reasoningEffort: 'high' },
         ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
         ...(toolNames.length > 0
           ? { tools: Object.fromEntries(toolNames.map((name) => [name, true])) }

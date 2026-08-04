@@ -47,7 +47,6 @@ export function normalizeRolloutPolicy(raw: unknown): StructuralRolloutPolicy | 
     repairRounds,
     testgen,
     ...(typeof bag.diverse === 'boolean' ? { diverse: bag.diverse } : {}),
-    ...(typeof bag.temperature === 'number' ? { temperature: bag.temperature } : {}),
   }
 }
 
@@ -58,7 +57,6 @@ export function serializeRolloutPolicy(policy: StructuralRolloutPolicy): string 
     repairRounds: policy.repairRounds,
     testgen: policy.testgen,
     ...(policy.diverse !== undefined ? { diverse: policy.diverse } : {}),
-    ...(policy.temperature !== undefined ? { temperature: policy.temperature } : {}),
   })
 }
 
@@ -83,7 +81,6 @@ export function applyRolloutPolicyToProfile(
     repairRounds: policy.repairRounds,
     testgen: policy.testgen,
     ...(policy.diverse !== undefined ? { diverse: policy.diverse } : {}),
-    ...(policy.temperature !== undefined ? { temperature: policy.temperature } : {}),
   }
   return {
     ...candidate,

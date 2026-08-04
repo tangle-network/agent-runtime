@@ -329,10 +329,13 @@ async function tier2Judge(
       routerKey: router.key,
       profile: {
         name: 'frames-equivalence-judge',
-        model: { provider: 'tangle-router', default: router.model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: router.model,
+          metadata: { temperature: 0, seed: 0 },
+        },
       },
-      temperature: 0,
-      seed: 0,
     },
     JUDGE_PROMPT(question, gold, candidate),
   )

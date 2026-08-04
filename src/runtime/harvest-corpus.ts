@@ -21,22 +21,22 @@
  * own A/B; the corpus's first consumers are operators and optimizers, not prompts.
  */
 
-import type { ChatClient } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { type Observation, type ObserveInput, observe } from './observe'
 import type { Corpus } from './personify/wave-types'
+import type { ExecutorConfig } from './supervise/runtime'
 
 export interface HarvestCorpusOptions {
   /** The completed runs to analyze — map your store's rows to `ObserveInput`. */
   runs: AsyncIterable<ObserveInput> | Iterable<ObserveInput>
-  /** The model-call seam (agent-eval `createChatClient`). */
-  chat: ChatClient
-  model?: string
+  /** Exact analyst identity. */
+  profile: AgentProfile
+  /** Execution substrate. All behavior comes from the profile. */
+  executor: ExecutorConfig
   /** The durable corpus the facts accrete into. */
   corpus: Corpus
   /** Tags written onto learned facts (the product/domain key the read side queries by). */
   tags?: ReadonlyArray<string>
-  /** Override the analyst instruction (the GEPA-tunable knob). */
-  analystInstruction?: string
   /** Runs analyzed in parallel. Default 4. */
   concurrency?: number
   /** Hard cap on runs consumed from the stream (a cost guard for unbounded stores). */
@@ -91,11 +91,10 @@ export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<Harvest
       if (opts.signal?.aborted) return
       try {
         const obs: Observation = await observe(input, {
-          chat: opts.chat,
-          ...(opts.model ? { model: opts.model } : {}),
+          profile: opts.profile,
+          executor: opts.executor,
           corpus: opts.corpus,
           tags: opts.tags ?? [],
-          ...(opts.analystInstruction ? { analystInstruction: opts.analystInstruction } : {}),
           ...(opts.signal ? { signal: opts.signal } : {}),
         })
         report.runsObserved += 1

@@ -33,21 +33,18 @@ export interface ResolveSandboxClientOptions {
   backend: 'sandbox' | 'bridge' | 'router' | 'local'
   /** `sandbox` backend: the caller's real Sandbox-backed client. Required for that backend. */
   sandboxClient?: SandboxClient
-  /** `bridge` backend: local cli-bridge transport. `bearer` + `model` required. */
+  /** `bridge` backend: local cli-bridge transport. The per-create profile owns the model. */
   bridge?: {
     /** cli-bridge base URL. Defaults to `http://127.0.0.1:3355`. */
     url?: string
     bearer: string
-    /** Bridge model id, doubling as the harness selector (e.g. `claude-code/sonnet`). */
-    model: string
     /** Per-turn deadline (ms). */
     timeoutMs?: number
   }
-  /** `router` backend: router chat-completion transport. All three fields required. */
+  /** `router` backend: endpoint/auth only; the per-create profile owns behavior. */
   router?: {
     baseUrl: string
     key: string
-    model: string
   }
   /** `local` backend: same-host pseudo-box — the router brain drives a tool loop
    *  with the profile's stdio MCP servers spawned as local children. */
@@ -69,26 +66,23 @@ export function resolveSandboxClient(opts: ResolveSandboxClientOptions): Sandbox
     }
     case 'bridge': {
       const bridge = opts.bridge
-      if (!bridge?.bearer || !bridge.model) {
-        throw new Error(
-          "resolveSandboxClient: backend 'bridge' requires bridge.bearer and bridge.model",
-        )
+      if (!bridge?.bearer) {
+        throw new Error("resolveSandboxClient: backend 'bridge' requires bridge.bearer")
       }
       return inlineSandboxClient(
         createExecutor({
           backend: 'bridge',
           bridgeUrl: bridge.url ?? 'http://127.0.0.1:3355',
           bridgeBearer: bridge.bearer,
-          model: bridge.model,
           timeoutMs: bridge.timeoutMs,
         }),
       )
     }
     case 'router': {
       const router = opts.router
-      if (!router?.baseUrl || !router.key || !router.model) {
+      if (!router?.baseUrl || !router.key) {
         throw new Error(
-          "resolveSandboxClient: backend 'router' requires router.baseUrl, router.key and router.model",
+          "resolveSandboxClient: backend 'router' requires router.baseUrl and router.key",
         )
       }
       return inlineSandboxClient(
@@ -96,15 +90,14 @@ export function resolveSandboxClient(opts: ResolveSandboxClientOptions): Sandbox
           backend: 'router',
           routerBaseUrl: router.baseUrl,
           routerKey: router.key,
-          model: router.model,
         }),
       )
     }
     case 'local': {
       const local = opts.local
-      if (!local?.router?.baseUrl || !local.router.key || !local.router.model) {
+      if (!local?.router?.baseUrl || !local.router.key) {
         throw new Error(
-          "resolveSandboxClient: backend 'local' requires local.router.baseUrl, local.router.key and local.router.model",
+          "resolveSandboxClient: backend 'local' requires local.router.baseUrl and local.router.key",
         )
       }
       return localSandboxClient(local)

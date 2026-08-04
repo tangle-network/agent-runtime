@@ -286,7 +286,11 @@ const makeTransport =
       { ...body, ...WORKER_REASONING },
       {
         name: 'swe-stream-worker',
-        model: { provider: 'tangle-router', default: model },
+        model: {
+          provider: 'zai',
+          default: model,
+          reasoningEffort: REASONING_ON ? 'high' : 'none',
+        },
         ...(typeof systemPrompt === 'string' ? { prompt: { systemPrompt } } : {}),
         ...(toolNames.length > 0
           ? { tools: Object.fromEntries(toolNames.map((name) => [name, true])) }
@@ -660,7 +664,7 @@ async function acquireRepro(
         { model: REPRO_MODEL, max_tokens: MAX_TOKENS, temperature: 0.2, messages },
         {
           name: 'swe-reproduction-author',
-          model: { provider: 'tangle-router', default: REPRO_MODEL },
+          model: { provider: 'zai', default: REPRO_MODEL, reasoningEffort: 'high' },
           prompt: { systemPrompt: reproAuthorSystem(REPRO_TIMEOUT_S) },
         },
       )
@@ -832,7 +836,7 @@ async function superviseRepair(
       { model: SUPERVISOR_MODEL, max_tokens: SUPERVISOR_MAX_TOKENS, temperature: 0.2, messages },
       {
         name: 'swe-repair-supervisor',
-        model: { provider: 'tangle-router', default: SUPERVISOR_MODEL },
+        model: { provider: 'zai', default: SUPERVISOR_MODEL, reasoningEffort: 'high' },
       },
     )
     const d = json as { choices?: Array<{ message?: { content?: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }

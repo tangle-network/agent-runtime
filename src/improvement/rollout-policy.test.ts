@@ -24,7 +24,6 @@ describe('rollout policy profile coordinate', () => {
       repairRounds: 1,
       testgen: 0,
       diverse: false,
-      temperature: 0.2,
     }
     const profile: AgentProfile = { name: 'fixture' }
     const serialized = serializeRolloutPolicy(policy)

@@ -24,6 +24,7 @@ import {
   sampleThenRefine,
 } from '@tangle-network/agent-runtime/kernel'
 import { ensureLeanImage, leanCheck } from './lean-verify.js'
+import { benchRouterProfile } from '../router-turn'
 
 // Real, mathlib-free Lean 4 theorems (compile in core Lean). `header` is everything up to `:=`;
 // the prover supplies the proof term / tactic block. `reference` is a known-good proof used only
@@ -145,9 +146,15 @@ async function main(): Promise<void> {
     worker: {
       routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
       routerKey,
-      model: process.env.WORKER_MODEL ?? 'gpt-4.1',
-      innerTurns: 8, // room to call lean_check and fix
-      temperature: 0.4,
+      workerProfile: benchRouterProfile(
+        'lean-proof-worker',
+        process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+        {
+          systemPrompt: 'Construct and verify Lean proofs with the available checker before answering.',
+          maxTurns: 8,
+          temperature: 0.4,
+        },
+      ),
     },
     strategies: [sample, refine, sampleThenRefine],
     budget: Number(process.env.BUDGET ?? 3),

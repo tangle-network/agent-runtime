@@ -16,12 +16,14 @@
  */
 import {
   type AnalystFinding,
-  type ChatClient,
   makeProposalFinding,
   type ProposalFinding,
 } from '@tangle-network/agent-eval'
 import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { Corpus, CorpusRecord } from './personify/wave-types'
+import { profileChatClient } from './profile-chat-client'
+import type { ExecutorConfig } from './supervise/runtime'
 
 const observerId = 'observe/trace'
 
@@ -40,9 +42,10 @@ export interface ObserveInput {
 }
 
 export interface ObserveOptions {
-  /** The model-call seam (agent-eval `createChatClient`: router / cli-bridge / …). */
-  chat: ChatClient
-  model?: string
+  /** Exact analyst identity. */
+  profile: AgentProfile
+  /** Execution substrate. All behavior comes from the profile. */
+  executor: ExecutorConfig
   /** When set, learned facts are appended (idempotent) for the next run to read. */
   corpus?: Corpus
   /** Tags written onto learned facts + used by the next run's corpus query. */
@@ -50,12 +53,6 @@ export interface ObserveOptions {
   signal?: AbortSignal
   /** Cap the trace lines fed to the observer (keeps the call cheap). Default 80. */
   maxTraceLines?: number
-  /** Override the analyst's system instruction — the prompt that turns a trace into
-   *  findings + recommended_actions. The analyst IS the steerer, so this is the knob a
-   *  prompt optimizer (GEPA) tunes. Omitted ⇒ the default observer instruction. The
-   *  firewall (trace-only, never the verdict) is structural (input has no score), so a
-   *  custom instruction cannot break it. */
-  analystInstruction?: string
 }
 
 /** The default observer instruction — exported so an optimizer can seed its population. */
@@ -72,6 +69,8 @@ export interface Observation {
   learned: CorpusRecord[]
   /** Operator-facing markdown: what the observer noticed + what to change. */
   report: string
+  /** Measured model usage for this analysis turn. */
+  usage: { input: number; output: number; known: boolean }
 }
 
 /** Compact the trace into the lines the observer reasons over — tool calls,
@@ -144,15 +143,14 @@ const findingsSchema = {
 /** The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. */
 export async function observe(input: ObserveInput, opts: ObserveOptions): Promise<Observation> {
   const traceSummary = summarizeTrace(input.trace, opts.maxTraceLines ?? 80)
-  const res = await opts.chat.chat(
+  const res = await profileChatClient({
+    profile: opts.profile,
+    executor: opts.executor,
+    context: 'observe analyst',
+  }).chat(
     {
-      ...(opts.model ? { model: opts.model } : {}),
       jsonSchema: findingsSchema as unknown as { name: string; schema: Record<string, unknown> },
       messages: [
-        {
-          role: 'system',
-          content: opts.analystInstruction ?? defaultAnalystInstruction,
-        },
         {
           role: 'user',
           content:
@@ -207,7 +205,22 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
     }
   }
 
-  return { findings: [...findings], learned, report: renderReport(findings) }
+  const usage = res.usage
+  const inputTokens = usage?.promptTokens
+  const outputTokens = usage?.completionTokens
+  return {
+    findings: [...findings],
+    learned,
+    report: renderReport(findings),
+    usage: {
+      input: inputTokens ?? 0,
+      output: outputTokens ?? 0,
+      known:
+        usage?.captured !== false &&
+        typeof inputTokens === 'number' &&
+        typeof outputTokens === 'number',
+    },
+  }
 }
 
 interface RawFinding {

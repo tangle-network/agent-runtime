@@ -17,15 +17,18 @@ interface ChatRequest {
 
 const task: AgenticTask = {
   id: 'task-1',
-  systemPrompt: 'Use the test surface.',
   userPrompt: 'Complete the task.',
 }
 
 const worker: AgenticOptions = {
   routerBaseUrl: 'http://router.test/v1',
   routerKey: 'test-key',
-  model: 'worker-model',
-  maxTokens: 8,
+  workerProfile: {
+    name: 'worker',
+    model: { default: 'worker-model', metadata: { maxTokens: 8 } },
+    prompt: { systemPrompt: 'Use the test surface.' },
+    tools: {},
+  },
 }
 
 const oneShot = defineStrategy('one-shot', async ({ shot }) => {
@@ -101,7 +104,10 @@ describe('runBenchmark model availability', () => {
     await runBenchmark({
       environment: surface(events),
       tasks: [task, { ...task, id: 'task-2' }],
-      worker: { ...worker, analystModel: 'analyst-model' },
+      worker: {
+        ...worker,
+        analystProfile: { name: 'analyst', model: { default: 'analyst-model' } },
+      },
       strategies: [oneShot],
       budget: 1,
       concurrency: 2,
@@ -123,7 +129,7 @@ describe('runBenchmark model availability', () => {
       tasks: [task],
       worker: {
         ...worker,
-        analystModel: worker.model,
+        analystProfile: worker.workerProfile,
         complete: async () => okResponse().json(),
       },
       strategies: [oneShot],
@@ -167,7 +173,10 @@ describe('runBenchmark model availability', () => {
       runBenchmark({
         environment: surface(events),
         tasks: [task],
-        worker: { ...worker, analystModel: 'analyst-model' },
+        worker: {
+          ...worker,
+          analystProfile: { name: 'analyst', model: { default: 'analyst-model' } },
+        },
         strategies: [oneShot],
         budget: 1,
         modelPreflight: async (model) => {
@@ -252,7 +261,7 @@ describe('runBenchmark model availability', () => {
       tasks: [task],
       worker: {
         ...worker,
-        analystModel: 'analyst-model',
+        analystProfile: { name: 'analyst', model: { default: 'analyst-model' } },
         complete: async () => okResponse().json(),
       },
       strategies: [oneShot],

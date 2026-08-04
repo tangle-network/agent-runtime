@@ -7,7 +7,8 @@ import { type AgentSpec, createExecutor } from '../../src/runtime'
 
 const profile: AgentProfile = {
   name: 'profile-model-worker',
-  model: { default: 'profile-selected-model' },
+  harness: 'cli-base',
+  model: { provider: 'tangle-router', default: 'profile-selected-model' },
 }
 
 const spec: AgentSpec = { profile, harness: null }
@@ -32,58 +33,24 @@ async function startRouter(onRequest: (body: Record<string, unknown>) => void): 
   return `http://127.0.0.1:${port}`
 }
 
-describe('router executor model precedence', () => {
+async function drainExecution(value: unknown): Promise<void> {
+  if (value !== null && typeof value === 'object' && Symbol.asyncIterator in value) {
+    for await (const _event of value as AsyncIterable<unknown>) {
+      // drain
+    }
+    return
+  }
+  await value
+}
+
+describe('router executor exact-profile identity', () => {
   afterEach(async () => {
     if (server) await new Promise<void>((resolve) => server?.close(() => resolve()))
     server = undefined
   })
 
-  it('uses AgentProfile.model.default instead of the router fallback', async () => {
-    let request: Record<string, unknown> | undefined
-    const routerBaseUrl = await startRouter((body) => {
-      request = body
-    })
-    const factory = createExecutor({
-      backend: 'router',
-      routerBaseUrl,
-      routerKey: 'key',
-      model: 'backend-fallback-model',
-    })
-    const executor = factory(spec, {
-      signal: new AbortController().signal,
-      seams: {},
-    })
-
-    await executor.execute('do the task', new AbortController().signal)
-
-    expect(request?.model).toBe('profile-selected-model')
-  })
-
-  it('uses AgentProfile.model.default instead of the router-tools fallback', async () => {
-    let request: Record<string, unknown> | undefined
-    const routerBaseUrl = await startRouter((body) => {
-      request = body
-    })
-    const factory = createExecutor({
-      backend: 'router-tools',
-      routerBaseUrl,
-      routerKey: 'key',
-      model: 'backend-fallback-model',
-      tools: [],
-      executeToolCall: async () => '',
-    })
-    const executor = factory(spec, {
-      signal: new AbortController().signal,
-      seams: {},
-    })
-
-    await executor.execute('do the task', new AbortController().signal)
-
-    expect(request?.model).toBe('profile-selected-model')
-  })
-
   it.each(['router', 'router-tools'] as const)(
-    'uses the %s configured model when Eval delegates model selection',
+    'uses only the AgentProfile model on the %s backend',
     async (backend) => {
       let request: Record<string, unknown> | undefined
       const routerBaseUrl = await startRouter((body) => {
@@ -93,23 +60,47 @@ describe('router executor model precedence', () => {
         backend,
         routerBaseUrl,
         routerKey: 'key',
-        model: 'backend-fallback-model',
         ...(backend === 'router-tools' ? { tools: [], executeToolCall: async () => '' } : {}),
       })
-      const executor = factory(
-        {
-          profile: {
-            name: 'runtime-selected-model',
-            model: { default: HARNESS_NATIVE_MODEL },
+      const executor = factory(spec, {
+        signal: new AbortController().signal,
+        seams: {},
+      })
+
+      await drainExecution(executor.execute('do the task', new AbortController().signal))
+
+      expect(request?.model).toBe('profile-selected-model')
+    },
+  )
+
+  it.each(['router', 'router-tools'] as const)(
+    'refuses runtime-selected model markers on the %s backend before dispatch',
+    async (backend) => {
+      let request: Record<string, unknown> | undefined
+      const routerBaseUrl = await startRouter((body) => {
+        request = body
+      })
+      const factory = createExecutor({
+        backend,
+        routerBaseUrl,
+        routerKey: 'key',
+        ...(backend === 'router-tools' ? { tools: [], executeToolCall: async () => '' } : {}),
+      })
+
+      expect(() =>
+        factory(
+          {
+            profile: {
+              name: 'runtime-selected-model',
+              harness: 'cli-base',
+              model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
+            },
+            harness: null,
           },
-          harness: null,
-        },
-        { signal: new AbortController().signal, seams: {} },
-      )
-
-      await executor.execute('do the task', new AbortController().signal)
-
-      expect(request?.model).toBe('backend-fallback-model')
+          { signal: new AbortController().signal, seams: {} },
+        ),
+      ).toThrow(/model\.default is runtime-selected/)
+      expect(request).toBeUndefined()
     },
   )
 })

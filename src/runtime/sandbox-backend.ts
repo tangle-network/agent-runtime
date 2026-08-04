@@ -10,7 +10,7 @@
 
 import type { AgentProfile, HarnessType } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions } from '@tangle-network/sandbox'
-import { profileForExecution } from './supervise/model-policy'
+import { assertExecutableAgentProfile, concreteProfileModel } from './supervise/model-policy'
 
 type BackendType = NonNullable<CreateSandboxOptions['backend']>['type']
 type BackendOverride = NonNullable<CreateSandboxOptions['backend']>
@@ -45,8 +45,8 @@ function harnessAsBackendType(harness: HarnessType): BackendType | undefined {
 }
 
 /**
- * Resolve the backend `type`: an explicit override wins, then the profile's
- * `metadata.backendType` hint, then the profile's declared `harness`, else the
+ * Resolve the backend `type`: the profile's `metadata.backendType` hint, then
+ * its declared `harness`, else the
  * SDK's profile-driven default (`'opencode'` on the platform side).
  *
  * A declared `harness` the sandbox cannot run throws rather than falling
@@ -57,11 +57,11 @@ function resolveBackendType(
   profile: AgentProfile,
   override: Partial<BackendOverride> | undefined,
 ): BackendType {
-  if (override?.type) return override.type
   const explicit = profile.metadata?.backendType
-  if (typeof explicit === 'string') return explicit as BackendType
+  let selected: BackendType | undefined
+  if (typeof explicit === 'string') selected = explicit as BackendType
   const declared = profile.harness
-  if (declared !== undefined) {
+  if (selected === undefined && declared !== undefined) {
     const backend = harnessAsBackendType(declared)
     if (backend === undefined) {
       throw new Error(
@@ -70,9 +70,17 @@ function resolveBackendType(
           'Set metadata.backendType to run it on a different backend deliberately.',
       )
     }
-    return backend
+    selected = backend
   }
-  return 'opencode' as BackendType
+  if (override?.type && selected && override.type !== selected) {
+    throw new Error(
+      `buildBackendOptions: backend override ${JSON.stringify(override.type)} conflicts with AgentProfile backend ${JSON.stringify(selected)}`,
+    )
+  }
+  if (selected === undefined) {
+    throw new Error('buildBackendOptions: AgentProfile.harness must select the sandbox backend')
+  }
+  return selected
 }
 
 /**
@@ -83,14 +91,21 @@ export function buildBackendOptions(
   profile: AgentProfile,
   overrides: Partial<CreateSandboxOptions> | undefined,
 ): CreateSandboxOptions {
+  assertExecutableAgentProfile(profile, 'buildBackendOptions')
   const base = overrides ?? {}
   const overrideBackend = base.backend
+  const overrideModel = overrideBackend?.model?.model
+  const profileModel = concreteProfileModel(profile)
+  if (overrideModel !== undefined && overrideModel !== profileModel) {
+    throw new Error(
+      `buildBackendOptions: backend model ${JSON.stringify(overrideModel)} conflicts with AgentProfile model ${JSON.stringify(profileModel)}`,
+    )
+  }
   return {
     ...base,
     backend: {
       type: resolveBackendType(profile, overrideBackend),
-      profile: profileForExecution(profile),
-      ...(overrideBackend?.model ? { model: overrideBackend.model } : {}),
+      profile,
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },
   }

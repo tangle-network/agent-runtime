@@ -65,11 +65,14 @@ const result = await runBenchRouterTurn(
     routerKey,
     profile: {
       name: 'trata-hedge-solver',
-      model: { provider: 'tangle-router', default: model },
+      harness: 'cli-base',
+      model: {
+        provider: 'tangle-router',
+        default: model,
+        metadata: { temperature, maxTokens },
+      },
       prompt: { systemPrompt: instruction },
     },
-    temperature,
-    maxTokens,
   },
   prompt,
 )

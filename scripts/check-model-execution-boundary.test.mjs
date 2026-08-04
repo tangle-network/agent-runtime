@@ -24,6 +24,36 @@ describe('model execution boundary source check', () => {
     ).toHaveLength(1)
   })
 
+  it('rejects low-level Runtime model clients outside Runtime-owned adapters', () => {
+    expect(
+      checkJavaScript(
+        'bench/direct.ts',
+        `import { routerChatWithUsage as call } from '@tangle-network/agent-runtime/kernel'\nawait call(config, messages)`,
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('rejects namespace and CommonJS aliases of low-level Runtime model clients', () => {
+    expect(
+      checkJavaScript(
+        'bench/direct.ts',
+        `import * as runtime from '@tangle-network/agent-runtime/kernel'\nawait runtime.routerBrain(config)`,
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'bench/direct.cjs',
+        `const { routerToolLoop: run } = require('@tangle-network/agent-runtime/kernel')\nrun(config)`,
+      ),
+    ).toHaveLength(1)
+    expect(
+      checkJavaScript(
+        'bench/direct.cjs',
+        `const runtime = require('@tangle-network/agent-runtime/kernel')\nruntime['routerChatWithUsage'](config)`,
+      ),
+    ).toHaveLength(1)
+  })
+
   it('ignores comments, inert strings, and ordinary HTTP', () => {
     const source = `
       // fetch('https://api.openai.com/v1/chat/completions')

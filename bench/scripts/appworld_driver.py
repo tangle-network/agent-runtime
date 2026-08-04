@@ -19,7 +19,7 @@ def fail(msg: str) -> None:
 
 def cmd_session(args) -> None:
     """Dumb world shim: a persistent AppWorld session driven over stdin JSONL.
-    NO LLM calls here — the agent loop lives in the runtime (routerToolLoop);
+    NO LLM calls here — the profile-bound agent loop lives in Runtime;
     this process only owns world state. One JSON object per line, both ways:
       {"op":"execute","code":"..."} -> {"output":"...","task_completed":bool}
       {"op":"evaluate"}             -> the evaluate verdict JSON (+failure_names)

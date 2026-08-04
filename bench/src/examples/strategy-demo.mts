@@ -13,6 +13,7 @@
  *   TANGLE_API_KEY=... WORKER_MODEL=gpt-4o-mini tsx src/examples/strategy-demo.mts
  */
 import { adaptiveRefine, type AgenticTask, type ArtifactHandle, defineStrategy, type Environment, printBenchmarkReport, refine, runBenchmark, sample } from '@tangle-network/agent-runtime/kernel'
+import { benchRouterProfile } from '../router-turn'
 
 // ── 1. Implement an Environment (the only thing a new domain writes) ──────────────
 // A toy: the agent must drive a counter to exactly the target using the increment tool.
@@ -59,8 +60,7 @@ const counterEnv: Environment = {
 
 const task: AgenticTask = {
   id: 'counter-to-5',
-  systemPrompt: 'You operate a counter with tools.',
-  userPrompt: `Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,
+  userPrompt: `You operate a counter with tools. Use the increment tool to bring the counter to exactly ${target}. Use read_count to verify before you finish. Reply DONE when the count equals ${target}.`,
 }
 
 // ── 3. Author your OWN strategy in ~10 lines — the lego (no Supervisor ceremony) ──
@@ -97,8 +97,14 @@ async function main(): Promise<void> {
   const worker = {
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey: process.env.TANGLE_API_KEY ?? '',
-    model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
-    innerTurns: 6,
+    workerProfile: benchRouterProfile(
+      'strategy-demo-worker',
+      process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+      {
+        systemPrompt: 'Use the available tools to complete and verify the task.',
+        maxTurns: 6,
+      },
+    ),
   }
   if (!worker.routerKey) throw new Error('set TANGLE_API_KEY (the worker calls the router)')
 

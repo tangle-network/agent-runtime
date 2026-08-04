@@ -28,11 +28,16 @@ import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   mapExecutorResult,
-  type RouterConfig,
   supervisorAgent,
 } from '../../src/runtime/index'
 import { basePrompt, extractCode, type HumanEvalTask, loadHumanEval, runChecker } from './benchmarks/humaneval'
-import { runBenchRouterTurn } from './router-turn'
+import {
+  benchProfileModel,
+  benchRouterProfile,
+  type BenchRouterTarget,
+  runBenchRouterTurn,
+  withBenchProfile,
+} from './router-turn'
 
 function must(k: string): string {
   const v = process.env[k]
@@ -45,24 +50,34 @@ const K = Number(process.env.K ?? 3)
 const OFFSET = Number(process.env.OFFSET ?? 0)
 const WORKER_TEMP = Number(process.env.WORKER_TEMP ?? 0.7)
 
-const cfg: RouterConfig = {
+const cfg: BenchRouterTarget = {
   routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
   routerKey: must('TANGLE_API_KEY'),
-  model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+  profile: benchRouterProfile(
+    'humaneval-worker',
+    process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+    { temperature: WORKER_TEMP },
+  ),
 }
-const driverCfg: RouterConfig = { ...cfg, model: process.env.DRIVER_MODEL ?? cfg.model }
+const driverCfg: BenchRouterTarget = {
+  ...cfg,
+  profile: benchRouterProfile(
+    'humaneval-driver',
+    process.env.DRIVER_MODEL ?? benchProfileModel(cfg.profile),
+    { maxTurns: K + 4 },
+  ),
+}
 
 // ── A gated router worker: one router call → candidate code, settled valid ⟺ the tests pass ──
 function humanEvalWorker(task: HumanEvalTask, label: string): Agent<unknown, unknown> {
-  const profile: AgentProfile = {
+  const profile: AgentProfile = withBenchProfile(cfg.profile, {
     name: label,
-    model: { provider: 'tangle-router', default: cfg.model },
-    prompt: { systemPrompt: basePrompt(task) },
-  }
+    systemPrompt: basePrompt(task),
+  })
   const routerFactory = createExecutor({
     backend: 'router',
-    ...cfg,
-    temperature: WORKER_TEMP,
+    routerBaseUrl: cfg.routerBaseUrl,
+    routerKey: cfg.routerKey,
   })
   const executorFactory = (spec: AgentSpec, ctx: Parameters<typeof routerFactory>[1]) => {
     const inner = routerFactory(spec, ctx)
@@ -105,17 +120,18 @@ async function driveTask(
     return w
   }
   const root = supervisorAgent(
-    {
+    withBenchProfile(driverCfg.profile, {
       name: `drv-${task.taskId}`,
-      model: { provider: 'tangle-router', default: driverCfg.model },
-      prompt: { systemPrompt: driverSystem },
-    },
+      systemPrompt: driverSystem,
+    }),
     {
-      router: driverCfg,
-    blobs,
-    makeWorkerAgent: makeWorker,
-    perWorker: { maxIterations: 2, maxTokens: 4000 },
-    maxTurns: K + 4,
+      router: {
+        routerBaseUrl: driverCfg.routerBaseUrl,
+        routerKey: driverCfg.routerKey,
+      },
+      blobs,
+      makeWorkerAgent: makeWorker,
+      perWorker: { maxIterations: 2, maxTokens: 4000 },
     },
   )
   const runId = `he-${task.taskId.replace('/', '-')}`
@@ -146,11 +162,9 @@ async function blindTask(task: HumanEvalTask): Promise<boolean> {
         {
           routerBaseUrl: cfg.routerBaseUrl,
           routerKey: cfg.routerKey,
-          profile: {
+          profile: withBenchProfile(cfg.profile, {
             name: 'humaneval-blind-atom-worker',
-            model: { provider: 'tangle-router', default: cfg.model },
-          },
-          temperature: WORKER_TEMP,
+          }),
         },
         basePrompt(task),
       )
@@ -164,7 +178,9 @@ async function blindTask(task: HumanEvalTask): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
-  console.log(`atom-humaneval: N=${N} K=${K} offset=${OFFSET} worker=${cfg.model} driver=${driverCfg.model}`)
+  console.log(
+    `atom-humaneval: N=${N} K=${K} offset=${OFFSET} worker=${benchProfileModel(cfg.profile)} driver=${benchProfileModel(driverCfg.profile)}`,
+  )
   const tasks = await loadHumanEval(N, OFFSET)
   const outcomes: TaskOutcome[] = []
   for (const task of tasks) {

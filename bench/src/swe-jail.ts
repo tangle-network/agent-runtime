@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { ToolSpec } from '@tangle-network/agent-runtime/kernel'
-import { runBenchRouterTurn } from './router-turn'
+import { runBenchRouterTurn, withBenchProfile } from './router-turn'
 
 const exec = promisify(execFile)
 
@@ -30,6 +30,8 @@ export interface ZaiCfg {
    *  runs — past this instant, so a per-instance deadline reaches INTO the 429 ladder instead of
    *  letting a doomed retry sleep for another 240s after the instance was already written off. */
   deadlineAt?: number
+  /** Caller-owned retry ladder length. Default 7. */
+  maxAttempts?: number
 }
 
 export interface ZaiRaw {
@@ -64,6 +66,9 @@ export async function zaiChatRaw(
   if (typeof model !== 'string' || model.length === 0) {
     throw new Error('completion body.model must be a non-empty string')
   }
+  if (profile.model?.default !== model) {
+    throw new Error('completion body.model must equal AgentProfile.model.default')
+  }
   if (!Array.isArray(messages)) throw new Error('completion body.messages must be an array')
   const typedTools = Array.isArray(tools) ? (tools as ToolSpec[]) : []
   const typedToolChoice =
@@ -72,7 +77,11 @@ export async function zaiChatRaw(
       : undefined
   let lastErr = ''
   let delayBase = 2_000
-  for (let attempt = 1; attempt <= 7; attempt += 1) {
+  const maxAttempts = cfg.maxAttempts ?? 7
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error('ZaiCfg.maxAttempts must be a positive safe integer')
+  }
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     if (attempt > 1) {
       const delay = Math.min(delayBase * 2 ** (attempt - 2), 240_000)
       if (cfg.deadlineAt !== undefined && Date.now() + delay >= cfg.deadlineAt) {
@@ -92,12 +101,13 @@ export async function zaiChatRaw(
         {
           routerBaseUrl: cfg.base,
           routerKey: cfg.key,
-          profile,
-          ...(typeof temperature === 'number' ? { temperature } : {}),
-          ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
-          ...(typedToolChoice ? { toolChoice: typedToolChoice } : {}),
+          profile: withBenchProfile(profile, {
+            ...(typeof temperature === 'number' ? { temperature } : {}),
+            ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
+            ...(typedToolChoice ? { toolChoice: typedToolChoice } : {}),
+            extraBody,
+          }),
           tools: typedTools,
-          extraBody,
           signal: ctl.signal,
         },
         { messages: messages as Array<Record<string, unknown>> },

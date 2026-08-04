@@ -32,6 +32,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.content).toBe('pong')
     expect(res.usage).toEqual({ input: 7, output: 3 })
+    expect(res.transportAttempts).toBe(1)
     expect(complete).toHaveBeenCalledOnce()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -65,6 +66,7 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     )
     expect(res.toolCalls).toEqual([{ id: 'c1', name: 'increment', arguments: '{}' }])
     expect(res.usage).toEqual({ input: 5, output: 2 })
+    expect(res.transportAttempts).toBe(1)
     expect(complete).toHaveBeenCalledOnce()
     expect(fetchSpy).not.toHaveBeenCalled()
   })
@@ -85,8 +87,67 @@ describe('RouterConfig.complete — the injected completion transport', () => {
       [{ role: 'user', content: 'hi' }],
     )
     expect(res.content).toBe('live')
+    expect(res.transportAttempts).toBe(1)
     expect(fetchSpy).toHaveBeenCalledOnce()
   })
+
+  it('reports the exact transport count and honors a caller-owned retry total', async () => {
+    let calls = 0
+    const fetchSpy = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 503,
+          text: async (): Promise<string> => 'capacity',
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: 'recovered' } }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        }),
+        text: async (): Promise<string> => '',
+      }
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'deepseek-v4-flash',
+        maxAttempts: 2,
+      },
+      [{ role: 'user', content: 'recover' }],
+    )
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    expect(result.transportAttempts).toBe(2)
+    expect(result.content).toBe('recovered')
+  })
+
+  it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid maxAttempts %s before dispatch',
+    async (maxAttempts) => {
+      const fetchSpy = vi.fn()
+      vi.stubGlobal('fetch', fetchSpy)
+      await expect(
+        routerChatWithUsage(
+          {
+            routerBaseUrl: 'http://router.test/v1',
+            routerKey: 'k',
+            model: 'deepseek-v4-flash',
+            maxAttempts,
+          },
+          [{ role: 'user', content: 'do not dispatch' }],
+        ),
+      ).rejects.toThrow(/maxAttempts must be a positive safe integer/u)
+      expect(fetchSpy).not.toHaveBeenCalled()
+    },
+  )
 
   it('uses the caller ceiling when set and otherwise leaves the provider default unrestricted', async () => {
     const seen: Record<string, unknown>[] = []

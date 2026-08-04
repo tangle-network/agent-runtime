@@ -8,7 +8,12 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { appworldSolutionOutput, createAppWorldAdapter } from './appworld'
+import {
+  appworldReactResultWithUsage,
+  appworldReactUsageEvent,
+  appworldSolutionOutput,
+  createAppWorldAdapter,
+} from './appworld'
 
 type Events = Parameters<typeof appworldSolutionOutput.parse>[0]
 const stream = (text: string): Events => [{ data: { finalText: text } }] as unknown as Events
@@ -48,4 +53,31 @@ test('loadTasks either enumerates live engine rows or FAILS LOUD without fabrica
   } catch (err) {
     assert.match((err as Error).message, /appworld driver failed|appworld import failed/)
   }
+})
+
+test('successful react episode survives unknown catalog dollars without fabricating billed cost', () => {
+  const result = appworldReactResultWithUsage(
+    { success: true, passes: 3, fails: 0, num_tests: 3 },
+    {
+      input: 120,
+      output: 30,
+      tokensKnown: true,
+      costUsd: 0.0042,
+      usdKnown: false,
+    },
+    2,
+    'completed task',
+  )
+
+  assert.equal(result.success, true)
+  assert.equal(result.input_tokens, 120)
+  assert.equal(result.output_tokens, 30)
+  assert.equal(result.cost_usd, undefined)
+  const event = appworldReactUsageEvent(result, 'deepseek-v4-flash')
+  assert.deepEqual(event?.data, {
+    model: 'deepseek-v4-flash',
+    tokensIn: 120,
+    tokensOut: 30,
+  })
+  assert.equal(Object.hasOwn(event?.data ?? {}, 'costUsd'), false)
 })

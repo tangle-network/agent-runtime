@@ -22,8 +22,13 @@ import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchTask } from './benchmarks/types'
 import { type AttemptRecord, appendRunRecord, buildRunRecordFromAttempts } from './corpus'
 import { composeStrategies } from './directives'
-import type { RouterConfig } from '@tangle-network/agent-runtime/kernel'
-import { runBenchRouterTurn } from './router-turn'
+import {
+  benchProfileModel,
+  benchRouterProfile,
+  type BenchRouterTarget,
+  runBenchRouterTurn,
+  withBenchProfile,
+} from './router-turn'
 import { pool } from './stats.mts'
 
 function must(name: string): string {
@@ -53,7 +58,7 @@ interface AttemptOutcome {
 }
 
 async function runAttempt(
-  cfg: RouterConfig,
+  cfg: BenchRouterTarget,
   adapter: BenchmarkAdapter,
   task: BenchTask,
   prompt: string,
@@ -70,10 +75,7 @@ async function runAttempt(
         {
           routerBaseUrl: cfg.routerBaseUrl,
           routerKey: cfg.routerKey,
-          profile: {
-            name: 'aec-worker',
-            model: { provider: 'tangle-router', default: cfg.model },
-          },
+          profile: withBenchProfile(cfg.profile, { name: 'aec-worker' }),
         },
         prompt,
       )
@@ -128,7 +130,7 @@ interface ArmResult {
 
 async function runArm(
   arm: ArmSpec,
-  cfg: RouterConfig,
+  cfg: BenchRouterTarget,
   adapter: BenchmarkAdapter,
   tasks: BenchTask[],
   k: number,
@@ -157,7 +159,7 @@ async function runArm(
       benchmark: adapter.name,
       instanceId: task.id,
       condition: arm.condition,
-      model: cfg.model,
+      model: benchProfileModel(cfg.profile),
       // k-attempt outcome = any usable attempt resolved (the oracle@k ceiling for
       // this run; the deployable selector is scored separately by corpus-replay).
       resolved: taskOutcomes.some((o) => o.resolved),
@@ -188,7 +190,13 @@ async function main(): Promise<void> {
   if (!Number.isFinite(n) || n < 1) throw new Error(`N must be a positive integer, got ${process.env.N}`)
   if (!Number.isFinite(k) || k < 1) throw new Error(`K must be a positive integer, got ${process.env.K}`)
 
-  const cfg: RouterConfig = { routerBaseUrl, routerKey, model }
+  const cfg: BenchRouterTarget = {
+    routerBaseUrl,
+    routerKey,
+    profile: benchRouterProfile('aec-worker', model, {
+      maxRetries: Number(process.env.MAX_RETRIES ?? 2),
+    }),
+  }
   const bench = process.env.BENCH ?? 'aec-bench'
   const adapter = resolveAdapter(bench)
 

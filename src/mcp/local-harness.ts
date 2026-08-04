@@ -309,7 +309,7 @@ export function harnessInvocation(
   }
 
   if (options.codexReproducible) {
-    const model = concreteProfileModel(profile)
+    const model = harnessProfileModel(harness, profile)
     if (!model) {
       throw new Error('harnessInvocation: codexReproducible requires profile.model.default')
     }
@@ -336,7 +336,7 @@ export function harnessInvocation(
 
   const args = buildHarnessArgs(harness, composedPrompt, options)
 
-  const model = concreteProfileModel(profile)
+  const model = harnessProfileModel(harness, profile)
   if (model) {
     args.push(...invocation.modelArgs(model))
   }
@@ -347,6 +347,24 @@ export function harnessInvocation(
   }
 
   return { command: invocation.command, args, prompt: composedPrompt }
+}
+
+/** Render the exact profile provider/model through the selected native harness. */
+function harnessProfileModel(harness: LocalHarness, profile: AgentProfile): string | undefined {
+  const model = concreteProfileModel(profile)
+  if (!model) return undefined
+  const provider = profile.model?.provider?.trim()
+  if (!provider) return model
+  if (harness === 'opencode') {
+    return model.includes('/') ? model : `${provider}/${model}`
+  }
+  const nativeProvider = harness === 'codex' ? 'openai' : 'anthropic'
+  if (provider !== nativeProvider) {
+    throw new Error(
+      `harnessInvocation: ${harness} cannot materialize model provider ${JSON.stringify(provider)}; expected ${nativeProvider}`,
+    )
+  }
+  return model
 }
 
 /** @experimental */

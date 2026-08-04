@@ -27,7 +27,7 @@ import {
   officialOptimizerModel,
   requiredTokenPricing,
 } from './official-optimizer-config.mjs'
-import { runBenchRouterTurn } from './router-turn'
+import { runBenchRouterTurn, withBenchProfile } from './router-turn'
 
 // The SEED instruction GEPA evolves. Byte-identical to humaneval.ts basePrompt's
 // solveInstruction so the baseline arm reproduces the plain-prompt denominator.
@@ -51,9 +51,7 @@ async function complete(
     {
       routerBaseUrl: base,
       routerKey: key,
-      profile,
-      temperature: 0.2,
-      maxTokens,
+      profile: withBenchProfile(profile, { temperature: 0.2, maxTokens }),
     },
     prompt,
   )

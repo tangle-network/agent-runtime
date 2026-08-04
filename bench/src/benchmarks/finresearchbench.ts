@@ -187,10 +187,14 @@ async function runOfficialJudge(meta: FinResearchMeta, response: string): Promis
       routerKey: router.key,
       profile: {
         name: 'finresearchbench-judge',
-        model: { provider: 'tangle-router', default: router.model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: router.model,
+          metadata: { temperature: 0 },
+        },
         prompt: { systemPrompt: meta.judgeSystemPrompt },
       },
-      temperature: 0,
     },
     fillTemplate(meta, response),
   )

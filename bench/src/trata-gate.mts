@@ -68,11 +68,17 @@ async function workerComplete(
       routerKey: cfg.routerKey,
       profile: {
         name: 'trata-financial-analyst',
-        model: { provider: 'tangle-router', default: cfg.model },
+        harness: 'cli-base',
+        model: {
+          provider: 'tangle-router',
+          default: cfg.model,
+          metadata: {
+            temperature: 0,
+            maxTokens: Number(process.env.WORKER_MAX_TOKENS ?? 4096),
+          },
+        },
         prompt: { systemPrompt: ANALYST_SYSTEM },
       },
-      temperature: 0,
-      maxTokens: Number(process.env.WORKER_MAX_TOKENS ?? 4096),
       timeoutMs: cfg.timeoutMs,
     },
     task.prompt,

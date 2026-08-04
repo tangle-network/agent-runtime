@@ -156,7 +156,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
     const init = fetchMock.mock.calls[0]![1] as { body: string }
     const sent = JSON.parse(init.body)
     expect(sent.temperature).toBe(0.1)
-    expect(sent.tool_choice).toBe('auto')
+    expect(sent.tool_choice).toBeUndefined()
   })
 
   it('forwards the router usage + cost so the driver can meter its inference', async () => {
@@ -498,7 +498,7 @@ describe('routerBrain transport selection', () => {
     const sent = JSON.parse(fetchMock.mock.calls[0]![1].body)
     expect(sent.stream).toBe(true)
     expect(sent.temperature).toBe(0.4)
-    expect(sent.tool_choice).toBe('auto')
+    expect(sent.tool_choice).toBeUndefined()
     expect(result.content).toBe('ok')
     // Same numbers the buffered brain reports for the same usage — the conserved pool is unaffected
     // by the transport choice.

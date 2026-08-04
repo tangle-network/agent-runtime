@@ -18,12 +18,13 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createChatClient } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgenticTask,
   refine,
   runStrategyEvolution,
   sample,
+  strategyAuthorSystemPrompt,
 } from '@tangle-network/agent-runtime/kernel'
 import { counterEnv, counterTask } from '../strategy-suite/counter-env'
 
@@ -47,14 +48,6 @@ async function main(): Promise<void> {
   const routerBaseUrl = process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1'
   const authorModel = process.env.AUTHOR_MODEL ?? 'deepseek-v4-flash'
 
-  // The author writes candidate strategies; agent-eval's createChatClient is its model-call seam.
-  const authorChat = createChatClient({
-    transport: 'router',
-    baseUrl: routerBaseUrl,
-    apiKey: routerKey,
-    defaultModel: authorModel,
-  })
-
   const report = await runStrategyEvolution({
     environment: counterEnv,
     tasks,
@@ -64,10 +57,17 @@ async function main(): Promise<void> {
     worker: {
       routerBaseUrl,
       routerKey,
-      model: process.env.WORKER_MODEL ?? 'gpt-4o-mini',
-      innerTurns: 6,
+      workerProfile: routerProfile(
+        'strategy-worker',
+        process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
+        undefined,
+        6,
+      ),
     },
-    author: { chat: authorChat, model: authorModel },
+    author: {
+      profile: routerProfile('strategy-author', authorModel, strategyAuthorSystemPrompt),
+      executor: { backend: 'router', routerBaseUrl, routerKey },
+    },
     baselines: [sample, refine],
     budget: 3,
     generations: 2,
@@ -91,3 +91,21 @@ main().catch((err) => {
   console.error(err)
   process.exit(1)
 })
+
+function routerProfile(
+  name: string,
+  model: string,
+  systemPrompt?: string,
+  maxTurns?: number,
+): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      ...(maxTurns !== undefined ? { metadata: { maxTurns } } : {}),
+    },
+    ...(systemPrompt ? { prompt: { systemPrompt } } : {}),
+  }
+}

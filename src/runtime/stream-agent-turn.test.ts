@@ -15,7 +15,10 @@ import { collectAgentTurn, streamAgentTurn, streamObservedAgentTurn } from './st
 import { attestRuntimeOwnedExecutor } from './supervise/materialization'
 import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 
-const TEST_PROFILE = { name: 'stream-agent-turn-test' } as const
+const TEST_PROFILE = {
+  name: 'stream-agent-turn-test',
+  model: { default: 'offline-test-model' },
+} as const
 
 function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'final' } {
   const final = events.at(-1)
@@ -434,7 +437,7 @@ describe('streamAgentTurn: executor backend', () => {
           }
           return {
             outRef: 'stub-1',
-            out: { content: `echo: ${String(task)}` },
+            out: { content: `echo: ${String(task)}`, transportAttempts: 2 },
             spent: { iterations: 1, tokens: { input: 11, output: 6 }, usd: 0.005, ms: 1 },
           }
         },
@@ -451,7 +454,7 @@ describe('streamAgentTurn: executor backend', () => {
         {
           effectiveProfile: spec.profile,
           backend: 'inline-test',
-          model: { status: 'unknown', reason: 'offline test executor has no model' },
+          model: { status: 'known', id: 'offline-test-model' },
           execution: { kind: 'request', id: attemptId },
           materializer: 'offline-test-executor',
           plan: { kind: 'offline-test' },
@@ -477,8 +480,18 @@ describe('streamAgentTurn: executor backend', () => {
     )
     const turn = await collectAgentTurn(stream)
     expect(turn.finalText).toBe('echo: ping')
-    expect(turn.usage).toEqual({ input: 11, output: 6, costUsd: 0.005 })
+    expect(turn.usage).toEqual({
+      input: 11,
+      output: 6,
+      costUsd: 0.005,
+      model: 'offline-test-model',
+    })
     expect(turn.status).toBe('completed')
+    expect(turn.transportAttempts).toBe(2)
+    const final = turn.events.at(-1)
+    expect(final?.type).toBe('final')
+    if (final?.type !== 'final') throw new Error('expected final turn event')
+    expect(final.metadata).toMatchObject({ transportAttempts: 2 })
     // Incremental metering surfaces before the terminal event.
     expect(turn.events.map((e) => e.type)).toEqual([
       'backend_start',

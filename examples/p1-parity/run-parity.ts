@@ -121,7 +121,6 @@ function bridgeTransport(env: BridgeEnv): MultishotTransport {
       backend: 'router',
       routerBaseUrl: `${env.url.replace(/\/$/, '')}/v1`,
       routerKey: env.bearer,
-      model: req.model,
       tools,
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       ...(req.maxTokens !== undefined ? { maxTokens: req.maxTokens } : {}),

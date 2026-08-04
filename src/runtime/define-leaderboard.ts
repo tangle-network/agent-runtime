@@ -477,7 +477,6 @@ export function defineLeaderboard<TCase, TArtifact = string>(
           bridge: {
             url: process.env.CLI_BRIDGE_URL,
             bearer,
-            model: bareModel(models[0] ?? ''),
             timeoutMs: 900_000,
           },
         })

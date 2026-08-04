@@ -523,6 +523,7 @@ describe("driver inference metering — the driver's own tokens count against th
         toolCalls: [{ id: `call-${n}`, name: 'list_questions', arguments: '{}' }],
         usage: { input: 5, output: 5 },
         costUsd: 0.04,
+        costProvenance: 'provider-receipt',
       }
     }
     const opts: DriverAgentOptions = {

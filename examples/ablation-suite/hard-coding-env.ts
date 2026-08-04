@@ -457,7 +457,7 @@ export const hardCodingTasks = async (offset: number, n: number): Promise<Agenti
     const seed = offset + i
     return {
       id: `hce-${seed}`,
-      systemPrompt:
+      userPrompt:
         'You are a Python engineer. calc.py must implement a STACK/PRECEDENCE-based integer expression ' +
         'evaluator. Its EXACT dialect is defined ONLY by test_calc.py: the number base (decimal or 0x-hex), ' +
         'the integer-division operator glyph, the rounding rule for negative quotients (floor toward -inf vs ' +
@@ -465,8 +465,6 @@ export const hardCodingTasks = async (offset: number, n: number): Promise<Agenti
         'call run_tests to see what passed and which tests FAIL, and fix exactly those — iterate until all pass. ' +
         'Get precedence, associativity, unary minus, nested parens, division-by-zero, and malformed input right. ' +
         'Do not edit test_calc.py.',
-      userPrompt:
-        'Read test_calc.py, implement calc.py, then run_tests and fix the failing tests until every test passes.',
       meta: { seed },
     } satisfies AgenticTask
   })

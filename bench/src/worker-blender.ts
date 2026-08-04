@@ -183,10 +183,14 @@ export async function solveBlenderLocal(task: BenchTask, cfg: BlenderLocalConfig
           routerKey: cfg.routerKey,
           profile: {
             name: 'blender-worker',
-            model: { provider: 'tangle-router', default: cfg.model },
+            harness: 'cli-base',
+            model: {
+              provider: 'tangle-router',
+              default: cfg.model,
+              metadata: { temperature: 0.3 },
+            },
             prompt: { systemPrompt: directive },
           },
-          temperature: 0.3,
         },
         user,
       )

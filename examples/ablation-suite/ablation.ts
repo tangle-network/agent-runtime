@@ -17,6 +17,7 @@
  * contamination-proof task, THEN point `environment`/`tasks` at a real library or SWE-bench.
  */
 import { pairedBootstrap } from '@tangle-network/agent-eval'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   type AgenticSurface,
   type AgenticTask,
@@ -117,9 +118,7 @@ export async function runAblation(opts: {
   worker: {
     routerBaseUrl: string
     routerKey: string
-    model: string
-    maxTokens?: number
-    innerTurns?: number
+    profile: AgentProfile
   }
   /** The DRIVER brain's own router substrate (used by the `driverSteer`/`optimize` arms). Defaults to
    *  the worker's router + model. The supervisor's inference is separate compute from the worker's, so
@@ -127,7 +126,7 @@ export async function runAblation(opts: {
   supervisor?: {
     routerBaseUrl?: string
     routerKey?: string
-    model?: string
+    profile?: AgentProfile
     /** Reflection model for the GEPA optimize pass (defaults to the supervisor/worker model). */
     reflectionModel?: string
   }
@@ -147,8 +146,10 @@ export async function runAblation(opts: {
   const supervisorRouter = {
     baseUrl: opts.supervisor?.routerBaseUrl ?? opts.worker.routerBaseUrl,
     apiKey: opts.supervisor?.routerKey ?? opts.worker.routerKey,
-    model: opts.supervisor?.model ?? opts.worker.model,
+    profile: opts.supervisor?.profile ?? opts.worker.profile,
   }
+  const workerMaxTokens = profileNumber(opts.worker.profile, 'maxTokens')
+  const workerMaxTurns = profileNumber(opts.worker.profile, 'maxTurns')
   // Wrap the env ONCE so every arm's per-tool call counts are captured (reset per arm below). The GEPA
   // train pass deliberately uses the raw `opts.environment` so its disjoint-slice calls are NOT counted
   // into the held-out arm's tally.
@@ -210,33 +211,26 @@ export async function runAblation(opts: {
           // the FULL conserved spend (driver inference + all worker work: $, tokens, latency). `shots`
           // stays 0 — a multi-worker supervised run has no single refine-shot count (N/A, not a real zero).
           const sup = await superviseSurface(
-            { name: 'driver', prompt: { systemPrompt: driverPrompt } },
+            withSystemPrompt(supervisorRouter.profile, 'driver', driverPrompt),
             t,
             {
               surface: counter,
               worker: {
                 routerBaseUrl: opts.worker.routerBaseUrl,
                 routerKey: opts.worker.routerKey,
-                model: opts.worker.model,
-                ...(opts.worker.maxTokens !== undefined
-                  ? { maxTokens: opts.worker.maxTokens }
-                  : {}),
-                ...(opts.worker.innerTurns !== undefined
-                  ? { innerTurns: opts.worker.innerTurns }
-                  : {}),
+                profile: opts.worker.profile,
                 budget: arm.knobs.budget,
               },
               budget: {
-                // Pool for the driver's turns PLUS several worker spawns (each reserves ~innerTurns+2
+                // Pool for the driver's turns PLUS several worker spawns (each reserves ~maxTurns+2
                 // iterations) so the spawn-targeted-worker loop runs, not stall after one. The autopsy
                 // measures the real cost; this is intentionally not equal-k.
-                maxIterations: arm.knobs.budget * ((opts.worker.innerTurns ?? 6) + 2) + 16,
-                maxTokens: (opts.worker.maxTokens ?? 4000) * Math.max(4, arm.knobs.budget * 3),
+                maxIterations: arm.knobs.budget * ((workerMaxTurns ?? 6) + 2) + 16,
+                maxTokens: (workerMaxTokens ?? 4000) * Math.max(4, arm.knobs.budget * 3),
               },
               router: {
                 routerBaseUrl: supervisorRouter.baseUrl,
                 routerKey: supervisorRouter.apiKey,
-                model: supervisorRouter.model,
               },
               analysts: failuresAnalyst(),
             },
@@ -258,9 +252,7 @@ export async function runAblation(opts: {
             budget: arm.knobs.budget,
             routerBaseUrl: opts.worker.routerBaseUrl,
             routerKey: opts.worker.routerKey,
-            model: opts.worker.model,
-            ...(opts.worker.maxTokens !== undefined ? { maxTokens: opts.worker.maxTokens } : {}),
-            ...(opts.worker.innerTurns !== undefined ? { innerTurns: opts.worker.innerTurns } : {}),
+            workerProfile: opts.worker.profile,
           })
           if (r.resolved) resolved++
           scoreSum += r.score
@@ -366,19 +358,24 @@ export function printAutopsy(results: ArmResult[]): void {
 async function main(): Promise<void> {
   const routerKey = process.env.TANGLE_API_KEY
   if (!routerKey) throw new Error('TANGLE_API_KEY required')
+  const workerModel = process.env.WORKER_MODEL ?? 'deepseek-v4-flash'
   const worker = {
     routerBaseUrl: process.env.ROUTER_BASE ?? 'https://router.tangle.tools/v1',
     routerKey,
-    model: process.env.WORKER_MODEL ?? 'deepseek-v4-flash',
-    maxTokens: 4000,
-    innerTurns: Number(process.env.INNER_TURNS ?? 6),
+    profile: routerProfile(
+      'worker',
+      workerModel,
+      Number(process.env.MAX_TOKENS ?? 4000),
+      Number(process.env.MAX_TURNS ?? 6),
+    ),
   }
+  const supervisorModel = process.env.SUPERVISOR_MODEL ?? workerModel
   const supervisor = {
-    model: process.env.SUPERVISOR_MODEL ?? worker.model,
+    profile: routerProfile('driver', supervisorModel),
     reflectionModel: process.env.REFLECTION_MODEL ?? 'gemini-2.5-pro',
   }
   console.log(
-    `═══ ABLATION (cheap contamination-proof task) — worker=${worker.model} driver=${supervisor.model} ═══`,
+    `═══ ABLATION (cheap contamination-proof task) — worker=${workerModel} driver=${supervisorModel} ═══`,
   )
   const results = await runAblation({
     environment: codingEnv,
@@ -402,6 +399,39 @@ async function main(): Promise<void> {
       ),
   })
   printAutopsy(results)
+}
+
+function routerProfile(
+  name: string,
+  model: string,
+  maxTokens?: number,
+  maxTurns?: number,
+): AgentProfile {
+  return {
+    name,
+    harness: 'cli-base',
+    model: {
+      provider: 'tangle-router',
+      default: model,
+      ...(maxTokens !== undefined || maxTurns !== undefined
+        ? {
+            metadata: {
+              ...(maxTokens !== undefined ? { maxTokens } : {}),
+              ...(maxTurns !== undefined ? { maxTurns } : {}),
+            },
+          }
+        : {}),
+    },
+  }
+}
+
+function withSystemPrompt(profile: AgentProfile, name: string, systemPrompt: string): AgentProfile {
+  return { ...profile, name, prompt: { ...profile.prompt, systemPrompt } }
+}
+
+function profileNumber(profile: AgentProfile, key: 'maxTokens' | 'maxTurns'): number | undefined {
+  const value = profile.model?.metadata?.[key]
+  return typeof value === 'number' ? value : undefined
 }
 
 if (import.meta.url === `file://${process.argv[1]}`)

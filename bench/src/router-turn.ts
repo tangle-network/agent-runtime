@@ -1,4 +1,8 @@
-import type { AgentProfile, ReasoningEffort } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  agentProfileSchema,
+  type ReasoningEffort,
+} from '@tangle-network/agent-interface'
 import {
   collectAgentTurn,
   createExecutor,
@@ -7,19 +11,85 @@ import {
   type ToolSpec,
 } from '@tangle-network/agent-runtime/kernel'
 
-export interface BenchRouterTurnConfig {
+/** Bench-local target shorthand; Runtime still executes only the exact profile below. */
+export interface BenchRouterTarget {
   routerBaseUrl: string
   routerKey: string
   profile: AgentProfile
+}
+
+export interface BenchRouterTurnConfig extends BenchRouterTarget {
+  tools?: ReadonlyArray<ToolSpec>
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+export interface BenchProfileSettings {
+  systemPrompt?: string
   temperature?: number
   maxTokens?: number
+  maxRetries?: number
+  maxTurns?: number
   seed?: number
   reasoningEffort?: ReasoningEffort
   extraBody?: Readonly<Record<string, unknown>>
-  tools?: ReadonlyArray<ToolSpec>
   toolChoice?: 'auto' | 'required' | 'none'
-  timeoutMs?: number
-  signal?: AbortSignal
+}
+
+/** Author an exact direct-Router profile for a benchmark. This is profile construction only;
+ * execution still accepts no model or generation fields outside the returned AgentProfile. */
+export function benchRouterProfile(
+  name: string,
+  model: string,
+  settings: BenchProfileSettings = {},
+): AgentProfile {
+  return withBenchProfile(
+    {
+      name,
+      harness: 'cli-base',
+      model: { provider: 'tangle-router', default: model },
+    },
+    settings,
+  )
+}
+
+/** Derive another exact profile while preserving all untouched canonical axes. */
+export function withBenchProfile(
+  base: AgentProfile,
+  settings: BenchProfileSettings & { name?: string },
+): AgentProfile {
+  const metadata = {
+    ...(base.model?.metadata ?? {}),
+    ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
+    ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
+    ...(settings.maxRetries !== undefined ? { maxRetries: settings.maxRetries } : {}),
+    ...(settings.maxTurns !== undefined ? { maxTurns: settings.maxTurns } : {}),
+    ...(settings.seed !== undefined ? { seed: settings.seed } : {}),
+    ...(settings.extraBody !== undefined ? { extraBody: settings.extraBody } : {}),
+    ...(settings.toolChoice !== undefined ? { toolChoice: settings.toolChoice } : {}),
+  }
+  return agentProfileSchema.parse({
+    ...base,
+    ...(settings.name ? { name: settings.name } : {}),
+    model: {
+      ...base.model,
+      ...(settings.reasoningEffort !== undefined
+        ? { reasoningEffort: settings.reasoningEffort }
+        : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    },
+    ...(settings.systemPrompt !== undefined
+      ? { prompt: { ...base.prompt, systemPrompt: settings.systemPrompt } }
+      : {}),
+  })
+}
+
+export function benchProfileModel(profile: AgentProfile): string {
+  const model = profile.model?.default
+  if (typeof model !== 'string' || model.length === 0 || model === 'runtime-selected') {
+    throw new Error('benchmark AgentProfile.model.default must be concrete')
+  }
+  return model
 }
 
 /**
@@ -39,13 +109,7 @@ export async function runBenchRouterTurn(
     backend: 'router',
     routerBaseUrl: config.routerBaseUrl,
     routerKey: config.routerKey,
-    ...(config.temperature !== undefined ? { temperature: config.temperature } : {}),
-    ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
-    ...(config.seed !== undefined ? { seed: config.seed } : {}),
-    ...(config.reasoningEffort ? { reasoningEffort: config.reasoningEffort } : {}),
-    ...(config.extraBody ? { extraBody: config.extraBody } : {}),
     ...(config.tools ? { tools: config.tools } : {}),
-    ...(config.toolChoice ? { toolChoice: config.toolChoice } : {}),
   })
   const turn = await collectAgentTurn(
     streamAgentTurn(
