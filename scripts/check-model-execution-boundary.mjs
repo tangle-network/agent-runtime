@@ -83,17 +83,13 @@ const lowLevelModelCallOwners = new Map([
   ['runLocalHarness', new Set(['src/mcp/worktree-harness.ts'])],
 ])
 
-// The Router adapter owns exactly three fetch sites. The function name and count are both checked:
+// The Router adapter owns exactly one fetch site. The function name and count are both checked:
 // adding another raw provider request anywhere in the file fails this check instead of inheriting a
 // whole-file exemption.
 const ownedModelFetchAllowances = new Map([
   [
     'src/runtime/router-client.ts',
-    new Map([
-      ['routerChatWithUsage', 1],
-      ['routerChatWithTools', 1],
-      ['streamRouterChatWithTools', 1],
-    ]),
+    new Map([['fetchRouterResponse', 1]]),
   ],
 ])
 

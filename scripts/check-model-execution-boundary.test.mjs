@@ -221,12 +221,19 @@ const generator = {
     ])
 
     const routerOwner = `
-      export async function routerChatWithUsage() {
+      async function fetchRouterResponse() {
         await fetch(url)
         await fetch(url)
       }
     `
     expect(checkJavaScript('src/runtime/router-client.ts', routerOwner)).toHaveLength(1)
+
+    expect(
+      checkJavaScript(
+        'src/runtime/router-client.ts',
+        `export async function routerChatWithUsage() { await fetch(url) }`,
+      ),
+    ).toHaveLength(1)
   })
 
   it('ignores comments, inert strings, and ordinary HTTP', () => {
