@@ -10,8 +10,8 @@ catalogs:
       specifier: 0.18.5
       version: 0.18.5
     '@tangle-network/agent-core':
-      specifier: 0.4.34
-      version: 0.4.34
+      specifier: 0.4.35
+      version: 0.4.35
     '@tangle-network/agent-eval':
       specifier: 0.144.3
       version: 0.144.3
@@ -52,7 +52,7 @@ importers:
     dependencies:
       '@tangle-network/agent-core':
         specifier: 'catalog:'
-        version: 0.4.34
+        version: 0.4.35
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
         version: 7.0.10
@@ -1111,8 +1111,8 @@ packages:
   '@tangle-network/agent-core@0.4.33':
     resolution: {integrity: sha512-if3DeIo4e2c9wELJjrWOu4SsKv3WnWdDrp+kezP6JrpiQ1DXValRRlN/aTppicFHepw67OD5JQI9i351Z/hvDQ==}
 
-  '@tangle-network/agent-core@0.4.34':
-    resolution: {integrity: sha512-OH+d9kx9yN7lOVPCKRt0VXYVO0RhQgRsqdAAG++iIAM9Ti6g7qnG1flEw1zah1LgntYR+uiGOae62MxwWLGR3w==}
+  '@tangle-network/agent-core@0.4.35':
+    resolution: {integrity: sha512-qLPdWUO7wCPQ86m+DE3jjk1hV0WGbmO/DkSfNcxZ0Shxx7vsNIgp8vasOsDOwfZzHlugZb9PemL0JZ5ulc8R4g==}
 
   '@tangle-network/agent-eval@0.144.3':
     resolution: {integrity: sha512-gkyeie5CCzUuEzTfuQKe6iikSsu0S9h6w8yRtfnvjDZopkJJ7Nn+VDzkWZrsLDQ31LtLaHqJ7I2FgYbPNvjW0Q==}
@@ -2789,7 +2789,7 @@ snapshots:
       '@tangle-network/agent-interface': 0.43.0
       zod: 4.4.3
 
-  '@tangle-network/agent-core@0.4.34':
+  '@tangle-network/agent-core@0.4.35':
     dependencies:
       '@tangle-network/agent-interface': 0.43.0
       zod: 4.4.3
