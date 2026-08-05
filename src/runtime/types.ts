@@ -9,7 +9,7 @@
  * emission; the driver owns topology (plan + decide); the validator owns
  * output scoring; the output adapter owns event-stream → typed-output decode.
  *
- * @experimental
+ * @stable
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
@@ -25,7 +25,7 @@ import type { RuntimeRunHandle } from '../runtime-run'
 // concerns (ValidationCtx with iteration + signal + traceEmitter).
 export type { DefaultVerdict }
 
-/** @experimental */
+/** @stable */
 export interface ValidationCtx {
   /** Iteration index this output came from (0-based). */
   iteration: number
@@ -45,7 +45,7 @@ export interface ValidationCtx {
   traceEmitter?: LoopTraceEmitter
 }
 
-/** @experimental */
+/** @stable */
 export interface Validator<Output, Verdict = DefaultVerdict> {
   validate(output: Output, ctx: ValidationCtx): Promise<Verdict>
 }
@@ -59,7 +59,7 @@ export interface Validator<Output, Verdict = DefaultVerdict> {
  * fanout supplies multiple `AgentRunSpec`s and the kernel round-robins
  * through them when the driver plans N tasks.
  *
- * @experimental
+ * @stable
  */
 export interface AgentRunSpec<Task> {
   /** Sandbox SDK profile — what kind of agent runs the task. */
@@ -105,7 +105,7 @@ export interface AgentRunSpec<Task> {
  * do not receive the live AsyncIterable so they can be replayed against
  * persisted streams during tests / replays.
  *
- * @experimental
+ * @stable
  */
 export interface OutputAdapter<Output> {
   parse(events: SandboxEvent[]): Output
@@ -129,7 +129,7 @@ export interface LoopTokenUsage {
  * its content fingerprint, its size, and where it came from — so a run is
  * auditable after the fact ("what exactly was this agent given?").
  *
- * @experimental
+ * @stable
  */
 export interface MountManifestEntry {
   /** Destination path inside the box where the resource was placed. */
@@ -151,7 +151,7 @@ export interface MountManifestEntry {
  * human-readable reason, with no domain semantics. The kernel emits one receipt
  * per scored candidate at finalize so a run answers "why did THIS one win?".
  *
- * @experimental
+ * @stable
  */
 export interface SelectionReceipt {
   /** Iteration index this receipt is about. */
@@ -175,7 +175,7 @@ export interface SelectionReceipt {
  * it. Empty arrays when the caller recorded no mounts and there was no
  * candidate to select.
  *
- * @experimental
+ * @stable
  */
 export interface RunProvenance {
   /** Every resource recorded via `prepareBox`'s `recordMount`, in record order. */
@@ -189,11 +189,11 @@ export interface RunProvenance {
  * `prepareBox` so the caller — which owns the bytes it writes into the box —
  * declares what it mounted without the kernel having to inspect box contents.
  *
- * @experimental
+ * @stable
  */
 export type MountRecorder = (entry: MountManifestEntry) => void
 
-/** @experimental */
+/** @stable */
 export interface Iteration<Task, Output> {
   /** 0-based iteration index assigned by the kernel. */
   index: number
@@ -218,7 +218,7 @@ export interface Iteration<Task, Output> {
   tokenUsage: LoopTokenUsage
 }
 
-/** @experimental */
+/** @stable */
 export interface Driver<Task, Output, Decision> {
   /**
    * Stable identifier surfaced in trace events. Default `'driver'`.
@@ -260,7 +260,7 @@ export interface Driver<Task, Output, Decision> {
   ): LoopWinner<Task, Output> | undefined
 }
 
-/** @experimental Driver-supplied description of the just-planned move. */
+/** @stable Driver-supplied description of the just-planned move. */
 export interface LoopPlanDescription {
   /** Topology move this round — e.g. `'refine' | 'fanout' | 'verify' | 'stop'`. */
   kind: string
@@ -275,7 +275,7 @@ export interface LoopPlanDescription {
   parentIndex?: number
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopWinner<Task, Output> {
   task: Task
   output: Output
@@ -284,7 +284,7 @@ export interface LoopWinner<Task, Output> {
   agentRunName: string
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopResult<Task, Output, Decision> {
   decision: Decision
   iterations: Iteration<Task, Output>[]
@@ -318,7 +318,7 @@ export interface LoopResult<Task, Output, Decision> {
  * Fleet-aware adapters set this; the raw `Sandbox` SDK class does not, and
  * the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
  *
- * @experimental
+ * @stable
  */
 export interface SandboxClient {
   create(options?: CreateSandboxOptions): Promise<SandboxInstance>
@@ -402,7 +402,7 @@ export interface LoopLineageOptions {
   streaming?: 'sse' | 'poll'
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopSandboxPlacement {
   kind: 'sibling' | 'fleet'
   sandboxId?: string
@@ -410,12 +410,12 @@ export interface LoopSandboxPlacement {
   machineId?: string
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopTraceEmitter {
   emit(event: LoopTraceEvent): void | Promise<void>
 }
 
-/** @experimental */
+/** @stable */
 export type LoopTraceEvent =
   | { kind: 'loop.started'; runId: string; timestamp: number; payload: LoopStartedPayload }
   | { kind: 'loop.plan'; runId: string; timestamp: number; payload: LoopPlanPayload }
@@ -446,7 +446,7 @@ export type LoopTraceEvent =
       payload: LoopTeardownFailedPayload
     }
 
-/** @experimental */
+/** @stable */
 export interface LoopStartedPayload {
   driver: string
   agentRunNames: string[]
@@ -460,7 +460,7 @@ export interface LoopStartedPayload {
  * the inferred fan-width. `moveKind` is the driver's `describePlan().kind` when
  * provided, else inferred from `plannedCount` (0→stop, 1→refine, N→fanout).
  *
- * @experimental
+ * @stable
  */
 export interface LoopPlanPayload {
   /** 0-based plan round (one per `plan()` call). */
@@ -481,7 +481,7 @@ export interface LoopPlanPayload {
   childIndices: number[]
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopIterationStartedPayload {
   iterationIndex: number
   agentRunName: string
@@ -498,7 +498,7 @@ export interface LoopIterationStartedPayload {
  * a shared-workspace fleet — workers see the caller's filesystem and any diff
  * they write lands on it directly.
  *
- * @experimental
+ * @stable
  */
 export interface LoopIterationDispatchPayload {
   iterationIndex: number
@@ -516,7 +516,7 @@ export interface LoopIterationDispatchPayload {
   parentIndex?: number
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopIterationEndedPayload {
   iterationIndex: number
   agentRunName: string
@@ -539,13 +539,13 @@ export interface LoopIterationEndedPayload {
   outputPreview?: string
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopDecisionPayload {
   decision: string
   historyLength: number
 }
 
-/** @experimental */
+/** @stable */
 export interface LoopEndedPayload {
   winnerIterationIndex?: number
   totalCostUsd: number
@@ -557,7 +557,7 @@ export interface LoopEndedPayload {
 
 /** Emitted when a box's `delete()` throws or times out during teardown — the
  *  loop swallows the failure (platform reaps on expiry) but surfaces it here so
- *  a real leak (e.g. mid-loop auth expiry) is observable. @experimental */
+ *  a real leak (e.g. mid-loop auth expiry) is observable. @stable */
 export interface LoopTeardownFailedPayload {
   sandboxId?: string
   /** `'timeout'` or the delete error message. */
@@ -567,7 +567,7 @@ export interface LoopTeardownFailedPayload {
 /**
  * Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
  *
- * @experimental
+ * @stable
  */
 export interface ExecCtx {
   /** Sandbox SDK client — the kernel calls `.create()` per iteration. */

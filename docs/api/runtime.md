@@ -6,9 +6,18 @@
 
 # runtime
 
+Driven-loop substrate. `runAgentRounds` orchestrates around the sandbox SDK; it
+does not invent its own notion of "what an agent is". Each iteration is
+a `sandboxClient.create({ backend: { profile } })` + `box.streamPrompt`
+call. The driver owns topology; the validator owns scoring; the output
+adapter owns event-stream decode; the kernel owns iteration accounting,
+concurrency, abort, cost aggregation, and trace emission.
+
 ## Classes
 
 ### InMemoryResultBlobStore
+
+**`Stable`**
 
 In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied
 `outRef` matches the artifact's hash so a stale/forged ref fails loud rather than
@@ -73,6 +82,8 @@ silently rehydrating the wrong payload. Idempotent on an identical re-put.
 ***
 
 ### FileResultBlobStore
+
+**`Stable`**
 
 FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a
 filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`).
@@ -143,6 +154,8 @@ filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`
 ***
 
 ### InMemorySpawnJournal
+
+**`Stable`**
 
 In-memory `SpawnJournal`. Appends are observed-committed only; the impl enforces
 the corruption guards a durable replay rests on:
@@ -231,6 +244,8 @@ the corruption guards a durable replay rests on:
 ***
 
 ### FileSpawnJournal
+
+**`Stable`**
 
 JSONL on disk. One line per record: the first record is `begin`, subsequent records
 are `event` envelopes wrapping a `SpawnEvent`. `loadTree` replays the whole file,
@@ -6076,7 +6091,7 @@ The headline when both `refine` and `sample` ran: paired-bootstrap lift of refin
 
 ### RunAgentRoundsOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -6098,13 +6113,9 @@ The headline when both `refine` and `sample` ran: paired-bootstrap lift of refin
 
 > **driver**: [`Driver`](index.md#driver)\<`Task`, `Output`, `Decision`\>
 
-**`Experimental`**
-
 ##### agentRun?
 
 > `optional` **agentRun?**: [`AgentRunSpec`](#agentrunspec)\<`Task`\>
-
-**`Experimental`**
 
 Single agent spec — every iteration uses this profile. Mutually
 exclusive with `agentRuns`.
@@ -6112,8 +6123,6 @@ exclusive with `agentRuns`.
 ##### agentRuns?
 
 > `optional` **agentRuns?**: [`AgentRunSpec`](#agentrunspec)\<`Task`\>[]
-
-**`Experimental`**
 
 Multiple specs for heterogeneous fanout. The kernel round-robins
 through them when the driver plans N tasks. Mutually exclusive with
@@ -6123,31 +6132,21 @@ through them when the driver plans N tasks. Mutually exclusive with
 
 > **output**: [`OutputAdapter`](#outputadapter)\<`Output`\>
 
-**`Experimental`**
-
 ##### validator?
 
 > `optional` **validator?**: [`Validator`](#validator-1)\<`Output`, `DefaultVerdict`\>
-
-**`Experimental`**
 
 ##### task
 
 > **task**: `Task`
 
-**`Experimental`**
-
 ##### ctx
 
 > **ctx**: [`ExecCtx`](#execctx)
 
-**`Experimental`**
-
 ##### maxIterations?
 
 > `optional` **maxIterations?**: `number`
-
-**`Experimental`**
 
 Default 10. Hard cap on total iterations across all `plan()` rounds.
 
@@ -6155,15 +6154,11 @@ Default 10. Hard cap on total iterations across all `plan()` rounds.
 
 > `optional` **maxConcurrency?**: `number`
 
-**`Experimental`**
-
 Default 4. In-flight worker cap within a single `plan()` batch.
 
 ##### runId?
 
 > `optional` **runId?**: `string`
-
-**`Experimental`**
 
 Pre-allocated id for trace correlation. Default = `loop-${random}`.
 Surfaces as `runId` on every emitted `LoopTraceEvent`.
@@ -6171,8 +6166,6 @@ Surfaces as `runId` on every emitted `LoopTraceEvent`.
 ##### now?
 
 > `optional` **now?**: () => `number`
-
-**`Experimental`**
 
 Clock override; default `Date.now`. Deterministic tests pass a
 monotonic counter to stabilize iteration timing fields.
@@ -6184,8 +6177,6 @@ monotonic counter to stabilize iteration timing fields.
 ##### selectWinner?
 
 > `optional` **selectWinner?**: (`iterations`) => [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
-
-**`Experimental`**
 
 Override the default winner selector (highest-valid-score, ties broken
 by earliest iteration).
@@ -6203,8 +6194,6 @@ by earliest iteration).
 ##### onWorkerBox?
 
 > `optional` **onWorkerBox?**: (`box`) => `void`
-
-**`Experimental`**
 
 Same-sandbox driver mode — a kernel→caller out-channel, not a value handed
 in. When set, the kernel keeps each finished worker box alive across the
@@ -8567,7 +8556,7 @@ budget: refine→max shots; sample→rollout width.
 
 ### StreamAgentTurnOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -8575,15 +8564,11 @@ budget: refine→max shots; sample→rollout width.
 
 > `optional` **signal?**: `AbortSignal`
 
-**`Experimental`**
-
 Caller-initiated cancellation. Terminates the stream with `final.status: 'aborted'`.
 
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
-
-**`Experimental`**
 
 Wall-clock deadline for the whole turn in ms. An expired deadline aborts
 the backend and terminates the stream with `final.status: 'failed'`
@@ -8593,23 +8578,17 @@ the backend and terminates the stream with `final.status: 'failed'`
 
 > `optional` **callId?**: `string`
 
-**`Experimental`**
-
 Stable logical paid-call id, forwarded as the provider idempotency key and retained in evidence.
 
 ##### correlationId?
 
 > `optional` **correlationId?**: `string`
 
-**`Experimental`**
-
 Caller trace tag retained in evidence and forwarded when the transport supports it.
 
 ##### preserveToolParts?
 
 > `optional` **preserveToolParts?**: `boolean`
-
-**`Experimental`**
 
 Opt-in tool-part projection for box and executor backends: sandbox tool
 parts additionally surface in-stream as
@@ -8622,8 +8601,6 @@ tool events included when the backend produces them).
 ##### onRawEvent?
 
 > `optional` **onRawEvent?**: (`event`) => `void` \| `Promise`\<`void`\>
-
-**`Experimental`**
 
 Raw-event tap for box-kind backends: called (and awaited) with every
 unmapped `SandboxEvent` BEFORE it is projected, so a consumer can read
@@ -8646,7 +8623,7 @@ has no sandbox events.
 
 ### AgentTurnUsage
 
-**`Experimental`**
+**`Stable`**
 
 Metered usage of one turn, summed over every cost-bearing event the backend
 emitted. `input`/`output` are token counts and are accompanied by
@@ -8659,19 +8636,13 @@ are present only when the backend actually reported them.
 
 > **input**: `number`
 
-**`Experimental`**
-
 ##### output
 
 > **output**: `number`
 
-**`Experimental`**
-
 ##### tokensKnown?
 
 > `optional` **tokensKnown?**: `false`
-
-**`Experimental`**
 
 Present when a real turn ran but the provider did not report token usage.
 
@@ -8679,13 +8650,9 @@ Present when a real turn ran but the provider did not report token usage.
 
 > `optional` **costUsd?**: `number`
 
-**`Experimental`**
-
 ##### usdKnown?
 
 > `optional` **usdKnown?**: `false`
-
-**`Experimental`**
 
 Present when Runtime could not prove the full dollar amount.
 
@@ -8693,15 +8660,11 @@ Present when Runtime could not prove the full dollar amount.
 
 > `optional` **estimatedCostUsd?**: `number`
 
-**`Experimental`**
-
 Separately-labelled local/catalog estimate; never billed spend.
 
 ##### promptCache?
 
 > `optional` **promptCache?**: `Readonly`\<`Record`\<`string`, `string` \| `number`\>\>
-
-**`Experimental`**
 
 Provider-reported prompt-cache fields; absent fields remain unknown.
 
@@ -8709,21 +8672,17 @@ Provider-reported prompt-cache fields; absent fields remain unknown.
 
 > `optional` **reasoningTokens?**: `number`
 
-**`Experimental`**
-
 Provider-reported reasoning-token subset of output, when available.
 
 ##### model?
 
 > `optional` **model?**: `string`
 
-**`Experimental`**
-
 ***
 
 ### CollectedAgentTurn
 
-**`Experimental`**
+**`Stable`**
 
 A drained turn: the terminal summary plus every event the stream yielded.
 `status`/`error` mirror the terminal `final` event so a failed or aborted
@@ -8735,13 +8694,9 @@ turn stays inspectable without re-scanning `events`.
 
 > **finalText**: `string`
 
-**`Experimental`**
-
 ##### output?
 
 > `optional` **output?**: `unknown`
-
-**`Experimental`**
 
 Exact terminal artifact output from a Runtime-owned executor.
 
@@ -8749,21 +8704,15 @@ Exact terminal artifact output from a Runtime-owned executor.
 
 > **usage**: [`AgentTurnUsage`](#agentturnusage)
 
-**`Experimental`**
-
 ##### transportAttempts?
 
 > `optional` **transportAttempts?**: `number`
-
-**`Experimental`**
 
 Exact underlying transport calls when the Runtime-owned executor reports them.
 
 ##### toolCalls
 
 > **toolCalls**: `object`[]
-
-**`Experimental`**
 
 ###### id?
 
@@ -8781,19 +8730,13 @@ Exact underlying transport calls when the Runtime-owned executor reports them.
 
 > **events**: [`RuntimeStreamEvent`](index.md#runtimestreamevent)[]
 
-**`Experimental`**
-
 ##### status
 
 > **status**: [`AgentTaskStatus`](index.md#agenttaskstatus)
 
-**`Experimental`**
-
 ##### error?
 
 > `optional` **error?**: [`BackendErrorDetail`](index.md#backenderrordetail)
-
-**`Experimental`**
 
 ***
 
@@ -10379,6 +10322,12 @@ Count published per event `type`.
 
 ### EventBus
 
+**`Experimental`**
+
+The child→parent coordination bus surface: publish, priority-ordered pull, pass-through subscribe, history, and stats.
+ In-process only — the durable cross-process mailbox this interface is designed
+to admit is not implemented (docs/agent-managed-compute/README.md).
+
 #### Type Parameters
 
 ##### E
@@ -10390,6 +10339,8 @@ Count published per event `type`.
 ##### publish()
 
 > **publish**(`event`, `opts?`): `Promise`\<[`BusRecord`](#busrecord)\<`E`\>\>
+
+**`Experimental`**
 
 Stamp the event, await every subscriber in order, then make it pull-visible. A subscriber
  failure leaves the event invisible and retrying the SAME event object reuses the exact stamp.
@@ -10413,6 +10364,8 @@ Stamp the event, await every subscriber in order, then make it pull-visible. A s
 
 > **pull**(`kinds?`): `E` \| `undefined`
 
+**`Experimental`**
+
 Remove and return the highest-priority QUEUED event whose type is in `kinds` (any if omitted),
  ties broken FIFO by `seq`; `undefined` when nothing matches.
 
@@ -10429,6 +10382,8 @@ readonly `E`\[`"type"`\][]
 ##### subscribe()
 
 > **subscribe**(`handler`): () => `void`
+
+**`Experimental`**
 
 Register a pass-through handler; it receives the stamped record of every event published after
  registration. Returns an unsubscribe fn.
@@ -10447,6 +10402,8 @@ Register a pass-through handler; it receives the stamped record of every event p
 
 > **pending**(`kinds?`): `number`
 
+**`Experimental`**
+
 Count of queued, not-yet-pulled events (filtered by `kinds` when given).
 
 ###### Parameters
@@ -10463,6 +10420,8 @@ readonly `E`\[`"type"`\][]
 
 > **history**(): readonly [`BusRecord`](#busrecord)\<`E`\>[]
 
+**`Experimental`**
+
 The full ordered log of every event published in this process (audit evidence, not replay).
 
 ###### Returns
@@ -10472,6 +10431,8 @@ readonly [`BusRecord`](#busrecord)\<`E`\>[]
 ##### stats()
 
 > **stats**(): [`BusStats`](#busstats)
+
+**`Experimental`**
 
 Throughput counters for observability dashboards.
 
@@ -15116,6 +15077,8 @@ trips the supervisor to `no-winner` rather than restarting forever.
 
 > `readonly` `optional` **resume?**: `boolean`
 
+**`Experimental`**
+
 Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
 one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
 (`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
@@ -15124,6 +15087,9 @@ stores there is never a prior tree, so it is a no-op.
 
 Default `false` — a run always begins a fresh tree, which is the behavior every existing
 consumer has. Resume is a durability contract the caller opts into, never a silent default.
+
+ Rehydrates committed settlements only; live supervised-tree recovery after a
+coordinator restart is not implemented (docs/agent-managed-compute/README.md).
 
 ##### now?
 
@@ -16181,7 +16147,7 @@ Notified each time a compaction fires — for observability/metering.
 
 ### ValidationCtx
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -16189,15 +16155,11 @@ Notified each time a compaction fires — for observability/metering.
 
 > **iteration**: `number`
 
-**`Experimental`**
-
 Iteration index this output came from (0-based).
 
 ##### box?
 
 > `optional` **box?**: `SandboxInstance`
-
-**`Experimental`**
 
 Live sandbox for this iteration. Validators that need execution-grounded
 evidence can inspect files or run commands here instead of forcing callers
@@ -16207,15 +16169,11 @@ to bypass the loop kernel with raw Sandbox SDK orchestration.
 
 > **signal**: `AbortSignal`
 
-**`Experimental`**
-
 Cooperative cancellation channel.
 
 ##### traceEmitter?
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](#looptraceemitter)
-
-**`Experimental`**
 
 Optional trace emitter. When set, validator implementations that make
 LLM calls (e.g. an LLM-judge reviewer) emit spans into it.
@@ -16225,7 +16183,7 @@ The kernel passes `ctx.traceEmitter` from `ExecCtx` when available.
 
 ### Validator
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -16242,8 +16200,6 @@ The kernel passes `ctx.traceEmitter` from `ExecCtx` when available.
 ##### validate()
 
 > **validate**(`output`, `ctx`): `Promise`\<`Verdict`\>
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -16263,7 +16219,7 @@ The kernel passes `ctx.traceEmitter` from `ExecCtx` when available.
 
 ### AgentRunSpec
 
-**`Experimental`**
+**`Stable`**
 
 Sandbox-SDK-shaped agent specification.
 
@@ -16285,15 +16241,11 @@ through them when the driver plans N tasks.
 
 > **profile**: `AgentProfile`
 
-**`Experimental`**
-
 Sandbox SDK profile — what kind of agent runs the task.
 
 ##### taskToPrompt
 
 > **taskToPrompt**: (`task`) => `string`
-
-**`Experimental`**
 
 Task → prompt formatter. Pure and deterministic.
 
@@ -16310,8 +16262,6 @@ Task → prompt formatter. Pure and deterministic.
 ##### prepareBox?
 
 > `optional` **prepareBox?**: (`box`, `ctx`) => `void` \| `Promise`\<`void`\>
-
-**`Experimental`**
 
 Optional pre-prompt sandbox provisioner. Runs after the sandbox is acquired
 and before the first prompt is streamed into that box. Use this for
@@ -16349,16 +16299,12 @@ meaning to the entries; not calling it simply leaves the manifest empty.
 
 > `optional` **name?**: `string`
 
-**`Experimental`**
-
 Per-spec stable name. Surfaced in trace events and the default winner
 selector tiebreak. Falls back to `profile.name ?? 'agent'`.
 
 ##### sandboxOverrides?
 
 > `optional` **sandboxOverrides?**: `Partial`\<`Omit`\<`CreateSandboxOptions`, `"backend"`\>\> & `object`
-
-**`Experimental`**
 
 Optional sandbox-SDK `CreateSandboxOptions` overrides merged on top of
 the kernel's defaults. `backend.profile` is set to `profile` by the
@@ -16374,7 +16320,7 @@ kernel and cannot be overridden here — use `profile` itself for that.
 
 ### OutputAdapter
 
-**`Experimental`**
+**`Stable`**
 
 Stream of `SandboxEvent`s → typed `Output`.
 
@@ -16393,8 +16339,6 @@ persisted streams during tests / replays.
 ##### parse()
 
 > **parse**(`events`): `Output`
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -16433,7 +16377,7 @@ False when the subtotal is incomplete.
 
 ### MountManifestEntry
 
-**`Experimental`**
+**`Stable`**
 
 One mounted resource recorded during box preparation — a pure provenance
 record of what the caller placed into a box before the agent saw it. The
@@ -16449,15 +16393,11 @@ auditable after the fact ("what exactly was this agent given?").
 
 > **path**: `string`
 
-**`Experimental`**
-
 Destination path inside the box where the resource was placed.
 
 ##### sha256
 
 > **sha256**: `string`
-
-**`Experimental`**
 
 Hex SHA-256 of the mounted bytes. The caller computes it from the bytes
  it wrote — the kernel does not hash box contents.
@@ -16466,15 +16406,11 @@ Hex SHA-256 of the mounted bytes. The caller computes it from the bytes
 
 > **bytes**: `number`
 
-**`Experimental`**
-
 Size of the mounted resource in bytes.
 
 ##### source
 
 > **source**: `string`
-
-**`Experimental`**
 
 Free-form origin of the resource (e.g. a repo ref, a corpus id, a local
  path, a URL). Provenance only — the kernel attaches no meaning to it.
@@ -16483,7 +16419,7 @@ Free-form origin of the resource (e.g. a repo ref, a corpus id, a local
 
 ### SelectionReceipt
 
-**`Experimental`**
+**`Stable`**
 
 A record of one candidate-selection decision: which iteration the selector
 picked (or rejected) and why. Pure audit trail of the SELECTOR role — it
@@ -16497,15 +16433,11 @@ per scored candidate at finalize so a run answers "why did THIS one win?".
 
 > **candidateIndex**: `number`
 
-**`Experimental`**
-
 Iteration index this receipt is about.
 
 ##### selected
 
 > **selected**: `boolean`
-
-**`Experimental`**
 
 True for the iteration the selector chose as winner; false otherwise.
 
@@ -16513,23 +16445,17 @@ True for the iteration the selector chose as winner; false otherwise.
 
 > `optional` **score?**: `number`
 
-**`Experimental`**
-
 The candidate's verdict score, when it has one.
 
 ##### reason?
 
 > `optional` **reason?**: `string`
 
-**`Experimental`**
-
 Why this candidate was (or was not) selected, when the selector states it.
 
 ##### selector
 
 > **selector**: `"default"` \| `"driver"` \| `"caller"`
-
-**`Experimental`**
 
 Identity of the selector that produced this receipt — `'caller'` (an
  explicit `selectWinner`), `'driver'` (a driver-authored winner), or
@@ -16539,7 +16465,7 @@ Identity of the selector that produced this receipt — `'caller'` (an
 
 ### RunProvenance
 
-**`Experimental`**
+**`Stable`**
 
 Domain-free run provenance: a manifest of what was mounted into the run's
 boxes and the receipts for how the winner was selected. Surfaced on
@@ -16553,15 +16479,11 @@ candidate to select.
 
 > **mounts**: [`MountManifestEntry`](#mountmanifestentry)[]
 
-**`Experimental`**
-
 Every resource recorded via `prepareBox`'s `recordMount`, in record order.
 
 ##### selectionReceipts
 
 > **selectionReceipts**: [`SelectionReceipt`](#selectionreceipt)[]
-
-**`Experimental`**
 
 One receipt per scored candidate at finalize, in iteration order.
 
@@ -16569,7 +16491,7 @@ One receipt per scored candidate at finalize, in iteration order.
 
 ### Iteration
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -16587,21 +16509,15 @@ One receipt per scored candidate at finalize, in iteration order.
 
 > **index**: `number`
 
-**`Experimental`**
-
 0-based iteration index assigned by the kernel.
 
 ##### task
 
 > **task**: `Task`
 
-**`Experimental`**
-
 ##### agentRunName
 
 > **agentRunName**: `string`
-
-**`Experimental`**
 
 Stable name of the `AgentRunSpec` that produced this iteration.
 
@@ -16609,25 +16525,17 @@ Stable name of the `AgentRunSpec` that produced this iteration.
 
 > `optional` **output?**: `Output`
 
-**`Experimental`**
-
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
-
-**`Experimental`**
 
 ##### error?
 
 > `optional` **error?**: `Error`
 
-**`Experimental`**
-
 ##### events
 
 > **events**: `SandboxEvent`[]
-
-**`Experimental`**
 
 Raw sandbox event stream collected for this iteration.
 
@@ -16635,25 +16543,17 @@ Raw sandbox event stream collected for this iteration.
 
 > **startedAt**: `number`
 
-**`Experimental`**
-
 ##### endedAt
 
 > **endedAt**: `number`
-
-**`Experimental`**
 
 ##### costUsd
 
 > **costUsd**: `number`
 
-**`Experimental`**
-
 ##### costUsdKnown?
 
 > `optional` **costUsdKnown?**: `false`
-
-**`Experimental`**
 
 False when `costUsd` is only the observed subtotal, not a complete bill.
 
@@ -16661,15 +16561,11 @@ False when `costUsd` is only the observed subtotal, not a complete bill.
 
 > `optional` **estimatedCostUsd?**: `number`
 
-**`Experimental`**
-
 Local/catalog estimates remain separate from billed spend.
 
 ##### promptCache?
 
 > `optional` **promptCache?**: `Record`\<`string`, `string` \| `number`\>
-
-**`Experimental`**
 
 Provider-reported prompt-cache fields; absent fields remain unknown.
 
@@ -16677,15 +16573,13 @@ Provider-reported prompt-cache fields; absent fields remain unknown.
 
 > **tokenUsage**: [`LoopTokenUsage`](#looptokenusage)
 
-**`Experimental`**
-
 Summed LLM token usage across every `llm_call` event in this iteration.
 
 ***
 
 ### LoopPlanDescription
 
-**`Experimental`**
+**`Stable`**
 
 Driver-supplied description of the just-planned move.
 
@@ -16695,23 +16589,17 @@ Driver-supplied description of the just-planned move.
 
 > **kind**: `string`
 
-**`Experimental`**
-
 Topology move this round — e.g. `'refine' | 'fanout' | 'verify' | 'stop'`.
 
 ##### rationale?
 
 > `optional` **rationale?**: `string`
 
-**`Experimental`**
-
 Why the driver chose this move (the agent's rationale), when available.
 
 ##### parentIndex?
 
 > `optional` **parentIndex?**: `number`
-
-**`Experimental`**
 
 Iteration index this round branches FROM, when the driver declares it.
 Overrides the kernel's inferred branch point — lets a planner that
@@ -16722,7 +16610,7 @@ Omit to keep the inferred (best-valid / latest) branch point.
 
 ### LoopWinner
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -16740,37 +16628,27 @@ Omit to keep the inferred (best-valid / latest) branch point.
 
 > **task**: `Task`
 
-**`Experimental`**
-
 ##### output
 
 > **output**: `Output`
-
-**`Experimental`**
 
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
 
-**`Experimental`**
-
 ##### iterationIndex
 
 > **iterationIndex**: `number`
-
-**`Experimental`**
 
 ##### agentRunName
 
 > **agentRunName**: `string`
 
-**`Experimental`**
-
 ***
 
 ### SandboxClient
 
-**`Experimental`**
+**`Stable`**
 
 Minimal sandbox client surface the kernel calls. Satisfied structurally by
 `new Sandbox({ apiKey, baseUrl })` — declared as a structural type so
@@ -16788,8 +16666,6 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 > **create**(`options?`): `Promise`\<`SandboxInstance`\>
 
-**`Experimental`**
-
 ###### Parameters
 
 ###### options?
@@ -16803,8 +16679,6 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 ##### describePlacement()?
 
 > `optional` **describePlacement**(`box`): [`LoopSandboxPlacement`](#loopsandboxplacement)
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -16918,7 +16792,7 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 ### LoopSandboxPlacement
 
-**`Experimental`**
+**`Stable`**
 
 #### Extended by
 
@@ -16930,39 +16804,29 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 > **kind**: `"sibling"` \| `"fleet"`
 
-**`Experimental`**
-
 ##### sandboxId?
 
 > `optional` **sandboxId?**: `string`
-
-**`Experimental`**
 
 ##### fleetId?
 
 > `optional` **fleetId?**: `string`
 
-**`Experimental`**
-
 ##### machineId?
 
 > `optional` **machineId?**: `string`
-
-**`Experimental`**
 
 ***
 
 ### LoopTraceEmitter
 
-**`Experimental`**
+**`Stable`**
 
 #### Methods
 
 ##### emit()
 
 > **emit**(`event`): `void` \| `Promise`\<`void`\>
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -16978,7 +16842,7 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 ### LoopStartedPayload
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -16986,31 +16850,23 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 > **driver**: `string`
 
-**`Experimental`**
-
 ##### agentRunNames
 
 > **agentRunNames**: `string`[]
-
-**`Experimental`**
 
 ##### maxIterations
 
 > **maxIterations**: `number`
 
-**`Experimental`**
-
 ##### maxConcurrency
 
 > **maxConcurrency**: `number`
-
-**`Experimental`**
 
 ***
 
 ### LoopPlanPayload
 
-**`Experimental`**
+**`Stable`**
 
 Emitted once per `plan()` round, immediately after the driver plans. Carries
 the topology move so a viewer renders WHAT the agent decided + WHY, not just
@@ -17023,15 +16879,11 @@ provided, else inferred from `plannedCount` (0→stop, 1→refine, N→fanout).
 
 > **roundIndex**: `number`
 
-**`Experimental`**
-
 0-based plan round (one per `plan()` call).
 
 ##### plannedCount
 
 > **plannedCount**: `number`
-
-**`Experimental`**
 
 Tasks the driver issued this round.
 
@@ -17039,23 +16891,17 @@ Tasks the driver issued this round.
 
 > **moveKind**: `string`
 
-**`Experimental`**
-
 Topology move — `'refine' | 'fanout' | 'verify' | 'stop'` etc.
 
 ##### rationale?
 
 > `optional` **rationale?**: `string`
 
-**`Experimental`**
-
 Driver rationale for the move, when available.
 
 ##### parentIndex?
 
 > `optional` **parentIndex?**: `number`
-
-**`Experimental`**
 
 Iteration index this round branched FROM (the edge source). `undefined`
 for round 0 (root). Kernel-inferred branch point — the best-valid (else
@@ -17065,15 +16911,13 @@ latest) iteration so far — unless a driver later declares it explicitly.
 
 > **childIndices**: `number`[]
 
-**`Experimental`**
-
 Iteration indices this round dispatched (the edge targets).
 
 ***
 
 ### LoopIterationStartedPayload
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -17081,25 +16925,17 @@ Iteration indices this round dispatched (the edge targets).
 
 > **iterationIndex**: `number`
 
-**`Experimental`**
-
 ##### agentRunName
 
 > **agentRunName**: `string`
-
-**`Experimental`**
 
 ##### taskHash
 
 > **taskHash**: `string`
 
-**`Experimental`**
-
 ##### groupId?
 
 > `optional` **groupId?**: `number`
-
-**`Experimental`**
 
 Plan round (== `LoopPlanPayload.roundIndex`) this iteration belongs to.
 
@@ -17107,15 +16943,13 @@ Plan round (== `LoopPlanPayload.roundIndex`) this iteration belongs to.
 
 > `optional` **parentIndex?**: `number`
 
-**`Experimental`**
-
 Iteration this one was planned from; `undefined` ⇒ root.
 
 ***
 
 ### LoopIterationDispatchPayload
 
-**`Experimental`**
+**`Stable`**
 
 Where the iteration's worker was placed. `sibling` = a fresh sandbox the
 kernel created via `sandboxClient.create`. `fleet` = an existing machine in
@@ -17128,25 +16962,17 @@ they write lands on it directly.
 
 > **iterationIndex**: `number`
 
-**`Experimental`**
-
 ##### agentRunName
 
 > **agentRunName**: `string`
-
-**`Experimental`**
 
 ##### placement
 
 > **placement**: `"sibling"` \| `"fleet"`
 
-**`Experimental`**
-
 ##### sandboxId?
 
 > `optional` **sandboxId?**: `string`
-
-**`Experimental`**
 
 Set on every placement. Lets analyst loops correlate per-iteration logs.
 
@@ -17154,15 +16980,11 @@ Set on every placement. Lets analyst loops correlate per-iteration logs.
 
 > `optional` **fleetId?**: `string`
 
-**`Experimental`**
-
 Set only when `placement === 'fleet'`.
 
 ##### machineId?
 
 > `optional` **machineId?**: `string`
-
-**`Experimental`**
 
 Set only when `placement === 'fleet'`.
 
@@ -17170,15 +16992,11 @@ Set only when `placement === 'fleet'`.
 
 > `optional` **groupId?**: `number`
 
-**`Experimental`**
-
 Plan round this iteration belongs to.
 
 ##### parentIndex?
 
 > `optional` **parentIndex?**: `number`
-
-**`Experimental`**
 
 Iteration this one was planned from; `undefined` ⇒ root.
 
@@ -17186,7 +17004,7 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 ### LoopIterationEndedPayload
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -17194,61 +17012,41 @@ Iteration this one was planned from; `undefined` ⇒ root.
 
 > **iterationIndex**: `number`
 
-**`Experimental`**
-
 ##### agentRunName
 
 > **agentRunName**: `string`
-
-**`Experimental`**
 
 ##### outputHash?
 
 > `optional` **outputHash?**: `string`
 
-**`Experimental`**
-
 ##### verdict?
 
 > `optional` **verdict?**: `DefaultVerdict`
-
-**`Experimental`**
 
 ##### error?
 
 > `optional` **error?**: `string`
 
-**`Experimental`**
-
 ##### costUsd
 
 > **costUsd**: `number`
-
-**`Experimental`**
 
 ##### costUsdKnown?
 
 > `optional` **costUsdKnown?**: `false`
 
-**`Experimental`**
-
 ##### estimatedCostUsd?
 
 > `optional` **estimatedCostUsd?**: `number`
-
-**`Experimental`**
 
 ##### durationMs
 
 > **durationMs**: `number`
 
-**`Experimental`**
-
 ##### tokenUsage?
 
 > `optional` **tokenUsage?**: [`LoopTokenUsage`](#looptokenusage)
-
-**`Experimental`**
 
 Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
  branch span. Omitted when no `llm_call` events carried token counts.
@@ -17257,23 +17055,17 @@ Summed LLM token usage for this iteration — maps to gen_ai.usage.* on the
 
 > `optional` **groupId?**: `number`
 
-**`Experimental`**
-
 Plan round this iteration belongs to.
 
 ##### parentIndex?
 
 > `optional` **parentIndex?**: `number`
 
-**`Experimental`**
-
 Iteration this one was planned from; `undefined` ⇒ root.
 
 ##### outputPreview?
 
 > `optional` **outputPreview?**: `string`
-
-**`Experimental`**
 
 Truncated string preview of the parsed output — for a viewer's drawer.
  Bounded to ~280 chars; never the full payload.
@@ -17282,7 +17074,7 @@ Truncated string preview of the parsed output — for a viewer's drawer.
 
 ### LoopDecisionPayload
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -17290,19 +17082,15 @@ Truncated string preview of the parsed output — for a viewer's drawer.
 
 > **decision**: `string`
 
-**`Experimental`**
-
 ##### historyLength
 
 > **historyLength**: `number`
-
-**`Experimental`**
 
 ***
 
 ### LoopEndedPayload
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -17310,43 +17098,31 @@ Truncated string preview of the parsed output — for a viewer's drawer.
 
 > `optional` **winnerIterationIndex?**: `number`
 
-**`Experimental`**
-
 ##### totalCostUsd
 
 > **totalCostUsd**: `number`
-
-**`Experimental`**
 
 ##### costUsdKnown?
 
 > `optional` **costUsdKnown?**: `false`
 
-**`Experimental`**
-
 ##### estimatedCostUsd?
 
 > `optional` **estimatedCostUsd?**: `number`
-
-**`Experimental`**
 
 ##### durationMs
 
 > **durationMs**: `number`
 
-**`Experimental`**
-
 ##### iterations
 
 > **iterations**: `number`
-
-**`Experimental`**
 
 ***
 
 ### LoopTeardownFailedPayload
 
-**`Experimental`**
+**`Stable`**
 
 Emitted when a box's `delete()` throws or times out during teardown — the
  loop swallows the failure (platform reaps on expiry) but surfaces it here so
@@ -17358,13 +17134,9 @@ Emitted when a box's `delete()` throws or times out during teardown — the
 
 > `optional` **sandboxId?**: `string`
 
-**`Experimental`**
-
 ##### reason
 
 > **reason**: `string`
-
-**`Experimental`**
 
 `'timeout'` or the delete error message.
 
@@ -17372,7 +17144,7 @@ Emitted when a box's `delete()` throws or times out during teardown — the
 
 ### ExecCtx
 
-**`Experimental`**
+**`Stable`**
 
 Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks.
 
@@ -17382,23 +17154,17 @@ Execution context for `runAgentRounds`: the sandbox client the kernel creates bo
 
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
 
-**`Experimental`**
-
 Sandbox SDK client — the kernel calls `.create()` per iteration.
 
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
 
-**`Experimental`**
-
 Optional runtime hooks. Execution-scoped; never part of `AgentProfile`.
 
 ##### traceEmitter?
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](#looptraceemitter)
-
-**`Experimental`**
 
 Optional trace emitter. When set, the kernel emits `loop.*` events.
 
@@ -17446,8 +17212,6 @@ on that.
 
 > `optional` **runHandle?**: [`RuntimeRunHandle`](index.md#runtimerunhandle)
 
-**`Experimental`**
-
 Optional production-run handle. When set, every synthesized `llm_call`
 the kernel infers from a sandbox event stream is forwarded via
 `runHandle.observe` so per-run cost aggregates pick up loop spend.
@@ -17456,15 +17220,11 @@ the kernel infers from a sandbox event stream is forwarded via
 
 > `optional` **signal?**: `AbortSignal`
 
-**`Experimental`**
-
 Cooperative cancellation signal.
 
 ##### traceId?
 
 > `optional` **traceId?**: `string`
-
-**`Experimental`**
 
 Trace id for OTEL correlation. When set alongside `traceEmitter`, the
 exporter uses this as the parent trace for all emitted spans. Typically
@@ -17473,8 +17233,6 @@ inherited from TRACE_ID env var in MCP subprocess mode.
 ##### parentSpanId?
 
 > `optional` **parentSpanId?**: `string`
-
-**`Experimental`**
 
 Parent span id for OTEL correlation. Loop events become children of
 this span. Typically inherited from PARENT_SPAN_ID env var.
@@ -18516,7 +18274,7 @@ One provider-neutral conversation record carried between strategy shots.
 
 > **AgentTurnBackend** = `object`
 
-**`Experimental`**
+**`Stable`**
 
 The execution substrate one turn runs on — a closed discriminated union over
 the three stream surfaces the runtime already owns.
@@ -19755,7 +19513,7 @@ Public supervisor-facing compaction config: same knobs as the primitive, but `di
 
 > **MountRecorder** = (`entry`) => `void`
 
-**`Experimental`**
+**`Stable`**
 
 Records a mounted resource into the run's provenance manifest. Passed to
 `prepareBox` so the caller — which owns the bytes it writes into the box —
@@ -19777,7 +19535,7 @@ declares what it mounted without the kernel having to inspect box contents.
 
 > **LoopTraceEvent** = \{ `kind`: `"loop.started"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopStartedPayload`](#loopstartedpayload); \} \| \{ `kind`: `"loop.plan"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopPlanPayload`](#loopplanpayload); \} \| \{ `kind`: `"loop.iteration.started"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationStartedPayload`](#loopiterationstartedpayload); \} \| \{ `kind`: `"loop.iteration.dispatch"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationDispatchPayload`](#loopiterationdispatchpayload); \} \| \{ `kind`: `"loop.iteration.ended"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopIterationEndedPayload`](#loopiterationendedpayload); \} \| \{ `kind`: `"loop.decision"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopDecisionPayload`](#loopdecisionpayload); \} \| \{ `kind`: `"loop.ended"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopEndedPayload`](#loopendedpayload); \} \| \{ `kind`: `"loop.teardown.failed"`; `runId`: `string`; `timestamp`: `number`; `payload`: [`LoopTeardownFailedPayload`](#loopteardownfailedpayload); \}
 
-**`Experimental`**
+**`Stable`**
 
 ***
 
@@ -20165,6 +19923,8 @@ change the result already observed.
 ### replaySpawnTree()
 
 > **replaySpawnTree**(`journal`, `blobs`, `root`): `Promise`\<[`Settled`](index.md#settled)\<`unknown`\>[]\>
+
+**`Stable`**
 
 Re-feed a journaled spawn tree in strict `seq` order, rehydrating each settled
 child's `out` from the blob store by `outRef`, and return the `Settled[]` exactly
@@ -21189,6 +20949,8 @@ the selection logic previously copied per role.
 
 > **pipeline**\<`Task`, `D`\>(`stages`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
+**`Stable`**
+
 `pipeline(stages)` — run the stages in order, feeding each stage's `done` deliverable into the
 next stage's task. The first stage that ends `blocked` (a child that went down, a child the
 pool would not admit, or a stage whose `collect` chose to block) short-circuits — its blockers
@@ -21220,6 +20982,8 @@ readonly [`PipelineStage`](#pipelinestage)\<`Task`, `unknown`, `unknown`\>[]
 ### fanout()
 
 > **fanout**\<`Task`, `Item`, `D`\>(`items`, `opts`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
+
+**`Stable`**
 
 `fanout(items, opts)` — spawn one child per item in a single round (bounded by the conserved
 pool's fail-closed admission), drain via `scope.next()`, then either synthesize over the
@@ -21265,6 +21029,8 @@ readonly `Item`[]
 
 > **loopUntil**\<`Task`, `State`, `D`\>(`seed`, `spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
+**`Stable`**
+
 `loopUntil(seed, spec)` — one `step` child per round; `fold` accumulates each settlement into
 the running state; `until` (reading the round's trace findings, NOT a fresh raw verdict) is
 the deployable stop. The conserved pool IS the loop bound: once `spawn` fails closed the loop
@@ -21309,6 +21075,8 @@ argument is the empty array — never a fabricated finding (fail-loud honesty ov
 
 > **panel**\<`Task`, `Artifact`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
+**`Stable`**
+
 `panel(spec)` — spawn the M judge children over the SAME artifact, drain their settlements,
 and fold them into a panel verdict via the pure WRITE-ONLY `merge` (a judge's output never
 reaches another judge's task; the merge never spawns or re-ranks). A `down` judge carries no
@@ -21345,6 +21113,8 @@ concrete blocker before `merge` is consulted.
 
 > **verify**\<`Task`, `Candidate`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
 
+**`Stable`**
+
 `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades
 it; only a `valid` verifier verdict ships. Any other outcome (implement down, verifier down,
 verifier verdict absent or not `valid`) is a concrete blocker carrying the failure verbatim —
@@ -21379,6 +21149,8 @@ never a coerced "done". The implement child does not grade itself.
 ### widen()
 
 > **widen**\<`Task`, `Seed`, `D`\>(`spec`): [`CombinatorShape`](#combinatorshape)\<`Task`, `D`\>
+
+**`Stable`**
 
 `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS
 to each `scope.next()`: on every settled child it consults `spec.gate.decide` and, when the gate
@@ -21472,6 +21244,8 @@ An empty query result returns a fresh COPY of the profile with no instruction ch
 
 > **definePersona**\<`D`\>(`input`): [`Persona`](#persona)\<`D`\>
 
+**`Stable`**
+
 Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with
 neither a pre-built registry nor a seam bag cannot resolve its built-in runtimes, so it is
 unrunnable — refuse it at definition time, not at the first spawn. Pure; no I/O.
@@ -21497,6 +21271,8 @@ unrunnable — refuse it at definition time, not at the first spawn. Pure; no I/
 ### runPersonified()
 
 > **runPersonified**\<`Task`, `D`\>(`options`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<[`Outcome`](#outcome-2)\<`D`\>\>\>
+
+**`Stable`**
 
 Compose the persona + chosen shape onto a fresh keystone `Supervisor`. Resolves the shape
 (a factory verbatim, or a registered name through `builtinShapes`), applies it to a
@@ -21776,7 +21552,7 @@ Pretty-print a report — the "free optimization" verdict, with the cost vector.
 
 > **runAgentRounds**\<`Task`, `Output`, `Decision`\>(`options`): `Promise`\<[`LoopResult`](index.md#loopresult)\<`Task`, `Output`, `Decision`\>\>
 
-**`Experimental`**
+**`Stable`**
 
 The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks
 out to N sandboxes (bounded concurrency), parses + validates each output, and folds
@@ -22482,7 +22258,7 @@ Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-
 
 > **streamAgentTurn**(`backend`, `input`, `opts?`): `AsyncGenerator`\<[`RuntimeStreamEvent`](index.md#runtimestreamevent)\>
 
-**`Experimental`**
+**`Stable`**
 
 Run ONE agent turn on any backend kind and stream its events. Yields the
 `RuntimeStreamEvent` vocabulary incrementally and always ends with a `final`
@@ -22515,7 +22291,7 @@ timeout alike. The generator never throws; failures surface in-band as
 
 > **collectAgentTurn**(`stream`): `Promise`\<[`CollectedAgentTurn`](#collectedagentturn)\>
 
-**`Experimental`**
+**`Stable`**
 
 Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that
 honors its terminal contract) into the turn summary plus the full event
@@ -23479,7 +23255,10 @@ readonly `object`[]
 
 > **createEventBus**\<`E`\>(`now?`): [`EventBus`](#eventbus)\<`E`\>
 
+**`Experimental`**
+
 Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane.
+ In-process queue; durability is a transport swap that does not exist yet.
 
 #### Type Parameters
 
@@ -24449,6 +24228,8 @@ ahead of the worker seam.
 ### supervise()
 
 > **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+
+**`Stable`**
 
 One-call supervisor: build + run a supervisor from its exact profile.
 

@@ -31,7 +31,7 @@
  * `spentTotal` off the journal (`settled` child work + `metered` driver inference), and wraps
  * it as a typed `winner` — it does not re-rank children behind the driver's back.
  *
- * @experimental
+ * @stable
  */
 
 import { sha256DigestSchema } from '@tangle-network/agent-interface'

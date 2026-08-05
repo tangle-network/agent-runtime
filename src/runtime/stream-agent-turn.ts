@@ -44,7 +44,7 @@
  * (and locked by test): nothing is produced past the event the caller is
  * holding.
  *
- * @experimental
+ * @stable
  */
 
 import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
@@ -93,7 +93,7 @@ import type {
  * The execution substrate one turn runs on — a closed discriminated union over
  * the three stream surfaces the runtime already owns.
  *
- * @experimental
+ * @stable
  */
 export type AgentTurnBackend = {
   /** A Runtime-owned executor factory materialized from this exact canonical profile. */
@@ -137,7 +137,7 @@ export type AgentTurnInput =
   | string
   | { readonly messages: ReadonlyArray<Readonly<Record<string, unknown>>> }
 
-/** @experimental */
+/** @stable */
 export interface StreamAgentTurnOptions {
   /** Caller-initiated cancellation. Terminates the stream with `final.status: 'aborted'`. */
   signal?: AbortSignal
@@ -355,7 +355,7 @@ function turnProvenance(
  * `tokensKnown: false` when the backend did not report them. `costUsd`/`model`
  * are present only when the backend actually reported them.
  *
- * @experimental
+ * @stable
  */
 export interface AgentTurnUsage {
   input: number
@@ -379,7 +379,7 @@ export interface AgentTurnUsage {
  * `status`/`error` mirror the terminal `final` event so a failed or aborted
  * turn stays inspectable without re-scanning `events`.
  *
- * @experimental
+ * @stable
  */
 export interface CollectedAgentTurn {
   finalText: string
@@ -426,7 +426,7 @@ interface TurnAccumulator {
  * timeout alike. The generator never throws; failures surface in-band as
  * `backend_error` + `final` with a typed `error` detail.
  *
- * @experimental
+ * @stable
  */
 export async function* streamAgentTurn(
   backend: AgentTurnBackend,
@@ -713,7 +713,7 @@ function assertExactExecutorEvidence(
  * list. Fail-loud: throws when the stream ends without a terminal `final`
  * event — a stream that violates the contract must not read as an empty turn.
  *
- * @experimental
+ * @stable
  */
 export async function collectAgentTurn(
   stream: AsyncIterable<RuntimeStreamEvent>,

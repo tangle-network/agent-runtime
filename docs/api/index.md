@@ -7923,6 +7923,8 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 ### Scope
 
+**`Stable`**
+
 The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves
 budget atomically from the shared pool and fails closed when the pool cannot cover it.
 `next()` waits for one settlement from this scope's live set; `view` reads live state,
@@ -7949,6 +7951,8 @@ This scope's abort signal — aborted when the run is cancelled, a breaker trips
 
 > `readonly` `optional` **resume?**: [`ResumedWork`](runtime.md#resumedwork)\<`Out`\>
 
+**`Experimental`**
+
 Prior committed work, present ONLY on a resumed run (`undefined` on a fresh run, which is
 every run that did not pass `SupervisorOpts.resume`). The supervisor `loadTree`s the journal
 first; when a non-empty tree exists it rehydrates the already-settled children (via
@@ -7956,6 +7960,9 @@ first; when a non-empty tree exists it rehydrates the already-settled children (
 re-spawning committed work. A resume-blind driver simply ignores it and re-spawns — correct
 but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
 maxima, so any NEW spawn appends without colliding with a journaled event.
+
+ Same-process replay only — live supervised-tree recovery after a
+coordinator restart is not implemented (docs/agent-managed-compute/README.md).
 
 ##### view
 
@@ -8183,6 +8190,8 @@ metered event is cost-critical, so it lands before the join-barrier roll-up).
 
 ### Supervisor
 
+**`Stable`**
+
 Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
 and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
 live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
@@ -8239,7 +8248,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ### Driver
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -8261,8 +8270,6 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 > `readonly` `optional` **name?**: `string`
 
-**`Experimental`**
-
 Stable identifier surfaced in trace events. Default `'driver'`.
 
 #### Methods
@@ -8270,8 +8277,6 @@ Stable identifier surfaced in trace events. Default `'driver'`.
 ##### plan()
 
 > **plan**(`task`, `history`): `Promise`\<`Task`[]\>
-
-**`Experimental`**
 
 Tasks to issue this iteration. `[task]` → refine; N copies → fanout;
 `[]` → no more work this round (kernel proceeds to `decide`).
@@ -8294,8 +8299,6 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 
 > **decide**(`history`): `Decision` \| `Promise`\<`Decision`\>
 
-**`Experimental`**
-
 Inspect history and return the next state. The kernel terminates the
 loop when `decide` returns a value listed in `isTerminalDecision`
 (`'stop' | 'pick-winner' | 'fail' | 'done'`), when `maxIterations`
@@ -8314,8 +8317,6 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 ##### describePlan()?
 
 > `optional` **describePlan**(): [`LoopPlanDescription`](runtime.md#loopplandescription) \| `undefined`
-
-**`Experimental`**
 
 Optional: describe the move `plan()` just produced, for trace emission.
 The kernel calls this immediately after `plan()` and emits the result in
@@ -8356,7 +8357,7 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 
 ### LoopResult
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -8378,31 +8379,21 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 
 > **decision**: `Decision`
 
-**`Experimental`**
-
 ##### iterations
 
 > **iterations**: [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
-
-**`Experimental`**
 
 ##### winner?
 
 > `optional` **winner?**: [`LoopWinner`](runtime.md#loopwinner)\<`Task`, `Output`\>
 
-**`Experimental`**
-
 ##### durationMs
 
 > **durationMs**: `number`
 
-**`Experimental`**
-
 ##### costUsd
 
 > **costUsd**: `number`
-
-**`Experimental`**
 
 Sum of every iteration's `costUsd`.
 
@@ -8410,15 +8401,11 @@ Sum of every iteration's `costUsd`.
 
 > `optional` **costUsdKnown?**: `false`
 
-**`Experimental`**
-
 False when `costUsd` is only the observed subtotal, not a complete bill.
 
 ##### estimatedCostUsd?
 
 > `optional` **estimatedCostUsd?**: `number`
-
-**`Experimental`**
 
 Sum of separately-labelled local/catalog estimates.
 
@@ -8426,15 +8413,11 @@ Sum of separately-labelled local/catalog estimates.
 
 > `optional` **promptCache?**: `Record`\<`string`, `string` \| `number`\>
 
-**`Experimental`**
-
 Aggregated provider-reported prompt-cache fields.
 
 ##### tokenUsage
 
 > **tokenUsage**: [`LoopTokenUsage`](runtime.md#looptokenusage)
-
-**`Experimental`**
 
 Sum of every iteration's token usage. `loopDispatch` commits it through
  the campaign's paid-call receipt.
@@ -8442,8 +8425,6 @@ Sum of every iteration's token usage. `loopDispatch` commits it through
 ##### provenance
 
 > **provenance**: [`RunProvenance`](runtime.md#runprovenance)
-
-**`Experimental`**
 
 Domain-free run provenance for auditability: the mount manifest recorded
  during `prepareBox` and the selection receipts for how the winner was

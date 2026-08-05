@@ -6,6 +6,8 @@
  *
  * `workerFromBackend` derives the worker seam (`makeWorkerAgent`) from a backend config + an optional
  * completion oracle — so "where the workers run" is one data choice, not a hand-rolled factory.
+ *
+ * @stable
  */
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -1178,7 +1180,7 @@ export interface SuperviseTestOptions extends SuperviseOptions {
   readonly brain: ToolLoopChat
 }
 
-/** One-call supervisor: build + run a supervisor from its exact profile. */
+/** One-call supervisor: build + run a supervisor from its exact profile. @stable */
 export function supervise(profile: SupervisorProfile, task: unknown, opts: SuperviseOptions) {
   if ('brain' in opts) {
     throw new ValidationError(

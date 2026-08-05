@@ -12,7 +12,7 @@
  * through `JSON.stringify`/`JSON.parse`, so a `Date`, `Map`, or function
  * smuggled into `args`/`result` would corrupt the journal.
  *
- * @experimental
+ * @stable
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
@@ -20,7 +20,7 @@ import { dirname } from 'node:path'
 import { AgentEvalError } from '../errors'
 import type { DelegationRecord } from './task-queue'
 
-/** @experimental */
+/** @stable */
 export interface DelegationStore {
   /**
    * Read every persisted record. Called once, by
@@ -50,7 +50,7 @@ export interface DelegationStore {
  * (the bin maps `AGENT_RUNTIME_DELEGATION_STATE_RECOVER=1` onto it),
  * which archives the corrupt file and starts fresh.
  *
- * @experimental
+ * @stable
  */
 export class DelegationStateCorruptError extends AgentEvalError {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -64,7 +64,7 @@ export class DelegationStateCorruptError extends AgentEvalError {
  * accepting new submissions — accepting work it cannot journal would
  * silently demote durable mode to in-memory mode.
  *
- * @experimental
+ * @stable
  */
 export class DelegationPersistenceError extends AgentEvalError {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -72,7 +72,7 @@ export class DelegationPersistenceError extends AgentEvalError {
   }
 }
 
-/** In-memory `DelegationStore` — suitable for single-process use and tests. @experimental */
+/** In-memory `DelegationStore` — suitable for single-process use and tests. @stable */
 export class InMemoryDelegationStore implements DelegationStore {
   private readonly records = new Map<string, DelegationRecord>()
 
@@ -96,7 +96,7 @@ export class InMemoryDelegationStore implements DelegationStore {
   }
 }
 
-/** @experimental */
+/** @stable */
 export interface FileDelegationStoreOptions {
   /** Absolute path of the JSON state file. Parent directories are created on first write. */
   filePath: string
@@ -126,7 +126,7 @@ const STATE_FORMAT_VERSION = 1
  * records): full-snapshot writes keep the format trivially inspectable
  * and corruption-detectable without a database dependency.
  *
- * @experimental
+ * @stable
  */
 export class FileDelegationStore implements DelegationStore {
   private readonly filePath: string

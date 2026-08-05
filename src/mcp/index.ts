@@ -11,7 +11,7 @@
  * `agent-runtime-mcp` (the bin) or wire it into a custom Node entry
  * point with `createMcpServer({ ... })`.
  *
- * @experimental
+ * @module
  */
 
 export type { DetectExecutorArgs } from './bin-helpers'

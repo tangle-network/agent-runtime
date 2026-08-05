@@ -6,6 +6,17 @@
 
 # mcp
 
+`@tangle-network/agent-runtime/mcp` — Stdio MCP server exposing the
+delegation tools to sandbox coding-harness agents: the generic `delegate`
+(one intent → a supervisor that authors + drives its own worker, returns the
+delivered output with its cost), plus the queue-bound `delegate_feedback`,
+`delegation_status`, and `delegation_history`. `delegate_ui_audit` is served
+when a `uiAuditorDelegate` is wired.
+
+Mount the server inside a product agent's sandbox via
+`agent-runtime-mcp` (the bin) or wire it into a custom Node entry
+point with `createMcpServer({ ... })`.
+
 ## Classes
 
 ### CodexExecutionDiagnosticError
@@ -62,7 +73,7 @@ Thrown when reproducible Codex exits without one valid terminal usage event.
 
 ### DelegationStateCorruptError
 
-**`Experimental`**
+**`Stable`**
 
 The persisted delegation state exists but cannot be parsed into
 records. Fail loud: silently starting empty over a corrupt journal
@@ -80,8 +91,6 @@ which archives the corrupt file and starts fresh.
 ##### Constructor
 
 > **new DelegationStateCorruptError**(`message`, `options?`): [`DelegationStateCorruptError`](#delegationstatecorrupterror)
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -107,7 +116,7 @@ which archives the corrupt file and starts fresh.
 
 ### DelegationPersistenceError
 
-**`Experimental`**
+**`Stable`**
 
 A delegation-store read or write failed (filesystem error, store
 called before `loadAll`, ...). Once the queue observes one, it stops
@@ -123,8 +132,6 @@ silently demote durable mode to in-memory mode.
 ##### Constructor
 
 > **new DelegationPersistenceError**(`message`, `options?`): [`DelegationPersistenceError`](#delegationpersistenceerror)
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -150,7 +157,7 @@ silently demote durable mode to in-memory mode.
 
 ### InMemoryDelegationStore
 
-**`Experimental`**
+**`Stable`**
 
 In-memory `DelegationStore` — suitable for single-process use and tests.
 
@@ -164,8 +171,6 @@ In-memory `DelegationStore` — suitable for single-process use and tests.
 
 > **new InMemoryDelegationStore**(): [`InMemoryDelegationStore`](#inmemorydelegationstore)
 
-**`Experimental`**
-
 ###### Returns
 
 [`InMemoryDelegationStore`](#inmemorydelegationstore)
@@ -175,8 +180,6 @@ In-memory `DelegationStore` — suitable for single-process use and tests.
 ##### loadAll()
 
 > **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
-
-**`Experimental`**
 
 Read every persisted record. Called once, by
 `DelegationTaskQueue.restore`, before any write. A missing backing
@@ -194,8 +197,6 @@ file is an empty store; an unparseable one throws
 ##### upsert()
 
 > **upsert**(`record`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Insert or replace the record keyed by `record.taskId`.
 
@@ -216,8 +217,6 @@ Insert or replace the record keyed by `record.taskId`.
 ##### lookupIdempotencyKey()
 
 > **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
-
-**`Experimental`**
 
 Resolve an idempotency key to the taskId that claimed it, if any.
 The queue serves submit-time dedupe from its rehydrated in-memory
@@ -241,8 +240,6 @@ processes without holding the full record set.
 ##### remove()
 
 > **remove**(`taskIds`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Delete the named records — the retention-cap eviction path.
 
@@ -264,7 +261,7 @@ readonly `string`[]
 
 ### FileDelegationStore
 
-**`Experimental`**
+**`Stable`**
 
 JSON-file persistence for the delegation queue. Each write serializes
 the full record set and lands it atomically (write to a sibling tmp
@@ -286,8 +283,6 @@ and corruption-detectable without a database dependency.
 
 > **new FileDelegationStore**(`options`): [`FileDelegationStore`](#filedelegationstore)
 
-**`Experimental`**
-
 ###### Parameters
 
 ###### options
@@ -303,8 +298,6 @@ and corruption-detectable without a database dependency.
 ##### loadAll()
 
 > **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
-
-**`Experimental`**
 
 Read every persisted record. Called once, by
 `DelegationTaskQueue.restore`, before any write. A missing backing
@@ -322,8 +315,6 @@ file is an empty store; an unparseable one throws
 ##### upsert()
 
 > **upsert**(`record`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Insert or replace the record keyed by `record.taskId`.
 
@@ -344,8 +335,6 @@ Insert or replace the record keyed by `record.taskId`.
 ##### lookupIdempotencyKey()
 
 > **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
-
-**`Experimental`**
 
 Resolve an idempotency key to the taskId that claimed it, if any.
 The queue serves submit-time dedupe from its rehydrated in-memory
@@ -370,8 +359,6 @@ processes without holding the full record set.
 
 > **remove**(`taskIds`): `Promise`\<`void`\>
 
-**`Experimental`**
-
 Delete the named records — the retention-cap eviction path.
 
 ###### Parameters
@@ -392,7 +379,7 @@ readonly `string`[]
 
 ### InMemoryFeedbackStore
 
-**`Experimental`**
+**`Stable`**
 
 In-memory `FeedbackStore` — suitable for single-process use and tests.
 
@@ -406,8 +393,6 @@ In-memory `FeedbackStore` — suitable for single-process use and tests.
 
 > **new InMemoryFeedbackStore**(): [`InMemoryFeedbackStore`](#inmemoryfeedbackstore)
 
-**`Experimental`**
-
 ###### Returns
 
 [`InMemoryFeedbackStore`](#inmemoryfeedbackstore)
@@ -417,8 +402,6 @@ In-memory `FeedbackStore` — suitable for single-process use and tests.
 ##### put()
 
 > **put**(`event`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Append a new event. Never dedupes — every rating is its own event.
 
@@ -439,8 +422,6 @@ Append a new event. Never dedupes — every rating is its own event.
 ##### list()
 
 > **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
-
-**`Experimental`**
 
 List events filtered by `namespace`. When `namespace` is omitted, list
 across all namespaces. Returns events in insertion order.
@@ -469,7 +450,7 @@ across all namespaces. Returns events in insertion order.
 
 ### DelegationTaskQueue
 
-**`Experimental`**
+**`Stable`**
 
 In-process queue for async delegation tasks — submit, cancel, poll status, and read history.
 
@@ -478,8 +459,6 @@ In-process queue for async delegation tasks — submit, cancel, poll status, and
 ##### Constructor
 
 > **new DelegationTaskQueue**(`options?`): [`DelegationTaskQueue`](#delegationtaskqueue)
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -496,8 +475,6 @@ In-process queue for async delegation tasks — submit, cancel, poll status, and
 ##### restore()
 
 > `static` **restore**(`options?`): `Promise`\<[`DelegationTaskQueue`](#delegationtaskqueue)\>
-
-**`Experimental`**
 
 Construct a queue from previously-persisted state. Loads every record
 from `options.store`, rebuilds the idempotency index (so a re-submitted
@@ -525,8 +502,6 @@ The retention cap applies to the loaded set as well.
 
 > **submit**\<`Args`\>(`input`): [`SubmitOutput`](#submitoutput)
 
-**`Experimental`**
-
 Kick off a delegation in the background. Returns immediately. The
 `taskId` is queryable via `status` once this method returns. Throws
 the recorded `DelegationPersistenceError` once the store has failed —
@@ -551,8 +526,6 @@ the queue does not accept work it cannot journal.
 ##### status()
 
 > **status**(`taskId`, `opts?`): [`DelegationStatusResult`](#delegationstatusresult) \| `undefined`
-
-**`Experimental`**
 
 Snapshot the current state of a delegation. Returns `undefined` for
 unknown ids so callers can distinguish missing from terminal.
@@ -579,8 +552,6 @@ default so status polls stay light.
 
 > **cancel**(`taskId`): `boolean`
 
-**`Experimental`**
-
 Abort an in-flight delegation. Returns `false` if the task is unknown
 or already terminal. The underlying `run` function MUST honor the
 abort signal for the cancel to take effect; the queue marks the
@@ -600,8 +571,6 @@ UI on `running` forever.
 ##### attachFeedback()
 
 > **attachFeedback**(`taskId`, `snapshot`): `boolean`
-
-**`Experimental`**
 
 Append a feedback event to the matching delegation. Returns `false`
 when `ref` does not name a known taskId — the caller should still
@@ -626,8 +595,6 @@ kinds are not queue-bound).
 
 > **history**(`args?`): [`DelegationHistoryEntry`](#delegationhistoryentry)[]
 
-**`Experimental`**
-
 Query the recorded delegations. Returns entries newest-first (by
 `startedAt`), truncated to `limit`.
 
@@ -645,8 +612,6 @@ Query the recorded delegations. Returns entries newest-first (by
 
 > **flush**(): `Promise`\<`void`\>
 
-**`Experimental`**
-
 Await every journal write issued so far. Rejects with the recorded
 `DelegationPersistenceError` when any of them failed. Call before
 handing the store's backing file to another process.
@@ -658,8 +623,6 @@ handing the store's backing file to another process.
 ##### inflightCount()
 
 > **inflightCount**(): `number`
-
-**`Experimental`**
 
 Test-only — number of in-flight (non-terminal) records.
 
@@ -1015,15 +978,13 @@ Same gate as the streaming path: an unapproved candidate cannot win.
 
 ### DelegationStore
 
-**`Experimental`**
+**`Stable`**
 
 #### Methods
 
 ##### loadAll()
 
 > **loadAll**(): `Promise`\<[`DelegationRecord`](#delegationrecord)[]\>
-
-**`Experimental`**
 
 Read every persisted record. Called once, by
 `DelegationTaskQueue.restore`, before any write. A missing backing
@@ -1037,8 +998,6 @@ file is an empty store; an unparseable one throws
 ##### upsert()
 
 > **upsert**(`record`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Insert or replace the record keyed by `record.taskId`.
 
@@ -1055,8 +1014,6 @@ Insert or replace the record keyed by `record.taskId`.
 ##### lookupIdempotencyKey()
 
 > **lookupIdempotencyKey**(`key`): `Promise`\<`string` \| `undefined`\>
-
-**`Experimental`**
 
 Resolve an idempotency key to the taskId that claimed it, if any.
 The queue serves submit-time dedupe from its rehydrated in-memory
@@ -1077,8 +1034,6 @@ processes without holding the full record set.
 
 > **remove**(`taskIds`): `Promise`\<`void`\>
 
-**`Experimental`**
-
 Delete the named records — the retention-cap eviction path.
 
 ###### Parameters
@@ -1095,7 +1050,7 @@ readonly `string`[]
 
 ### FileDelegationStoreOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -1103,15 +1058,11 @@ readonly `string`[]
 
 > **filePath**: `string`
 
-**`Experimental`**
-
 Absolute path of the JSON state file. Parent directories are created on first write.
 
 ##### recoverCorrupt?
 
 > `optional` **recoverCorrupt?**: `boolean`
-
-**`Experimental`**
 
 When the state file exists but cannot be parsed, archive it to
 `<filePath>.corrupt-<timestamp>` and start empty instead of
@@ -1827,7 +1778,7 @@ machineId so workers don't compete with the orchestrator on the same VM.
 
 ### FeedbackEvent
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -1835,51 +1786,37 @@ machineId so workers don't compete with the orchestrator on the same VM.
 
 > **id**: `string`
 
-**`Experimental`**
-
 ##### refersTo
 
 > **refersTo**: [`FeedbackRefersTo`](#feedbackrefersto)
-
-**`Experimental`**
 
 ##### rating
 
 > **rating**: [`FeedbackRating`](#feedbackrating)
 
-**`Experimental`**
-
 ##### by
 
 > **by**: `"agent"` \| `"user"` \| `"downstream-judge"`
-
-**`Experimental`**
 
 ##### capturedAt
 
 > **capturedAt**: `string`
 
-**`Experimental`**
-
 ##### namespace?
 
 > `optional` **namespace?**: `string`
-
-**`Experimental`**
 
 ***
 
 ### FeedbackStore
 
-**`Experimental`**
+**`Stable`**
 
 #### Methods
 
 ##### put()
 
 > **put**(`event`): `Promise`\<`void`\>
-
-**`Experimental`**
 
 Append a new event. Never dedupes — every rating is its own event.
 
@@ -1896,8 +1833,6 @@ Append a new event. Never dedupes — every rating is its own event.
 ##### list()
 
 > **list**(`filter?`): `Promise`\<[`FeedbackEvent`](#feedbackevent)[]\>
-
-**`Experimental`**
 
 List events filtered by `namespace`. When `namespace` is omitted, list
 across all namespaces. Returns events in insertion order.
@@ -3166,7 +3101,7 @@ Stop a `serve` call. Subsequent requests are rejected.
 
 ### DelegationRecord
 
-**`Experimental`**
+**`Stable`**
 
 Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) —
 persistent stores round-trip records through `JSON.stringify`.
@@ -3177,81 +3112,55 @@ persistent stores round-trip records through `JSON.stringify`.
 
 > **taskId**: `string`
 
-**`Experimental`**
-
 ##### profile
 
 > **profile**: [`DelegationProfile`](#delegationprofile)
-
-**`Experimental`**
 
 ##### namespace?
 
 > `optional` **namespace?**: `string`
 
-**`Experimental`**
-
 ##### args
 
 > **args**: [`DelegationArgs`](#delegationargs)
-
-**`Experimental`**
 
 ##### status
 
 > **status**: [`DelegationStatus`](#delegationstatus)
 
-**`Experimental`**
-
 ##### progress?
 
 > `optional` **progress?**: [`DelegationProgress`](#delegationprogress)
-
-**`Experimental`**
 
 ##### result?
 
 > `optional` **result?**: [`DelegationResultPayload`](#delegationresultpayload)
 
-**`Experimental`**
-
 ##### error?
 
 > `optional` **error?**: [`DelegationError`](#delegationerror)
-
-**`Experimental`**
 
 ##### costUsd?
 
 > `optional` **costUsd?**: `number`
 
-**`Experimental`**
-
 ##### startedAt
 
 > **startedAt**: `string`
-
-**`Experimental`**
 
 ##### completedAt?
 
 > `optional` **completedAt?**: `string`
 
-**`Experimental`**
-
 ##### idempotencyKey?
 
 > `optional` **idempotencyKey?**: `string`
-
-**`Experimental`**
 
 Sha-prefix hash of the canonical input — used for idempotency lookup.
 
 ##### detachedSessionRef?
 
 > `optional` **detachedSessionRef?**: `string`
-
-**`Experimental`**
 
 Caller-generated deterministic id of a detached run (e.g. the sandbox
 session id a single-tick driver resumes by). Presence is what makes a
@@ -3262,15 +3171,11 @@ restart settles the record as failed.
 
 > **feedback**: [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)[]
 
-**`Experimental`**
-
 Feedback events keyed by this delegation's taskId.
 
 ##### trace?
 
 > `optional` **trace?**: [`DelegationTraceSpan`](#delegationtracespan)[]
-
-**`Experimental`**
 
 Compact loop-trace span tree teed from the delegation's run, oldest
 spans first. Appended when a delegated loop reaches `loop.ended` and
@@ -3281,15 +3186,11 @@ via `capDelegationTrace` — see `traceTruncated`.
 
 > `optional` **traceTruncated?**: `true`
 
-**`Experimental`**
-
 Present when oldest trace spans were dropped to honor the trace caps.
 
 ##### traceId?
 
 > `optional` **traceId?**: `string`
-
-**`Experimental`**
 
 Inherited trace identity (the queue's `traceContext` at submit time —
 typically `readTraceContextFromEnv()`), distinct from the span payload:
@@ -3300,15 +3201,13 @@ without parsing spans. Restored records keep their persisted identity.
 
 > `optional` **parentSpanId?**: `string`
 
-**`Experimental`**
-
 Caller span that dispatched the delegation, when one was inherited.
 
 ***
 
 ### SubmitInput
 
-**`Experimental`**
+**`Stable`**
 
 #### Type Parameters
 
@@ -3322,31 +3221,21 @@ Caller span that dispatched the delegation, when one was inherited.
 
 > **profile**: [`DelegationProfile`](#delegationprofile)
 
-**`Experimental`**
-
 ##### args
 
 > **args**: `Args`
-
-**`Experimental`**
 
 ##### namespace?
 
 > `optional` **namespace?**: `string`
 
-**`Experimental`**
-
 ##### idempotencyKey?
 
 > `optional` **idempotencyKey?**: `string`
 
-**`Experimental`**
-
 ##### detachedSessionRef?
 
 > `optional` **detachedSessionRef?**: `string`
-
-**`Experimental`**
 
 Records the detached-run resume key on the new record. The submitted
 `run` function still executes in-process exactly as without it — the
@@ -3356,8 +3245,6 @@ hands it to the `resumeDelegate` seam instead of failing the record.
 ##### run
 
 > **run**: (`ctx`) => `Promise`\<[`CoderOutput`](#coderoutput) \| [`UiAuditorDelegationOutput`](#uiauditordelegationoutput) \| [`ResearchOutputShape`](#researchoutputshape)\>
-
-**`Experimental`**
 
 Runs the underlying delegation. The queue passes a fresh `AbortSignal`
 and a `report` channel for incremental progress updates. The function
@@ -3378,7 +3265,7 @@ queue wraps it with the profile tag.
 
 ### DelegationRunContext
 
-**`Experimental`**
+**`Stable`**
 
 Context handed to a `SubmitInput.run` function.
 
@@ -3388,21 +3275,15 @@ Context handed to a `SubmitInput.run` function.
 
 > **signal**: `AbortSignal`
 
-**`Experimental`**
-
 ##### detachedSessionRef?
 
 > `optional` **detachedSessionRef?**: `string`
-
-**`Experimental`**
 
 The `detachedSessionRef` recorded at submit, when one was supplied.
 
 ##### traceEmitter?
 
 > `optional` **traceEmitter?**: [`LoopTraceEmitter`](runtime.md#looptraceemitter)
-
-**`Experimental`**
 
 Per-delegation loop-trace sink, always provided by the queue. Events
 emitted here are journaled onto the record as a compact span tree
@@ -3418,8 +3299,6 @@ contexts stay source-compatible.
 
 > **report**(`progress`): `void`
 
-**`Experimental`**
-
 ###### Parameters
 
 ###### progress
@@ -3433,8 +3312,6 @@ contexts stay source-compatible.
 ##### updateDetachedSessionRef()
 
 > **updateDetachedSessionRef**(`ref`): `void`
-
-**`Experimental`**
 
 Replace the record's detached-run resume key — the detached dispatch path
 calls this once the sandbox id is known so the persisted ref names a
@@ -3456,7 +3333,7 @@ ref — erasing the resume key would silently make the record unresumable.
 
 ### SubmitOutput
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -3464,13 +3341,9 @@ ref — erasing the resume key would silently make the record unresumable.
 
 > **taskId**: `string`
 
-**`Experimental`**
-
 ##### reused
 
 > **reused**: `boolean`
-
-**`Experimental`**
 
 True when a prior matching `idempotencyKey` returned an existing record.
 
@@ -3478,15 +3351,13 @@ True when a prior matching `idempotencyKey` returned an existing record.
 
 ### DelegationResumeContext
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
 ##### signal
 
 > **signal**: `AbortSignal`
-
-**`Experimental`**
 
 Fired by `cancel(taskId)`; the driver should stop the remote run when it can.
 
@@ -3495,8 +3366,6 @@ Fired by `cancel(taskId)`; the driver should stop the remote run when it can.
 ##### report()
 
 > **report**(`progress`): `void`
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -3512,7 +3381,7 @@ Fired by `cancel(taskId)`; the driver should stop the remote run when it can.
 
 ### DelegationResumeDriver
 
-**`Experimental`**
+**`Stable`**
 
 Re-attaches restored in-flight records to their detached runs. The queue
 calls `tick` repeatedly — it never awaits a whole run — so the driver can
@@ -3527,8 +3396,6 @@ terminal and are not retried.
 
 > `optional` **intervalMs?**: `number`
 
-**`Experimental`**
-
 Delay between `running` ticks, in milliseconds. Default 5000.
 
 #### Methods
@@ -3536,8 +3403,6 @@ Delay between `running` ticks, in milliseconds. Default 5000.
 ##### tick()
 
 > **tick**(`task`, `ctx`): `Promise`\<[`DelegationResumeTick`](#delegationresumetick)\>
-
-**`Experimental`**
 
 ###### Parameters
 
@@ -3563,15 +3428,13 @@ Delay between `running` ticks, in milliseconds. Default 5000.
 
 ### DelegationTaskQueueOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
 ##### generateId?
 
 > `optional` **generateId?**: () => `string`
-
-**`Experimental`**
 
 ID generator override; default `randomTaskId`.
 
@@ -3583,8 +3446,6 @@ ID generator override; default `randomTaskId`.
 
 > `optional` **now?**: () => `string`
 
-**`Experimental`**
-
 Clock override; default `() => new Date().toISOString()`.
 
 ###### Returns
@@ -3594,8 +3455,6 @@ Clock override; default `() => new Date().toISOString()`.
 ##### store?
 
 > `optional` **store?**: [`DelegationStore`](#delegationstore)
-
-**`Experimental`**
 
 Journal for record mutations and the `restore()` load source. Default
 `InMemoryDelegationStore` — observably identical to an unjournaled
@@ -3607,15 +3466,11 @@ constructing with `new` never loads prior state.
 
 > `optional` **resumeDelegate?**: [`DelegationResumeDriver`](#delegationresumedriver)
 
-**`Experimental`**
-
 Resume seam for restored in-flight records that carry a `detachedSessionRef`.
 
 ##### maxTerminalRecords?
 
 > `optional` **maxTerminalRecords?**: `number`
-
-**`Experimental`**
 
 Maximum number of terminal (completed | failed | cancelled) records
 retained; the oldest (by `completedAt`) are evicted from memory and
@@ -3624,8 +3479,6 @@ store once the cap is exceeded. Default unbounded.
 ##### onPersistError?
 
 > `optional` **onPersistError?**: (`error`) => `void`
-
-**`Experimental`**
 
 Observes the first store failure. After it fires, the queue refuses
 new submissions and `flush()` rejects with the same error. Default:
@@ -3645,8 +3498,6 @@ degrading durable mode to memory-only would lie to the caller.
 ##### traceContext?
 
 > `optional` **traceContext?**: [`TraceContext`](#tracecontext-2)
-
-**`Experimental`**
 
 Inherited trace identity stamped on every submitted record
 (`traceId` / `parentSpanId`). The bin passes
@@ -4250,7 +4101,7 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 
 ### DelegateFeedbackHandlerOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -4258,19 +4109,13 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 
 > **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
 
-**`Experimental`**
-
 ##### store
 
 > **store**: [`FeedbackStore`](#feedbackstore)
 
-**`Experimental`**
-
 ##### generateId?
 
 > `optional` **generateId?**: () => `string`
-
-**`Experimental`**
 
 ###### Returns
 
@@ -4279,8 +4124,6 @@ nobody is left to read a finding, and analysts spend real compute). Returns the 
 ##### now?
 
 > `optional` **now?**: () => `string`
-
-**`Experimental`**
 
 ###### Returns
 
@@ -4360,7 +4203,7 @@ What killed a delegation, projected for the calling agent: the rejection's name 
 
 ### DelegateHandlerOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
@@ -4368,15 +4211,11 @@ What killed a delegation, projected for the calling agent: the rejection's name 
 
 > **router**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
 
-**`Experimental`**
-
 The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained).
 
 ##### supervisorProfile
 
 > **supervisorProfile**: `AgentProfile`
-
-**`Experimental`**
 
 Exact executable supervisor identity selected by the trusted composition root.
 
@@ -4384,15 +4223,11 @@ Exact executable supervisor identity selected by the trusted composition root.
 
 > **backend**: [`ExecutorConfig`](runtime.md#executorconfig)
 
-**`Experimental`**
-
 WHERE the authored workers run. Required for `supervise()` to spawn anything.
 
 ##### deliverable?
 
 > `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
-
-**`Experimental`**
 
 The completion oracle the authored workers settle against (settled ⟺ delivered).
 
@@ -4400,37 +4235,31 @@ The completion oracle the authored workers settle against (settled ⟺ delivered
 
 > `optional` **allowedModels?**: readonly `string`[]
 
-**`Experimental`**
-
 Restrict the run to this subset of models.
 
 ***
 
 ### DelegationHistoryHandlerOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
 ##### queue
 
 > **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
-
-**`Experimental`**
 
 ***
 
 ### DelegationStatusHandlerOptions
 
-**`Experimental`**
+**`Stable`**
 
 #### Properties
 
 ##### queue
 
 > **queue**: [`DelegationTaskQueue`](#delegationtaskqueue)
-
-**`Experimental`**
 
 ***
 
@@ -5659,7 +5488,7 @@ with no translation step.
 
 > **DelegationArgs** = [`DelegateCodeArgs`](#delegatecodeargs) \| [`DelegateResearchArgs`](#delegateresearchargs) \| [`DelegateUiAuditArgs`](#delegateuiauditargs)
 
-**`Experimental`**
+**`Stable`**
 
 Arguments accepted by the durable delegation queue.
 
@@ -5669,7 +5498,7 @@ Arguments accepted by the durable delegation queue.
 
 > **DelegationResumeTick** = \{ `state`: `"running"`; \} \| \{ `state`: `"completed"`; `output`: [`DelegationResultPayload`](#delegationresultpayload)\[`"output"`\]; `costUsd?`: `number`; \} \| \{ `state`: `"failed"`; `error`: [`DelegationError`](#delegationerror); \}
 
-**`Experimental`**
+**`Stable`**
 
 One observation of a detached run, mapped 1:1 from a single-tick driver
 (e.g. the sandbox SDK's `driveTurn`, which reports
@@ -5866,7 +5695,7 @@ Env var overriding the served display name (default 'agent-memory').
 
 > `const` **DELEGATE\_FEEDBACK\_TOOL\_NAME**: `"delegate_feedback"` = `'delegate_feedback'`
 
-**`Experimental`**
+**`Stable`**
 
 MCP tool name for the `delegate_feedback` feedback-recording tool.
 
@@ -5876,7 +5705,7 @@ MCP tool name for the `delegate_feedback` feedback-recording tool.
 
 > `const` **DELEGATE\_FEEDBACK\_DESCRIPTION**: `string`
 
-**`Experimental`**
+**`Stable`**
 
 Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest.
 
@@ -5886,7 +5715,7 @@ Human-readable description of the `delegate_feedback` MCP tool, injected into th
 
 > `const` **DELEGATE\_FEEDBACK\_INPUT\_SCHEMA**: `object`
 
-**`Experimental`**
+**`Stable`**
 
 JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields).
 
@@ -6314,7 +6143,7 @@ JSON Schema for `delegate_ui_audit` tool arguments (`workspaceDir`, `routes`, op
 
 > `const` **DELEGATE\_TOOL\_NAME**: `"delegate"` = `'delegate'`
 
-**`Experimental`**
+**`Stable`**
 
 MCP tool name for the `delegate` generic-delegation tool.
 
@@ -6324,7 +6153,7 @@ MCP tool name for the `delegate` generic-delegation tool.
 
 > `const` **DELEGATE\_DESCRIPTION**: `string`
 
-**`Experimental`**
+**`Stable`**
 
 Human-readable description of the `delegate` MCP tool, injected into the tool manifest.
 
@@ -6334,7 +6163,7 @@ Human-readable description of the `delegate` MCP tool, injected into the tool ma
 
 > `const` **DELEGATE\_INPUT\_SCHEMA**: `object`
 
-**`Experimental`**
+**`Stable`**
 
 JSON Schema for `delegate` tool arguments (`intent` + optional trace id).
 
@@ -6386,7 +6215,7 @@ JSON Schema for `delegate` tool arguments (`intent` + optional trace id).
 
 > `const` **DELEGATION\_HISTORY\_TOOL\_NAME**: `"delegation_history"` = `'delegation_history'`
 
-**`Experimental`**
+**`Stable`**
 
 MCP tool name for the `delegation_history` read-past-delegations tool.
 
@@ -6396,7 +6225,7 @@ MCP tool name for the `delegation_history` read-past-delegations tool.
 
 > `const` **DELEGATION\_HISTORY\_DESCRIPTION**: `string`
 
-**`Experimental`**
+**`Stable`**
 
 Human-readable description of the `delegation_history` MCP tool, injected into the tool manifest.
 
@@ -6406,7 +6235,7 @@ Human-readable description of the `delegation_history` MCP tool, injected into t
 
 > `const` **DELEGATION\_HISTORY\_INPUT\_SCHEMA**: `object`
 
-**`Experimental`**
+**`Stable`**
 
 JSON Schema for `delegation_history` tool arguments (optional `namespace`, `profile`, `since`, `limit`).
 
@@ -6478,7 +6307,7 @@ JSON Schema for `delegation_history` tool arguments (optional `namespace`, `prof
 
 > `const` **DELEGATION\_STATUS\_TOOL\_NAME**: `"delegation_status"` = `'delegation_status'`
 
-**`Experimental`**
+**`Stable`**
 
 MCP tool name for the `delegation_status` synchronous-poll tool.
 
@@ -6488,7 +6317,7 @@ MCP tool name for the `delegation_status` synchronous-poll tool.
 
 > `const` **DELEGATION\_STATUS\_DESCRIPTION**: `string`
 
-**`Experimental`**
+**`Stable`**
 
 Human-readable description of the `delegation_status` MCP tool, injected into the tool manifest.
 
@@ -6498,7 +6327,7 @@ Human-readable description of the `delegation_status` MCP tool, injected into th
 
 > `const` **DELEGATION\_STATUS\_INPUT\_SCHEMA**: `object`
 
-**`Experimental`**
+**`Stable`**
 
 JSON Schema for `delegation_status` tool arguments (`taskId` + optional `includeTrace`).
 
@@ -6938,7 +6767,7 @@ cross-sandbox copy step.
 
 > **eventToSnapshot**(`event`): [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)
 
-**`Experimental`**
+**`Stable`**
 
 Project a `FeedbackEvent` down to the snapshot shape carried on
 `delegation_history` entries.
@@ -7216,7 +7045,7 @@ client writes to it) and the server-side stream (the test reads from it).
 
 > **hashIdempotencyInput**(`value`): `string`
 
-**`Experimental`**
+**`Stable`**
 
 Best-effort stable hash for use as `idempotencyKey`. Not cryptographic;
 collisions only affect dedupe, never correctness.
@@ -7273,7 +7102,7 @@ Build the driver's MCP tools over a live scope.
 
 > **validateDelegateFeedbackArgs**(`raw`): [`DelegateFeedbackArgs`](#delegatefeedbackargs)
 
-**`Experimental`**
+**`Stable`**
 
 Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws `TypeError` on bad input.
 
@@ -7293,7 +7122,7 @@ Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws 
 
 > **createDelegateFeedbackHandler**(`options`): (`raw`) => `Promise`\<[`DelegateFeedbackResult`](#delegatefeedbackresult)\>
 
-**`Experimental`**
+**`Stable`**
 
 Build the MCP tool handler that persists feedback events and attaches them to delegation records.
 
@@ -7353,7 +7182,7 @@ Build the MCP tool handler that validates input, deduplicates via idempotency ke
 
 > **validateDelegateArgs**(`raw`): [`DelegateArgs`](#delegateargs)
 
-**`Experimental`**
+**`Stable`**
 
 Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input.
 
@@ -7393,7 +7222,7 @@ delivered output with its conserved cost.
 
 > **validateDelegationHistoryArgs**(`raw`): [`DelegationHistoryArgs`](#delegationhistoryargs)
 
-**`Experimental`**
+**`Stable`**
 
 Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws `TypeError` on bad input.
 
@@ -7413,7 +7242,7 @@ Parse and validate raw MCP tool input into typed `DelegationHistoryArgs`; throws
 
 > **createDelegationHistoryHandler**(`options`): (`raw`) => `Promise`\<[`DelegationHistoryResult`](#delegationhistoryresult)\>
 
-**`Experimental`**
+**`Stable`**
 
 Build the MCP tool handler that reads filtered past delegations from a `DelegationTaskQueue`.
 
@@ -7433,7 +7262,7 @@ Build the MCP tool handler that reads filtered past delegations from a `Delegati
 
 > **validateDelegationStatusArgs**(`raw`): [`DelegationStatusArgs`](#delegationstatusargs)
 
-**`Experimental`**
+**`Stable`**
 
 Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input.
 
@@ -7453,7 +7282,7 @@ Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws 
 
 > **createDelegationStatusHandler**(`options`): (`raw`) => `Promise`\<[`DelegationStatusResult`](#delegationstatusresult)\>
 
-**`Experimental`**
+**`Stable`**
 
 Build the MCP tool handler that polls a `DelegationTaskQueue` for task status.
 

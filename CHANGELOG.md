@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.130.0
+
+### Stability contract + first graduation
+
+[docs/STABILITY.md](./docs/STABILITY.md) defines what `@stable` / `@experimental` promise consumers, the graduation bar (substantive tests + a curated-doc section + at least one real consumer + a 30-day quiet API + a CHANGELOG graduation entry), and the demotion/removal policy. A symbol tag wins over its module tag; an untagged symbol in an untagged module is experimental by default. This entry is the initial graduation: each family below is promoted at its current post-0.129.0 exact-profile shape with the evidence that passed the bar, and the 30-day breaking-change clock applies to every `@stable` symbol from this release forward.
+
+Promoted `@experimental` → `@stable` (per-symbol and module-level):
+
+- `runAgentRounds` + the kernel contract (`Driver`, `Validator`, `OutputAdapter`, `Iteration`, `LoopResult`, `AgentRunSpec`, `SandboxClient`, `ExecCtx`, `LoopTraceEmitter`, `RunAgentRoundsOptions`, and the trace-event/provenance closure in `src/runtime/types.ts`) — tests: `tests/kernel/` (`run-loop-harden`, `loop-dispatch` + the kernel suite); doc: `docs/canonical-api.md`; consumers: `bench/src/research-shot.ts`, `bench/src/corpus.ts`.
+- `supervise` / `Scope` / `Supervisor` (+ `createScope` / `createSupervisor` via their module tags) — tests: `tests/kernel/supervise.test.ts` (1,878 lines) + `coordination-driver` / `coordination-mcp`; docs: `docs/execution-model.md`, `docs/canonical-api.md`; consumers: `bench/src/gate.ts`, `examples/supervise`, `examples/supervisor-loop`.
+- personify combinators `pipeline` / `fanout` / `loopUntil` / `panel` / `verify` / `widen` + `definePersona` / `runPersonified` — tests: `tests/kernel/personify.test.ts` (797 lines); doc: `docs/canonical-api.md`; consumers: `examples/graphs`, `bench/src/gate.ts`.
+- the spawn journal family (`InMemorySpawnJournal`, `FileSpawnJournal`, `InMemoryResultBlobStore`, `FileResultBlobStore`, `replaySpawnTree`, the `SpawnForest*` views) — tests: `tests/runtime/spawn-journal-replay-identity.test.ts` + the kernel suite's journal assertions; doc: `docs/canonical-api.md`; consumers: `bench/src/gate.ts`, `examples/recursive-supervisor`.
+- the `/mcp` delegation queue + stores + status tools (`DelegationTaskQueue`, the delegation store, the feedback store, `delegate`, `delegation_status`, `delegation_history`, `delegate_feedback`) — tests: `tests/mcp/` (`task-queue`, `task-queue-durable`, `delegation-store`, `delegation-status`, `delegation-history`, `delegate`, `delegate-feedback`); doc: `docs/agent-managed-compute/current-state.md`; consumers: the shipped `agent-runtime-mcp` server (`src/mcp/server.ts`) + `examples/supervisor-loop/run-supervisor-mcp.ts`.
+- `/intelligence` (all six module-tagged modules: the barrel, `capability`, `delivery`, `effort`, `resolver`, `with-intelligence`) — tests: in-package (`capability` / `delivery` / `intelligence` / `with-intelligence`, ~1,969 lines); doc: `docs/intelligence-sdk.md`, whose status has been "shipped" since it landed; consumers: `examples/intelligence-recommend`, `examples/intelligence-webcode`, `examples/intelligence-drop-in`, `examples/self-improving-loop`.
+- the improvement generators (`improve`, the agentic generator, the improvement driver, the raw-trace distiller, the reflective generator) — tests: `src/improvement/improve.test.ts` (919 lines) + the in-package suite; doc: `docs/canonical-api.md`; consumers: `bench/src/swe-bench-env.ts`, `examples/improve`.
+- `streamAgentTurn` / `collectAgentTurn` + the turn types (`AgentTurnBackend`, `AgentTurnInput`, `AgentTurnUsage`, `CollectedAgentTurn`, `StreamAgentTurnOptions`) — tests: `src/runtime/stream-agent-turn.test.ts` (690 lines); doc: `docs/canonical-api.md`; consumers: `bench/src/router-turn.ts`, `bench/src/benchmarks/appworld.ts`, `examples/chat-handler`, `examples/runtime-run`.
+
+Kept `@experimental`, each with the failing check:
+
+- `Scope.resume` / `SupervisorOpts.resume` and `EventBus` / `createEventBus`: same-process replay only — live supervised-tree recovery after a coordinator restart and the durable cross-process mailbox are listed Not implemented in `docs/agent-managed-compute/README.md`.
+- The detached/worktree delegation leaves (`src/mcp/delegates.ts`, `detached-coder`, `detached-turn`, the worktree harnesses, `local-harness`): the module doc records the unfinished `driveTurn`-over-a-detached-session resume path.
+- The coordination MCP (`src/mcp/tools/coordination.ts`, `src/runtime/supervise/coordination-mcp.ts`): authenticated remote coordination is Not implemented.
+- `LoopLineageOptions` / `RunAgentRoundsOptions.lineage` and the member-level extension points `Driver.selectWinner`, `SandboxClient.criuStatus`, `ExecCtx.onSandboxEvent`: opt-in surfaces whose platform contracts (session continuity, CRIU fork) are still being proven.
+
+Newly tagged `@experimental` (previously untagged, unfinished):
+
+- `src/agent/define-agent.ts` — manifests validate and load, but `runtime.act` is not wired end-to-end into the eval path (`unimplementedAgentRun` is the shipped default).
+- `src/runtime/strategy-evolution.ts` — the multi-generation strategy search, a research surface.
+- the `/candidate-execution` subpath barrel.
+- the supervisor restart-recovery and event-bus durability members listed under "kept" above, now tagged explicitly at the symbol level.
+
+Maturity now renders in the generated reference: `tsdoc.json` extends TypeDoc's base tag definitions, and each subpath barrel carries `@module`, so `docs/api/<subpath>.md` shows the module-level `Stable` / `Experimental` badge directly under the page title. Module-level tags previously rendered nowhere in `docs/api`.
+
 ## 0.129.0
 
 - Require Agent Eval 0.144.4, Agent Interface 0.43.1, Agent Knowledge 7.0.11, and Sandbox 0.19.1 as one dependency set, and route the official-optimizer callback through Runtime's exact `AgentProfile` execution path.

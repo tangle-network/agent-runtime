@@ -17,6 +17,7 @@
  *
  * The runnable form is the `agent-runtime-top` bin: `agent-runtime-top <root> [--once] [--no-color]`.
  *
+ * @module
  * @experimental
  */
 

@@ -17,7 +17,7 @@
  * touching the blob store, so the order in which rehydration `get`s resolve can never
  * reorder the replayed `Settled[]`; the result is identical regardless of blob latency.
  *
- * @experimental
+ * @stable
  */
 
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
@@ -108,6 +108,8 @@ export interface SpawnForest {
  * In-memory `ResultBlobStore`. Content-addressed: `put` verifies the supplied
  * `outRef` matches the artifact's hash so a stale/forged ref fails loud rather than
  * silently rehydrating the wrong payload. Idempotent on an identical re-put.
+ *
+ * @stable
  */
 export class InMemoryResultBlobStore implements ResultBlobStore {
   private readonly blobs = new Map<string, unknown>()
@@ -126,6 +128,8 @@ export class InMemoryResultBlobStore implements ResultBlobStore {
  * FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a
  * filesystem-safe encoding of the `outRef` (`sha256:<hex>` → `sha256-<hex>.json`).
  * `put` fsyncs so a crash between writes never loses an acknowledged blob.
+ *
+ * @stable
  */
 export class FileResultBlobStore implements ResultBlobStore {
   constructor(private readonly dir: string) {}
@@ -178,6 +182,8 @@ function assertContentAddress(outRef: string, artifact: unknown): void {
  *  - an event before `beginTree` is a corrupted tree (fail loud),
  *  - a duplicate `seq` within a tree is a corrupted cursor (fail loud) — two
  *    settlements cannot share the cursor position replay orders by.
+ *
+ * @stable
  */
 export class InMemorySpawnJournal implements SpawnJournal {
   private readonly trees = new Map<NodeId, { begunAt: string; events: SpawnEvent[] }>()
@@ -217,6 +223,8 @@ export class InMemorySpawnJournal implements SpawnJournal {
  * filtering by `root`, and applies the same begin-precedes-events + unique-seq
  * corruption guards as the in-memory impl. Each append fsyncs so a crash between
  * writes never loses an acknowledged event.
+ *
+ * @stable
  */
 export class FileSpawnJournal implements SpawnJournal {
   private appendTail: Promise<void> = Promise.resolve()
@@ -502,6 +510,8 @@ function outsideCursorNamespace(ev: SpawnEvent): boolean {
  * resolves. `at` (wall-clock) is never a replay input. Fail loud on a tree that was
  * never begun, a settled-done event missing its `outRef`, or a blob the store can't
  * rehydrate — a silent gap would let `act` branch on the wrong evidence.
+ *
+ * @stable
  */
 export async function replaySpawnTree(
   journal: SpawnJournal,

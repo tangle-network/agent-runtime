@@ -529,6 +529,7 @@ All 29 live in [`examples/`](./examples).
 - New here? [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
 - [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
 - [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
+- [`docs/STABILITY.md`](./docs/STABILITY.md), what `@stable` / `@experimental` promise you, and how a symbol graduates.
 - [`docs/design.md`](./docs/design.md), the design philosophy and the internal research docs behind it: background reading, not required to use the package.
 - [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
 

@@ -8,7 +8,7 @@
  * to the matching queue record so `delegation_history` surfaces it
  * inline without a join.
  *
- * @experimental
+ * @stable
  */
 
 import type { FeedbackStore } from '../feedback-store'
@@ -21,10 +21,10 @@ import type {
   FeedbackRefersTo,
 } from '../types'
 
-/** MCP tool name for the `delegate_feedback` feedback-recording tool. @experimental */
+/** MCP tool name for the `delegate_feedback` feedback-recording tool. @stable */
 export const DELEGATE_FEEDBACK_TOOL_NAME = 'delegate_feedback'
 
-/** Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest. @experimental */
+/** Human-readable description of the `delegate_feedback` MCP tool, injected into the tool manifest. @stable */
 export const DELEGATE_FEEDBACK_DESCRIPTION = [
   'Record feedback on a delegation, artifact, or outcome. Synchronous — the',
   'event is durably stored when this call returns.',
@@ -48,7 +48,7 @@ export const DELEGATE_FEEDBACK_DESCRIPTION = [
   'delegation record so delegation_history surfaces it inline.',
 ].join('\n')
 
-/** JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields). @experimental */
+/** JSON Schema for `delegate_feedback` tool arguments (`refersTo`, `rating`, `by`, optional fields). @stable */
 export const DELEGATE_FEEDBACK_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -79,7 +79,7 @@ export const DELEGATE_FEEDBACK_INPUT_SCHEMA = {
   additionalProperties: false,
 } as const
 
-/** Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws `TypeError` on bad input. @experimental */
+/** Parse and validate raw MCP tool input into typed `DelegateFeedbackArgs`; throws `TypeError` on bad input. @stable */
 export function validateDelegateFeedbackArgs(raw: unknown): DelegateFeedbackArgs {
   if (raw === null || typeof raw !== 'object') {
     throw new TypeError('delegate_feedback: arguments must be an object')
@@ -148,7 +148,7 @@ function validateRating(raw: unknown): FeedbackRating {
   return rating
 }
 
-/** @experimental */
+/** @stable */
 export interface DelegateFeedbackHandlerOptions {
   queue: DelegationTaskQueue
   store: FeedbackStore
@@ -156,7 +156,7 @@ export interface DelegateFeedbackHandlerOptions {
   now?: () => string
 }
 
-/** Build the MCP tool handler that persists feedback events and attaches them to delegation records. @experimental */
+/** Build the MCP tool handler that persists feedback events and attaches them to delegation records. @stable */
 export function createDelegateFeedbackHandler(
   options: DelegateFeedbackHandlerOptions,
 ): (raw: unknown) => Promise<DelegateFeedbackResult> {

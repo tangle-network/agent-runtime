@@ -28,7 +28,7 @@
  *         cached-result.json              ← the cell's score + artifact ref
  *         <artifacts…>                    ← whatever the dispatch wrote
  *
- * @experimental
+ * @stable
  */
 
 import { type Dirent, existsSync, readdirSync } from 'node:fs'

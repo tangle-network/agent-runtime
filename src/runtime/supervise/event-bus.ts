@@ -54,6 +54,9 @@ export interface BusStats {
   readonly byKind: Readonly<Record<string, number>>
 }
 
+/** The child→parent coordination bus surface: publish, priority-ordered pull, pass-through subscribe, history, and stats.
+ * @experimental In-process only — the durable cross-process mailbox this interface is designed
+ * to admit is not implemented (docs/agent-managed-compute/README.md). */
 export interface EventBus<E extends BusEvent> {
   /** Stamp the event, await every subscriber in order, then make it pull-visible. A subscriber
    *  failure leaves the event invisible and retrying the SAME event object reuses the exact stamp.
@@ -73,7 +76,8 @@ export interface EventBus<E extends BusEvent> {
   stats(): BusStats
 }
 
-/** Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. */
+/** Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane.
+ * @experimental In-process queue; durability is a transport swap that does not exist yet. */
 export function createEventBus<E extends BusEvent>(now: () => number = Date.now): EventBus<E> {
   const queue: BusRecord<E>[] = []
   const log: BusRecord<E>[] = []

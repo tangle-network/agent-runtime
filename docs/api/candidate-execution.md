@@ -6,6 +6,11 @@
 
 # candidate-execution
 
+**`Experimental`**
+
+`@tangle-network/agent-runtime/candidate-execution` — sealed candidate bundles
+plus the isolated prepare/execute/finalize/recover lifecycle around them.
+
 ## References
 
 ### AgentCandidateCodeSource

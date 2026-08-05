@@ -32,6 +32,7 @@ These are internal working documents: design theses, research narrative, and roa
 |---|---|---|
 | [../README.md](../README.md) | API entry point | Install, the loop API, the plain-language framing, the exported subpaths. Start HERE. |
 | [canonical-api.md](./canonical-api.md) | API spine + decision table | The conceptual spine + the "I want to ___ → use ___" anti-reinvention matrix of LOCAL symbols. Per-symbol signatures are generated into [api/](./api/). |
+| [STABILITY.md](./STABILITY.md) | stability contract | What `@stable` / `@experimental` promise consumers, the graduation bar, and the demotion/removal policy. |
 | [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
 | [glossary.md](./glossary.md) | canonical vocabulary | One definition per term, grounded to `file:line`; drifted synonyms flagged. |
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |

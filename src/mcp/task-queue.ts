@@ -23,7 +23,7 @@
  * `resumeDelegate` seam (when they carry a `detachedSessionRef`) or fail
  * loud with a driver-restart error so `delegation_status` tells the truth.
  *
- * @experimental
+ * @stable
  */
 
 import { ValidationError } from '../errors'
@@ -55,14 +55,14 @@ import type {
   DelegationStatusResult,
 } from './types'
 
-/** Arguments accepted by the durable delegation queue. @experimental */
+/** Arguments accepted by the durable delegation queue. @stable */
 export type DelegationArgs = DelegateCodeArgs | DelegateResearchArgs | DelegateUiAuditArgs
 
 /**
  * Must be JSON-safe end to end (`args`, `result`, `error`, `feedback`) —
  * persistent stores round-trip records through `JSON.stringify`.
  *
- * @experimental
+ * @stable
  */
 export interface DelegationRecord {
   taskId: string
@@ -107,7 +107,7 @@ export interface DelegationRecord {
   parentSpanId?: string
 }
 
-/** @experimental */
+/** @stable */
 export interface SubmitInput<Args extends DelegationArgs> {
   profile: DelegationProfile
   args: Args
@@ -129,7 +129,7 @@ export interface SubmitInput<Args extends DelegationArgs> {
   run: (ctx: DelegationRunContext) => Promise<DelegationResultPayload['output']>
 }
 
-/** @experimental Context handed to a `SubmitInput.run` function. */
+/** @stable Context handed to a `SubmitInput.run` function. */
 export interface DelegationRunContext {
   signal: AbortSignal
   report(progress: DelegationProgress): void
@@ -155,7 +155,7 @@ export interface DelegationRunContext {
   traceEmitter?: LoopTraceEmitter
 }
 
-/** @experimental */
+/** @stable */
 export interface SubmitOutput {
   taskId: string
   /** True when a prior matching `idempotencyKey` returned an existing record. */
@@ -168,14 +168,14 @@ export interface SubmitOutput {
  * completed | running | failed per pass). `running` schedules another tick
  * after `intervalMs`; `completed` / `failed` settle the record.
  *
- * @experimental
+ * @stable
  */
 export type DelegationResumeTick =
   | { state: 'running' }
   | { state: 'completed'; output: DelegationResultPayload['output']; costUsd?: number }
   | { state: 'failed'; error: DelegationError }
 
-/** @experimental */
+/** @stable */
 export interface DelegationResumeContext {
   /** Fired by `cancel(taskId)`; the driver should stop the remote run when it can. */
   signal: AbortSignal
@@ -190,7 +190,7 @@ export interface DelegationResumeContext {
  * thrown error settles the record as failed; `failed` ticks are treated as
  * terminal and are not retried.
  *
- * @experimental
+ * @stable
  */
 export interface DelegationResumeDriver {
   tick(
@@ -201,7 +201,7 @@ export interface DelegationResumeDriver {
   intervalMs?: number
 }
 
-/** @experimental */
+/** @stable */
 export interface DelegationTaskQueueOptions {
   /** ID generator override; default `randomTaskId`. */
   generateId?: () => string
@@ -240,7 +240,7 @@ export interface DelegationTaskQueueOptions {
   traceContext?: TraceContext
 }
 
-/** In-process queue for async delegation tasks — submit, cancel, poll status, and read history. @experimental */
+/** In-process queue for async delegation tasks — submit, cancel, poll status, and read history. @stable */
 export class DelegationTaskQueue {
   private readonly records = new Map<string, DelegationRecord>()
   private readonly controllers = new Map<string, AbortController>()
@@ -802,7 +802,7 @@ function randomTaskId(): string {
  * Best-effort stable hash for use as `idempotencyKey`. Not cryptographic;
  * collisions only affect dedupe, never correctness.
  *
- * @experimental
+ * @stable
  */
 export function hashIdempotencyInput(value: unknown): string {
   let str: string

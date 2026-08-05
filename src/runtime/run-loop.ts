@@ -21,7 +21,7 @@
  * profile), how outputs are decoded (output adapter), how outputs are
  * scored (validator), or topology (driver).
  *
- * @experimental
+ * @stable
  */
 
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
@@ -70,7 +70,7 @@ import {
 const DEFAULT_MAX_ITERATIONS = 10
 const DEFAULT_MAX_CONCURRENCY = 4
 
-/** @experimental */
+/** @stable */
 export interface RunAgentRoundsOptions<Task, Output, Decision> {
   driver: Driver<Task, Output, Decision>
   /**
@@ -147,7 +147,7 @@ export interface RunAgentRoundsOptions<Task, Output, Decision> {
  * folding the results back in until the model stops calling tools. No sandboxes, no
  * rounds, no winner selection.
  *
- * @experimental
+ * @stable
  */
 export async function runAgentRounds<Task, Output, Decision>(
   options: RunAgentRoundsOptions<Task, Output, Decision>,
