@@ -13,6 +13,10 @@
  * throws a structured error if any required surface is missing on
  * disk. The cost is one filesystem stat per surface (cheap); the
  * benefit is a manifest that can't ship broken.
+ *
+ * @experimental Manifests validate and load, but `runtime.act` is not yet wired
+ * end-to-end into the substrate's eval path (`unimplementedAgentRun` is the
+ * shipped default).
  */
 
 import type { TraceAnalystDefinition } from '@tangle-network/agent-eval'

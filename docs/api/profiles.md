@@ -6,6 +6,12 @@
 
 # profiles
 
+**`Experimental`**
+
+Authored `AgentProfile` presets (the §1.5 author-the-profile DATA) for common agent roles, each
+with a pure task-to-prompt formatter. The substrate materializes a profile into a harness
+invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
+
 ## Interfaces
 
 ### AuditRegistry
@@ -537,6 +543,8 @@ Optional task — narrows the validator's namespace check.
 
 ### UiFindingScreenshot
 
+**`Experimental`**
+
 Pointer to a screenshot referenced by a finding (workspace-relative path).
 
 #### Properties
@@ -545,17 +553,25 @@ Pointer to a screenshot referenced by a finding (workspace-relative path).
 
 > **path**: `string`
 
+**`Experimental`**
+
 ##### viewport?
 
 > `optional` **viewport?**: `string`
+
+**`Experimental`**
 
 ##### label?
 
 > `optional` **label?**: `string`
 
+**`Experimental`**
+
 ***
 
 ### UiFinding
+
+**`Experimental`**
 
 A single UI audit finding — the unit of work a contributor can act on.
 
@@ -569,23 +585,33 @@ lens, missing title, etc.
 
 > `optional` **id?**: `number`
 
+**`Experimental`**
+
 Monotonic id assigned by the writer when persisting. Optional in-transit.
 
 ##### title
 
 > **title**: `string`
 
+**`Experimental`**
+
 ##### lens
 
 > **lens**: [`UiLens`](#uilens)
+
+**`Experimental`**
 
 ##### severity
 
 > **severity**: [`UiFindingSeverity`](#uifindingseverity)
 
+**`Experimental`**
+
 ##### route
 
 > **route**: `string`
+
+**`Experimental`**
 
 Logical route the finding was observed on (e.g. `home`, `checkout-step-2`).
 
@@ -593,11 +619,15 @@ Logical route the finding was observed on (e.g. `home`, `checkout-step-2`).
 
 > `optional` **url?**: `string`
 
+**`Experimental`**
+
 Fully qualified URL the finding was observed at.
 
 ##### viewport?
 
 > `optional` **viewport?**: `string`
+
+**`Experimental`**
 
 Viewport string the offending capture was taken at (e.g. `1280x800`).
 
@@ -605,11 +635,15 @@ Viewport string the offending capture was taken at (e.g. `1280x800`).
 
 > `optional` **selector?**: `string`
 
+**`Experimental`**
+
 CSS selector pinning the offending element, when one can be identified.
 
 ##### observation
 
 > **observation**: `string`
+
+**`Experimental`**
 
 1–3 sentences describing what the screenshot shows that is wrong.
 
@@ -617,11 +651,15 @@ CSS selector pinning the offending element, when one can be identified.
 
 > **impact**: `string`
 
+**`Experimental`**
+
 Who is affected and how.
 
 ##### suggestedFix
 
 > **suggestedFix**: `string`
+
+**`Experimental`**
 
 A specific change a contributor could apply without asking back.
 
@@ -629,11 +667,15 @@ A specific change a contributor could apply without asking back.
 
 > `optional` **reproSteps?**: `string`
 
+**`Experimental`**
+
 Optional explicit reproduction steps. Writer synthesizes from route/url/selector when omitted.
 
 ##### tags?
 
 > `optional` **tags?**: readonly `string`[]
+
+**`Experimental`**
 
 Free-form tags.
 
@@ -641,17 +683,23 @@ Free-form tags.
 
 > **screenshots**: readonly [`UiFindingScreenshot`](#uifindingscreenshot)[]
 
+**`Experimental`**
+
 Screenshot references — must be non-empty for actionable findings.
 
 ##### similarTo?
 
 > `optional` **similarTo?**: readonly `number`[]
 
+**`Experimental`**
+
 Cross-references to similar findings already on file, by id.
 
 ##### createdAt?
 
 > `optional` **createdAt?**: `string`
+
+**`Experimental`**
 
 ISO-8601 creation timestamp set by the writer when persisted.
 
@@ -923,6 +971,8 @@ these — the caller decides.
 
 > **UiLens** = `"consistency"` \| `"hierarchy"` \| `"layout"` \| `"ux-flow"` \| `"duplication"` \| `"accessibility"` \| `"responsive"` \| `"states"` \| `"content"` \| `"interaction"` \| `"performance-perceived"` \| `"other"`
 
+**`Experimental`**
+
 Canonical audit lenses. Each lens scopes a finding to a single class of
 problem so a single audit pass can iterate them without pile-on findings
 under a generic label.
@@ -932,6 +982,8 @@ under a generic label.
 ### UiFindingSeverity
 
 > **UiFindingSeverity** = `"low"` \| `"med"` \| `"high"` \| `"critical"`
+
+**`Experimental`**
 
 Severity scale.
   - `critical` — blocks a core task or is an accessibility blocker.
@@ -965,6 +1017,8 @@ Per-lens auditor briefs: concrete signals to look for and cross-lens distinction
 
 > `const` **UI\_LENSES**: readonly [`UiLens`](#uilens)[]
 
+**`Experimental`**
+
 Frozen tuple of lenses for validation + iteration.
 
 ***
@@ -972,6 +1026,8 @@ Frozen tuple of lenses for validation + iteration.
 ### UI\_FINDING\_SEVERITIES
 
 > `const` **UI\_FINDING\_SEVERITIES**: readonly [`UiFindingSeverity`](#uifindingseverity)[]
+
+**`Experimental`**
 
 Frozen severity tuple, ordered worst → least bad for sort/report.
 

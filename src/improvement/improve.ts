@@ -6,7 +6,7 @@
  * Code is the sole exception. It uses Runtime's isolated git worktrees because
  * checkout ownership and cleanup cannot cross a generic optimizer boundary.
  *
- * @experimental
+ * @stable
  */
 
 import type { Scenario } from '@tangle-network/agent-eval/contract'

@@ -9,7 +9,7 @@
  * This is the `shots=1, sandbox=off` code-candidate setting.
  * `agenticGenerator` supplies the multi-shot verify-in-session setting.
  *
- * @experimental
+ * @stable
  */
 
 import { spawnSync } from 'node:child_process'

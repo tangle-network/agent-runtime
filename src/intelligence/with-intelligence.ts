@@ -28,7 +28,7 @@
  *     { project: 'support-agent', target: 'support-agent' },
  *   )
  *
- * @experimental
+ * @stable
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'

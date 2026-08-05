@@ -11,12 +11,12 @@
  * fresh id, even when the same delegation is rated multiple times. The
  * caller decides how to roll up scores downstream.
  *
- * @experimental
+ * @stable
  */
 
 import type { DelegateFeedbackArgs, DelegationFeedbackSnapshot } from './types'
 
-/** @experimental */
+/** @stable */
 export interface FeedbackEvent {
   id: string
   refersTo: DelegateFeedbackArgs['refersTo']
@@ -26,7 +26,7 @@ export interface FeedbackEvent {
   namespace?: string
 }
 
-/** @experimental */
+/** @stable */
 export interface FeedbackStore {
   /** Append a new event. Never dedupes — every rating is its own event. */
   put(event: FeedbackEvent): Promise<void>
@@ -37,7 +37,7 @@ export interface FeedbackStore {
   list(filter?: { namespace?: string; refersToRef?: string }): Promise<FeedbackEvent[]>
 }
 
-/** In-memory `FeedbackStore` — suitable for single-process use and tests. @experimental */
+/** In-memory `FeedbackStore` — suitable for single-process use and tests. @stable */
 export class InMemoryFeedbackStore implements FeedbackStore {
   private readonly events: FeedbackEvent[] = []
 
@@ -61,7 +61,7 @@ export class InMemoryFeedbackStore implements FeedbackStore {
  * Project a `FeedbackEvent` down to the snapshot shape carried on
  * `delegation_history` entries.
  *
- * @experimental
+ * @stable
  */
 export function eventToSnapshot(event: FeedbackEvent): DelegationFeedbackSnapshot {
   const snap: DelegationFeedbackSnapshot = {

@@ -4,6 +4,7 @@
  * with a pure task-to-prompt formatter. The substrate materializes a profile into a harness
  * invocation; "is it delivered" is a `DeliverableSpec`, not a bundled validator.
  *
+ * @module
  * @experimental
  */
 

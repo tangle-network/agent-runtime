@@ -4,7 +4,7 @@
  * A `CandidateGenerator` edits an isolated checkout. This driver finalizes each
  * accepted edit as a `CodeSurface` and disposes rejected worktrees.
  *
- * @experimental
+ * @stable
  */
 
 import { spawnSync } from 'node:child_process'

@@ -22,7 +22,7 @@
  * writer of `spawned` events. The result blob is `put` BEFORE the journal `settled` record
  * references its `outRef`, so a crash can never leave a journaled ref with no blob.
  *
- * @experimental
+ * @stable
  */
 
 import {

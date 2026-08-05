@@ -24,7 +24,7 @@
  * false`), never shipped — if you configured a verifier, a non-passing tree is
  * not a candidate. With no verifier, the first dirty shot is the candidate.
  *
- * @experimental
+ * @stable
  */
 
 import { spawnSync } from 'node:child_process'

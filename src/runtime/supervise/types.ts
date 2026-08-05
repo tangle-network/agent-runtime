@@ -609,6 +609,8 @@ export type Settled<Out> =
  * budget atomically from the shared pool and fails closed when the pool cannot cover it.
  * `next()` waits for one settlement from this scope's live set; `view` reads live state,
  * not the replay log.
+ *
+ * @stable
  */
 export interface Scope<Out> {
   /**
@@ -711,6 +713,9 @@ export interface Scope<Out> {
    * re-spawning committed work. A resume-blind driver simply ignores it and re-spawns — correct
    * but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
    * maxima, so any NEW spawn appends without colliding with a journaled event.
+   *
+   * @experimental Same-process replay only — live supervised-tree recovery after a
+   * coordinator restart is not implemented (docs/agent-managed-compute/README.md).
    */
   readonly resume?: ResumedWork<Out>
   /** The live tree — reads the in-memory nursery, not the journal. */
@@ -996,6 +1001,8 @@ export interface ResultBlobStore {
  * Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker,
  * and the root handle. `run` executes the root `Agent` to completion; `attach` wires a
  * live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
+ *
+ * @stable
  */
 export interface Supervisor<Task, Out> {
   run(root: Agent<Task, Out>, task: Task, opts: SupervisorOpts): Promise<SupervisedResult<Out>>
@@ -1042,6 +1049,9 @@ export interface SupervisorOpts {
    *
    * Default `false` — a run always begins a fresh tree, which is the behavior every existing
    * consumer has. Resume is a durability contract the caller opts into, never a silent default.
+   *
+   * @experimental Rehydrates committed settlements only; live supervised-tree recovery after a
+   * coordinator restart is not implemented (docs/agent-managed-compute/README.md).
    */
   readonly resume?: boolean
   readonly now?: () => number

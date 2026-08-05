@@ -23,7 +23,7 @@
  * Auth: Bearer <apiKey> (the one TANGLE_API_KEY shared by router + sandbox +
  * intelligence), resolved to a tenant by platform-api's key-verify S2S contract.
  *
- * @experimental
+ * @stable
  */
 
 import type {

@@ -20,6 +20,8 @@
  * Lineage fields (`parent`, `generation`) are recorded on every archive node so a
  * descendant-productivity parent-selection policy can be added without changing the
  * report schema; the v1 search authors from the latest tournament's losses.
+ *
+ * @experimental
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'

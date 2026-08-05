@@ -16,7 +16,8 @@
  *      and at OFF `intelligenceUsd` is provably `0` — the mechanism that proves
  *      an OFF customer paid inference-only.
  *
- * @experimental
+ * @module
+ * @stable
  */
 
 import { contentHash } from '@tangle-network/agent-eval'

@@ -7,7 +7,7 @@
  * adapter owns event-stream decode; the kernel owns iteration accounting,
  * concurrency, abort, cost aggregation, and trace emission.
  *
- * @experimental
+ * @module
  */
 
 // The analyst-finding factory + id helper from the substrate, re-surfaced here so a host that builds

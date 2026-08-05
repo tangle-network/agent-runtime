@@ -23,7 +23,7 @@
  * `AgentProfileMcpServer` shape the mcp binding lowers to) and on the runtime's
  * own `ToolSpec`. It never imports agent-eval and never reaches upward.
  *
- * @experimental
+ * @stable
  */
 
 import type { AgentProfileMcpServer } from '@tangle-network/agent-interface'

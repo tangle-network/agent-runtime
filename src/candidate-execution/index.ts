@@ -1,3 +1,11 @@
+/**
+ * `@tangle-network/agent-runtime/candidate-execution` — sealed candidate bundles
+ * plus the isolated prepare/execute/finalize/recover lifecycle around them.
+ *
+ * @module
+ * @experimental
+ */
+
 export {
   type AgentCandidateCodeSource,
   type AgentCandidateCodeSurfaceSource,

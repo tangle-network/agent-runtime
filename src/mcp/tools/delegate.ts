@@ -13,7 +13,7 @@
  * is INJECTED at server construction — never an agent-supplied arg. The agent supplies only the
  * intent (+ an optional per-call `model` / `runId`).
  *
- * @experimental
+ * @stable
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -23,10 +23,10 @@ import { type DelegateOptions, delegate } from '../../runtime/supervise/delegate
 import type { ExecutorConfig } from '../../runtime/supervise/runtime'
 import type { Spend, SupervisedResult } from '../../runtime/supervise/types'
 
-/** MCP tool name for the `delegate` generic-delegation tool. @experimental */
+/** MCP tool name for the `delegate` generic-delegation tool. @stable */
 export const DELEGATE_TOOL_NAME = 'delegate'
 
-/** Human-readable description of the `delegate` MCP tool, injected into the tool manifest. @experimental */
+/** Human-readable description of the `delegate` MCP tool, injected into the tool manifest. @stable */
 export const DELEGATE_DESCRIPTION = [
   'Delegate an INTENT to a supervisor that AUTHORS and drives whatever worker the intent needs.',
   '',
@@ -44,7 +44,7 @@ export const DELEGATE_DESCRIPTION = [
   'a success.',
 ].join('\n')
 
-/** JSON Schema for `delegate` tool arguments (`intent` + optional trace id). @experimental */
+/** JSON Schema for `delegate` tool arguments (`intent` + optional trace id). @stable */
 export const DELEGATE_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -67,7 +67,7 @@ export interface DelegateArgs {
   runId?: string
 }
 
-/** Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input. @experimental */
+/** Parse and validate raw MCP tool input into typed `DelegateArgs`; throws `TypeError` on bad input. @stable */
 export function validateDelegateArgs(raw: unknown): DelegateArgs {
   if (raw === null || typeof raw !== 'object') {
     throw new TypeError('delegate: arguments must be an object')
@@ -103,7 +103,7 @@ export interface DelegateError {
   message: string
 }
 
-/** @experimental */
+/** @stable */
 export interface DelegateHandlerOptions {
   /** The supervisor brain's router substrate (REQUIRED — the default supervisor is router-brained). */
   router: RouterTransportConfig

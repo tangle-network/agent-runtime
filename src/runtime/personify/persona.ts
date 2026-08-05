@@ -16,7 +16,7 @@
  * receive a ctx with the persona seams merged in — so a persona never has to pre-close its
  * factories by hand. A persona may instead supply a fully-built `registry` and skip the wrap.
  *
- * @experimental
+ * @stable
  */
 
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
@@ -54,6 +54,8 @@ import type { ScopeAnalyst } from './wave-types'
  * Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with
  * neither a pre-built registry nor a seam bag cannot resolve its built-in runtimes, so it is
  * unrunnable — refuse it at definition time, not at the first spawn. Pure; no I/O.
+ *
+ * @stable
  */
 export function definePersona<D = unknown>(input: DefinePersonaInput<D>): Persona<D> {
   if (!input.executors.registry && !input.executors.seams) {
@@ -130,6 +132,8 @@ export function createShapeContext<D>(
  * `ShapeContext`, and runs the resulting root `Agent` to a typed `SupervisedResult<Outcome>`.
  * Fail loud on an unknown shape name or an unresolvable persona registry — never a silent
  * default-shape fallback.
+ *
+ * @stable
  */
 export async function runPersonified<Task, D>(
   options: RunPersonifiedOptions<Task, D>,

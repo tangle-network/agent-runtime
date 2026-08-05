@@ -6,6 +6,24 @@
 
 # intelligence
 
+**`Stable`**
+
+Tangle Intelligence SDK — trace capture plus reviewable improvement.
+
+The client keeps live-agent trace delivery best-effort. The separate
+improvement-cycle exports analyze completed traces, run a signed baseline
+versus candidate experiment, bind review to its result, and activate only
+the exact measured candidate.
+
+  1. OBSERVE — wrap a generic agent and export one trace span per call to
+     Tangle Intelligence, swallowing every export failure so a live agent
+     never fails because Intelligence is down.
+  2. MODE 0 / OFF — at `effort: 'off'`, run the agent as PURE PASSTHROUGH
+     (zero intelligence spawns) with best-effort telemetry still on. The
+     exported trace tags usage by class `{ inferenceUsd, intelligenceUsd }`,
+     and at OFF `intelligenceUsd` is provably `0` — the mechanism that proves
+     an OFF customer paid inference-only.
+
 ## Classes
 
 ### CapabilityNotAdmittedError

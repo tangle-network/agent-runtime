@@ -3,7 +3,7 @@
  * `delegation_status` MCP tool — synchronous poll. Returns the current
  * state machine + optional progress + final result (when terminal).
  *
- * @experimental
+ * @stable
  */
 
 import { NotFoundError } from '../../errors'
@@ -13,10 +13,10 @@ import type {
   DelegationTaskQueue,
 } from '../task-queue'
 
-/** MCP tool name for the `delegation_status` synchronous-poll tool. @experimental */
+/** MCP tool name for the `delegation_status` synchronous-poll tool. @stable */
 export const DELEGATION_STATUS_TOOL_NAME = 'delegation_status'
 
-/** Human-readable description of the `delegation_status` MCP tool, injected into the tool manifest. @experimental */
+/** Human-readable description of the `delegation_status` MCP tool, injected into the tool manifest. @stable */
 export const DELEGATION_STATUS_DESCRIPTION = [
   'Poll the status of an async delegation. Returns the current state',
   '(pending | running | completed | failed | cancelled), optional progress,',
@@ -38,7 +38,7 @@ export const DELEGATION_STATUS_DESCRIPTION = [
   '`pending` for a typo.',
 ].join('\n')
 
-/** JSON Schema for `delegation_status` tool arguments (`taskId` + optional `includeTrace`). @experimental */
+/** JSON Schema for `delegation_status` tool arguments (`taskId` + optional `includeTrace`). @stable */
 export const DELEGATION_STATUS_INPUT_SCHEMA = {
   type: 'object',
   properties: {
@@ -53,7 +53,7 @@ export const DELEGATION_STATUS_INPUT_SCHEMA = {
   additionalProperties: false,
 } as const
 
-/** Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input. @experimental */
+/** Parse and validate raw MCP tool input into typed `DelegationStatusArgs`; throws `TypeError` on bad input. @stable */
 export function validateDelegationStatusArgs(raw: unknown): DelegationStatusArgs {
   if (raw === null || typeof raw !== 'object') {
     throw new TypeError('delegation_status: arguments must be an object')
@@ -73,12 +73,12 @@ export function validateDelegationStatusArgs(raw: unknown): DelegationStatusArgs
   return out
 }
 
-/** @experimental */
+/** @stable */
 export interface DelegationStatusHandlerOptions {
   queue: DelegationTaskQueue
 }
 
-/** Build the MCP tool handler that polls a `DelegationTaskQueue` for task status. @experimental */
+/** Build the MCP tool handler that polls a `DelegationTaskQueue` for task status. @stable */
 export function createDelegationStatusHandler(
   options: DelegationStatusHandlerOptions,
 ): (raw: unknown) => Promise<DelegationStatusResult> {

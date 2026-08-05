@@ -23,7 +23,7 @@
  * capability (never a half-wired tool); a post-resolve drift check drops any tool
  * whose live names diverge from the certified interface.
  *
- * @experimental
+ * @stable
  */
 
 import {

@@ -12,7 +12,7 @@
  * agent as pure passthrough and only intelligence-class usage can prove to be
  * zero — there is nothing to spawn.
  *
- * @experimental
+ * @stable
  */
 
 /** The named effort tiers, lowest to highest. `'off'` is the honest floor

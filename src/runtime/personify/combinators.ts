@@ -19,7 +19,7 @@
  * CONCRETE blocker (never an eager over-fan, never a silent drop), and a `blocked` outcome always
  * names at least one blocker (a shape that cannot finish MUST say why — `blocked([])` throws).
  *
- * @experimental
+ * @stable
  */
 
 import { ValidationError } from '../../errors'
@@ -98,6 +98,8 @@ export function selectValidWinner<D>(opts?: {
  * pool would not admit, or a stage whose `collect` chose to block) short-circuits — its blockers
  * ARE the pipeline's blockers, never coerced past a failed stage. The terminal stage's `done`
  * deliverable is the pipeline's deliverable.
+ *
+ * @stable
  */
 export function pipeline<Task, D>(
   stages: ReadonlyArray<PipelineStage<Task, unknown, unknown>>,
@@ -140,6 +142,8 @@ export function pipeline<Task, D>(
  * `opts.width` swaps the single round for `rollingDispatch`: at most `width` items live at once,
  * refilled the instant one settles. Selection, blockers, and the conserved pool are unchanged —
  * the refill behavior lives in the existing combinator rather than in a rival primitive.
+ *
+ * @stable
  */
 export function fanout<Task, Item, D>(
   items: ReadonlyArray<Item>,
@@ -255,6 +259,8 @@ export function fanout<Task, Item, D>(
  * `until` on the resulting trace-derived findings (the analyst spawns into THIS scope, so its
  * compute is conserved-pooled — equal-k holds by construction). Absent an analyst the findings
  * argument is the empty array — never a fabricated finding (fail-loud honesty over a silent default).
+ *
+ * @stable
  */
 export function loopUntil<Task, State, D>(
   seed: State,
@@ -307,6 +313,8 @@ export function loopUntil<Task, State, D>(
  * reaches another judge's task; the merge never spawns or re-ranks). A `down` judge carries no
  * verdict and is excluded from the merge denominator. A panel that admitted no judge is a
  * concrete blocker before `merge` is consulted.
+ *
+ * @stable
  */
 export function panel<Task, Artifact, D>(spec: PanelSpec<Artifact, D>): CombinatorShape<Task, D> {
   if (spec.judges.length === 0) {
@@ -367,6 +375,8 @@ export function panel<Task, Artifact, D>(spec: PanelSpec<Artifact, D>): Combinat
  * it; only a `valid` verifier verdict ships. Any other outcome (implement down, verifier down,
  * verifier verdict absent or not `valid`) is a concrete blocker carrying the failure verbatim —
  * never a coerced "done". The implement child does not grade itself.
+ *
+ * @stable
  */
 export function verify<Task, Candidate, D>(
   spec: VerifySpec<Task, Candidate, D>,
@@ -421,6 +431,8 @@ export function verify<Task, Candidate, D>(
  * the widen loop sees it. The shipped default (`flatWidenGate`) never widens, so no widen child is
  * ever live when the analyst runs and the wire is exact; a non-flat gate must drive the analyst on
  * a scope whose siblings are quiesced, or read findings without the shared-cursor drain.
+ *
+ * @stable
  */
 export function widen<Task, Seed, D>(spec: WidenSpec<Seed, D>): CombinatorShape<Task, D> {
   return (ctx: ShapeContext<D>): Agent<Task, Outcome<D>> => ({
