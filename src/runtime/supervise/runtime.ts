@@ -334,7 +334,7 @@ export interface BridgeSeam {
   sessionId?: string
   /** Transport reconnects allowed after the first POST. Default 3; set 0 to disable. */
   maxReconnects?: number
-  /** Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`). */
+  /** Newest-last activity window `progress()` reports. Default 12. */
   activityWindow?: number
 }
 
