@@ -2329,7 +2329,13 @@ async function* streamDurableBridgeRun(
 
     if (sawDone) {
       if (args.run.profileMaterialization === undefined) {
-        throw new ValidationError(
+        // Also TRANSPORT: a bridge that advertises the capability emits this receipt on every
+        // healthy turn, so its absence means the turn did not survive to send it — the same
+        // mid-stream death as above, arriving as a missing field instead of an error frame.
+        // Typed as validation it read as a permanently broken bridge and the root-driver retry
+        // refused to re-enter; one arm of a six-arm wave was lost to exactly this.
+        throw new BackendTransportError(
+          'bridge',
           `bridgeExecutor: run ${args.run.id} completed without ${bridgeProfileMaterializationSchema}`,
         )
       }
@@ -3113,10 +3119,19 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   if (parsed.error) {
     // `type` is the upstream's error class (e.g. kimi's access_terminated_error)
     // — carry it when the payload has no message, never collapse to 'unknown'.
+    //
+    // TRANSPORT, not validation. What arrives here is the harness's or the provider's failure
+    // relayed mid-stream — a turn that ended without emitting anything, a dropped upstream, a
+    // provider 5xx. Typing it as a validation error made it read as Runtime's own deliberate
+    // refusal, which is precisely what the root-driver retry treats as terminal: measured on a
+    // six-arm wave, three arms died on `pi assistant turn failed: The model finished
+    // (finish_reason=stop) without emitting any visible output — Retry the request`, and the
+    // retry declined to retry a message that asked to be retried.
     return {
       kind: 'event',
       id,
-      error: new ValidationError(
+      error: new BackendTransportError(
+        'bridge',
         `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
       ),
     }
