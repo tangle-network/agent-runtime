@@ -583,6 +583,16 @@ export {
   type RollingDispatchOptions,
   rollingDispatch,
 } from './supervise/dispatch'
+// Root-driver retry: the second chance a transiently-failed EXTERNAL driver gets before a run ends
+// `driver-failed`, plus the per-attempt record that makes the failure diagnosable.
+export {
+  classifyDriverFailure,
+  type DriverAttemptRecord,
+  type DriverAttemptStop,
+  DriverAttemptsExhaustedError,
+  type DriverProgressMark,
+  type DriverRetryPolicy,
+} from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {

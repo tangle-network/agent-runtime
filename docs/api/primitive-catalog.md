@@ -504,7 +504,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 709 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -531,6 +531,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 709 exports.
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `chatTransportExecutor` | function | Build one exact profile-driven chat executor through `createExecutor`. |
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
+| `classifyDriverFailure` | function | Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
 | `collectAgentTurn` | function | Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that |
 | `compareCheckOutcomes` | function | The selection order: crash < ran; then official pass-fraction; authored guesses only |
@@ -748,6 +749,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 709 exports.
 | `VERIFY_TAIL_CHARS` | const | Tail of the verify output — the failing assertion lives at the END of a test log. |
 | `WORKER_TOOL_TRACE_SCHEMA_VERSION` | const | Schema version for content-addressed worker tool-trace artifacts. |
 | `workerTraceSeamKey` | const | Seam key the `Scope` seeds a {@link TraceContext} under on each child's `ExecutorContext.seams`. |
+| `DriverAttemptsExhaustedError` | class | The error a give-up throws: the original cause, re-described with the attempt history so |
 | `FileCoordinationLog` | class | FS-backed `CoordinationLog`: append-only JSONL, fsynced per record. |
 | `FileCorpus` | class | JSONL on disk — one validated `CorpusRecord` per line, append-only. `query` replays the whole |
 | `FileResultBlobStore` | class | FS `ResultBlobStore`. One JSON file per artifact under `dir`, named by a |
@@ -819,6 +821,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 709 exports.
 | `DownMessageDeliveryAttempt` | interface | A durable marker written after authorization and immediately before Runtime calls `Scope.send`. |
 | `DownMessageEvent` | interface | A parent→child delivery result (the down-leg): recorded for observability, never pulled back by |
 | `DriveHarness` | interface | How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate |
+| `DriverAttemptRecord` | interface | One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so |
+| `DriverProgressMark` | interface | The comparable mark used to decide whether an attempt did anything at all. Any field moving |
+| `DriverRetryPolicy` | interface | How hard the root driver is retried after a transient failure. The defaults retry; a caller |
 | `EdgeTraversal` | interface | One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
@@ -1002,6 +1007,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 709 exports.
 | `DispatchStopReason` | type | Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end); |
 | `DownMessageDeliveryOutcome` | type | The exact result of one parent→child delivery attempt. |
 | `DriveHarnessOwnerContext` | type | Trusted manager identity available before its external harness starts. A product uses this to |
+| `DriverAttemptStop` | type | Why the retry loop stopped. `completed` is the only non-failure. |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `ExecutionBindingReceipt` | type | One attempt's immutable link from a stable materialization plan to its actual transport. |

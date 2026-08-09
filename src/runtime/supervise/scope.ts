@@ -1433,7 +1433,21 @@ export async function recordScopeOwnerMaterialization(
     return
   }
   if (state.receipt !== undefined) {
-    throw new ValidationError('scope owner materialization was already recorded')
+    // A root driver may be re-entered inside one process after a transient executor failure
+    // (`runDriverWithRetry`, #741). That attempt publishes the SAME materialization with a NEW
+    // execution binding, which is the resume path's shape minus the process boundary — so it
+    // appends a binding rather than a second receipt. A materialization that actually CHANGED is
+    // still a fault: backend, model, execution identity, and plan may not move under a live run.
+    if (canonicalCandidateDigest(state.receipt) !== canonicalCandidateDigest(receipt)) {
+      await rejectOwnerMaterialization(state)
+      throw new ValidationError(
+        'scope owner materialization changed mid-run; backend, model, execution identity, and plan must match across driver attempts',
+      )
+    }
+    await appendOwnerBinding(state, binding)
+    state.onReceipt?.(state.receipt, binding)
+    state.publishedThisProcess = true
+    return
   }
   await appendOwnerMaterialization(state, receipt, binding)
   state.onReceipt?.(receipt, binding)

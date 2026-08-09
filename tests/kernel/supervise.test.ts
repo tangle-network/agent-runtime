@@ -1361,6 +1361,7 @@ function supervisorOpts(over: Partial<SupervisorOpts> = {}): SupervisorOpts {
     maxDepth: over.maxDepth,
     maxRestarts: over.maxRestarts,
     withinMs: over.withinMs,
+    childSettleGraceMs: over.childSettleGraceMs,
     now: over.now ?? (() => 0),
     signal: over.signal,
   }
@@ -1389,6 +1390,103 @@ function flatHarness(arms: Array<{ name: string; script: MockScript }>): Agent<u
     },
   }
 }
+
+describe('supervisor: a driver that died did not make its children unhealthy (#741)', () => {
+  it('names the driver failure even though the join barrier tore a live child down', async () => {
+    // The production shape from the issue: the root's harness process was SIGKILLed while one
+    // child was mid-unit. Before the fix the barrier's own abort/teardown was read back as the
+    // cause, so the identical failure reported `aborted` with a live child and `driver-failed`
+    // with none — the operator could not tell a crash from a cancellation.
+    const held = deferred()
+    const fault = new Error('pi exit unknown')
+    const supervisor = createSupervisor<unknown, unknown>()
+    const result = await supervisor.run(
+      {
+        name: 'dying-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('worker', { out: 'w', events: tokensOnly(5, 5, 1), block: held.promise }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+          )
+          throw fault
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'driver-died-with-live-child' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    if (result.reason !== 'driver-failed') return
+    expect(result.error.message).toBe('pi exit unknown')
+    held.resolve()
+  })
+
+  it('lets a live child finish and deliver its work when a settle grace is granted', async () => {
+    // With the grace, the child that was mid-unit reaches its own terminal state and its spend is
+    // conserved onto the run; without it the same child is aborted with nothing written.
+    const gate = deferred()
+    const supervisor = createSupervisor<unknown, unknown>()
+    const run = supervisor.run(
+      {
+        name: 'dying-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('worker', { out: 'w', events: tokensOnly(7, 3, 1), block: gate.promise }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+          )
+          throw new Error('pi exit unknown')
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'settle-grace', childSettleGraceMs: 60_000 }),
+    )
+    // The driver is already gone; the child completes inside the grace window.
+    gate.resolve()
+    const result = await run
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    // The child settled `done` rather than being cancelled, so its work is on the run's ledger.
+    expect(result.spentTotal.tokens.input).toBe(7)
+    expect(result.spentTotal.tokens.output).toBe(3)
+    expect(result.tree.nodes.some((node) => node.status === 'done')).toBe(true)
+  })
+
+  it('still cascades the abort when the grace expires before the child settles', async () => {
+    const neverSettles = deferred()
+    const supervisor = createSupervisor<unknown, unknown>()
+    const result = await supervisor.run(
+      {
+        name: 'dying-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('stuck', {
+              out: 'w',
+              events: tokensOnly(1, 1, 1),
+              block: neverSettles.promise,
+            }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'stuck' },
+          )
+          throw new Error('pi exit unknown')
+        },
+      },
+      'task',
+      // A grace this short expires while the child is still parked: the barrier must still end the
+      // run rather than hang on a child that will never finish.
+      supervisorOpts({ runId: 'settle-grace-expired', childSettleGraceMs: 5 }),
+    )
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    neverSettles.resolve()
+  })
+})
 
 describe('supervisor', () => {
   it('returns a typed `winner` and a `down` child does not crash the join', async () => {

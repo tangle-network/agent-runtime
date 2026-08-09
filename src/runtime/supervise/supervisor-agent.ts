@@ -39,6 +39,11 @@ import type { DeliverableSpec } from './completion-gate'
 import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
 import { isLoopbackHost, serveCoordinationMcp } from './coordination-mcp'
+import {
+  type DriverAttemptRecord,
+  type DriverRetryPolicy,
+  runDriverWithRetry,
+} from './driver-retry'
 import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import { createInbox } from './inbox'
@@ -271,6 +276,15 @@ export interface SupervisorAgentDeps {
   readonly router?: RouterTransportConfig
   /** Required to run an external-harness supervisor: runs the harness as the driver. */
   readonly driveHarness?: DriveHarness
+  /** How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+   *  `driver-failed` (#741). Retries reuse the same scope, coordination server, and live children;
+   *  the bridge backend reattaches the harness session by its durable execution id. Omit = retry
+   *  under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
+   *  The router arm is unaffected: its transport already retries. */
+  readonly driverRetry?: DriverRetryPolicy
+  /** Per-attempt record for the external driver — how an operator sees "failed after N attempts"
+   *  instead of one backend's last words. */
+  readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
   readonly nodeContext?: SupervisorNodeContextSeed
   /** Resolve product-owned tools for this exact manager. Static `extraTools` remain a router-only
@@ -584,24 +598,43 @@ function buildSupervisorAgent(
         ...(nodeTools?.length ? { nodeTools } : {}),
       })
       try {
-        try {
-          await driveHarness({
-            profile: stableProfile,
-            ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
-            task,
-            scope,
-            coordinationMcpUrl: mcp.url,
-            coordinationTools: (nodeTools ?? []).map(({ name, description, inputSchema }) => ({
-              name,
-              description,
-              inputSchema,
-            })),
-          })
-        } catch (error) {
-          // Once the injected check has accepted a result, a later backend shutdown/timeout cannot
-          // erase that completed work. Without an accepted submission, preserve the backend error.
-          if (!mcp.submittedResult()) throw error
-        }
+        // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
+        // reading is the driver's own metered spend; settlements and an accepted submission are the
+        // other two ways an attempt can have mattered. An attempt that moves none of them is the
+        // dead-on-arrival case the no-progress ceiling stops.
+        const baseTokensLeft = scope.budget.tokensLeft
+        await runDriverWithRetry({
+          drive: async () => {
+            try {
+              await driveHarness({
+                profile: stableProfile,
+                ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
+                task,
+                scope,
+                coordinationMcpUrl: mcp.url,
+                coordinationTools: (nodeTools ?? []).map(({ name, description, inputSchema }) => ({
+                  name,
+                  description,
+                  inputSchema,
+                })),
+              })
+            } catch (error) {
+              // Once the injected check has accepted a result, a later backend shutdown/timeout
+              // cannot erase that completed work — and there is nothing left to retry FOR. Without
+              // an accepted submission the backend error propagates into the retry decision.
+              if (!mcp.submittedResult()) throw error
+            }
+          },
+          progress: () => ({
+            tokensSpent: baseTokensLeft - scope.budget.tokensLeft,
+            settledCount: mcp.settled().length,
+            submitted: Boolean(mcp.submittedResult()),
+          }),
+          budget: () => scope.budget,
+          signal: scope.signal,
+          ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
+          ...(deps.onDriverAttempt ? { onAttempt: deps.onDriverAttempt } : {}),
+        })
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
         // awaited must still reach the finalize ledger.
         await mcp.drainResolved()

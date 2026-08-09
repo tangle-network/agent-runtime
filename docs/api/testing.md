@@ -774,6 +774,61 @@ Run an external-harness supervisor explicitly. Required for a remote sandbox; op
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarness`](runtime.md#driveharness)
 
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](runtime.md#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+`driver-failed`. A harness process SIGKILLed at a bridge timeout, a stream cut mid-turn, or an
+upstream 5xx used to end a run of arbitrary length while its budget and deadline sat almost
+untouched (#741). A retry re-enters the driver over the SAME scope, coordination server, and
+live children; the bridge backend reattaches the harness session by its durable execution id.
+
+Runtime's own refusals (a validation guard, an exhausted budget, an abort, a client-side
+transport status) are never retried — they were decisions. Retries stop at the budget, the
+deadline, an abort, or a run of attempts that changed nothing at all.
+
+Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
+driver failure ends the run. Applies to the root manager and every recursive manager under it.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driverRetry`](runtime.md#driverretry)
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for every external driver in the tree — what makes "failed after N
+ attempts, last cause X" visible instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](runtime.md#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt)
+
+##### childSettleGraceMs?
+
+> `readonly` `optional` **childSettleGraceMs?**: `number`
+
+How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+cascades the abort into them. A root that died did not make its children unhealthy: a child
+mid-unit holds work already paid for, and an immediate cascade discards everything it has not
+yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems)
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-1)
@@ -1271,6 +1326,41 @@ Required to run an external-harness supervisor: runs the harness as the driver.
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driveHarness`](runtime.md#driveharness-3)
+
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](runtime.md#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+ `driver-failed` (#741). Retries reuse the same scope, coordination server, and live children;
+ the bridge backend reattaches the harness session by its durable execution id. Omit = retry
+ under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
+ The router arm is unaffected: its transport already retries.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driverRetry`](runtime.md#driverretry-1)
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for the external driver — how an operator sees "failed after N attempts"
+ instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](runtime.md#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
 
 ##### nodeContext?
 
