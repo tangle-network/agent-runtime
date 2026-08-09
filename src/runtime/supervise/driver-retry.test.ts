@@ -25,7 +25,7 @@ function budget(over: Partial<DriverBudgetReadout> = {}): DriverBudgetReadout {
   }
 }
 
-const noProgress: DriverProgressMark = { tokensSpent: 0, settledCount: 0, submitted: false }
+const noProgress: DriverProgressMark = { poolTokensSpent: 0, settledCount: 0, submitted: false }
 
 /** Drive a scripted sequence of outcomes. `null` completes the attempt; an Error rejects it. */
 function scriptedDrive(outcomes: ReadonlyArray<Error | null>) {
@@ -144,13 +144,13 @@ describe('runDriverWithRetry', () => {
     // crashing repeatedly.
     const outcomes = Array.from({ length: 7 }, () => new Error('stream closed'))
     const script = scriptedDrive([...outcomes, null])
-    let tokensSpent = 0
+    let poolTokensSpent = 0
     await runDriverWithRetry({
       drive: async (attempt) => {
-        tokensSpent += 1_000
+        poolTokensSpent += 1_000
         await script.drive(attempt)
       },
-      progress: () => ({ tokensSpent, settledCount: 0, submitted: false }),
+      progress: () => ({ poolTokensSpent, settledCount: 0, submitted: false }),
       budget: () => budget(),
       signal: new AbortController().signal,
       sleep: instantSleep,
@@ -163,13 +163,13 @@ describe('runDriverWithRetry', () => {
     // forever. Each attempt reads as progress, so only the absolute ceiling ends it before the
     // whole envelope is gone.
     const script = scriptedDrive(Array.from({ length: 20 }, () => new Error('stream closed')))
-    let tokensSpent = 0
+    let poolTokensSpent = 0
     const error = await runDriverWithRetry({
       drive: async (attempt) => {
-        tokensSpent += 10
+        poolTokensSpent += 10
         await script.drive(attempt)
       },
-      progress: () => ({ tokensSpent, settledCount: 0, submitted: false }),
+      progress: () => ({ poolTokensSpent, settledCount: 0, submitted: false }),
       budget: () => budget(),
       signal: new AbortController().signal,
       sleep: instantSleep,
@@ -200,7 +200,7 @@ describe('runDriverWithRetry', () => {
         settledCount += 1
         await script.drive(attempt)
       },
-      progress: () => ({ tokensSpent: 0, settledCount, submitted: false }),
+      progress: () => ({ poolTokensSpent: 0, settledCount, submitted: false }),
       budget: () => budget(),
       signal: new AbortController().signal,
       sleep: instantSleep,

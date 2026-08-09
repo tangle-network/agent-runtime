@@ -91,8 +91,11 @@ export interface DriverAttemptRecord {
 /** The comparable mark used to decide whether an attempt did anything at all. Any field moving
  *  counts as progress — a driver that metered one turn before dying is not dead on arrival. */
 export interface DriverProgressMark {
-  /** Monotone total of the driver's own metered spend, in tokens. */
-  readonly tokensSpent: number
+  /** Monotone total of POOL spend since the first reading, in tokens — the driver's own metered
+   *  turns AND any child settlement, because the conserved pool is shared. Deliberately not
+   *  driver-only: a child that settled during the attempt is progress by any reading, and the
+   *  coarser signal can only bias toward rescuing a run, never toward abandoning one. */
+  readonly poolTokensSpent: number
   /** Monotone count of settled children. */
   readonly settledCount: number
   /** Whether an accepted deliverable exists. */
@@ -167,7 +170,7 @@ export function budgetStop(
 
 function madeProgress(before: DriverProgressMark, after: DriverProgressMark): boolean {
   return (
-    after.tokensSpent > before.tokensSpent ||
+    after.poolTokensSpent > before.poolTokensSpent ||
     after.settledCount > before.settledCount ||
     (after.submitted && !before.submitted)
   )

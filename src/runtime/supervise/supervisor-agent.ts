@@ -599,9 +599,10 @@ function buildSupervisorAgent(
       })
       try {
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
-        // reading is the driver's own metered spend; settlements and an accepted submission are the
-        // other two ways an attempt can have mattered. An attempt that moves none of them is the
-        // dead-on-arrival case the no-progress ceiling stops.
+        // reading is everything this run has spent from the shared pool — the driver's own turns
+        // and any child's; settlements and an accepted submission are the other two ways an attempt
+        // can have mattered. An attempt that moves none of them is the dead-on-arrival case the
+        // no-progress ceiling stops.
         const baseTokensLeft = scope.budget.tokensLeft
         await runDriverWithRetry({
           drive: async () => {
@@ -626,7 +627,7 @@ function buildSupervisorAgent(
             }
           },
           progress: () => ({
-            tokensSpent: baseTokensLeft - scope.budget.tokensLeft,
+            poolTokensSpent: baseTokensLeft - scope.budget.tokensLeft,
             settledCount: mcp.settled().length,
             submitted: Boolean(mcp.submittedResult()),
           }),

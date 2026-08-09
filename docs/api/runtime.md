@@ -10382,11 +10382,14 @@ The comparable mark used to decide whether an attempt did anything at all. Any f
 
 #### Properties
 
-##### tokensSpent
+##### poolTokensSpent
 
-> `readonly` **tokensSpent**: `number`
+> `readonly` **poolTokensSpent**: `number`
 
-Monotone total of the driver's own metered spend, in tokens.
+Monotone total of POOL spend since the first reading, in tokens — the driver's own metered
+ turns AND any child settlement, because the conserved pool is shared. Deliberately not
+ driver-only: a child that settled during the attempt is progress by any reading, and the
+ coarser signal can only bias toward rescuing a run, never toward abandoning one.
 
 ##### settledCount
 
