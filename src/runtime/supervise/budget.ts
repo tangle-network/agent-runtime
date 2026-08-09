@@ -36,6 +36,7 @@
  * @experimental
  */
 
+import { ValidationError } from '../../errors'
 import { addTokenUsage, zeroTokenUsage } from '../util'
 import type { Budget, LoopTokenUsage, Spend, UsageEvent } from './types'
 
@@ -417,7 +418,10 @@ export function createBudgetPool(
     // so the honest reading is a fail-loud refusal the caller surfaces — `driver-failed` carrying
     // this reason — rather than an invented figure or a silently consumed cap.
     if (usdCapped && spend.usdKnown === false) {
-      throw new Error(
+      // A typed refusal, not a bare invariant guard: this is a contract failure the caller sees on
+      // the `driver-failed` arm, and a driver retry must be able to tell it apart from a foreign
+      // accident it could recover from.
+      throw new ValidationError(
         'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
       )
     }

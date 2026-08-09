@@ -957,6 +957,10 @@ not allow: `persist()` before `complete()`, `complete()` twice, etc.
 
 - `AgentEvalError`
 
+#### Extended by
+
+- [`DriverAttemptsExhaustedError`](runtime.md#driverattemptsexhaustederror)
+
 #### Constructors
 
 ##### Constructor

@@ -44,7 +44,7 @@ import {
   assertProfileMaterialization,
   defineProfileMaterializationContract,
 } from '../../agent/profile-materialization'
-import { ValidationError } from '../../errors'
+import { BackendTransportError, ValidationError } from '../../errors'
 import { mergeTraceEnv } from '../../mcp/trace-propagation'
 import {
   captureWorktreeDiff,
@@ -2267,9 +2267,15 @@ async function* streamDurableBridgeRun(
     }
 
     if (!res.ok) {
-      throw new ValidationError(
-        `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      )
+      // A remote status is a TRANSPORT fact, not a caller mistake: the package's taxonomy has
+      // `BackendTransportError` precisely so a consumer (and the root-driver retry) can branch on
+      // the upstream status — a 502 from a dying harness is recoverable, a 401 is not. Typing this
+      // as a validation failure made every bridge fault look like a deliberate refusal.
+      const body = (await res.text()).slice(0, 300)
+      throw new BackendTransportError('bridge', `bridgeExecutor: bridge ${res.status}: ${body}`, {
+        status: res.status,
+        body,
+      })
     }
     if (!res.body) {
       throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
@@ -2389,8 +2395,10 @@ async function assertBridgeExecutionCapabilities(
     req.end()
   })
   if (response.status < 200 || response.status >= 300) {
-    throw new ValidationError(
+    throw new BackendTransportError(
+      'bridge',
       `bridgeExecutor: capability preflight returned ${response.status}: ${response.text.slice(0, 200)}`,
+      { status: response.status, body: response.text.slice(0, 200) },
     )
   }
   let body: { capabilities?: Record<string, unknown> }

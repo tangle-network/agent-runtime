@@ -53,6 +53,7 @@ import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild } from './driver-executor'
+import type { DriverAttemptRecord, DriverRetryPolicy } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import {
@@ -738,6 +739,31 @@ export interface SuperviseOptions {
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
+  /**
+   * How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+   * `driver-failed`. A harness process SIGKILLed at a bridge timeout, a stream cut mid-turn, or an
+   * upstream 5xx used to end a run of arbitrary length while its budget and deadline sat almost
+   * untouched (#741). A retry re-enters the driver over the SAME scope, coordination server, and
+   * live children; the bridge backend reattaches the harness session by its durable execution id.
+   *
+   * Runtime's own refusals (a validation guard, an exhausted budget, an abort, a client-side
+   * transport status) are never retried — they were decisions. Retries stop at the budget, the
+   * deadline, an abort, or a run of attempts that changed nothing at all.
+   *
+   * Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
+   * driver failure ends the run. Applies to the root manager and every recursive manager under it.
+   */
+  readonly driverRetry?: DriverRetryPolicy
+  /** Per-attempt record for every external driver in the tree — what makes "failed after N
+   *  attempts, last cause X" visible instead of one backend's last words. */
+  readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
+  /**
+   * How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+   * cascades the abort into them. A root that died did not make its children unhealthy: a child
+   * mid-unit holds work already paid for, and an immediate cascade discards everything it has not
+   * yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+   */
+  readonly childSettleGraceMs?: number
   /** Resolve one custom external-harness session per trusted manager identity. Use this instead of
    * `driveHarness` when recursive managers must be independently steerable. */
   readonly resolveDriveHarness?: ResolveDriveHarness
@@ -965,6 +991,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     executeExtraTool,
     stopRule,
     onProgressStop,
+    onDriverAttempt,
     finalizer,
     now,
     signal,
@@ -1047,6 +1074,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(executeExtraTool === undefined ? {} : { executeExtraTool }),
     ...(stopRule === undefined ? {} : { stopRule }),
     ...(onProgressStop === undefined ? {} : { onProgressStop }),
+    ...(onDriverAttempt === undefined ? {} : { onDriverAttempt }),
     ...(finalizer === undefined ? {} : { finalizer }),
     ...(now === undefined ? {} : { now }),
     ...(signal === undefined ? {} : { signal }),
@@ -1613,6 +1641,8 @@ function superviseInternal(
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
           ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
           ...(options.compaction ? { compaction: options.compaction } : {}),
+          ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
+          ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
           ...(log
             ? {
                 onEvent: (_event, record) => log.append(runId, record, ownerId),
@@ -1691,6 +1721,8 @@ function superviseInternal(
       ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
       ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
       ...(options.compaction ? { compaction: options.compaction } : {}),
+      ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
+      ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
     } satisfies SupervisorAgentDeps
     const agent =
       testBrain === undefined
@@ -1722,6 +1754,9 @@ function superviseInternal(
             },
           }),
       maxDepth: options.maxDepth ?? 8,
+      ...(options.childSettleGraceMs !== undefined
+        ? { childSettleGraceMs: options.childSettleGraceMs }
+        : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),

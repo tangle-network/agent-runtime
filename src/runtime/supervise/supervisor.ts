@@ -388,6 +388,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       maxLiveWorkers,
       maxRestarts,
       withinMs,
+      childSettleGraceMs,
       resume,
       now: suppliedNow,
       signal,
@@ -407,6 +408,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(maxLiveWorkers === undefined ? {} : { maxLiveWorkers }),
           ...(maxRestarts === undefined ? {} : { maxRestarts }),
           ...(withinMs === undefined ? {} : { withinMs }),
+          ...(childSettleGraceMs === undefined ? {} : { childSettleGraceMs }),
           ...(resume === undefined ? {} : { resume }),
         },
       },
@@ -642,6 +644,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         error: new RuntimeRunStateError('supervisor: root execution did not start'),
       }
       let executionAborted = controller.signal.aborted
+      // Whether every spawned child was ALREADY down when root execution settled. Read at settle,
+      // never after the join barrier: the barrier's own teardown turns healthy live children into
+      // `down` nodes, and reading it afterwards reported a crashed driver's run as
+      // `all-children-down` — the tree's state caused by the cleanup, not the cause of the failure.
+      let allChildrenDownAtSettle = false
+      // Same reasoning for the breaker's tally: children the barrier kills are `down` settlements
+      // too, so the count read after cleanup can never distinguish "children failed" from "we
+      // stopped them because the driver died".
+      let downCountAtSettle = 0
       try {
         const out = await runAbortable(() => rootAct(task, scope), controller.signal)
         actOutcome = { ok: true, out }
@@ -651,6 +662,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         actOutcome = { ok: false, error }
       } finally {
         executionAborted = controller.signal.aborted
+        allChildrenDownAtSettle = allSpawnedChildrenDown(runTree(openScope))
+        downCountAtSettle = breaker.downCount()
         // A child inherits the root cutoff and can settle the root act on that exact timer turn.
         // If its settlement callback runs before the root timer callback, the finally block clears
         // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
@@ -662,8 +675,17 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // Join barrier: tear down every still-live child. Generalizes the kernel's
         // `finally{ Promise.allSettled(destroy) }` — a teardown throw is allSettled'd and
         // journaled, never re-thrown.
+        //
+        // #741: a root driver that DIED did not make its children unhealthy. When the run was not
+        // cancelled and the driver failed, `childSettleGraceMs` lets live children reach their own
+        // terminal state (and write what they hold) before the cascade takes them. Bounded by the
+        // run's own deadline, because nothing may outlive that.
+        const settleGraceMs =
+          actOutcome.ok === false && !controller.signal.aborted
+            ? boundedSettleGrace(opts.childSettleGraceMs, rootDeadlineAtMs, now)
+            : 0
         try {
-          await drainLiveChildren(openScope, controller)
+          await drainLiveChildren(openScope, controller, settleGraceMs)
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
@@ -736,7 +758,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
         // proven one ends it. `undefined` means the supervisor's own state explains nothing.
-        const lifecycle = classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree)
+        const lifecycle = classifyNoWinner(
+          executionAborted,
+          pool,
+          opts,
+          breaker,
+          deadlineExceeded,
+          allChildrenDownAtSettle,
+          downCountAtSettle,
+        )
         if (lifecycle !== undefined) return { ...common, reason: lifecycle }
         // No lifecycle cause AND the driver threw ⇒ the driver itself is the fault. `error` is
         // REQUIRED on this arm, and it is present by construction: this is the only branch that
@@ -943,6 +973,7 @@ function wrapJournalForBreaker(journal: SpawnJournal, breaker: IntensityBreaker)
 async function drainLiveChildren(
   scope: Scope<unknown>,
   controller: AbortController,
+  settleGraceMs = 0,
 ): Promise<void> {
   // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
   // wait holds no executor, but it DOES hold a live timer, so a run that returns without
@@ -957,15 +988,43 @@ async function drainLiveChildren(
     }
     return
   }
-  // Cascade the abort into every live child's executor before draining.
-  if (!controller.signal.aborted) controller.abort()
-  await drainCursor(scope)
+  // Cascade the abort into every live child's executor before draining — unless the caller granted
+  // a settle grace, in which case the timer owns the cascade and the drain reads whatever the
+  // children finish in the meantime. Exactly ONE cursor reader either way: the grace never races
+  // `next()`, it only decides when the abort lands.
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  if (settleGraceMs > 0 && !controller.signal.aborted) {
+    graceTimer = setTimeout(
+      () => controller.abort('root driver failed; child settle grace expired'),
+      settleGraceMs,
+    )
+    graceTimer.unref?.()
+  } else if (!controller.signal.aborted) {
+    controller.abort()
+  }
+  try {
+    await drainCursor(scope)
+  } finally {
+    if (graceTimer !== undefined) clearTimeout(graceTimer)
+  }
   const after = scope.view
   if (after.inFlight > 0 || after.waiting > 0 || scope.workerCapacity.live > 0) {
     throw new RuntimeRunStateError(
       `supervisor: cleanup ended with ${after.inFlight} running, ${after.waiting} waiting, and ${scope.workerCapacity.live} executor resource(s) not confirmed destroyed`,
     )
   }
+}
+
+/** The settle window a failed driver's children actually get: the caller's grace, never past the
+ *  run's own deadline. `0` (the default) keeps the historical immediate cascade. */
+function boundedSettleGrace(
+  graceMs: number | undefined,
+  deadlineAtMs: number,
+  now: () => number,
+): number {
+  if (graceMs === undefined || graceMs <= 0) return 0
+  if (deadlineAtMs <= 0) return graceMs
+  return Math.max(0, Math.min(graceMs, deadlineAtMs - now()))
 }
 
 async function drainCursor(scope: Scope<unknown>): Promise<void> {
@@ -1032,12 +1091,21 @@ function supervisorAbortError(signal: AbortSignal): Error {
  * bucket — and it is why `driver-failed` cannot be produced without an `error` to attach.
  */
 function classifyNoWinner(
-  controller: AbortController,
+  /** Whether the cascade was aborted at the moment root execution settled — NOT the controller's
+   *  state now. The join barrier itself aborts the cascade to tear children down, so reading the
+   *  live controller here reported every driver failure that happened to have a live child as
+   *  `aborted`, hiding the real cause (#741: the run with one live child reported `aborted`, the
+   *  identical failure with none reported `driver-failed`). */
+  abortedAtSettle: boolean,
   pool: BudgetPool,
   opts: SupervisorOpts,
   breaker: IntensityBreaker,
   deadlineExceeded: boolean,
-  tree: TreeView,
+  /** Every spawned child was already down when root execution settled — measured BEFORE the join
+   *  barrier, so the barrier's own teardown cannot manufacture this cause. */
+  allChildrenDownAtSettle: boolean,
+  /** `down` settlements counted at the same instant, for the same reason. */
+  downCountAtSettle: number,
 ): LifecycleNoWinnerReason | undefined {
   // A tripped breaker is the most specific cause (children kept dying), so it outranks
   // the abort it raised. A deadline that won the abort race remains budget exhaustion;
@@ -1045,14 +1113,14 @@ function classifyNoWinner(
   // child, which is what `all-children-down` asserts and which only `downCount > 0` can prove.
   if (breaker.tripped()) return 'all-children-down'
   if (deadlineExceeded) return 'budget-exhausted'
-  if (controller.signal.aborted) return 'aborted'
+  if (abortedAtSettle) return 'aborted'
   // Unknown terminal usage correctly seals the remaining pool, but that accounting consequence is
   // not the cause of a run where every child failed. Preserve the lifecycle outcome before asking
   // whether any budget channel is now unavailable. A real admission failure with no failed child
   // still classifies as budget exhaustion below.
-  if (allSpawnedChildrenDown(tree)) return 'all-children-down'
+  if (allChildrenDownAtSettle) return 'all-children-down'
   if (poolExhausted(pool, opts)) return 'budget-exhausted'
-  if (breaker.downCount() > 0) return 'all-children-down'
+  if (downCountAtSettle > 0) return 'all-children-down'
   return undefined
 }
 

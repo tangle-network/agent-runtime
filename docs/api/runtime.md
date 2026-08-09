@@ -682,6 +682,55 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ***
 
+### DriverAttemptsExhaustedError
+
+The error a give-up throws: the original cause, re-described with the attempt history so
+ `driver-failed` carries a diagnosable message instead of one backend's last words.
+
+#### Extends
+
+- [`RuntimeRunStateError`](index.md#runtimerunstateerror)
+
+#### Constructors
+
+##### Constructor
+
+> **new DriverAttemptsExhaustedError**(`cause`, `attempts`, `stop`): [`DriverAttemptsExhaustedError`](#driverattemptsexhaustederror)
+
+###### Parameters
+
+###### cause
+
+`unknown`
+
+###### attempts
+
+readonly [`DriverAttemptRecord`](#driverattemptrecord)[]
+
+###### stop
+
+[`DriverAttemptStop`](#driverattemptstop)
+
+###### Returns
+
+[`DriverAttemptsExhaustedError`](#driverattemptsexhaustederror)
+
+###### Overrides
+
+[`RuntimeRunStateError`](index.md#runtimerunstateerror).[`constructor`](index.md#constructor-9)
+
+#### Properties
+
+##### attempts
+
+> `readonly` **attempts**: readonly [`DriverAttemptRecord`](#driverattemptrecord)[]
+
+##### stop
+
+> `readonly` **stop**: [`DriverAttemptStop`](#driverattemptstop)
+
+***
+
 ### GraphEdgeCapError
 
 A delegates edge exhausted its traversal cap and the run produced no winner: the cap, not the
@@ -10236,6 +10285,126 @@ Fleet level: max live sandboxes/boxes across the host process (a `ComputeGoverno
 
 ***
 
+### DriverRetryPolicy
+
+How hard the root driver is retried after a transient failure. The defaults retry; a caller
+ that wants the pre-#741 behavior sets `enabled: false` and owns the consequence.
+
+#### Properties
+
+##### enabled?
+
+> `readonly` `optional` **enabled?**: `boolean`
+
+`false` restores the historical behavior: the first driver failure ends the run.
+
+##### maxConsecutiveFailures?
+
+> `readonly` `optional` **maxConsecutiveFailures?**: `number`
+
+Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
+ before the run gives up. Default 3. A failure that made progress resets the count.
+
+##### maxAttempts?
+
+> `readonly` `optional` **maxAttempts?**: `number`
+
+Absolute ceiling on attempts, regardless of progress. Default 8. The barren counter alone
+ cannot bound a driver that crashes every turn AFTER metering a little: each attempt looks like
+ progress, so without this backstop such a run would retry until it had eaten the entire
+ envelope. A caller who wants budget-only bounding sets this high deliberately.
+
+##### initialBackoffMs?
+
+> `readonly` `optional` **initialBackoffMs?**: `number`
+
+Backoff before the first retry, doubling per consecutive failure. Default 2000ms.
+
+##### maxBackoffMs?
+
+> `readonly` `optional` **maxBackoffMs?**: `number`
+
+Ceiling on the doubling. Default 30000ms.
+
+***
+
+### DriverAttemptRecord
+
+One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so
+ an operator sees `driver failed after N attempts` instead of one opaque `pi exit unknown`.
+
+#### Properties
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+1-based.
+
+##### durationMs
+
+> `readonly` **durationMs**: `number`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+Absent when the attempt completed.
+
+##### classification?
+
+> `readonly` `optional` **classification?**: `"transient"` \| `"terminal"`
+
+##### madeProgress
+
+> `readonly` **madeProgress**: `boolean`
+
+Did anything change since the previous attempt (spend, settlement, submission)?
+
+##### stop?
+
+> `readonly` `optional` **stop?**: [`DriverAttemptStop`](#driverattemptstop)
+
+Set when this attempt ended the loop.
+
+##### retryInMs?
+
+> `readonly` `optional` **retryInMs?**: `number`
+
+Set when another attempt follows.
+
+***
+
+### DriverProgressMark
+
+The comparable mark used to decide whether an attempt did anything at all. Any field moving
+ counts as progress — a driver that metered one turn before dying is not dead on arrival.
+
+#### Properties
+
+##### poolTokensSpent
+
+> `readonly` **poolTokensSpent**: `number`
+
+Monotone total of POOL spend since the first reading, in tokens — the driver's own metered
+ turns AND any child settlement, because the conserved pool is shared. Deliberately not
+ driver-only: a child that settled during the attempt is progress by any reading, and the
+ coarser signal can only bias toward rescuing a run, never toward abandoning one.
+
+##### settledCount
+
+> `readonly` **settledCount**: `number`
+
+Monotone count of settled children.
+
+##### submitted
+
+> `readonly` **submitted**: `boolean`
+
+Whether an accepted deliverable exists.
+
+***
+
 ### BusEvent
 
 Every bus event is a discriminated union member keyed by `type`.
@@ -13112,6 +13281,49 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
  caller-owned override for a local bridge.
 
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+`driver-failed`. A harness process SIGKILLed at a bridge timeout, a stream cut mid-turn, or an
+upstream 5xx used to end a run of arbitrary length while its budget and deadline sat almost
+untouched (#741). A retry re-enters the driver over the SAME scope, coordination server, and
+live children; the bridge backend reattaches the harness session by its durable execution id.
+
+Runtime's own refusals (a validation guard, an exhausted budget, an abort, a client-side
+transport status) are never retried — they were decisions. Retries stop at the budget, the
+deadline, an abort, or a run of attempts that changed nothing at all.
+
+Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
+driver failure ends the run. Applies to the root manager and every recursive manager under it.
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for every external driver in the tree — what makes "failed after N
+ attempts, last cause X" visible instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### childSettleGraceMs?
+
+> `readonly` `optional` **childSettleGraceMs?**: `number`
+
+How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+cascades the abort into them. A root that died did not make its children unhealthy: a child
+mid-unit holds work already paid for, and an immediate cascade discards everything it has not
+yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](#resolvedriveharness-1)
@@ -13866,6 +14078,33 @@ Router substrate for a router-brained supervisor (`harness` omitted or `cli-base
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
 Required to run an external-harness supervisor: runs the harness as the driver.
+
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+ `driver-failed` (#741). Retries reuse the same scope, coordination server, and live children;
+ the bridge backend reattaches the harness session by its durable execution id. Omit = retry
+ under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
+ The router arm is unaffected: its transport already retries.
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for the external driver — how an operator sees "failed after N attempts"
+ instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
 
 ##### nodeContext?
 
@@ -15072,6 +15311,16 @@ trips the supervisor to `no-winner` rather than restarting forever.
 ##### withinMs?
 
 > `readonly` `optional` **withinMs?**: `number`
+
+##### childSettleGraceMs?
+
+> `readonly` `optional` **childSettleGraceMs?**: `number`
+
+How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+cascades the abort into them (#741). A root that dies did not make its children unhealthy: a
+child mid-unit holds work already paid for, and killing it instantly discards everything it has
+not yet written. The window applies ONLY to a driver failure on an un-cancelled run, and never
+extends past the run's own deadline. Omit/`0` = the historical immediate teardown.
 
 ##### resume?
 
@@ -18408,6 +18657,14 @@ the same `receiptId` has an unknown outcome after a crash and is never replayed.
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
  caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### DriverAttemptStop
+
+> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"`
+
+Why the retry loop stopped. `completed` is the only non-failure.
 
 ***
 
@@ -23248,6 +23505,31 @@ readonly `object`[]
 #### Returns
 
 () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
+
+***
+
+### classifyDriverFailure()
+
+> **classifyDriverFailure**(`error`, `signal?`): `"transient"` \| `"terminal"`
+
+Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
+anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
+because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
+having a bad moment, while a 401/404/422 is a request that will fail identically forever.
+
+#### Parameters
+
+##### error
+
+`unknown`
+
+##### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`"transient"` \| `"terminal"`
 
 ***
 

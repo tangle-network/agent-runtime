@@ -10,6 +10,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import { supervise } from '../helpers/runtime-with-test-brain'
@@ -1016,6 +1017,56 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       },
     })
     expect(requests[0]?.agent_profile.mcp?.['agent-runtime-coordination']).toBeUndefined()
+  })
+
+  it('retries a transient bridge failure on the same session and finishes the run (#741)', async () => {
+    // The exact production shape: the harness process dies once mid-run (here, the bridge answers
+    // 502 on the first execution). Before the fix that ONE failure ended the whole run as
+    // `driver-failed`. The retry re-enters the driver on the same scope and the same session id, so
+    // the bridge reattaches the harness conversation rather than starting a new one.
+    const requests: BridgeRequest[] = []
+    let executions = 0
+    server = createBridgeServer(async (req, res) => {
+      // The failed attempt's executor tears its run down before the retry re-enters, so the fake
+      // bridge has to answer the cancel exactly as a real one does.
+      const cancelling = cancelledRunId(req.url)
+      if (cancelling !== undefined) {
+        respondWithTerminalCancellation(res, cancelling)
+        return
+      }
+      const body = await readJson(req)
+      requests.push(body)
+      executions += 1
+      if (executions === 1) {
+        res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'upstream harness died' }))
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const attempts: DriverAttemptRecord[] = []
+    const result = await supervise(codexTestProfile('pi-leader', 'Lead the pursuit.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      // The wait itself is not under test; the decision to wait is.
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (record) => void attempts.push(record),
+    })
+
+    // One transient failure, one completion — and the run is NOT a driver failure.
+    expect(attempts.map((a) => a.stop ?? a.classification)).toEqual(['transient', 'completed'])
+    expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
+    expect(requests).toHaveLength(2)
+    // The durable execution id is what lets the replacement attempt reattach the same harness
+    // conversation instead of opening a second one.
+    expect(requests[1]?.session_id).toBe(requests[0]?.session_id)
   })
 
   it('refuses a manager with unknown cost under a dollar-capped budget', async () => {
