@@ -2712,7 +2712,7 @@ function assertBridgeProfileMaterialization(
     throw new ValidationError('bridgeExecutor: profile materialization receipt must be an object')
   }
   const raw = value as Record<string, unknown>
-  const exactKeys = [
+  const requiredKeys = [
     'effectiveProfileDigest',
     'files',
     'harness',
@@ -2723,10 +2723,40 @@ function assertBridgeProfileMaterialization(
     'unsupported',
     'workspacePlanDigest',
   ]
-  if (Object.keys(raw).sort().join(',') !== exactKeys.sort().join(',')) {
+  // `inference` is part of the SAME v2 schema, not an extension of it: cli-bridge added it to
+  // describe the bridge-owned model transport a jailed harness is pinned to (pi reaches its model
+  // only through that loopback endpoint), and its own `ProfileMaterializationReceipt` type declares
+  // it optional under `cli-bridge.profile-materialization.v2`. Comparing the key set EXACTLY made
+  // this executor refuse a conformant receipt — every jailed pi run through a current bridge
+  // settled `down` with "receipt has missing or unknown fields", which reads as a malformed bridge
+  // rather than a validator that pinned an older spelling of the same version. Required keys stay
+  // required and every value is still checked; the optional block is validated when present.
+  const optionalKeys = ['inference']
+  const presentKeys = Object.keys(raw)
+  const missing = requiredKeys.filter((key) => !presentKeys.includes(key))
+  const unknown = presentKeys.filter(
+    (key) => !requiredKeys.includes(key) && !optionalKeys.includes(key),
+  )
+  if (missing.length > 0 || unknown.length > 0) {
     throw new ValidationError(
-      'bridgeExecutor: profile materialization receipt has missing or unknown fields',
+      'bridgeExecutor: profile materialization receipt has missing or unknown fields' +
+        (missing.length > 0 ? ` (missing: ${missing.sort().join(', ')})` : '') +
+        (unknown.length > 0 ? ` (unknown: ${unknown.sort().join(', ')})` : ''),
     )
+  }
+  if (raw.inference !== undefined) {
+    const inference = raw.inference
+    if (typeof inference !== 'object' || inference === null || Array.isArray(inference)) {
+      throw new ValidationError(
+        'bridgeExecutor: profile materialization receipt has an invalid inference block',
+      )
+    }
+    const endpoint = (inference as Record<string, unknown>).effectiveEndpoint
+    if (typeof endpoint !== 'string' || endpoint.length === 0) {
+      throw new ValidationError(
+        'bridgeExecutor: profile materialization inference block has no effectiveEndpoint',
+      )
+    }
   }
   if (raw.schema !== bridgeProfileMaterializationSchema) {
     throw new ValidationError(
