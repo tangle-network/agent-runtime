@@ -1329,7 +1329,10 @@ function defaultTangleSandboxCapabilities(options: {
   return {
     profile: {
       namedProfiles: options.namedProfiles,
-      systemPrompt: true,
+      // Interface 0.44 split this from one boolean into the two things a backend can actually do
+      // with a caller's system prompt: REPLACE the harness's own, or APPEND to it. The sandbox
+      // materializes the whole profile, so it honors both.
+      systemPrompt: { replace: true, append: true },
       instructions: true,
       tools: true,
       permissions: true,
