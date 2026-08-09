@@ -2329,7 +2329,13 @@ async function* streamDurableBridgeRun(
 
     if (sawDone) {
       if (args.run.profileMaterialization === undefined) {
-        throw new ValidationError(
+        // Also TRANSPORT: a bridge that advertises the capability emits this receipt on every
+        // healthy turn, so its absence means the turn did not survive to send it — the same
+        // mid-stream death as above, arriving as a missing field instead of an error frame.
+        // Typed as validation it read as a permanently broken bridge and the root-driver retry
+        // refused to re-enter; one arm of a six-arm wave was lost to exactly this.
+        throw new BackendTransportError(
+          'bridge',
           `bridgeExecutor: run ${args.run.id} completed without ${bridgeProfileMaterializationSchema}`,
         )
       }
@@ -2712,7 +2718,7 @@ function assertBridgeProfileMaterialization(
     throw new ValidationError('bridgeExecutor: profile materialization receipt must be an object')
   }
   const raw = value as Record<string, unknown>
-  const exactKeys = [
+  const requiredKeys = [
     'effectiveProfileDigest',
     'files',
     'harness',
@@ -2723,10 +2729,40 @@ function assertBridgeProfileMaterialization(
     'unsupported',
     'workspacePlanDigest',
   ]
-  if (Object.keys(raw).sort().join(',') !== exactKeys.sort().join(',')) {
+  // `inference` is part of the SAME v2 schema, not an extension of it: cli-bridge added it to
+  // describe the bridge-owned model transport a jailed harness is pinned to (pi reaches its model
+  // only through that loopback endpoint), and its own `ProfileMaterializationReceipt` type declares
+  // it optional under `cli-bridge.profile-materialization.v2`. Comparing the key set EXACTLY made
+  // this executor refuse a conformant receipt — every jailed pi run through a current bridge
+  // settled `down` with "receipt has missing or unknown fields", which reads as a malformed bridge
+  // rather than a validator that pinned an older spelling of the same version. Required keys stay
+  // required and every value is still checked; the optional block is validated when present.
+  const optionalKeys = ['inference']
+  const presentKeys = Object.keys(raw)
+  const missing = requiredKeys.filter((key) => !presentKeys.includes(key))
+  const unknown = presentKeys.filter(
+    (key) => !requiredKeys.includes(key) && !optionalKeys.includes(key),
+  )
+  if (missing.length > 0 || unknown.length > 0) {
     throw new ValidationError(
-      'bridgeExecutor: profile materialization receipt has missing or unknown fields',
+      'bridgeExecutor: profile materialization receipt has missing or unknown fields' +
+        (missing.length > 0 ? ` (missing: ${missing.sort().join(', ')})` : '') +
+        (unknown.length > 0 ? ` (unknown: ${unknown.sort().join(', ')})` : ''),
     )
+  }
+  if (raw.inference !== undefined) {
+    const inference = raw.inference
+    if (typeof inference !== 'object' || inference === null || Array.isArray(inference)) {
+      throw new ValidationError(
+        'bridgeExecutor: profile materialization receipt has an invalid inference block',
+      )
+    }
+    const endpoint = (inference as Record<string, unknown>).effectiveEndpoint
+    if (typeof endpoint !== 'string' || endpoint.length === 0) {
+      throw new ValidationError(
+        'bridgeExecutor: profile materialization inference block has no effectiveEndpoint',
+      )
+    }
   }
   if (raw.schema !== bridgeProfileMaterializationSchema) {
     throw new ValidationError(
@@ -3083,10 +3119,19 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   if (parsed.error) {
     // `type` is the upstream's error class (e.g. kimi's access_terminated_error)
     // — carry it when the payload has no message, never collapse to 'unknown'.
+    //
+    // TRANSPORT, not validation. What arrives here is the harness's or the provider's failure
+    // relayed mid-stream — a turn that ended without emitting anything, a dropped upstream, a
+    // provider 5xx. Typing it as a validation error made it read as Runtime's own deliberate
+    // refusal, which is precisely what the root-driver retry treats as terminal: measured on a
+    // six-arm wave, three arms died on `pi assistant turn failed: The model finished
+    // (finish_reason=stop) without emitting any visible output — Retry the request`, and the
+    // retry declined to retry a message that asked to be retried.
     return {
       kind: 'event',
       id,
-      error: new ValidationError(
+      error: new BackendTransportError(
+        'bridge',
         `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
       ),
     }
