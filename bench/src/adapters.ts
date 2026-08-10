@@ -22,6 +22,7 @@ import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import { createHumanEvalAdapter } from './benchmarks/humaneval'
 import { createMcadBenchAdapter } from './benchmarks/mcad-bench'
+import { createMcadCqAdapter } from './benchmarks/mcad-cq-bench'
 import { createMind2WebAdapter } from './benchmarks/mind2web'
 import { createNoMiraclAdapter } from './benchmarks/nomiracl'
 import { createOpenRagBenchAdapter } from './benchmarks/open-rag-bench'
@@ -64,6 +65,11 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   // the spec is metric (bbox / volume / body count / point-in-solid hole probes)
   // rather than qualitative, and every task carries a verified gold.
   mcad: createMcadBenchAdapter,
+  // The same 10 parts and the same spec assertions, but the worker writes a Python
+  // CadQuery script that must export STEP as well as the ASCII STL — which closes
+  // the format deviation `mcad-tasks.ts` documents (upstream asks for STEP;
+  // OpenSCAD cannot emit it). STEP delivery is one extra SCORED check.
+  'mcad-cq': createMcadCqAdapter,
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
   frames: createFramesAdapter,
