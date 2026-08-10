@@ -1958,9 +1958,40 @@ interface BridgeProfileMaterializationReceipt {
     /** Exact native argv/config value after the bridge's backend mapping. */
     readonly applied: string | null
   }
+  /** Exact model transport selected by cli-bridge before the harness process started. */
+  readonly inference?: BridgeInferenceReceipt
   readonly workspacePlanDigest: string
   readonly files: ReadonlyArray<{ path: string; mode: number }>
   readonly unsupported: ReadonlyArray<{ dimension: string; reason: string }>
+}
+
+interface BridgeInferenceReceipt {
+  readonly effectiveEndpoint: string
+  readonly apiMode: string
+  readonly transport: 'scoped-loopback'
+  readonly observation?: BridgeInferenceObservation
+}
+
+interface BridgeInferenceObservation {
+  readonly requests: number
+  readonly generationRequests: number
+  readonly auxiliaryRequests: number
+  readonly usageReceipts: number
+  readonly rejectedRequests: number
+  readonly failedRequests: number
+  readonly inFlightRequests: number
+  readonly accountingMatched: boolean
+  readonly usage: BridgeInferenceUsage
+}
+
+interface BridgeInferenceUsage {
+  readonly inputTokens?: number
+  readonly freshInputTokens?: number
+  readonly cacheReadInputTokens?: number
+  readonly cacheWriteInputTokens?: number
+  readonly outputTokens?: number
+  readonly costKnown: false
+  readonly estimatedCost?: number
 }
 
 /**
@@ -2759,20 +2790,8 @@ function assertBridgeProfileMaterialization(
         (unknown.length > 0 ? ` (unknown: ${unknown.sort().join(', ')})` : ''),
     )
   }
-  if (raw.inference !== undefined) {
-    const inference = raw.inference
-    if (typeof inference !== 'object' || inference === null || Array.isArray(inference)) {
-      throw new ValidationError(
-        'bridgeExecutor: profile materialization receipt has an invalid inference block',
-      )
-    }
-    const endpoint = (inference as Record<string, unknown>).effectiveEndpoint
-    if (typeof endpoint !== 'string' || endpoint.length === 0) {
-      throw new ValidationError(
-        'bridgeExecutor: profile materialization inference block has no effectiveEndpoint',
-      )
-    }
-  }
+  const inference =
+    raw.inference === undefined ? undefined : parseBridgeInferenceReceipt(raw.inference)
   if (raw.schema !== bridgeProfileMaterializationSchema) {
     throw new ValidationError(
       `bridgeExecutor: profile materialization receipt is not ${bridgeProfileMaterializationSchema}`,
@@ -2916,10 +2935,199 @@ function assertBridgeProfileMaterialization(
       requested: requested as ReasoningEffort | null,
       applied: applied as string | null,
     },
+    ...(inference === undefined ? {} : { inference }),
     workspacePlanDigest: raw.workspacePlanDigest,
     files: Object.freeze(files),
     unsupported: Object.freeze(unsupported),
   })
+}
+
+function parseBridgeInferenceReceipt(value: unknown): BridgeInferenceReceipt {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has an invalid inference block',
+    )
+  }
+  const raw = value as Record<string, unknown>
+  assertBridgeReceiptKeys(
+    raw,
+    ['apiMode', 'effectiveEndpoint', 'transport'],
+    ['observation'],
+    'profile materialization inference block',
+  )
+  const effectiveEndpoint = raw.effectiveEndpoint
+  if (typeof effectiveEndpoint !== 'string' || effectiveEndpoint.length === 0) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference block has no effectiveEndpoint',
+    )
+  }
+  const apiMode = raw.apiMode
+  if (typeof apiMode !== 'string' || apiMode.length === 0) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference block has no apiMode',
+    )
+  }
+  if (raw.transport !== 'scoped-loopback') {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference block has invalid transport',
+    )
+  }
+  const observation =
+    raw.observation === undefined ? undefined : parseBridgeInferenceObservation(raw.observation)
+  return detachedSnapshot(
+    {
+      effectiveEndpoint,
+      apiMode,
+      transport: 'scoped-loopback' as const,
+      ...(observation === undefined ? {} : { observation }),
+    },
+    'bridgeExecutor: profile materialization inference block',
+  )
+}
+
+function parseBridgeInferenceObservation(value: unknown): BridgeInferenceObservation {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference observation must be an object',
+    )
+  }
+  const raw = value as Record<string, unknown>
+  assertBridgeReceiptKeys(
+    raw,
+    [
+      'accountingMatched',
+      'auxiliaryRequests',
+      'failedRequests',
+      'generationRequests',
+      'inFlightRequests',
+      'rejectedRequests',
+      'requests',
+      'usage',
+      'usageReceipts',
+    ],
+    [],
+    'profile materialization inference observation',
+  )
+  const observation = {
+    requests: bridgeInferenceCount(raw.requests, 'requests'),
+    generationRequests: bridgeInferenceCount(raw.generationRequests, 'generationRequests'),
+    auxiliaryRequests: bridgeInferenceCount(raw.auxiliaryRequests, 'auxiliaryRequests'),
+    usageReceipts: bridgeInferenceCount(raw.usageReceipts, 'usageReceipts'),
+    rejectedRequests: bridgeInferenceCount(raw.rejectedRequests, 'rejectedRequests'),
+    failedRequests: bridgeInferenceCount(raw.failedRequests, 'failedRequests'),
+    inFlightRequests: bridgeInferenceCount(raw.inFlightRequests, 'inFlightRequests'),
+    accountingMatched: bridgeInferenceBoolean(raw.accountingMatched, 'accountingMatched'),
+    usage: parseBridgeInferenceUsage(raw.usage),
+  }
+  return detachedSnapshot(
+    observation,
+    'bridgeExecutor: profile materialization inference observation',
+  )
+}
+
+function parseBridgeInferenceUsage(value: unknown): BridgeInferenceUsage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference usage must be an object',
+    )
+  }
+  const raw = value as Record<string, unknown>
+  assertBridgeReceiptKeys(
+    raw,
+    ['costKnown'],
+    [
+      'cacheReadInputTokens',
+      'cacheWriteInputTokens',
+      'estimatedCost',
+      'freshInputTokens',
+      'inputTokens',
+      'outputTokens',
+    ],
+    'profile materialization inference usage',
+  )
+  if (raw.costKnown !== false) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference usage must report costKnown=false',
+    )
+  }
+  const usage = {
+    ...(raw.inputTokens === undefined
+      ? {}
+      : { inputTokens: bridgeInferenceCount(raw.inputTokens, 'usage.inputTokens') }),
+    ...(raw.freshInputTokens === undefined
+      ? {}
+      : { freshInputTokens: bridgeInferenceCount(raw.freshInputTokens, 'usage.freshInputTokens') }),
+    ...(raw.cacheReadInputTokens === undefined
+      ? {}
+      : {
+          cacheReadInputTokens: bridgeInferenceCount(
+            raw.cacheReadInputTokens,
+            'usage.cacheReadInputTokens',
+          ),
+        }),
+    ...(raw.cacheWriteInputTokens === undefined
+      ? {}
+      : {
+          cacheWriteInputTokens: bridgeInferenceCount(
+            raw.cacheWriteInputTokens,
+            'usage.cacheWriteInputTokens',
+          ),
+        }),
+    ...(raw.outputTokens === undefined
+      ? {}
+      : { outputTokens: bridgeInferenceCount(raw.outputTokens, 'usage.outputTokens') }),
+    costKnown: false as const,
+    ...(raw.estimatedCost === undefined
+      ? {}
+      : { estimatedCost: bridgeInferenceMoney(raw.estimatedCost, 'usage.estimatedCost') }),
+  }
+  return detachedSnapshot(usage, 'bridgeExecutor: profile materialization inference usage')
+}
+
+function assertBridgeReceiptKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  context: string,
+): void {
+  const requiredSet = new Set(required)
+  const optionalSet = new Set(optional)
+  const missing = required.filter((key) => !Object.hasOwn(value, key))
+  const unknown = Object.keys(value).filter((key) => !requiredSet.has(key) && !optionalSet.has(key))
+  if (missing.length > 0 || unknown.length > 0) {
+    throw new ValidationError(
+      `bridgeExecutor: ${context} has missing or unknown fields` +
+        (missing.length > 0 ? ` (missing: ${missing.sort().join(', ')})` : '') +
+        (unknown.length > 0 ? ` (unknown: ${unknown.sort().join(', ')})` : ''),
+    )
+  }
+}
+
+function bridgeInferenceCount(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be a nonnegative safe integer`,
+    )
+  }
+  return value as number
+}
+
+function bridgeInferenceBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be boolean`,
+    )
+  }
+  return value
+}
+
+function bridgeInferenceMoney(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be finite and nonnegative`,
+    )
+  }
+  return value
 }
 
 /** Expected native control for the bridge backends that can emit the v2 acknowledgement. These
