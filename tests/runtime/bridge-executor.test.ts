@@ -1135,6 +1135,46 @@ describe('profile-selected model keeps its provider', () => {
     ).toBe('pi/tangle-router/glm-5.2')
   })
 
+  it.each([
+    ['nested provider model id', 'fireworks/deepseek-v4-flash'],
+    ['provider-qualified nested model id', 'tangle-router/fireworks/deepseek-v4-flash'],
+    ['harness-qualified nested model id', 'pi/tangle-router/fireworks/deepseek-v4-flash'],
+  ])('preserves %s across bridge execution and materialization', async (_label, defaultModel) => {
+    const expected = 'pi/tangle-router/fireworks/deepseek-v4-flash'
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    const profile: AgentProfile = {
+      name: 'nested-provider-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: defaultModel },
+    }
+    const executor = createExecutor({
+      backend: 'bridge',
+      bridgeUrl: 'http://bridge.test',
+      bridgeBearer: 'secret',
+    })({ profile, harness: null } as AgentSpec, {
+      signal: new AbortController().signal,
+      seams: {},
+    })
+
+    expect(runtimeOwnedPendingExecutorMaterialization(executor)?.declaration.model).toEqual({
+      status: 'known',
+      id: expected,
+    })
+    await drainExecutor(executor)
+
+    expect(seen[0]?.model).toBe(expected)
+    const materialization = runtimeOwnedExecutorMaterialization(executor)
+    expect(materialization).toBeDefined()
+    if (!materialization) throw new Error('bridge materialization was not finalized')
+    expect(materialization.model).toEqual({ status: 'known', id: expected })
+    const plan = materialization.plan as { terminalAcknowledgement?: { model?: string } }
+    expect(plan.terminalAcknowledgement?.model).toBe(expected)
+  })
+
   it('refuses runtime-selected model markers before dispatch', async () => {
     await expect(
       wireModelFor({
