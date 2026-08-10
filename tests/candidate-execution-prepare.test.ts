@@ -273,6 +273,11 @@ describe('candidate execution preparation', () => {
     {
       harness: 'codex',
       executable: 'codex',
+      args: ['-c', 'developer_instructions="already set"'],
+    },
+    {
+      harness: 'codex',
+      executable: 'codex',
       args: ['-c', 'model_instructions_file=/elsewhere'],
     },
     {
