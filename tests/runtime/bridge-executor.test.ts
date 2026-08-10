@@ -1,12 +1,21 @@
 import { PassThrough, type Readable } from 'node:stream'
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
-import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
-import { runtimeOwnedPendingExecutorMaterialization } from '../../src/runtime/supervise/materialization'
-import { bridgeExecutor } from '../../src/runtime/supervise/runtime'
+import {
+  runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
+} from '../../src/runtime/supervise/materialization'
+import { bridgeExecutor, createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope } from '../../src/runtime/supervise/scope'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
 
@@ -73,7 +82,12 @@ vi.mock('node:http', async () => {
   }
 })
 
-function sse(content: string, input: number, output: number): Readable {
+function sse(
+  content: string,
+  input: number,
+  output: number,
+  inference?: Record<string, unknown>,
+): Readable {
   if (!activeBridgePayload) throw new Error('sse: no active bridge request')
   const payload = activeBridgePayload
   const profile = payload.agent_profile as AgentProfile
@@ -106,6 +120,7 @@ function sse(content: string, input: number, output: number): Readable {
             requested: profile.model?.reasoningEffort ?? null,
             applied: profile.model?.reasoningEffort ?? null,
           },
+          ...(inference === undefined ? {} : { inference }),
           workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
           files: [],
           unsupported: [],
@@ -395,6 +410,106 @@ describe('bridgeExecutor over node:http', () => {
 
     expect(seen).toHaveLength(1)
     expect(seen[0]).not.toHaveProperty('max_tokens')
+  })
+
+  it('retains bridge inference evidence in the materialization receipt and journal', async () => {
+    const profile = exactBridgeProfile('inference-worker', 'safe-model')
+    const inference = {
+      effectiveEndpoint: 'http://127.0.0.1:4317/v1',
+      apiMode: 'openai-completions',
+      transport: 'scoped-loopback',
+      observation: {
+        requests: 3,
+        generationRequests: 2,
+        auxiliaryRequests: 1,
+        usageReceipts: 2,
+        rejectedRequests: 0,
+        failedRequests: 0,
+        inFlightRequests: 0,
+        accountingMatched: true,
+        usage: {
+          inputTokens: 21,
+          freshInputTokens: 8,
+          cacheReadInputTokens: 13,
+          cacheWriteInputTokens: 0,
+          outputTokens: 5,
+          costKnown: false,
+          estimatedCost: 0.0042,
+        },
+      },
+    }
+    let captured: Executor<unknown> | undefined
+    const root = 'bridge-inference-journal'
+    const journal = new InMemorySpawnJournal()
+    await journal.beginTree(root, new Date(0).toISOString())
+    const scope = createScope({
+      parentId: root,
+      root,
+      pool: createBudgetPool({ maxIterations: 1, maxTokens: 100 }, Date.now),
+      journal,
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+      seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      depth: 0,
+      signal: new AbortController().signal,
+      now: Date.now,
+    })
+    const worker = {
+      name: profile.name ?? 'inference-worker',
+      act: async () => 'unused',
+      executorSpec: {
+        profile,
+        harness: null,
+        executorFactory: (spec: AgentSpec, ctx: Parameters<typeof bridgeExecutor>[1]) => {
+          const executor = bridgeExecutor(spec, ctx)
+          captured = executor
+          return executor
+        },
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+
+    bridgeHttpHandler = () => sse('ok', 3, 5, inference)
+    const spawned = scope.spawn(worker, 'capture inference', {
+      budget: { maxIterations: 1, maxTokens: 100 },
+      label: 'inference-worker',
+    })
+    expect(spawned.ok).toBe(true)
+
+    expect((await scope.next())?.kind).toBe('done')
+    expect(captured).toBeDefined()
+    const declaration = runtimeOwnedExecutorMaterialization(captured!)
+    expect(declaration).toBeDefined()
+    const plan = declaration!.plan as {
+      terminalAcknowledgement: { inference?: Record<string, unknown> }
+    }
+    expect(plan.terminalAcknowledgement.inference).toEqual(inference)
+    expect(plan.terminalAcknowledgement.inference).not.toBe(inference)
+    expect(Object.isFrozen(plan.terminalAcknowledgement.inference)).toBe(true)
+    expect(Object.isFrozen(plan.terminalAcknowledgement.inference?.observation)).toBe(true)
+    expect(Object.isFrozen(plan.terminalAcknowledgement.inference?.observation?.usage)).toBe(true)
+
+    const events = await journal.loadTree(root)
+    const materialized = events?.find((event) => event.kind === 'materialized')
+    expect(materialized?.receipt.status).toBe('known')
+    if (materialized?.receipt.status !== 'known') {
+      throw new Error('bridge inference materialization receipt was not journaled')
+    }
+    expect(materialized.receipt.materializationPlanDigest).toBe(
+      canonicalCandidateDigest(declaration!.plan),
+    )
+    const changedPlan = {
+      ...(declaration!.plan as Record<string, unknown>),
+      terminalAcknowledgement: {
+        ...plan.terminalAcknowledgement,
+        inference: {
+          ...plan.terminalAcknowledgement.inference,
+          effectiveEndpoint: 'http://127.0.0.1:4318/v1',
+        },
+      },
+    }
+    expect(canonicalCandidateDigest(changedPlan)).not.toBe(
+      materialized.receipt.materializationPlanDigest,
+    )
   })
 
   it.each([0, -1, 1.5, '100'])(
