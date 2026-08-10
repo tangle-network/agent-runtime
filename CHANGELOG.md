@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.131.4
+
+- Accept and preserve cli-bridge's positive applied completion-token cap in Runtime materialization evidence.
+- Reject zero, negative, fractional, or non-numeric applied caps before the evidence enters the journal.
+
 ## 0.131.3
 
 - Preserve cli-bridge inference transport and observation evidence in Runtime materialization receipts and journal digests.
