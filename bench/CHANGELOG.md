@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3
+
+- sandbox 0.19.4 — the exact agent-core/agent-interface pins move to the
+  published cohort (0.5.4 / 0.46.1); no bench-visible behavior change.
+
+
 ## 0.7.2
 
 - Consume Runtime 0.129.0, Eval 0.144.4, Interface 0.43.1, Knowledge 7.0.11, and Sandbox 0.19.1 so benchmark model calls use the exact-profile execution boundary and the released optimizer callback contract without loading duplicate agent contracts.
