@@ -1969,6 +1969,8 @@ interface BridgeInferenceReceipt {
   readonly effectiveEndpoint: string
   readonly apiMode: string
   readonly transport: 'scoped-loopback'
+  /** Exact positive completion-token cap applied to the isolated model config. */
+  readonly appliedMaxTokens?: number
   readonly observation?: BridgeInferenceObservation
 }
 
@@ -2952,7 +2954,7 @@ function parseBridgeInferenceReceipt(value: unknown): BridgeInferenceReceipt {
   assertBridgeReceiptKeys(
     raw,
     ['apiMode', 'effectiveEndpoint', 'transport'],
-    ['observation'],
+    ['appliedMaxTokens', 'observation'],
     'profile materialization inference block',
   )
   const effectiveEndpoint = raw.effectiveEndpoint
@@ -2974,11 +2976,16 @@ function parseBridgeInferenceReceipt(value: unknown): BridgeInferenceReceipt {
   }
   const observation =
     raw.observation === undefined ? undefined : parseBridgeInferenceObservation(raw.observation)
+  const appliedMaxTokens =
+    raw.appliedMaxTokens === undefined
+      ? undefined
+      : bridgeInferencePositiveCount(raw.appliedMaxTokens, 'appliedMaxTokens')
   return detachedSnapshot(
     {
       effectiveEndpoint,
       apiMode,
       transport: 'scoped-loopback' as const,
+      ...(appliedMaxTokens === undefined ? {} : { appliedMaxTokens }),
       ...(observation === undefined ? {} : { observation }),
     },
     'bridgeExecutor: profile materialization inference block',
@@ -3107,6 +3114,15 @@ function bridgeInferenceCount(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) {
     throw new ValidationError(
       `bridgeExecutor: profile materialization inference ${field} must be a nonnegative safe integer`,
+    )
+  }
+  return value as number
+}
+
+function bridgeInferencePositiveCount(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be a positive safe integer`,
     )
   }
   return value as number
