@@ -36,19 +36,17 @@ afterEach(() => {
 describe('candidate execution preparation', () => {
   it.each([
     {
+      // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.12:
+      // the prompt bytes live in the digested plan at .codex/system-prompt.md and the flag makes
+      // codex read them. The path is cwd-relative on purpose (survives docker/jail remapping).
       harness: 'codex',
       executable: '/usr/local/bin/codex',
-      flags: ['-c', 'developer_instructions="Native \\"prompt\\"\\nsecond line\\tend"'],
+      flags: ['-c', 'model_instructions_file=.codex/system-prompt.md'],
     },
     {
       harness: 'claude-code',
       executable: 'claude',
       flags: ['--system-prompt-file', '/workspace/task/.tangle/system-prompt.md'],
-    },
-    {
-      harness: 'opencode',
-      executable: 'opencode',
-      flags: [],
     },
     {
       harness: 'pi',
@@ -94,36 +92,68 @@ describe('candidate execution preparation', () => {
       )
       expect(prepared.launch.args).not.toContain(value.task.task.instruction)
 
-      const openCodeConfig = prepared.profileActivation.files.find(
-        (file) => file.path === 'opencode.json',
-      )
       const systemPromptFile = prepared.profileActivation.files.find(
         (file) => file.path === '.tangle/system-prompt.md',
       )
-      if (harness === 'opencode') {
-        expect(JSON.parse(openCodeConfig?.content ?? '')).toMatchObject({
-          instructions: ['.opencode/profile-instructions.md'],
-          agent: {
-            build: { prompt: systemPrompt },
-            plan: { prompt: systemPrompt },
-          },
-        })
-        expect(systemPromptFile).toBeUndefined()
-      } else if (harness === 'claude-code' || harness === 'pi') {
-        expect(openCodeConfig).toBeUndefined()
+      const codexPromptFile = prepared.profileActivation.files.find(
+        (file) => file.path === '.codex/system-prompt.md',
+      )
+      if (harness === 'claude-code' || harness === 'pi') {
+        expect(codexPromptFile).toBeUndefined()
         expect(systemPromptFile?.content).toBe(systemPrompt)
       } else {
-        expect(openCodeConfig).toBeUndefined()
+        // The flag is only half the delivery; the digested plan must carry the exact bytes the
+        // flag points at, or the launch would reference a file that does not exist.
         expect(systemPromptFile).toBeUndefined()
+        expect(codexPromptFile?.content).toBe(systemPrompt)
       }
     },
   )
+
+  it('refuses an opencode candidate system prompt, because delivery cannot be guaranteed', async () => {
+    // agent-profile-materialize 0.12 refuses this outright: opencode's only replacement control
+    // is per-agent (`agent.<name>.prompt`), bound to whichever agent the launcher selects — a
+    // guarantee a sealed workspace plan cannot make. The refusal replaced this repo's earlier
+    // opencode.json mutation, which patched both built-in agents and hoped one was selected.
+    // Fail-closed is correct: no silent drop, an actionable reason, and the capability returns
+    // upstream via a binds-aware candidate materializer rather than a local workaround.
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        harness: 'opencode',
+        prompt: { ...value.bundle.profile.prompt, systemPrompt: 'Must be active.' },
+      },
+      execution: {
+        ...value.bundle.execution,
+        harness: 'opencode',
+        launch: { kind: 'container-command', executable: 'opencode' },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/only system-prompt replacement is per-agent/)
+  })
 
   it.each([
     {
       harness: 'codex',
       executable: 'codex',
       args: ['-c', 'developer_instructions="already set"'],
+    },
+    {
+      // The materializer's own delivery key: a caller argv setting it would re-point codex's
+      // instructions at a different file AFTER the plan's flag, silently replacing the sealed
+      // prompt with foreign bytes.
+      harness: 'codex',
+      executable: 'codex',
+      args: ['--config=model_instructions_file=/somewhere/else.md'],
     },
     { harness: 'claude-code', executable: 'claude', args: ['--system-prompt-file', '/elsewhere'] },
     { harness: 'claude-code', executable: 'claude', args: ['--system-prompt=inline'] },
