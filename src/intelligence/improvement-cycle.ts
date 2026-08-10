@@ -87,6 +87,7 @@ import {
 } from '../candidate-execution/prepare'
 import {
   assertCandidateProfileBinding,
+  CANDIDATE_PROFILE_MATERIALIZER_BINDS,
   candidateMaterializerHarness,
   createAgentCandidateProfileActivation,
   parseAgentCandidateProfileActivation,
@@ -1327,7 +1328,10 @@ export function verifyCandidateExecutionEvidence(
   const expectedProfilePlan = materializeCandidateProfile(
     bundle.profile,
     candidateMaterializerHarness(materialization.harness),
-    { resolvedResources: options.resolvedResources },
+    {
+      binds: CANDIDATE_PROFILE_MATERIALIZER_BINDS,
+      resolvedResources: options.resolvedResources,
+    },
   )
   const activation = parseAgentCandidateProfileActivation(
     materialization.profileActivation,

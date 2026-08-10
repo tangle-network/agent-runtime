@@ -36,7 +36,7 @@ afterEach(() => {
 describe('candidate execution preparation', () => {
   it.each([
     {
-      // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.12:
+      // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.13.1:
       // the prompt bytes live in the digested plan at .codex/system-prompt.md and the flag makes
       // codex read them. The path is cwd-relative on purpose (survives docker/jail remapping).
       harness: 'codex',
@@ -135,15 +135,14 @@ describe('candidate execution preparation', () => {
     },
   )
 
-  it('refuses an opencode candidate system prompt until the materializer can bind its selected agent', async () => {
-    // The published candidate materializer does not forward launcher bindings yet. OpenCode's
-    // replacement control is per-agent, so this path must remain an explicit upstream refusal.
+  it('binds an OpenCode candidate replacement to its selected primary agent', async () => {
     const value = fixture()
+    const systemPrompt = 'Must be active.'
     value.bundle = redigestBundle(value.bundle, {
       profile: {
         ...value.bundle.profile,
         harness: 'opencode',
-        prompt: { ...value.bundle.profile.prompt, systemPrompt: 'Must be active.' },
+        prompt: { ...value.bundle.profile.prompt, systemPrompt },
       },
       execution: {
         ...value.bundle.execution,
@@ -153,13 +152,19 @@ describe('candidate execution preparation', () => {
     })
     bindCandidateFixtureBundle(value)
 
-    await expect(
-      prepareAgentCandidateExecution(
-        await verifyAgentCandidateBundle(value.bundle, value.ports),
-        value.task,
-        value.ports,
-      ),
-    ).rejects.toThrow(/only system-prompt replacement is per-agent/)
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(value.bundle, value.ports),
+      value.task,
+      value.ports,
+    )
+
+    expect(prepared.profilePlan.value.material.systemPrompt?.value).toBe(systemPrompt)
+    expect(prepared.profilePlan.value.material.unsupported).toEqual([])
+    expect(prepared.launch.flags).toEqual(['--agent', expect.any(String)])
+    const agentFile = prepared.profileActivation.files.find((file) =>
+      file.path.startsWith('.opencode/agents/'),
+    )
+    expect(agentFile?.content).toBe(`---\nmode: primary\n---\n${systemPrompt}\n`)
   })
 
   it('keeps replacement and additive prompts on distinct Claude controls', async () => {

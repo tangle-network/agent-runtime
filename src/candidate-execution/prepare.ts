@@ -63,7 +63,7 @@ import {
 } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
-import { candidateMaterializerHarness } from './profile'
+import { CANDIDATE_PROFILE_MATERIALIZER_BINDS, candidateMaterializerHarness } from './profile'
 import { projectCandidatePromptIntents } from './system-prompt'
 import {
   type AgentCandidateExecutionPorts,
@@ -179,6 +179,7 @@ export async function prepareAgentCandidateExecution(
 
   await assertEmptyDirectory(task.stagingRoots.profileRoot)
   const candidateProfileMaterialization = {
+    binds: CANDIDATE_PROFILE_MATERIALIZER_BINDS,
     resolvedResources: verifiedResourceTextByDigest(candidate),
   }
   const profileWorkspacePlan = projectCandidatePromptIntents(

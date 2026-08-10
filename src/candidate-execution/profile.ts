@@ -43,6 +43,9 @@ export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
   return harness
 }
 
+/** Runtime applies the materializer's launch flags to the candidate process. */
+export const CANDIDATE_PROFILE_MATERIALIZER_BINDS = ['systemPrompt'] as const
+
 /** Bind exact native profile text to the canonical plan captured during preparation. */
 export function createAgentCandidateProfileActivation(
   plan: AgentCandidateWorkspacePlan,
