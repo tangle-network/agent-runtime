@@ -21,6 +21,7 @@ import { createFinsearchcompAdapter } from './benchmarks/finsearchcomp'
 import { createFramesAdapter } from './benchmarks/frames'
 import { createHotpotqaAdapter } from './benchmarks/hotpotqa'
 import { createHumanEvalAdapter } from './benchmarks/humaneval'
+import { createMcadBenchAdapter } from './benchmarks/mcad-bench'
 import { createMind2WebAdapter } from './benchmarks/mind2web'
 import { createNoMiraclAdapter } from './benchmarks/nomiracl'
 import { createOpenRagBenchAdapter } from './benchmarks/open-rag-bench'
@@ -59,6 +60,10 @@ export const ADAPTERS: Record<string, () => BenchmarkAdapter> = {
   'appworld-react': createAppWorldReactAdapter,
   'enterpriseops-gym': createEnterpriseOpsGymAdapter,
   'cad-design': createCadDesignAdapter,
+  // Dimensioned mechanical parts: same OpenSCAD+xvfb judge deps as cad-design, but
+  // the spec is metric (bbox / volume / body count / point-in-solid hole probes)
+  // rather than qualitative, and every task carries a verified gold.
+  mcad: createMcadBenchAdapter,
   cadbench: createCadBenchAdapter,
   cadgenbench: createCadGenBenchAdapter,
   frames: createFramesAdapter,
