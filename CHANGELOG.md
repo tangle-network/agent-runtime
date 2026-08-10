@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.131.0
+
+- Consume agent-profile-materialize 0.13.1 and Sandbox 0.19.4 with Interface 0.46.1, Eval 0.144.6, and Knowledge 7.1.2.
+- Bind candidate system-prompt launch controls through the native harness plan, including OpenCode's generated primary agent.
+- Keep Codex and Gemini prompt delivery fail-closed, and preserve separate replacement and additive controls for Claude Code, Pi, and Prime.
+
 ## 0.130.0
 
 ### Stability contract + first graduation

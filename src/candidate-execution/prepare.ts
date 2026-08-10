@@ -26,10 +26,7 @@ import {
   agentCandidateWorkspaceSnapshotEvidenceSchema,
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
-import {
-  applyAgentCandidateWorkspacePlan,
-  materializeCandidateProfile,
-} from '@tangle-network/agent-profile-materialize'
+import { applyAgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
 
 import {
   readMaterializedWorkspaceFiles,
@@ -63,8 +60,7 @@ import {
 } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
-import { candidateMaterializerHarness } from './profile'
-import { projectCandidateSystemPrompt } from './system-prompt'
+import { materializeAgentCandidateProfilePlan } from './profile'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -109,7 +105,6 @@ export async function prepareAgentCandidateExecution(
     maxAttempts: benchmarkTask.attempt.maxAttempts,
     retryPolicy: benchmarkTask.attempt.retryPolicy,
   } as const
-  const harness = candidateMaterializerHarness(bundle.execution.harness)
   assertTaskInput(task, bundle.execution.instructionDelivery)
   const resultTimeoutMs = candidateResultTimeout(
     options.resultTimeoutMs,
@@ -178,13 +173,14 @@ export async function prepareAgentCandidateExecution(
   }
 
   await assertEmptyDirectory(task.stagingRoots.profileRoot)
-  const profileWorkspacePlan = projectCandidateSystemPrompt(
-    materializeCandidateProfile(bundle.profile, harness, {
-      resolvedResources: verifiedResourceTextByDigest(candidate),
-    }),
-    bundle.execution.launch,
-    profileSystemPromptExecutionPath(bundle.execution.cwd.workspace, task.executionRoots),
-  )
+  const profileWorkspacePlan = materializeAgentCandidateProfilePlan({
+    profile: bundle.profile,
+    harness: bundle.execution.harness,
+    launch: bundle.execution.launch,
+    workspace: bundle.execution.cwd.workspace,
+    workspaces: task.executionRoots,
+    resolvedResources: verifiedResourceTextByDigest(candidate),
+  })
   const profileApplication = applyAgentCandidateWorkspacePlan(
     profileWorkspacePlan,
     task.stagingRoots.profileRoot,
@@ -933,15 +929,6 @@ function absoluteExecutionCwd(
     throw new Error('candidate cwd escapes its execution workspace')
   }
   return absolute
-}
-
-function profileSystemPromptExecutionPath(
-  workspace: VerifiedAgentCandidate['bundle']['execution']['cwd']['workspace'],
-  roots: AgentCandidateTaskExecution['executionRoots'],
-): string {
-  const root = workspace === 'task' ? roots.taskRoot : roots.candidateRoot
-  if (!root) throw new Error('candidate profile target is missing its execution workspace root')
-  return posix.join(root, '.tangle/system-prompt.md')
 }
 
 function validateProtectedModelReservation(

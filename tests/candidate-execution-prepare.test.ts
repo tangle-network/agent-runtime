@@ -36,7 +36,7 @@ afterEach(() => {
 describe('candidate execution preparation', () => {
   it.each([
     {
-      // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.12:
+      // codex delivery is materializer-lowered file+flag since agent-profile-materialize 0.13.1:
       // the prompt bytes live in the digested plan at .codex/system-prompt.md and the flag makes
       // codex read them. The path is cwd-relative on purpose (survives docker/jail remapping).
       harness: 'codex',
@@ -52,6 +52,16 @@ describe('candidate execution preparation', () => {
       harness: 'pi',
       executable: 'pi',
       flags: ['--system-prompt', '/workspace/task/.tangle/system-prompt.md'],
+    },
+    {
+      harness: 'prime',
+      executable: 'prime-agent',
+      flags: ['--system-prompt', '/workspace/task/.tangle/system-prompt.md'],
+    },
+    {
+      harness: 'gemini',
+      executable: 'gemini',
+      flags: [],
     },
   ] as const)(
     'projects the replacement system prompt onto the native $harness process',
@@ -98,31 +108,41 @@ describe('candidate execution preparation', () => {
       const codexPromptFile = prepared.profileActivation.files.find(
         (file) => file.path === '.codex/system-prompt.md',
       )
-      if (harness === 'claude-code' || harness === 'pi') {
+      const geminiPromptFile = prepared.profileActivation.files.find(
+        (file) => file.path === '.gemini/system.md',
+      )
+      const openCodeConfig = prepared.profileActivation.files.find(
+        (file) => file.path === 'opencode.json',
+      )
+      if (harness === 'claude-code' || harness === 'pi' || harness === 'prime') {
+        expect(openCodeConfig).toBeUndefined()
         expect(codexPromptFile).toBeUndefined()
         expect(systemPromptFile?.content).toBe(systemPrompt)
+        expect(geminiPromptFile).toBeUndefined()
+      } else if (harness === 'codex') {
+        expect(openCodeConfig).toBeUndefined()
+        expect(systemPromptFile).toBeUndefined()
+        expect(codexPromptFile?.content).toBe(systemPrompt)
+        expect(geminiPromptFile).toBeUndefined()
       } else {
         // The flag is only half the delivery; the digested plan must carry the exact bytes the
         // flag points at, or the launch would reference a file that does not exist.
+        expect(openCodeConfig).toBeUndefined()
         expect(systemPromptFile).toBeUndefined()
-        expect(codexPromptFile?.content).toBe(systemPrompt)
+        expect(codexPromptFile).toBeUndefined()
+        expect(geminiPromptFile?.content).toBe(systemPrompt)
       }
     },
   )
 
-  it('refuses an opencode candidate system prompt, because delivery cannot be guaranteed', async () => {
-    // agent-profile-materialize 0.12 refuses this outright: opencode's only replacement control
-    // is per-agent (`agent.<name>.prompt`), bound to whichever agent the launcher selects — a
-    // guarantee a sealed workspace plan cannot make. The refusal replaced this repo's earlier
-    // opencode.json mutation, which patched both built-in agents and hoped one was selected.
-    // Fail-closed is correct: no silent drop, an actionable reason, and the capability returns
-    // upstream via a binds-aware candidate materializer rather than a local workaround.
+  it('binds an OpenCode candidate replacement to its selected primary agent', async () => {
     const value = fixture()
+    const systemPrompt = 'Must be active.'
     value.bundle = redigestBundle(value.bundle, {
       profile: {
         ...value.bundle.profile,
         harness: 'opencode',
-        prompt: { ...value.bundle.profile.prompt, systemPrompt: 'Must be active.' },
+        prompt: { ...value.bundle.profile.prompt, systemPrompt },
       },
       execution: {
         ...value.bundle.execution,
@@ -132,20 +152,138 @@ describe('candidate execution preparation', () => {
     })
     bindCandidateFixtureBundle(value)
 
-    await expect(
-      prepareAgentCandidateExecution(
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(value.bundle, value.ports),
+      value.task,
+      value.ports,
+    )
+
+    expect(prepared.profilePlan.value.material.systemPrompt?.value).toBe(systemPrompt)
+    expect(prepared.profilePlan.value.material.unsupported).toEqual([])
+    expect(prepared.launch.flags).toEqual(['--agent', expect.any(String)])
+    const agentFile = prepared.profileActivation.files.find((file) =>
+      file.path.startsWith('.opencode/agents/'),
+    )
+    expect(agentFile?.content).toBe(`---\nmode: primary\n---\n${systemPrompt}\n`)
+  })
+
+  it('keeps replacement and additive prompts on distinct Claude controls', async () => {
+    const value = fixture()
+    const systemPrompt = 'Replace the native prompt.'
+    const appendSystemPrompt = 'Add this after the replacement.'
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        harness: 'claude-code',
+        prompt: { ...value.bundle.profile.prompt, systemPrompt, appendSystemPrompt },
+      },
+      execution: {
+        ...value.bundle.execution,
+        harness: 'claude-code',
+        launch: { kind: 'container-command', executable: 'claude' },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(value.bundle, value.ports),
+      value.task,
+      value.ports,
+    )
+
+    expect(prepared.launch.flags).toEqual([
+      '--system-prompt-file',
+      '/workspace/task/.tangle/system-prompt.md',
+      '--append-system-prompt-file',
+      '/workspace/task/.tangle/append-system-prompt.md',
+    ])
+    expect(prepared.profilePlan.value.material).not.toHaveProperty('systemPrompt')
+    expect(prepared.profilePlan.value.material).not.toHaveProperty('appendSystemPrompt')
+    expect(
+      prepared.profileActivation.files.find((entry) => entry.path === '.tangle/system-prompt.md')
+        ?.content,
+    ).toBe(systemPrompt)
+    expect(
+      prepared.profileActivation.files.find(
+        (entry) => entry.path === '.tangle/append-system-prompt.md',
+      )?.content,
+    ).toBe(appendSystemPrompt)
+  })
+
+  it.each([
+    {
+      harness: 'claude-code',
+      executable: 'claude',
+      flags: ['--append-system-prompt-file', '/workspace/task/.tangle/append-system-prompt.md'],
+      file: '.tangle/append-system-prompt.md',
+    },
+    {
+      harness: 'opencode',
+      executable: 'opencode',
+      flags: [],
+      file: '.opencode/agent-system-prompt.md',
+    },
+    {
+      harness: 'pi',
+      executable: 'pi',
+      flags: ['--append-system-prompt', '/workspace/task/.tangle/append-system-prompt.md'],
+      file: '.tangle/append-system-prompt.md',
+    },
+    {
+      harness: 'prime',
+      executable: 'prime-agent',
+      flags: ['--append-system-prompt', '/workspace/task/.tangle/append-system-prompt.md'],
+      file: '.tangle/append-system-prompt.md',
+    },
+  ] as const)(
+    'projects the additive system prompt onto the native $harness process',
+    async ({ harness, executable, flags, file }) => {
+      const value = fixture()
+      const appendSystemPrompt = 'Keep the native prompt and add this.\nSecond line.'
+      value.bundle = redigestBundle(value.bundle, {
+        profile: {
+          ...value.bundle.profile,
+          harness,
+          prompt: { ...value.bundle.profile.prompt, appendSystemPrompt },
+        },
+        execution: {
+          ...value.bundle.execution,
+          harness,
+          launch: { kind: 'container-command', executable },
+        },
+      })
+      bindCandidateFixtureBundle(value)
+
+      const prepared = await prepareAgentCandidateExecution(
         await verifyAgentCandidateBundle(value.bundle, value.ports),
         value.task,
         value.ports,
-      ),
-    ).rejects.toThrow(/only system-prompt replacement is per-agent/)
-  })
+      )
+
+      expect(prepared.profilePlan.value.material.appendSystemPrompt).toBeUndefined()
+      expect(prepared.launch.flags).toEqual(flags)
+      expect(prepared.profileActivation.files.find((entry) => entry.path === file)?.content).toBe(
+        harness === 'opencode' ? `${appendSystemPrompt}\n` : appendSystemPrompt,
+      )
+      if (harness === 'opencode') {
+        const config = prepared.profileActivation.files.find(
+          (entry) => entry.path === 'opencode.json',
+        )
+        expect(JSON.parse(config?.content ?? '').instructions[0]).toBe(file)
+      }
+    },
+  )
 
   it.each([
     {
       harness: 'codex',
       executable: 'codex',
       args: ['-c', 'developer_instructions="already set"'],
+    },
+    {
+      harness: 'codex',
+      executable: 'codex',
+      args: ['-c', 'model_instructions_file=/elsewhere'],
     },
     {
       // The materializer's own delivery key: a caller argv setting it would re-point codex's
@@ -158,6 +296,7 @@ describe('candidate execution preparation', () => {
     { harness: 'claude-code', executable: 'claude', args: ['--system-prompt-file', '/elsewhere'] },
     { harness: 'claude-code', executable: 'claude', args: ['--system-prompt=inline'] },
     { harness: 'pi', executable: 'pi', args: ['--system-prompt', '/elsewhere'] },
+    { harness: 'prime', executable: 'prime-agent', args: ['--system-prompt', '/elsewhere'] },
   ] as const)(
     'refuses $harness launch args that would shadow the profile system prompt',
     async ({ harness, executable, args }) => {
@@ -188,6 +327,46 @@ describe('candidate execution preparation', () => {
         ),
       ).rejects.toThrow(
         new RegExp(`${harness} launch arguments conflict with the candidate profile system prompt`),
+      )
+    },
+  )
+
+  it.each([
+    { harness: 'claude-code', executable: 'claude' },
+    { harness: 'pi', executable: 'pi' },
+    { harness: 'prime', executable: 'prime-agent' },
+  ] as const)(
+    'refuses $harness launch args that shadow the profile append system prompt',
+    async ({ harness, executable }) => {
+      const value = fixture()
+      value.bundle = redigestBundle(value.bundle, {
+        profile: {
+          ...value.bundle.profile,
+          harness,
+          prompt: { ...value.bundle.profile.prompt, appendSystemPrompt: 'Must be additive.' },
+        },
+        execution: {
+          ...value.bundle.execution,
+          harness,
+          launch: {
+            kind: 'container-command',
+            executable,
+            args: [{ kind: 'public', value: '--append-system-prompt=elsewhere' }],
+          },
+        },
+      })
+      bindCandidateFixtureBundle(value)
+
+      await expect(
+        prepareAgentCandidateExecution(
+          await verifyAgentCandidateBundle(value.bundle, value.ports),
+          value.task,
+          value.ports,
+        ),
+      ).rejects.toThrow(
+        new RegExp(
+          `${harness} launch arguments conflict with the candidate profile append system prompt`,
+        ),
       )
     },
   )

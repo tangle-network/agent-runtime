@@ -60,6 +60,7 @@ describe('Tangle Sandbox exact-process provider', () => {
       metadata: expect.objectContaining({ run: 'candidate-1' }),
     })
     expect(provider.capabilities()).toMatchObject({
+      profile: { systemPrompt: { replace: false, append: false } },
       exactProcess: { egress: ['blocked', 'strict'] },
       workspace: { read: false, write: false, exec: false },
     })

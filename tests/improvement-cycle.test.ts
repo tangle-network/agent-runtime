@@ -34,6 +34,7 @@ import {
   type AgentImprovementExperimentMaterial,
   createAgentImprovementActivation,
   createAgentImprovementProposal,
+  executeAgentCandidateExperimentCell,
   proposeAgentImprovement,
   proposeAgentProfileImprovement,
   reviewAgentImprovementProposal,
@@ -61,6 +62,7 @@ import {
   type CandidateExperimentFixture,
   cleanupCandidateExperimentFixtures,
   createCandidateExperimentFixture,
+  executeCandidateExperimentInput,
 } from './helpers/candidate-experiment-fixture'
 import {
   candidateExperimentMaterial,
@@ -1638,6 +1640,72 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
       }),
     ).toThrow(/activation targets/)
   })
+
+  it.each([
+    {
+      intent: 'replacement',
+      prompt: { systemPrompt: 'Use the measured Prime instructions.' },
+      file: '.tangle/system-prompt.md',
+    },
+    {
+      intent: 'addition',
+      prompt: { appendSystemPrompt: 'Keep the native prompt and add measured instructions.' },
+      file: '.tangle/append-system-prompt.md',
+    },
+  ] as const)(
+    'verifies Prime $intent prompt evidence through the executed cell',
+    async (testCase) => {
+      const base = candidateBundle({
+        harness: 'prime',
+        launch: { kind: 'container-command', executable: 'prime-agent' },
+      })
+      const baseline = redigestCandidateBundle(base, {
+        profile: {
+          ...base.profile,
+          harness: 'prime',
+        },
+      })
+      const candidate = redigestCandidateBundle(baseline, {
+        profile: {
+          ...baseline.profile,
+          prompt: { ...baseline.profile.prompt, ...testCase.prompt },
+        },
+      })
+      const rig = createCandidateExperimentFixture({ baseline, candidate })
+      const task = rig.experiment.benchmark.tasks[0]
+      if (!task) throw new Error('expected candidate benchmark task')
+      const benchmarkCell = {
+        suiteDigest: rig.experiment.benchmark.suite.digest,
+        taskIndex: 0,
+        repetition: 0,
+      }
+      const input = {
+        experiment: rig.experiment,
+        arm: 'candidate' as const,
+        bundle: rig.experiment.candidate,
+        task,
+        benchmarkCell,
+        seed: 101,
+      }
+      const evidence = await executeCandidateExperimentInput(
+        input,
+        rig.placeCell,
+        executeAgentCandidateExperimentCell,
+      )
+
+      expect(
+        evidence.materializationReceipt.profileActivation.files.map((file) => file.path),
+      ).toContain(testCase.file)
+      expect(
+        verifyCandidateExecutionEvidence(evidence, {
+          experiment: rig.experiment,
+          arm: 'candidate',
+          benchmarkCell,
+          seed: 101,
+        }),
+      ).toEqual(evidence)
+    },
+  )
 
   it('does not create a proposal from an inconclusive comparison', async () => {
     const rig = createCandidateExperimentFixture({ scoreFor: () => 1 })
