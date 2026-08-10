@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.131.2
+
+- Forward each exact `AgentProfile` completion-token ceiling to every initial and resumed CLI bridge request.
+- Record the ceiling in the planned execution evidence, while the conserved Runtime budget remains independent.
+
 ## 0.131.1
 
 - Return scalar and array MCP tool results through text content, and reserve `structuredContent` for non-null JSON objects.
