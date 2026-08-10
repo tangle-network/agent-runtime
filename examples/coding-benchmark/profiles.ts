@@ -44,7 +44,6 @@ const harnessModel: Record<BackendType, string> = {
   amp: 'anthropic/claude-sonnet-4-5-2025-09-29',
   'factory-droids': 'anthropic/claude-sonnet-4-5-2025-09-29',
   pi: 'openai/gpt-4.1-2025-04-14',
-  prime: 'openai/gpt-4.1-2025-04-14',
   hermes: 'openai/gpt-4.1-2025-04-14',
   forge: 'openai/gpt-4.1-2025-04-14',
   openclaw: 'anthropic/claude-sonnet-4-5-2025-09-29',
