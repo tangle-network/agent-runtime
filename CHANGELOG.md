@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.131.3
+
+- Preserve cli-bridge inference transport and observation evidence in Runtime materialization receipts and journal digests.
+
 ## 0.131.2
 
 - Forward each exact `AgentProfile` completion-token ceiling to every initial and resumed CLI bridge request.
