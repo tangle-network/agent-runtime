@@ -49,11 +49,6 @@ describe('candidate execution preparation', () => {
       flags: ['--system-prompt-file', '/workspace/task/.tangle/system-prompt.md'],
     },
     {
-      harness: 'opencode',
-      executable: 'opencode',
-      flags: ['--agent', expect.stringMatching(/^tangle-profile-[a-f0-9]{16}$/)],
-    },
-    {
       harness: 'pi',
       executable: 'pi',
       flags: ['--system-prompt', '/workspace/task/.tangle/system-prompt.md'],
@@ -93,14 +88,7 @@ describe('candidate execution preparation', () => {
         value.ports,
       )
 
-      if (harness === 'opencode') {
-        expect(prepared.profilePlan.value.material.systemPrompt).toEqual({
-          kind: 'public',
-          value: systemPrompt,
-        })
-      } else {
-        expect(prepared.profilePlan.value.material.systemPrompt).toBeUndefined()
-      }
+      expect(prepared.profilePlan.value.material.systemPrompt).toBeUndefined()
       expect(prepared.profilePlan.value.material.sourceProfileDigest).toBe(
         canonicalCandidateDigest(value.bundle.profile),
       )
@@ -126,16 +114,7 @@ describe('candidate execution preparation', () => {
       const openCodeConfig = prepared.profileActivation.files.find(
         (file) => file.path === 'opencode.json',
       )
-      if (harness === 'opencode') {
-        expect(JSON.parse(openCodeConfig?.content ?? '')).toMatchObject({
-          instructions: ['.opencode/profile-instructions.md'],
-        })
-        const primaryAgent = prepared.profileActivation.files.find((file) =>
-          file.path.startsWith('.opencode/agents/tangle-profile-'),
-        )
-        expect(primaryAgent?.content).toContain(systemPrompt)
-        expect(systemPromptFile).toBeUndefined()
-      } else if (harness === 'claude-code' || harness === 'pi' || harness === 'prime') {
+      if (harness === 'claude-code' || harness === 'pi' || harness === 'prime') {
         expect(openCodeConfig).toBeUndefined()
         expect(codexPromptFile).toBeUndefined()
         expect(systemPromptFile?.content).toBe(systemPrompt)
@@ -155,6 +134,33 @@ describe('candidate execution preparation', () => {
       }
     },
   )
+
+  it('refuses an opencode candidate system prompt until the materializer can bind its selected agent', async () => {
+    // The published candidate materializer does not forward launcher bindings yet. OpenCode's
+    // replacement control is per-agent, so this path must remain an explicit upstream refusal.
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        harness: 'opencode',
+        prompt: { ...value.bundle.profile.prompt, systemPrompt: 'Must be active.' },
+      },
+      execution: {
+        ...value.bundle.execution,
+        harness: 'opencode',
+        launch: { kind: 'container-command', executable: 'opencode' },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow(/only system-prompt replacement is per-agent/)
+  })
 
   it('keeps replacement and additive prompts on distinct Claude controls', async () => {
     const value = fixture()
@@ -276,11 +282,6 @@ describe('candidate execution preparation', () => {
       harness: 'codex',
       executable: 'codex',
       args: ['--config=model_instructions_file=/somewhere/else.md'],
-    },
-    {
-      harness: 'opencode',
-      executable: 'opencode',
-      args: ['--agent', 'caller-selected-agent'],
     },
     { harness: 'claude-code', executable: 'claude', args: ['--system-prompt-file', '/elsewhere'] },
     { harness: 'claude-code', executable: 'claude', args: ['--system-prompt=inline'] },
