@@ -65,8 +65,6 @@ import {
   candidateExecutionEvidenceSchema,
   numbersApproximatelyEqual,
 } from '@tangle-network/agent-interface'
-import { materializeCandidateProfile } from '@tangle-network/agent-profile-materialize'
-
 import { runAnalystLoop } from '../analyst-loop'
 import type { RunAnalystLoopOpts, RunAnalystLoopResult } from '../analyst-loop/types'
 import {
@@ -87,9 +85,8 @@ import {
 } from '../candidate-execution/prepare'
 import {
   assertCandidateProfileBinding,
-  CANDIDATE_PROFILE_MATERIALIZER_BINDS,
-  candidateMaterializerHarness,
   createAgentCandidateProfileActivation,
+  materializeAgentCandidateProfilePlan,
   parseAgentCandidateProfileActivation,
   parseExactAgentProfile,
 } from '../candidate-execution/profile'
@@ -1325,14 +1322,14 @@ export function verifyCandidateExecutionEvidence(
     materialization.profileActivation.profilePlan,
     'candidate profile plan',
   )
-  const expectedProfilePlan = materializeCandidateProfile(
-    bundle.profile,
-    candidateMaterializerHarness(materialization.harness),
-    {
-      binds: CANDIDATE_PROFILE_MATERIALIZER_BINDS,
-      resolvedResources: options.resolvedResources,
-    },
-  )
+  const expectedProfilePlan = materializeAgentCandidateProfilePlan({
+    profile: bundle.profile,
+    harness: bundle.execution.harness,
+    launch: bundle.execution.launch,
+    workspace: bundle.execution.cwd.workspace,
+    workspaces: plan.material.workspaces,
+    resolvedResources: options.resolvedResources,
+  })
   const activation = parseAgentCandidateProfileActivation(
     materialization.profileActivation,
     materialization.profileActivation.profilePlan.digest,

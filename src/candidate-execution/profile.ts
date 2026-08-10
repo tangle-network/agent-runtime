@@ -1,5 +1,8 @@
+import { posix } from 'node:path'
+
 import type {
   AgentCandidateConfigValue,
+  AgentCandidateLaunch,
   AgentCandidateProfile,
   AgentCandidateProfileActivation,
   AgentCandidateProfilePlanEvidence,
@@ -10,6 +13,7 @@ import type {
   AgentProfileMcpServer,
   AgentProfileResourceRef,
   HarnessType,
+  Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
   agentCandidateProfileActivationSchema,
@@ -22,7 +26,10 @@ import type {
   AgentCandidateWorkspacePlan,
   HarnessId,
 } from '@tangle-network/agent-profile-materialize'
-import { isMaterializerHarness } from '@tangle-network/agent-profile-materialize'
+import {
+  isMaterializerHarness,
+  materializeCandidateProfile,
+} from '@tangle-network/agent-profile-materialize'
 
 import {
   canonicalCandidateBytes,
@@ -33,6 +40,7 @@ import {
   omitTopLevelDigest,
   sha256Bytes,
 } from './digest'
+import { projectCandidatePromptIntents } from './system-prompt'
 
 export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
   if (!isMaterializerHarness(harness)) {
@@ -45,6 +53,42 @@ export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
 
 /** Runtime applies the materializer's launch flags to the candidate process. */
 export const CANDIDATE_PROFILE_MATERIALIZER_BINDS = ['systemPrompt'] as const
+
+interface MaterializeAgentCandidateProfilePlanOptions {
+  profile: AgentCandidateProfile
+  harness: HarnessType
+  launch: AgentCandidateLaunch
+  workspace: 'task' | 'candidate'
+  workspaces: {
+    taskRoot: string
+    candidateRoot?: string
+  }
+  resolvedResources?: ReadonlyMap<Sha256Digest, string>
+}
+
+/** Derive the exact native profile plan used by preparation and later evidence checks. */
+export function materializeAgentCandidateProfilePlan(
+  options: MaterializeAgentCandidateProfilePlanOptions,
+): AgentCandidateWorkspacePlan {
+  const root =
+    options.workspace === 'task' ? options.workspaces.taskRoot : options.workspaces.candidateRoot
+  if (!root) throw new Error('candidate profile target is missing its execution workspace root')
+  const plan = materializeCandidateProfile(
+    options.profile,
+    candidateMaterializerHarness(options.harness),
+    {
+      binds: CANDIDATE_PROFILE_MATERIALIZER_BINDS,
+      resolvedResources: options.resolvedResources,
+    },
+  )
+  return projectCandidatePromptIntents(
+    plan,
+    options.launch,
+    posix.join(root, '.tangle/system-prompt.md'),
+    options.profile.prompt?.systemPrompt,
+    options.profile.prompt?.appendSystemPrompt,
+  )
+}
 
 /** Bind exact native profile text to the canonical plan captured during preparation. */
 export function createAgentCandidateProfileActivation(
