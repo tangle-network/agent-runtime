@@ -24,7 +24,7 @@ import { leaderboard } from '@tangle-network/agent-runtime/kernel'
 import { describe, expect, it } from 'vitest'
 import { main, offlineAgentScripts } from './benchmark'
 import { type CheckBox, composeScore, runChecks, runHeldout } from './eval'
-import { harnessProfiles } from './profiles'
+import { harnesses, harnessOf, harnessProfiles } from './profiles'
 import { type CodingScenario, checkCmds, routeCodingFields, scenarios } from './scenarios'
 
 const execAsync = promisify(execCb)
@@ -95,6 +95,11 @@ async function gradeSolution(
 }
 
 describe('coding-benchmark (offline)', () => {
+  it('uses the canonical AgentProfile harness field', () => {
+    expect(harnessProfiles.map((profile) => profile.harness)).toEqual(harnesses)
+    expect(harnessProfiles.map(harnessOf)).toEqual(harnesses)
+  })
+
   // Integration smoke: runs the real matrix end-to-end (real box.exec on the offline
   // toolchain, all refine rounds since the dev checks can't pass without tsc).
   it('runs the full matrix and returns a defined leaderboard', async () => {

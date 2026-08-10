@@ -1,8 +1,9 @@
-import type {
-  AgentProfile,
-  AgentProfileValidationResult,
-  InputPart,
-  TokenUsage,
+import {
+  type AgentProfile,
+  type AgentProfileValidationResult,
+  harnessSystemPromptIntents,
+  type InputPart,
+  type TokenUsage,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -1329,10 +1330,7 @@ function defaultTangleSandboxCapabilities(options: {
   return {
     profile: {
       namedProfiles: options.namedProfiles,
-      // Interface 0.44 split this from one boolean into the two things a backend can actually do
-      // with a caller's system prompt: REPLACE the harness's own, or APPEND to it. The sandbox
-      // materializes the whole profile, so it honors both.
-      systemPrompt: { replace: true, append: true },
+      systemPrompt: { ...harnessSystemPromptIntents(undefined) },
       instructions: true,
       tools: true,
       permissions: true,

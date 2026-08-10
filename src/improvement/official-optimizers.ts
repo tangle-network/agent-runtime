@@ -25,7 +25,7 @@ import { withMethodRuntimeControls } from './method-controls'
 
 const defaultMaxFindingsChars = 50_000
 const pythonClientDocs = 'https://github.com/tangle-network/agent-eval/tree/main/clients/python'
-const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.144.4"`'
+const bridgeInstall = '`python -m pip install "agent-eval-rpc==0.144.6"`'
 const gepaWheelInstall = '`python -m pip install "gepa[full]==0.1.4"`'
 const gepaSourceInstall =
   '`python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919db0a622e2e9f9204779b81fe00cc1b2d808f"`'

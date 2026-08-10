@@ -64,7 +64,7 @@ import {
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
 import { candidateMaterializerHarness } from './profile'
-import { projectCandidateSystemPrompt } from './system-prompt'
+import { projectCandidatePromptIntents } from './system-prompt'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -178,12 +178,18 @@ export async function prepareAgentCandidateExecution(
   }
 
   await assertEmptyDirectory(task.stagingRoots.profileRoot)
-  const profileWorkspacePlan = projectCandidateSystemPrompt(
-    materializeCandidateProfile(bundle.profile, harness, {
-      resolvedResources: verifiedResourceTextByDigest(candidate),
-    }),
+  // This adapter owns the exact spawn and forwards every materializer flag, including OpenCode's
+  // selected primary agent; a plan-forwarding caller that does not own the spawn cannot claim it.
+  const candidateProfileMaterialization = {
+    resolvedResources: verifiedResourceTextByDigest(candidate),
+    binds: ['systemPrompt'] as const,
+  }
+  const profileWorkspacePlan = projectCandidatePromptIntents(
+    materializeCandidateProfile(bundle.profile, harness, candidateProfileMaterialization),
     bundle.execution.launch,
     profileSystemPromptExecutionPath(bundle.execution.cwd.workspace, task.executionRoots),
+    bundle.profile.prompt?.systemPrompt,
+    bundle.profile.prompt?.appendSystemPrompt,
   )
   const profileApplication = applyAgentCandidateWorkspacePlan(
     profileWorkspacePlan,
