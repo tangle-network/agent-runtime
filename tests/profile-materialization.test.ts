@@ -28,6 +28,7 @@ const EXPECTED_CANONICAL_AXES = [
   'version',
   'tags',
   'systemPrompt',
+  'appendSystemPrompt',
   'instructions',
   'modelDefault',
   'modelSmall',
@@ -55,7 +56,7 @@ const EXPECTED_CANONICAL_AXES = [
 ] as const
 
 describe('canonical axis set', () => {
-  it('is the exact 29-leaf set agent-interface publishes', () => {
+  it('is the exact 30-leaf set agent-interface publishes', () => {
     expect([...AGENT_PROFILE_MATERIALIZATION_AXES].sort()).toEqual(
       [...EXPECTED_CANONICAL_AXES].sort(),
     )

@@ -7,21 +7,21 @@ import type {
 import type {
   AgentCandidateWorkspacePlan,
   HarnessId,
-  PlanFile,
 } from '@tangle-network/agent-profile-materialize'
 
 const SYSTEM_PROMPT_FILE = '.tangle/system-prompt.md'
 
 /**
- * How ONE harness expresses a replacement system prompt natively. Every difference between
- * harnesses lives in a row: the executable that must be on the command line, the projection onto
- * that harness's own control, and the launch arguments that would silently shadow the projection.
+ * How ONE harness expresses a replacement system prompt natively, for the harnesses whose plans
+ * still arrive with `plan.systemPrompt` set — the materializer delegates the lowering to the
+ * launcher for these (claude-code and pi both take a prompt-file flag on their own argv).
  *
- * The differences here are REAL — codex takes a TOML config override, claude-code and pi take
- * prompt-file flags with different spellings, opencode has no flag at all and needs a mutated
- * `opencode.json`. Adding harness N+1 is one entry; a harness with NO entry is refused by
- * {@link projectCandidateSystemPrompt} rather than launched with an unprojected prompt, so the
- * conflict check inherits the same fail-closed default instead of returning early.
+ * codex and opencode are deliberately NOT rows here anymore. agent-profile-materialize 0.12 lowers
+ * codex's prompt itself — the bytes land in the plan at `.codex/system-prompt.md` and the flags
+ * carry `-c model_instructions_file=…` — and refuses opencode outright (its only replacement
+ * control binds to the agent selected at launch, which a workspace plan cannot guarantee). A plan
+ * whose `systemPrompt` is set for a harness with no row is refused rather than launched with an
+ * unprojected prompt.
  */
 interface HarnessSystemPrompt {
   /** The native binary the launch must run for this projection to be provable. */
@@ -45,7 +45,15 @@ function argsSetSystemPromptFlag(values: readonly string[]): boolean {
   )
 }
 
-function argsSetCodexDeveloperInstructions(values: readonly string[]): boolean {
+/**
+ * Codex config keys that decide the request's instructions. `model_instructions_file` replaces the
+ * whole instructions field (the materializer's own delivery key); `developer_instructions` injects
+ * developer-channel text beside it. A caller argv setting either would shadow or contaminate the
+ * profile's sealed prompt, so both refuse.
+ */
+const CODEX_INSTRUCTION_KEYS = ['model_instructions_file', 'developer_instructions'] as const
+
+function argsSetCodexInstructionOverride(values: readonly string[]): boolean {
   for (let index = 0; index < values.length; index++) {
     const value = values[index]!
     const config =
@@ -54,7 +62,12 @@ function argsSetCodexDeveloperInstructions(values: readonly string[]): boolean {
         : value.startsWith('--config=')
           ? value.slice('--config='.length)
           : undefined
-    if (config?.trimStart().startsWith('developer_instructions=')) return true
+    if (
+      config !== undefined &&
+      CODEX_INSTRUCTION_KEYS.some((key) => config.trimStart().startsWith(`${key}=`))
+    ) {
+      return true
+    }
   }
   return false
 }
@@ -66,22 +79,6 @@ const HARNESS_SYSTEM_PROMPTS = {
       appendFlags(addSystemPromptFile(plan, systemPrompt), '--system-prompt-file', path),
     conflictsWithArgs: argsSetSystemPromptFlag,
   },
-  codex: {
-    executable: 'codex',
-    project: (plan, systemPrompt) =>
-      appendFlags(plan, '-c', `developer_instructions=${tomlString(systemPrompt)}`),
-    conflictsWithArgs: argsSetCodexDeveloperInstructions,
-  },
-  opencode: {
-    executable: 'opencode',
-    project: (plan, systemPrompt) => ({
-      ...plan,
-      files: projectOpenCodeSystemPrompt(plan.files, systemPrompt),
-    }),
-    // `opencode run` takes no system-prompt flag; the prompt lives in `opencode.json`, whose
-    // conflicts `projectOpenCodeSystemPrompt` rejects at the file level.
-    conflictsWithArgs: () => false,
-  },
   pi: {
     executable: 'pi',
     project: (plan, systemPrompt, path) =>
@@ -90,6 +87,33 @@ const HARNESS_SYSTEM_PROMPTS = {
   },
 } as const satisfies Partial<Record<HarnessId, HarnessSystemPrompt>>
 
+/**
+ * Deliveries the MATERIALIZER already lowered into the plan, whose effect still rides argv. The
+ * prompt bytes are in the digested plan files, but the flag that makes the harness read them is
+ * only meaningful to the native binary's own argument parser — handed to any other executable it
+ * is inert argv, and the sealed candidate would claim an active prompt that never applied.
+ *
+ * That is the exact hazard the launch guard exists for, and it is how the guard was once silently
+ * disabled: when agent-profile-materialize 0.12 moved codex from an inline flag this module
+ * projected to file+flag it lowers itself, `plan.systemPrompt` stopped being set for codex, the
+ * old `systemPrompt === undefined` early-return skipped every check, and two refusal tests began
+ * resolving. Delivery detection therefore keys on the LOWERED FLAG, not on the field.
+ */
+interface MaterializedFlagDelivery {
+  readonly executable: string
+  readonly delivered: (plan: AgentCandidateWorkspacePlan) => boolean
+  readonly conflictsWithArgs: (values: readonly string[]) => boolean
+}
+
+const MATERIALIZED_FLAG_DELIVERIES = {
+  codex: {
+    executable: 'codex',
+    delivered: (plan) =>
+      plan.flags.some((flag) => flag.value.startsWith('model_instructions_file=')),
+    conflictsWithArgs: argsSetCodexInstructionOverride,
+  },
+} as const satisfies Partial<Record<HarnessId, MaterializedFlagDelivery>>
+
 /** Project a replacement system prompt onto the exact native process control. */
 export function projectCandidateSystemPrompt(
   plan: AgentCandidateWorkspacePlan,
@@ -97,7 +121,17 @@ export function projectCandidateSystemPrompt(
   systemPromptFilePath: string,
 ): AgentCandidateWorkspacePlan {
   const systemPrompt = plan.systemPrompt
-  if (systemPrompt === undefined) return plan
+  if (systemPrompt === undefined) {
+    // No launcher-delegated prompt — but the materializer may have lowered one into the plan
+    // whose flag only the native binary can honor. Same guards, no projection to apply.
+    const delivery = MATERIALIZED_FLAG_DELIVERIES[
+      plan.harness as keyof typeof MATERIALIZED_FLAG_DELIVERIES
+    ] as MaterializedFlagDelivery | undefined
+    if (!delivery || !delivery.delivered(plan)) return plan
+    assertProvableNativeLaunch(plan.harness, delivery.executable, launch)
+    assertNoShadowingArgs(plan.harness, delivery.conflictsWithArgs, launch)
+    return plan
+  }
 
   const projection = HARNESS_SYSTEM_PROMPTS[plan.harness as keyof typeof HARNESS_SYSTEM_PROMPTS] as
     | HarnessSystemPrompt
@@ -105,11 +139,25 @@ export function projectCandidateSystemPrompt(
   if (!projection) {
     throw new Error(`candidate system prompt has no native launch projection for ${plan.harness}`)
   }
-  const expectedExecutable = projection.executable
+  assertProvableNativeLaunch(plan.harness, projection.executable, launch)
+  assertNoShadowingArgs(plan.harness, projection.conflictsWithArgs, launch)
+  // The source-profile digest already binds the authored value. Sign only the
+  // native projection here so an inert systemPrompt field cannot look active.
+  return projection.project(
+    omitUnappliedSystemPrompt(plan),
+    systemPrompt.value,
+    systemPromptFilePath,
+  )
+}
+
+/** A prompt whose delivery rides argv is provable only on the native binary's own command line. */
+function assertProvableNativeLaunch(
+  harness: string,
+  expectedExecutable: string,
+  launch: AgentCandidateLaunch,
+): asserts launch is AgentCandidateLaunch & { kind: 'container-command' } {
   if (launch.kind !== 'container-command') {
-    throw new Error(
-      `candidate-entrypoint launch cannot prove ${plan.harness} system-prompt replacement`,
-    )
+    throw new Error(`candidate-entrypoint launch cannot prove ${harness} system-prompt replacement`)
   }
   if (
     launch.executable !== expectedExecutable &&
@@ -119,22 +167,19 @@ export function projectCandidateSystemPrompt(
     )
   ) {
     throw new Error(
-      `${plan.harness} system-prompt replacement requires the native ${expectedExecutable} executable`,
+      `${harness} system-prompt replacement requires the native ${expectedExecutable} executable`,
     )
   }
+}
 
-  if (projection.conflictsWithArgs((launch.args ?? []).map((value) => value.value))) {
-    throw new Error(
-      `${plan.harness} launch arguments conflict with the candidate profile system prompt`,
-    )
+function assertNoShadowingArgs(
+  harness: string,
+  conflictsWithArgs: (values: readonly string[]) => boolean,
+  launch: Extract<AgentCandidateLaunch, { kind: 'container-command' }>,
+): void {
+  if (conflictsWithArgs((launch.args ?? []).map((value) => value.value))) {
+    throw new Error(`${harness} launch arguments conflict with the candidate profile system prompt`)
   }
-  // The source-profile digest already binds the authored value. Sign only the
-  // native projection here so an inert systemPrompt field cannot look active.
-  return projection.project(
-    omitUnappliedSystemPrompt(plan),
-    systemPrompt.value,
-    systemPromptFilePath,
-  )
 }
 
 function omitUnappliedSystemPrompt(plan: AgentCandidateWorkspacePlan): AgentCandidateWorkspacePlan {
@@ -176,87 +221,4 @@ function addSystemPromptFile(
       },
     ],
   }
-}
-
-function projectOpenCodeSystemPrompt(files: readonly PlanFile[], prompt: string): PlanFile[] {
-  const configIndex = files.findIndex((file) => file.relPath === 'opencode.json')
-  if (configIndex === -1) {
-    return [
-      ...files,
-      {
-        relPath: 'opencode.json',
-        content: openCodeConfigWithPrompt({}, prompt),
-        source: 'generated',
-      },
-    ]
-  }
-
-  const configFile = files[configIndex]!
-  if (configFile.source !== 'generated') {
-    throw new Error('opencode system-prompt replacement requires generated opencode.json')
-  }
-  const config = parseJsonObject(configFile.content, 'generated opencode.json')
-  const output = [...files]
-  output[configIndex] = {
-    ...configFile,
-    content: openCodeConfigWithPrompt(config, prompt),
-  }
-  return output
-}
-
-function openCodeConfigWithPrompt(config: Record<string, unknown>, prompt: string): string {
-  const agent = optionalJsonObject(config.agent, 'generated opencode.json agent')
-  const build = optionalJsonObject(agent.build, 'generated opencode.json agent.build')
-  const plan = optionalJsonObject(agent.plan, 'generated opencode.json agent.plan')
-  assertCompatiblePrompt(build.prompt, prompt, 'build')
-  assertCompatiblePrompt(plan.prompt, prompt, 'plan')
-  return JSON.stringify(
-    {
-      $schema: 'https://opencode.ai/config.json',
-      ...config,
-      agent: {
-        ...agent,
-        build: { ...build, prompt },
-        plan: { ...plan, prompt },
-      },
-    },
-    null,
-    2,
-  )
-}
-
-function parseJsonObject(content: string, label: string): Record<string, unknown> {
-  let value: unknown
-  try {
-    value = JSON.parse(content)
-  } catch (cause) {
-    throw new Error(`${label} must contain valid JSON`, { cause })
-  }
-  return jsonObject(value, label)
-}
-
-function optionalJsonObject(value: unknown, label: string): Record<string, unknown> {
-  return value === undefined ? {} : jsonObject(value, label)
-}
-
-function jsonObject(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`${label} must be a JSON object`)
-  }
-  return value as Record<string, unknown>
-}
-
-function assertCompatiblePrompt(value: unknown, prompt: string, agent: string): void {
-  if (value !== undefined && value !== prompt) {
-    throw new Error(`generated opencode.json agent.${agent}.prompt conflicts with the profile`)
-  }
-}
-
-function tomlString(value: string): string {
-  return `"${value
-    .replaceAll('\\', '\\\\')
-    .replaceAll('"', '\\"')
-    .replaceAll('\n', '\\n')
-    .replaceAll('\r', '\\r')
-    .replaceAll('\t', '\\t')}"`
 }

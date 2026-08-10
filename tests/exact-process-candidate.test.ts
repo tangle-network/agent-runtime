@@ -263,7 +263,7 @@ describe('exact process candidate experiment executor', () => {
     expect(spawnOperation?.signal).toBeInstanceOf(AbortSignal)
     expect(launch).toMatchObject({
       executable: 'codex',
-      args: ['-c', 'developer_instructions="Candidate prompt."'],
+      args: ['-c', 'model_instructions_file=.codex/system-prompt.md'],
       cwd: '/workspace/task',
       stdin: fixture.task.task.instruction,
       timeoutMs: 0,

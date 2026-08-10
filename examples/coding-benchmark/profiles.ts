@@ -40,6 +40,9 @@ const harnessModel: Record<BackendType, string> = {
   'cli-base': process.env.CLI_BASE_MODEL ?? 'openai/gpt-4.1-2025-04-14',
   // unreached by this example, but BackendType is a closed union — name them all
   'kimi-code': 'moonshot/kimi-k2-2025-07-11',
+  // `prime` joined the canonical harness enum in interface 0.45; BackendType is a closed union,
+  // so the table names it even though this example never routes there.
+  prime: 'openai/gpt-5-codex-2025-09-15',
   amp: 'anthropic/claude-sonnet-4-5-2025-09-29',
   'factory-droids': 'anthropic/claude-sonnet-4-5-2025-09-29',
   pi: 'openai/gpt-4.1-2025-04-14',

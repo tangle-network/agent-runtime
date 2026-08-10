@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.130.0` and `@tangle-network/agent-eval@0.144.4` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.130.0` and `@tangle-network/agent-eval@0.144.6` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -275,7 +275,7 @@ Import from `@tangle-network/agent-runtime/agent` — 48 exports.
 | `unimplementedAgentRun` | function | Stub for agents whose `runtime.act` is not yet wired to the substrate's |
 | `validateProfileMaterialization` | function | Return every changed profile axis that the selected run path would drop. |
 | `validateSurfaces` | function | Validate an `AgentSurfaces` map on disk — missing paths fail loud at `defineAgent` time instead of silently skipping self-improvement edits. |
-| `AGENT_PROFILE_MATERIALIZATION_AXES` | const | The 29 canonical AgentProfile leaves that can affect one execution. |
+| `AGENT_PROFILE_MATERIALIZATION_AXES` | const | The 30 canonical AgentProfile leaves that can affect one execution. |
 | `controlProfileMaterialization` | const | Materialization contract for a raw process path that carries only control/identity fields. |
 | `fullProfileMaterialization` | const | Materialization contract for a run path that executes every canonical AgentProfile leaf. |
 | `promptControlProfileMaterialization` | const | Materialization contract for an injected inference function whose surrounding driver still |
