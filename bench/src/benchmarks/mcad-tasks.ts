@@ -49,18 +49,25 @@ export interface McadTask {
   calibrated: boolean
 }
 
-const DELIVERABLE =
+/** Exported so a sibling adapter can SWAP this preamble for its own deliverable
+ *  (see `mcad-cq-bench.ts`) by prefix, instead of re-authoring ten prompts and
+ *  letting the two copies drift. The upstream dimensional text stays the tail. */
+export const MCAD_DELIVERABLE =
   'Author OpenSCAD source (units: mm) that builds exactly this part as one fused solid. ' +
   'Reply with ONLY the OpenSCAD code. Use $fn=96 or finer for round features.'
+
+const DELIVERABLE = MCAD_DELIVERABLE
 
 /** Task 10 is an ASSEMBLY, not a part: its own text says "use separate solid bodies"
  *  and its checklist pins nine of them, which the single-solid boilerplate above
  *  flatly contradicts. A worker cannot satisfy both, so that task gets this
  *  preamble instead; everything else about the deliverable is unchanged. */
-const DELIVERABLE_MULTIBODY =
+export const MCAD_DELIVERABLE_MULTIBODY =
   'Author OpenSCAD source (units: mm) that builds exactly this assembly as the separate ' +
   'solid bodies listed below. The bodies must stay disjoint — no two of them may touch or ' +
   'intersect. Reply with ONLY the OpenSCAD code. Use $fn=96 or finer for round features.'
+
+const DELIVERABLE_MULTIBODY = MCAD_DELIVERABLE_MULTIBODY
 
 export const MCAD_TASKS: McadTask[] = [
   {

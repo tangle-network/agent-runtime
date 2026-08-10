@@ -11,6 +11,7 @@ export default defineConfig({
   test: {
     include: [
       'src/benchmarks/mcad-bench.test.mts',
+      'src/benchmarks/mcad-cq.test.mts',
       'src/official-optimizer-config.test.mts',
       'src/swe-arena/**/*.test.mts',
       'src/quant-arena/**/*.test.mts',
