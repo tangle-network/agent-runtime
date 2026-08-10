@@ -24,7 +24,7 @@ catalog:
   '@tangle-network/agent-knowledge': 7.1.2
   '@tangle-network/agent-profile-materialize': 0.13.1
   '@tangle-network/agent-trace-contract': ^1.0.2
-  '@tangle-network/sandbox': 0.19.3
+  '@tangle-network/sandbox': 0.19.4
   publint: 0.3.22
   tsdown: 0.22.14
   tsx: 4.23.1
