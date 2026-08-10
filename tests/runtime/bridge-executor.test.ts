@@ -418,6 +418,7 @@ describe('bridgeExecutor over node:http', () => {
       effectiveEndpoint: 'http://127.0.0.1:4317/v1',
       apiMode: 'openai-completions',
       transport: 'scoped-loopback',
+      appliedMaxTokens: 64_000,
       observation: {
         requests: 3,
         generationRequests: 2,
@@ -511,6 +512,30 @@ describe('bridgeExecutor over node:http', () => {
       materialized.receipt.materializationPlanDigest,
     )
   })
+
+  it.each([0, -1, 1.5, '64000'])(
+    'rejects invalid applied inference max tokens %s',
+    async (appliedMaxTokens) => {
+      bridgeHttpHandler = () =>
+        sse('must not settle', 1, 1, {
+          effectiveEndpoint: 'http://127.0.0.1:4317/v1',
+          apiMode: 'openai-completions',
+          transport: 'scoped-loopback',
+          appliedMaxTokens,
+        })
+      const executor = bridgeExecutor(
+        { profile: exactBridgeProfile('invalid-applied-cap'), harness: null },
+        {
+          signal: new AbortController().signal,
+          seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+        },
+      )
+
+      await expect(drainExecutor(executor)).rejects.toThrow(
+        /appliedMaxTokens must be a positive safe integer/,
+      )
+    },
+  )
 
   it.each([0, -1, 1.5, '100'])(
     'rejects invalid profile maxTokens %s before any bridge request',
