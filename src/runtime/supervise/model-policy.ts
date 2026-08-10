@@ -45,12 +45,14 @@ export function profileBridgeWireModel(
 ): string | undefined {
   const model = concreteProfileModel(profile)
   const provider = profile.model?.provider
-  const providerModel = model
-    ? provider && !model.includes('/')
-      ? `${provider}/${model}`
-      : model
-    : undefined
   const harness = agentHarness(profile.harness)
+  const modelWithoutHarness =
+    model && harness && model.startsWith(`${harness}/`) ? model.slice(harness.length + 1) : model
+  const providerModel = modelWithoutHarness
+    ? provider && !modelWithoutHarness.startsWith(`${provider}/`)
+      ? `${provider}/${modelWithoutHarness}`
+      : modelWithoutHarness
+    : undefined
   if (!harness) return providerModel
   if (!providerModel) return harness
   return providerModel.startsWith(`${harness}/`) ? providerModel : `${harness}/${providerModel}`
