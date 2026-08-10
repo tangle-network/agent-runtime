@@ -1554,6 +1554,8 @@ function killWithGrace(
 interface ResolvedBridgeSeam extends BridgeSeam {
   /** Derived once from the exact AgentProfile; never accepted as backend configuration. */
   readonly model: string
+  /** Profile-owned ceiling for one completion, forwarded as `max_tokens` when present. */
+  readonly maxTokens?: number
 }
 
 /** Resolve the exact bridge wire id from the profile and nowhere else. */
@@ -1573,7 +1575,12 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
   const effectiveProfile = agentProfileSchema.parse(spec.profile)
   const model = bridgeProfileModel(effectiveProfile, 'bridgeExecutor')
-  const seam: ResolvedBridgeSeam = { ...base, model }
+  const profileExecution = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor')
+  const seam: ResolvedBridgeSeam = {
+    ...base,
+    model,
+    ...(profileExecution.maxTokens !== undefined ? { maxTokens: profileExecution.maxTokens } : {}),
+  }
   if (!seam.bridgeUrl || !seam.bridgeBearer) {
     throw new ValidationError('bridgeExecutor: bridgeUrl + bridgeBearer are required')
   }
@@ -1593,7 +1600,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   ) {
     throw new ValidationError('bridgeExecutor: maxReconnects must be a nonnegative safe integer')
   }
-  const maxTurns = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor').maxTurns ?? 0
+  const maxTurns = profileExecution.maxTurns ?? 0
   const maxReconnects = seam.maxReconnects ?? 3
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
@@ -1647,6 +1654,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       maxReconnects,
       timeoutMs: seam.timeoutMs ?? null,
       streaming: true,
+      ...(seam.maxTokens !== undefined ? { maxTokens: seam.maxTokens } : {}),
       terminalAcknowledgement: null,
     },
   }
@@ -2039,6 +2047,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       run_id: activeRun.id,
       session_id: args.sessionId,
       ...(seam.cwd ? { cwd: seam.cwd } : {}),
+      ...(seam.maxTokens !== undefined ? { max_tokens: seam.maxTokens } : {}),
       execution: {
         kind: 'host' as const,
         ...(seam.timeoutMs !== undefined ? { timeoutMs: seam.timeoutMs } : {}),

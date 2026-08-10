@@ -4,6 +4,8 @@ import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
+import { createBudgetPool } from '../../src/runtime/supervise/budget'
+import { runtimeOwnedPendingExecutorMaterialization } from '../../src/runtime/supervise/materialization'
 import { bridgeExecutor } from '../../src/runtime/supervise/runtime'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
@@ -316,6 +318,115 @@ describe('bridgeExecutor over node:http', () => {
     expect(requests).toBe(1)
     expect(executor.resultArtifact().spent.iterations).toBe(1)
   })
+
+  it('forwards the profile completion cap on initial and resumed bridge requests', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    let deliver: (message: unknown) => void = () => {}
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      if (seen.length === 1) deliver({ steer: 'continue with the edge case' })
+      return sse(`turn-${seen.length}`, 7, 11)
+    }
+    const profile: AgentProfile = {
+      name: 'capped-worker',
+      harness: 'pi',
+      model: {
+        provider: 'tangle-router',
+        default: 'safe-model',
+        metadata: { maxTokens: 1_000 },
+      },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+    const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+    expect(pending?.declaration.plan).toMatchObject({ maxTokens: 1_000 })
+    deliver = (message) => executor.deliver?.(message)
+
+    const events = await drainExecutor(executor)
+
+    expect(seen).toHaveLength(2)
+    expect(seen.map((request) => request.max_tokens)).toEqual([1_000, 1_000])
+    for (const request of seen) {
+      const requestProfile = request.agent_profile as AgentProfile
+      expect(request.max_tokens).toBe(requestProfile.model?.metadata?.maxTokens)
+    }
+
+    // The profile cap is a per-completion request field. The conserved Runtime budget still meters
+    // the actual two-turn usage against its independently authored aggregate ceiling.
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 50 }, () => 0)
+    const reservation = pool.reserve({ maxIterations: 2, maxTokens: 50 })
+    if (!reservation.ok) throw new Error('aggregate budget reservation should succeed')
+    const spent = await pool.spendFrom(events)
+    pool.reconcile(reservation.ticket, spent)
+    expect(pool.readout()).toMatchObject({
+      iterationsLeft: 0,
+      tokensLeft: 14,
+      reservedTokens: 0,
+    })
+  })
+
+  it('omits the completion cap when the profile leaves it absent', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('uncapped', 1, 2)
+    }
+    const profile: AgentProfile = {
+      name: 'uncapped-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+    const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+    expect(pending?.declaration.plan).not.toHaveProperty('maxTokens')
+
+    await drainExecutor(executor)
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).not.toHaveProperty('max_tokens')
+  })
+
+  it.each([0, -1, 1.5, '100'])(
+    'rejects invalid profile maxTokens %s before any bridge request',
+    (maxTokens) => {
+      let requests = 0
+      bridgeHttpHandler = (_payload) => {
+        requests += 1
+        return sse('must not dispatch', 1, 1)
+      }
+      const profile: AgentProfile = {
+        name: 'invalid-cap-worker',
+        harness: 'pi',
+        model: {
+          provider: 'tangle-router',
+          default: 'safe-model',
+          metadata: { maxTokens },
+        },
+      }
+
+      expect(() =>
+        bridgeExecutor(
+          { profile, harness: null },
+          {
+            signal: new AbortController().signal,
+            seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+          },
+        ),
+      ).toThrow(/maxTokens/)
+      expect(requests).toBe(0)
+    },
+  )
 
   it('gives parallel reusable workers isolated bridge sessions', async () => {
     const seen: Array<Record<string, unknown>> = []
@@ -819,6 +930,14 @@ function isUsageStream(value: unknown): value is AsyncIterable<UsageEvent> {
     typeof value === 'object' &&
     typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
   )
+}
+
+async function drainExecutor(executor: Executor<unknown>): Promise<UsageEvent[]> {
+  const run = executor.execute('go', new AbortController().signal)
+  if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+  const events: UsageEvent[] = []
+  for await (const event of run) events.push(event)
+  return events
 }
 
 describe('profile-selected model keeps its provider', () => {
