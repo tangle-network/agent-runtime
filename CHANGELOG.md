@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.131.0
+
+### The root driver gets a second chance, and the cohort converges
+
+Runs whose root harness died to a transient fault — a SIGKILLed process, a cut
+stream, an upstream 5xx — used to end `driver-failed` with healthy children torn
+down and the budget almost untouched. Measured on a live research campaign, that
+class killed three of six arms in one wave. This release ships the recovery path
+and the cohort alignment that lets a strict consumer install it.
+
+**What a consumer must do differently: nothing to keep the old behavior — the
+retry is on by default and `driverRetry: { enabled: false }` restores the exact
+pre-0.131 behavior.** New surfaces:
+
+- `SuperviseOptions.driverRetry` / `onDriverAttempt` — a transiently-failed
+  EXTERNAL driver is re-entered on the same scope, coordination server, and live
+  children; the bridge backend reattaches the harness session by its durable
+  execution id. Runtime's own refusals stay terminal; retries stop at the
+  budget, the deadline, an abort, three barren attempts, or an absolute ceiling
+  of 8. Every attempt is a `DriverAttemptRecord`.
+- `SuperviseOptions.childSettleGraceMs` — live children may reach their own
+  terminal state (and write what they hold) before a failed root's join barrier
+  cascades. Off by default.
+- Mid-stream harness deaths and receipt-absent streams are now
+  `BackendTransportError` (transient), not `ValidationError` (terminal) — the
+  classifier retries them.
+- The bridge receipt validator accepts the `inference` block a jailed harness's
+  `cli-bridge.profile-materialization.v2` receipt carries.
+- The candidate system-prompt guard re-keys on materializer-lowered delivery
+  (`model_instructions_file`): same three refusals, new detection; opencode
+  candidate system prompts now fail closed upstream with an actionable reason.
+
+Cohort: interface **0.46.1** (peer `>=0.46.1 <0.47.0`), eval **0.144.6**,
+knowledge **7.1.2**, sandbox **0.19.4** (peer `>=0.19.4 <0.20.0`), materialize
+**0.13.1**, core **0.5.4**. The packed-cohort and strict-peer installs of this
+set verify end to end; 0.130.0 was never published, so 0.128.0 consumers get
+everything above plus 0.130.0's stability graduations in one step.
+
+
 ## 0.130.0
 
 ### Stability contract + first graduation
