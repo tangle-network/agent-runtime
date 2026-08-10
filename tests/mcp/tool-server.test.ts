@@ -33,7 +33,7 @@ describe('createStdioToolServer — tool result envelope', () => {
   it.each([
     ['null', null, 'null'],
     ['array', [1, 'two'], '[1,"two"]'],
-    ['string', 'hello', '"hello"'],
+    ['string', 'hello', 'hello'],
     ['number', 42, '42'],
     ['boolean', true, 'true'],
   ])('keeps the %s result in content text without structuredContent', async (_, output, text) => {

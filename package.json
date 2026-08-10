@@ -146,6 +146,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
+    "@modelcontextprotocol/sdk": "catalog:",
     "@biomejs/biome": "^2.5.5",
     "@tangle-network/agent-eval": "catalog:",
     "@tangle-network/agent-interface": "catalog:",

@@ -147,24 +147,25 @@ function toolCallResult(output: unknown): {
   structuredContent?: Record<string, unknown>
   isError: false
 } {
-  let text: string | undefined
+  let json: string | undefined
   try {
-    text = JSON.stringify(output)
+    json = JSON.stringify(output)
   } catch (err) {
     const reason = err instanceof Error ? `: ${err.message}` : ''
     throw new TypeError(`MCP tool result must be JSON-serializable${reason}`, { cause: err })
   }
-  if (text === undefined) {
+  if (json === undefined) {
     throw new TypeError('MCP tool result must be JSON-serializable')
   }
 
-  const serialized = JSON.parse(text) as unknown
+  const serialized = JSON.parse(json) as unknown
+  // Preserve string content verbatim. MCP clients pass this text directly to the calling agent.
   const result: {
     content: [{ type: 'text'; text: string }]
     structuredContent?: Record<string, unknown>
     isError: false
   } = {
-    content: [{ type: 'text', text }],
+    content: [{ type: 'text', text: typeof serialized === 'string' ? serialized : json }],
     isError: false,
   }
   if (serialized !== null && typeof serialized === 'object' && !Array.isArray(serialized)) {
