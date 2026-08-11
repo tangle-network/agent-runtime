@@ -441,7 +441,9 @@ function exactProcessOnlyCapabilities(): AgentEnvironmentCapabilities {
   return {
     profile: {
       namedProfiles: false,
-      systemPrompt: false,
+      // Exact-process runs a command as given and interprets no part of a profile, so neither
+      // spelling is honored and a profile carrying one is refused rather than silently dropped.
+      systemPrompt: { replace: false, append: false },
       instructions: false,
       tools: false,
       permissions: false,

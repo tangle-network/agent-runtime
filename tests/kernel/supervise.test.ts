@@ -344,6 +344,42 @@ describe('conserved budget pool', () => {
     ).toThrow(/budget restore committed\.tokens\.input/)
   })
 
+  it.each([
+    [
+      'a true token marker',
+      {
+        iterations: 1,
+        tokens: { input: 10, output: 1, tokensKnown: true },
+        usd: 0,
+        ms: 0,
+      },
+      /observed spend\.tokens\.tokensKnown must be false when present/,
+    ],
+    [
+      'a non-boolean cache marker',
+      {
+        iterations: 1,
+        tokens: { input: 10, output: 1, cacheBreakdownKnown: 'false' },
+        usd: 0,
+        ms: 0,
+      },
+      /observed spend\.tokens\.cacheBreakdownKnown must be false when present/,
+    ],
+    [
+      'a contradictory complete cache split',
+      {
+        iterations: 1,
+        tokens: { input: 10, output: 1, freshInput: 3, cacheRead: 6, cacheWrite: 2 },
+        usd: 0,
+        ms: 0,
+      },
+      /observed spend\.tokens cache classes must sum to input/,
+    ],
+  ] as const)('refuses %s at the spend boundary', (_description, spend, error) => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    expect(() => pool.observe(spend as unknown as Spend)).toThrow(error)
+  })
+
   it('commits an UNBUDGETED child dollar spend against a capped root (no phantom $0 ceiling)', () => {
     // A child budget may omit `maxUsd` even when the ROOT caps dollars — the common shape, and
     // exactly what the supervisor spawns. Such a child reserves $0 because it asked for no
@@ -517,7 +553,12 @@ describe('conserved budget pool', () => {
       { kind: 'tokens', input: 2, output: 3 },
       { kind: 'cost', usd: 0.01 },
     ])
-    expect(spend).toEqual({ iterations: 1, tokens: { input: 12, output: 8 }, usd: 0.01, ms: 0 })
+    expect(spend).toEqual({
+      iterations: 1,
+      tokens: { input: 12, output: 8, cacheBreakdownKnown: false },
+      usd: 0.01,
+      ms: 0,
+    })
   })
 
   it('preserves explicitly unknown dollar cost in sync and async usage folds', async () => {
@@ -528,7 +569,7 @@ describe('conserved budget pool', () => {
     ]
     const expected: Spend = {
       iterations: 1,
-      tokens: { input: 12, output: 3 },
+      tokens: { input: 12, output: 3, cacheBreakdownKnown: false },
       usd: 0,
       usdKnown: false,
       ms: 0,
@@ -1361,6 +1402,7 @@ function supervisorOpts(over: Partial<SupervisorOpts> = {}): SupervisorOpts {
     maxDepth: over.maxDepth,
     maxRestarts: over.maxRestarts,
     withinMs: over.withinMs,
+    childSettleGraceMs: over.childSettleGraceMs,
     now: over.now ?? (() => 0),
     signal: over.signal,
   }
@@ -1389,6 +1431,103 @@ function flatHarness(arms: Array<{ name: string; script: MockScript }>): Agent<u
     },
   }
 }
+
+describe('supervisor: a driver that died did not make its children unhealthy (#741)', () => {
+  it('names the driver failure even though the join barrier tore a live child down', async () => {
+    // The production shape from the issue: the root's harness process was SIGKILLed while one
+    // child was mid-unit. Before the fix the barrier's own abort/teardown was read back as the
+    // cause, so the identical failure reported `aborted` with a live child and `driver-failed`
+    // with none — the operator could not tell a crash from a cancellation.
+    const held = deferred()
+    const fault = new Error('pi exit unknown')
+    const supervisor = createSupervisor<unknown, unknown>()
+    const result = await supervisor.run(
+      {
+        name: 'dying-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('worker', { out: 'w', events: tokensOnly(5, 5, 1), block: held.promise }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+          )
+          throw fault
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'driver-died-with-live-child' }),
+    )
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    if (result.reason !== 'driver-failed') return
+    expect(result.error.message).toBe('pi exit unknown')
+    held.resolve()
+  })
+
+  it('lets a live child finish and deliver its work when a settle grace is granted', async () => {
+    // With the grace, the child that was mid-unit reaches its own terminal state and its spend is
+    // conserved onto the run; without it the same child is aborted with nothing written.
+    const gate = deferred()
+    const supervisor = createSupervisor<unknown, unknown>()
+    const run = supervisor.run(
+      {
+        name: 'dying-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('worker', { out: 'w', events: tokensOnly(7, 3, 1), block: gate.promise }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+          )
+          throw new Error('pi exit unknown')
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'settle-grace', childSettleGraceMs: 60_000 }),
+    )
+    // The driver is already gone; the child completes inside the grace window.
+    gate.resolve()
+    const result = await run
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    // The child settled `done` rather than being cancelled, so its work is on the run's ledger.
+    expect(result.spentTotal.tokens.input).toBe(7)
+    expect(result.spentTotal.tokens.output).toBe(3)
+    expect(result.tree.nodes.some((node) => node.status === 'done')).toBe(true)
+  })
+
+  it('still cascades the abort when the grace expires before the child settles', async () => {
+    const neverSettles = deferred()
+    const supervisor = createSupervisor<unknown, unknown>()
+    const result = await supervisor.run(
+      {
+        name: 'dying-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('stuck', {
+              out: 'w',
+              events: tokensOnly(1, 1, 1),
+              block: neverSettles.promise,
+            }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'stuck' },
+          )
+          throw new Error('pi exit unknown')
+        },
+      },
+      'task',
+      // A grace this short expires while the child is still parked: the barrier must still end the
+      // run rather than hang on a child that will never finish.
+      supervisorOpts({ runId: 'settle-grace-expired', childSettleGraceMs: 5 }),
+    )
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    neverSettles.resolve()
+  })
+})
 
 describe('supervisor', () => {
   it('returns a typed `winner` and a `down` child does not crash the join', async () => {
@@ -1864,6 +2003,177 @@ describe('lifecycle hook stream (the topology viewer source)', () => {
     const recorded = (await journal.loadTree('run')) ?? []
     expect(recorded.some((e) => e.kind === 'spawned')).toBe(true)
     expect(recorded.some((e) => e.kind === 'settled')).toBe(true)
+  })
+})
+
+describe('supervisor: terminal accounting — wall-clock ms, explicit known flags, named gaps', () => {
+  it('spentTotal.ms is the wall clock from supervise start to the terminal state', async () => {
+    // Executors report their own `ms` as 0 (the mock leaf does, like most real executors), so a
+    // per-event sum states 0 for a run that took real time. The terminal total must state the
+    // run's elapsed wall clock instead.
+    let t = 1_000
+    const supervisor = createSupervisor<unknown, unknown>()
+    const result = await supervisor.run(
+      {
+        name: 'timed-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(leafAgent('worker', { out: 'w', events: tokensOnly(5, 5, 1) }), task, {
+            budget: { maxIterations: 1, maxTokens: 1000 },
+            label: 'worker',
+          })
+          while ((await scope.next()) !== null) {
+            // drain to settlement
+          }
+          t += 12_345
+          return 'w'
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'wall-clock-winner', now: () => t }),
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.spentTotal.ms).toBe(12_345)
+  })
+
+  it('a no-winner carries the wall clock too — a failed run still has a real duration', async () => {
+    let t = 0
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'failing-driver',
+        async act(): Promise<unknown> {
+          t += 777
+          throw new Error('driver exploded')
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'wall-clock-no-winner', now: () => t }),
+    )
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    expect(result.spentTotal.ms).toBe(777)
+  })
+
+  it('tokensKnown/usdKnown are explicitly true when every child settled with a complete receipt', async () => {
+    const result = await createSupervisor<unknown, unknown>().run(
+      flatHarness([
+        {
+          name: 'a',
+          script: { out: 'a', events: tokensOnly(10, 10, 1), verdict: { valid: true, score: 0.9 } },
+        },
+        {
+          name: 'b',
+          script: { out: 'b', events: tokensOnly(5, 5, 1), verdict: { valid: true, score: 0.3 } },
+        },
+      ]),
+      'task',
+      supervisorOpts({ runId: 'complete-receipts' }),
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.spentTotal.tokensKnown).toBe(true)
+    expect(result.spentTotal.usdKnown).toBe(true)
+    expect(result.spendGaps).toBeUndefined()
+  })
+
+  it('a child that died before reporting keeps tokensKnown false AND is named in spendGaps', async () => {
+    const result = await createSupervisor<unknown, unknown>().run(
+      flatHarness([
+        {
+          name: 'good',
+          script: {
+            out: 'good',
+            events: tokensOnly(10, 10, 1),
+            verdict: { valid: true, score: 0.8 },
+          },
+        },
+        { name: 'silent', script: { out: null, events: [], failWith: 'died before usage report' } },
+      ]),
+      'task',
+      supervisorOpts({ runId: 'unreported-child' }),
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.spentTotal.tokensKnown).toBe(false)
+    expect(result.spentTotal.usdKnown).toBe(false)
+    const gaps = result.spendGaps ?? []
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0]).toMatchObject({ label: 'silent', kind: 'unreported' })
+    expect(gaps[0]?.channels).toEqual(expect.arrayContaining(['tokens', 'usd']))
+    expect(gaps[0]?.id).toMatch(/^unreported-child:s\d+$/)
+  })
+
+  it('a resumed in-doubt spawn is a named never-settled gap charged at its ceiling, never a fabricated zero', async () => {
+    const journal = new InMemorySpawnJournal()
+    const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
+    const runId = 'in-doubt-resume'
+    const rootIdentity = {
+      profileDigest: `sha256:${'7'.repeat(64)}` as const,
+      taskDigest: `sha256:${'8'.repeat(64)}` as const,
+    }
+    let t = 0
+    const first = await createSupervisor<unknown, unknown>().run(
+      { name: 'first', act: async () => 'first' },
+      'task',
+      {
+        budget,
+        rootIdentity,
+        runId,
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+        now: () => t,
+      },
+    )
+    expect(first.kind).toBe('winner')
+    // A durable child spawn with no terminal record: the process died with it in flight.
+    await journal.appendEvent(runId, {
+      kind: 'spawned',
+      id: `${runId}:s0`,
+      parent: runId,
+      label: 'lost-child',
+      budget: { maxIterations: 1, maxTokens: 1000 },
+      runtime: 'router',
+      seq: 0,
+      at: new Date(0).toISOString(),
+    })
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'resumer',
+        async act(): Promise<unknown> {
+          t += 50
+          return 'resumed'
+        },
+      },
+      'task',
+      {
+        budget,
+        rootIdentity,
+        runId,
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+        resume: true,
+        now: () => t,
+      },
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    // The unaccounted subtree is charged at its reserved ceiling — never rendered as a free zero.
+    expect(result.spentTotal.tokens.input).toBe(1000)
+    expect(result.spentTotal.tokensKnown).toBe(false)
+    expect(result.spentTotal.usdKnown).toBe(false)
+    expect(result.spendGaps).toEqual([
+      {
+        id: `${runId}:s0`,
+        label: 'lost-child',
+        kind: 'never-settled',
+        channels: ['tokens', 'usd'],
+      },
+    ])
+    // Wall clock anchors to the ORIGINAL root instant recorded in the journal, not this process.
+    expect(result.spentTotal.ms).toBe(50)
   })
 })
 

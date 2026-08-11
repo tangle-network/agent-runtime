@@ -10,6 +10,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import { supervise } from '../helpers/runtime-with-test-brain'
@@ -69,6 +70,7 @@ function respondWithBridgeStream(
   res: ServerResponse,
   request: BridgeRequest,
   stream: string,
+  withInference = false,
 ): void {
   res.writeHead(200, {
     'content-type': 'text/event-stream',
@@ -109,6 +111,18 @@ function respondWithBridgeStream(
       workspacePlanDigest: `sha256:${'d'.repeat(64)}`,
       files: [],
       unsupported: [],
+      // A jailed harness reaches its model only through the bridge-owned loopback transport, and
+      // cli-bridge reports that endpoint in the same v2 receipt. Present here because the real
+      // bridge sends it on every pi run.
+      ...(withInference
+        ? {
+            inference: {
+              effectiveEndpoint: 'http://127.0.0.1:41234/v1',
+              apiMode: 'openai-chat',
+              transport: 'scoped-loopback',
+            },
+          }
+        : {}),
     },
   })}`
   res.end(numberSseDataFrames(normalized.replace('data: [DONE]', `${receipt}\n\ndata: [DONE]`)))
@@ -726,7 +740,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(worker.resources?.files?.[0]?.path).toBe('protocol.txt')
     expect(worker.mcp?.['agent-runtime-coordination']).toBeUndefined()
     expect(requests.every((request) => request.messages[0]?.role === 'user')).toBe(true)
-    expect(result.spentTotal.tokens).toEqual({ input: 33, output: 21 })
+    expect(result.spentTotal.tokens).toEqual({
+      input: 33,
+      output: 21,
+      cacheBreakdownKnown: false,
+    })
     expect(result.spentTotal.iterations).toBe(1)
     expect(authorizations).toEqual([
       {
@@ -1016,6 +1034,132 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       },
     })
     expect(requests[0]?.agent_profile.mcp?.['agent-runtime-coordination']).toBeUndefined()
+  })
+
+  it('accepts the v2 receipt a jailed harness produces, inference block and all', async () => {
+    // cli-bridge reports the bridge-owned model transport inside the SAME v2 receipt, and its own
+    // type declares that block optional under this schema. Pinning the key set exactly made this
+    // executor refuse a conformant receipt: every jailed pi run settled `down` with "missing or
+    // unknown fields", which reads as a broken bridge rather than a validator holding an older
+    // spelling of the same version.
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      respondWithBridgeStream(res, body, successStream('managed'), true)
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const result = await supervise(codexTestProfile('pi-leader', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 2, maxTokens: 10_000 },
+    })
+
+    // The run reaches a terminal state on its own terms rather than dying on receipt validation.
+    expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
+  })
+
+  it('retries a mid-stream harness death, which is transport and not a refusal', async () => {
+    // Measured on a six-arm campaign wave: three arms died on `pi assistant turn failed: The
+    // model finished (finish_reason=stop) without emitting any visible output — Retry the
+    // request`. That message asks to be retried; typed as a ValidationError it read as Runtime's
+    // own deliberate refusal, and the root-driver retry declined. It is the harness's failure
+    // relayed mid-stream — transport — so it is retried like any other dropped upstream.
+    let executions = 0
+    server = createBridgeServer(async (req, res) => {
+      const cancelling = cancelledRunId(req.url)
+      if (cancelling !== undefined) {
+        respondWithTerminalCancellation(res, cancelling)
+        return
+      }
+      const body = await readJson(req)
+      executions += 1
+      if (executions === 1) {
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'x-run-id': body.run_id,
+          'x-run-request-digest': TEST_RUN_DIGEST,
+        })
+        res.end(
+          `id: 1\ndata: ${JSON.stringify({
+            error: { message: 'pi assistant turn failed: finished without emitting any output' },
+          })}\n\ndata: [DONE]\n\n`,
+        )
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const attempts: DriverAttemptRecord[] = []
+    const result = await supervise(codexTestProfile('pi-leader', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (record) => void attempts.push(record),
+    })
+
+    expect(attempts.map((a) => a.stop ?? a.classification)).toEqual(['transient', 'completed'])
+    expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
+    expect(executions).toBe(2)
+  })
+
+  it('retries a transient bridge failure on the same session and finishes the run (#741)', async () => {
+    // The exact production shape: the harness process dies once mid-run (here, the bridge answers
+    // 502 on the first execution). Before the fix that ONE failure ended the whole run as
+    // `driver-failed`. The retry re-enters the driver on the same scope and the same session id, so
+    // the bridge reattaches the harness conversation rather than starting a new one.
+    const requests: BridgeRequest[] = []
+    let executions = 0
+    server = createBridgeServer(async (req, res) => {
+      // The failed attempt's executor tears its run down before the retry re-enters, so the fake
+      // bridge has to answer the cancel exactly as a real one does.
+      const cancelling = cancelledRunId(req.url)
+      if (cancelling !== undefined) {
+        respondWithTerminalCancellation(res, cancelling)
+        return
+      }
+      const body = await readJson(req)
+      requests.push(body)
+      executions += 1
+      if (executions === 1) {
+        res.writeHead(502, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'upstream harness died' }))
+        return
+      }
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const attempts: DriverAttemptRecord[] = []
+    const result = await supervise(codexTestProfile('pi-leader', 'Lead the pursuit.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      // The wait itself is not under test; the decision to wait is.
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (record) => void attempts.push(record),
+    })
+
+    // One transient failure, one completion — and the run is NOT a driver failure.
+    expect(attempts.map((a) => a.stop ?? a.classification)).toEqual(['transient', 'completed'])
+    expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
+    expect(requests).toHaveLength(2)
+    // The durable execution id is what lets the replacement attempt reattach the same harness
+    // conversation instead of opening a second one.
+    expect(requests[1]?.session_id).toBe(requests[0]?.session_id)
   })
 
   it('refuses a manager with unknown cost under a dollar-capped budget', async () => {

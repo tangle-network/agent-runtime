@@ -238,6 +238,70 @@ describe('environment provider adapters', () => {
     expect(await environment.placement?.()).toMatchObject({ kind: 'sandbox', sandboxId: 'sbx-1' })
   })
 
+  it('preserves sandbox routing coordinates without treating them as output or usage', async () => {
+    const box = {
+      id: 'sandbox-routing-proof',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield {
+          type: 'result',
+          data: {
+            finalText: 'routing-safe result',
+            runtimeSessionId: 'runtime-session-7',
+            sandboxId: 'sandbox-routing-proof',
+            usage: {
+              inputTokens: 7,
+              outputTokens: 11,
+              reasoningTokens: 5,
+              totalCostUsd: 0.03,
+            },
+          },
+        }
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }
+    const factory = providerAsExecutor(sandboxClientAsProvider(client))
+    const spec: AgentSpec = {
+      profile: { name: 'routing-proof' } as AgentProfile,
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = factory(spec, ctx)
+
+    const usage = await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
+    const artifact = executor.resultArtifact()
+
+    expect(usage).toEqual([
+      { kind: 'tokens', input: 7, output: 16 },
+      { kind: 'cost', usd: 0.03 },
+      { kind: 'iteration' },
+    ])
+    expect(artifact).toMatchObject({
+      out: {
+        content: 'routing-safe result',
+        events: [
+          {
+            providerEvent: {
+              data: {
+                runtimeSessionId: 'runtime-session-7',
+                sandboxId: 'sandbox-routing-proof',
+              },
+            },
+          },
+        ],
+      },
+      spent: {
+        tokens: { input: 7, output: 16 },
+        usd: 0.03,
+      },
+    })
+  })
+
   it('requires explicit resolution for named profiles before calling current Sandbox', async () => {
     let createCalls = 0
     let createOptions: CreateSandboxOptions | undefined
@@ -258,7 +322,10 @@ describe('environment provider adapters', () => {
 
     const unresolved = sandboxClientAsProvider(client)
     await expect(unresolved.capabilities()).resolves.toMatchObject({
-      profile: { namedProfiles: false },
+      profile: {
+        namedProfiles: false,
+        systemPrompt: { replace: false, append: false },
+      },
     })
     await expect(unresolved.create({ profile: 'catalog/researcher' })).rejects.toThrow(
       /requires an inline AgentProfile/,
@@ -269,7 +336,10 @@ describe('environment provider adapters', () => {
       resolveProfile: async (profileId) => ({ name: `resolved:${profileId}` }),
     })
     await expect(resolved.capabilities()).resolves.toMatchObject({
-      profile: { namedProfiles: true },
+      profile: {
+        namedProfiles: true,
+        systemPrompt: { replace: false, append: false },
+      },
     })
     await resolved.create({ profile: 'catalog/researcher' })
 
@@ -1215,7 +1285,7 @@ function fakeCapabilities() {
   return {
     profile: {
       namedProfiles: true,
-      systemPrompt: true,
+      systemPrompt: { replace: true, append: true },
       instructions: true,
       tools: true,
       permissions: true,

@@ -81,21 +81,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-sdk
-          ref: 36b8e3ecc57e9a62130eb2b0fdc1c3b5be01b338 # @tangle-network/agent-interface@0.43.1
+          ref: 36a60d83e6eceb7d6e53cb67fb0936bda1cd1374 # @tangle-network/agent-interface@0.46.1
           path: .cohort/agent-sdk
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: cd4c3195fec79c79976ce2fbe43f307107544798 # v0.144.4
+          ref: dc592024c3049a677b90f3035fcda883b6efd9f3 # v0.144.12
           path: .cohort/agent-eval
           persist-credentials: false
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: b5c82eb9a508b13a32e14353a867c197cda517b8 # v7.0.11
+          ref: 5c5a9f58e35dc44992e7b8cd99911ef2c99cdd0b # v7.2.1
           path: .cohort/agent-knowledge
           persist-credentials: false
 

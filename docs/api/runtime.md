@@ -682,6 +682,55 @@ FS-backed `CoordinationLog`: append-only JSONL, fsynced per record.
 
 ***
 
+### DriverAttemptsExhaustedError
+
+The error a give-up throws: the original cause, re-described with the attempt history so
+ `driver-failed` carries a diagnosable message instead of one backend's last words.
+
+#### Extends
+
+- [`RuntimeRunStateError`](index.md#runtimerunstateerror)
+
+#### Constructors
+
+##### Constructor
+
+> **new DriverAttemptsExhaustedError**(`cause`, `attempts`, `stop`): [`DriverAttemptsExhaustedError`](#driverattemptsexhaustederror)
+
+###### Parameters
+
+###### cause
+
+`unknown`
+
+###### attempts
+
+readonly [`DriverAttemptRecord`](#driverattemptrecord)[]
+
+###### stop
+
+[`DriverAttemptStop`](#driverattemptstop)
+
+###### Returns
+
+[`DriverAttemptsExhaustedError`](#driverattemptsexhaustederror)
+
+###### Overrides
+
+[`RuntimeRunStateError`](index.md#runtimerunstateerror).[`constructor`](index.md#constructor-9)
+
+#### Properties
+
+##### attempts
+
+> `readonly` **attempts**: readonly [`DriverAttemptRecord`](#driverattemptrecord)[]
+
+##### stop
+
+> `readonly` **stop**: [`DriverAttemptStop`](#driverattemptstop)
+
+***
+
 ### GraphEdgeCapError
 
 A delegates edge exhausted its traversal cap and the run produced no winner: the cap, not the
@@ -827,7 +876,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-9)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-12)
 
 ##### runtime
 
@@ -871,7 +920,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-6)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-7)
 
 ##### materialization?
 
@@ -3296,6 +3345,96 @@ Resolve the model actually served from the completed loop.
 ###### Returns
 
 `string` \| `undefined`
+
+***
+
+### SuperviseDispatchOptions
+
+Adapt a recursive Runtime `supervise()` tree to one Agent Eval profile-matrix cell.
+
+The adapter starts Eval's paid-call record before the tree starts. Runtime remains the sole
+owner of recursive execution, budgets, and the journal; Eval remains the sole owner of the
+paid-call admission and resulting receipt.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### toTask
+
+> **toTask**: (`scenario`, `profile`) => `unknown`
+
+Build the task passed to the root supervisor for this profile/scenario cell.
+
+###### Parameters
+
+###### scenario
+
+`TScenario`
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`unknown`
+
+##### toSuperviseOptions
+
+> **toSuperviseOptions**: (`scenario`, `profile`) => [`SuperviseOptionsForDispatch`](#superviseoptionsfordispatch)
+
+Build the Runtime-owned recursive-run options for this profile/scenario cell.
+
+###### Parameters
+
+###### scenario
+
+`TScenario`
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+[`SuperviseOptionsForDispatch`](#superviseoptionsfordispatch)
+
+##### toArtifact?
+
+> `optional` **toArtifact?**: (`result`) => `TArtifact`
+
+Map the terminal tree result to the artifact judges score. Default: winner output.
+
+###### Parameters
+
+###### result
+
+[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
+
+###### Returns
+
+`TArtifact`
+
+##### costSource?
+
+> `optional` **costSource?**: `string`
+
+Cost-meter source label. Default `'supervise'`.
+
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `MaximumCharge` \| ((`scenario`, `profile`) => MaximumCharge \| undefined)
+
+Provider- or executor-enforced maximum for the complete supervised tree.
 
 ***
 
@@ -5747,6 +5886,346 @@ Per-turn deadline (ms).
 
 ***
 
+### RetainedRunReplayPoint
+
+**`Stable`**
+
+Cursor plus runtime sequence needed to continue one ordered replay.
+
+#### Properties
+
+##### cursor
+
+> `readonly` **cursor**: `string`
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+***
+
+### RetainedRunEventOptions
+
+**`Stable`**
+
+Options for replaying canonical events strictly after a saved point.
+
+#### Properties
+
+##### after?
+
+> `readonly` `optional` **after?**: [`RetainedRunReplayPoint`](#retainedrunreplaypoint)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedRunSnapshot
+
+**`Stable`**
+
+Stable status snapshot for a retained run.
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### status
+
+> `readonly` **status**: `AgentSessionStatus` \| `null`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `string`
+
+***
+
+### RetainedRunCancellation
+
+**`Stable`**
+
+Durable acknowledgement state for one retained control operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+##### status
+
+> `readonly` **status**: `"unknown"` \| `"replayed"` \| `"accepted"` \| `"conflict"`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### snapshot
+
+> `readonly` **snapshot**: [`RetainedRunSnapshot`](#retainedrunsnapshot)
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `string`
+
+***
+
+### RetainedRunCancelOptions
+
+**`Stable`**
+
+Options for an idempotent retained cancellation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedRunHandle
+
+**`Stable`**
+
+Reconstructable control of one provider-retained run.
+
+#### Properties
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+#### Methods
+
+##### status()
+
+> **status**(`options?`): `Promise`\<[`RetainedRunSnapshot`](#retainedrunsnapshot)\>
+
+###### Parameters
+
+###### options?
+
+###### waitMs?
+
+`number`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RetainedRunSnapshot`](#retainedrunsnapshot)\>
+
+##### events()
+
+> **events**(`options?`): `AsyncIterable`\<`RuntimeEventEnvelope`\>
+
+###### Parameters
+
+###### options?
+
+[`RetainedRunEventOptions`](#retainedruneventoptions)
+
+###### Returns
+
+`AsyncIterable`\<`RuntimeEventEnvelope`\>
+
+##### result()
+
+> **result**(): `Promise`\<`AgentTurnResult`\>
+
+###### Returns
+
+`Promise`\<`AgentTurnResult`\>
+
+##### respondToInteraction()
+
+> **respondToInteraction**(`command`, `options?`): `Promise`\<\{ \}\>
+
+###### Parameters
+
+###### command
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \}\>
+
+##### contextBoundary()
+
+> **contextBoundary**(`options?`): `Promise`\<\{ \} \| `null`\>
+
+###### Parameters
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \} \| `null`\>
+
+##### continueNative()
+
+> **continueNative**(`request`, `turn`): `Promise`\<\{ \} \| \{ \}\>
+
+###### Parameters
+
+###### request
+
+`NativeContextContinuationRequest`
+
+###### turn
+
+[`NativeContextContinuationInput`](#nativecontextcontinuationinput)
+
+###### Returns
+
+`Promise`\<\{ \} \| \{ \}\>
+
+##### cancel()
+
+> **cancel**(`options`): `Promise`\<[`RetainedRunCancellation`](#retainedruncancellation)\>
+
+###### Parameters
+
+###### options
+
+[`RetainedRunCancelOptions`](#retainedruncanceloptions)
+
+###### Returns
+
+`Promise`\<[`RetainedRunCancellation`](#retainedruncancellation)\>
+
+***
+
+### StartRetainedRunOptions
+
+**`Stable`**
+
+A retained start is retry-safe only when environment and turn keys are explicit.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environment
+
+> `readonly` **environment**: `CreateAgentEnvironmentInput` & `object`
+
+###### Type Declaration
+
+###### idempotencyKey
+
+> **idempotencyKey**: `string`
+
+##### turn
+
+> `readonly` **turn**: `AgentTurnInput` & `object`
+
+###### Type Declaration
+
+###### turnId
+
+> **turnId**: `string`
+
+##### identity?
+
+> `readonly` `optional` **identity?**: `object`
+
+Runtime-owned coordinates for providers that support deterministic retained dispatch.
+
+###### sessionId
+
+> `readonly` **sessionId**: `string`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### ReconnectRetainedRunOptions
+
+**`Stable`**
+
+Inputs sufficient to rebuild a control client in a new process.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
 ### RouterTransportConfig
 
 Connection details for Runtime's Router-backed executors.
@@ -7347,7 +7826,7 @@ The gen0 field. Default [sample, refine, sampleThenRefine].
 
 ##### objective?
 
-> `optional` **objective?**: `"score"` \| `"cost"`
+> `optional` **objective?**: `"cost"` \| `"score"`
 
 What "better" means for PROMOTION. 'score' (default): the candidate must beat the
  incumbent's score (superiority gate). 'cost': the candidate must prove score
@@ -10236,6 +10715,126 @@ Fleet level: max live sandboxes/boxes across the host process (a `ComputeGoverno
 
 ***
 
+### DriverRetryPolicy
+
+How hard the root driver is retried after a transient failure. The defaults retry; a caller
+ that wants the pre-#741 behavior sets `enabled: false` and owns the consequence.
+
+#### Properties
+
+##### enabled?
+
+> `readonly` `optional` **enabled?**: `boolean`
+
+`false` restores the historical behavior: the first driver failure ends the run.
+
+##### maxConsecutiveFailures?
+
+> `readonly` `optional` **maxConsecutiveFailures?**: `number`
+
+Consecutive failures that changed NOTHING (no metered spend, no settlement, no submission)
+ before the run gives up. Default 3. A failure that made progress resets the count.
+
+##### maxAttempts?
+
+> `readonly` `optional` **maxAttempts?**: `number`
+
+Absolute ceiling on attempts, regardless of progress. Default 8. The barren counter alone
+ cannot bound a driver that crashes every turn AFTER metering a little: each attempt looks like
+ progress, so without this backstop such a run would retry until it had eaten the entire
+ envelope. A caller who wants budget-only bounding sets this high deliberately.
+
+##### initialBackoffMs?
+
+> `readonly` `optional` **initialBackoffMs?**: `number`
+
+Backoff before the first retry, doubling per consecutive failure. Default 2000ms.
+
+##### maxBackoffMs?
+
+> `readonly` `optional` **maxBackoffMs?**: `number`
+
+Ceiling on the doubling. Default 30000ms.
+
+***
+
+### DriverAttemptRecord
+
+One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so
+ an operator sees `driver failed after N attempts` instead of one opaque `pi exit unknown`.
+
+#### Properties
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+1-based.
+
+##### durationMs
+
+> `readonly` **durationMs**: `number`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+Absent when the attempt completed.
+
+##### classification?
+
+> `readonly` `optional` **classification?**: `"transient"` \| `"terminal"`
+
+##### madeProgress
+
+> `readonly` **madeProgress**: `boolean`
+
+Did anything change since the previous attempt (spend, settlement, submission)?
+
+##### stop?
+
+> `readonly` `optional` **stop?**: [`DriverAttemptStop`](#driverattemptstop)
+
+Set when this attempt ended the loop.
+
+##### retryInMs?
+
+> `readonly` `optional` **retryInMs?**: `number`
+
+Set when another attempt follows.
+
+***
+
+### DriverProgressMark
+
+The comparable mark used to decide whether an attempt did anything at all. Any field moving
+ counts as progress — a driver that metered one turn before dying is not dead on arrival.
+
+#### Properties
+
+##### poolTokensSpent
+
+> `readonly` **poolTokensSpent**: `number`
+
+Monotone total of POOL spend since the first reading, in tokens — the driver's own metered
+ turns AND any child settlement, because the conserved pool is shared. Deliberately not
+ driver-only: a child that settled during the attempt is progress by any reading, and the
+ coarser signal can only bias toward rescuing a run, never toward abandoning one.
+
+##### settledCount
+
+> `readonly` **settledCount**: `number`
+
+Monotone count of settled children.
+
+##### submitted
+
+> `readonly` **submitted**: `boolean`
+
+Whether an accepted deliverable exists.
+
+***
+
 ### BusEvent
 
 Every bus event is a discriminated union member keyed by `type`.
@@ -11893,7 +12492,7 @@ Transport reconnects allowed after the first POST. Default 3; set 0 to disable.
 
 > `optional` **activityWindow?**: `number`
 
-Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`).
+Newest-last activity window `progress()` reports. Default 12.
 
 ***
 
@@ -12452,7 +13051,7 @@ onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untr
 > `readonly` `optional` **workerTraceUnpropagated?**: `object`
 
 Present when this run RECORDS spans but the worker backend has NO channel to carry the trace
-context (`WORKER_TRACE_PROPAGATION[backend] === false` — bridge / cli-worktree have no env
+context (`WORKER_TRACE_PROPAGATION[backend] === false` — cli-worktree has no env
 channel; router / router-tools / provider have no worker process). Each spawn then journals a
 `trace-unpropagated` event naming the severed hop, so a child whose trace shows up as a
 disconnected root is a recorded fact rather than a silent stranger. Absent ⇒ either the run
@@ -13112,6 +13711,49 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
  caller-owned override for a local bridge.
 
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+`driver-failed`. A harness process SIGKILLed at a bridge timeout, a stream cut mid-turn, or an
+upstream 5xx used to end a run of arbitrary length while its budget and deadline sat almost
+untouched (#741). A retry re-enters the driver over the SAME scope, coordination server, and
+live children; the bridge backend reattaches the harness session by its durable execution id.
+
+Runtime's own refusals (a validation guard, an exhausted budget, an abort, a client-side
+transport status) are never retried — they were decisions. Retries stop at the budget, the
+deadline, an abort, or a run of attempts that changed nothing at all.
+
+Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
+driver failure ends the run. Applies to the root manager and every recursive manager under it.
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for every external driver in the tree — what makes "failed after N
+ attempts, last cause X" visible instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+##### childSettleGraceMs?
+
+> `readonly` `optional` **childSettleGraceMs?**: `number`
+
+How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+cascades the abort into them. A root that died did not make its children unhealthy: a child
+mid-unit holds work already paid for, and an immediate cascade discards everything it has not
+yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](#resolvedriveharness-1)
@@ -13595,7 +14237,7 @@ breaker, or a recursive parent.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-15)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-16)
 
 ##### runNamespace
 
@@ -13641,7 +14283,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-1)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-2)
 
 ##### assignmentId?
 
@@ -13866,6 +14508,33 @@ Router substrate for a router-brained supervisor (`harness` omitted or `cli-base
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-1)
 
 Required to run an external-harness supervisor: runs the harness as the driver.
+
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+ `driver-failed` (#741). Retries reuse the same scope, coordination server, and live children;
+ the bridge backend reattaches the harness session by its durable execution id. Omit = retry
+ under the defaults; `{ enabled: false }` = the historical first-failure-ends-the-run behavior.
+ The router arm is unaffected: its transport already retries.
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for the external driver — how an operator sees "failed after N attempts"
+ instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
 
 ##### nodeContext?
 
@@ -15073,6 +15742,16 @@ trips the supervisor to `no-winner` rather than restarting forever.
 
 > `readonly` `optional` **withinMs?**: `number`
 
+##### childSettleGraceMs?
+
+> `readonly` `optional` **childSettleGraceMs?**: `number`
+
+How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+cascades the abort into them (#741). A root that dies did not make its children unhealthy: a
+child mid-unit holds work already paid for, and killing it instantly discards everything it has
+not yet written. The window applies ONLY to a driver failure on an un-cancelled run, and never
+extends past the run's own deadline. Omit/`0` = the historical immediate teardown.
+
 ##### resume?
 
 > `readonly` `optional` **resume?**: `boolean`
@@ -15304,7 +15983,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-1).[`signal`](#signal-17)
+[`RootHandle`](#roothandle-1).[`signal`](#signal-21)
 
 ##### abort()
 
@@ -16514,6 +17193,8 @@ campaign dispatch settles real usage instead of appearing as a stub.
 
 > **input**: `number`
 
+Total provider-reported prompt tokens. Budgets always use this total.
+
 ##### output
 
 > **output**: `number`
@@ -16523,6 +17204,31 @@ campaign dispatch settles real usage instead of appearing as a stub.
 > `optional` **tokensKnown?**: `false`
 
 False when the subtotal is incomplete.
+
+##### freshInput?
+
+> `optional` **freshInput?**: `number`
+
+Prompt tokens newly processed by the provider, when every prompt class is known.
+
+##### cacheRead?
+
+> `optional` **cacheRead?**: `number`
+
+Prompt tokens served from a provider cache, when every prompt class is known.
+
+##### cacheWrite?
+
+> `optional` **cacheWrite?**: `number`
+
+Prompt tokens written to a provider cache, when every prompt class is known.
+
+##### cacheBreakdownKnown?
+
+> `optional` **cacheBreakdownKnown?**: `false`
+
+False when any positive-input observation omitted or contradicted the prompt-cache split.
+This marker is sticky during aggregation. Missing cache fields must never become zero.
 
 ***
 
@@ -17878,6 +18584,14 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 
 ***
 
+### SuperviseOptionsForDispatch
+
+> **SuperviseOptionsForDispatch** = `Omit`\<[`SuperviseOptions`](#superviseoptions), `"signal"`\>
+
+`supervise` options minus Eval-owned cancellation.
+
+***
+
 ### Outcome
 
 > **Outcome**\<`D`\> = \{ `kind`: `"done"`; `deliverable`: `D`; \} \| \{ `kind`: `"blocked"`; `blockers`: `string`[]; \}
@@ -18365,6 +19079,36 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ***
 
+### RetainedRunEffect
+
+> **RetainedRunEffect** = `"cancel_requested"` \| `"cancelled"` \| `"not_live"` \| `"unknown"`
+
+**`Stable`**
+
+Effect recorded for one retained control operation.
+
+***
+
+### NativeContextContinuationInput
+
+> **NativeContextContinuationInput** = `NativeContextContinuationTurn` & `Omit`\<`AgentNativeContextContinuationOptions`, `"turn"`\>
+
+**`Stable`**
+
+Runtime controls plus the exact user turn bound into a continuation request.
+
+***
+
+### NativeContextContinuationExecution
+
+> **NativeContextContinuationExecution** = `AgentNativeContextContinuationResult`
+
+**`Stable`**
+
+Result of one verified same-session continuation.
+
+***
+
 ### Environment
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
@@ -18559,6 +19303,14 @@ the same `receiptId` has an unknown outcome after a crash and is never replayed.
 Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the ordinary end);
  `not-admitted` = the conserved pool or the depth ceiling refused a spawn; `stopped` = the
  caller's `shouldStop` returned true; `aborted` = the scope's signal fired.
+
+***
+
+### DriverAttemptStop
+
+> **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"`
+
+Why the retry loop stopped. `completed` is the only non-failure.
 
 ***
 
@@ -18828,11 +19580,12 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
-`{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+`{ input, output }` plus an optional provider cache split; `usd` is a SEPARATE channel (never
+folded into tokens).
 
 Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
 therefore remains unknown through live metering and terminal reconciliation instead of becoming
@@ -18842,7 +19595,7 @@ a fabricated zero.
 
 ##### Type Literal
 
-\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; \}
+\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \}
 
 ###### kind
 
@@ -18861,6 +19614,30 @@ Known token subtotal. When false, these counts are only the observed/estimated f
 ###### output
 
 > **output**: `number`
+
+###### freshInput?
+
+> `optional` **freshInput?**: `number`
+
+Newly processed prompt tokens. Present only with a complete cache split.
+
+###### cacheRead?
+
+> `optional` **cacheRead?**: `number`
+
+Prompt tokens read from cache. Present only with a complete cache split.
+
+###### cacheWrite?
+
+> `optional` **cacheWrite?**: `number`
+
+Prompt tokens written to cache. Present only with a complete cache split.
+
+###### cacheBreakdownKnown?
+
+> `optional` **cacheBreakdownKnown?**: `false`
+
+False when this observation cannot classify all positive prompt tokens.
 
 ***
 
@@ -20813,6 +21590,34 @@ refused unless the caller explicitly supplies a policy that allows it.
 
 ***
 
+### superviseDispatch()
+
+> **superviseDispatch**\<`TScenario`, `TArtifact`\>(`opts`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
+
+Run one recursive supervised tree inside Eval's pre-execution paid-call lifecycle.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Parameters
+
+##### opts
+
+[`SuperviseDispatchOptions`](#supervisedispatchoptions)\<`TScenario`, `TArtifact`\>
+
+#### Returns
+
+`ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
+
+***
+
 ### loopCampaignDispatch()
 
 > **loopCampaignDispatch**\<`Task`, `Output`, `Decision`, `TScenario`, `TArtifact`\>(`opts`): `DispatchFn`\<`TScenario`, `TArtifact`\>
@@ -21686,6 +22491,47 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 #### Returns
 
 [`SandboxClient`](#sandboxclient-5)
+
+***
+
+### startRetainedRun()
+
+> **startRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+**`Stable`**
+
+Dispatch one detached, replayable run and return only after exact durable
+coordinates are confirmed by the provider.
+
+#### Parameters
+
+##### options
+
+[`StartRetainedRunOptions`](#startretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+***
+
+### reconnectRetainedRun()
+
+> **reconnectRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle) \| `null`\>
+
+**`Stable`**
+
+Rebuild a retained-run client without retaining any object from the starter.
+
+#### Parameters
+
+##### options
+
+[`ReconnectRetainedRunOptions`](#reconnectretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle) \| `null`\>
 
 ***
 
@@ -23430,6 +24276,31 @@ readonly `object`[]
 
 ***
 
+### classifyDriverFailure()
+
+> **classifyDriverFailure**(`error`, `signal?`): `"transient"` \| `"terminal"`
+
+Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
+anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
+because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
+having a bad moment, while a 401/404/422 is a request that will fail identically forever.
+
+#### Parameters
+
+##### error
+
+`unknown`
+
+##### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`"transient"` \| `"terminal"`
+
+***
+
 ### createEventBus()
 
 > **createEventBus**\<`E`\>(`now?`): [`EventBus`](#eventbus)\<`E`\>
@@ -25055,6 +25926,29 @@ caller's own seam env so a deliberately-set id wins (see the precedence note abo
 
 ***
 
+### workerTraceHeaders()
+
+> **workerTraceHeaders**(`ctx`): `Record`\<`string`, `string`\>
+
+The trace request headers for a worker dispatched over the cli-bridge HTTP transport — W3C
+`traceparent` plus the legacy `x-trace-id` / `x-parent-span-id` pair the bridge also reads —
+EMPTY when the run records no spans, which keeps the untraced request byte-identical. Derived
+from the same dual-write the env channel uses ([workerTraceEnv](#workertraceenv)), so the header and env
+spellings can never name different traces. `traceparent` is present only when a parent span id
+exists (the W3C grammar requires one); the legacy pair still carries a lone trace id.
+
+#### Parameters
+
+##### ctx
+
+[`WorkerTraceSeamCarrier`](#workertraceseamcarrier)
+
+#### Returns
+
+`Record`\<`string`, `string`\>
+
+***
+
 ### createWorktreeCliExecutor()
 
 > **createWorktreeCliExecutor**(`options`): [`Executor`](index.md#executor-2)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
@@ -25469,6 +26363,18 @@ Re-exports [Settled](index.md#settled)
 ### Spend
 
 Re-exports [Spend](index.md#spend)
+
+***
+
+### SpendChannel
+
+Re-exports [SpendChannel](index.md#spendchannel)
+
+***
+
+### SpendGap
+
+Re-exports [SpendGap](index.md#spendgap)
 
 ***
 

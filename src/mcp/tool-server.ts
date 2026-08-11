@@ -89,11 +89,7 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
       }
       try {
         const output = await tool.handler(params.arguments ?? {})
-        return rpcResult(message.id ?? null, {
-          content: [{ type: 'text', text: JSON.stringify(output) }],
-          structuredContent: output,
-          isError: false,
-        })
+        return rpcResult(message.id ?? null, toolCallResult(output))
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
         const code = err instanceof TypeError || err instanceof RangeError ? -32602 : -32000
@@ -144,6 +140,38 @@ export function createStdioToolServer(options: StdioToolServerOptions): StdioToo
   }
 
   return { tools, handle, serve, stop }
+}
+
+function toolCallResult(output: unknown): {
+  content: [{ type: 'text'; text: string }]
+  structuredContent?: Record<string, unknown>
+  isError: false
+} {
+  let json: string | undefined
+  try {
+    json = JSON.stringify(output)
+  } catch (err) {
+    const reason = err instanceof Error ? `: ${err.message}` : ''
+    throw new TypeError(`MCP tool result must be JSON-serializable${reason}`, { cause: err })
+  }
+  if (json === undefined) {
+    throw new TypeError('MCP tool result must be JSON-serializable')
+  }
+
+  const serialized = JSON.parse(json) as unknown
+  // Preserve string content verbatim. MCP clients pass this text directly to the calling agent.
+  const result: {
+    content: [{ type: 'text'; text: string }]
+    structuredContent?: Record<string, unknown>
+    isError: false
+  } = {
+    content: [{ type: 'text', text: typeof serialized === 'string' ? serialized : json }],
+    isError: false,
+  }
+  if (serialized !== null && typeof serialized === 'object' && !Array.isArray(serialized)) {
+    result.structuredContent = serialized as Record<string, unknown>
+  }
+  return result
 }
 
 function rpcResult(id: number | string | null, result: unknown): JsonRpcResponse {

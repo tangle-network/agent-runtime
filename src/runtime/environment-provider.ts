@@ -1,8 +1,9 @@
-import type {
-  AgentProfile,
-  AgentProfileValidationResult,
-  InputPart,
-  TokenUsage,
+import {
+  type AgentProfile,
+  type AgentProfileValidationResult,
+  harnessSystemPromptIntents,
+  type InputPart,
+  type TokenUsage,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -1329,7 +1330,7 @@ function defaultTangleSandboxCapabilities(options: {
   return {
     profile: {
       namedProfiles: options.namedProfiles,
-      systemPrompt: true,
+      systemPrompt: { ...harnessSystemPromptIntents(undefined) },
       instructions: true,
       tools: true,
       permissions: true,

@@ -139,7 +139,11 @@ describe('resume-aware built-in driver — a killed coordinator resumes without 
     // their missing receipts are charged at both declared ceilings and marked unknown.
     expect(resumed.out).toBe(controlReport.out)
     expect(resumed.spentBreakdown?.childWork.iterations).toBe(15)
-    expect(resumed.spentBreakdown?.childWork.tokens).toEqual({ input: 20_050, output: 50 })
+    expect(resumed.spentBreakdown?.childWork.tokens).toEqual({
+      input: 20_050,
+      output: 50,
+      cacheBreakdownKnown: false,
+    })
     expect(resumed.spentBreakdown?.childWork.tokensKnown).toBe(false)
     expect(resumed.spentBreakdown?.childWork.usdKnown).toBe(false)
     expect(resumed.spentBreakdown?.childWork.usd).toBeCloseTo(0.05, 10)

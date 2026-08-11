@@ -14,8 +14,8 @@
  *
  * Wire protocol: line-delimited JSON-RPC 2.0 over stdio. Each line is
  * one request; each response is one line. `tools/list` and `tools/call`
- * mirror the MCP 2024-11-05 spec; we do not pull in
- * `@modelcontextprotocol/sdk` to keep the dependency footprint zero.
+ * mirror the MCP 2024-11-05 spec. The production server does not depend on
+ * `@modelcontextprotocol/sdk`; integration tests validate this wire with the official client.
  *
  * @experimental
  */

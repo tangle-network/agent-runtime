@@ -1,5 +1,47 @@
 # Changelog
 
+## 0.132.1
+
+- Add `candidatePopulation` to `improve(...)` results so consumers can inspect every verified optimizer candidate, including its exact profile, Interface diffs, parent lineage, and selection score.
+- Consume Agent Eval 0.144.12 and Agent Knowledge 7.2.1 as one compatible dependency set.
+
+## 0.131.7
+
+- Add `superviseDispatch(...)` so `agent-eval` profile matrices admit and record a recursive Runtime tree before it spends.
+- Refuse a one-model Eval receipt when a supervised tree has mixed or unknown model identities.
+- Preserve complete prompt cache read/write telemetry through bridge, supervisor, journal, and Eval cost receipts.
+- Keep partial cache telemetry and missing token receipts explicit instead of treating them as zero.
+- Consume Agent Eval 0.144.10 and Agent Knowledge 7.2.0.
+
+## 0.131.6
+
+- Consume Agent Eval 0.144.8 and Agent Knowledge 7.1.3 as one exact dependency set.
+
+## 0.131.4
+
+- Accept and preserve cli-bridge's positive applied completion-token cap in Runtime materialization evidence.
+- Reject zero, negative, fractional, or non-numeric applied caps before the evidence enters the journal.
+
+## 0.131.3
+
+- Preserve cli-bridge inference transport and observation evidence in Runtime materialization receipts and journal digests.
+
+## 0.131.2
+
+- Forward each exact `AgentProfile` completion-token ceiling to every initial and resumed CLI bridge request.
+- Record the ceiling in the planned execution evidence, while the conserved Runtime budget remains independent.
+
+## 0.131.1
+
+- Return scalar and array MCP tool results through text content, and reserve `structuredContent` for non-null JSON objects.
+- Prove string and object responses over stdio with the official MCP SDK, and reject results that JSON cannot serialize.
+
+## 0.131.0
+
+- Consume agent-profile-materialize 0.13.1 and Sandbox 0.19.4 with Interface 0.46.1, Eval 0.144.6, and Knowledge 7.1.2.
+- Bind candidate system-prompt launch controls through the native harness plan, including OpenCode's generated primary agent.
+- Keep Codex and Gemini prompt delivery fail-closed, and preserve separate replacement and additive controls for Claude Code, Pi, and Prime.
+
 ## 0.130.0
 
 ### Stability contract + first graduation

@@ -204,6 +204,54 @@ describe('router-tools executor drains the inbox', () => {
     expect(pool.readout()).toMatchObject({ usdLeft: 0, usdKnown: false })
   })
 
+  it('keeps complete Router cache classes in the worker spend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: 'done', tool_calls: [] } }],
+              usage: {
+                prompt_tokens: 20,
+                completion_tokens: 2,
+                prompt_cache: { read_tokens: 7, write_tokens: 3 },
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    )
+    const factory = createExecutor({
+      backend: 'router-tools',
+      model: 'test-model',
+      routerBaseUrl: 'http://router.test',
+      routerKey: 'k',
+      tools: [],
+      executeToolCall: async () => '',
+    })
+    const exec = factory(
+      {
+        profile: testAgentProfile('w', {
+          harness: 'cli-base',
+          model: { provider: 'test', default: 'test-model' },
+        }),
+        harness: null,
+      },
+      { signal: new AbortController().signal, seams: {} },
+    )
+
+    const result = await exec.execute('do the task', new AbortController().signal)
+
+    expect(result.spent.tokens).toEqual({
+      input: 20,
+      output: 2,
+      freshInput: 10,
+      cacheRead: 7,
+      cacheWrite: 3,
+    })
+  })
+
   it('marks dollar cost unknown for a priced model when token usage is missing', async () => {
     vi.stubGlobal(
       'fetch',

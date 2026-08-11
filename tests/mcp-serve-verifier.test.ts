@@ -66,7 +66,9 @@ describe('mcpServeVerifier — boot-and-probe', () => {
     const verify = mcpServeVerifier({ command: 'node', args: [write('crash')] })
     const res = await verify(dir)
     expect(res.ok).toBe(false)
-    expect(res.feedback).toMatch(/exited|serving/)
+    // A crash can race its close event with the failed initial pipe write.
+    // Both messages prove that the candidate did not serve the handshake.
+    expect(res.feedback).toMatch(/exited|serving|writing to MCP server stdin failed/)
   })
 
   it('fails when the server closes stdin during the handshake', async () => {

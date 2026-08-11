@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.130.0.**
+> **Version 0.132.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.144.4 <0.145.0`.
-> `sandbox` must satisfy `>=0.19.1 <0.20.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.43.1 <0.44.0`.
+> `agent-eval` must satisfy `>=0.144.12 <0.145.0`.
+> `sandbox` must satisfy `>=0.19.4 <0.20.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.46.1 <0.47.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -28,7 +28,16 @@ The system is four steps, each with a named entry point:
 1. **Describe the agent as data.** A **profile** is the whole agent: `systemPrompt + skills + tools + mcp + knowledge + memory + rag`, one combined surface.
 2. **Run it.** A driver steers workers over rounds: `runPersonified` composes a combinator (`loopUntil`, `fanout`, …) over the `Supervisor`, spending K rounds against one persistent, journaled artifact from a *conserved budget pool*, so any two topologies you compare cost the same by construction.
 3. **Score it on a benchmark.** Either the `ADAPTERS` registry driven by `runGate` over the Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic`.
-4. **Improve it on three partitions.** `improve(profile, { executionRef, method, trainScenarios, selectionScenarios, testScenarios, agent })` runs a complete agent-eval `OptimizationMethod`. The method receives train and selection cases only. Runtime materializes each surface as a complete detached profile and passes that exact profile to `agent`. `executionRef` identifies the callback, component mapping, model, tools, and closure settings. Agent Eval scores the selected profile on the untouched final test. Runtime returns `ship` only when the paired interval clears the required lift and all spend is accounted for.
+4. **Improve it on three partitions.**
+   `improve(profile, { executionRef, method, trainScenarios, selectionScenarios, testScenarios, agent })` runs a complete agent-eval `OptimizationMethod`.
+   The method receives train and selection cases only.
+   Runtime materializes each surface as a complete detached profile and passes that profile to `agent`.
+   `executionRef` identifies the callback, component mapping, model, tools, and closure settings.
+   Agent Eval scores the selected profile on the untouched final test.
+   Runtime returns `ship` only when the paired interval clears the required lift and all spend is accounted for.
+   `candidatePopulation` joins verified callback observations with the optimizer's official graph.
+   It returns every unique candidate as an exact profile plus Interface diffs, or as an explicit refusal.
+   Official GEPA graph nodes retain parent indices and selection scores.
 
 Two standing rules: the model that picks the best attempt is never the model that grades it, and observation attaches to the *loop* via `RuntimeHooks`, never to the portable profile. One known limit: the current `Supervisor` records completed settlements but does not resume a live tree after coordinator restart.
 
@@ -130,6 +139,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Add a stateful tool-using domain | implement `AgenticSurface` (5 hooks: open/tools/call/score/close): `/kernel` | a bespoke per-benchmark agent runner / tool-loop harness |
 | Run a sandbox coding rollout, round-synchronous (fresh box per round) | `runAgentRounds(options)`: `/kernel` | a `new Sandbox()`+acquire+stream+parse+delete loop, or a 2nd winner-selector |
 | Run **agent-eval fixture folders** through Runtime `runAgentRounds` | agent-eval fixture loading/planning, then `loopCampaignDispatch(...)`: `/kernel`; it starts the Runtime cell inside Eval's paid-call lifecycle | a one-off `runCampaign` dispatch, or attaching a completed `LoopResult` after paid work already ran |
+| Run a **recursive `supervise()` tree** through an agent-eval profile matrix | `superviseDispatch({ toTask, toSuperviseOptions, ... })`: `/kernel`; it admits the tree through Eval before Runtime spends, then records its receipt only when Runtime proves one model. Mixed or unknown trees fail instead of being relabelled. | a Lab receipt mapper, a second scheduler, or attaching a completed `SupervisedResult` after paid work already ran |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)`: `/kernel` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
 | Run **ONE agent turn** on any substrate: box (`streamPrompt`), cli-bridge/router `Executor`, or in-process chat backend: as ONE normalized `RuntimeStreamEvent` stream with a guaranteed terminal result+usage event; opt into in-stream `tool_call`/`tool_result` with `preserveToolParts`, or tap the raw sandbox events with `onRawEvent` | `streamAgentTurn(backend, prompt, { signal, timeoutMs, preserveToolParts?, onRawEvent? })` + `collectAgentTurn(stream)`: `/kernel` | a per-provider stream→event mapper zoo, a hand-faked box around a non-box executor, or raw fetch leaking through the turn abstraction |
 | Use an exact profile and Runtime executor where `runAgentTaskStream` or a conversation expects an `AgentExecutionBackend` | `createProfileExecutionBackend({ profile, executor: createExecutor(config) })`: root `.`; the adapter preserves conversation authorization, recursion-depth, and trace headers | a provider-specific backend constructor or an adapter that reads a second model/prompt configuration |

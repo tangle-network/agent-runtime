@@ -358,9 +358,10 @@ describe('a traced run on a channel-less backend journals each severed hop', () 
         executors: registryOf(printerFactory()),
         hooks: recorder.hooks,
         workerTrace: recorder.workerTrace,
-        // The declaration `supervise()` derives from WORKER_TRACE_PROPAGATION for a bridge run:
-        // the transport exposes no environment channel, so the context CANNOT reach the worker.
-        workerTraceUnpropagated: { backend: 'bridge', reason: 'no-env-channel' },
+        // The declaration `supervise()` derives from WORKER_TRACE_PROPAGATION for a cli-worktree
+        // run: the transport exposes no environment channel, so the context CANNOT reach the
+        // worker. (The bridge propagates over request headers and no longer declares this.)
+        workerTraceUnpropagated: { backend: 'cli-worktree', reason: 'no-env-channel' },
       }),
     )
     await recorder.finish({ result })
@@ -371,7 +372,7 @@ describe('a traced run on a channel-less backend journals each severed hop', () 
     expect(severed[0]).toMatchObject({
       id: 'run:s0',
       expectedTraceId: recorder.traceId,
-      backend: 'bridge',
+      backend: 'cli-worktree',
       reason: 'no-env-channel',
     })
   })
@@ -384,7 +385,7 @@ describe('a traced run on a channel-less backend journals each severed hop', () 
       supervisorOpts({
         journal,
         executors: registryOf(printerFactory()),
-        workerTraceUnpropagated: { backend: 'bridge', reason: 'no-env-channel' },
+        workerTraceUnpropagated: { backend: 'cli-worktree', reason: 'no-env-channel' },
       }),
     )
     expect(result.kind).toBe('winner')

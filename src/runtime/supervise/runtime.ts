@@ -44,7 +44,7 @@ import {
   assertProfileMaterialization,
   defineProfileMaterializationContract,
 } from '../../agent/profile-materialization'
-import { ValidationError } from '../../errors'
+import { BackendTransportError, ValidationError } from '../../errors'
 import { mergeTraceEnv } from '../../mcp/trace-propagation'
 import {
   captureWorktreeDiff,
@@ -88,7 +88,7 @@ import type {
   OutputAdapter,
   SandboxClient,
 } from '../types'
-import { zeroTokenUsage } from '../util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInbox, type Inbox } from './inbox'
 import {
@@ -132,7 +132,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
-import { workerTraceEnv } from './worker-trace'
+import { workerTraceEnv, workerTraceHeaders } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
@@ -334,7 +334,7 @@ export interface BridgeSeam {
   sessionId?: string
   /** Transport reconnects allowed after the first POST. Default 3; set 0 to disable. */
   maxReconnects?: number
-  /** Newest-last activity window `progress()` reports. Default 12 (matches `PiSeam`). */
+  /** Newest-last activity window `progress()` reports. Default 12. */
   activityWindow?: number
 }
 
@@ -526,7 +526,13 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         )
         const spent: Spend = {
           iterations: 1,
-          tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
+          tokens: r.usage
+            ? cloneTokenUsage({
+                input: r.usage.input,
+                output: r.usage.output,
+                ...routerPromptCacheUsage(r.usage.input, r.cache),
+              })
+            : zeroTokenUsage(),
           usd: r.billedCostUsd ?? 0,
           ...(r.usage ? {} : { tokensKnown: false }),
           ...(r.billedCostUsd === undefined ? { usdKnown: false } : {}),
@@ -648,6 +654,39 @@ function mergePromptCache(
     if (value !== undefined) target[key] = (Number(target[key]) || 0) + value
   }
   if (cache.status !== undefined) target.status = cache.status
+}
+
+/** Preserve a complete Router cache split; an incomplete provider receipt stays unknown. */
+function routerPromptCacheUsage(
+  input: number | undefined,
+  cache: PromptCacheUsage | undefined,
+): {
+  freshInput?: number
+  cacheRead?: number
+  cacheWrite?: number
+  cacheBreakdownKnown?: false
+} {
+  if (cache === undefined) return {}
+  const read = cache.readTokens
+  const write = cache.writeTokens
+  if (read === undefined && write === undefined) return {}
+  if (
+    input === undefined ||
+    !isCacheTokenCount(read) ||
+    !isCacheTokenCount(write) ||
+    read + write > input
+  ) {
+    return { cacheBreakdownKnown: false }
+  }
+  return {
+    freshInput: input - read - write,
+    cacheRead: read,
+    cacheWrite: write,
+  }
+}
+
+function isCacheTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 async function runRouterTransport<T>(context: string, call: () => Promise<T>): Promise<T> {
@@ -825,11 +864,15 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             if (res.model !== undefined) observedModel = res.model
             mergePromptCache(promptCache, res.cache)
             if (res.usage) {
-              tokens.input += res.usage.input
-              tokens.output += res.usage.output
+              addTokenUsage(tokens, {
+                input: res.usage.input,
+                output: res.usage.output,
+                ...routerPromptCacheUsage(res.usage.input, res.cache),
+              })
               if (res.usage.reasoning !== undefined) reasoningTokens += res.usage.reasoning
               else reasoningKnown = false
             } else {
+              addTokenUsage(tokens, routerPromptCacheUsage(undefined, res.cache))
               tokensKnown = false
               reasoningKnown = false
             }
@@ -1284,7 +1327,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     }
     const spent: Spend = {
       iterations: result.iterations.length,
-      tokens: { input: result.tokenUsage.input, output: result.tokenUsage.output },
+      tokens: cloneTokenUsage(result.tokenUsage),
       ...(tokensKnown ? {} : { tokensKnown: false }),
       usd: result.costUsd,
       ...(usdKnown ? {} : { usdKnown: false }),
@@ -1303,6 +1346,18 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
         input: result.tokenUsage.input,
         output: result.tokenUsage.output,
         ...(tokensKnown ? {} : { tokensKnown: false }),
+        ...(result.tokenUsage.freshInput !== undefined
+          ? { freshInput: result.tokenUsage.freshInput }
+          : {}),
+        ...(result.tokenUsage.cacheRead !== undefined
+          ? { cacheRead: result.tokenUsage.cacheRead }
+          : {}),
+        ...(result.tokenUsage.cacheWrite !== undefined
+          ? { cacheWrite: result.tokenUsage.cacheWrite }
+          : {}),
+        ...(result.tokenUsage.cacheBreakdownKnown === false
+          ? { cacheBreakdownKnown: false as const }
+          : {}),
       }
     }
     if (result.iterations.length > 0 || result.costUsd) {
@@ -1554,6 +1609,8 @@ function killWithGrace(
 interface ResolvedBridgeSeam extends BridgeSeam {
   /** Derived once from the exact AgentProfile; never accepted as backend configuration. */
   readonly model: string
+  /** Profile-owned ceiling for one completion, forwarded as `max_tokens` when present. */
+  readonly maxTokens?: number
 }
 
 /** Resolve the exact bridge wire id from the profile and nowhere else. */
@@ -1573,7 +1630,12 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
   const effectiveProfile = agentProfileSchema.parse(spec.profile)
   const model = bridgeProfileModel(effectiveProfile, 'bridgeExecutor')
-  const seam: ResolvedBridgeSeam = { ...base, model }
+  const profileExecution = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor')
+  const seam: ResolvedBridgeSeam = {
+    ...base,
+    model,
+    ...(profileExecution.maxTokens !== undefined ? { maxTokens: profileExecution.maxTokens } : {}),
+  }
   if (!seam.bridgeUrl || !seam.bridgeBearer) {
     throw new ValidationError('bridgeExecutor: bridgeUrl + bridgeBearer are required')
   }
@@ -1593,12 +1655,16 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   ) {
     throw new ValidationError('bridgeExecutor: maxReconnects must be a nonnegative safe integer')
   }
-  const maxTurns = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor').maxTurns ?? 0
+  const maxTurns = profileExecution.maxTurns ?? 0
   const maxReconnects = seam.maxReconnects ?? 3
   // A stable per-spawn session id (caller can pin one) — cli-bridge keys harness
   // resume off this exactly as a box id keys a sandbox session.
   const sessionId = seam.sessionId ?? `bridge-${spec.profile.name ?? 'worker'}-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(sessionId)
+  // The bridge's trace channel is the request, not an env field: the `traceparent` (+ legacy
+  // pair) headers ride every turn POST, and the bridge stamps them into the harness child's
+  // environment at spawn. Empty when the run records no spans, adding no header at all.
+  const traceHeaders = workerTraceHeaders(ctx)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -1647,6 +1713,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       maxReconnects,
       timeoutMs: seam.timeoutMs ?? null,
       streaming: true,
+      ...(seam.maxTokens !== undefined ? { maxTokens: seam.maxTokens } : {}),
       terminalAcknowledgement: null,
     },
   }
@@ -1698,6 +1765,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         sessionId,
         maxTurns,
         maxReconnects,
+        traceHeaders,
         inbox,
         controller,
         activeRuns,
@@ -1756,6 +1824,8 @@ interface StreamBridgeArgs {
   sessionId: string
   maxTurns: number
   maxReconnects: number
+  /** Trace request headers ({@link workerTraceHeaders}); empty when the run records no spans. */
+  traceHeaders: Readonly<Record<string, string>>
   inbox: Inbox
   controller: AbortController
   activeRuns: Map<string, ActiveBridgeRun>
@@ -1950,9 +2020,42 @@ interface BridgeProfileMaterializationReceipt {
     /** Exact native argv/config value after the bridge's backend mapping. */
     readonly applied: string | null
   }
+  /** Exact model transport selected by cli-bridge before the harness process started. */
+  readonly inference?: BridgeInferenceReceipt
   readonly workspacePlanDigest: string
   readonly files: ReadonlyArray<{ path: string; mode: number }>
   readonly unsupported: ReadonlyArray<{ dimension: string; reason: string }>
+}
+
+interface BridgeInferenceReceipt {
+  readonly effectiveEndpoint: string
+  readonly apiMode: string
+  readonly transport: 'scoped-loopback'
+  /** Exact positive completion-token cap applied to the isolated model config. */
+  readonly appliedMaxTokens?: number
+  readonly observation?: BridgeInferenceObservation
+}
+
+interface BridgeInferenceObservation {
+  readonly requests: number
+  readonly generationRequests: number
+  readonly auxiliaryRequests: number
+  readonly usageReceipts: number
+  readonly rejectedRequests: number
+  readonly failedRequests: number
+  readonly inFlightRequests: number
+  readonly accountingMatched: boolean
+  readonly usage: BridgeInferenceUsage
+}
+
+interface BridgeInferenceUsage {
+  readonly inputTokens?: number
+  readonly freshInputTokens?: number
+  readonly cacheReadInputTokens?: number
+  readonly cacheWriteInputTokens?: number
+  readonly outputTokens?: number
+  readonly costKnown: false
+  readonly estimatedCost?: number
 }
 
 /**
@@ -2039,6 +2142,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       run_id: activeRun.id,
       session_id: args.sessionId,
       ...(seam.cwd ? { cwd: seam.cwd } : {}),
+      ...(seam.maxTokens !== undefined ? { max_tokens: seam.maxTokens } : {}),
       execution: {
         kind: 'host' as const,
         ...(seam.timeoutMs !== undefined ? { timeoutMs: seam.timeoutMs } : {}),
@@ -2064,6 +2168,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         signal: turnController.signal,
         run: activeRun,
         maxReconnects: args.maxReconnects,
+        traceHeaders: args.traceHeaders,
       })) {
         if (chunk.content) {
           turnText += chunk.content
@@ -2083,14 +2188,23 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         if (chunk.usage) {
           sawTurnTokenUsage = true
           if (!chunk.usage.known) turnTokensKnown = false
-          tokens.input += chunk.usage.input
-          tokens.output += chunk.usage.output
-          yield {
+          const usageEvent: Extract<UsageEvent, { kind: 'tokens' }> = {
             kind: 'tokens',
             input: chunk.usage.input,
             output: chunk.usage.output,
             ...(chunk.usage.known ? {} : { tokensKnown: false }),
+            ...(chunk.usage.promptCache?.freshInput !== undefined
+              ? { freshInput: chunk.usage.promptCache.freshInput }
+              : {}),
+            ...(chunk.usage.promptCache?.readInput !== undefined
+              ? { cacheRead: chunk.usage.promptCache.readInput }
+              : {}),
+            ...(chunk.usage.promptCache?.writeInput !== undefined
+              ? { cacheWrite: chunk.usage.promptCache.writeInput }
+              : {}),
           }
+          addTokenUsage(tokens, usageEvent)
+          yield usageEvent
           if (chunk.usage.promptCache) {
             if (chunk.usage.promptCache.freshInput !== undefined) {
               promptCache.freshInput =
@@ -2228,6 +2342,8 @@ interface StreamDurableBridgeRunArgs {
   signal: AbortSignal
   run: ActiveBridgeRun
   maxReconnects: number
+  /** Trace request headers ({@link workerTraceHeaders}); empty when the run records no spans. */
+  traceHeaders: Readonly<Record<string, string>>
 }
 
 /**
@@ -2254,6 +2370,7 @@ async function* streamDurableBridgeRun(
         afterEventId: args.run.lastEventId,
         body: args.body,
         signal: args.signal,
+        traceHeaders: args.traceHeaders,
       })
     } catch (error) {
       if (args.signal.aborted) throw error
@@ -2267,9 +2384,15 @@ async function* streamDurableBridgeRun(
     }
 
     if (!res.ok) {
-      throw new ValidationError(
-        `bridgeExecutor: bridge ${res.status}: ${(await res.text()).slice(0, 300)}`,
-      )
+      // A remote status is a TRANSPORT fact, not a caller mistake: the package's taxonomy has
+      // `BackendTransportError` precisely so a consumer (and the root-driver retry) can branch on
+      // the upstream status — a 502 from a dying harness is recoverable, a 401 is not. Typing this
+      // as a validation failure made every bridge fault look like a deliberate refusal.
+      const body = (await res.text()).slice(0, 300)
+      throw new BackendTransportError('bridge', `bridgeExecutor: bridge ${res.status}: ${body}`, {
+        status: res.status,
+        body,
+      })
     }
     if (!res.body) {
       throw new ValidationError('bridgeExecutor: bridge response had no body to stream')
@@ -2323,7 +2446,13 @@ async function* streamDurableBridgeRun(
 
     if (sawDone) {
       if (args.run.profileMaterialization === undefined) {
-        throw new ValidationError(
+        // Also TRANSPORT: a bridge that advertises the capability emits this receipt on every
+        // healthy turn, so its absence means the turn did not survive to send it — the same
+        // mid-stream death as above, arriving as a missing field instead of an error frame.
+        // Typed as validation it read as a permanently broken bridge and the root-driver retry
+        // refused to re-enter; one arm of a six-arm wave was lost to exactly this.
+        throw new BackendTransportError(
+          'bridge',
           `bridgeExecutor: run ${args.run.id} completed without ${bridgeProfileMaterializationSchema}`,
         )
       }
@@ -2389,8 +2518,10 @@ async function assertBridgeExecutionCapabilities(
     req.end()
   })
   if (response.status < 200 || response.status >= 300) {
-    throw new ValidationError(
+    throw new BackendTransportError(
+      'bridge',
       `bridgeExecutor: capability preflight returned ${response.status}: ${response.text.slice(0, 200)}`,
+      { status: response.status, body: response.text.slice(0, 200) },
     )
   }
   let body: { capabilities?: Record<string, unknown> }
@@ -2426,6 +2557,8 @@ interface BridgeStreamPostArgs {
   afterEventId: number
   body: unknown
   signal: AbortSignal
+  /** Trace request headers ({@link workerTraceHeaders}); empty when the run records no spans. */
+  traceHeaders: Readonly<Record<string, string>>
 }
 
 /**
@@ -2454,6 +2587,9 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
       {
         method: 'POST',
         headers: {
+          // Trace context first, so a malformed caller value can never shadow the fixed
+          // transport headers below.
+          ...args.traceHeaders,
           'content-type': 'application/json',
           authorization: `Bearer ${args.bearer}`,
           'x-session-id': args.sessionId,
@@ -2704,7 +2840,7 @@ function assertBridgeProfileMaterialization(
     throw new ValidationError('bridgeExecutor: profile materialization receipt must be an object')
   }
   const raw = value as Record<string, unknown>
-  const exactKeys = [
+  const requiredKeys = [
     'effectiveProfileDigest',
     'files',
     'harness',
@@ -2715,11 +2851,29 @@ function assertBridgeProfileMaterialization(
     'unsupported',
     'workspacePlanDigest',
   ]
-  if (Object.keys(raw).sort().join(',') !== exactKeys.sort().join(',')) {
+  // `inference` is part of the SAME v2 schema, not an extension of it: cli-bridge added it to
+  // describe the bridge-owned model transport a jailed harness is pinned to (pi reaches its model
+  // only through that loopback endpoint), and its own `ProfileMaterializationReceipt` type declares
+  // it optional under `cli-bridge.profile-materialization.v2`. Comparing the key set EXACTLY made
+  // this executor refuse a conformant receipt — every jailed pi run through a current bridge
+  // settled `down` with "receipt has missing or unknown fields", which reads as a malformed bridge
+  // rather than a validator that pinned an older spelling of the same version. Required keys stay
+  // required and every value is still checked; the optional block is validated when present.
+  const optionalKeys = ['inference']
+  const presentKeys = Object.keys(raw)
+  const missing = requiredKeys.filter((key) => !presentKeys.includes(key))
+  const unknown = presentKeys.filter(
+    (key) => !requiredKeys.includes(key) && !optionalKeys.includes(key),
+  )
+  if (missing.length > 0 || unknown.length > 0) {
     throw new ValidationError(
-      'bridgeExecutor: profile materialization receipt has missing or unknown fields',
+      'bridgeExecutor: profile materialization receipt has missing or unknown fields' +
+        (missing.length > 0 ? ` (missing: ${missing.sort().join(', ')})` : '') +
+        (unknown.length > 0 ? ` (unknown: ${unknown.sort().join(', ')})` : ''),
     )
   }
+  const inference =
+    raw.inference === undefined ? undefined : parseBridgeInferenceReceipt(raw.inference)
   if (raw.schema !== bridgeProfileMaterializationSchema) {
     throw new ValidationError(
       `bridgeExecutor: profile materialization receipt is not ${bridgeProfileMaterializationSchema}`,
@@ -2863,10 +3017,213 @@ function assertBridgeProfileMaterialization(
       requested: requested as ReasoningEffort | null,
       applied: applied as string | null,
     },
+    ...(inference === undefined ? {} : { inference }),
     workspacePlanDigest: raw.workspacePlanDigest,
     files: Object.freeze(files),
     unsupported: Object.freeze(unsupported),
   })
+}
+
+function parseBridgeInferenceReceipt(value: unknown): BridgeInferenceReceipt {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization receipt has an invalid inference block',
+    )
+  }
+  const raw = value as Record<string, unknown>
+  assertBridgeReceiptKeys(
+    raw,
+    ['apiMode', 'effectiveEndpoint', 'transport'],
+    ['appliedMaxTokens', 'observation'],
+    'profile materialization inference block',
+  )
+  const effectiveEndpoint = raw.effectiveEndpoint
+  if (typeof effectiveEndpoint !== 'string' || effectiveEndpoint.length === 0) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference block has no effectiveEndpoint',
+    )
+  }
+  const apiMode = raw.apiMode
+  if (typeof apiMode !== 'string' || apiMode.length === 0) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference block has no apiMode',
+    )
+  }
+  if (raw.transport !== 'scoped-loopback') {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference block has invalid transport',
+    )
+  }
+  const observation =
+    raw.observation === undefined ? undefined : parseBridgeInferenceObservation(raw.observation)
+  const appliedMaxTokens =
+    raw.appliedMaxTokens === undefined
+      ? undefined
+      : bridgeInferencePositiveCount(raw.appliedMaxTokens, 'appliedMaxTokens')
+  return detachedSnapshot(
+    {
+      effectiveEndpoint,
+      apiMode,
+      transport: 'scoped-loopback' as const,
+      ...(appliedMaxTokens === undefined ? {} : { appliedMaxTokens }),
+      ...(observation === undefined ? {} : { observation }),
+    },
+    'bridgeExecutor: profile materialization inference block',
+  )
+}
+
+function parseBridgeInferenceObservation(value: unknown): BridgeInferenceObservation {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference observation must be an object',
+    )
+  }
+  const raw = value as Record<string, unknown>
+  assertBridgeReceiptKeys(
+    raw,
+    [
+      'accountingMatched',
+      'auxiliaryRequests',
+      'failedRequests',
+      'generationRequests',
+      'inFlightRequests',
+      'rejectedRequests',
+      'requests',
+      'usage',
+      'usageReceipts',
+    ],
+    [],
+    'profile materialization inference observation',
+  )
+  const observation = {
+    requests: bridgeInferenceCount(raw.requests, 'requests'),
+    generationRequests: bridgeInferenceCount(raw.generationRequests, 'generationRequests'),
+    auxiliaryRequests: bridgeInferenceCount(raw.auxiliaryRequests, 'auxiliaryRequests'),
+    usageReceipts: bridgeInferenceCount(raw.usageReceipts, 'usageReceipts'),
+    rejectedRequests: bridgeInferenceCount(raw.rejectedRequests, 'rejectedRequests'),
+    failedRequests: bridgeInferenceCount(raw.failedRequests, 'failedRequests'),
+    inFlightRequests: bridgeInferenceCount(raw.inFlightRequests, 'inFlightRequests'),
+    accountingMatched: bridgeInferenceBoolean(raw.accountingMatched, 'accountingMatched'),
+    usage: parseBridgeInferenceUsage(raw.usage),
+  }
+  return detachedSnapshot(
+    observation,
+    'bridgeExecutor: profile materialization inference observation',
+  )
+}
+
+function parseBridgeInferenceUsage(value: unknown): BridgeInferenceUsage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference usage must be an object',
+    )
+  }
+  const raw = value as Record<string, unknown>
+  assertBridgeReceiptKeys(
+    raw,
+    ['costKnown'],
+    [
+      'cacheReadInputTokens',
+      'cacheWriteInputTokens',
+      'estimatedCost',
+      'freshInputTokens',
+      'inputTokens',
+      'outputTokens',
+    ],
+    'profile materialization inference usage',
+  )
+  if (raw.costKnown !== false) {
+    throw new ValidationError(
+      'bridgeExecutor: profile materialization inference usage must report costKnown=false',
+    )
+  }
+  const usage = {
+    ...(raw.inputTokens === undefined
+      ? {}
+      : { inputTokens: bridgeInferenceCount(raw.inputTokens, 'usage.inputTokens') }),
+    ...(raw.freshInputTokens === undefined
+      ? {}
+      : { freshInputTokens: bridgeInferenceCount(raw.freshInputTokens, 'usage.freshInputTokens') }),
+    ...(raw.cacheReadInputTokens === undefined
+      ? {}
+      : {
+          cacheReadInputTokens: bridgeInferenceCount(
+            raw.cacheReadInputTokens,
+            'usage.cacheReadInputTokens',
+          ),
+        }),
+    ...(raw.cacheWriteInputTokens === undefined
+      ? {}
+      : {
+          cacheWriteInputTokens: bridgeInferenceCount(
+            raw.cacheWriteInputTokens,
+            'usage.cacheWriteInputTokens',
+          ),
+        }),
+    ...(raw.outputTokens === undefined
+      ? {}
+      : { outputTokens: bridgeInferenceCount(raw.outputTokens, 'usage.outputTokens') }),
+    costKnown: false as const,
+    ...(raw.estimatedCost === undefined
+      ? {}
+      : { estimatedCost: bridgeInferenceMoney(raw.estimatedCost, 'usage.estimatedCost') }),
+  }
+  return detachedSnapshot(usage, 'bridgeExecutor: profile materialization inference usage')
+}
+
+function assertBridgeReceiptKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  context: string,
+): void {
+  const requiredSet = new Set(required)
+  const optionalSet = new Set(optional)
+  const missing = required.filter((key) => !Object.hasOwn(value, key))
+  const unknown = Object.keys(value).filter((key) => !requiredSet.has(key) && !optionalSet.has(key))
+  if (missing.length > 0 || unknown.length > 0) {
+    throw new ValidationError(
+      `bridgeExecutor: ${context} has missing or unknown fields` +
+        (missing.length > 0 ? ` (missing: ${missing.sort().join(', ')})` : '') +
+        (unknown.length > 0 ? ` (unknown: ${unknown.sort().join(', ')})` : ''),
+    )
+  }
+}
+
+function bridgeInferenceCount(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be a nonnegative safe integer`,
+    )
+  }
+  return value as number
+}
+
+function bridgeInferencePositiveCount(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be a positive safe integer`,
+    )
+  }
+  return value as number
+}
+
+function bridgeInferenceBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be boolean`,
+    )
+  }
+  return value
+}
+
+function bridgeInferenceMoney(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new ValidationError(
+      `bridgeExecutor: profile materialization inference ${field} must be finite and nonnegative`,
+    )
+  }
+  return value
 }
 
 /** Expected native control for the bridge backends that can emit the v2 acknowledgement. These
@@ -3055,6 +3412,9 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       fresh_input_tokens?: unknown
       cache_read_input_tokens?: unknown
       cache_write_input_tokens?: unknown
+      prompt_cache_hit_tokens?: unknown
+      prompt_tokens_details?: { cached_tokens?: unknown }
+      prompt_cache?: { read_tokens?: unknown; write_tokens?: unknown }
       cost?: unknown
       estimated_cost?: unknown
       cost_known?: unknown
@@ -3075,10 +3435,19 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   if (parsed.error) {
     // `type` is the upstream's error class (e.g. kimi's access_terminated_error)
     // — carry it when the payload has no message, never collapse to 'unknown'.
+    //
+    // TRANSPORT, not validation. What arrives here is the harness's or the provider's failure
+    // relayed mid-stream — a turn that ended without emitting anything, a dropped upstream, a
+    // provider 5xx. Typing it as a validation error made it read as Runtime's own deliberate
+    // refusal, which is precisely what the root-driver retry treats as terminal: measured on a
+    // six-arm wave, three arms died on `pi assistant turn failed: The model finished
+    // (finish_reason=stop) without emitting any visible output — Retry the request`, and the
+    // retry declined to retry a message that asked to be retried.
     return {
       kind: 'event',
       id,
-      error: new ValidationError(
+      error: new BackendTransportError(
+        'bridge',
         `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
       ),
     }
@@ -3093,12 +3462,26 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   if (u) {
     const input = optionalBridgeTokenCount(u.prompt_tokens, 'prompt_tokens')
     const output = optionalBridgeTokenCount(u.completion_tokens, 'completion_tokens')
-    const freshInput = optionalBridgeTokenCount(u.fresh_input_tokens, 'fresh_input_tokens')
-    const readInput = optionalBridgeTokenCount(u.cache_read_input_tokens, 'cache_read_input_tokens')
-    const writeInput = optionalBridgeTokenCount(
-      u.cache_write_input_tokens,
-      'cache_write_input_tokens',
+    const readInput = optionalBridgeTokenCount(
+      u.cache_read_input_tokens ??
+        u.prompt_cache?.read_tokens ??
+        u.prompt_cache_hit_tokens ??
+        u.prompt_tokens_details?.cached_tokens,
+      'cache read input tokens',
     )
+    const writeInput = optionalBridgeTokenCount(
+      u.cache_write_input_tokens ?? u.prompt_cache?.write_tokens,
+      'cache write input tokens',
+    )
+    const explicitFreshInput = optionalBridgeTokenCount(u.fresh_input_tokens, 'fresh_input_tokens')
+    const freshInput =
+      explicitFreshInput ??
+      (input !== undefined &&
+      readInput !== undefined &&
+      writeInput !== undefined &&
+      input >= readInput + writeInput
+        ? input - readInput - writeInput
+        : undefined)
     if (
       input !== undefined ||
       output !== undefined ||

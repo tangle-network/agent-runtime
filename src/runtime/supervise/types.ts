@@ -35,8 +35,8 @@ import type { TraceSource } from './trace-source'
 import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
 import type { WorkerTraceResolver } from './worker-trace'
 
-// `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
-// import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
+// `LoopTokenUsage` keeps provider totals plus an optional complete cache split. Re-exported so
+// keystone impls import the budget surface from one place. `usd` is a SEPARATE channel.
 /** Wait-state vocabulary, re-exported so the keystone surface stays one import. */
 export type {
   DefaultVerdict,
@@ -217,7 +217,8 @@ export interface ExecutorResult<Out> {
 /**
  * Normalized usage event — the single channel every executor reports through, so the
  * conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
- * `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+ * `{ input, output }` plus an optional provider cache split; `usd` is a SEPARATE channel (never
+ * folded into tokens).
  *
  * Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
  * therefore remains unknown through live metering and terminal reconciliation instead of becoming
@@ -230,6 +231,14 @@ export type UsageEvent =
       tokensKnown?: false
       input: number
       output: number
+      /** Newly processed prompt tokens. Present only with a complete cache split. */
+      freshInput?: number
+      /** Prompt tokens read from cache. Present only with a complete cache split. */
+      cacheRead?: number
+      /** Prompt tokens written to cache. Present only with a complete cache split. */
+      cacheWrite?: number
+      /** False when this observation cannot classify all positive prompt tokens. */
+      cacheBreakdownKnown?: false
     }
   | {
       kind: 'cost'
@@ -1041,6 +1050,14 @@ export interface SupervisorOpts {
   readonly maxRestarts?: number
   readonly withinMs?: number
   /**
+   * How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+   * cascades the abort into them (#741). A root that dies did not make its children unhealthy: a
+   * child mid-unit holds work already paid for, and killing it instantly discards everything it has
+   * not yet written. The window applies ONLY to a driver failure on an un-cancelled run, and never
+   * extends past the run's own deadline. Omit/`0` = the historical immediate teardown.
+   */
+  readonly childSettleGraceMs?: number
+  /**
    * Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
    * one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
    * (`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
@@ -1095,6 +1112,25 @@ export interface NoWinnerError {
   stack?: string
 }
 
+/** The accounting channels a usage gap leaves incomplete. */
+export type SpendChannel = 'tokens' | 'usd'
+
+/**
+ * One journaled node whose usage accounting is incomplete — the named gap behind a `false`
+ * `tokensKnown`/`usdKnown` on a terminal `spentTotal`. `never-settled`: the spawn is durable but
+ * no terminal record landed, so the whole subtree is unaccounted on every channel and
+ * `spentTotal` charges its budget ceiling instead of a fabricated zero. `unreported`: a settled
+ * or metered record landed without a complete provider receipt, so the summed numbers are a
+ * floor on the named channels, never the measured total.
+ */
+export interface SpendGap {
+  readonly id: NodeId
+  /** The spawn label, when the node's `spawned` event is in this journal tree. */
+  readonly label?: string
+  readonly kind: 'never-settled' | 'unreported'
+  readonly channels: ReadonlyArray<SpendChannel>
+}
+
 /** Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. */
 export type SupervisedResult<Out> =
   | {
@@ -1103,10 +1139,22 @@ export type SupervisedResult<Out> =
       outRef: string
       verdict?: DefaultVerdict
       tree: TreeView
+      /** The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journal sums;
+       *  `ms` is the wall clock from supervise start (the ORIGINAL root instant on a resumed run)
+       *  to this terminal state — executors under-report their own `ms` and parallel children
+       *  overlap, so a per-event sum cannot state the run's real duration. `tokensKnown`/`usdKnown`
+       *  are always explicit here: `true` is the checked claim that every spawn reached a terminal
+       *  record and every settled/metered record carried a complete receipt on that channel;
+       *  `false` comes with the unaccounted nodes named in `spendGaps`. */
       spentTotal: Spend
+      /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+       *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
+      spendGaps?: ReadonlyArray<SpendGap>
       /** Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
        *  `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
-       *  `driverInference + childWork === spentTotal`. Present whenever any driver metered. */
+       *  `driverInference + childWork === spentTotal` on `iterations`/`tokens`/`usd`; the
+       *  breakdown's `ms` fields stay executor-reported sums while `spentTotal.ms` is wall clock.
+       *  Present whenever any driver metered. */
       spentBreakdown?: { driverInference: Spend; childWork: Spend }
     }
   | {
@@ -1123,8 +1171,12 @@ export type SupervisedResult<Out> =
       downCount: number
       /** The conserved spend incurred before the run failed — real cost is paid even when no
        *  worker delivers, so the caller always learns what the delegation actually spent. Summed
-       *  off the same journal the `winner` path reads. */
+       *  off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
+       *  explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`. */
       spentTotal: Spend
+      /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+       *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
+      spendGaps?: ReadonlyArray<SpendGap>
       /** Never present on a lifecycle arm — the discriminant, not prose, is what makes
        *  `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it. */
       error?: never
@@ -1143,8 +1195,12 @@ export type SupervisedResult<Out> =
       downCount: number
       /** The conserved spend incurred before the run failed — real cost is paid even when no
        *  worker delivers, so the caller always learns what the delegation actually spent. Summed
-       *  off the same journal the `winner` path reads. */
+       *  off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
+       *  explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`. */
       spentTotal: Spend
+      /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+       *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
+      spendGaps?: ReadonlyArray<SpendGap>
       /** The driver's own rejection, carried across the typed no-winner boundary so the failure is
        *  recoverable by the caller. A non-`Error` rejection is normalized, never dropped. */
       error: NoWinnerError

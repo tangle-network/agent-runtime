@@ -225,6 +225,9 @@ export {
   type LoopOptionsForDispatch,
   loopCampaignDispatch,
   loopDispatch,
+  type SuperviseDispatchOptions,
+  type SuperviseOptionsForDispatch,
+  superviseDispatch,
 } from './loop-dispatch'
 export {
   createMcpEnvironment,
@@ -341,6 +344,21 @@ export {
   type ResolveSandboxClientOptions,
   resolveSandboxClient,
 } from './resolve-sandbox-client'
+export {
+  type NativeContextContinuationExecution,
+  type NativeContextContinuationInput,
+  type ReconnectRetainedRunOptions,
+  type RetainedRunCancellation,
+  type RetainedRunCancelOptions,
+  type RetainedRunEffect,
+  type RetainedRunEventOptions,
+  type RetainedRunHandle,
+  type RetainedRunReplayPoint,
+  type RetainedRunSnapshot,
+  reconnectRetainedRun,
+  type StartRetainedRunOptions,
+  startRetainedRun,
+} from './retained-run'
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
 // endpoint/auth transport used by that path.
@@ -583,6 +601,16 @@ export {
   type RollingDispatchOptions,
   rollingDispatch,
 } from './supervise/dispatch'
+// Root-driver retry: the second chance a transiently-failed EXTERNAL driver gets before a run ends
+// `driver-failed`, plus the per-attempt record that makes the failure diagnosable.
+export {
+  classifyDriverFailure,
+  type DriverAttemptRecord,
+  type DriverAttemptStop,
+  DriverAttemptsExhaustedError,
+  type DriverProgressMark,
+  type DriverRetryPolicy,
+} from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
 export {
@@ -852,6 +880,8 @@ export type {
   SpawnPrior,
   SpawnRejection,
   Spend,
+  SpendChannel,
+  SpendGap,
   SteerableRootHandle,
   SupervisedResult,
   Supervisor,
@@ -914,6 +944,7 @@ export {
   type WorkerTraceResolver,
   type WorkerTraceSeamCarrier,
   workerTraceEnv,
+  workerTraceHeaders,
   workerTraceSeamKey,
 } from './supervise/worker-trace'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)

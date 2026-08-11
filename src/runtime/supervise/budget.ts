@@ -36,6 +36,7 @@
  * @experimental
  */
 
+import { ValidationError } from '../../errors'
 import { addTokenUsage, zeroTokenUsage } from '../util'
 import type { Budget, LoopTokenUsage, Spend, UsageEvent } from './types'
 
@@ -123,10 +124,34 @@ function assertValidSpend(spend: Spend, label: string): void {
   if (!Number.isSafeInteger(spend.iterations) || spend.iterations < 0) {
     throw new Error(`${label}.iterations must be a non-negative safe integer`)
   }
-  for (const [field, value] of Object.entries(spend.tokens)) {
+  for (const [field, value] of [
+    ['input', spend.tokens.input],
+    ['output', spend.tokens.output],
+    ['freshInput', spend.tokens.freshInput],
+    ['cacheRead', spend.tokens.cacheRead],
+    ['cacheWrite', spend.tokens.cacheWrite],
+  ] as const) {
+    if (value === undefined) continue
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new Error(`${label}.tokens.${field} must be a non-negative safe integer`)
     }
+  }
+  for (const [field, value] of [
+    ['tokensKnown', spend.tokens.tokensKnown],
+    ['cacheBreakdownKnown', spend.tokens.cacheBreakdownKnown],
+  ] as const) {
+    if (value !== undefined && value !== false) {
+      throw new Error(`${label}.tokens.${field} must be false when present`)
+    }
+  }
+  const { freshInput, cacheRead, cacheWrite } = spend.tokens
+  if (
+    freshInput !== undefined &&
+    cacheRead !== undefined &&
+    cacheWrite !== undefined &&
+    freshInput + cacheRead + cacheWrite !== spend.tokens.input
+  ) {
+    throw new Error(`${label}.tokens cache classes must sum to input`)
   }
   for (const [field, value] of [
     ['usd', spend.usd],
@@ -187,7 +212,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   let iterations = 0
   for (const ev of events) {
     if (ev.kind === 'tokens') {
-      addTokenUsage(tokens, { input: ev.input, output: ev.output })
+      addTokenUsage(tokens, ev)
       if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
@@ -215,7 +240,7 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
   let iterations = 0
   for await (const ev of events) {
     if (ev.kind === 'tokens') {
-      addTokenUsage(tokens, { input: ev.input, output: ev.output })
+      addTokenUsage(tokens, ev)
       if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
@@ -417,7 +442,10 @@ export function createBudgetPool(
     // so the honest reading is a fail-loud refusal the caller surfaces — `driver-failed` carrying
     // this reason — rather than an invented figure or a silently consumed cap.
     if (usdCapped && spend.usdKnown === false) {
-      throw new Error(
+      // A typed refusal, not a bare invariant guard: this is a contract failure the caller sees on
+      // the `driver-failed` arm, and a driver retry must be able to tell it apart from a foreign
+      // accident it could recover from.
+      throw new ValidationError(
         'budget pool: cannot observe unknown dollar cost under a dollar-capped budget',
       )
     }

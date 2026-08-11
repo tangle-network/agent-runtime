@@ -957,6 +957,10 @@ not allow: `persist()` before `complete()`, `complete()` twice, etc.
 
 - `AgentEvalError`
 
+#### Extended by
+
+- [`DriverAttemptsExhaustedError`](runtime.md#driverattemptsexhaustederror)
+
 #### Constructors
 
 ##### Constructor
@@ -4880,6 +4884,262 @@ Exact complete profile instance measured on the final cases.
 
 ***
 
+### ImprovementProfilePopulationArtifactSource
+
+Digest-addressed Eval artifact.
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+##### sha256
+
+> **sha256**: `` `sha256:${string}` ``
+
+***
+
+### ImprovementProfilePopulationObservationSource
+
+Exact callback observation that introduced one optimizer candidate.
+
+#### Properties
+
+##### proposalSequence
+
+> **proposalSequence**: `number`
+
+One-based JSONL line sequence in the verified observation artifact.
+
+##### artifact
+
+> **artifact**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource)
+
+***
+
+### ImprovementProfilePopulationLineageNode
+
+One exact node from GEPA's accepted candidate graph.
+
+#### Properties
+
+##### index
+
+> **index**: `number`
+
+##### parentIndices
+
+> **parentIndices**: readonly (`number` \| `null`)[]
+
+##### aggregateScore
+
+> **aggregateScore**: `number` \| `null`
+
+##### selectionScores
+
+> **selectionScores**: readonly `object`[]
+
+##### discoveryEvaluationCount
+
+> **discoveryEvaluationCount**: `number`
+
+***
+
+### ImprovementProfilePopulationCandidateSource
+
+Every verified source associated with one unique optimizer candidate.
+
+#### Properties
+
+##### candidateDigest
+
+> **candidateDigest**: `` `sha256:${string}` ``
+
+Eval identity of the external text or component candidate.
+
+##### observation?
+
+> `optional` **observation?**: [`ImprovementProfilePopulationObservationSource`](#improvementprofilepopulationobservationsource)
+
+Present when the candidate crossed the evaluation callback.
+
+##### lineage
+
+> **lineage**: [`ImprovementProfilePopulationLineage`](#improvementprofilepopulationlineage)
+
+Exact GEPA parents and scores, or an explicit statement that none were reported.
+
+***
+
+### ImprovementMaterializedProfilePopulationCandidate
+
+A verified optimizer candidate that Runtime can express as an exact profile.
+
+#### Properties
+
+##### status
+
+> **status**: `"materialized"`
+
+##### source
+
+> **source**: [`ImprovementProfilePopulationCandidateSource`](#improvementprofilepopulationcandidatesource)
+
+##### value
+
+> **value**: `MutableSurface`
+
+Exact optimizer surface decoded by Eval.
+
+##### surfaceDigest
+
+> **surfaceDigest**: `` `sha256:${string}` ``
+
+Interface identity of `value`.
+
+##### profile
+
+> **profile**: `object`
+
+Exact complete profile produced by Runtime's configured materializer.
+
+##### profileDigest
+
+> **profileDigest**: `` `sha256:${string}` ``
+
+Interface identity of `profile`.
+
+##### diffs
+
+> **diffs**: readonly `AgentProfileDiff`[]
+
+Ordered Interface diffs that reproduce `profile` from the baseline.
+
+##### diffDigests
+
+> **diffDigests**: readonly `` `sha256:${string}` ``[]
+
+Interface identity of each entry in `diffs`.
+
+***
+
+### ImprovementRefusedProfilePopulationCandidate
+
+A verified optimizer candidate that Runtime refused to materialize.
+
+#### Properties
+
+##### status
+
+> **status**: `"refused"`
+
+##### source
+
+> **source**: [`ImprovementProfilePopulationCandidateSource`](#improvementprofilepopulationcandidatesource)
+
+##### value
+
+> **value**: `MutableSurface`
+
+Exact optimizer surface decoded by Eval.
+
+##### surfaceDigest
+
+> **surfaceDigest**: `` `sha256:${string}` ``
+
+Interface identity of `value`.
+
+##### error
+
+> **error**: `object`
+
+###### name
+
+> **name**: `string`
+
+###### message
+
+> **message**: `string`
+
+***
+
+### ImprovementProfileCandidatePopulationAvailable
+
+Complete verified population reported by one optimizer run.
+
+#### Properties
+
+##### status
+
+> **status**: `"available"`
+
+##### source
+
+> **source**: `object`
+
+###### observations?
+
+> `optional` **observations?**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource)
+
+###### gepaCandidateGraph?
+
+> `optional` **gepaCandidateGraph?**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource) & `object`
+
+###### Type Declaration
+
+###### bestIndex
+
+> **bestIndex**: `number`
+
+##### uniqueCandidates
+
+> **uniqueCandidates**: `number`
+
+Distinct candidate surfaces across all verified source artifacts.
+
+##### observedCandidates
+
+> **observedCandidates**: `number`
+
+Distinct candidate surfaces submitted through the evaluation callback.
+
+##### gepaCandidateNodes
+
+> **gepaCandidateNodes**: `number`
+
+Exact GEPA graph nodes. Multiple nodes can have the same candidate surface.
+
+##### materializedCandidates
+
+> **materializedCandidates**: `number`
+
+##### refusedCandidates
+
+> **refusedCandidates**: `number`
+
+##### candidates
+
+> **candidates**: readonly [`ImprovementProfilePopulationCandidate`](#improvementprofilepopulationcandidate)[]
+
+***
+
+### ImprovementProfileCandidatePopulationUnavailable
+
+Explicit absence for methods that do not report candidate population evidence.
+
+#### Properties
+
+##### status
+
+> **status**: `"unavailable"`
+
+##### reason
+
+> **reason**: `"method-did-not-report-candidate-population"`
+
+***
+
 ### ImprovementCodeCandidate
 
 #### Properties
@@ -5191,6 +5451,12 @@ Paired final-test confidence interval for method-based profile runs.
 ###### Overrides
 
 `ImproveResultBase.liftInterval`
+
+##### candidatePopulation
+
+> **candidatePopulation**: [`ImprovementProfileCandidatePopulation`](#improvementprofilecandidatepopulation)
+
+Every distinct verified candidate, including explicit materialization refusals.
 
 ##### raw
 
@@ -8246,6 +8512,37 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ***
 
+### SpendGap
+
+One journaled node whose usage accounting is incomplete — the named gap behind a `false`
+`tokensKnown`/`usdKnown` on a terminal `spentTotal`. `never-settled`: the spawn is durable but
+no terminal record landed, so the whole subtree is unaccounted on every channel and
+`spentTotal` charges its budget ceiling instead of a fabricated zero. `unreported`: a settled
+or metered record landed without a complete provider receipt, so the summed numbers are a
+floor on the named channels, never the measured total.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### label?
+
+> `readonly` `optional` **label?**: `string`
+
+The spawn label, when the node's `spawned` event is in this journal tree.
+
+##### kind
+
+> `readonly` **kind**: `"never-settled"` \| `"unreported"`
+
+##### channels
+
+> `readonly` **channels**: readonly [`SpendChannel`](#spendchannel)[]
+
+***
+
 ### Driver
 
 **`Stable`**
@@ -10622,6 +10919,24 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 
 ***
 
+### ImprovementProfilePopulationLineage
+
+> **ImprovementProfilePopulationLineage** = \{ `status`: `"available"`; `artifact`: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource); `nodes`: readonly [`ImprovementProfilePopulationLineageNode`](#improvementprofilepopulationlineagenode)[]; \} \| \{ `status`: `"unavailable"`; `reason`: `"optimizer-did-not-report-candidate-lineage"`; \}
+
+***
+
+### ImprovementProfilePopulationCandidate
+
+> **ImprovementProfilePopulationCandidate** = [`ImprovementMaterializedProfilePopulationCandidate`](#improvementmaterializedprofilepopulationcandidate) \| [`ImprovementRefusedProfilePopulationCandidate`](#improvementrefusedprofilepopulationcandidate)
+
+***
+
+### ImprovementProfileCandidatePopulation
+
+> **ImprovementProfileCandidatePopulation** = [`ImprovementProfileCandidatePopulationAvailable`](#improvementprofilecandidatepopulationavailable) \| [`ImprovementProfileCandidatePopulationUnavailable`](#improvementprofilecandidatepopulationunavailable)
+
+***
+
 ### ImprovementCandidate
 
 > **ImprovementCandidate** = [`ImprovementProfileCandidate`](#improvementprofilecandidate) \| [`ImprovementCodeCandidate`](#improvementcodecandidate)
@@ -11088,9 +11403,17 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ***
 
+### SpendChannel
+
+> **SpendChannel** = `"tokens"` \| `"usd"`
+
+The accounting channels a usage gap leaves incomplete.
+
+***
+
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -11104,7 +11427,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -11130,13 +11453,30 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 > **spentTotal**: [`Spend`](#spend)
 
+The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journal sums;
+ `ms` is the wall clock from supervise start (the ORIGINAL root instant on a resumed run)
+ to this terminal state — executors under-report their own `ms` and parallel children
+ overlap, so a per-event sum cannot state the run's real duration. `tokensKnown`/`usdKnown`
+ are always explicit here: `true` is the checked claim that every spawn reached a terminal
+ record and every settled/metered record carried a complete receipt on that channel;
+ `false` comes with the unaccounted nodes named in `spendGaps`.
+
+###### spendGaps?
+
+> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
+
+The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+ `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
+
 ###### spentBreakdown?
 
 > `optional` **spentBreakdown?**: `object`
 
 Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
  `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
- `driverInference + childWork === spentTotal`. Present whenever any driver metered.
+ `driverInference + childWork === spentTotal` on `iterations`/`tokens`/`usd`; the
+ breakdown's `ms` fields stay executor-reported sums while `spentTotal.ms` is wall clock.
+ Present whenever any driver metered.
 
 ###### spentBreakdown.driverInference
 
@@ -11150,7 +11490,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
 
 ###### kind
 
@@ -11180,7 +11520,15 @@ BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the expl
 
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads.
+ off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
+ explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
+
+###### spendGaps?
+
+> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
+
+The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+ `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
 
 ###### error?
 
@@ -11193,7 +11541,7 @@ Never present on a lifecycle arm — the discriminant, not prose, is what makes
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 ###### kind
 
@@ -11223,7 +11571,15 @@ result; this arm is that configuration/authoring fault, named.
 
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads.
+ off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
+ explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
+
+###### spendGaps?
+
+> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
+
+The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+ `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
 
 ###### error
 

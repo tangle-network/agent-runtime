@@ -35,6 +35,7 @@ import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
 import {
   armDeadlineTimer,
@@ -160,7 +161,7 @@ export interface ScopeArgs {
   readonly workerTrace?: WorkerTraceResolver
   /**
    * Present when this run RECORDS spans but the worker backend has NO channel to carry the trace
-   * context (`WORKER_TRACE_PROPAGATION[backend] === false` — bridge / cli-worktree have no env
+   * context (`WORKER_TRACE_PROPAGATION[backend] === false` — cli-worktree has no env
    * channel; router / router-tools / provider have no worker process). Each spawn then journals a
    * `trace-unpropagated` event naming the severed hop, so a child whose trace shows up as a
    * disconnected root is a recorded fact rather than a silent stranger. Absent ⇒ either the run
@@ -1433,7 +1434,21 @@ export async function recordScopeOwnerMaterialization(
     return
   }
   if (state.receipt !== undefined) {
-    throw new ValidationError('scope owner materialization was already recorded')
+    // A root driver may be re-entered inside one process after a transient executor failure
+    // (`runDriverWithRetry`, #741). That attempt publishes the SAME materialization with a NEW
+    // execution binding, which is the resume path's shape minus the process boundary — so it
+    // appends a binding rather than a second receipt. A materialization that actually CHANGED is
+    // still a fault: backend, model, execution identity, and plan may not move under a live run.
+    if (canonicalCandidateDigest(state.receipt) !== canonicalCandidateDigest(receipt)) {
+      await rejectOwnerMaterialization(state)
+      throw new ValidationError(
+        'scope owner materialization changed mid-run; backend, model, execution identity, and plan must match across driver attempts',
+      )
+    }
+    await appendOwnerBinding(state, binding)
+    state.onReceipt?.(state.receipt, binding)
+    state.publishedThisProcess = true
+    return
   }
   await appendOwnerMaterialization(state, receipt, binding)
   state.onReceipt?.(receipt, binding)
@@ -2012,7 +2027,7 @@ export function settledToIteration<Out>(settled: Settled<Out>): Iteration<unknow
     startedAt: 0,
     endedAt: settled.spent.ms,
     costUsd: settled.spent.usd,
-    tokenUsage: { input: settled.spent.tokens.input, output: settled.spent.tokens.output },
+    tokenUsage: cloneTokenUsage(settled.spent.tokens),
   }
 }
 
@@ -2167,7 +2182,7 @@ async function foldStream(
   onProgress?: (running: Spend) => void,
   signal?: AbortSignal,
 ): Promise<Spend> {
-  const tokens = { input: 0, output: 0 }
+  const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
   let usdKnown = true
@@ -2181,8 +2196,7 @@ async function foldStream(
       if (next.done) break
       const ev = next.value
       if (ev.kind === 'tokens') {
-        tokens.input += ev.input
-        tokens.output += ev.output
+        addTokenUsage(tokens, ev)
         if (ev.tokensKnown === false) tokensKnown = false
       } else if (ev.kind === 'cost') {
         usd += ev.usd
@@ -2192,7 +2206,7 @@ async function foldStream(
       }
       onProgress?.({
         iterations,
-        tokens: { ...tokens },
+        tokens: cloneTokenUsage(tokens),
         ...(tokensKnown ? {} : { tokensKnown: false }),
         usd,
         ...(usdKnown ? {} : { usdKnown: false }),
@@ -2218,8 +2232,25 @@ async function foldStream(
 /** Usage events carry measured increments; the terminal artifact carries whether a provider omitted
  * a whole accounting channel. Preserve those unknowns on the common streaming path. */
 function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
+  const terminalTokens = cloneTokenUsage(terminal.tokens)
   return {
     ...streamed,
+    tokens: {
+      ...streamed.tokens,
+      ...(streamed.tokens.freshInput === undefined && terminalTokens.freshInput !== undefined
+        ? { freshInput: terminalTokens.freshInput }
+        : {}),
+      ...(streamed.tokens.cacheRead === undefined && terminalTokens.cacheRead !== undefined
+        ? { cacheRead: terminalTokens.cacheRead }
+        : {}),
+      ...(streamed.tokens.cacheWrite === undefined && terminalTokens.cacheWrite !== undefined
+        ? { cacheWrite: terminalTokens.cacheWrite }
+        : {}),
+      ...(streamed.tokens.cacheBreakdownKnown === false ||
+      terminalTokens.cacheBreakdownKnown === false
+        ? { cacheBreakdownKnown: false as const }
+        : {}),
+    },
     ...(terminal.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(terminal.usdKnown === false ? { usdKnown: false } : {}),
     ms: terminal.ms,
@@ -2285,7 +2316,7 @@ function downRecord(
 }
 
 function zeroSpend(): Spend {
-  return { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

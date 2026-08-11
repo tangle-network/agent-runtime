@@ -1,10 +1,21 @@
 import { PassThrough, type Readable } from 'node:stream'
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
-import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
-import { bridgeExecutor } from '../../src/runtime/supervise/runtime'
+import { createBudgetPool } from '../../src/runtime/supervise/budget'
+import {
+  runtimeOwnedExecutorMaterialization,
+  runtimeOwnedPendingExecutorMaterialization,
+} from '../../src/runtime/supervise/materialization'
+import { bridgeExecutor, createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope } from '../../src/runtime/supervise/scope'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
 
@@ -15,6 +26,7 @@ import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/s
 // live-but-slow bridge. Tests drive that transport by setting `bridgeHttpHandler`.
 let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
 let lastBridgeUrl: URL | null = null
+let lastBridgePostHeaders: Record<string, unknown> | null = null
 let activeBridgePayload: Record<string, unknown> | null = null
 
 vi.mock('node:http', async () => {
@@ -23,6 +35,9 @@ vi.mock('node:http', async () => {
     ...actual,
     request: (url: URL, opts: unknown, cb: (res: Readable) => void) => {
       lastBridgeUrl = url
+      if ((opts as { method?: string }).method === 'POST') {
+        lastBridgePostHeaders = (opts as { headers?: Record<string, unknown> }).headers ?? null
+      }
       let body = ''
       return {
         write: (chunk: string) => {
@@ -71,7 +86,12 @@ vi.mock('node:http', async () => {
   }
 })
 
-function sse(content: string, input: number, output: number): Readable {
+function sse(
+  content: string,
+  input: number,
+  output: number,
+  inference?: Record<string, unknown>,
+): Readable {
   if (!activeBridgePayload) throw new Error('sse: no active bridge request')
   const payload = activeBridgePayload
   const profile = payload.agent_profile as AgentProfile
@@ -104,6 +124,7 @@ function sse(content: string, input: number, output: number): Readable {
             requested: profile.model?.reasoningEffort ?? null,
             applied: profile.model?.reasoningEffort ?? null,
           },
+          ...(inference === undefined ? {} : { inference }),
           workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
           files: [],
           unsupported: [],
@@ -171,6 +192,59 @@ describe('bridgeExecutor over node:http', () => {
   afterEach(() => {
     bridgeHttpHandler = null
     lastBridgeUrl = null
+    lastBridgePostHeaders = null
+  })
+
+  it('stamps the inherited trace context as traceparent (+ legacy pair) headers on the bridge POST', async () => {
+    bridgeHttpHandler = () => sse('traced turn', 1, 1)
+    const traceId = '12345678901234567890123456789012'
+    const parentSpanId = '1234567890123456'
+    const profile: AgentProfile = {
+      name: 'traced-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' },
+          'worker-trace': { traceId, parentSpanId },
+        },
+      },
+    )
+    await drainExecutor(executor)
+
+    // The exact W3C wire the bridge parses at spawn, plus the legacy pair it also reads —
+    // the same dual-write the env channel performs, so both spellings name one trace.
+    expect(lastBridgePostHeaders).toMatchObject({
+      traceparent: `00-${traceId}-${parentSpanId}-01`,
+      'x-trace-id': traceId,
+      'x-parent-span-id': parentSpanId,
+    })
+  })
+
+  it('sends no trace headers when the run records no spans', async () => {
+    bridgeHttpHandler = () => sse('untraced turn', 1, 1)
+    const profile: AgentProfile = {
+      name: 'untraced-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+    await drainExecutor(executor)
+
+    expect(lastBridgePostHeaders).not.toBeNull()
+    expect(lastBridgePostHeaders).not.toHaveProperty('traceparent')
+    expect(lastBridgePostHeaders).not.toHaveProperty('x-trace-id')
+    expect(lastBridgePostHeaders).not.toHaveProperty('x-parent-span-id')
   })
 
   it('streams a completion and meters the reported usage', async () => {
@@ -316,6 +390,240 @@ describe('bridgeExecutor over node:http', () => {
     expect(requests).toBe(1)
     expect(executor.resultArtifact().spent.iterations).toBe(1)
   })
+
+  it('forwards the profile completion cap on initial and resumed bridge requests', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    let deliver: (message: unknown) => void = () => {}
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      if (seen.length === 1) deliver({ steer: 'continue with the edge case' })
+      return sse(`turn-${seen.length}`, 7, 11)
+    }
+    const profile: AgentProfile = {
+      name: 'capped-worker',
+      harness: 'pi',
+      model: {
+        provider: 'tangle-router',
+        default: 'safe-model',
+        metadata: { maxTokens: 1_000 },
+      },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+    const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+    expect(pending?.declaration.plan).toMatchObject({ maxTokens: 1_000 })
+    deliver = (message) => executor.deliver?.(message)
+
+    const events = await drainExecutor(executor)
+
+    expect(seen).toHaveLength(2)
+    expect(seen.map((request) => request.max_tokens)).toEqual([1_000, 1_000])
+    for (const request of seen) {
+      const requestProfile = request.agent_profile as AgentProfile
+      expect(request.max_tokens).toBe(requestProfile.model?.metadata?.maxTokens)
+    }
+
+    // The profile cap is a per-completion request field. The conserved Runtime budget still meters
+    // the actual two-turn usage against its independently authored aggregate ceiling.
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 50 }, () => 0)
+    const reservation = pool.reserve({ maxIterations: 2, maxTokens: 50 })
+    if (!reservation.ok) throw new Error('aggregate budget reservation should succeed')
+    const spent = await pool.spendFrom(events)
+    pool.reconcile(reservation.ticket, spent)
+    expect(pool.readout()).toMatchObject({
+      iterationsLeft: 0,
+      tokensLeft: 14,
+      reservedTokens: 0,
+    })
+  })
+
+  it('omits the completion cap when the profile leaves it absent', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('uncapped', 1, 2)
+    }
+    const profile: AgentProfile = {
+      name: 'uncapped-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+    const pending = runtimeOwnedPendingExecutorMaterialization(executor)
+    expect(pending?.declaration.plan).not.toHaveProperty('maxTokens')
+
+    await drainExecutor(executor)
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).not.toHaveProperty('max_tokens')
+  })
+
+  it('retains bridge inference evidence in the materialization receipt and journal', async () => {
+    const profile = exactBridgeProfile('inference-worker', 'safe-model')
+    const inference = {
+      effectiveEndpoint: 'http://127.0.0.1:4317/v1',
+      apiMode: 'openai-completions',
+      transport: 'scoped-loopback',
+      appliedMaxTokens: 64_000,
+      observation: {
+        requests: 3,
+        generationRequests: 2,
+        auxiliaryRequests: 1,
+        usageReceipts: 2,
+        rejectedRequests: 0,
+        failedRequests: 0,
+        inFlightRequests: 0,
+        accountingMatched: true,
+        usage: {
+          inputTokens: 21,
+          freshInputTokens: 8,
+          cacheReadInputTokens: 13,
+          cacheWriteInputTokens: 0,
+          outputTokens: 5,
+          costKnown: false,
+          estimatedCost: 0.0042,
+        },
+      },
+    }
+    let captured: Executor<unknown> | undefined
+    const root = 'bridge-inference-journal'
+    const journal = new InMemorySpawnJournal()
+    await journal.beginTree(root, new Date(0).toISOString())
+    const scope = createScope({
+      parentId: root,
+      root,
+      pool: createBudgetPool({ maxIterations: 1, maxTokens: 100 }, Date.now),
+      journal,
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+      seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      depth: 0,
+      signal: new AbortController().signal,
+      now: Date.now,
+    })
+    const worker = {
+      name: profile.name ?? 'inference-worker',
+      act: async () => 'unused',
+      executorSpec: {
+        profile,
+        harness: null,
+        executorFactory: (spec: AgentSpec, ctx: Parameters<typeof bridgeExecutor>[1]) => {
+          const executor = bridgeExecutor(spec, ctx)
+          captured = executor
+          return executor
+        },
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+
+    bridgeHttpHandler = () => sse('ok', 3, 5, inference)
+    const spawned = scope.spawn(worker, 'capture inference', {
+      budget: { maxIterations: 1, maxTokens: 100 },
+      label: 'inference-worker',
+    })
+    expect(spawned.ok).toBe(true)
+
+    expect((await scope.next())?.kind).toBe('done')
+    expect(captured).toBeDefined()
+    const declaration = runtimeOwnedExecutorMaterialization(captured!)
+    expect(declaration).toBeDefined()
+    const plan = declaration!.plan as {
+      terminalAcknowledgement: { inference?: Record<string, unknown> }
+    }
+    expect(plan.terminalAcknowledgement.inference).toEqual(inference)
+    expect(plan.terminalAcknowledgement.inference).not.toBe(inference)
+    expect(Object.isFrozen(plan.terminalAcknowledgement.inference)).toBe(true)
+    expect(Object.isFrozen(plan.terminalAcknowledgement.inference?.observation)).toBe(true)
+    expect(Object.isFrozen(plan.terminalAcknowledgement.inference?.observation?.usage)).toBe(true)
+
+    const events = await journal.loadTree(root)
+    const materialized = events?.find((event) => event.kind === 'materialized')
+    expect(materialized?.receipt.status).toBe('known')
+    if (materialized?.receipt.status !== 'known') {
+      throw new Error('bridge inference materialization receipt was not journaled')
+    }
+    expect(materialized.receipt.materializationPlanDigest).toBe(
+      canonicalCandidateDigest(declaration!.plan),
+    )
+    const changedPlan = {
+      ...(declaration!.plan as Record<string, unknown>),
+      terminalAcknowledgement: {
+        ...plan.terminalAcknowledgement,
+        inference: {
+          ...plan.terminalAcknowledgement.inference,
+          effectiveEndpoint: 'http://127.0.0.1:4318/v1',
+        },
+      },
+    }
+    expect(canonicalCandidateDigest(changedPlan)).not.toBe(
+      materialized.receipt.materializationPlanDigest,
+    )
+  })
+
+  it.each([0, -1, 1.5, '64000'])(
+    'rejects invalid applied inference max tokens %s',
+    async (appliedMaxTokens) => {
+      bridgeHttpHandler = () =>
+        sse('must not settle', 1, 1, {
+          effectiveEndpoint: 'http://127.0.0.1:4317/v1',
+          apiMode: 'openai-completions',
+          transport: 'scoped-loopback',
+          appliedMaxTokens,
+        })
+      const executor = bridgeExecutor(
+        { profile: exactBridgeProfile('invalid-applied-cap'), harness: null },
+        {
+          signal: new AbortController().signal,
+          seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+        },
+      )
+
+      await expect(drainExecutor(executor)).rejects.toThrow(
+        /appliedMaxTokens must be a positive safe integer/,
+      )
+    },
+  )
+
+  it.each([0, -1, 1.5, '100'])(
+    'rejects invalid profile maxTokens %s before any bridge request',
+    (maxTokens) => {
+      let requests = 0
+      bridgeHttpHandler = (_payload) => {
+        requests += 1
+        return sse('must not dispatch', 1, 1)
+      }
+      const profile: AgentProfile = {
+        name: 'invalid-cap-worker',
+        harness: 'pi',
+        model: {
+          provider: 'tangle-router',
+          default: 'safe-model',
+          metadata: { maxTokens },
+        },
+      }
+
+      expect(() =>
+        bridgeExecutor(
+          { profile, harness: null },
+          {
+            signal: new AbortController().signal,
+            seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+          },
+        ),
+      ).toThrow(/maxTokens/)
+      expect(requests).toBe(0)
+    },
+  )
 
   it('gives parallel reusable workers isolated bridge sessions', async () => {
     const seen: Array<Record<string, unknown>> = []
@@ -821,6 +1129,14 @@ function isUsageStream(value: unknown): value is AsyncIterable<UsageEvent> {
   )
 }
 
+async function drainExecutor(executor: Executor<unknown>): Promise<UsageEvent[]> {
+  const run = executor.execute('go', new AbortController().signal)
+  if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+  const events: UsageEvent[] = []
+  for await (const event of run) events.push(event)
+  return events
+}
+
 describe('profile-selected model keeps its provider', () => {
   // A harness addresses a model as `provider/model`. Building the wire id from `model.default`
   // alone dropped the provider: `{provider:'tangle-router', default:'glm-5.2'}` became
@@ -874,6 +1190,46 @@ describe('profile-selected model keeps its provider', () => {
         model: { provider: 'tangle-router', default: 'tangle-router/glm-5.2' },
       }),
     ).toBe('pi/tangle-router/glm-5.2')
+  })
+
+  it.each([
+    ['nested provider model id', 'fireworks/deepseek-v4-flash'],
+    ['provider-qualified nested model id', 'tangle-router/fireworks/deepseek-v4-flash'],
+    ['harness-qualified nested model id', 'pi/tangle-router/fireworks/deepseek-v4-flash'],
+  ])('preserves %s across bridge execution and materialization', async (_label, defaultModel) => {
+    const expected = 'pi/tangle-router/fireworks/deepseek-v4-flash'
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    const profile: AgentProfile = {
+      name: 'nested-provider-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: defaultModel },
+    }
+    const executor = createExecutor({
+      backend: 'bridge',
+      bridgeUrl: 'http://bridge.test',
+      bridgeBearer: 'secret',
+    })({ profile, harness: null } as AgentSpec, {
+      signal: new AbortController().signal,
+      seams: {},
+    })
+
+    expect(runtimeOwnedPendingExecutorMaterialization(executor)?.declaration.model).toEqual({
+      status: 'known',
+      id: expected,
+    })
+    await drainExecutor(executor)
+
+    expect(seen[0]?.model).toBe(expected)
+    const materialization = runtimeOwnedExecutorMaterialization(executor)
+    expect(materialization).toBeDefined()
+    if (!materialization) throw new Error('bridge materialization was not finalized')
+    expect(materialization.model).toEqual({ status: 'known', id: expected })
+    const plan = materialization.plan as { terminalAcknowledgement?: { model?: string } }
+    expect(plan.terminalAcknowledgement?.model).toBe(expected)
   })
 
   it('refuses runtime-selected model markers before dispatch', async () => {

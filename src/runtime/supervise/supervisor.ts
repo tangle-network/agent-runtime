@@ -42,6 +42,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
 import { runTree } from './finalizer'
@@ -58,6 +59,7 @@ import type {
   Agent,
   Budget,
   ExecutionBindingReceipt,
+  NodeId,
   NoWinnerError,
   ProfileMaterializationReceipt,
   ResumedKeyState,
@@ -68,6 +70,8 @@ import type {
   SpawnEvent,
   SpawnJournal,
   Spend,
+  SpendChannel,
+  SpendGap,
   SteerableRootHandle,
   SupervisedResult,
   Supervisor,
@@ -286,14 +290,21 @@ function assertRootIdentity(opts: SupervisorOpts): void {
   }
 }
 
-function rootDeadline(root: SpawnedEvent): number {
+/** The instant the run's root was journaled — the anchor for both the absolute deadline and the
+ *  terminal wall-clock `ms`, so a resumed run measures from its ORIGINAL start, not this
+ *  process's. */
+function rootStartedAtMs(root: SpawnedEvent): number {
   const startedAt = Date.parse(root.at)
   if (!Number.isFinite(startedAt)) {
     throw new RuntimeRunStateError(
       `supervisor: root event for '${root.id}' has an invalid timestamp '${root.at}'`,
     )
   }
-  return startedAt + (root.budget.deadlineMs ?? 0)
+  return startedAt
+}
+
+function rootDeadline(root: SpawnedEvent): number {
+  return rootStartedAtMs(root) + (root.budget.deadlineMs ?? 0)
 }
 
 /** Child reservations whose spawn was durable but whose terminal record never landed. */
@@ -388,6 +399,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       maxLiveWorkers,
       maxRestarts,
       withinMs,
+      childSettleGraceMs,
       resume,
       now: suppliedNow,
       signal,
@@ -407,6 +419,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(maxLiveWorkers === undefined ? {} : { maxLiveWorkers }),
           ...(maxRestarts === undefined ? {} : { maxRestarts }),
           ...(withinMs === undefined ? {} : { withinMs }),
+          ...(childSettleGraceMs === undefined ? {} : { childSettleGraceMs }),
           ...(resume === undefined ? {} : { resume }),
         },
       },
@@ -456,8 +469,12 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       const resuming = prior !== undefined && prior.length > 0
       let resumeFrom: ResumeFrom | undefined
       let pool: BudgetPool
+      // The instant terminal wall-clock `ms` measures from. A resumed run anchors to the ORIGINAL
+      // root instant (the same anchor the absolute deadline uses), so its duration spans processes.
+      let runEpochMs = runStartedAtMs
       if (resuming) {
         const rootEvent = assertResumeContract(prior, opts)
+        runEpochMs = rootStartedAtMs(rootEvent)
         const measured = sumMeasuredSpendFromEvents(prior)
         const uncertainReservations = uncertainSpawnBudgets(prior)
         pool = createBudgetPool(opts.budget, now, {
@@ -642,6 +659,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         error: new RuntimeRunStateError('supervisor: root execution did not start'),
       }
       let executionAborted = controller.signal.aborted
+      // Whether every spawned child was ALREADY down when root execution settled. Read at settle,
+      // never after the join barrier: the barrier's own teardown turns healthy live children into
+      // `down` nodes, and reading it afterwards reported a crashed driver's run as
+      // `all-children-down` — the tree's state caused by the cleanup, not the cause of the failure.
+      let allChildrenDownAtSettle = false
+      // Same reasoning for the breaker's tally: children the barrier kills are `down` settlements
+      // too, so the count read after cleanup can never distinguish "children failed" from "we
+      // stopped them because the driver died".
+      let downCountAtSettle = 0
       try {
         const out = await runAbortable(() => rootAct(task, scope), controller.signal)
         actOutcome = { ok: true, out }
@@ -651,6 +677,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         actOutcome = { ok: false, error }
       } finally {
         executionAborted = controller.signal.aborted
+        allChildrenDownAtSettle = allSpawnedChildrenDown(runTree(openScope))
+        downCountAtSettle = breaker.downCount()
         // A child inherits the root cutoff and can settle the root act on that exact timer turn.
         // If its settlement callback runs before the root timer callback, the finally block clears
         // the still-pending root timer. Preserve the deadline cause from the shared absolute clock;
@@ -662,8 +690,17 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // Join barrier: tear down every still-live child. Generalizes the kernel's
         // `finally{ Promise.allSettled(destroy) }` — a teardown throw is allSettled'd and
         // journaled, never re-thrown.
+        //
+        // #741: a root driver that DIED did not make its children unhealthy. When the run was not
+        // cancelled and the driver failed, `childSettleGraceMs` lets live children reach their own
+        // terminal state (and write what they hold) before the cascade takes them. Bounded by the
+        // run's own deadline, because nothing may outlive that.
+        const settleGraceMs =
+          actOutcome.ok === false && !controller.signal.aborted
+            ? boundedSettleGrace(opts.childSettleGraceMs, rootDeadlineAtMs, now)
+            : 0
         try {
-          await drainLiveChildren(openScope, controller)
+          await drainLiveChildren(openScope, controller, settleGraceMs)
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
@@ -702,13 +739,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
           // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
           // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
-          const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+          const { spentTotal, childWork, driverInference, gaps } = await terminalAccounting(
+            journal,
+            opts.runId,
+            now() - runEpochMs,
+          )
           return {
             kind: 'winner',
             out,
             outRef,
             tree,
-            spentTotal: addSpend(childWork, driverInference),
+            spentTotal,
+            ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
             ...(isNonEmptySpend(driverInference)
               ? { spentBreakdown: { driverInference, childWork } }
               : {}),
@@ -727,16 +769,29 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
       // summed off the SAME journal the winner path reads — the caller always learns the cost.
       async function noWinner(rejection?: DriverRejection): Promise<SupervisedResult<Out>> {
-        const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+        const { spentTotal, gaps } = await terminalAccounting(
+          journal,
+          opts.runId,
+          now() - runEpochMs,
+        )
         const common = {
           kind: 'no-winner' as const,
           tree,
           downCount: breaker.downCount(),
-          spentTotal: addSpend(childWork, driverInference),
+          spentTotal,
+          ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
         // proven one ends it. `undefined` means the supervisor's own state explains nothing.
-        const lifecycle = classifyNoWinner(controller, pool, opts, breaker, deadlineExceeded, tree)
+        const lifecycle = classifyNoWinner(
+          executionAborted,
+          pool,
+          opts,
+          breaker,
+          deadlineExceeded,
+          allChildrenDownAtSettle,
+          downCountAtSettle,
+        )
         if (lifecycle !== undefined) return { ...common, reason: lifecycle }
         // No lifecycle cause AND the driver threw ⇒ the driver itself is the fault. `error` is
         // REQUIRED on this arm, and it is present by construction: this is the only branch that
@@ -943,6 +998,7 @@ function wrapJournalForBreaker(journal: SpawnJournal, breaker: IntensityBreaker)
 async function drainLiveChildren(
   scope: Scope<unknown>,
   controller: AbortController,
+  settleGraceMs = 0,
 ): Promise<void> {
   // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
   // wait holds no executor, but it DOES hold a live timer, so a run that returns without
@@ -957,15 +1013,43 @@ async function drainLiveChildren(
     }
     return
   }
-  // Cascade the abort into every live child's executor before draining.
-  if (!controller.signal.aborted) controller.abort()
-  await drainCursor(scope)
+  // Cascade the abort into every live child's executor before draining — unless the caller granted
+  // a settle grace, in which case the timer owns the cascade and the drain reads whatever the
+  // children finish in the meantime. Exactly ONE cursor reader either way: the grace never races
+  // `next()`, it only decides when the abort lands.
+  let graceTimer: ReturnType<typeof setTimeout> | undefined
+  if (settleGraceMs > 0 && !controller.signal.aborted) {
+    graceTimer = setTimeout(
+      () => controller.abort('root driver failed; child settle grace expired'),
+      settleGraceMs,
+    )
+    graceTimer.unref?.()
+  } else if (!controller.signal.aborted) {
+    controller.abort()
+  }
+  try {
+    await drainCursor(scope)
+  } finally {
+    if (graceTimer !== undefined) clearTimeout(graceTimer)
+  }
   const after = scope.view
   if (after.inFlight > 0 || after.waiting > 0 || scope.workerCapacity.live > 0) {
     throw new RuntimeRunStateError(
       `supervisor: cleanup ended with ${after.inFlight} running, ${after.waiting} waiting, and ${scope.workerCapacity.live} executor resource(s) not confirmed destroyed`,
     )
   }
+}
+
+/** The settle window a failed driver's children actually get: the caller's grace, never past the
+ *  run's own deadline. `0` (the default) keeps the historical immediate cascade. */
+function boundedSettleGrace(
+  graceMs: number | undefined,
+  deadlineAtMs: number,
+  now: () => number,
+): number {
+  if (graceMs === undefined || graceMs <= 0) return 0
+  if (deadlineAtMs <= 0) return graceMs
+  return Math.max(0, Math.min(graceMs, deadlineAtMs - now()))
 }
 
 async function drainCursor(scope: Scope<unknown>): Promise<void> {
@@ -1032,12 +1116,21 @@ function supervisorAbortError(signal: AbortSignal): Error {
  * bucket — and it is why `driver-failed` cannot be produced without an `error` to attach.
  */
 function classifyNoWinner(
-  controller: AbortController,
+  /** Whether the cascade was aborted at the moment root execution settled — NOT the controller's
+   *  state now. The join barrier itself aborts the cascade to tear children down, so reading the
+   *  live controller here reported every driver failure that happened to have a live child as
+   *  `aborted`, hiding the real cause (#741: the run with one live child reported `aborted`, the
+   *  identical failure with none reported `driver-failed`). */
+  abortedAtSettle: boolean,
   pool: BudgetPool,
   opts: SupervisorOpts,
   breaker: IntensityBreaker,
   deadlineExceeded: boolean,
-  tree: TreeView,
+  /** Every spawned child was already down when root execution settled — measured BEFORE the join
+   *  barrier, so the barrier's own teardown cannot manufacture this cause. */
+  allChildrenDownAtSettle: boolean,
+  /** `down` settlements counted at the same instant, for the same reason. */
+  downCountAtSettle: number,
 ): LifecycleNoWinnerReason | undefined {
   // A tripped breaker is the most specific cause (children kept dying), so it outranks
   // the abort it raised. A deadline that won the abort race remains budget exhaustion;
@@ -1045,14 +1138,14 @@ function classifyNoWinner(
   // child, which is what `all-children-down` asserts and which only `downCount > 0` can prove.
   if (breaker.tripped()) return 'all-children-down'
   if (deadlineExceeded) return 'budget-exhausted'
-  if (controller.signal.aborted) return 'aborted'
+  if (abortedAtSettle) return 'aborted'
   // Unknown terminal usage correctly seals the remaining pool, but that accounting consequence is
   // not the cause of a run where every child failed. Preserve the lifecycle outcome before asking
   // whether any budget channel is now unavailable. A real admission failure with no failed child
   // still classifies as budget exhaustion below.
-  if (allSpawnedChildrenDown(tree)) return 'all-children-down'
+  if (allChildrenDownAtSettle) return 'all-children-down'
   if (poolExhausted(pool, opts)) return 'budget-exhausted'
-  if (breaker.downCount() > 0) return 'all-children-down'
+  if (downCountAtSettle > 0) return 'all-children-down'
   return undefined
 }
 
@@ -1077,23 +1170,101 @@ function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {
 }
 
 /**
- * Sum the conserved spend over every journaled `settled` event — the honest per-channel
- * total (input/output/usd/iterations all preserved), read off the same evidence replay
- * reads. Computed AFTER the join barrier so every child's settlement is recorded. Fails
- * loud if the tree was never journaled (the supervisor always `beginTree`s, so a missing
- * tree is a corrupted journal, not a normal path).
+ * The run's terminal accounting, read off the one journal ledger — the honest per-channel
+ * sums (input/output/usd/iterations all preserved), the named usage gaps, and the wall-clock
+ * duration stamped onto `spentTotal.ms`. Computed AFTER the join barrier so every child's
+ * settlement is recorded. Fails loud if the tree was never journaled (the supervisor always
+ * `beginTree`s, so a missing tree is a corrupted journal, not a normal path).
+ *
+ * `spentTotal.ms` is `elapsedMs`, never the per-event sum: executors under-report their own
+ * `ms` (most stamp 0) and parallel children overlap, so the sum cannot state the run's real
+ * duration. The breakdown keeps the executor-reported sums.
+ *
+ * `tokensKnown`/`usdKnown` are stamped explicitly on the terminal total: `true` is a checked
+ * claim (every spawn reached a terminal record AND every settled/metered record carried a
+ * complete receipt on that channel), never the absence of bad news. The conjunction with the
+ * summed flags is deliberately redundant — a future divergence between the sum and the gap
+ * scan can only make the claim more conservative, never falsely `true`.
  */
-async function spentFromJournal(
+async function terminalAccounting(
   journal: SpawnJournal,
   root: string,
-): Promise<{ childWork: Spend; driverInference: Spend }> {
+  elapsedMs: number,
+): Promise<{ spentTotal: Spend; childWork: Spend; driverInference: Spend; gaps: SpendGap[] }> {
   const events = await journal.loadTree(root)
   if (events === undefined) {
     throw new RuntimeRunStateError(
       `supervisor: spawn tree '${root}' is missing from the journal after run (corrupted log)`,
     )
   }
-  return sumSpendFromEvents(events)
+  const { childWork, driverInference } = sumSpendFromEvents(events)
+  const gaps = spendGapsFromEvents(events)
+  const summed = addSpend(childWork, driverInference)
+  const spentTotal: Spend = {
+    ...summed,
+    ms: Math.max(0, elapsedMs),
+    tokensKnown:
+      summed.tokensKnown !== false && !gaps.some((gap) => gap.channels.includes('tokens')),
+    usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
+  }
+  return { spentTotal, childWork, driverInference, gaps }
+}
+
+/** The journaled nodes whose usage accounting is incomplete — one `SpendGap` per node+kind,
+ *  channels merged. A spawn with no terminal record (`settled`/`cancelled`/`woken`) is
+ *  unaccounted on every channel; a settled or metered record that flags a channel unknown is
+ *  a floor on that channel. The root's own spawned event is exempt: its terminal state is the
+ *  result this list rides on. */
+function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
+  const labels = new Map<NodeId, string>()
+  const terminal = new Set<NodeId>()
+  for (const ev of events) {
+    if (ev.kind === 'spawned') labels.set(ev.id, ev.label)
+    else if (ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken') {
+      terminal.add(ev.id)
+    }
+  }
+  const gaps = new Map<
+    string,
+    { id: NodeId; kind: SpendGap['kind']; channels: Set<SpendChannel> }
+  >()
+  const record = (
+    id: NodeId,
+    kind: SpendGap['kind'],
+    channels: ReadonlyArray<SpendChannel>,
+  ): void => {
+    if (channels.length === 0) return
+    const key = `${kind}:${id}`
+    const existing = gaps.get(key)
+    if (existing !== undefined) for (const channel of channels) existing.channels.add(channel)
+    else gaps.set(key, { id, kind, channels: new Set(channels) })
+  }
+  for (const ev of events) {
+    if (ev.kind === 'spawned' && ev.parent !== undefined && !terminal.has(ev.id)) {
+      record(ev.id, 'never-settled', ['tokens', 'usd'])
+    } else if (ev.kind === 'settled') {
+      record(ev.id, 'unreported', unknownChannels(ev.spent))
+    } else if (ev.kind === 'metered') {
+      record(ev.id, 'unreported', unknownChannels(ev.spend))
+    }
+  }
+  return [...gaps.values()].map((gap) => {
+    const label = labels.get(gap.id)
+    return {
+      id: gap.id,
+      ...(label !== undefined ? { label } : {}),
+      kind: gap.kind,
+      channels: [...gap.channels],
+    }
+  })
+}
+
+/** The channels a single spend record explicitly marks incomplete. */
+function unknownChannels(spend: Spend): SpendChannel[] {
+  const channels: SpendChannel[] = []
+  if (spend.tokensKnown === false) channels.push('tokens')
+  if (spend.usdKnown === false) channels.push('usd')
+  return channels
 }
 
 /** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled);
@@ -1126,8 +1297,8 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
 } {
-  const childWork: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
-  const driverInference: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const childWork: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  const driverInference: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
   for (const ev of events) {
     if (ev.kind === 'settled') accumulate(childWork, ev.spent)
     else if (ev.kind === 'metered') accumulate(driverInference, ev.spend)
@@ -1138,8 +1309,7 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
 /** Add `b` into `a` in place, per channel. */
 function accumulate(a: Spend, b: Spend): void {
   a.iterations += b.iterations
-  a.tokens.input += b.tokens.input
-  a.tokens.output += b.tokens.output
+  addTokenUsage(a.tokens, b.tokens)
   if (b.tokensKnown === false) a.tokensKnown = false
   a.usd += b.usd
   if (b.usdKnown === false) a.usdKnown = false
@@ -1151,7 +1321,11 @@ function accumulate(a: Spend, b: Spend): void {
 function addSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
-    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    tokens: (() => {
+      const tokens = cloneTokenUsage(a.tokens)
+      addTokenUsage(tokens, b.tokens)
+      return tokens
+    })(),
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),

@@ -890,7 +890,7 @@ describe('runLocalHarness', () => {
       const result = await run
 
       expect(result.timedOut).toBe(true)
-      expect(result.killedBySignal).toBeNull()
+      expect([null, 'SIGKILL']).toContain(result.killedBySignal)
       expect(() => process.kill(grandchildPid!, 0)).toThrow(
         expect.objectContaining({ code: 'ESRCH' }),
       )

@@ -199,6 +199,9 @@ function buildAndPack({
     throw new Error(`${sourceRepo} contains ${packageJson.name}, expected ${packageName}`)
   }
 
+  const workspaceRoot = findPnpmWorkspaceRoot(buildDir, buildRoot)
+  const ignoreAncestorWorkspace = workspaceRoot === undefined
+
   if (localPackages.length > 0) {
     const overrides = {
       ...(packageJson.pnpm?.overrides ?? {}),
@@ -206,7 +209,6 @@ function buildAndPack({
         localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
       ),
     }
-    const workspaceRoot = findPnpmWorkspaceRoot(buildDir, buildRoot)
     if (workspaceRoot) {
       captured(
         'corepack',
@@ -229,21 +231,42 @@ function buildAndPack({
 
   captured(
     'corepack',
-    ['pnpm', 'install', '--no-frozen-lockfile', '--ignore-scripts'],
+    [
+      'pnpm',
+      ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []),
+      'install',
+      '--no-frozen-lockfile',
+      '--ignore-scripts',
+    ],
     buildDir,
     {
       HUSKY: '0',
     },
   )
-  assertArchiveDependencies(buildDir, localPackages, `${packageName} build`)
-  captured('corepack', ['pnpm', 'run', 'build'], buildDir)
+  assertArchiveDependencies(
+    buildDir,
+    localPackages,
+    `${packageName} build`,
+    ignoreAncestorWorkspace,
+  )
+  captured(
+    'corepack',
+    ['pnpm', ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []), 'run', 'build'],
+    buildDir,
+  )
 
   writeFileSync(packagePath, packageText)
   const before = new Set(readdirSync(artifactsDir))
   if (packageText.includes('catalog:')) {
     captured(
       'corepack',
-      ['pnpm', 'pack', '--pack-destination', artifactsDir],
+      [
+        'pnpm',
+        ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []),
+        'pack',
+        '--pack-destination',
+        artifactsDir,
+      ],
       buildDir,
       { npm_config_ignore_scripts: 'true' },
     )
@@ -340,6 +363,7 @@ function verifyConsumer(artifacts) {
       2,
     )}\n`,
   )
+  writeFileSync(join(appDir, 'pnpm-workspace.yaml'), 'packages: []\n')
   captured(
     'corepack',
     [
@@ -366,12 +390,24 @@ function verifyConsumer(artifacts) {
     join(appDir, 'consumer.ts'),
   )
 
-  captured('corepack', ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'], appDir)
+  captured(
+    'corepack',
+    ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'],
+    appDir,
+  )
   rmSync(join(appDir, 'node_modules'), { recursive: true, force: true })
-  captured('corepack', ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'], appDir)
+  captured(
+    'corepack',
+    ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'],
+    appDir,
+  )
 
   const dependencyTree = JSON.parse(
-    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], appDir),
+    captured(
+      'corepack',
+      ['pnpm', 'list', '--json', '--depth', 'Infinity'],
+      appDir,
+    ),
   )
   const resolved = collectTargetDependencies(dependencyTree)
   for (const artifact of artifacts) {
@@ -379,19 +415,31 @@ function verifyConsumer(artifacts) {
     if (occurrences.length === 0) {
       throw new Error(`consumer did not resolve ${artifact.name}`)
     }
+    const physicalPaths = new Set()
     for (const occurrence of occurrences) {
       assertArchiveResolution(artifact, occurrence, 'consumer')
       assertSamePackageFiles(artifact, occurrence.path)
+      physicalPaths.add(realpathSync(occurrence.path))
     }
     const directPackage = join(appDir, 'node_modules', ...artifact.name.split('/'))
     if (!existsSync(directPackage)) {
       throw new Error(`consumer has no direct installation for ${artifact.name}`)
     }
     assertSamePackageFiles(artifact, directPackage)
+    physicalPaths.add(realpathSync(directPackage))
+    if (physicalPaths.size !== 1) {
+      throw new Error(
+        `consumer installed ${physicalPaths.size} physical copies of ${artifact.name}`,
+      )
+    }
   }
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
-  captured('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+  captured(
+    'corepack',
+    ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'],
+    appDir,
+  )
   const proposalOutput = captured(process.execPath, ['dist/consumer.js'], appDir)
     .trim()
     .split('\n')
@@ -435,10 +483,21 @@ function verifyPublicImports(appDir, artifacts) {
   return imported
 }
 
-function assertArchiveDependencies(directory, artifacts, context) {
+function assertArchiveDependencies(directory, artifacts, context, ignoreAncestorWorkspace) {
   if (artifacts.length === 0) return
   const dependencyTree = JSON.parse(
-    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], directory),
+    captured(
+      'corepack',
+      [
+        'pnpm',
+        ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []),
+        'list',
+        '--json',
+        '--depth',
+        'Infinity',
+      ],
+      directory,
+    ),
   )
   const resolved = collectTargetDependencies(dependencyTree)
   for (const artifact of artifacts) {
@@ -527,17 +586,15 @@ function assertCohortPackageContracts({
   agentRuntime,
 }) {
   assertExactDependency(agentEval, agentInterface)
-  assertExactDependency(agentKnowledge, agentInterface)
-  assertExactDependency(agentKnowledge, agentEval)
   assertExactDependency(agentRuntime, agentKnowledge)
-  assertPeerMatchesDevelopmentDependency(agentRuntime.packageJson, agentInterface.name)
-  assertPeerMatchesDevelopmentDependency(agentRuntime.packageJson, agentEval.name)
+  assertSharedContractPeer(agentKnowledge, agentInterface)
+  assertSharedContractPeer(agentKnowledge, agentEval)
+  assertSharedContractPeer(agentRuntime, agentInterface)
+  assertSharedContractPeer(agentRuntime, agentEval)
   assertPeerMatchesDevelopmentDependency(
     agentRuntime.packageJson,
     '@tangle-network/sandbox',
   )
-  assertRequiredPeer(agentRuntime, agentInterface)
-  assertRequiredPeer(agentRuntime, agentEval)
 }
 
 function assertExactDependency(owner, dependency) {
@@ -556,6 +613,19 @@ function assertRequiredPeer(owner, dependency) {
   if (owner.packageJson.peerDependenciesMeta?.[dependency.name]?.optional) {
     throw new Error(`${owner.name} cannot make ${dependency.name} optional`)
   }
+}
+
+function assertSharedContractPeer(owner, dependency) {
+  if (owner.packageJson.dependencies?.[dependency.name] !== undefined) {
+    throw new Error(`${owner.name} must not nest ${dependency.name} as a runtime dependency`)
+  }
+  // A required peer deliberately admits later compatible patches. Requiring every owner's
+  // development pin to equal the consumer-selected patch recreates the release lockstep that
+  // peer dependencies removed. The strict packed install below proves the selected version is
+  // admitted and resolves to one physical package; this check proves the owner's lower bound.
+  requiredPackedDevelopmentDependency(owner.packageJson, dependency.name)
+  assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name)
+  assertRequiredPeer(owner, dependency)
 }
 
 function assertCleanGitCheckout(sourceRepo, packageName) {

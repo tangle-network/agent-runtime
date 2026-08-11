@@ -775,7 +775,7 @@ describe('createWorktreeCliExecutor', () => {
     expect(out.harness.name).toBe('bridge')
     expect(out.harness.stdout).toBe('done from bridge')
     expect(out.checks?.tests?.passed).toBe(true)
-    expect(artifact.spent.tokens).toEqual({ input: 3, output: 5 })
+    expect(artifact.spent.tokens).toEqual({ input: 3, output: 5, cacheBreakdownKnown: false })
     expect(artifact.spent.usd).toBe(0.02)
 
     const teardown = await exec.teardown(0)
