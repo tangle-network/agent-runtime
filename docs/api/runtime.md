@@ -13051,7 +13051,7 @@ onto each child's `ExecutorContext` under `workerTraceSeamKey`. Absent (the untr
 > `readonly` `optional` **workerTraceUnpropagated?**: `object`
 
 Present when this run RECORDS spans but the worker backend has NO channel to carry the trace
-context (`WORKER_TRACE_PROPAGATION[backend] === false` — bridge / cli-worktree have no env
+context (`WORKER_TRACE_PROPAGATION[backend] === false` — cli-worktree has no env
 channel; router / router-tools / provider have no worker process). Each spawn then journals a
 `trace-unpropagated` event naming the severed hop, so a child whose trace shows up as a
 disconnected root is a recorded fact rather than a silent stranger. Absent ⇒ either the run
@@ -25734,6 +25734,29 @@ The trace env to merge into a worker's environment — `TRACEPARENT` plus the le
 `TRACE_ID` / `PARENT_SPAN_ID` pair (dual-written for one release) — EMPTY when the run
 records no spans, which is what keeps the untraced path byte-identical. Merge it BELOW the
 caller's own seam env so a deliberately-set id wins (see the precedence note above).
+
+#### Parameters
+
+##### ctx
+
+[`WorkerTraceSeamCarrier`](#workertraceseamcarrier)
+
+#### Returns
+
+`Record`\<`string`, `string`\>
+
+***
+
+### workerTraceHeaders()
+
+> **workerTraceHeaders**(`ctx`): `Record`\<`string`, `string`\>
+
+The trace request headers for a worker dispatched over the cli-bridge HTTP transport — W3C
+`traceparent` plus the legacy `x-trace-id` / `x-parent-span-id` pair the bridge also reads —
+EMPTY when the run records no spans, which keeps the untraced request byte-identical. Derived
+from the same dual-write the env channel uses ([workerTraceEnv](#workertraceenv)), so the header and env
+spellings can never name different traces. `traceparent` is present only when a parent span id
+exists (the W3C grammar requires one); the legacy pair still carries a lone trace id.
 
 #### Parameters
 

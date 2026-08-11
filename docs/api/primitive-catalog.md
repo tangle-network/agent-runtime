@@ -514,7 +514,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 733 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 734 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -727,6 +727,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 733 exports.
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
 | `workerTraceAnalysisStore` | function | Rehydrate exact persisted spans through agent-eval's one bounded trace-analysis adapter. |
 | `workerTraceEnv` | function | The trace env to merge into a worker's environment — `TRACEPARENT` plus the legacy |
+| `workerTraceHeaders` | function | The trace request headers for a worker dispatched over the cli-bridge HTTP transport — W3C |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
 | `writeWorkerSteer` | function | Durably append one steer request to a worker's inbox and log the delivery attempt. |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |

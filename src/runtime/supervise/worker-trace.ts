@@ -51,17 +51,19 @@
  * (feed them from `readTraceContextFromEnv()`), which makes the recorder's own ids the outer ones
  * and so makes every stamped child inherit them too.
  *
- * WHICH BACKENDS PROPAGATE. Only a backend with a real environment channel to the worker can carry
- * this, and the ones that cannot say so here rather than dropping it silently:
+ * WHICH BACKENDS PROPAGATE. Only a backend with a real channel to the worker can carry this, and
+ * the ones that have none say so here rather than dropping it silently:
  *   - `cli`           YES — `CliSeam.env` → the spawned subprocess.
  *   - `sandbox`       YES — `CreateSandboxOptions.env` on the box the worker runs in (single-shot
  *                     and steerable). This is the cross-MACHINE case the feature exists for.
+ *   - `bridge`        YES — request headers on the bridge POST (`traceparent` plus the legacy
+ *                     `x-trace-id` / `x-parent-span-id` pair, {@link workerTraceHeaders}); the
+ *                     bridge stamps them into the harness child's environment at spawn.
  *   - `router`,
  *     `router-tools`  NO — a direct model HTTP call. There is no worker process to inherit anything.
- *   - `bridge`,
- *     `cli-worktree`  NO — the work is dispatched over cli-bridge HTTP or through a local harness
- *                     transport that exposes no environment channel. Wiring these means adding that
- *                     channel to the transport first; until then they are honestly unpropagated.
+ *   - `cli-worktree`  NO — the work is dispatched through a local harness transport that exposes
+ *                     no environment channel. Wiring it means adding that channel to the transport
+ *                     first; until then it is honestly unpropagated.
  *   - `provider`      NO — `AgentEnvironmentProvider` has no environment field on its port.
  */
 
@@ -73,15 +75,16 @@ import type { ExecutorConfig } from './runtime'
  * discriminant means an EIGHTH backend arm cannot be added without classifying it here — the prose
  * alone could go stale silently, which is the failure this table exists to prevent.
  *
- * `true` = the arm has a real environment channel to the worker and stamps the context.
- * `false` = it has none today; it is honestly unpropagated rather than silently dropping.
+ * `true` = the arm has a real channel to the worker (environment or transport headers) and stamps
+ * the context. `false` = it has none today; it is honestly unpropagated rather than silently
+ * dropping.
  */
 export const WORKER_TRACE_PROPAGATION = {
   cli: true,
   sandbox: true,
   router: false,
   'router-tools': false,
-  bridge: false,
+  bridge: true,
   'cli-worktree': false,
   provider: false,
 } as const satisfies Record<ExecutorConfig['backend'], boolean>
@@ -136,4 +139,21 @@ export function readWorkerTraceContext(ctx: WorkerTraceSeamCarrier): TraceContex
 export function workerTraceEnv(ctx: WorkerTraceSeamCarrier): Record<string, string> {
   const traceContext = readWorkerTraceContext(ctx)
   return traceContext ? traceContextToEnv(traceContext) : {}
+}
+
+/**
+ * The trace request headers for a worker dispatched over the cli-bridge HTTP transport — W3C
+ * `traceparent` plus the legacy `x-trace-id` / `x-parent-span-id` pair the bridge also reads —
+ * EMPTY when the run records no spans, which keeps the untraced request byte-identical. Derived
+ * from the same dual-write the env channel uses ({@link workerTraceEnv}), so the header and env
+ * spellings can never name different traces. `traceparent` is present only when a parent span id
+ * exists (the W3C grammar requires one); the legacy pair still carries a lone trace id.
+ */
+export function workerTraceHeaders(ctx: WorkerTraceSeamCarrier): Record<string, string> {
+  const env = workerTraceEnv(ctx)
+  return {
+    ...(env.TRACEPARENT !== undefined ? { traceparent: env.TRACEPARENT } : {}),
+    ...(env.TRACE_ID !== undefined ? { 'x-trace-id': env.TRACE_ID } : {}),
+    ...(env.PARENT_SPAN_ID !== undefined ? { 'x-parent-span-id': env.PARENT_SPAN_ID } : {}),
+  }
 }

@@ -26,6 +26,7 @@ import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/s
 // live-but-slow bridge. Tests drive that transport by setting `bridgeHttpHandler`.
 let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null = null
 let lastBridgeUrl: URL | null = null
+let lastBridgePostHeaders: Record<string, unknown> | null = null
 let activeBridgePayload: Record<string, unknown> | null = null
 
 vi.mock('node:http', async () => {
@@ -34,6 +35,9 @@ vi.mock('node:http', async () => {
     ...actual,
     request: (url: URL, opts: unknown, cb: (res: Readable) => void) => {
       lastBridgeUrl = url
+      if ((opts as { method?: string }).method === 'POST') {
+        lastBridgePostHeaders = (opts as { headers?: Record<string, unknown> }).headers ?? null
+      }
       let body = ''
       return {
         write: (chunk: string) => {
@@ -188,6 +192,59 @@ describe('bridgeExecutor over node:http', () => {
   afterEach(() => {
     bridgeHttpHandler = null
     lastBridgeUrl = null
+    lastBridgePostHeaders = null
+  })
+
+  it('stamps the inherited trace context as traceparent (+ legacy pair) headers on the bridge POST', async () => {
+    bridgeHttpHandler = () => sse('traced turn', 1, 1)
+    const traceId = '12345678901234567890123456789012'
+    const parentSpanId = '1234567890123456'
+    const profile: AgentProfile = {
+      name: 'traced-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' },
+          'worker-trace': { traceId, parentSpanId },
+        },
+      },
+    )
+    await drainExecutor(executor)
+
+    // The exact W3C wire the bridge parses at spawn, plus the legacy pair it also reads —
+    // the same dual-write the env channel performs, so both spellings name one trace.
+    expect(lastBridgePostHeaders).toMatchObject({
+      traceparent: `00-${traceId}-${parentSpanId}-01`,
+      'x-trace-id': traceId,
+      'x-parent-span-id': parentSpanId,
+    })
+  })
+
+  it('sends no trace headers when the run records no spans', async () => {
+    bridgeHttpHandler = () => sse('untraced turn', 1, 1)
+    const profile: AgentProfile = {
+      name: 'untraced-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+    await drainExecutor(executor)
+
+    expect(lastBridgePostHeaders).not.toBeNull()
+    expect(lastBridgePostHeaders).not.toHaveProperty('traceparent')
+    expect(lastBridgePostHeaders).not.toHaveProperty('x-trace-id')
+    expect(lastBridgePostHeaders).not.toHaveProperty('x-parent-span-id')
   })
 
   it('streams a completion and meters the reported usage', async () => {

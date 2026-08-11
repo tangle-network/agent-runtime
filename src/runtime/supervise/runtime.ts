@@ -132,7 +132,7 @@ import type {
   Spend,
   UsageEvent,
 } from './types'
-import { workerTraceEnv } from './worker-trace'
+import { workerTraceEnv, workerTraceHeaders } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
@@ -1661,6 +1661,10 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // resume off this exactly as a box id keys a sandbox session.
   const sessionId = seam.sessionId ?? `bridge-${spec.profile.name ?? 'worker'}-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(sessionId)
+  // The bridge's trace channel is the request, not an env field: the `traceparent` (+ legacy
+  // pair) headers ride every turn POST, and the bridge stamps them into the harness child's
+  // environment at spawn. Empty when the run records no spans, adding no header at all.
+  const traceHeaders = workerTraceHeaders(ctx)
 
   const controller = new AbortController()
   const abortIfSignalled = () => {
@@ -1761,6 +1765,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         sessionId,
         maxTurns,
         maxReconnects,
+        traceHeaders,
         inbox,
         controller,
         activeRuns,
@@ -1819,6 +1824,8 @@ interface StreamBridgeArgs {
   sessionId: string
   maxTurns: number
   maxReconnects: number
+  /** Trace request headers ({@link workerTraceHeaders}); empty when the run records no spans. */
+  traceHeaders: Readonly<Record<string, string>>
   inbox: Inbox
   controller: AbortController
   activeRuns: Map<string, ActiveBridgeRun>
@@ -2161,6 +2168,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         signal: turnController.signal,
         run: activeRun,
         maxReconnects: args.maxReconnects,
+        traceHeaders: args.traceHeaders,
       })) {
         if (chunk.content) {
           turnText += chunk.content
@@ -2334,6 +2342,8 @@ interface StreamDurableBridgeRunArgs {
   signal: AbortSignal
   run: ActiveBridgeRun
   maxReconnects: number
+  /** Trace request headers ({@link workerTraceHeaders}); empty when the run records no spans. */
+  traceHeaders: Readonly<Record<string, string>>
 }
 
 /**
@@ -2360,6 +2370,7 @@ async function* streamDurableBridgeRun(
         afterEventId: args.run.lastEventId,
         body: args.body,
         signal: args.signal,
+        traceHeaders: args.traceHeaders,
       })
     } catch (error) {
       if (args.signal.aborted) throw error
@@ -2546,6 +2557,8 @@ interface BridgeStreamPostArgs {
   afterEventId: number
   body: unknown
   signal: AbortSignal
+  /** Trace request headers ({@link workerTraceHeaders}); empty when the run records no spans. */
+  traceHeaders: Readonly<Record<string, string>>
 }
 
 /**
@@ -2574,6 +2587,9 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
       {
         method: 'POST',
         headers: {
+          // Trace context first, so a malformed caller value can never shadow the fixed
+          // transport headers below.
+          ...args.traceHeaders,
           'content-type': 'application/json',
           authorization: `Bearer ${args.bearer}`,
           'x-session-id': args.sessionId,

@@ -161,7 +161,7 @@ export interface ScopeArgs {
   readonly workerTrace?: WorkerTraceResolver
   /**
    * Present when this run RECORDS spans but the worker backend has NO channel to carry the trace
-   * context (`WORKER_TRACE_PROPAGATION[backend] === false` — bridge / cli-worktree have no env
+   * context (`WORKER_TRACE_PROPAGATION[backend] === false` — cli-worktree has no env
    * channel; router / router-tools / provider have no worker process). Each spawn then journals a
    * `trace-unpropagated` event naming the severed hop, so a child whose trace shows up as a
    * disconnected root is a recorded fact rather than a silent stranger. Absent ⇒ either the run
