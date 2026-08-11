@@ -415,15 +415,23 @@ function verifyConsumer(artifacts) {
     if (occurrences.length === 0) {
       throw new Error(`consumer did not resolve ${artifact.name}`)
     }
+    const physicalPaths = new Set()
     for (const occurrence of occurrences) {
       assertArchiveResolution(artifact, occurrence, 'consumer')
       assertSamePackageFiles(artifact, occurrence.path)
+      physicalPaths.add(realpathSync(occurrence.path))
     }
     const directPackage = join(appDir, 'node_modules', ...artifact.name.split('/'))
     if (!existsSync(directPackage)) {
       throw new Error(`consumer has no direct installation for ${artifact.name}`)
     }
     assertSamePackageFiles(artifact, directPackage)
+    physicalPaths.add(realpathSync(directPackage))
+    if (physicalPaths.size !== 1) {
+      throw new Error(
+        `consumer installed ${physicalPaths.size} physical copies of ${artifact.name}`,
+      )
+    }
   }
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
