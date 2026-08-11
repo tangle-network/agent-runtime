@@ -16025,6 +16025,79 @@ returning an incomplete reproducibility receipt.
 
 ***
 
+### SurfaceDiff
+
+One mounted surface whose settled state differs from what was mounted.
+
+- `modified` — the surface exists with different bytes (`settledSha256`/`settledBytes` present).
+- `removed` — the surface no longer exists at its mounted path.
+- `unreadable` — the read seam failed for a reason other than absence; `error` carries the
+  diagnostic. Reported rather than dropped so a permissions or transport failure cannot
+  masquerade as "nothing changed".
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+The mounted path, exactly as recorded in the manifest entry.
+
+##### status
+
+> **status**: `"modified"` \| `"removed"` \| `"unreadable"`
+
+##### mountedSha256
+
+> **mountedSha256**: `string`
+
+Hex SHA-256 of the bytes that were mounted (from the manifest).
+
+##### source
+
+> **source**: `string`
+
+Free-form origin of the mounted resource, carried through from the manifest.
+
+##### settledSha256?
+
+> `optional` **settledSha256?**: `string`
+
+Hex SHA-256 of the settled bytes. Present only for `modified`.
+
+##### settledBytes?
+
+> `optional` **settledBytes?**: `number`
+
+Size of the settled bytes. Present only for `modified`.
+
+##### error?
+
+> `optional` **error?**: `string`
+
+The read seam's diagnostic. Present only for `unreadable`.
+
+***
+
+### HarvestSurfaceDiffsOptions
+
+#### Properties
+
+##### mounts
+
+> **mounts**: readonly [`MountManifestEntry`](#mountmanifestentry)[]
+
+The run's mount manifest (`RunProvenance.mounts`). Entries sharing a path are collapsed to the
+ LAST entry — the bytes the agent actually saw at start.
+
+##### read
+
+> **read**: [`SurfaceReader`](#surfacereader)
+
+How to read a mounted path's current bytes.
+
+***
+
 ### CreateTangleSandboxExactProcessProviderOptions
 
 #### Properties
@@ -19477,6 +19550,34 @@ this run records no spans, so nothing is stamped. Supplied by
 
 Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  diff + the harness's run record + the derived checks).
+
+***
+
+### SurfaceReadOutcome
+
+> **SurfaceReadOutcome** = \{ `succeeded`: `true`; `value`: `Uint8Array`; \} \| \{ `succeeded`: `false`; `missing`: `boolean`; `error`: `string`; \}
+
+Outcome of reading one surface back at settle. `missing: true` means the path no longer exists
+ (a deletion — a valid, reportable outcome); any other failure carries its diagnostic.
+
+***
+
+### SurfaceReader
+
+> **SurfaceReader** = (`path`) => `Promise`\<[`SurfaceReadOutcome`](#surfacereadoutcome)\>
+
+The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's
+ `fs.read`, a local worktree read ([fsSurfaceReader](#fssurfacereader)), or a test double.
+
+#### Parameters
+
+##### path
+
+`string`
+
+#### Returns
+
+`Promise`\<[`SurfaceReadOutcome`](#surfacereadoutcome)\>
 
 ***
 
@@ -24927,6 +25028,47 @@ the shared valid-only `selectValidWinner` (never a judge).
 #### Returns
 
 [`CombinatorShape`](#combinatorshape)\<`Task`, [`WorktreeHarnessResult`](#worktreeharnessresult)\>
+
+***
+
+### harvestSurfaceDiffs()
+
+> **harvestSurfaceDiffs**(`options`): `Promise`\<[`SurfaceDiff`](#surfacediff)[]\>
+
+Re-read every mounted surface and report the ones whose settled state differs from the manifest.
+Unchanged surfaces produce no entry; output preserves manifest record order. Surfaces the agent
+CREATED (paths never mounted) are outside this contract — the manifest cannot see them; a
+substrate that enumerates harness-state directories can feed those paths in as additional mounts.
+
+#### Parameters
+
+##### options
+
+[`HarvestSurfaceDiffsOptions`](#harvestsurfacediffsoptions)
+
+#### Returns
+
+`Promise`\<[`SurfaceDiff`](#surfacediff)[]\>
+
+***
+
+### fsSurfaceReader()
+
+> **fsSurfaceReader**(`root`): [`SurfaceReader`](#surfacereader)
+
+A [SurfaceReader](#surfacereader) over the local filesystem, for worktree/local workers. Relative mount
+paths resolve against `root`. Absence maps to `missing: true`; every other failure carries the
+error message.
+
+#### Parameters
+
+##### root
+
+`string`
+
+#### Returns
+
+[`SurfaceReader`](#surfacereader)
 
 ***
 
