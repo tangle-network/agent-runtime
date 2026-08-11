@@ -113,6 +113,27 @@ describe('harvestSurfaceDiffs', () => {
     expect(diffs.map((d) => d.status)).toEqual(['modified'])
   })
 
+  it("treats a './'-prefixed mount and a bare watched path as one surface, and dedupes duplicate watches", async () => {
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('./AGENTS.md', 'given')],
+      read: readerOf({ './AGENTS.md': 'given', 'memory/x.md': 'note' }),
+      watch: [
+        { path: 'AGENTS.md' },
+        { path: 'memory/x.md' },
+        { path: 'memory/x.md', source: 'tree' },
+      ],
+    })
+    expect(diffs).toEqual([
+      {
+        path: 'memory/x.md',
+        status: 'created',
+        source: 'tree',
+        settledSha256: sha('note'),
+        settledBytes: Buffer.byteLength('note'),
+      },
+    ])
+  })
+
   it('treats an uppercase manifest hash as equal to the settled lowercase hash', async () => {
     const entry = { ...mount('a.md', 'same'), sha256: sha('same').toUpperCase() }
     const diffs = await harvestSurfaceDiffs({
@@ -136,7 +157,7 @@ describe('boxSurfaceReader', () => {
         },
       },
     }
-    const read = boxSurfaceReader(box)
+    const read = boxSurfaceReader(box, { retryDelayMs: 0 })
     const hit = await read('AGENTS.md')
     expect(hit.succeeded).toBe(true)
     if (hit.succeeded) expect(new TextDecoder().decode(hit.value)).toBe('edited')
@@ -150,6 +171,44 @@ describe('boxSurfaceReader', () => {
       missing: false,
       error: 'transport down',
     })
+  })
+
+  it('retries a transient first-attempt 404 instead of reporting a fresh write as missing', async () => {
+    const blip = new Error('not flushed yet')
+    blip.name = 'NotFoundError'
+    let calls = 0
+    const box = {
+      fs: {
+        read: () => {
+          calls += 1
+          return calls < 3 ? Promise.reject(blip) : Promise.resolve('finally visible')
+        },
+      },
+    }
+    const outcome = await boxSurfaceReader(box, { retryDelayMs: 0 })('memory/new.md')
+    expect(calls).toBe(3)
+    expect(outcome.succeeded).toBe(true)
+  })
+
+  it('reports a box-level NotFoundError (resourceType names the sandbox) as unreadable, never missing', async () => {
+    const boxGone = Object.assign(new Error('sandbox sb-1 not found'), {
+      name: 'NotFoundError',
+      resourceType: 'Sandbox',
+      resourceId: 'sb-1',
+    })
+    const box = { fs: { read: () => Promise.reject(boxGone) } }
+    expect(await boxSurfaceReader(box, { attempts: 1 })('CLAUDE.md')).toEqual({
+      succeeded: false,
+      missing: false,
+      error: 'sandbox sb-1 not found',
+    })
+  })
+
+  it('refuses to hash content the text wire lossy-decoded instead of reporting a false modification', async () => {
+    const box = { fs: { read: () => Promise.resolve('binary�garbage') } }
+    const outcome = await boxSurfaceReader(box, { attempts: 1 })('memory/store.db')
+    expect(outcome).toMatchObject({ succeeded: false, missing: false })
+    if (!outcome.succeeded) expect(outcome.error).toContain('not valid UTF-8')
   })
 
   it('composes with the harvest over a box double: modified mount + created watch', async () => {

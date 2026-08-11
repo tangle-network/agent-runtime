@@ -945,6 +945,7 @@ export {
   superviseSurface,
 } from './supervise-surface'
 export {
+  type BoxSurfaceReaderOptions,
   boxSurfaceReader,
   fsSurfaceReader,
   type HarvestSurfaceDiffsOptions,

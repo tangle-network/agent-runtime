@@ -16155,6 +16155,27 @@ The minimal box surface the box-backed reader needs — structurally typed so th
 
 ***
 
+### BoxSurfaceReaderOptions
+
+#### Properties
+
+##### attempts?
+
+> `optional` **attempts?**: `number`
+
+Read attempts per path before settling on a failed outcome. The data plane can transiently
+ 404 a just-written file (the same blip `openSandboxRun`'s deliverable read retries for), and a
+ first-attempt 404 taken at face value turns a fresh self-edit into a false `removed`/dropped
+ `created`. Default 3.
+
+##### retryDelayMs?
+
+> `optional` **retryDelayMs?**: `number`
+
+Linear backoff base between attempts (delay = base × attempt). Default 250.
+
+***
+
 ### CreateTangleSandboxExactProcessProviderOptions
 
 #### Properties
@@ -25094,7 +25115,9 @@ the shared valid-only `selectValidWinner` (never a judge).
 
 Re-read every mounted (and watched) surface and report the ones whose settled state differs from
 the manifest — modified, removed, or created. Unchanged surfaces and still-absent watched paths
-produce no entry; output preserves record order, mounts before watch-only paths.
+produce no entry; reads run concurrently; output preserves record order, mounts before
+watch-only paths. Mounts and watches sharing a path key are each collapsed to the LAST entry,
+and a watched path that was also mounted compares against its mount (never reports `created`).
 
 #### Parameters
 
@@ -25110,19 +25133,26 @@ produce no entry; output preserves record order, mounts before watch-only paths.
 
 ### boxSurfaceReader()
 
-> **boxSurfaceReader**(`box`): [`SurfaceReader`](#surfacereader)
+> **boxSurfaceReader**(`box`, `options?`): [`SurfaceReader`](#surfacereader)
 
 A [SurfaceReader](#surfacereader) over a sandbox box's filesystem — the same `box.fs.read` seam
-`openSandboxRun` reads deliverables through. The box wire returns UTF-8 text, so this reader
-covers TEXT surfaces (which profile surfaces are); hashes are computed over the UTF-8 encoding.
-The SDK's not-found error is detected structurally (`err.name === 'NotFoundError'`) and maps to
-`missing: true`; every other failure carries its message.
+`openSandboxRun` reads deliverables through, with the same transient-404 posture (bounded
+retry). The box wire returns UTF-8 TEXT (the SDK's binary path is `download()`), which profile
+surfaces are; hashes are computed over the UTF-8 encoding, and content the wire had to
+lossy-decode (a U+FFFD replacement character) is reported `unreadable` rather than hashed as
+mojibake. The SDK's not-found error is detected structurally (`err.name === 'NotFoundError'`)
+and maps to `missing: true` — unless its `resourceType` names something other than a file/path
+(the BOX or session being gone), which is a transport failure, not an absent surface.
 
 #### Parameters
 
 ##### box
 
 [`SurfaceReadBox`](#surfacereadbox)
+
+##### options?
+
+[`BoxSurfaceReaderOptions`](#boxsurfacereaderoptions) = `{}`
 
 #### Returns
 

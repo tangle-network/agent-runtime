@@ -88,22 +88,33 @@ export interface HarvestSurfaceDiffsOptions {
 
 const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
 
+/** The collision/dedup key for a path: a leading `./` stripped, so `./AGENTS.md` (a mount
+ *  recorder's form) and `AGENTS.md` (a file-tree enumeration's form) are one surface. Absolute vs
+ *  relative cannot be reconciled here — keep those forms consistent between mounts and watches. */
+const pathKey = (p: string): string => p.replace(/^\.\//, '')
+
 /**
  * Re-read every mounted (and watched) surface and report the ones whose settled state differs from
  * the manifest — modified, removed, or created. Unchanged surfaces and still-absent watched paths
- * produce no entry; output preserves record order, mounts before watch-only paths.
+ * produce no entry; reads run concurrently; output preserves record order, mounts before
+ * watch-only paths. Mounts and watches sharing a path key are each collapsed to the LAST entry,
+ * and a watched path that was also mounted compares against its mount (never reports `created`).
  */
 export async function harvestSurfaceDiffs(
   options: HarvestSurfaceDiffsOptions,
 ): Promise<SurfaceDiff[]> {
   const byPath = new Map<string, MountManifestEntry>()
-  for (const entry of options.mounts) byPath.set(entry.path, entry)
-  const diffs: SurfaceDiff[] = []
-  for (const entry of byPath.values()) {
-    const outcome = await options.read(entry.path)
-    if (!outcome.succeeded) {
-      diffs.push(
-        outcome.missing
+  for (const entry of options.mounts) byPath.set(pathKey(entry.path), entry)
+  const watchByPath = new Map<string, WatchedSurface>()
+  for (const watched of options.watch ?? []) {
+    if (byPath.has(pathKey(watched.path))) continue
+    watchByPath.set(pathKey(watched.path), watched)
+  }
+  const mountDiffs = await Promise.all(
+    [...byPath.values()].map(async (entry): Promise<SurfaceDiff | undefined> => {
+      const outcome = await options.read(entry.path)
+      if (!outcome.succeeded) {
+        return outcome.missing
           ? {
               path: entry.path,
               status: 'removed',
@@ -116,44 +127,43 @@ export async function harvestSurfaceDiffs(
               mountedSha256: entry.sha256,
               source: entry.source,
               error: outcome.error,
-            },
-      )
-      continue
-    }
-    const settledSha256 = sha256Hex(outcome.value)
-    if (settledSha256 === entry.sha256.toLowerCase()) continue
-    diffs.push({
-      path: entry.path,
-      status: 'modified',
-      mountedSha256: entry.sha256,
-      source: entry.source,
-      settledSha256,
-      settledBytes: outcome.value.byteLength,
-    })
-  }
-  for (const watched of options.watch ?? []) {
-    if (byPath.has(watched.path)) continue
-    const outcome = await options.read(watched.path)
-    if (!outcome.succeeded) {
-      // A still-absent watched path is the expected no-op; a failing read is not.
-      if (!outcome.missing)
-        diffs.push({
+            }
+      }
+      const settledSha256 = sha256Hex(outcome.value)
+      if (settledSha256 === entry.sha256.toLowerCase()) return undefined
+      return {
+        path: entry.path,
+        status: 'modified',
+        mountedSha256: entry.sha256,
+        source: entry.source,
+        settledSha256,
+        settledBytes: outcome.value.byteLength,
+      }
+    }),
+  )
+  const watchDiffs = await Promise.all(
+    [...watchByPath.values()].map(async (watched): Promise<SurfaceDiff | undefined> => {
+      const outcome = await options.read(watched.path)
+      if (!outcome.succeeded) {
+        // A still-absent watched path is the expected no-op; a failing read is not.
+        if (outcome.missing) return undefined
+        return {
           path: watched.path,
           status: 'unreadable',
           source: watched.source ?? 'watched',
           error: outcome.error,
-        })
-      continue
-    }
-    diffs.push({
-      path: watched.path,
-      status: 'created',
-      source: watched.source ?? 'watched',
-      settledSha256: sha256Hex(outcome.value),
-      settledBytes: outcome.value.byteLength,
-    })
-  }
-  return diffs
+        }
+      }
+      return {
+        path: watched.path,
+        status: 'created',
+        source: watched.source ?? 'watched',
+        settledSha256: sha256Hex(outcome.value),
+        settledBytes: outcome.value.byteLength,
+      }
+    }),
+  )
+  return [...mountDiffs, ...watchDiffs].filter((d): d is SurfaceDiff => d !== undefined)
 }
 
 /** The minimal box surface the box-backed reader needs — structurally typed so the real
@@ -162,24 +172,70 @@ export interface SurfaceReadBox {
   fs: { read(path: string): Promise<string> }
 }
 
+export interface BoxSurfaceReaderOptions {
+  /** Read attempts per path before settling on a failed outcome. The data plane can transiently
+   *  404 a just-written file (the same blip `openSandboxRun`'s deliverable read retries for), and a
+   *  first-attempt 404 taken at face value turns a fresh self-edit into a false `removed`/dropped
+   *  `created`. Default 3. */
+  attempts?: number
+  /** Linear backoff base between attempts (delay = base × attempt). Default 250. */
+  retryDelayMs?: number
+}
+
+const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms))
+
 /**
  * A {@link SurfaceReader} over a sandbox box's filesystem — the same `box.fs.read` seam
- * `openSandboxRun` reads deliverables through. The box wire returns UTF-8 text, so this reader
- * covers TEXT surfaces (which profile surfaces are); hashes are computed over the UTF-8 encoding.
- * The SDK's not-found error is detected structurally (`err.name === 'NotFoundError'`) and maps to
- * `missing: true`; every other failure carries its message.
+ * `openSandboxRun` reads deliverables through, with the same transient-404 posture (bounded
+ * retry). The box wire returns UTF-8 TEXT (the SDK's binary path is `download()`), which profile
+ * surfaces are; hashes are computed over the UTF-8 encoding, and content the wire had to
+ * lossy-decode (a U+FFFD replacement character) is reported `unreadable` rather than hashed as
+ * mojibake. The SDK's not-found error is detected structurally (`err.name === 'NotFoundError'`)
+ * and maps to `missing: true` — unless its `resourceType` names something other than a file/path
+ * (the BOX or session being gone), which is a transport failure, not an absent surface.
  */
-export function boxSurfaceReader(box: SurfaceReadBox): SurfaceReader {
+export function boxSurfaceReader(
+  box: SurfaceReadBox,
+  options: BoxSurfaceReaderOptions = {},
+): SurfaceReader {
+  const attempts = options.attempts ?? 3
+  const retryDelayMs = options.retryDelayMs ?? 250
   return async (path) => {
-    try {
-      return { succeeded: true, value: new TextEncoder().encode(await box.fs.read(path)) }
-    } catch (err) {
-      return {
-        succeeded: false,
-        missing: err instanceof Error && err.name === 'NotFoundError',
-        error: err instanceof Error ? err.message : String(err),
+    let last: SurfaceReadOutcome = {
+      succeeded: false,
+      missing: false,
+      error: 'boxSurfaceReader: no read attempted',
+    }
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const text = await box.fs.read(path)
+        if (text.includes('�')) {
+          return {
+            succeeded: false,
+            missing: false,
+            error: `boxSurfaceReader: content at ${JSON.stringify(path)} is not valid UTF-8 text (the box text wire lossy-decoded it); binary surfaces need a byte-faithful reader`,
+          }
+        }
+        return { succeeded: true, value: new TextEncoder().encode(text) }
+      } catch (err) {
+        const notFound = err instanceof Error && err.name === 'NotFoundError'
+        const resourceType =
+          err && typeof err === 'object' && 'resourceType' in err
+            ? String((err as { resourceType: unknown }).resourceType)
+            : undefined
+        // A NotFoundError naming a non-file resource (Sandbox / session) means the TRANSPORT is
+        // gone — reporting it as `missing` would read as "every surface was removed".
+        const fileNotFound =
+          notFound && (resourceType === undefined || /file|path/i.test(resourceType))
+        last = {
+          succeeded: false,
+          missing: fileNotFound,
+          error: err instanceof Error ? err.message : String(err),
+        }
+        if (attempt < attempts && retryDelayMs > 0) await sleep(retryDelayMs * attempt)
       }
     }
+    return last
   }
 }
 
