@@ -95,6 +95,7 @@ function profileCandidatePopulation(
   provenance: OptimizationMethodComparison['best']['provenance'],
   baselineProfile: AgentProfile,
   materializeProfile: (candidateSurface: MutableSurface) => AgentProfile,
+  winnerSurface: MutableSurface,
   storage?: CampaignStorage,
 ): ImprovementProfileCandidatePopulation {
   const observationSummary = provenance?.observations
@@ -118,6 +119,12 @@ function profileCandidatePopulation(
         ...(storage ? { storage } : {}),
       })
     : undefined
+  if (!graph && (observations?.candidates.length ?? 0) === 0) {
+    return Object.freeze({
+      status: 'unavailable',
+      reason: 'method-did-not-report-candidate-population',
+    })
+  }
   interface PopulationEntry {
     candidateDigest: Sha256Digest
     value: MutableSurface
@@ -170,6 +177,27 @@ function profileCandidatePopulation(
       selectionScores: graphCandidate.selectionScores.map((score) => ({ ...score })),
       discoveryEvaluationCount: graphCandidate.discoveryEvaluationCount,
     })
+  }
+
+  if (graph) {
+    const best = graph.candidates.find((candidate) => candidate.index === graph.bestIndex)
+    if (!best) {
+      throw new ConfigError(
+        `improve(): GEPA candidate population has no bestIndex node ${graph.bestIndex}`,
+      )
+    }
+    const verifiedBest = decodeExternalTextCandidate(best.candidate)
+    if (!isDeepStrictEqual(verifiedBest, winnerSurface)) {
+      throw new ConfigError(
+        'improve(): method winner does not equal the verified GEPA bestIndex candidate',
+      )
+    }
+  } else if (
+    ![...entries.values()].some((entry) => isDeepStrictEqual(entry.value, winnerSurface))
+  ) {
+    throw new ConfigError(
+      'improve(): method winner does not appear in the verified optimizer observations',
+    )
   }
 
   let materializedCandidates = 0
@@ -422,6 +450,7 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     score.provenance,
     profile,
     materializeProfile,
+    winnerSurface,
     optimizationRunOptions?.storage,
   )
 
