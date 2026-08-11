@@ -275,11 +275,15 @@ With `resume: 'if-compatible'`, agent-eval resumes only when the saved run ident
 Set `trustResumeState: true` only when that run directory is private to the current operator.
 Use `resume: 'required'` to fail when no matching run exists.
 `result.provenance` reports the upstream package, run ID, resume status, evaluation count, and artifact directory.
+`result.candidatePopulation` verifies and joins callback observations with an optimizer's official candidate graph.
+It returns every unique candidate as a complete profile with ordered Interface diffs, or as an explicit materialization refusal.
+GEPA candidates retain exact parent indices and selection scores; callback-only proposals report lineage as unavailable.
+Methods without either artifact return `status: 'unavailable'` instead of treating the winner as the full population.
 There is no local fallback.
 Install its optional Python process before using it:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.144.8"
+python -m pip install "agent-eval-rpc==0.144.12"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -293,7 +297,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.144.8"
+python -m pip install "agent-eval-rpc==0.144.12"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 

@@ -13,7 +13,7 @@ import type {
   SelfImproveOptions,
   SelfImproveResult,
 } from '@tangle-network/agent-eval/contract'
-import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import type { AgentProfile, AgentProfileDiff, Sha256Digest } from '@tangle-network/agent-interface'
 import type { AgenticGeneratorExecutorForWorktree, Verifier } from './agentic-generator'
 import type { CandidateGenerator } from './improvement-driver'
 import type { ReadonlyAgentProfile } from './profile-types'
@@ -233,6 +233,118 @@ export interface ImprovementProfileCandidate {
   profile: ReadonlyAgentProfile
 }
 
+/** Digest-addressed Eval artifact. */
+export interface ImprovementProfilePopulationArtifactSource {
+  path: string
+  sha256: Sha256Digest
+}
+
+/** Exact callback observation that introduced one optimizer candidate. */
+export interface ImprovementProfilePopulationObservationSource {
+  /** One-based JSONL line sequence in the verified observation artifact. */
+  proposalSequence: number
+  artifact: ImprovementProfilePopulationArtifactSource
+}
+
+/** One exact node from GEPA's accepted candidate graph. */
+export interface ImprovementProfilePopulationLineageNode {
+  index: number
+  parentIndices: readonly (number | null)[]
+  aggregateScore: number | null
+  selectionScores: readonly {
+    scenarioId: string
+    score: number
+  }[]
+  discoveryEvaluationCount: number
+}
+
+export type ImprovementProfilePopulationLineage =
+  | {
+      status: 'available'
+      artifact: ImprovementProfilePopulationArtifactSource
+      nodes: readonly ImprovementProfilePopulationLineageNode[]
+    }
+  | {
+      status: 'unavailable'
+      reason: 'optimizer-did-not-report-candidate-lineage'
+    }
+
+/** Every verified source associated with one unique optimizer candidate. */
+export interface ImprovementProfilePopulationCandidateSource {
+  /** Eval identity of the external text or component candidate. */
+  candidateDigest: Sha256Digest
+  /** Present when the candidate crossed the evaluation callback. */
+  observation?: ImprovementProfilePopulationObservationSource
+  /** Exact GEPA parents and scores, or an explicit statement that none were reported. */
+  lineage: ImprovementProfilePopulationLineage
+}
+
+/** A verified optimizer candidate that Runtime can express as an exact profile. */
+export interface ImprovementMaterializedProfilePopulationCandidate {
+  status: 'materialized'
+  source: ImprovementProfilePopulationCandidateSource
+  /** Exact optimizer surface decoded by Eval. */
+  value: MutableSurface
+  /** Interface identity of `value`. */
+  surfaceDigest: Sha256Digest
+  /** Exact complete profile produced by Runtime's configured materializer. */
+  profile: ReadonlyAgentProfile
+  /** Interface identity of `profile`. */
+  profileDigest: Sha256Digest
+  /** Ordered Interface diffs that reproduce `profile` from the baseline. */
+  diffs: readonly AgentProfileDiff[]
+  /** Interface identity of each entry in `diffs`. */
+  diffDigests: readonly Sha256Digest[]
+}
+
+/** A verified optimizer candidate that Runtime refused to materialize. */
+export interface ImprovementRefusedProfilePopulationCandidate {
+  status: 'refused'
+  source: ImprovementProfilePopulationCandidateSource
+  /** Exact optimizer surface decoded by Eval. */
+  value: MutableSurface
+  /** Interface identity of `value`. */
+  surfaceDigest: Sha256Digest
+  error: {
+    name: string
+    message: string
+  }
+}
+
+export type ImprovementProfilePopulationCandidate =
+  | ImprovementMaterializedProfilePopulationCandidate
+  | ImprovementRefusedProfilePopulationCandidate
+
+/** Complete verified population reported by one optimizer run. */
+export interface ImprovementProfileCandidatePopulationAvailable {
+  status: 'available'
+  source: {
+    observations?: ImprovementProfilePopulationArtifactSource
+    gepaCandidateGraph?: ImprovementProfilePopulationArtifactSource & {
+      bestIndex: number
+    }
+  }
+  /** Distinct candidate surfaces across all verified source artifacts. */
+  uniqueCandidates: number
+  /** Distinct candidate surfaces submitted through the evaluation callback. */
+  observedCandidates: number
+  /** Exact GEPA graph nodes. Multiple nodes can have the same candidate surface. */
+  gepaCandidateNodes: number
+  materializedCandidates: number
+  refusedCandidates: number
+  candidates: readonly ImprovementProfilePopulationCandidate[]
+}
+
+/** Explicit absence for methods that do not report candidate population evidence. */
+export interface ImprovementProfileCandidatePopulationUnavailable {
+  status: 'unavailable'
+  reason: 'method-did-not-report-candidate-population'
+}
+
+export type ImprovementProfileCandidatePopulation =
+  | ImprovementProfileCandidatePopulationAvailable
+  | ImprovementProfileCandidatePopulationUnavailable
+
 export interface ImprovementCodeCandidate {
   surface: 'code'
   value: MutableSurface
@@ -314,6 +426,8 @@ export interface ImproveMethodResult extends ImproveResultBase<ImprovementProfil
   decision: 'ship' | 'hold'
   lift: number
   liftInterval: { low: number; high: number }
+  /** Every distinct verified candidate, including explicit materialization refusals. */
+  candidatePopulation: ImprovementProfileCandidatePopulation
   raw: OptimizationMethodComparison
 }
 

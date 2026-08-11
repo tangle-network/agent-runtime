@@ -186,6 +186,11 @@ try {
         SandboxSizePreset,
         Sha256Digest,
       } from '@tangle-network/agent-interface'
+      import type {
+        ImproveMethodResult,
+        ImprovementProfileCandidatePopulation,
+        ImprovementProfilePopulationCandidateSource,
+      } from '@tangle-network/agent-runtime'
       import {
         driverAgent,
         type AgentProfileImprovementFixture,
@@ -239,6 +244,10 @@ try {
       declare const profileStateResolver: AgentImprovementProfileStateResolver
       declare const profileEvaluation: AgentImprovementEvaluation
       declare const activeProfile: AgentProfile
+      declare const improvementResult: ImproveMethodResult
+      const candidatePopulation: ImprovementProfileCandidatePopulation =
+        improvementResult.candidatePopulation
+      declare const populationCandidateSource: ImprovementProfilePopulationCandidateSource
       const proposalFixture: AgentImprovementProposal = loadAgentImprovementProposalFixture()
       const profileFixture: AgentProfileImprovementFixture =
         loadAgentProfileImprovementFixture()
@@ -333,6 +342,8 @@ try {
       void currentDigest
       void profileDiffs
       void profilePrepared
+      void candidatePopulation
+      void populationCandidateSource
       void proposalFixture
       void profileFixture
       void fixtureProfileExperimentDigest

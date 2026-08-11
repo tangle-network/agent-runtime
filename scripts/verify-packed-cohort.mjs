@@ -619,19 +619,13 @@ function assertSharedContractPeer(owner, dependency) {
   if (owner.packageJson.dependencies?.[dependency.name] !== undefined) {
     throw new Error(`${owner.name} must not nest ${dependency.name} as a runtime dependency`)
   }
-  assertVersion(
-    requiredPackedDevelopmentDependency(owner.packageJson, dependency.name),
-    dependency.version,
-    `${owner.name} development ${dependency.name}`,
-  )
+  // A required peer deliberately admits later compatible patches. Requiring every owner's
+  // development pin to equal the consumer-selected patch recreates the release lockstep that
+  // peer dependencies removed. The strict packed install below proves the selected version is
+  // admitted and resolves to one physical package; this check proves the owner's lower bound.
+  requiredPackedDevelopmentDependency(owner.packageJson, dependency.name)
   assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name)
   assertRequiredPeer(owner, dependency)
-}
-
-function assertVersion(actual, expected, label) {
-  if (actual !== expected) {
-    throw new Error(`${label} must be ${expected}, found ${String(actual)}`)
-  }
 }
 
 function assertCleanGitCheckout(sourceRepo, packageName) {
