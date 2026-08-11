@@ -22,8 +22,8 @@ catalogs:
       specifier: 0.46.1
       version: 0.46.1
     '@tangle-network/agent-knowledge':
-      specifier: 7.2.0
-      version: 7.2.0
+      specifier: 7.2.1
+      version: 7.2.1
     '@tangle-network/agent-profile-materialize':
       specifier: 0.13.1
       version: 0.13.1
@@ -58,7 +58,7 @@ importers:
         version: 0.5.4
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 7.2.0(@tangle-network/agent-eval@0.144.11)(@tangle-network/agent-interface@0.46.1)
+        version: 7.2.1(@tangle-network/agent-eval@0.144.11)(@tangle-network/agent-interface@0.46.1)
       '@tangle-network/agent-profile-materialize':
         specifier: 'catalog:'
         version: 0.13.1(@tangle-network/agent-interface@0.46.1)
@@ -134,7 +134,7 @@ importers:
         version: 0.46.1
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 7.2.0(@tangle-network/agent-eval@0.144.11)(@tangle-network/agent-interface@0.46.1)
+        version: 7.2.1(@tangle-network/agent-eval@0.144.11)(@tangle-network/agent-interface@0.46.1)
       '@tangle-network/agent-runtime':
         specifier: workspace:*
         version: link:..
@@ -1135,12 +1135,12 @@ packages:
   '@tangle-network/agent-interface@0.46.1':
     resolution: {integrity: sha512-6a3GRkDxS+r6Bmlu8y6LQpiVE20oCYPzE2opb5o+AZeDzRW5KemyxreyYIprjgKfDrvBTMo0tgvC2JB51Sl84w==}
 
-  '@tangle-network/agent-knowledge@7.2.0':
-    resolution: {integrity: sha512-DPpicRkEcRSd+5RBMmFg7uaoSQx4RpoTvrLo2Zm7m1NtDbQRKXgws/iaSPTWaOewUD5lI7OuJiXaBoLctGKn9g==}
+  '@tangle-network/agent-knowledge@7.2.1':
+    resolution: {integrity: sha512-0MSgFBBqYEtSoppne/tAkcCE2Akke5oFZhjWCDPSCWOvEV+wUALgRExO83OUUJJ65xWGZ0UamTI645PlagaodA==}
     engines: {node: '>=20.19.0'}
     hasBin: true
     peerDependencies:
-      '@tangle-network/agent-eval': '>=0.144.10 <0.145.0'
+      '@tangle-network/agent-eval': '>=0.144.11 <0.145.0'
       '@tangle-network/agent-interface': '>=0.46.1 <0.47.0'
 
   '@tangle-network/agent-profile-materialize@0.13.1':
@@ -3188,7 +3188,7 @@ snapshots:
       spdx-expression-parse: 5.0.0
       zod: 4.4.3
 
-  '@tangle-network/agent-knowledge@7.2.0(@tangle-network/agent-eval@0.144.11)(@tangle-network/agent-interface@0.46.1)':
+  '@tangle-network/agent-knowledge@7.2.1(@tangle-network/agent-eval@0.144.11)(@tangle-network/agent-interface@0.46.1)':
     dependencies:
       '@tangle-network/agent-eval': 0.144.11
       '@tangle-network/agent-interface': 0.46.1
