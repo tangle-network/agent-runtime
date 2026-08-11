@@ -8512,6 +8512,37 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ***
 
+### SpendGap
+
+One journaled node whose usage accounting is incomplete — the named gap behind a `false`
+`tokensKnown`/`usdKnown` on a terminal `spentTotal`. `never-settled`: the spawn is durable but
+no terminal record landed, so the whole subtree is unaccounted on every channel and
+`spentTotal` charges its budget ceiling instead of a fabricated zero. `unreported`: a settled
+or metered record landed without a complete provider receipt, so the summed numbers are a
+floor on the named channels, never the measured total.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### label?
+
+> `readonly` `optional` **label?**: `string`
+
+The spawn label, when the node's `spawned` event is in this journal tree.
+
+##### kind
+
+> `readonly` **kind**: `"never-settled"` \| `"unreported"`
+
+##### channels
+
+> `readonly` **channels**: readonly [`SpendChannel`](#spendchannel)[]
+
+***
+
 ### Driver
 
 **`Stable`**
@@ -11372,9 +11403,17 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ***
 
+### SpendChannel
+
+> **SpendChannel** = `"tokens"` \| `"usd"`
+
+The accounting channels a usage gap leaves incomplete.
+
+***
+
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -11388,7 +11427,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -11414,13 +11453,30 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 > **spentTotal**: [`Spend`](#spend)
 
+The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journal sums;
+ `ms` is the wall clock from supervise start (the ORIGINAL root instant on a resumed run)
+ to this terminal state — executors under-report their own `ms` and parallel children
+ overlap, so a per-event sum cannot state the run's real duration. `tokensKnown`/`usdKnown`
+ are always explicit here: `true` is the checked claim that every spawn reached a terminal
+ record and every settled/metered record carried a complete receipt on that channel;
+ `false` comes with the unaccounted nodes named in `spendGaps`.
+
+###### spendGaps?
+
+> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
+
+The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+ `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
+
 ###### spentBreakdown?
 
 > `optional` **spentBreakdown?**: `object`
 
 Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metered via
  `Scope.meter`); `childWork` = every spawned child's reconciled spend (the journal sum).
- `driverInference + childWork === spentTotal`. Present whenever any driver metered.
+ `driverInference + childWork === spentTotal` on `iterations`/`tokens`/`usd`; the
+ breakdown's `ms` fields stay executor-reported sums while `spentTotal.ms` is wall clock.
+ Present whenever any driver metered.
 
 ###### spentBreakdown.driverInference
 
@@ -11434,7 +11490,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error?`: `never`; \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
 
 ###### kind
 
@@ -11464,7 +11520,15 @@ BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the expl
 
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads.
+ off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
+ explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
+
+###### spendGaps?
+
+> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
+
+The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+ `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
 
 ###### error?
 
@@ -11477,7 +11541,7 @@ Never present on a lifecycle arm — the discriminant, not prose, is what makes
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 ###### kind
 
@@ -11507,7 +11571,15 @@ result; this arm is that configuration/authoring fault, named.
 
 The conserved spend incurred before the run failed — real cost is paid even when no
  worker delivers, so the caller always learns what the delegation actually spent. Summed
- off the same journal the `winner` path reads.
+ off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
+ explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
+
+###### spendGaps?
+
+> `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
+
+The journaled nodes whose usage accounting is incomplete — the named gaps behind a
+ `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty.
 
 ###### error
 

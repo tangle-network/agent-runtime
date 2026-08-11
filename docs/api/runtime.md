@@ -26093,6 +26093,18 @@ Re-exports [Spend](index.md#spend)
 
 ***
 
+### SpendChannel
+
+Re-exports [SpendChannel](index.md#spendchannel)
+
+***
+
+### SpendGap
+
+Re-exports [SpendGap](index.md#spendgap)
+
+***
+
 ### SupervisedResult
 
 Re-exports [SupervisedResult](index.md#supervisedresult)

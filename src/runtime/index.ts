@@ -880,6 +880,8 @@ export type {
   SpawnPrior,
   SpawnRejection,
   Spend,
+  SpendChannel,
+  SpendGap,
   SteerableRootHandle,
   SupervisedResult,
   Supervisor,
