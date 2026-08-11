@@ -586,17 +586,15 @@ function assertCohortPackageContracts({
   agentRuntime,
 }) {
   assertExactDependency(agentEval, agentInterface)
-  assertExactDependency(agentKnowledge, agentInterface)
-  assertExactDependency(agentKnowledge, agentEval)
   assertExactDependency(agentRuntime, agentKnowledge)
-  assertPeerMatchesDevelopmentDependency(agentRuntime.packageJson, agentInterface.name)
-  assertPeerMatchesDevelopmentDependency(agentRuntime.packageJson, agentEval.name)
+  assertSharedContractPeer(agentKnowledge, agentInterface)
+  assertSharedContractPeer(agentKnowledge, agentEval)
+  assertSharedContractPeer(agentRuntime, agentInterface)
+  assertSharedContractPeer(agentRuntime, agentEval)
   assertPeerMatchesDevelopmentDependency(
     agentRuntime.packageJson,
     '@tangle-network/sandbox',
   )
-  assertRequiredPeer(agentRuntime, agentInterface)
-  assertRequiredPeer(agentRuntime, agentEval)
 }
 
 function assertExactDependency(owner, dependency) {
@@ -614,6 +612,25 @@ function assertRequiredPeer(owner, dependency) {
   }
   if (owner.packageJson.peerDependenciesMeta?.[dependency.name]?.optional) {
     throw new Error(`${owner.name} cannot make ${dependency.name} optional`)
+  }
+}
+
+function assertSharedContractPeer(owner, dependency) {
+  if (owner.packageJson.dependencies?.[dependency.name] !== undefined) {
+    throw new Error(`${owner.name} must not nest ${dependency.name} as a runtime dependency`)
+  }
+  assertVersion(
+    requiredPackedDevelopmentDependency(owner.packageJson, dependency.name),
+    dependency.version,
+    `${owner.name} development ${dependency.name}`,
+  )
+  assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name)
+  assertRequiredPeer(owner, dependency)
+}
+
+function assertVersion(actual, expected, label) {
+  if (actual !== expected) {
+    throw new Error(`${label} must be ${expected}, found ${String(actual)}`)
   }
 }
 

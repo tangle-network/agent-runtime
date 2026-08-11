@@ -376,7 +376,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(events).toContainEqual({ kind: 'tokens', input: 10, output: 4 })
     const artifact = executor.resultArtifact()
     expect(artifact.out).toMatchObject({ content: 'final answer' })
-    expect(artifact.spent.tokens).toEqual({ input: 10, output: 4 })
+    expect(artifact.spent.tokens).toEqual({ input: 10, output: 4, cacheBreakdownKnown: false })
   })
 
   it('meters the same terminal OpenAI receipt through direct Router and bridge paths', async () => {
@@ -566,6 +566,53 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(out.promptCache).toEqual({ freshInput: 7 })
     expect(out.promptCache).not.toHaveProperty('readInput')
     expect(out.promptCache).not.toHaveProperty('writeInput')
+    expect(executor.resultArtifact().spent.tokens).toEqual({
+      input: 7,
+      output: 2,
+      freshInput: 7,
+      cacheBreakdownKnown: false,
+    })
+  })
+
+  it('normalizes the router Fireworks cache receipt into complete prompt classes', async () => {
+    const body = `data: ${JSON.stringify({
+      usage: {
+        prompt_tokens: 20,
+        completion_tokens: 3,
+        prompt_tokens_details: { cached_tokens: 7 },
+        prompt_cache: {
+          enabled: true,
+          status: 'read',
+          provider: 'fireworks',
+          request_mode: 'prompt_cache_key',
+          read_tokens: 7,
+          write_tokens: 0,
+        },
+      },
+    })}\n\ndata: [DONE]\n\n`
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(events).toContainEqual({
+      kind: 'tokens',
+      input: 20,
+      output: 3,
+      freshInput: 13,
+      cacheRead: 7,
+      cacheWrite: 0,
+    })
+    expect(executor.resultArtifact().spent.tokens).toEqual({
+      input: 20,
+      output: 3,
+      freshInput: 13,
+      cacheRead: 7,
+      cacheWrite: 0,
+    })
   })
 
   it('keeps dollar cost unknown when a later completed turn omits price', async () => {

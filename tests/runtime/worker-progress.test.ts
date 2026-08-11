@@ -106,7 +106,7 @@ describe('scope.progress — a running worker is observable without any executor
     expect(mid, 'no progress for a live worker').toBeDefined()
     expect(mid?.live).toBe(true)
     expect(mid?.status).toBe('running')
-    expect(mid?.tokens).toEqual({ input: 100, output: 20 })
+    expect(mid?.tokens).toEqual({ input: 100, output: 20, cacheBreakdownKnown: false })
     expect(mid?.turns).toBe(1)
     // No inbox on this leaf, so the driver is told plainly that a steer cannot land.
     expect(mid?.steerable).toBe(false)
@@ -117,10 +117,58 @@ describe('scope.progress — a running worker is observable without any executor
 
     const after = scope.progress(res.handle.id)
     expect(after?.live).toBe(false)
-    expect(after?.tokens).toEqual({ input: 150, output: 30 })
+    expect(after?.tokens).toEqual({ input: 150, output: 30, cacheBreakdownKnown: false })
     expect(after?.turns).toBe(2)
     // A finished worker is finished, never "stalled".
     expect(after?.stalled).toBe(false)
+  })
+
+  it('marks a streaming cache split unknown when its terminal receipt omits it', async () => {
+    const scope = scopeOf()
+    const ex: Executor<unknown> = {
+      runtime: 'router',
+      execute() {
+        return (async function* () {
+          yield {
+            kind: 'tokens',
+            input: 10,
+            output: 1,
+            freshInput: 3,
+            cacheRead: 7,
+            cacheWrite: 0,
+          } as UsageEvent
+          yield { kind: 'iteration' } as UsageEvent
+        })()
+      },
+      teardown: () => Promise.resolve({ destroyed: true }),
+      resultArtifact: (): ExecutorResult<unknown> => ({
+        outRef: 'w:terminal-omits-cache',
+        out: { done: true },
+        spent: { iterations: 1, tokens: { input: 10, output: 1 }, usd: 0, ms: 0 },
+      }),
+    }
+    const agent = {
+      name: 'terminal-omits-cache',
+      act: async () => 0,
+      executorSpec: {
+        profile: testAgentProfile('terminal-omits-cache'),
+        harness: null,
+        executor: ex,
+      },
+    } as Agent<unknown, unknown>
+    const res = scope.spawn(agent, 'go', { budget })
+    if (!res.ok) throw new Error('spawn failed')
+
+    await scope.next()
+
+    expect(scope.progress(res.handle.id)?.tokens).toEqual({
+      input: 10,
+      output: 1,
+      freshInput: 3,
+      cacheRead: 7,
+      cacheWrite: 0,
+      cacheBreakdownKnown: false,
+    })
   })
 
   it('derives stall from idle time at READ time — no watchdog, nothing killed', async () => {
@@ -245,7 +293,7 @@ describe('a GATED active worker stays fully observable mid-flight (BUG 1 + BUG 2
     expect(mid?.live).toBe(true)
     expect(mid?.status).toBe('running')
     // Scope layer — the foldStream fix: real spend before settle, not a zeroed row.
-    expect(mid?.tokens).toEqual({ input: 100, output: 20 })
+    expect(mid?.tokens).toEqual({ input: 100, output: 20, cacheBreakdownKnown: false })
     expect(mid?.turns).toBe(1)
     // Executor layer — the gate-forward fix: the harness's own activity survived the wrapper.
     expect(mid?.recentActivity?.length ?? 0).toBeGreaterThan(0)

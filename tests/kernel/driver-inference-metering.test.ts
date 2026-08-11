@@ -124,7 +124,11 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(result.kind).toBe('winner')
     if (result.kind !== 'winner') return
     expect(result.out).toBe(90)
-    expect(result.spentTotal.tokens).toEqual({ input: 10, output: 0 })
+    expect(result.spentTotal.tokens).toEqual({
+      input: 10,
+      output: 0,
+      cacheBreakdownKnown: false,
+    })
   })
 
   it('folds driver inference into spentTotal and exposes the driver-vs-child breakdown', async () => {
@@ -175,13 +179,25 @@ describe("driver inference metering — the driver's own tokens count against th
 
     // childWork = the worker's reconciled spend; driverInference = the 3 metered turns.
     expect(result.spentBreakdown).toBeDefined()
-    expect(result.spentBreakdown?.childWork.tokens).toEqual({ input: 10, output: 5 })
+    expect(result.spentBreakdown?.childWork.tokens).toEqual({
+      input: 10,
+      output: 5,
+      cacheBreakdownKnown: false,
+    })
     // Driver TOKENS + usd are metered; driver turns are NOT charged to the iteration channel.
-    expect(result.spentBreakdown?.driverInference.tokens).toEqual({ input: 210, output: 100 })
+    expect(result.spentBreakdown?.driverInference.tokens).toEqual({
+      input: 210,
+      output: 100,
+      cacheBreakdownKnown: false,
+    })
     expect(result.spentBreakdown?.driverInference.usd).toBeCloseTo(0.02, 6)
     expect(result.spentBreakdown?.driverInference.iterations).toBe(0)
     // spentTotal = child + driver — the driver's tokens are no longer invisible.
-    expect(result.spentTotal.tokens).toEqual({ input: 220, output: 105 })
+    expect(result.spentTotal.tokens).toEqual({
+      input: 220,
+      output: 105,
+      cacheBreakdownKnown: false,
+    })
     expect(result.spentTotal.usd).toBeCloseTo(0.02, 6)
     expect(result.spentTotal.iterations).toBe(1) // the worker's 1 iteration; driver turns aren't charged here
   })
@@ -287,9 +303,21 @@ describe("driver inference metering — the driver's own tokens count against th
     // childWork = the worker (10/5). driverInference = root (170/90, $0.02) + mid (100/65, $0.05) —
     // the mid sub-driver's inference re-homed up to the root tree, BOTH tokens AND usd. spentTotal = 280/160.
     expect(result.spentBreakdown?.driverInference.usd).toBeCloseTo(0.07, 6)
-    expect(result.spentBreakdown?.childWork.tokens).toEqual({ input: 10, output: 5 })
-    expect(result.spentBreakdown?.driverInference.tokens).toEqual({ input: 270, output: 155 })
-    expect(result.spentTotal.tokens).toEqual({ input: 280, output: 160 })
+    expect(result.spentBreakdown?.childWork.tokens).toEqual({
+      input: 10,
+      output: 5,
+      cacheBreakdownKnown: false,
+    })
+    expect(result.spentBreakdown?.driverInference.tokens).toEqual({
+      input: 270,
+      output: 155,
+      cacheBreakdownKnown: false,
+    })
+    expect(result.spentTotal.tokens).toEqual({
+      input: 280,
+      output: 160,
+      cacheBreakdownKnown: false,
+    })
   })
 
   it('re-homes a CRASHED sub-driver partial inference on the down path (pool and journal stay in agreement)', async () => {
@@ -376,7 +404,11 @@ describe("driver inference metering — the driver's own tokens count against th
         e.kind === 'metered' && e.id === 'crash:s0',
     )
     expect(subMetered.length).toBe(1)
-    expect(subMetered[0]!.spend.tokens).toEqual({ input: 40, output: 20 })
+    expect(subMetered[0]!.spend.tokens).toEqual({
+      input: 40,
+      output: 20,
+      cacheBreakdownKnown: false,
+    })
     // Before the down-path re-home, this event would be absent → the sub-driver's inference would
     // live in the pool but not the journal (a silent undercount). Now it's present.
   })
@@ -637,7 +669,13 @@ describe('equal-k ledger — trajectoryReport sums driver inference from the jou
     await journal.appendEvent('arm', {
       kind: 'metered',
       id: 'arm',
-      spend: { iterations: 0, tokens: { input: 210, output: 100 }, usd: 0.02, ms: 0 },
+      spend: {
+        iterations: 0,
+        tokens: { input: 210, output: 100 },
+        usd: 0.02,
+        usdKnown: false,
+        ms: 0,
+      },
       seq: 0,
       at,
     })
@@ -645,11 +683,22 @@ describe('equal-k ledger — trajectoryReport sums driver inference from the jou
     // trajectoryReport.total (→ equalKOnCost) now includes the driver inference by construction —
     // childWork (10/5) + driverInference (210/100) = 220/105 — matching SupervisedResult.spentTotal.
     const report = await trajectoryReport(journal, blobs, 'arm')
-    expect(report.total.tokens).toEqual({ input: 220, output: 105 })
+    expect(report.total.tokens).toEqual({
+      input: 220,
+      output: 105,
+      cacheBreakdownKnown: false,
+    })
     expect(report.total.usd).toBeCloseTo(0.02, 6)
+    // A journal aggregation must retain an unknown-dollar marker. Otherwise this exact lower
+    // bound reads as a measured total after replay.
+    expect(report.total.usdKnown).toBe(false)
     // The root node's ownSpend carries the inference; the worker node carries the child work.
     const rootNode = report.nodes.find((n) => n.id === 'arm')
-    expect(rootNode?.ownSpend.tokens).toEqual({ input: 210, output: 100 })
+    expect(rootNode?.ownSpend.tokens).toEqual({
+      input: 210,
+      output: 100,
+      cacheBreakdownKnown: false,
+    })
   })
 
   it('materializeTreeView folds metered driver inference onto node snapshots (resume fidelity)', () => {
@@ -688,16 +737,31 @@ describe('equal-k ledger — trajectoryReport sums driver inference from the jou
       {
         kind: 'metered',
         id: 'r',
-        spend: { iterations: 0, tokens: { input: 70, output: 30 }, usd: 0.01, ms: 0 },
+        spend: {
+          iterations: 0,
+          tokens: { input: 70, output: 30 },
+          usd: 0.01,
+          usdKnown: false,
+          ms: 0,
+        },
         seq: 0,
         at,
       },
     ])
     const root = view.nodes.find((n) => n.id === 'r')
-    expect(root?.spent.tokens).toEqual({ input: 70, output: 30 }) // metered folded onto the root node
+    expect(root?.spent.tokens).toEqual({
+      input: 70,
+      output: 30,
+      cacheBreakdownKnown: false,
+    }) // metered folded onto the root node
     expect(root?.spent.usd).toBeCloseTo(0.01, 6)
+    expect(root?.spent.usdKnown).toBe(false)
     const worker = view.nodes.find((n) => n.id === 'r:s0')
-    expect(worker?.spent.tokens).toEqual({ input: 10, output: 5 }) // settled child work intact
+    expect(worker?.spent.tokens).toEqual({
+      input: 10,
+      output: 5,
+      cacheBreakdownKnown: false,
+    }) // settled child work intact
   })
 })
 

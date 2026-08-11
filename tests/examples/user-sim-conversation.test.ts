@@ -77,7 +77,11 @@ describe('examples/graphs/user-sim-conversation — turns are traversals, the se
 
     // ── 4. Spend continuity: 3 turns × {12, 9} tokens and $0.25, all in the one pool ──
     if (res.result.kind === 'winner') {
-      expect(res.result.spentTotal.tokens).toEqual({ input: 36, output: 27 })
+      expect(res.result.spentTotal.tokens).toEqual({
+        input: 36,
+        output: 27,
+        cacheBreakdownKnown: false,
+      })
       expect(res.result.spentTotal.usd).toBe(0.75)
     }
   })

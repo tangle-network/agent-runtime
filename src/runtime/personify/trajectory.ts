@@ -31,7 +31,7 @@ import type {
   SpawnJournal,
   Spend,
 } from '../supervise/types'
-import { addTokenUsage, zeroTokenUsage } from '../util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import type {
   EqualKArm,
   EqualKOnCostOptions,
@@ -108,7 +108,7 @@ export async function trajectoryReport(
       continue
     }
     node.status = ev.status === 'done' ? 'done' : 'failed'
-    node.ownSpend = ev.spent
+    node.ownSpend = cloneSpend(ev.spent)
     node.verdict = ev.verdict
     node.outRef = ev.outRef
   }
@@ -293,10 +293,13 @@ function zeroSpend(): Spend {
 function addNodeSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
-    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    tokens: (() => {
+      const tokens = cloneTokenUsage(a.tokens)
+      addTokenUsage(tokens, b.tokens)
+      return tokens
+    })(),
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
-    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }
@@ -305,10 +308,9 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
 function cloneSpend(spend: Spend): Spend {
   return {
     iterations: spend.iterations,
-    tokens: { input: spend.tokens.input, output: spend.tokens.output },
+    tokens: cloneTokenUsage(spend.tokens),
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
-    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ms: spend.ms,
   }
@@ -320,7 +322,6 @@ function addSpend(acc: Spend, delta: Spend): void {
   addTokenUsage(acc.tokens, delta.tokens)
   if (delta.tokensKnown === false) acc.tokensKnown = false
   acc.usd += delta.usd
-  if (delta.tokensKnown === false) acc.tokensKnown = false
   if (delta.usdKnown === false) acc.usdKnown = false
   acc.ms += delta.ms
 }

@@ -170,10 +170,11 @@ try {
   const installedKnowledge = readJson(
     join(appDir, 'node_modules', '@tangle-network', 'agent-knowledge', 'package.json'),
   )
-  assertVersion(
-    installedKnowledge.dependencies?.['@tangle-network/agent-eval'],
-    agentEvalVersion,
-    'installed Agent Knowledge dependency on Agent Eval',
+  assertInstalledKnowledgeSharedPeer(installedKnowledge, '@tangle-network/agent-eval', agentEvalVersion)
+  assertInstalledKnowledgeSharedPeer(
+    installedKnowledge,
+    '@tangle-network/agent-interface',
+    workspaceAgentInterfaceVersion,
   )
   run(
     process.execPath,
@@ -312,6 +313,18 @@ function requiredPackedDependency(packageJson, packageName) {
     packageName,
     packageJson.name,
   )
+}
+
+function assertInstalledKnowledgeSharedPeer(packageJson, packageName, expectedVersion) {
+  if (packageJson.dependencies?.[packageName] !== undefined) {
+    throw new Error(`installed Agent Knowledge must not nest ${packageName} as a runtime dependency`)
+  }
+  assertVersion(
+    requiredPackedDevelopmentDependency(packageJson, packageName),
+    expectedVersion,
+    `installed Agent Knowledge development ${packageName}`,
+  )
+  assertPeerMatchesDevelopmentDependency(packageJson, packageName)
 }
 
 function assertVersion(actual, expected, label) {

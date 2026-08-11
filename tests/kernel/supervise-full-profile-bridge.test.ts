@@ -740,7 +740,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(worker.resources?.files?.[0]?.path).toBe('protocol.txt')
     expect(worker.mcp?.['agent-runtime-coordination']).toBeUndefined()
     expect(requests.every((request) => request.messages[0]?.role === 'user')).toBe(true)
-    expect(result.spentTotal.tokens).toEqual({ input: 33, output: 21 })
+    expect(result.spentTotal.tokens).toEqual({
+      input: 33,
+      output: 21,
+      cacheBreakdownKnown: false,
+    })
     expect(result.spentTotal.iterations).toBe(1)
     expect(authorizations).toEqual([
       {

@@ -137,11 +137,61 @@ export function zeroTokenUsage(): LoopTokenUsage {
   return { input: 0, output: 0 }
 }
 
-/** Add the observed subtotal into `acc`; incompleteness is sticky. */
+/** Copy a token subtotal without dropping optional provider cache telemetry. */
+export function cloneTokenUsage(usage: LoopTokenUsage): LoopTokenUsage {
+  const cacheBreakdownUnknown =
+    usage.cacheBreakdownKnown === false || (usage.input > 0 && !hasClassifiedCacheBreakdown(usage))
+  return {
+    input: usage.input,
+    output: usage.output,
+    ...(usage.tokensKnown === false ? { tokensKnown: false as const } : {}),
+    ...(usage.freshInput !== undefined ? { freshInput: usage.freshInput } : {}),
+    ...(usage.cacheRead !== undefined ? { cacheRead: usage.cacheRead } : {}),
+    ...(usage.cacheWrite !== undefined ? { cacheWrite: usage.cacheWrite } : {}),
+    ...(cacheBreakdownUnknown ? { cacheBreakdownKnown: false as const } : {}),
+  }
+}
+
+/** True only when every positive prompt token has a consistent cache classification. */
+export function hasCompleteCacheBreakdown(usage: LoopTokenUsage): boolean {
+  if (usage.cacheBreakdownKnown === false) return false
+  return hasClassifiedCacheBreakdown(usage)
+}
+
+function hasClassifiedCacheBreakdown(usage: LoopTokenUsage): boolean {
+  if (usage.input === 0) return true
+  if (
+    usage.freshInput === undefined ||
+    usage.cacheRead === undefined ||
+    usage.cacheWrite === undefined
+  ) {
+    return false
+  }
+  return usage.freshInput + usage.cacheRead + usage.cacheWrite === usage.input
+}
+
+/** Add the observed subtotal into `acc`; token and cache incompleteness are sticky. */
 export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage>): void {
   acc.input += delta.input ?? 0
   acc.output += delta.output ?? 0
   if (delta.tokensKnown === false) acc.tokensKnown = false
+
+  if (delta.freshInput !== undefined) acc.freshInput = (acc.freshInput ?? 0) + delta.freshInput
+  if (delta.cacheRead !== undefined) acc.cacheRead = (acc.cacheRead ?? 0) + delta.cacheRead
+  if (delta.cacheWrite !== undefined) acc.cacheWrite = (acc.cacheWrite ?? 0) + delta.cacheWrite
+
+  const input = delta.input ?? 0
+  const classified =
+    delta.freshInput !== undefined &&
+    delta.cacheRead !== undefined &&
+    delta.cacheWrite !== undefined &&
+    delta.freshInput + delta.cacheRead + delta.cacheWrite === input
+  // A provider that reports prompt input without all three classes leaves the
+  // split unknown. Do not let an earlier complete turn make the aggregate look
+  // complete after a later unclassified positive-input turn.
+  if (delta.cacheBreakdownKnown === false || (input > 0 && !classified)) {
+    acc.cacheBreakdownKnown = false
+  }
 }
 
 /**

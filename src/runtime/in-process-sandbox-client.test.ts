@@ -49,7 +49,7 @@ describe('inProcessSandboxClient', () => {
 
     expect(result.iterations[0]?.output).toBe('echo:hello')
     // The llm_call event the callback emitted is metered by the kernel.
-    expect(result.tokenUsage).toEqual({ input: 10, output: 5 })
+    expect(result.tokenUsage).toEqual({ input: 10, output: 5, cacheBreakdownKnown: false })
     expect(result.costUsd).toBeCloseTo(0.001, 6)
   })
 

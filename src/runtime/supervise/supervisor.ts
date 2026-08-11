@@ -42,6 +42,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
 import { runTree } from './finalizer'
@@ -1194,8 +1195,8 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
 } {
-  const childWork: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
-  const driverInference: Spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  const childWork: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  const driverInference: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
   for (const ev of events) {
     if (ev.kind === 'settled') accumulate(childWork, ev.spent)
     else if (ev.kind === 'metered') accumulate(driverInference, ev.spend)
@@ -1206,8 +1207,7 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
 /** Add `b` into `a` in place, per channel. */
 function accumulate(a: Spend, b: Spend): void {
   a.iterations += b.iterations
-  a.tokens.input += b.tokens.input
-  a.tokens.output += b.tokens.output
+  addTokenUsage(a.tokens, b.tokens)
   if (b.tokensKnown === false) a.tokensKnown = false
   a.usd += b.usd
   if (b.usdKnown === false) a.usdKnown = false
@@ -1219,7 +1219,11 @@ function accumulate(a: Spend, b: Spend): void {
 function addSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
-    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    tokens: (() => {
+      const tokens = cloneTokenUsage(a.tokens)
+      addTokenUsage(tokens, b.tokens)
+      return tokens
+    })(),
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),

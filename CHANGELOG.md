@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.131.7
+
+- Add `superviseDispatch(...)` so `agent-eval` profile matrices admit and record a recursive Runtime tree before it spends.
+- Refuse a one-model Eval receipt when a supervised tree has mixed or unknown model identities.
+- Preserve complete prompt cache read/write telemetry through bridge, supervisor, journal, and Eval cost receipts.
+- Keep partial cache telemetry and missing token receipts explicit instead of treating them as zero.
+- Consume Agent Eval 0.144.10 and Agent Knowledge 7.2.0.
+
 ## 0.131.6
 
 - Consume Agent Eval 0.144.8 and Agent Knowledge 7.1.3 as one exact dependency set.

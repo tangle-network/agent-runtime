@@ -931,7 +931,11 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
     )
 
-    expect(result.spentTotal.tokens).toEqual({ input: 10, output: 5 })
+    expect(result.spentTotal.tokens).toEqual({
+      input: 10,
+      output: 5,
+      cacheBreakdownKnown: false,
+    })
     expect(result.spentTotal.usd).toBe(0.02)
     expect(turns).toHaveLength(1)
     expect(turns[0]).toMatchObject({
