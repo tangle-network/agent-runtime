@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "type": "module",
   "description": "Benchmark adapters and execution for agent-runtime across coding, tool-use, RAG, memory, browser, and terminal tasks.",
   "repository": {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.132.4
+
+- Consume Agent Eval 0.144.13 and Agent Knowledge 7.2.2 as one compatible dependency set.
+
 ## 0.132.1
 
 - Add `candidatePopulation` to `improve(...)` results so consumers can inspect every verified optimizer candidate, including its exact profile, Interface diffs, parent lineage, and selection score.

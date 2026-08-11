@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.132.1` and `@tangle-network/agent-eval@0.144.12` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.132.4` and `@tangle-network/agent-eval@0.144.13` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1498,35 +1498,22 @@ The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authe
 
 ### JUDGE — LLM-as-judge, panels, calibration
 
-Import from `@tangle-network/agent-eval` — 26 exports.
+Import from `@tangle-network/agent-eval` — 12 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `cachedJudge` | function | Wrap a `JudgeConfig` so repeat judgments of the same artifact are served |
 | `calibrateJudge` | function | Measure judge quality against human gold labels: computes Cohen's κ, Pearson correlation, and MAE over matched item ids. |
-| `compilerJudge` | function | Build a `SandboxJudgeSpec` that scores whether the harness compiles without errors. |
-| `contractJudge` | function | Adapt trace contracts to a campaign `JudgeConfig`. One judge dimension per |
 | `createAntiSlopJudge` | function | Create a reusable Judge function from an anti-slop config. |
-| `createIntentMatchJudge` | function | Factory: pin LLM options once, return a closure. |
-| `createReferenceEquivalenceJudge` | function | Build the campaign-native expected-answer judge. |
-| `createSemanticConceptJudge` | function | Factory: pin LLM options once, return a closure that accepts inputs. |
 | `ensembleJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` runs every panel |
+| `judgeAgreementView` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `judgeFamily` | function | Classify a model id into its provider family. Strips a `@snapshot` suffix |
-| `judgeReplayGate` | function | Confirm a candidate's win with a stronger judge: score baseline and candidate outputs independently, then bootstrap a CI to verify the lift generalises beyond the inner loop. |
 | `judgeSpans` | function | Query judge-kind spans from the trace store, optionally scoped to a single run. |
-| `linterJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by linter rule violations. |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
-| `replayTraceThroughJudge` | function | Apply a judge function to every LLM span in a run and record the |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
-| `runReferenceEquivalenceJudge` | function | Direct-call adapter over the campaign judge for product callers. |
 | `runSemanticConceptJudge` | function | Run the semantic concept judge. Soft-fails to available=false on |
-| `securityJudge` | function | Build a `SandboxJudgeSpec` that scores the harness output for security issues via a security scanner. |
-| `testJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by its test-suite pass rate. |
-| `traceJudge` | function | Wrap a single JudgeFn so its LLM call emits a traced span. |
-| `CachedJudge` | type | The wrapped judge: same `JudgeConfig` seam, plus hit/miss observability. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`, `JudgeConfig`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`.
 
 ### AUTHENTICITY — is-this-real / anti-Goodhart gate
 
@@ -1546,15 +1533,13 @@ Import from `@tangle-network/agent-eval/authenticity` — 14 exports.
 
 ### VERIFICATION — multi-layer verifier + semantic grading
 
-Import from `@tangle-network/agent-eval` — 10 exports.
+Import from `@tangle-network/agent-eval` — 8 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `gradeSemanticStatus` | function | Grade a semantic-concept-style judge result into a single layer status. |
 | `verifyAgentProfileCell` | function | Verify an `AgentProfileCell`'s `cellId` matches the sha256 of its hash-material fields, confirming the record has not been tampered with. |
-| `verifyAttestation` | function | Verify a report against its attestation. Returns a typed outcome rather |
 | `verifyCompletion` | function | Verify whether a run completed the task. `checkCorrectness` is injected — |
-| `verifyManifest` | function | Verify that a signed manifest has not been tampered with. |
 | `MultiLayerVerifier` | class | Ordered DAG of verification layers with dependency-based skipping, per-layer findings, soft-fail semantics, and a blended composite score across all passed layers. |
 | `VerificationReport` | interface | Extends the substrate verdict spine: `valid` = `allPass`; `score` is the |
 
@@ -1562,7 +1547,7 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 
 ### STATISTICS — significance, intervals, effect size
 
-Import from `@tangle-network/agent-eval` — 61 exports.
+Import from `@tangle-network/agent-eval` — 58 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1584,7 +1569,6 @@ Import from `@tangle-network/agent-eval` — 61 exports.
 | `pairedBinaryScale` | function | The common positive level `s` such that EVERY value across both paired arms is |
 | `pairedBootstrap` | function | Paired bootstrap on (after − before) deltas. Returns a CI on the chosen |
 | `pairedCohensDz` | function | Cohen's dz for paired observations: mean(after - before) divided by the |
-| `pairedDecisionShape` | function | Which estimator {@link decidePairedPromotion} would use on this data, and the |
 | `pairedDeltaTest` | function | Tests whether a paired candidate-minus-baseline delta clears a threshold. |
 | `pairedDeltaTieFraction` | function | Fraction of paired observations whose delta is an exact tie (\|after − before\| |
 | `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
@@ -1604,7 +1588,6 @@ Import from `@tangle-network/agent-eval` — 61 exports.
 | `weightedMean` | function | Weighted mean — falls back to uniform weights when omitted |
 | `wilcoxonSignedRank` | function | Wilcoxon signed-rank — paired, no distributional assumption on the deltas. |
 | `wilson` | function | Wilson score interval for a binomial proportion. Correct at small n and near |
-| `normalizeScores` | const | Identity: dimensions already follow "higher = better" by prompt convention |
 | `ExactRiskDifferenceResult` | interface | A paired binary effect size with an EXACT interval and the exact test that |
 | `McNemarResult` | interface | Result of a McNemar paired-binary significance test. |
 | `PairedMcNemarEvidence` | interface | McNemar's exact paired-binary evidence, on the two-point path only. |
@@ -1612,7 +1595,7 @@ Import from `@tangle-network/agent-eval` — 61 exports.
 | `RiskDifferenceResult` | interface | A paired binary effect size (treatment rate − control rate) with a CI. |
 | `ScoreRiskDifferenceResult` | interface | A paired binary effect size with an interval that is valid at a NONZERO |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `ClusterBootstrapInterval`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
@@ -1808,12 +1791,11 @@ Import from `@tangle-network/agent-eval/campaign` — 363 exports.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 
-Import from `@tangle-network/agent-eval` — 5 exports.
+Import from `@tangle-network/agent-eval` — 3 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `extractUsage` | function | Pull `{ input, output, cached?, cacheWrite? }` from a parsed response |
-| `extractUsageFromResponse` | function | Extract usage from an HTTP `Response` without consuming the caller's body: |
 | `extractUsageFromSse` | function | Extract token usage from a complete SSE response body using the shared SSE |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `LlmUsage`, `RunTokenUsage`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `RunTokenUsage`.
