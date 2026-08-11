@@ -211,6 +211,8 @@ export type {
   Scope,
   Settled,
   Spend,
+  SpendChannel,
+  SpendGap,
   SupervisedResult,
   Supervisor,
   SupervisorFinalizer,

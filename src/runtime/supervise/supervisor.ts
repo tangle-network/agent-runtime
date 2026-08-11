@@ -59,6 +59,7 @@ import type {
   Agent,
   Budget,
   ExecutionBindingReceipt,
+  NodeId,
   NoWinnerError,
   ProfileMaterializationReceipt,
   ResumedKeyState,
@@ -69,6 +70,8 @@ import type {
   SpawnEvent,
   SpawnJournal,
   Spend,
+  SpendChannel,
+  SpendGap,
   SteerableRootHandle,
   SupervisedResult,
   Supervisor,
@@ -287,14 +290,21 @@ function assertRootIdentity(opts: SupervisorOpts): void {
   }
 }
 
-function rootDeadline(root: SpawnedEvent): number {
+/** The instant the run's root was journaled — the anchor for both the absolute deadline and the
+ *  terminal wall-clock `ms`, so a resumed run measures from its ORIGINAL start, not this
+ *  process's. */
+function rootStartedAtMs(root: SpawnedEvent): number {
   const startedAt = Date.parse(root.at)
   if (!Number.isFinite(startedAt)) {
     throw new RuntimeRunStateError(
       `supervisor: root event for '${root.id}' has an invalid timestamp '${root.at}'`,
     )
   }
-  return startedAt + (root.budget.deadlineMs ?? 0)
+  return startedAt
+}
+
+function rootDeadline(root: SpawnedEvent): number {
+  return rootStartedAtMs(root) + (root.budget.deadlineMs ?? 0)
 }
 
 /** Child reservations whose spawn was durable but whose terminal record never landed. */
@@ -459,8 +469,12 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       const resuming = prior !== undefined && prior.length > 0
       let resumeFrom: ResumeFrom | undefined
       let pool: BudgetPool
+      // The instant terminal wall-clock `ms` measures from. A resumed run anchors to the ORIGINAL
+      // root instant (the same anchor the absolute deadline uses), so its duration spans processes.
+      let runEpochMs = runStartedAtMs
       if (resuming) {
         const rootEvent = assertResumeContract(prior, opts)
+        runEpochMs = rootStartedAtMs(rootEvent)
         const measured = sumMeasuredSpendFromEvents(prior)
         const uncertainReservations = uncertainSpawnBudgets(prior)
         pool = createBudgetPool(opts.budget, now, {
@@ -725,13 +739,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
           // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
           // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
-          const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+          const { spentTotal, childWork, driverInference, gaps } = await terminalAccounting(
+            journal,
+            opts.runId,
+            now() - runEpochMs,
+          )
           return {
             kind: 'winner',
             out,
             outRef,
             tree,
-            spentTotal: addSpend(childWork, driverInference),
+            spentTotal,
+            ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
             ...(isNonEmptySpend(driverInference)
               ? { spentBreakdown: { driverInference, childWork } }
               : {}),
@@ -750,12 +769,17 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
       // summed off the SAME journal the winner path reads — the caller always learns the cost.
       async function noWinner(rejection?: DriverRejection): Promise<SupervisedResult<Out>> {
-        const { childWork, driverInference } = await spentFromJournal(journal, opts.runId)
+        const { spentTotal, gaps } = await terminalAccounting(
+          journal,
+          opts.runId,
+          now() - runEpochMs,
+        )
         const common = {
           kind: 'no-winner' as const,
           tree,
           downCount: breaker.downCount(),
-          spentTotal: addSpend(childWork, driverInference),
+          spentTotal,
+          ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
         // proven one ends it. `undefined` means the supervisor's own state explains nothing.
@@ -1146,23 +1170,101 @@ function poolExhausted(pool: BudgetPool, opts: SupervisorOpts): boolean {
 }
 
 /**
- * Sum the conserved spend over every journaled `settled` event — the honest per-channel
- * total (input/output/usd/iterations all preserved), read off the same evidence replay
- * reads. Computed AFTER the join barrier so every child's settlement is recorded. Fails
- * loud if the tree was never journaled (the supervisor always `beginTree`s, so a missing
- * tree is a corrupted journal, not a normal path).
+ * The run's terminal accounting, read off the one journal ledger — the honest per-channel
+ * sums (input/output/usd/iterations all preserved), the named usage gaps, and the wall-clock
+ * duration stamped onto `spentTotal.ms`. Computed AFTER the join barrier so every child's
+ * settlement is recorded. Fails loud if the tree was never journaled (the supervisor always
+ * `beginTree`s, so a missing tree is a corrupted journal, not a normal path).
+ *
+ * `spentTotal.ms` is `elapsedMs`, never the per-event sum: executors under-report their own
+ * `ms` (most stamp 0) and parallel children overlap, so the sum cannot state the run's real
+ * duration. The breakdown keeps the executor-reported sums.
+ *
+ * `tokensKnown`/`usdKnown` are stamped explicitly on the terminal total: `true` is a checked
+ * claim (every spawn reached a terminal record AND every settled/metered record carried a
+ * complete receipt on that channel), never the absence of bad news. The conjunction with the
+ * summed flags is deliberately redundant — a future divergence between the sum and the gap
+ * scan can only make the claim more conservative, never falsely `true`.
  */
-async function spentFromJournal(
+async function terminalAccounting(
   journal: SpawnJournal,
   root: string,
-): Promise<{ childWork: Spend; driverInference: Spend }> {
+  elapsedMs: number,
+): Promise<{ spentTotal: Spend; childWork: Spend; driverInference: Spend; gaps: SpendGap[] }> {
   const events = await journal.loadTree(root)
   if (events === undefined) {
     throw new RuntimeRunStateError(
       `supervisor: spawn tree '${root}' is missing from the journal after run (corrupted log)`,
     )
   }
-  return sumSpendFromEvents(events)
+  const { childWork, driverInference } = sumSpendFromEvents(events)
+  const gaps = spendGapsFromEvents(events)
+  const summed = addSpend(childWork, driverInference)
+  const spentTotal: Spend = {
+    ...summed,
+    ms: Math.max(0, elapsedMs),
+    tokensKnown:
+      summed.tokensKnown !== false && !gaps.some((gap) => gap.channels.includes('tokens')),
+    usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
+  }
+  return { spentTotal, childWork, driverInference, gaps }
+}
+
+/** The journaled nodes whose usage accounting is incomplete — one `SpendGap` per node+kind,
+ *  channels merged. A spawn with no terminal record (`settled`/`cancelled`/`woken`) is
+ *  unaccounted on every channel; a settled or metered record that flags a channel unknown is
+ *  a floor on that channel. The root's own spawned event is exempt: its terminal state is the
+ *  result this list rides on. */
+function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
+  const labels = new Map<NodeId, string>()
+  const terminal = new Set<NodeId>()
+  for (const ev of events) {
+    if (ev.kind === 'spawned') labels.set(ev.id, ev.label)
+    else if (ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken') {
+      terminal.add(ev.id)
+    }
+  }
+  const gaps = new Map<
+    string,
+    { id: NodeId; kind: SpendGap['kind']; channels: Set<SpendChannel> }
+  >()
+  const record = (
+    id: NodeId,
+    kind: SpendGap['kind'],
+    channels: ReadonlyArray<SpendChannel>,
+  ): void => {
+    if (channels.length === 0) return
+    const key = `${kind}:${id}`
+    const existing = gaps.get(key)
+    if (existing !== undefined) for (const channel of channels) existing.channels.add(channel)
+    else gaps.set(key, { id, kind, channels: new Set(channels) })
+  }
+  for (const ev of events) {
+    if (ev.kind === 'spawned' && ev.parent !== undefined && !terminal.has(ev.id)) {
+      record(ev.id, 'never-settled', ['tokens', 'usd'])
+    } else if (ev.kind === 'settled') {
+      record(ev.id, 'unreported', unknownChannels(ev.spent))
+    } else if (ev.kind === 'metered') {
+      record(ev.id, 'unreported', unknownChannels(ev.spend))
+    }
+  }
+  return [...gaps.values()].map((gap) => {
+    const label = labels.get(gap.id)
+    return {
+      id: gap.id,
+      ...(label !== undefined ? { label } : {}),
+      kind: gap.kind,
+      channels: [...gap.channels],
+    }
+  })
+}
+
+/** The channels a single spend record explicitly marks incomplete. */
+function unknownChannels(spend: Spend): SpendChannel[] {
+  const channels: SpendChannel[] = []
+  if (spend.tokensKnown === false) channels.push('tokens')
+  if (spend.usdKnown === false) channels.push('usd')
+  return channels
 }
 
 /** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled);

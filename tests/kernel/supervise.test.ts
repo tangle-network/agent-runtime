@@ -2006,6 +2006,177 @@ describe('lifecycle hook stream (the topology viewer source)', () => {
   })
 })
 
+describe('supervisor: terminal accounting — wall-clock ms, explicit known flags, named gaps', () => {
+  it('spentTotal.ms is the wall clock from supervise start to the terminal state', async () => {
+    // Executors report their own `ms` as 0 (the mock leaf does, like most real executors), so a
+    // per-event sum states 0 for a run that took real time. The terminal total must state the
+    // run's elapsed wall clock instead.
+    let t = 1_000
+    const supervisor = createSupervisor<unknown, unknown>()
+    const result = await supervisor.run(
+      {
+        name: 'timed-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(leafAgent('worker', { out: 'w', events: tokensOnly(5, 5, 1) }), task, {
+            budget: { maxIterations: 1, maxTokens: 1000 },
+            label: 'worker',
+          })
+          while ((await scope.next()) !== null) {
+            // drain to settlement
+          }
+          t += 12_345
+          return 'w'
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'wall-clock-winner', now: () => t }),
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.spentTotal.ms).toBe(12_345)
+  })
+
+  it('a no-winner carries the wall clock too — a failed run still has a real duration', async () => {
+    let t = 0
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'failing-driver',
+        async act(): Promise<unknown> {
+          t += 777
+          throw new Error('driver exploded')
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'wall-clock-no-winner', now: () => t }),
+    )
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    expect(result.spentTotal.ms).toBe(777)
+  })
+
+  it('tokensKnown/usdKnown are explicitly true when every child settled with a complete receipt', async () => {
+    const result = await createSupervisor<unknown, unknown>().run(
+      flatHarness([
+        {
+          name: 'a',
+          script: { out: 'a', events: tokensOnly(10, 10, 1), verdict: { valid: true, score: 0.9 } },
+        },
+        {
+          name: 'b',
+          script: { out: 'b', events: tokensOnly(5, 5, 1), verdict: { valid: true, score: 0.3 } },
+        },
+      ]),
+      'task',
+      supervisorOpts({ runId: 'complete-receipts' }),
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.spentTotal.tokensKnown).toBe(true)
+    expect(result.spentTotal.usdKnown).toBe(true)
+    expect(result.spendGaps).toBeUndefined()
+  })
+
+  it('a child that died before reporting keeps tokensKnown false AND is named in spendGaps', async () => {
+    const result = await createSupervisor<unknown, unknown>().run(
+      flatHarness([
+        {
+          name: 'good',
+          script: {
+            out: 'good',
+            events: tokensOnly(10, 10, 1),
+            verdict: { valid: true, score: 0.8 },
+          },
+        },
+        { name: 'silent', script: { out: null, events: [], failWith: 'died before usage report' } },
+      ]),
+      'task',
+      supervisorOpts({ runId: 'unreported-child' }),
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    expect(result.spentTotal.tokensKnown).toBe(false)
+    expect(result.spentTotal.usdKnown).toBe(false)
+    const gaps = result.spendGaps ?? []
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0]).toMatchObject({ label: 'silent', kind: 'unreported' })
+    expect(gaps[0]?.channels).toEqual(expect.arrayContaining(['tokens', 'usd']))
+    expect(gaps[0]?.id).toMatch(/^unreported-child:s\d+$/)
+  })
+
+  it('a resumed in-doubt spawn is a named never-settled gap charged at its ceiling, never a fabricated zero', async () => {
+    const journal = new InMemorySpawnJournal()
+    const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
+    const runId = 'in-doubt-resume'
+    const rootIdentity = {
+      profileDigest: `sha256:${'7'.repeat(64)}` as const,
+      taskDigest: `sha256:${'8'.repeat(64)}` as const,
+    }
+    let t = 0
+    const first = await createSupervisor<unknown, unknown>().run(
+      { name: 'first', act: async () => 'first' },
+      'task',
+      {
+        budget,
+        rootIdentity,
+        runId,
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+        now: () => t,
+      },
+    )
+    expect(first.kind).toBe('winner')
+    // A durable child spawn with no terminal record: the process died with it in flight.
+    await journal.appendEvent(runId, {
+      kind: 'spawned',
+      id: `${runId}:s0`,
+      parent: runId,
+      label: 'lost-child',
+      budget: { maxIterations: 1, maxTokens: 1000 },
+      runtime: 'router',
+      seq: 0,
+      at: new Date(0).toISOString(),
+    })
+    const result = await createSupervisor<unknown, unknown>().run(
+      {
+        name: 'resumer',
+        async act(): Promise<unknown> {
+          t += 50
+          return 'resumed'
+        },
+      },
+      'task',
+      {
+        budget,
+        rootIdentity,
+        runId,
+        journal,
+        blobs: new InMemoryResultBlobStore(),
+        executors: createExecutorRegistry(),
+        resume: true,
+        now: () => t,
+      },
+    )
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    // The unaccounted subtree is charged at its reserved ceiling — never rendered as a free zero.
+    expect(result.spentTotal.tokens.input).toBe(1000)
+    expect(result.spentTotal.tokensKnown).toBe(false)
+    expect(result.spentTotal.usdKnown).toBe(false)
+    expect(result.spendGaps).toEqual([
+      {
+        id: `${runId}:s0`,
+        label: 'lost-child',
+        kind: 'never-settled',
+        channels: ['tokens', 'usd'],
+      },
+    ])
+    // Wall clock anchors to the ORIGINAL root instant recorded in the journal, not this process.
+    expect(result.spentTotal.ms).toBe(50)
+  })
+})
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
