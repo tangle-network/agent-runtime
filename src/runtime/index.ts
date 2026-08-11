@@ -944,6 +944,7 @@ export {
   type WorkerTraceResolver,
   type WorkerTraceSeamCarrier,
   workerTraceEnv,
+  workerTraceHeaders,
   workerTraceSeamKey,
 } from './supervise/worker-trace'
 // The worktree-CLI leaf executor: a supervisor-authored AgentProfile (systemPrompt + model)

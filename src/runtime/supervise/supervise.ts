@@ -200,8 +200,8 @@ function externalExecutionId(kind: string, identity: unknown): string {
  * The `trace-unpropagated` declaration for a worker backend, or `undefined` when the backend HAS a
  * propagation channel. The census (`WORKER_TRACE_PROPAGATION`) says WHETHER a backend propagates;
  * this maps the non-propagating arms to WHY: `router`/`router-tools`/`provider` have no worker
- * process to inherit an environment, `bridge`/`cli-worktree` have a worker but no environment
- * channel through their transport.
+ * process to inherit an environment, `cli-worktree` has a worker but no environment channel
+ * through its transport.
  */
 function workerTraceUnpropagatedDeclaration(
   backend: ExecutorConfig['backend'],
