@@ -344,6 +344,21 @@ export {
   type ResolveSandboxClientOptions,
   resolveSandboxClient,
 } from './resolve-sandbox-client'
+export {
+  type NativeContextContinuationExecution,
+  type NativeContextContinuationInput,
+  type ReconnectRetainedRunOptions,
+  type RetainedRunCancellation,
+  type RetainedRunCancelOptions,
+  type RetainedRunEffect,
+  type RetainedRunEventOptions,
+  type RetainedRunHandle,
+  type RetainedRunReplayPoint,
+  type RetainedRunSnapshot,
+  reconnectRetainedRun,
+  type StartRetainedRunOptions,
+  startRetainedRun,
+} from './retained-run'
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the
 // endpoint/auth transport used by that path.

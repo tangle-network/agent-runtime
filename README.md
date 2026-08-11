@@ -14,6 +14,7 @@ pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-networ
 - [Quickstart](#quickstart-offline-no-api-keys)
 - [What you do with it](#what-you-do-with-it)
 - [Run a chat turn](#run-a-chat-turn)
+- [Retain and reconnect a run](#retain-and-reconnect-a-run)
 - [Supervise a team of agents](#supervise-a-team-of-agents)
 - [Improve an agent](#improve-an-agent)
 - [Improve a knowledge base](#improve-a-knowledge-base)
@@ -114,6 +115,42 @@ return new Response(result.body, { headers: { 'content-type': result.contentType
 
 For a stream reconnect, call `streamPrompt` with the same `executionId` and the last event id the client received.
 For a repeated initial dispatch, reuse both `sessionId` and `turnId`; `executionId` alone is not an idempotency key.
+
+### Retain and reconnect a run
+
+Use the retained-run API when the provider owns a job that must outlive one HTTP reader or application process.
+The provider must advertise exact run identity, replay, result identity, and idempotent cancellation.
+
+```ts
+import { reconnectRetainedRun, startRetainedRun } from '@tangle-network/agent-runtime'
+
+const run = await startRetainedRun({
+  provider,
+  environment: { idempotencyKey: 'workspace-42', profile },
+  turn: { turnId: 'turn-7', prompt: 'Finish the migration and run its tests.' },
+  identity: { sessionId: 'thread-42', executionId: 'execution-7' },
+})
+
+await journal.write(run.controlRef)
+
+for await (const event of run.events()) {
+  await journal.write(event)
+}
+
+const recovered = await reconnectRetainedRun({
+  provider: freshProvider,
+  controlRef: await journal.readControlRef(),
+})
+if (!recovered) throw new Error('the provider no longer retains this environment')
+
+const snapshot = await recovered.status({ waitMs: 30_000 })
+const result = await recovered.result()
+```
+
+Persist `controlRef` before acknowledging dispatch to the caller.
+Persist each event cursor and sequence before advancing the visible transcript.
+`reconnectRetainedRun` reconstructs a client from those values and rejects any provider, environment, session, execution, run, or digest mismatch.
+An unknown provider result remains unknown; the runtime never converts it into success or confirmed cancellation.
 
 ### Supervise a team of agents
 
@@ -490,6 +527,7 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 | Primitive | What it does | Import |
 |---|---|---|
 | Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable execution and turn identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/kernel` |
+| Retained provider runs | Start one detached provider job, replay exact events, reconnect after restart, continue its native context, and cancel idempotently (`startRetainedRun`, `reconnectRetainedRun`) | root |
 | Tool-call loop | Run one model turn, execute requested tools, feed results back, and stop on completion, repetition, time, or cost limits (`runToolLoop`, `streamToolLoop`) | `/tool-loop` |
 | Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/kernel` · `/mcp` |
 | Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/kernel` |
