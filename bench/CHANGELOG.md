@@ -2,7 +2,7 @@
 
 ## 0.8.3
 
-- Consume Runtime 0.132.1, Eval 0.144.11, and Knowledge 7.2.1 as one compatible dependency set.
+- Consume Runtime 0.132.1, Eval 0.144.12, and Knowledge 7.2.1 as one compatible dependency set.
 
 ## 0.8.2
 
