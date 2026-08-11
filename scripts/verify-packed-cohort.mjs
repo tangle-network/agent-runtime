@@ -350,7 +350,6 @@ function verifyConsumer(artifacts) {
         private: true,
         type: 'module',
         packageManager: runtime.packageJson.packageManager,
-        pnpm: { overrides: fileSpecs },
         dependencies: {
           ...fileSpecs,
           ...runtimePeers,
@@ -363,6 +362,20 @@ function verifyConsumer(artifacts) {
       null,
       2,
     )}\n`,
+  )
+  writeFileSync(join(appDir, 'pnpm-workspace.yaml'), 'packages: []\n')
+  captured(
+    'corepack',
+    [
+      'pnpm',
+      'config',
+      'set',
+      '--location=project',
+      '--json',
+      'overrides',
+      JSON.stringify(fileSpecs),
+    ],
+    appDir,
   )
   writeFileSync(
     join(appDir, '.npmrc'),
@@ -379,20 +392,20 @@ function verifyConsumer(artifacts) {
 
   captured(
     'corepack',
-    ['pnpm', '--ignore-workspace', 'install', '--lockfile-only', '--ignore-scripts'],
+    ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'],
     appDir,
   )
   rmSync(join(appDir, 'node_modules'), { recursive: true, force: true })
   captured(
     'corepack',
-    ['pnpm', '--ignore-workspace', 'install', '--frozen-lockfile', '--ignore-scripts'],
+    ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'],
     appDir,
   )
 
   const dependencyTree = JSON.parse(
     captured(
       'corepack',
-      ['pnpm', '--ignore-workspace', 'list', '--json', '--depth', 'Infinity'],
+      ['pnpm', 'list', '--json', '--depth', 'Infinity'],
       appDir,
     ),
   )
@@ -416,7 +429,7 @@ function verifyConsumer(artifacts) {
   const publicImportCount = verifyPublicImports(appDir, artifacts)
   captured(
     'corepack',
-    ['pnpm', '--ignore-workspace', 'exec', 'tsc', '-p', 'tsconfig.json'],
+    ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'],
     appDir,
   )
   const proposalOutput = captured(process.execPath, ['dist/consumer.js'], appDir)
