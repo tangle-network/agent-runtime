@@ -876,7 +876,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-9)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-12)
 
 ##### runtime
 
@@ -920,7 +920,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-6)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-7)
 
 ##### materialization?
 
@@ -5886,6 +5886,346 @@ Per-turn deadline (ms).
 
 ***
 
+### RetainedRunReplayPoint
+
+**`Stable`**
+
+Cursor plus runtime sequence needed to continue one ordered replay.
+
+#### Properties
+
+##### cursor
+
+> `readonly` **cursor**: `string`
+
+##### sequence
+
+> `readonly` **sequence**: `number`
+
+***
+
+### RetainedRunEventOptions
+
+**`Stable`**
+
+Options for replaying canonical events strictly after a saved point.
+
+#### Properties
+
+##### after?
+
+> `readonly` `optional` **after?**: [`RetainedRunReplayPoint`](#retainedrunreplaypoint)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedRunSnapshot
+
+**`Stable`**
+
+Stable status snapshot for a retained run.
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### status
+
+> `readonly` **status**: `AgentSessionStatus` \| `null`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `string`
+
+***
+
+### RetainedRunCancellation
+
+**`Stable`**
+
+Durable acknowledgement state for one retained control operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+##### status
+
+> `readonly` **status**: `"unknown"` \| `"replayed"` \| `"accepted"` \| `"conflict"`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### snapshot
+
+> `readonly` **snapshot**: [`RetainedRunSnapshot`](#retainedrunsnapshot)
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `string`
+
+***
+
+### RetainedRunCancelOptions
+
+**`Stable`**
+
+Options for an idempotent retained cancellation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedRunHandle
+
+**`Stable`**
+
+Reconstructable control of one provider-retained run.
+
+#### Properties
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+#### Methods
+
+##### status()
+
+> **status**(`options?`): `Promise`\<[`RetainedRunSnapshot`](#retainedrunsnapshot)\>
+
+###### Parameters
+
+###### options?
+
+###### waitMs?
+
+`number`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<[`RetainedRunSnapshot`](#retainedrunsnapshot)\>
+
+##### events()
+
+> **events**(`options?`): `AsyncIterable`\<`RuntimeEventEnvelope`\>
+
+###### Parameters
+
+###### options?
+
+[`RetainedRunEventOptions`](#retainedruneventoptions)
+
+###### Returns
+
+`AsyncIterable`\<`RuntimeEventEnvelope`\>
+
+##### result()
+
+> **result**(): `Promise`\<`AgentTurnResult`\>
+
+###### Returns
+
+`Promise`\<`AgentTurnResult`\>
+
+##### respondToInteraction()
+
+> **respondToInteraction**(`command`, `options?`): `Promise`\<\{ \}\>
+
+###### Parameters
+
+###### command
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \}\>
+
+##### contextBoundary()
+
+> **contextBoundary**(`options?`): `Promise`\<\{ \} \| `null`\>
+
+###### Parameters
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ \} \| `null`\>
+
+##### continueNative()
+
+> **continueNative**(`request`, `turn`): `Promise`\<\{ \} \| \{ \}\>
+
+###### Parameters
+
+###### request
+
+`NativeContextContinuationRequest`
+
+###### turn
+
+[`NativeContextContinuationInput`](#nativecontextcontinuationinput)
+
+###### Returns
+
+`Promise`\<\{ \} \| \{ \}\>
+
+##### cancel()
+
+> **cancel**(`options`): `Promise`\<[`RetainedRunCancellation`](#retainedruncancellation)\>
+
+###### Parameters
+
+###### options
+
+[`RetainedRunCancelOptions`](#retainedruncanceloptions)
+
+###### Returns
+
+`Promise`\<[`RetainedRunCancellation`](#retainedruncancellation)\>
+
+***
+
+### StartRetainedRunOptions
+
+**`Stable`**
+
+A retained start is retry-safe only when environment and turn keys are explicit.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environment
+
+> `readonly` **environment**: `CreateAgentEnvironmentInput` & `object`
+
+###### Type Declaration
+
+###### idempotencyKey
+
+> **idempotencyKey**: `string`
+
+##### turn
+
+> `readonly` **turn**: `AgentTurnInput` & `object`
+
+###### Type Declaration
+
+###### turnId
+
+> **turnId**: `string`
+
+##### identity?
+
+> `readonly` `optional` **identity?**: `object`
+
+Runtime-owned coordinates for providers that support deterministic retained dispatch.
+
+###### sessionId
+
+> `readonly` **sessionId**: `string`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### ReconnectRetainedRunOptions
+
+**`Stable`**
+
+Inputs sufficient to rebuild a control client in a new process.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
 ### RouterTransportConfig
 
 Connection details for Runtime's Router-backed executors.
@@ -7486,7 +7826,7 @@ The gen0 field. Default [sample, refine, sampleThenRefine].
 
 ##### objective?
 
-> `optional` **objective?**: `"score"` \| `"cost"`
+> `optional` **objective?**: `"cost"` \| `"score"`
 
 What "better" means for PROMOTION. 'score' (default): the candidate must beat the
  incumbent's score (superiority gate). 'cost': the candidate must prove score
@@ -13897,7 +14237,7 @@ breaker, or a recursive parent.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-15)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-16)
 
 ##### runNamespace
 
@@ -13943,7 +14283,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-1)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-2)
 
 ##### assignmentId?
 
@@ -15643,7 +15983,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-1).[`signal`](#signal-17)
+[`RootHandle`](#roothandle-1).[`signal`](#signal-21)
 
 ##### abort()
 
@@ -18585,6 +18925,36 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 #### Returns
 
 [`EqualKVerdict`](#equalkverdict)
+
+***
+
+### RetainedRunEffect
+
+> **RetainedRunEffect** = `"cancel_requested"` \| `"cancelled"` \| `"not_live"` \| `"unknown"`
+
+**`Stable`**
+
+Effect recorded for one retained control operation.
+
+***
+
+### NativeContextContinuationInput
+
+> **NativeContextContinuationInput** = `NativeContextContinuationTurn` & `Omit`\<`AgentNativeContextContinuationOptions`, `"turn"`\>
+
+**`Stable`**
+
+Runtime controls plus the exact user turn bound into a continuation request.
+
+***
+
+### NativeContextContinuationExecution
+
+> **NativeContextContinuationExecution** = `AgentNativeContextContinuationResult`
+
+**`Stable`**
+
+Result of one verified same-session continuation.
 
 ***
 
@@ -21942,6 +22312,47 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 #### Returns
 
 [`SandboxClient`](#sandboxclient-5)
+
+***
+
+### startRetainedRun()
+
+> **startRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+**`Stable`**
+
+Dispatch one detached, replayable run and return only after exact durable
+coordinates are confirmed by the provider.
+
+#### Parameters
+
+##### options
+
+[`StartRetainedRunOptions`](#startretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+***
+
+### reconnectRetainedRun()
+
+> **reconnectRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle) \| `null`\>
+
+**`Stable`**
+
+Rebuild a retained-run client without retaining any object from the starter.
+
+#### Parameters
+
+##### options
+
+[`ReconnectRetainedRunOptions`](#reconnectretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle) \| `null`\>
 
 ***
 
