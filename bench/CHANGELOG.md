@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+- Consume Eval 0.144.8 and Knowledge 7.1.3 so Bench uses the same published dependency family as Runtime 0.131.6.
+
 ## 0.8.0
 
 - Consume Runtime 0.131.0, Eval 0.144.6, Interface 0.46.1, Knowledge 7.1.2, and Sandbox 0.19.4 as one compatible dependency set.
