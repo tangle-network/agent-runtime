@@ -58,6 +58,15 @@ those surfaces at settle and reports what the agent itself changed
 CLAUDE.md/memory files, opencode edits AGENTS.md, Prime edits its continual harness — and
 today that evidence evaporates at box teardown.
 
+The harvest is **caller-invoked at settle by the same caller that recorded the mounts**
+(the kernel never reads workspace contents itself — same law as `recordMount`). Two
+shipped readers join it to real substrates: `boxSurfaceReader` rides the same
+`box.fs.read` seam `openSandboxRun` reads deliverables through; `fsSurfaceReader`
+covers worktree/local workers. Surfaces the agent *created* (a new memory file — the
+common `/refine` outcome) are covered by `watch` entries: the caller enumerates the
+harness-state paths it cares about (e.g. via the box file tree) and never-mounted
+paths that now exist report as `created`.
+
 The scope law it feeds (Prime's `/refine` scopes, generalized to any harness):
 
 - **Session-scoped self-edits are observations.** They applied during the run, they are
@@ -157,11 +166,24 @@ instrumented runs; 6–9 unlock the experiment tier.
    candidate and baseline harness state frozen and separated.
 8. **Fan-out caps as config.** Prime's native child limit (and equivalents on other
    harnesses) as a materializable knob so an authored profile can bound native expansion.
-9. **Whole-environment checkpoint/branch.** Box snapshot + branch behind the existing
-   `AgentEnvironment.checkpoint()/fork()` contract, covering workspace + harness state
-   (kernel heap where feasible). A transcript-tree branch is not a world branch; paired
-   baseline/candidate arms need same-state forks. Credentials stay short-lived and
-   injected — never serialized into snapshots, session JSONL, or harness state.
+9. **Checkpoint/branch coverage for the Prime process tree.** The mechanism already
+   exists — `box.snapshot()` / `box.branch(count)` in the sandbox SDK, the kernel's
+   CRIU capability probe (`SandboxClient.criuStatus`) and fork lineage
+   (`LoopLineageOptions.forkFanout`), and the `AgentEnvironment.checkpoint()/fork()`
+   contract. The ask reduces to: **verify** a CRIU/box snapshot actually covers the
+   Prime daemon + IPython kernel process tree (a whole-box checkpoint should capture
+   kernel heap by construction — verify, don't assume), and report the answer through
+   the environment capability row. A transcript-tree branch is not a world branch;
+   paired baseline/candidate arms need same-state forks. Credentials stay short-lived
+   and injected — never serialized into snapshots, session JSONL, or harness state.
+
+**Adapter shape note.** Prime is daemon-backed with persistent sessions, which maps more
+naturally onto the `AgentEnvironmentProvider` contract (sessions, capability
+negotiation, `checkpoint`/`fork` — `src/runtime/environment-provider.ts`) than onto a
+plain one-shot `backend.type`. Both integration shapes reach Runtime through existing
+ports (`providerAsExecutor` / `providerAsSandboxClient` on one side, `buildBackendOptions`
+on the other); the sandbox side should pick per tier — box backend for basic runs,
+provider for instrumented/experiment tiers — rather than forcing one.
 
 ## 6. The first gated experiment (when 1–5, 7, 9 land)
 

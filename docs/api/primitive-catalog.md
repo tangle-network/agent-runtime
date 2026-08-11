@@ -504,7 +504,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 718 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -524,6 +524,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
 | `auditIntent` | function | The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention. |
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `bestSoFar` | function | The best-so-far fold — the ONE definition of "how good was the run after k results", shared by |
+| `boxSurfaceReader` | function | A {@link SurfaceReader} over a sandbox box's filesystem — the same `box.fs.read` seam |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
@@ -597,7 +598,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
 | `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
 | `harvestCorpus` | function | Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. |
-| `harvestSurfaceDiffs` | function | Re-read every mounted surface and report the ones whose settled state differs from the manifest. |
+| `harvestSurfaceDiffs` | function | Re-read every mounted (and watched) surface and report the ones whose settled state differs from |
 | `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is |
 | `inProcessSandboxClient` | function | Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for |
 | `isWaitOutcome` | function | Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cursor as workers, |
@@ -956,7 +957,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
 | `SupervisorSpanOutcome` | interface | How the supervised run ended, as `finish()` records it on the root span. |
 | `SupervisorToolDescriptor` | interface | One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies |
 | `SupervisorToolInvocationContext` | interface | Trusted context for one product-tool invocation. The node identity remains the same detached, |
-| `SurfaceDiff` | interface | One mounted surface whose settled state differs from what was mounted. |
+| `SurfaceDiff` | interface | One watched surface whose settled state differs from what was mounted (or from absence). |
+| `SurfaceReadBox` | interface | The minimal box surface the box-backed reader needs — structurally typed so the real |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
@@ -971,6 +973,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 715 exports.
 | `WaitOpts` | interface | Options for `Scope.wait`. `label` is the wait's identity within its parent scope — it is what |
 | `WaitOutcome` | interface | The `out` a settled wait node delivers through `Scope.next()`. `settled` is the outcome the |
 | `WaitProbeRegistry` | interface | Resolves a `poll` spec's `probe` name to its predicate. Threaded through `SupervisorOpts` so |
+| `WatchedSurface` | interface | A path to check at settle that was NOT necessarily mounted — where a harness is known to write |
 | `WidenGate` | interface | The progressive-widening gate (MCTS-PW). Decides whether a settled child is |
 | `WidenLineage` | interface | A lineage the gate may widen toward — the settled child that looked promising + the findings |
 | `WidenSpec` | interface | `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout |

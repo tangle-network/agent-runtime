@@ -16027,10 +16027,12 @@ returning an incomplete reproducibility receipt.
 
 ### SurfaceDiff
 
-One mounted surface whose settled state differs from what was mounted.
+One watched surface whose settled state differs from what was mounted (or from absence).
 
 - `modified` — the surface exists with different bytes (`settledSha256`/`settledBytes` present).
 - `removed` — the surface no longer exists at its mounted path.
+- `created` — a watched path that was never mounted now exists (`settledSha256`/`settledBytes`
+  present, no `mountedSha256`) — the shape a harness's new memory/skill file takes.
 - `unreadable` — the read seam failed for a reason other than absence; `error` carries the
   diagnostic. Reported rather than dropped so a permissions or transport failure cannot
   masquerade as "nothing changed".
@@ -16041,41 +16043,61 @@ One mounted surface whose settled state differs from what was mounted.
 
 > **path**: `string`
 
-The mounted path, exactly as recorded in the manifest entry.
+The mounted/watched path, exactly as recorded.
 
 ##### status
 
-> **status**: `"modified"` \| `"removed"` \| `"unreadable"`
+> **status**: `"modified"` \| `"removed"` \| `"created"` \| `"unreadable"`
 
-##### mountedSha256
+##### mountedSha256?
 
-> **mountedSha256**: `string`
+> `optional` **mountedSha256?**: `string`
 
-Hex SHA-256 of the bytes that were mounted (from the manifest).
+Hex SHA-256 of the bytes that were mounted (from the manifest). Absent for `created`.
 
 ##### source
 
 > **source**: `string`
 
-Free-form origin of the mounted resource, carried through from the manifest.
+Free-form origin: the manifest entry's `source`, or the watch entry's `source`.
 
 ##### settledSha256?
 
 > `optional` **settledSha256?**: `string`
 
-Hex SHA-256 of the settled bytes. Present only for `modified`.
+Hex SHA-256 of the settled bytes. Present for `modified` and `created`.
 
 ##### settledBytes?
 
 > `optional` **settledBytes?**: `number`
 
-Size of the settled bytes. Present only for `modified`.
+Size of the settled bytes. Present for `modified` and `created`.
 
 ##### error?
 
 > `optional` **error?**: `string`
 
 The read seam's diagnostic. Present only for `unreadable`.
+
+***
+
+### WatchedSurface
+
+A path to check at settle that was NOT necessarily mounted — where a harness is known to write
+ self-authored surfaces (a memory dir's files, a refinement log). A watched path that was also
+ mounted compares against its mount; one that wasn't reports `created` if it now exists.
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+##### source?
+
+> `optional` **source?**: `string`
+
+Origin label carried onto the diff (default `'watched'`).
 
 ***
 
@@ -16095,6 +16117,41 @@ The run's mount manifest (`RunProvenance.mounts`). Entries sharing a path are co
 > **read**: [`SurfaceReader`](#surfacereader)
 
 How to read a mounted path's current bytes.
+
+##### watch?
+
+> `optional` **watch?**: readonly [`WatchedSurface`](#watchedsurface)[]
+
+Additional paths to check that may not have been mounted (see [WatchedSurface](#watchedsurface)). The
+ caller enumerates them (it knows the harness's state layout — e.g. via the box's file tree);
+ the harvest stays layout-agnostic.
+
+***
+
+### SurfaceReadBox
+
+The minimal box surface the box-backed reader needs — structurally typed so the real
+ `@tangle-network/sandbox` box and a test double both satisfy it, no SDK import.
+
+#### Properties
+
+##### fs
+
+> **fs**: `object`
+
+###### read()
+
+> **read**(`path`): `Promise`\<`string`\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+`Promise`\<`string`\>
 
 ***
 
@@ -25035,10 +25092,9 @@ the shared valid-only `selectValidWinner` (never a judge).
 
 > **harvestSurfaceDiffs**(`options`): `Promise`\<[`SurfaceDiff`](#surfacediff)[]\>
 
-Re-read every mounted surface and report the ones whose settled state differs from the manifest.
-Unchanged surfaces produce no entry; output preserves manifest record order. Surfaces the agent
-CREATED (paths never mounted) are outside this contract — the manifest cannot see them; a
-substrate that enumerates harness-state directories can feed those paths in as additional mounts.
+Re-read every mounted (and watched) surface and report the ones whose settled state differs from
+the manifest — modified, removed, or created. Unchanged surfaces and still-absent watched paths
+produce no entry; output preserves record order, mounts before watch-only paths.
 
 #### Parameters
 
@@ -25049,6 +25105,28 @@ substrate that enumerates harness-state directories can feed those paths in as a
 #### Returns
 
 `Promise`\<[`SurfaceDiff`](#surfacediff)[]\>
+
+***
+
+### boxSurfaceReader()
+
+> **boxSurfaceReader**(`box`): [`SurfaceReader`](#surfacereader)
+
+A [SurfaceReader](#surfacereader) over a sandbox box's filesystem — the same `box.fs.read` seam
+`openSandboxRun` reads deliverables through. The box wire returns UTF-8 text, so this reader
+covers TEXT surfaces (which profile surfaces are); hashes are computed over the UTF-8 encoding.
+The SDK's not-found error is detected structurally (`err.name === 'NotFoundError'`) and maps to
+`missing: true`; every other failure carries its message.
+
+#### Parameters
+
+##### box
+
+[`SurfaceReadBox`](#surfacereadbox)
+
+#### Returns
+
+[`SurfaceReader`](#surfacereader)
 
 ***
 

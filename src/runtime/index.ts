@@ -945,12 +945,15 @@ export {
   superviseSurface,
 } from './supervise-surface'
 export {
+  boxSurfaceReader,
   fsSurfaceReader,
   type HarvestSurfaceDiffsOptions,
   harvestSurfaceDiffs,
   type SurfaceDiff,
+  type SurfaceReadBox,
   type SurfaceReader,
   type SurfaceReadOutcome,
+  type WatchedSurface,
 } from './surface-diff'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
 // Profile-owned supervisor configuration. The arbitrary model callback and raw driver constructor

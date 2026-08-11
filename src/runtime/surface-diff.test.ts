@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { fsSurfaceReader, harvestSurfaceDiffs, type SurfaceReader } from './surface-diff'
+import {
+  boxSurfaceReader,
+  fsSurfaceReader,
+  harvestSurfaceDiffs,
+  type SurfaceReader,
+} from './surface-diff'
 import type { MountManifestEntry } from './types'
 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex')
@@ -79,6 +84,35 @@ describe('harvestSurfaceDiffs', () => {
     expect(diffs).toEqual([])
   })
 
+  it('reports a watched never-mounted path that now exists as created, and stays silent while absent', async () => {
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('CLAUDE.md', 'base')],
+      read: readerOf({ 'CLAUDE.md': 'base', 'memory/new-lesson.md': 'learned it' }),
+      watch: [
+        { path: 'memory/new-lesson.md', source: 'harness-state' },
+        { path: 'memory/still-absent.md' },
+      ],
+    })
+    expect(diffs).toEqual([
+      {
+        path: 'memory/new-lesson.md',
+        status: 'created',
+        source: 'harness-state',
+        settledSha256: sha('learned it'),
+        settledBytes: Buffer.byteLength('learned it'),
+      },
+    ])
+  })
+
+  it('compares a watched path that was ALSO mounted against its mount, not as created', async () => {
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('a.md', 'v1')],
+      read: readerOf({ 'a.md': 'v2' }),
+      watch: [{ path: 'a.md' }],
+    })
+    expect(diffs.map((d) => d.status)).toEqual(['modified'])
+  })
+
   it('treats an uppercase manifest hash as equal to the settled lowercase hash', async () => {
     const entry = { ...mount('a.md', 'same'), sha256: sha('same').toUpperCase() }
     const diffs = await harvestSurfaceDiffs({
@@ -86,6 +120,59 @@ describe('harvestSurfaceDiffs', () => {
       read: readerOf({ 'a.md': 'same' }),
     })
     expect(diffs).toEqual([])
+  })
+})
+
+describe('boxSurfaceReader', () => {
+  it('reads through box.fs.read, maps the SDK NotFoundError to missing, and reports other errors', async () => {
+    const notFound = new Error('no such file')
+    notFound.name = 'NotFoundError'
+    const box = {
+      fs: {
+        read: (path: string) => {
+          if (path === 'AGENTS.md') return Promise.resolve('edited')
+          if (path === 'gone.md') return Promise.reject(notFound)
+          return Promise.reject(new Error('transport down'))
+        },
+      },
+    }
+    const read = boxSurfaceReader(box)
+    const hit = await read('AGENTS.md')
+    expect(hit.succeeded).toBe(true)
+    if (hit.succeeded) expect(new TextDecoder().decode(hit.value)).toBe('edited')
+    expect(await read('gone.md')).toEqual({
+      succeeded: false,
+      missing: true,
+      error: 'no such file',
+    })
+    expect(await read('other.md')).toEqual({
+      succeeded: false,
+      missing: false,
+      error: 'transport down',
+    })
+  })
+
+  it('composes with the harvest over a box double: modified mount + created watch', async () => {
+    const box = {
+      fs: {
+        read: (path: string) => {
+          if (path === 'CLAUDE.md') return Promise.resolve('rewritten')
+          if (path === 'memory/lesson.md') return Promise.resolve('new note')
+          const err = new Error('missing')
+          err.name = 'NotFoundError'
+          return Promise.reject(err)
+        },
+      },
+    }
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('CLAUDE.md', 'original')],
+      read: boxSurfaceReader(box),
+      watch: [{ path: 'memory/lesson.md' }, { path: 'memory/other.md' }],
+    })
+    expect(diffs.map((d) => [d.path, d.status])).toEqual([
+      ['CLAUDE.md', 'modified'],
+      ['memory/lesson.md', 'created'],
+    ])
   })
 })
 
