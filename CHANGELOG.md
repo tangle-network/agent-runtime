@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.131.6
+
+- Consume Agent Eval 0.144.8 and Agent Knowledge 7.1.3 as one exact dependency set.
+
 ## 0.131.4
 
 - Accept and preserve cli-bridge's positive applied completion-token cap in Runtime materialization evidence.
