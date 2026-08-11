@@ -2,7 +2,7 @@
 
 ## 0.8.3
 
-- Consume Runtime 0.131.8 and Eval 0.144.11 so Bench uses the verified optimizer population API.
+- Consume Runtime 0.131.8, Eval 0.144.11, and Knowledge 7.2.1 so Bench uses one verified population cohort.
 
 ## 0.8.2
 

@@ -6,7 +6,7 @@
 - Join callback observations with GEPA's exact parent and score graph by candidate digest.
 - Materialize each candidate as a complete profile with Interface diffs, or return an explicit refusal.
 - Preserve duplicate GEPA graph nodes and report complete unique, observed, graph, materialized, and refused counts.
-- Consume Agent Eval 0.144.11 so Runtime can verify both optimizer population artifacts.
+- Consume Agent Eval 0.144.11 and Agent Knowledge 7.2.1 as one verified dependency cohort.
 
 ## 0.131.7
 
