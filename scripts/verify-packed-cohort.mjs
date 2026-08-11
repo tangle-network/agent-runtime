@@ -199,6 +199,9 @@ function buildAndPack({
     throw new Error(`${sourceRepo} contains ${packageJson.name}, expected ${packageName}`)
   }
 
+  const workspaceRoot = findPnpmWorkspaceRoot(buildDir, buildRoot)
+  const ignoreAncestorWorkspace = workspaceRoot === undefined
+
   if (localPackages.length > 0) {
     const overrides = {
       ...(packageJson.pnpm?.overrides ?? {}),
@@ -206,7 +209,6 @@ function buildAndPack({
         localPackages.map((artifact) => [artifact.name, `file:${artifact.path}`]),
       ),
     }
-    const workspaceRoot = findPnpmWorkspaceRoot(buildDir, buildRoot)
     if (workspaceRoot) {
       captured(
         'corepack',
@@ -229,21 +231,42 @@ function buildAndPack({
 
   captured(
     'corepack',
-    ['pnpm', 'install', '--no-frozen-lockfile', '--ignore-scripts'],
+    [
+      'pnpm',
+      ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []),
+      'install',
+      '--no-frozen-lockfile',
+      '--ignore-scripts',
+    ],
     buildDir,
     {
       HUSKY: '0',
     },
   )
-  assertArchiveDependencies(buildDir, localPackages, `${packageName} build`)
-  captured('corepack', ['pnpm', 'run', 'build'], buildDir)
+  assertArchiveDependencies(
+    buildDir,
+    localPackages,
+    `${packageName} build`,
+    ignoreAncestorWorkspace,
+  )
+  captured(
+    'corepack',
+    ['pnpm', ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []), 'run', 'build'],
+    buildDir,
+  )
 
   writeFileSync(packagePath, packageText)
   const before = new Set(readdirSync(artifactsDir))
   if (packageText.includes('catalog:')) {
     captured(
       'corepack',
-      ['pnpm', 'pack', '--pack-destination', artifactsDir],
+      [
+        'pnpm',
+        ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []),
+        'pack',
+        '--pack-destination',
+        artifactsDir,
+      ],
       buildDir,
       { npm_config_ignore_scripts: 'true' },
     )
@@ -327,6 +350,7 @@ function verifyConsumer(artifacts) {
         private: true,
         type: 'module',
         packageManager: runtime.packageJson.packageManager,
+        pnpm: { overrides: fileSpecs },
         dependencies: {
           ...fileSpecs,
           ...runtimePeers,
@@ -339,19 +363,6 @@ function verifyConsumer(artifacts) {
       null,
       2,
     )}\n`,
-  )
-  captured(
-    'corepack',
-    [
-      'pnpm',
-      'config',
-      'set',
-      '--location=project',
-      '--json',
-      'overrides',
-      JSON.stringify(fileSpecs),
-    ],
-    appDir,
   )
   writeFileSync(
     join(appDir, '.npmrc'),
@@ -366,12 +377,24 @@ function verifyConsumer(artifacts) {
     join(appDir, 'consumer.ts'),
   )
 
-  captured('corepack', ['pnpm', 'install', '--lockfile-only', '--ignore-scripts'], appDir)
+  captured(
+    'corepack',
+    ['pnpm', '--ignore-workspace', 'install', '--lockfile-only', '--ignore-scripts'],
+    appDir,
+  )
   rmSync(join(appDir, 'node_modules'), { recursive: true, force: true })
-  captured('corepack', ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts'], appDir)
+  captured(
+    'corepack',
+    ['pnpm', '--ignore-workspace', 'install', '--frozen-lockfile', '--ignore-scripts'],
+    appDir,
+  )
 
   const dependencyTree = JSON.parse(
-    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], appDir),
+    captured(
+      'corepack',
+      ['pnpm', '--ignore-workspace', 'list', '--json', '--depth', 'Infinity'],
+      appDir,
+    ),
   )
   const resolved = collectTargetDependencies(dependencyTree)
   for (const artifact of artifacts) {
@@ -391,7 +414,11 @@ function verifyConsumer(artifacts) {
   }
 
   const publicImportCount = verifyPublicImports(appDir, artifacts)
-  captured('corepack', ['pnpm', 'exec', 'tsc', '-p', 'tsconfig.json'], appDir)
+  captured(
+    'corepack',
+    ['pnpm', '--ignore-workspace', 'exec', 'tsc', '-p', 'tsconfig.json'],
+    appDir,
+  )
   const proposalOutput = captured(process.execPath, ['dist/consumer.js'], appDir)
     .trim()
     .split('\n')
@@ -435,10 +462,21 @@ function verifyPublicImports(appDir, artifacts) {
   return imported
 }
 
-function assertArchiveDependencies(directory, artifacts, context) {
+function assertArchiveDependencies(directory, artifacts, context, ignoreAncestorWorkspace) {
   if (artifacts.length === 0) return
   const dependencyTree = JSON.parse(
-    captured('corepack', ['pnpm', 'list', '--json', '--depth', 'Infinity'], directory),
+    captured(
+      'corepack',
+      [
+        'pnpm',
+        ...(ignoreAncestorWorkspace ? ['--ignore-workspace'] : []),
+        'list',
+        '--json',
+        '--depth',
+        'Infinity',
+      ],
+      directory,
+    ),
   )
   const resolved = collectTargetDependencies(dependencyTree)
   for (const artifact of artifacts) {
