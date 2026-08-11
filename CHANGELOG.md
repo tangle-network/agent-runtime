@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.131.8
+
+- Return every verified optimizer candidate from `improve()` in `candidatePopulation`.
+- Join callback observations with GEPA's exact parent and score graph by candidate digest.
+- Materialize each candidate as a complete profile with Interface diffs, or return an explicit refusal.
+- Preserve duplicate GEPA graph nodes and report complete unique, observed, graph, materialized, and refused counts.
+- Consume Agent Eval 0.144.11 so Runtime can verify both optimizer population artifacts.
+
 ## 0.131.7
 
 - Add `superviseDispatch(...)` so `agent-eval` profile matrices admit and record a recursive Runtime tree before it spends.
