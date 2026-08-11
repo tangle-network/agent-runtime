@@ -116,7 +116,6 @@ function profileCandidatePopulation(
   const graph = graphSummary
     ? readGepaCandidatePopulationArtifact({
         summary: graphSummary,
-        ...(storage ? { storage } : {}),
       })
     : undefined
   if (!graph && (observations?.candidates.length ?? 0) === 0) {
@@ -139,7 +138,9 @@ function profileCandidatePopulation(
     const existing = entries.get(candidateDigest)
     if (existing) {
       if (!isDeepStrictEqual(existing.value, value)) {
-        throw new Error(`improve(): optimizer artifacts disagree on candidate ${candidateDigest}`)
+        throw new ConfigError(
+          `improve(): optimizer artifacts disagree on candidate ${candidateDigest}`,
+        )
       }
       return existing
     }
@@ -240,7 +241,7 @@ function profileCandidatePopulation(
     const diffs = diffAgentProfiles(baselineProfile, candidateProfile)
     const reproduced = diffs.reduce(applyAgentProfileDiff, baselineProfile)
     if (interfaceCandidateDigest(reproduced) !== profileDigest) {
-      throw new Error(
+      throw new ConfigError(
         `improve(): Interface profile diffs do not reproduce optimizer candidate ${entry.candidateDigest}`,
       )
     }

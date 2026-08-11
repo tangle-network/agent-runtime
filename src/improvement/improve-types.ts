@@ -241,7 +241,7 @@ export interface ImprovementProfilePopulationArtifactSource {
 
 /** Exact callback observation that introduced one optimizer candidate. */
 export interface ImprovementProfilePopulationObservationSource {
-  /** One-based position of the proposal in the verified observation artifact. */
+  /** One-based JSONL line sequence in the verified observation artifact. */
   proposalSequence: number
   artifact: ImprovementProfilePopulationArtifactSource
 }

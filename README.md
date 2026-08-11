@@ -297,7 +297,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.144.8"
+python -m pip install "agent-eval-rpc==0.144.11"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 

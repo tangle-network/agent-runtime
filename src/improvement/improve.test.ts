@@ -24,7 +24,7 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/contract'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
 import { improve } from './improve'
 import type { ReadonlyAgentProfile } from './profile-types'
@@ -45,6 +45,13 @@ const testScenarios: TestScenario[] = [
 ]
 const allScenarios = [...trainScenarios, ...selectionScenarios, ...testScenarios]
 const executionRef = canonicalCandidateDigest({ fixture: 'improve-method' })
+const populationFixtureRoots: string[] = []
+
+afterEach(() => {
+  for (const root of populationFixtureRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
 
 const improvementJudge: JudgeConfig<TextArtifact, TestScenario> = {
   name: 'improvement',
@@ -112,7 +119,9 @@ function populationMethod(
   winnerSurface = 'improved prompt',
 ): OptimizationMethod<TestScenario, TextArtifact> {
   const runId = 'in-memory-population'
-  const graphPath = 'mem://population/gepa-candidate-population.json'
+  const graphRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-candidate-population-'))
+  populationFixtureRoots.push(graphRoot)
+  const graphPath = join(graphRoot, 'gepa-candidate-population.json')
   const observationPath = 'mem://population/external-optimizer-observations.jsonl'
   const selectedCandidate = 'improved prompt'
   const callbackOnlyCandidate = 'callback only prompt'
@@ -164,7 +173,7 @@ function populationMethod(
       },
     ],
   })
-  storage.write(graphPath, graph)
+  writeFileSync(graphPath, graph)
   storage.write(observationPath, observations)
   return {
     name: 'in-memory-population',
@@ -290,7 +299,7 @@ describe('improve method execution', () => {
     expect(Object.isFrozen(result.candidate)).toBe(true)
   })
 
-  it('joins callback and graph populations through the configured storage', async () => {
+  it('joins custom-storage observations with the file-backed GEPA graph', async () => {
     const storage = inMemoryCampaignStorage()
     const result = await improve(promptProfile(), {
       ...methodOptions(populationMethod(storage)),
