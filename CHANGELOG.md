@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.132.1
+
+- Add `candidatePopulation` to `improve(...)` results so consumers can inspect every verified optimizer candidate, including its exact profile, Interface diffs, parent lineage, and selection score.
+- Consume Agent Eval 0.144.11 and Agent Knowledge 7.2.1 as one compatible dependency set.
+
 ## 0.131.7
 
 - Add `superviseDispatch(...)` so `agent-eval` profile matrices admit and record a recursive Runtime tree before it spends.

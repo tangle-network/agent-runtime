@@ -4910,7 +4910,7 @@ Exact callback observation that introduced one optimizer candidate.
 
 > **proposalSequence**: `number`
 
-One-based position of the proposal in the verified observation artifact.
+One-based JSONL line sequence in the verified observation artifact.
 
 ##### artifact
 
