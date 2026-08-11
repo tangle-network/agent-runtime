@@ -6,6 +6,7 @@ import type { OpenAICompatibleOptimizerModel } from '@tangle-network/agent-eval/
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import {
   type AgentProfile,
+  applyAgentProfileDiff,
   canonicalCandidateDigest,
   defineAgentProfilePublicConfig,
 } from '@tangle-network/agent-interface'
@@ -115,8 +116,11 @@ function fakeRunner(
     exampleId: string
     responsePath: string
     candidate?: string
+    bestCandidate?: string
+    allowFailure?: boolean
   },
 ) {
+  const bestCandidate = callback?.bestCandidate ?? callback?.candidate ?? 'improved prompt'
   const optimizerSource = {
     package: optimizer,
     version: optimizer === 'gepa' ? 'test' : '0.2.0',
@@ -126,7 +130,7 @@ function fakeRunner(
   const output =
     optimizer === 'gepa'
       ? [
-          `  bestCandidate: ${JSON.stringify(callback?.candidate ?? 'improved prompt')},`,
+          '  bestCandidate,',
           '  bestScore: 1,',
           `  totalEvaluations: ${callback ? 1 : 0},`,
           '  recipeKind: input.recipe.kind,',
@@ -135,7 +139,7 @@ function fakeRunner(
           '  upstream: optimizerSource,',
         ]
       : [
-          `  bestCandidate: ${JSON.stringify(callback?.candidate ?? 'improved prompt')},`,
+          '  bestCandidate,',
           '  bestScore: 1,',
           `  totalEvaluations: ${callback ? 1 : 0},`,
           '  totalSteps: 0,',
@@ -144,11 +148,13 @@ function fakeRunner(
         ]
   const source = [
     "const fs = require('node:fs')",
+    "const crypto = require('node:crypto')",
     ';(async () => {',
     "const inputPath = process.argv[process.argv.indexOf('--input') + 1]",
     "const outputPath = process.argv[process.argv.indexOf('--output') + 1]",
     'const input = JSON.parse(fs.readFileSync(inputPath, "utf8"))',
     `const optimizerSource = ${JSON.stringify(optimizerSource)}`,
+    `const bestCandidate = ${JSON.stringify(bestCandidate)}`,
     'if (input.operation === "inspect") {',
     '  fs.writeFileSync(outputPath, JSON.stringify({ runtime: {',
     '    python: { implementation: "CPython", version: "3.12.0" },',
@@ -169,15 +175,25 @@ function fakeRunner(
           '  },',
           `  body: JSON.stringify({ candidate: ${JSON.stringify(callback.candidate ?? 'improved prompt')}, exampleId: ${JSON.stringify(callback.exampleId)} }),`,
           '})',
-          'if (!callbackResponse.ok) throw new Error("callback failed: " + callbackResponse.status)',
+          `if (!callbackResponse.ok && !${JSON.stringify(callback.allowFailure ?? false)}) throw new Error("callback failed: " + callbackResponse.status)`,
           'const callbackBody = await callbackResponse.json()',
           `fs.writeFileSync(${JSON.stringify(callback.responsePath)}, JSON.stringify(callbackBody))`,
         ]
       : []),
+    'let candidatePopulation',
+    'if (optimizerSource.package === "gepa" && input.recipe.kind === "engine" && input.recipe.run.engine === "gepa") {',
+    '  fs.mkdirSync(input.outputDir, { recursive: true })',
+    '  const populationPath = input.outputDir + "/candidate-population-test.json"',
+    '  const scenarioIds = (input.selectionSet.length ? input.selectionSet : input.trainSet).map((scenario) => scenario.id)',
+    `  const populationContents = JSON.stringify({ schemaVersion: 1, scope: "gepa-candidate-population", runId: input.runId, bestIndex: 0, candidates: [{ index: 0, candidate: bestCandidate, parentIndices: [null], aggregateScore: 1, selectionScores: [{ scenarioId: scenarioIds[0], score: 1 }], discoveryEvaluationCount: ${callback ? 1 : 0} }] }, null, 2) + "\\n"`,
+    '  fs.writeFileSync(populationPath, populationContents)',
+    '  candidatePopulation = { scope: "gepa-candidate-population", path: populationPath, sha256: "sha256:" + crypto.createHash("sha256").update(populationContents).digest("hex"), bytes: Buffer.byteLength(populationContents), runId: input.runId, candidates: 1, bestIndex: 0, maxCandidates: input.maxPopulationCandidates, maxCandidateChars: input.maxCandidateChars, scenarioIds, surfaceKind: typeof input.seedCandidate === "string" ? "text" : "components" }',
+    '}',
     'fs.writeFileSync(outputPath, JSON.stringify({',
     ...output,
     '  runId: input.runId,',
     '  resumed: false,',
+    '  ...(candidatePopulation ? { candidatePopulation } : {}),',
     '}))',
     '})().catch((error) => { process.stderr.write(String(error?.stack ?? error)); process.exit(1) })',
   ].join('\n')
@@ -341,6 +357,26 @@ describe('official optimizer methods', () => {
     expect(result.raw.best.provenance?.bridge?.version).toBe('0.126.1')
     expect(result.decision).toBe('ship')
     expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
+    expect(result.candidatePopulation).toMatchObject({
+      status: 'available',
+      uniqueCandidates: 1,
+      observedCandidates: 0,
+      gepaCandidateNodes: 1,
+      materializedCandidates: 1,
+      refusedCandidates: 0,
+      candidates: [
+        {
+          status: 'materialized',
+          value: 'improved prompt',
+          source: {
+            lineage: { status: 'available', nodes: [{ index: 0, parentIndices: [null] }] },
+          },
+        },
+      ],
+    })
+    if (result.candidatePopulation.status === 'available') {
+      expect(result.candidatePopulation.candidates[0]?.source.observation).toBeUndefined()
+    }
   })
 
   it('changes upstream identity when feedback transformation logic changes', async () => {
@@ -519,6 +555,104 @@ describe('official optimizer methods', () => {
     expect(JSON.stringify(observedInput)).not.toContain('SECRET')
     expect(JSON.stringify(observedResponse)).not.toContain('SECRET')
     expect(result.provenance?.evaluationCount).toBe(1)
+    expect(result.candidatePopulation).toMatchObject({
+      status: 'available',
+      uniqueCandidates: 1,
+      observedCandidates: 1,
+      gepaCandidateNodes: 1,
+      materializedCandidates: 1,
+      refusedCandidates: 0,
+    })
+    if (result.candidatePopulation.status !== 'available') {
+      throw new Error('expected the official optimizer candidate population')
+    }
+    const [candidate] = result.candidatePopulation.candidates
+    expect(candidate?.status).toBe('materialized')
+    if (candidate?.status !== 'materialized') {
+      throw new Error('expected one materialized candidate')
+    }
+    expect(candidate.profile.prompt?.systemPrompt).toBe('improved prompt')
+    expect(candidate.source.candidateDigest).toMatch(/^sha256:[a-f0-9]{64}$/)
+    expect(candidate.source.observation?.artifact).toEqual(
+      result.candidatePopulation.source.observations,
+    )
+    expect(candidate.source.lineage).toMatchObject({
+      status: 'available',
+      nodes: [{ index: 0, parentIndices: [null], aggregateScore: 1 }],
+    })
+    expect(candidate.diffDigests).toEqual(candidate.diffs.map(canonicalCandidateDigest))
+    const reproduced = candidate.diffs.reduce(applyAgentProfileDiff, profile)
+    expect(canonicalCandidateDigest(reproduced)).toBe(candidate.profileDigest)
+    expect(Object.isFrozen(result.candidatePopulation)).toBe(true)
+    expect(Object.isFrozen(candidate.profile)).toBe(true)
+    expect(Object.isFrozen(candidate.diffs)).toBe(true)
+  })
+
+  it('reports every submitted candidate that profile materialization refuses', async () => {
+    const root = runDir()
+    const observedInputPath = join(root, 'observed-refused-input.json')
+    const observedResponsePath = join(root, 'observed-refused-response.json')
+    const mcpProfile: AgentProfile = { ...profile, mcp: {} }
+    const result = await improve(mcpProfile, {
+      ...commonOptions(
+        officialGepa<OptimizerScenario, Artifact>({
+          objective: 'Improve the agent MCP configuration.',
+          recipe: {
+            kind: 'engine',
+            run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+          },
+          optimizer: testOptimizer,
+          authorizeSensitiveCandidate: (input) =>
+            input.surface === 'mcp' &&
+            input.sensitivePaths.length === 1 &&
+            input.sensitivePaths[0] === '$' &&
+            (input.isBaseline
+              ? Object.keys(input.profile.mcp ?? {}).length === 0
+              : input.candidateSurface === 'not-json' || input.candidateSurface === '{}'),
+          runner: fakeRunner('gepa', observedInputPath, {
+            exampleId: 'train',
+            responsePath: observedResponsePath,
+            candidate: 'not-json',
+            bestCandidate: '{}',
+            allowFailure: true,
+          }),
+        }),
+      ),
+      surface: 'mcp',
+      runDir: join(root, 'run'),
+    })
+
+    expect(result.candidatePopulation).toMatchObject({
+      status: 'available',
+      uniqueCandidates: 2,
+      observedCandidates: 1,
+      gepaCandidateNodes: 1,
+      materializedCandidates: 1,
+      refusedCandidates: 1,
+    })
+    if (result.candidatePopulation.status !== 'available') {
+      throw new Error('expected the official optimizer candidate population')
+    }
+    expect(result.candidatePopulation.candidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'refused',
+          value: 'not-json',
+          error: expect.objectContaining({ name: 'ConfigError' }),
+        }),
+        expect.objectContaining({ status: 'materialized', value: '{}' }),
+      ]),
+    )
+    const refused = result.candidatePopulation.candidates.find(
+      (candidate) => candidate.status === 'refused',
+    )
+    expect(refused?.source.lineage).toEqual({
+      status: 'unavailable',
+      reason: 'optimizer-did-not-report-candidate-lineage',
+    })
+    expect(JSON.parse(readFileSync(observedResponsePath, 'utf8'))).toEqual({
+      error: 'evaluation failed',
+    })
   })
 
   it('applies a caller redactor to arbitrary PII in supplied descriptors', async () => {

@@ -1,8 +1,14 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
+import {
+  canonicalJson,
+  contentHash,
+  makeProposalFinding,
+  type ProposalFinding,
+} from '@tangle-network/agent-eval'
 import {
   gitWorktreeAdapter,
   inMemoryCampaignStorage,
@@ -101,6 +107,114 @@ function fixedMethod(
   }
 }
 
+function populationMethod(
+  storage: ReturnType<typeof inMemoryCampaignStorage>,
+): OptimizationMethod<TestScenario, TextArtifact> {
+  const runId = 'in-memory-population'
+  const graphPath = 'mem://population/gepa-candidate-population.json'
+  const observationPath = 'mem://population/external-optimizer-observations.jsonl'
+  const selectedCandidate = 'improved prompt'
+  const callbackOnlyCandidate = 'callback only prompt'
+  const selectedHash = contentHash({
+    kind: 'external-text-candidate',
+    candidate: selectedCandidate,
+  })
+  const callbackOnlyHash = contentHash({
+    kind: 'external-text-candidate',
+    candidate: callbackOnlyCandidate,
+  })
+  const observations = `${[
+    {
+      kind: 'proposal',
+      sequence: 1,
+      candidate: selectedCandidate,
+      candidateHash: selectedHash,
+    },
+    {
+      kind: 'proposal',
+      sequence: 2,
+      candidate: callbackOnlyCandidate,
+      candidateHash: callbackOnlyHash,
+    },
+  ]
+    .map(canonicalJson)
+    .join('\n')}\n`
+  const graph = JSON.stringify({
+    schemaVersion: 1,
+    scope: 'gepa-candidate-population',
+    runId,
+    bestIndex: 0,
+    candidates: [
+      {
+        index: 0,
+        candidate: selectedCandidate,
+        parentIndices: [null],
+        aggregateScore: 1,
+        selectionScores: [{ scenarioId: 'selection', score: 1 }],
+        discoveryEvaluationCount: 0,
+      },
+      {
+        index: 1,
+        candidate: selectedCandidate,
+        parentIndices: [0],
+        aggregateScore: 0.75,
+        selectionScores: [{ scenarioId: 'selection', score: 0.75 }],
+        discoveryEvaluationCount: 1,
+      },
+    ],
+  })
+  storage.write(graphPath, graph)
+  storage.write(observationPath, observations)
+  return {
+    name: 'in-memory-population',
+    async optimize() {
+      return {
+        winnerSurface: selectedCandidate,
+        cost: {
+          totalCostUsd: 0,
+          costProvenance: { kind: 'observed', usd: 0 },
+          accountingComplete: true,
+          incompleteReasons: [],
+        },
+        durationMs: 1,
+        provenance: {
+          source: {
+            kind: 'package',
+            evidence: 'declared',
+            package: 'in-memory-population-fixture',
+            version: '1.0.0',
+          },
+          runId,
+          resumed: false,
+          evaluationCount: 0,
+          artifactDir: 'mem://population',
+          observations: {
+            scope: 'callback-submitted-candidates',
+            path: observationPath,
+            sha256: `sha256:${createHash('sha256').update(observations).digest('hex')}`,
+            submittedCandidates: 2,
+            evaluations: 0,
+            refusals: 0,
+          },
+          gepaCandidatePopulation: {
+            scope: 'gepa-candidate-population',
+            path: graphPath,
+            sha256: `sha256:${createHash('sha256').update(graph).digest('hex')}`,
+            bytes: Buffer.byteLength(graph),
+            runId,
+            candidates: 2,
+            bestIndex: 0,
+            maxCandidates: 2,
+            maxCandidateChars: 100,
+            scenarioIds: ['selection'],
+            surfaceKind: 'text',
+          },
+        },
+      }
+    },
+  }
+}
+
 function methodOptions(method: OptimizationMethod<TestScenario, TextArtifact>): {
   method: OptimizationMethod<TestScenario, TextArtifact>
   executionRef: typeof executionRef
@@ -167,8 +281,85 @@ describe('improve method execution', () => {
     expect(result.lift).toBe(1)
     expect(result.liftInterval.low).toBeGreaterThan(0)
     expect(result.candidate.profile?.prompt?.systemPrompt).toBe('improved prompt')
+    expect(result.candidatePopulation).toEqual({
+      status: 'unavailable',
+      reason: 'method-did-not-report-candidate-population',
+    })
     expect(profile.prompt?.systemPrompt).toBe('baseline')
     expect(Object.isFrozen(result.candidate)).toBe(true)
+  })
+
+  it('joins callback and graph populations through the configured storage', async () => {
+    const storage = inMemoryCampaignStorage()
+    const result = await improve(promptProfile(), {
+      ...methodOptions(populationMethod(storage)),
+      storage,
+      optimizationRunOptions: { storage },
+      runDir: 'mem://in-memory-population-run',
+    })
+
+    expect(result.candidatePopulation).toMatchObject({
+      status: 'available',
+      uniqueCandidates: 2,
+      observedCandidates: 2,
+      gepaCandidateNodes: 2,
+      materializedCandidates: 2,
+      refusedCandidates: 0,
+      candidates: expect.arrayContaining([
+        expect.objectContaining({
+          status: 'materialized',
+          value: 'improved prompt',
+          source: expect.objectContaining({
+            lineage: expect.objectContaining({
+              status: 'available',
+              nodes: expect.arrayContaining([
+                expect.objectContaining({ index: 0, parentIndices: [null], aggregateScore: 1 }),
+                expect.objectContaining({ index: 1, parentIndices: [0], aggregateScore: 0.75 }),
+              ]),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          status: 'materialized',
+          value: 'callback only prompt',
+          source: expect.objectContaining({
+            lineage: {
+              status: 'unavailable',
+              reason: 'optimizer-did-not-report-candidate-lineage',
+            },
+          }),
+        }),
+      ]),
+    })
+    if (result.candidatePopulation.status !== 'available') {
+      throw new Error('expected an available candidate population')
+    }
+    const joined = result.candidatePopulation.candidates.find(
+      (candidate) => candidate.value === 'improved prompt',
+    )
+    expect(joined?.source.lineage).toEqual({
+      status: 'available',
+      artifact: {
+        path: result.candidatePopulation.source.gepaCandidateGraph?.path,
+        sha256: result.candidatePopulation.source.gepaCandidateGraph?.sha256,
+      },
+      nodes: [
+        {
+          index: 0,
+          parentIndices: [null],
+          aggregateScore: 1,
+          selectionScores: [{ scenarioId: 'selection', score: 1 }],
+          discoveryEvaluationCount: 0,
+        },
+        {
+          index: 1,
+          parentIndices: [0],
+          aggregateScore: 0.75,
+          selectionScores: [{ scenarioId: 'selection', score: 0.75 }],
+          discoveryEvaluationCount: 1,
+        },
+      ],
+    })
   })
 
   it('resumes an identical profile run without dispatching another agent call', async () => {

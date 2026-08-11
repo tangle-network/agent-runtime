@@ -4884,6 +4884,262 @@ Exact complete profile instance measured on the final cases.
 
 ***
 
+### ImprovementProfilePopulationArtifactSource
+
+Digest-addressed Eval artifact.
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+##### sha256
+
+> **sha256**: `` `sha256:${string}` ``
+
+***
+
+### ImprovementProfilePopulationObservationSource
+
+Exact callback observation that introduced one optimizer candidate.
+
+#### Properties
+
+##### proposalSequence
+
+> **proposalSequence**: `number`
+
+One-based position of the proposal in the verified observation artifact.
+
+##### artifact
+
+> **artifact**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource)
+
+***
+
+### ImprovementProfilePopulationLineageNode
+
+One exact node from GEPA's accepted candidate graph.
+
+#### Properties
+
+##### index
+
+> **index**: `number`
+
+##### parentIndices
+
+> **parentIndices**: readonly (`number` \| `null`)[]
+
+##### aggregateScore
+
+> **aggregateScore**: `number` \| `null`
+
+##### selectionScores
+
+> **selectionScores**: readonly `object`[]
+
+##### discoveryEvaluationCount
+
+> **discoveryEvaluationCount**: `number`
+
+***
+
+### ImprovementProfilePopulationCandidateSource
+
+Every verified source associated with one unique optimizer candidate.
+
+#### Properties
+
+##### candidateDigest
+
+> **candidateDigest**: `` `sha256:${string}` ``
+
+Eval identity of the external text or component candidate.
+
+##### observation?
+
+> `optional` **observation?**: [`ImprovementProfilePopulationObservationSource`](#improvementprofilepopulationobservationsource)
+
+Present when the candidate crossed the evaluation callback.
+
+##### lineage
+
+> **lineage**: [`ImprovementProfilePopulationLineage`](#improvementprofilepopulationlineage)
+
+Exact GEPA parents and scores, or an explicit statement that none were reported.
+
+***
+
+### ImprovementMaterializedProfilePopulationCandidate
+
+A verified optimizer candidate that Runtime can express as an exact profile.
+
+#### Properties
+
+##### status
+
+> **status**: `"materialized"`
+
+##### source
+
+> **source**: [`ImprovementProfilePopulationCandidateSource`](#improvementprofilepopulationcandidatesource)
+
+##### value
+
+> **value**: `MutableSurface`
+
+Exact optimizer surface decoded by Eval.
+
+##### surfaceDigest
+
+> **surfaceDigest**: `` `sha256:${string}` ``
+
+Interface identity of `value`.
+
+##### profile
+
+> **profile**: `object`
+
+Exact complete profile produced by Runtime's configured materializer.
+
+##### profileDigest
+
+> **profileDigest**: `` `sha256:${string}` ``
+
+Interface identity of `profile`.
+
+##### diffs
+
+> **diffs**: readonly `AgentProfileDiff`[]
+
+Ordered Interface diffs that reproduce `profile` from the baseline.
+
+##### diffDigests
+
+> **diffDigests**: readonly `` `sha256:${string}` ``[]
+
+Interface identity of each entry in `diffs`.
+
+***
+
+### ImprovementRefusedProfilePopulationCandidate
+
+A verified optimizer candidate that Runtime refused to materialize.
+
+#### Properties
+
+##### status
+
+> **status**: `"refused"`
+
+##### source
+
+> **source**: [`ImprovementProfilePopulationCandidateSource`](#improvementprofilepopulationcandidatesource)
+
+##### value
+
+> **value**: `MutableSurface`
+
+Exact optimizer surface decoded by Eval.
+
+##### surfaceDigest
+
+> **surfaceDigest**: `` `sha256:${string}` ``
+
+Interface identity of `value`.
+
+##### error
+
+> **error**: `object`
+
+###### name
+
+> **name**: `string`
+
+###### message
+
+> **message**: `string`
+
+***
+
+### ImprovementProfileCandidatePopulationAvailable
+
+Complete verified population reported by one optimizer run.
+
+#### Properties
+
+##### status
+
+> **status**: `"available"`
+
+##### source
+
+> **source**: `object`
+
+###### observations?
+
+> `optional` **observations?**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource)
+
+###### gepaCandidateGraph?
+
+> `optional` **gepaCandidateGraph?**: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource) & `object`
+
+###### Type Declaration
+
+###### bestIndex
+
+> **bestIndex**: `number`
+
+##### uniqueCandidates
+
+> **uniqueCandidates**: `number`
+
+Distinct candidate surfaces across all verified source artifacts.
+
+##### observedCandidates
+
+> **observedCandidates**: `number`
+
+Distinct candidate surfaces submitted through the evaluation callback.
+
+##### gepaCandidateNodes
+
+> **gepaCandidateNodes**: `number`
+
+Exact GEPA graph nodes. Multiple nodes can have the same candidate surface.
+
+##### materializedCandidates
+
+> **materializedCandidates**: `number`
+
+##### refusedCandidates
+
+> **refusedCandidates**: `number`
+
+##### candidates
+
+> **candidates**: readonly [`ImprovementProfilePopulationCandidate`](#improvementprofilepopulationcandidate)[]
+
+***
+
+### ImprovementProfileCandidatePopulationUnavailable
+
+Explicit absence for methods that do not report candidate population evidence.
+
+#### Properties
+
+##### status
+
+> **status**: `"unavailable"`
+
+##### reason
+
+> **reason**: `"method-did-not-report-candidate-population"`
+
+***
+
 ### ImprovementCodeCandidate
 
 #### Properties
@@ -5195,6 +5451,12 @@ Paired final-test confidence interval for method-based profile runs.
 ###### Overrides
 
 `ImproveResultBase.liftInterval`
+
+##### candidatePopulation
+
+> **candidatePopulation**: [`ImprovementProfileCandidatePopulation`](#improvementprofilecandidatepopulation)
+
+Every distinct verified candidate, including explicit materialization refusals.
 
 ##### raw
 
@@ -10623,6 +10885,24 @@ The canonical improvement API: complete methods for profiles, worktrees for code
 ### ImproveCodeOptions
 
 > **ImproveCodeOptions** = [`ImproveCodeBaseOptions`](#improvecodebaseoptions) & [`ImproveRuntimeCodeGeneratorOptions`](#improveruntimecodegeneratoroptions) \| [`ImproveCustomCodeGeneratorOptions`](#improvecustomcodegeneratoroptions)
+
+***
+
+### ImprovementProfilePopulationLineage
+
+> **ImprovementProfilePopulationLineage** = \{ `status`: `"available"`; `artifact`: [`ImprovementProfilePopulationArtifactSource`](#improvementprofilepopulationartifactsource); `nodes`: readonly [`ImprovementProfilePopulationLineageNode`](#improvementprofilepopulationlineagenode)[]; \} \| \{ `status`: `"unavailable"`; `reason`: `"optimizer-did-not-report-candidate-lineage"`; \}
+
+***
+
+### ImprovementProfilePopulationCandidate
+
+> **ImprovementProfilePopulationCandidate** = [`ImprovementMaterializedProfilePopulationCandidate`](#improvementmaterializedprofilepopulationcandidate) \| [`ImprovementRefusedProfilePopulationCandidate`](#improvementrefusedprofilepopulationcandidate)
+
+***
+
+### ImprovementProfileCandidatePopulation
+
+> **ImprovementProfileCandidatePopulation** = [`ImprovementProfileCandidatePopulationAvailable`](#improvementprofilecandidatepopulationavailable) \| [`ImprovementProfileCandidatePopulationUnavailable`](#improvementprofilecandidatepopulationunavailable)
 
 ***
 

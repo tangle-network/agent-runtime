@@ -28,7 +28,16 @@ The system is four steps, each with a named entry point:
 1. **Describe the agent as data.** A **profile** is the whole agent: `systemPrompt + skills + tools + mcp + knowledge + memory + rag`, one combined surface.
 2. **Run it.** A driver steers workers over rounds: `runPersonified` composes a combinator (`loopUntil`, `fanout`, …) over the `Supervisor`, spending K rounds against one persistent, journaled artifact from a *conserved budget pool*, so any two topologies you compare cost the same by construction.
 3. **Score it on a benchmark.** Either the `ADAPTERS` registry driven by `runGate` over the Supervisor, or an `AgenticSurface` driven by `runBenchmark`/`runAgentic`.
-4. **Improve it on three partitions.** `improve(profile, { executionRef, method, trainScenarios, selectionScenarios, testScenarios, agent })` runs a complete agent-eval `OptimizationMethod`. The method receives train and selection cases only. Runtime materializes each surface as a complete detached profile and passes that exact profile to `agent`. `executionRef` identifies the callback, component mapping, model, tools, and closure settings. Agent Eval scores the selected profile on the untouched final test. Runtime returns `ship` only when the paired interval clears the required lift and all spend is accounted for.
+4. **Improve it on three partitions.**
+   `improve(profile, { executionRef, method, trainScenarios, selectionScenarios, testScenarios, agent })` runs a complete agent-eval `OptimizationMethod`.
+   The method receives train and selection cases only.
+   Runtime materializes each surface as a complete detached profile and passes that profile to `agent`.
+   `executionRef` identifies the callback, component mapping, model, tools, and closure settings.
+   Agent Eval scores the selected profile on the untouched final test.
+   Runtime returns `ship` only when the paired interval clears the required lift and all spend is accounted for.
+   `candidatePopulation` joins verified callback observations with the optimizer's official graph.
+   It returns every unique candidate as an exact profile plus Interface diffs, or as an explicit refusal.
+   Official GEPA graph nodes retain parent indices and selection scores.
 
 Two standing rules: the model that picks the best attempt is never the model that grades it, and observation attaches to the *loop* via `RuntimeHooks`, never to the portable profile. One known limit: the current `Supervisor` records completed settlements but does not resume a live tree after coordinator restart.
 
