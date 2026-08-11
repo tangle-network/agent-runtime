@@ -109,6 +109,7 @@ function fixedMethod(
 
 function populationMethod(
   storage: ReturnType<typeof inMemoryCampaignStorage>,
+  winnerSurface = 'improved prompt',
 ): OptimizationMethod<TestScenario, TextArtifact> {
   const runId = 'in-memory-population'
   const graphPath = 'mem://population/gepa-candidate-population.json'
@@ -169,7 +170,7 @@ function populationMethod(
     name: 'in-memory-population',
     async optimize() {
       return {
-        winnerSurface: selectedCandidate,
+        winnerSurface,
         cost: {
           totalCostUsd: 0,
           costProvenance: { kind: 'observed', usd: 0 },
@@ -360,6 +361,18 @@ describe('improve method execution', () => {
         },
       ],
     })
+  })
+
+  it('refuses a method winner that differs from the verified GEPA best candidate', async () => {
+    const storage = inMemoryCampaignStorage()
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(populationMethod(storage, 'improved method winner')),
+        storage,
+        optimizationRunOptions: { storage },
+        runDir: 'mem://mismatched-population-winner',
+      }),
+    ).rejects.toThrow(/method winner does not equal the verified GEPA bestIndex candidate/u)
   })
 
   it('resumes an identical profile run without dispatching another agent call', async () => {
