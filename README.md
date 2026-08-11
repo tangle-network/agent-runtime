@@ -283,7 +283,7 @@ There is no local fallback.
 Install its optional Python process before using it:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.144.8"
+python -m pip install "agent-eval-rpc==0.144.11"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
