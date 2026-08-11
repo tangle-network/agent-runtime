@@ -134,6 +134,22 @@ describe('harvestSurfaceDiffs', () => {
     ])
   })
 
+  it('contains a reader that throws: the bad path reports unreadable, every other diff survives', async () => {
+    const read: SurfaceReader = (path) => {
+      if (path === 'boom.md') throw new Error('reader contract violation')
+      return Promise.resolve({ succeeded: true, value: new TextEncoder().encode('v2') })
+    }
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('boom.md', 'x'), mount('a.md', 'v1')],
+      read,
+    })
+    expect(diffs.map((d) => [d.path, d.status])).toEqual([
+      ['boom.md', 'unreadable'],
+      ['a.md', 'modified'],
+    ])
+    expect(diffs[0]?.error).toBe('reader contract violation')
+  })
+
   it('treats an uppercase manifest hash as equal to the settled lowercase hash', async () => {
     const entry = { ...mount('a.md', 'same'), sha256: sha('same').toUpperCase() }
     const diffs = await harvestSurfaceDiffs({
@@ -247,6 +263,17 @@ describe('fsSurfaceReader', () => {
     if (hit.succeeded) expect(new TextDecoder().decode(hit.value)).toBe('hello')
     const miss = await read('absent.md')
     expect(miss).toMatchObject({ succeeded: false, missing: true })
+  })
+
+  it('contains paths inside the root: ../ escapes and outside absolute paths fail without reading', async () => {
+    const read = fsSurfaceReader(root)
+    const escaped = await read('../outside.md')
+    expect(escaped).toMatchObject({ succeeded: false, missing: false })
+    if (!escaped.succeeded) expect(escaped.error).toContain('outside the reader root')
+    const absolute = await read('/etc/hostname')
+    expect(absolute).toMatchObject({ succeeded: false, missing: false })
+    const insideAbsolute = await read(join(root, 'notes.md'))
+    expect(insideAbsolute.succeeded).toBe(true)
   })
 
   it('composes with the harvest over a real worktree edit', async () => {

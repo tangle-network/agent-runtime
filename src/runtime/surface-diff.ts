@@ -25,7 +25,7 @@
 
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, resolve, sep } from 'node:path'
 import type { MountManifestEntry } from './types'
 
 /** Outcome of reading one surface back at settle. `missing: true` means the path no longer exists
@@ -67,13 +67,19 @@ export interface SurfaceDiff {
 
 /** A path to check at settle that was NOT necessarily mounted — where a harness is known to write
  *  self-authored surfaces (a memory dir's files, a refinement log). A watched path that was also
- *  mounted compares against its mount; one that wasn't reports `created` if it now exists. */
+ *  mounted compares against its mount; one that wasn't reports `created` if it now exists.
+ *  `created` is an inference from the mount manifest, not a proof of authorship: a file the box
+ *  IMAGE shipped at a never-mounted path also reports `created`. Watch paths known absent at run
+ *  start (or enumerate the tree at start AND settle and watch the difference) to make the label
+ *  mean what it says. */
 export interface WatchedSurface {
   path: string
   /** Origin label carried onto the diff (default `'watched'`). */
   source?: string
 }
 
+/** Inputs to {@link harvestSurfaceDiffs}: the run's mount manifest, the read seam, and optional
+ *  watch paths for surfaces the agent may have created. */
 export interface HarvestSurfaceDiffsOptions {
   /** The run's mount manifest (`RunProvenance.mounts`). Entries sharing a path are collapsed to the
    *  LAST entry — the bytes the agent actually saw at start. */
@@ -87,6 +93,21 @@ export interface HarvestSurfaceDiffsOptions {
 }
 
 const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
+/** Contain a reader that violates its typed-outcome contract by THROWING: the module's law is that
+ *  a failed read becomes an `unreadable` diff, so one bad path must not reject the whole harvest
+ *  and silently drop every other diff. */
+const readOutcome = async (read: SurfaceReader, path: string): Promise<SurfaceReadOutcome> => {
+  try {
+    return await read(path)
+  } catch (err) {
+    return {
+      succeeded: false,
+      missing: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
 
 /** The collision/dedup key for a path: a leading `./` stripped, so `./AGENTS.md` (a mount
  *  recorder's form) and `AGENTS.md` (a file-tree enumeration's form) are one surface. Absolute vs
@@ -112,7 +133,7 @@ export async function harvestSurfaceDiffs(
   }
   const mountDiffs = await Promise.all(
     [...byPath.values()].map(async (entry): Promise<SurfaceDiff | undefined> => {
-      const outcome = await options.read(entry.path)
+      const outcome = await readOutcome(options.read, entry.path)
       if (!outcome.succeeded) {
         return outcome.missing
           ? {
@@ -143,7 +164,7 @@ export async function harvestSurfaceDiffs(
   )
   const watchDiffs = await Promise.all(
     [...watchByPath.values()].map(async (watched): Promise<SurfaceDiff | undefined> => {
-      const outcome = await options.read(watched.path)
+      const outcome = await readOutcome(options.read, watched.path)
       if (!outcome.succeeded) {
         // A still-absent watched path is the expected no-op; a failing read is not.
         if (outcome.missing) return undefined
@@ -240,13 +261,24 @@ export function boxSurfaceReader(
 }
 
 /**
- * A {@link SurfaceReader} over the local filesystem, for worktree/local workers. Relative mount
- * paths resolve against `root`. Absence maps to `missing: true`; every other failure carries the
- * error message.
+ * A {@link SurfaceReader} over the local filesystem, for worktree/local workers. Every path —
+ * relative or absolute — must resolve INSIDE `root`: a path that escapes it (`../`, an absolute
+ * path elsewhere) fails as a contained non-missing outcome rather than reading outside the
+ * worktree, so a persisted or mistyped manifest path cannot turn the harvest into an
+ * existence/hash oracle over the host filesystem. Absence maps to `missing: true`; every other
+ * failure carries the error message.
  */
 export function fsSurfaceReader(root: string): SurfaceReader {
+  const boundary = resolve(root)
   return async (path) => {
-    const target = isAbsolute(path) ? path : resolve(root, path)
+    const target = isAbsolute(path) ? resolve(path) : resolve(boundary, path)
+    if (target !== boundary && !target.startsWith(boundary + sep)) {
+      return {
+        succeeded: false,
+        missing: false,
+        error: `fsSurfaceReader: path ${JSON.stringify(path)} resolves outside the reader root ${JSON.stringify(boundary)}`,
+      }
+    }
     try {
       return { succeeded: true, value: new Uint8Array(await readFile(target)) }
     } catch (err) {

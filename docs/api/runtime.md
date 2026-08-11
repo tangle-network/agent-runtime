@@ -16765,6 +16765,10 @@ The read seam's diagnostic. Present only for `unreadable`.
 A path to check at settle that was NOT necessarily mounted — where a harness is known to write
  self-authored surfaces (a memory dir's files, a refinement log). A watched path that was also
  mounted compares against its mount; one that wasn't reports `created` if it now exists.
+ `created` is an inference from the mount manifest, not a proof of authorship: a file the box
+ IMAGE shipped at a never-mounted path also reports `created`. Watch paths known absent at run
+ start (or enumerate the tree at start AND settle and watch the difference) to make the label
+ mean what it says.
 
 #### Properties
 
@@ -16781,6 +16785,9 @@ Origin label carried onto the diff (default `'watched'`).
 ***
 
 ### HarvestSurfaceDiffsOptions
+
+Inputs to [harvestSurfaceDiffs](#harvestsurfacediffs): the run's mount manifest, the read seam, and optional
+ watch paths for surfaces the agent may have created.
 
 #### Properties
 
@@ -26058,9 +26065,12 @@ and maps to `missing: true` — unless its `resourceType` names something other 
 
 > **fsSurfaceReader**(`root`): [`SurfaceReader`](#surfacereader)
 
-A [SurfaceReader](#surfacereader) over the local filesystem, for worktree/local workers. Relative mount
-paths resolve against `root`. Absence maps to `missing: true`; every other failure carries the
-error message.
+A [SurfaceReader](#surfacereader) over the local filesystem, for worktree/local workers. Every path —
+relative or absolute — must resolve INSIDE `root`: a path that escapes it (`../`, an absolute
+path elsewhere) fails as a contained non-missing outcome rather than reading outside the
+worktree, so a persisted or mistyped manifest path cannot turn the harvest into an
+existence/hash oracle over the host filesystem. Absence maps to `missing: true`; every other
+failure carries the error message.
 
 #### Parameters
 

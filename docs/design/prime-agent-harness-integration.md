@@ -3,8 +3,8 @@
 > **Status: decision record + integration contract.** Prime Agent (Prime Intellect's
 > local agent OS: persistent IPython kernel, daemon-backed session trees, native `rlm(…)`
 > subagents, `/refine` continual-harness edits) is being added as a **sandbox-materialized
-> harness** — the sandbox/adc side owns the image, the adapter, and the `prime-agent`
-> harness id. This doc owns the Runtime side: the boundary we hold, which proposed
+> harness** — the sandbox/adc side owns the image and the adapter; the harness id shipped
+> as `prime` in `agent-interface` and the sandbox backend enum. This doc owns the Runtime side: the boundary we hold, which proposed
 > integration machinery we adopt or reject (most of it already exists here), and the
 > concrete asks on the substrate. On architecture conflict,
 > [architecture.md](../architecture.md) wins.
@@ -40,8 +40,8 @@ Most of the machinery a "host Prime properly" plan calls for is built. Reuse it.
 | Execution-identity receipts (what exactly ran) | `materialized` journal event (authored/effective profile + platform-attachment digests), `RunProvenance.mounts`, `SelectionReceipt`, usage integrity guard | `src/runtime/supervise/`, `src/runtime/types.ts` |
 | Frozen candidate identity + workspace bytes | `buildAgentCandidateBundle` / `captureAgentCandidateWorkspace` | `src/candidate-execution/` |
 | Improvement governance (train/selection/final-test partitions, review, activation, rollback receipts) | `improve()` + `proposeAgentImprovement` → `reviewAgentImprovementProposal` → activation | `src/improvement/`, `src/intelligence/` |
-| Equal-compute topology comparison + holdout gates | conserved budget pool, `pairedLift`, `promotionGate`, `heldOutGate` | `src/runtime/supervise/budget.ts`, bench/eval |
-| Harness × model × task matrix | `defineLeaderboard` / `runProfileMatrix` (harness×model axes) | `src/runtime/define-leaderboard.ts` |
+| Equal-compute topology comparison + holdout gates | conserved budget pool (`src/runtime/supervise/budget.ts`), `promotionGate`, `pairedLift`, `heldOutGate` | `src/runtime/promotion-gate.ts`, `bench/src/stats.mts`, `@tangle-network/agent-eval` contract |
+| Harness × model × task matrix | `defineLeaderboard` / `runProfileMatrix` (harness×model axes) | `src/runtime/define-leaderboard.ts`, `@tangle-network/agent-eval` campaign |
 | Harness-agnostic trace normalization | `TraceSource` + the per-harness `toolPartDecoders` registry (add a harness = one validated decoder entry) | `src/runtime/supervise/trace-source.ts` |
 | Uncertain-effect posture after restart | uncertain reservations charged at full declared budget with telemetry explicitly unknown; instruction receipts retained as evidence, never auto-redelivered | `src/runtime/supervise/budget.ts`, `supervise/coordination-mcp.ts` |
 | Prime Intellect ecosystem bridge (verifiers env packaging, trace import) | `writePrimeIntellectPackage`, `importPrimeIntellectTraces` → `RunRecord` | `src/primeintellect/` |
@@ -77,18 +77,23 @@ The scope law it feeds (Prime's `/refine` scopes, generalized to any harness):
   rationale ("expectedOutcome") is never promotion evidence — the trajectory that
   motivated an edit is not an independent measurement of it.
 
-### 3.2 When the `prime-agent` id ships (blocked on substrate)
+### 3.2 The `prime` id — shipped and wired
 
-Small, mechanical, and compile-pinned — do these in the release that picks up the new
-`agent-interface`/`sandbox` versions:
+The id shipped as **`prime`** in `agent-interface` (`HarnessType`; capability rows for
+its reasoning ladder and system-prompt semantics) and in the sandbox backend enum, and
+`'prime'` is in `harnessBackends` (`src/runtime/sandbox-backend.ts`) — the
+double-`satisfies` pin keeps the three enums aligned at compile time. Two follow-ups
+remain, each gated on evidence rather than releases:
 
-1. Add `'prime-agent'` to `harnessBackends` in `src/runtime/sandbox-backend.ts` (the
-   double-`satisfies` makes the absence a compile error, so this cannot be forgotten).
-2. Register a `toolPartDecoders['prime-agent']` entry — see wish-list item 3 for why this
-   should be the canonical `ToolPart` decoder, not a bespoke one.
-3. Add a **measured** column to
+1. Register a `toolPartDecoders['prime']` entry — ONLY once validated against Prime's
+   real session output (the registry law). If the substrate normalizes into the
+   canonical `ToolPart` (wish-list item 3), the existing decoder covers it and the
+   entry is a one-line alias; until then unregistered harnesses fall through to the
+   try-all composite, which is correct.
+2. Fill the **measured** `prime` column in
    [research/harness-compat.md](../research/harness-compat.md). Prime is Pi-lineage but
-   not Pi: do not inherit `pi`'s capability row by assumption.
+   not Pi (the fork's daemon rejects pi-line clients): do not inherit `pi`'s capability
+   row by assumption.
 
 ## 4. What we deliberately do NOT build
 
@@ -131,9 +136,10 @@ Small, mechanical, and compile-pinned — do these in the release that picks up 
 Numbered so the sandbox-side work can check them off. Items 1–5 are required for
 instrumented runs; 6–9 unlock the experiment tier.
 
-1. **Harness identity.** `'prime-agent'` in `HarnessType` (agent-interface) and as a
-   sandbox `backend.type` — a distinct id, not `pi`. Capability rows (model lock,
-   reasoning clamp, selector honoring) measured against the real CLI, not inherited.
+1. **Harness identity — DONE.** Shipped as `'prime'` in `HarnessType` (agent-interface,
+   with reasoning-ladder and prompt-channel capability rows) and as a sandbox
+   `backend.type` — a distinct id, not `pi`. The remaining capability facts (model lock,
+   selector honoring per the real CLI) still land measured, not inherited.
 2. **Profile materialization.** Render an `AgentProfile` into Prime's native surfaces —
    system-prompt addendum, skills (as Prime executable skills or SKILL.md), MCP config,
    subagent specs, hooks where expressible — with the standard materialization receipt

@@ -30,12 +30,13 @@ Harnesses wired via cli-bridge: **claude-code** (2.1.177), **codex** (0.139.0), 
 
 ## Pending columns
 
-- **prime-agent** — Prime Intellect's agent OS (persistent IPython kernel, native `rlm(…)`
-  subagents, `/refine` continual-harness edits, daemon-backed session trees). Sandbox
-  backend in progress; see
+- **prime** — Prime Intellect's agent OS (persistent IPython kernel, native `rlm(…)`
+  subagents, `/refine` continual-harness edits, daemon-backed session trees). The id
+  shipped in `agent-interface` `HarnessType` + the sandbox backend enum; see
   [design/prime-agent-harness-integration.md](../design/prime-agent-harness-integration.md).
-  **Do not inherit `pi`'s row** — Prime is Pi-lineage but adds materially different
-  semantics; every cell must be measured against the real CLI before this column fills in.
+  **Do not inherit `pi`'s row** — Prime is Pi-lineage but the fork's wire protocol has
+  diverged (its daemon rejects pi-line clients); every cell must be measured against the
+  real CLI before this column fills in.
   Expected steering-relevant deltas to verify: native subagent fan-out cap and whether it
   is configurable (runaway surface #3), whether the daemon protocol allows mid-step
   interrupt (black-box harnesses today degrade `steer_agent({interrupt:true})` to next
