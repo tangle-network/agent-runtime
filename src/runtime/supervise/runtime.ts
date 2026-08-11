@@ -88,7 +88,7 @@ import type {
   OutputAdapter,
   SandboxClient,
 } from '../types'
-import { zeroTokenUsage } from '../util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInbox, type Inbox } from './inbox'
 import {
@@ -526,7 +526,13 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         )
         const spent: Spend = {
           iterations: 1,
-          tokens: r.usage ? { input: r.usage.input, output: r.usage.output } : zeroTokenUsage(),
+          tokens: r.usage
+            ? cloneTokenUsage({
+                input: r.usage.input,
+                output: r.usage.output,
+                ...routerPromptCacheUsage(r.usage.input, r.cache),
+              })
+            : zeroTokenUsage(),
           usd: r.billedCostUsd ?? 0,
           ...(r.usage ? {} : { tokensKnown: false }),
           ...(r.billedCostUsd === undefined ? { usdKnown: false } : {}),
@@ -648,6 +654,39 @@ function mergePromptCache(
     if (value !== undefined) target[key] = (Number(target[key]) || 0) + value
   }
   if (cache.status !== undefined) target.status = cache.status
+}
+
+/** Preserve a complete Router cache split; an incomplete provider receipt stays unknown. */
+function routerPromptCacheUsage(
+  input: number | undefined,
+  cache: PromptCacheUsage | undefined,
+): {
+  freshInput?: number
+  cacheRead?: number
+  cacheWrite?: number
+  cacheBreakdownKnown?: false
+} {
+  if (cache === undefined) return {}
+  const read = cache.readTokens
+  const write = cache.writeTokens
+  if (read === undefined && write === undefined) return {}
+  if (
+    input === undefined ||
+    !isCacheTokenCount(read) ||
+    !isCacheTokenCount(write) ||
+    read + write > input
+  ) {
+    return { cacheBreakdownKnown: false }
+  }
+  return {
+    freshInput: input - read - write,
+    cacheRead: read,
+    cacheWrite: write,
+  }
+}
+
+function isCacheTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 async function runRouterTransport<T>(context: string, call: () => Promise<T>): Promise<T> {
@@ -825,11 +864,15 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             if (res.model !== undefined) observedModel = res.model
             mergePromptCache(promptCache, res.cache)
             if (res.usage) {
-              tokens.input += res.usage.input
-              tokens.output += res.usage.output
+              addTokenUsage(tokens, {
+                input: res.usage.input,
+                output: res.usage.output,
+                ...routerPromptCacheUsage(res.usage.input, res.cache),
+              })
               if (res.usage.reasoning !== undefined) reasoningTokens += res.usage.reasoning
               else reasoningKnown = false
             } else {
+              addTokenUsage(tokens, routerPromptCacheUsage(undefined, res.cache))
               tokensKnown = false
               reasoningKnown = false
             }
@@ -1284,7 +1327,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     }
     const spent: Spend = {
       iterations: result.iterations.length,
-      tokens: { input: result.tokenUsage.input, output: result.tokenUsage.output },
+      tokens: cloneTokenUsage(result.tokenUsage),
       ...(tokensKnown ? {} : { tokensKnown: false }),
       usd: result.costUsd,
       ...(usdKnown ? {} : { usdKnown: false }),
@@ -1303,6 +1346,18 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
         input: result.tokenUsage.input,
         output: result.tokenUsage.output,
         ...(tokensKnown ? {} : { tokensKnown: false }),
+        ...(result.tokenUsage.freshInput !== undefined
+          ? { freshInput: result.tokenUsage.freshInput }
+          : {}),
+        ...(result.tokenUsage.cacheRead !== undefined
+          ? { cacheRead: result.tokenUsage.cacheRead }
+          : {}),
+        ...(result.tokenUsage.cacheWrite !== undefined
+          ? { cacheWrite: result.tokenUsage.cacheWrite }
+          : {}),
+        ...(result.tokenUsage.cacheBreakdownKnown === false
+          ? { cacheBreakdownKnown: false as const }
+          : {}),
       }
     }
     if (result.iterations.length > 0 || result.costUsd) {
@@ -2125,14 +2180,23 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         if (chunk.usage) {
           sawTurnTokenUsage = true
           if (!chunk.usage.known) turnTokensKnown = false
-          tokens.input += chunk.usage.input
-          tokens.output += chunk.usage.output
-          yield {
+          const usageEvent: Extract<UsageEvent, { kind: 'tokens' }> = {
             kind: 'tokens',
             input: chunk.usage.input,
             output: chunk.usage.output,
             ...(chunk.usage.known ? {} : { tokensKnown: false }),
+            ...(chunk.usage.promptCache?.freshInput !== undefined
+              ? { freshInput: chunk.usage.promptCache.freshInput }
+              : {}),
+            ...(chunk.usage.promptCache?.readInput !== undefined
+              ? { cacheRead: chunk.usage.promptCache.readInput }
+              : {}),
+            ...(chunk.usage.promptCache?.writeInput !== undefined
+              ? { cacheWrite: chunk.usage.promptCache.writeInput }
+              : {}),
           }
+          addTokenUsage(tokens, usageEvent)
+          yield usageEvent
           if (chunk.usage.promptCache) {
             if (chunk.usage.promptCache.freshInput !== undefined) {
               promptCache.freshInput =
@@ -3332,6 +3396,9 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       fresh_input_tokens?: unknown
       cache_read_input_tokens?: unknown
       cache_write_input_tokens?: unknown
+      prompt_cache_hit_tokens?: unknown
+      prompt_tokens_details?: { cached_tokens?: unknown }
+      prompt_cache?: { read_tokens?: unknown; write_tokens?: unknown }
       cost?: unknown
       estimated_cost?: unknown
       cost_known?: unknown
@@ -3379,12 +3446,26 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   if (u) {
     const input = optionalBridgeTokenCount(u.prompt_tokens, 'prompt_tokens')
     const output = optionalBridgeTokenCount(u.completion_tokens, 'completion_tokens')
-    const freshInput = optionalBridgeTokenCount(u.fresh_input_tokens, 'fresh_input_tokens')
-    const readInput = optionalBridgeTokenCount(u.cache_read_input_tokens, 'cache_read_input_tokens')
-    const writeInput = optionalBridgeTokenCount(
-      u.cache_write_input_tokens,
-      'cache_write_input_tokens',
+    const readInput = optionalBridgeTokenCount(
+      u.cache_read_input_tokens ??
+        u.prompt_cache?.read_tokens ??
+        u.prompt_cache_hit_tokens ??
+        u.prompt_tokens_details?.cached_tokens,
+      'cache read input tokens',
     )
+    const writeInput = optionalBridgeTokenCount(
+      u.cache_write_input_tokens ?? u.prompt_cache?.write_tokens,
+      'cache write input tokens',
+    )
+    const explicitFreshInput = optionalBridgeTokenCount(u.fresh_input_tokens, 'fresh_input_tokens')
+    const freshInput =
+      explicitFreshInput ??
+      (input !== undefined &&
+      readInput !== undefined &&
+      writeInput !== undefined &&
+      input >= readInput + writeInput
+        ? input - readInput - writeInput
+        : undefined)
     if (
       input !== undefined ||
       output !== undefined ||

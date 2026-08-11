@@ -225,6 +225,9 @@ export {
   type LoopOptionsForDispatch,
   loopCampaignDispatch,
   loopDispatch,
+  type SuperviseDispatchOptions,
+  type SuperviseOptionsForDispatch,
+  superviseDispatch,
 } from './loop-dispatch'
 export {
   createMcpEnvironment,

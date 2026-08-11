@@ -3348,6 +3348,96 @@ Resolve the model actually served from the completed loop.
 
 ***
 
+### SuperviseDispatchOptions
+
+Adapt a recursive Runtime `supervise()` tree to one Agent Eval profile-matrix cell.
+
+The adapter starts Eval's paid-call record before the tree starts. Runtime remains the sole
+owner of recursive execution, budgets, and the journal; Eval remains the sole owner of the
+paid-call admission and resulting receipt.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### toTask
+
+> **toTask**: (`scenario`, `profile`) => `unknown`
+
+Build the task passed to the root supervisor for this profile/scenario cell.
+
+###### Parameters
+
+###### scenario
+
+`TScenario`
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`unknown`
+
+##### toSuperviseOptions
+
+> **toSuperviseOptions**: (`scenario`, `profile`) => [`SuperviseOptionsForDispatch`](#superviseoptionsfordispatch)
+
+Build the Runtime-owned recursive-run options for this profile/scenario cell.
+
+###### Parameters
+
+###### scenario
+
+`TScenario`
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+[`SuperviseOptionsForDispatch`](#superviseoptionsfordispatch)
+
+##### toArtifact?
+
+> `optional` **toArtifact?**: (`result`) => `TArtifact`
+
+Map the terminal tree result to the artifact judges score. Default: winner output.
+
+###### Parameters
+
+###### result
+
+[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
+
+###### Returns
+
+`TArtifact`
+
+##### costSource?
+
+> `optional` **costSource?**: `string`
+
+Cost-meter source label. Default `'supervise'`.
+
+##### maximumCharge?
+
+> `optional` **maximumCharge?**: `MaximumCharge` \| ((`scenario`, `profile`) => MaximumCharge \| undefined)
+
+Provider- or executor-enforced maximum for the complete supervised tree.
+
+***
+
 ### LoopCampaignDispatchOptions
 
 Options for adapting plain agent-eval campaign scenarios into Runtime cells.
@@ -16612,6 +16702,8 @@ campaign dispatch settles real usage instead of appearing as a stub.
 
 > **input**: `number`
 
+Total provider-reported prompt tokens. Budgets always use this total.
+
 ##### output
 
 > **output**: `number`
@@ -16621,6 +16713,31 @@ campaign dispatch settles real usage instead of appearing as a stub.
 > `optional` **tokensKnown?**: `false`
 
 False when the subtotal is incomplete.
+
+##### freshInput?
+
+> `optional` **freshInput?**: `number`
+
+Prompt tokens newly processed by the provider, when every prompt class is known.
+
+##### cacheRead?
+
+> `optional` **cacheRead?**: `number`
+
+Prompt tokens served from a provider cache, when every prompt class is known.
+
+##### cacheWrite?
+
+> `optional` **cacheWrite?**: `number`
+
+Prompt tokens written to a provider cache, when every prompt class is known.
+
+##### cacheBreakdownKnown?
+
+> `optional` **cacheBreakdownKnown?**: `false`
+
+False when any positive-input observation omitted or contradicted the prompt-cache split.
+This marker is sticky during aggregation. Missing cache fields must never become zero.
 
 ***
 
@@ -17976,6 +18093,14 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 
 ***
 
+### SuperviseOptionsForDispatch
+
+> **SuperviseOptionsForDispatch** = `Omit`\<[`SuperviseOptions`](#superviseoptions), `"signal"`\>
+
+`supervise` options minus Eval-owned cancellation.
+
+***
+
 ### Outcome
 
 > **Outcome**\<`D`\> = \{ `kind`: `"done"`; `deliverable`: `D`; \} \| \{ `kind`: `"blocked"`; `blockers`: `string`[]; \}
@@ -18934,11 +19059,12 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
-`{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+`{ input, output }` plus an optional provider cache split; `usd` is a SEPARATE channel (never
+folded into tokens).
 
 Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
 therefore remains unknown through live metering and terminal reconciliation instead of becoming
@@ -18948,7 +19074,7 @@ a fabricated zero.
 
 ##### Type Literal
 
-\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; \}
+\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \}
 
 ###### kind
 
@@ -18967,6 +19093,30 @@ Known token subtotal. When false, these counts are only the observed/estimated f
 ###### output
 
 > **output**: `number`
+
+###### freshInput?
+
+> `optional` **freshInput?**: `number`
+
+Newly processed prompt tokens. Present only with a complete cache split.
+
+###### cacheRead?
+
+> `optional` **cacheRead?**: `number`
+
+Prompt tokens read from cache. Present only with a complete cache split.
+
+###### cacheWrite?
+
+> `optional` **cacheWrite?**: `number`
+
+Prompt tokens written to cache. Present only with a complete cache split.
+
+###### cacheBreakdownKnown?
+
+> `optional` **cacheBreakdownKnown?**: `false`
+
+False when this observation cannot classify all positive prompt tokens.
 
 ***
 
@@ -20888,6 +21038,34 @@ refused unless the caller explicitly supplies a policy that allows it.
 #### Returns
 
 [`SandboxClient`](#sandboxclient-5)
+
+***
+
+### superviseDispatch()
+
+> **superviseDispatch**\<`TScenario`, `TArtifact`\>(`opts`): `ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
+
+Run one recursive supervised tree inside Eval's pre-execution paid-call lifecycle.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Parameters
+
+##### opts
+
+[`SuperviseDispatchOptions`](#supervisedispatchoptions)\<`TScenario`, `TArtifact`\>
+
+#### Returns
+
+`ProfileDispatchFn`\<`TScenario`, `TArtifact`\>
 
 ***
 

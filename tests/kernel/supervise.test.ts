@@ -344,6 +344,42 @@ describe('conserved budget pool', () => {
     ).toThrow(/budget restore committed\.tokens\.input/)
   })
 
+  it.each([
+    [
+      'a true token marker',
+      {
+        iterations: 1,
+        tokens: { input: 10, output: 1, tokensKnown: true },
+        usd: 0,
+        ms: 0,
+      },
+      /observed spend\.tokens\.tokensKnown must be false when present/,
+    ],
+    [
+      'a non-boolean cache marker',
+      {
+        iterations: 1,
+        tokens: { input: 10, output: 1, cacheBreakdownKnown: 'false' },
+        usd: 0,
+        ms: 0,
+      },
+      /observed spend\.tokens\.cacheBreakdownKnown must be false when present/,
+    ],
+    [
+      'a contradictory complete cache split',
+      {
+        iterations: 1,
+        tokens: { input: 10, output: 1, freshInput: 3, cacheRead: 6, cacheWrite: 2 },
+        usd: 0,
+        ms: 0,
+      },
+      /observed spend\.tokens cache classes must sum to input/,
+    ],
+  ] as const)('refuses %s at the spend boundary', (_description, spend, error) => {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    expect(() => pool.observe(spend as unknown as Spend)).toThrow(error)
+  })
+
   it('commits an UNBUDGETED child dollar spend against a capped root (no phantom $0 ceiling)', () => {
     // A child budget may omit `maxUsd` even when the ROOT caps dollars — the common shape, and
     // exactly what the supervisor spawns. Such a child reserves $0 because it asked for no
@@ -517,7 +553,12 @@ describe('conserved budget pool', () => {
       { kind: 'tokens', input: 2, output: 3 },
       { kind: 'cost', usd: 0.01 },
     ])
-    expect(spend).toEqual({ iterations: 1, tokens: { input: 12, output: 8 }, usd: 0.01, ms: 0 })
+    expect(spend).toEqual({
+      iterations: 1,
+      tokens: { input: 12, output: 8, cacheBreakdownKnown: false },
+      usd: 0.01,
+      ms: 0,
+    })
   })
 
   it('preserves explicitly unknown dollar cost in sync and async usage folds', async () => {
@@ -528,7 +569,7 @@ describe('conserved budget pool', () => {
     ]
     const expected: Spend = {
       iterations: 1,
-      tokens: { input: 12, output: 3 },
+      tokens: { input: 12, output: 3, cacheBreakdownKnown: false },
       usd: 0,
       usdKnown: false,
       ms: 0,

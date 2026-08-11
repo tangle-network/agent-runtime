@@ -42,7 +42,10 @@ import type {
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
 import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
-import type { LoopResult, LoopTraceEmitter, SandboxClient } from './types'
+import { type SuperviseOptions, supervise } from './supervise/supervise'
+import type { SupervisedResult } from './supervise/types'
+import type { LoopResult, LoopTokenUsage, LoopTraceEmitter, SandboxClient } from './types'
+import { hasCompleteCacheBreakdown } from './util'
 
 /** runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). */
 export type LoopOptionsForDispatch<Task, Output, Decision> = Omit<
@@ -165,14 +168,190 @@ function loopCostReceipt<Task, Output, Decision>(
   result: LoopResult<Task, Output, Decision>,
   model: string,
 ): CostReceiptInput {
+  return costReceiptFromUsage(result.tokenUsage, model, {
+    usageUnknown: result.tokenUsage.tokensKnown === false,
+    actualCostUsd: result.costUsdKnown !== false ? result.costUsd : undefined,
+    costUnknown: result.costUsdKnown === false,
+    estimatedCostUsd: result.estimatedCostUsd,
+  })
+}
+
+/** Map Runtime usage into Eval's canonical paid-call receipt without inventing cache classes. */
+function costReceiptFromUsage(
+  usage: LoopTokenUsage,
+  model: string,
+  cost: {
+    usageUnknown?: boolean
+    actualCostUsd?: number
+    costUnknown?: boolean
+    estimatedCostUsd?: number
+  },
+): CostReceiptInput {
+  const cacheComplete =
+    hasCompleteCacheBreakdown(usage) &&
+    (usage.freshInput !== undefined ||
+      usage.cacheRead !== undefined ||
+      usage.cacheWrite !== undefined)
+  const cacheRead = cacheComplete ? (usage.cacheRead ?? 0) : undefined
+  const cacheWrite = cacheComplete ? (usage.cacheWrite ?? 0) : undefined
+  const classified = (cacheRead ?? 0) + (cacheWrite ?? 0)
   return {
     model,
-    inputTokens: result.tokenUsage.input,
-    outputTokens: result.tokenUsage.output,
-    ...(result.tokenUsage.tokensKnown === false ? { usageUnknown: true } : {}),
-    ...(result.costUsdKnown !== false ? { actualCostUsd: result.costUsd } : {}),
-    ...(result.costUsdKnown === false ? { costUnknown: true } : {}),
-    ...(result.estimatedCostUsd !== undefined ? { estimatedCostUsd: result.estimatedCostUsd } : {}),
+    // Eval prices fresh prompt input separately. A partial cache split remains one total input
+    // number, rather than pretending omitted classes were zero.
+    inputTokens: cacheComplete ? usage.input - classified : usage.input,
+    outputTokens: usage.output,
+    ...(cacheComplete ? { cachedTokens: cacheRead, cacheWriteTokens: cacheWrite } : {}),
+    ...(usage.tokensKnown === false || cost.usageUnknown ? { usageUnknown: true } : {}),
+    ...(cost.actualCostUsd !== undefined ? { actualCostUsd: cost.actualCostUsd } : {}),
+    ...(cost.costUnknown ? { costUnknown: true } : {}),
+    ...(cost.estimatedCostUsd !== undefined ? { estimatedCostUsd: cost.estimatedCostUsd } : {}),
+  }
+}
+
+/** `supervise` options minus Eval-owned cancellation. */
+export type SuperviseOptionsForDispatch = Omit<SuperviseOptions, 'signal'>
+
+/**
+ * Adapt a recursive Runtime `supervise()` tree to one Agent Eval profile-matrix cell.
+ *
+ * The adapter starts Eval's paid-call record before the tree starts. Runtime remains the sole
+ * owner of recursive execution, budgets, and the journal; Eval remains the sole owner of the
+ * paid-call admission and resulting receipt.
+ */
+export interface SuperviseDispatchOptions<TScenario extends Scenario, TArtifact> {
+  /** Build the task passed to the root supervisor for this profile/scenario cell. */
+  toTask: (scenario: TScenario, profile: AgentProfile) => unknown
+  /** Build the Runtime-owned recursive-run options for this profile/scenario cell. */
+  toSuperviseOptions: (scenario: TScenario, profile: AgentProfile) => SuperviseOptionsForDispatch
+  /** Map the terminal tree result to the artifact judges score. Default: winner output. */
+  toArtifact?: (result: SupervisedResult<unknown>) => TArtifact
+  /** Cost-meter source label. Default `'supervise'`. */
+  costSource?: string
+  /** Provider- or executor-enforced maximum for the complete supervised tree. */
+  maximumCharge?:
+    | MaximumCharge
+    | ((scenario: TScenario, profile: AgentProfile) => MaximumCharge | undefined)
+}
+
+type SupervisedTreeModel =
+  | { readonly kind: 'known'; readonly model: string }
+  | { readonly kind: 'mixed'; readonly models: readonly string[] }
+  | { readonly kind: 'unknown' }
+
+/**
+ * Eval has one pre-admitted paid call for this dispatch. A tree can only settle that one call when
+ * Runtime can prove every visible leaf used the same model. Child identities come from Runtime's
+ * materialization receipts. A router root is validated against its exact profile model before
+ * Runtime accepts each response. A nested tree is not flattened in this result view, so it remains
+ * unknown rather than being relabelled from its parent. A caller-supplied override would be false.
+ */
+function supervisedTreeModel(
+  result: SupervisedResult<unknown>,
+  rootProfile: AgentProfile,
+): SupervisedTreeModel {
+  const models = new Set<string>()
+  const rootModel =
+    rootProfile.harness === undefined || rootProfile.harness === 'cli-base'
+      ? rootProfile.model?.default
+      : undefined
+  if (rootModel === undefined) return { kind: 'unknown' }
+  models.add(rootModel)
+  let unknown = false
+  for (const node of result.tree.nodes) {
+    if (node.ownedTreeRoot !== undefined) {
+      unknown = true
+      continue
+    }
+    const materialization = node.materialization
+    if (materialization?.status !== 'known' || materialization.model.status !== 'known') {
+      unknown = true
+      continue
+    }
+    models.add(materialization.model.id)
+  }
+  if (unknown || models.size === 0) return { kind: 'unknown' }
+  if (models.size !== 1) return { kind: 'mixed', models: [...models].sort() }
+  return { kind: 'known', model: [...models][0] as string }
+}
+
+/** The Eval receipt surface has no pre-admitted per-model recursive-tree receipt bundle yet. */
+class SupervisedTreeModelIdentityError extends Error {
+  constructor(identity: Exclude<SupervisedTreeModel, { readonly kind: 'known' }>) {
+    const detail =
+      identity.kind === 'mixed'
+        ? `multiple models (${identity.models.join(', ')})`
+        : 'an unknown materialized model'
+    super(`superviseDispatch: cannot settle one Eval paid-call receipt for a tree with ${detail}`)
+    this.name = 'SupervisedTreeModelIdentityError'
+  }
+}
+
+function unknownSupervisedTreeReceipt(): CostReceiptInput {
+  return {
+    model: 'unknown',
+    inputTokens: 0,
+    outputTokens: 0,
+    usageUnknown: true,
+    costUnknown: true,
+  }
+}
+
+/** Run one recursive supervised tree inside Eval's pre-execution paid-call lifecycle. */
+export function superviseDispatch<TScenario extends Scenario, TArtifact>(
+  opts: SuperviseDispatchOptions<TScenario, TArtifact>,
+): ProfileDispatchFn<TScenario, TArtifact> {
+  return async (profile, scenario, ctx) => {
+    const superviseOptions = opts.toSuperviseOptions(scenario, profile)
+    const task = opts.toTask(scenario, profile)
+    const maximumCharge =
+      typeof opts.maximumCharge === 'function'
+        ? opts.maximumCharge(scenario, profile)
+        : opts.maximumCharge
+    const paid = await ctx.cost.runPaidCall({
+      channel: 'agent',
+      actor: opts.costSource ?? 'supervise',
+      // A child profile can choose a different model after this call has been admitted. Until the
+      // finished tree proves one uniform materialized model, naming the root model would be false.
+      model: 'unknown',
+      signal: ctx.signal,
+      ...(maximumCharge ? { maximumCharge } : {}),
+      // The execution signal is written last so a caller cannot bypass Eval cancellation.
+      execute: async (executionSignal) => {
+        const result = await supervise(profile, task, {
+          ...superviseOptions,
+          signal: executionSignal,
+        })
+        const identity = supervisedTreeModel(result, profile)
+        if (identity.kind !== 'known') throw new SupervisedTreeModelIdentityError(identity)
+        return result
+      },
+      receipt: (result) => {
+        const identity = supervisedTreeModel(result, profile)
+        if (identity.kind !== 'known') throw new SupervisedTreeModelIdentityError(identity)
+        return costReceiptFromUsage(result.spentTotal.tokens, identity.model, {
+          usageUnknown: result.spentTotal.tokensKnown === false,
+          actualCostUsd: result.spentTotal.usdKnown !== false ? result.spentTotal.usd : undefined,
+          costUnknown: result.spentTotal.usdKnown === false,
+        })
+      },
+      receiptFromError: (error) =>
+        error instanceof SupervisedTreeModelIdentityError
+          ? unknownSupervisedTreeReceipt()
+          : undefined,
+    })
+    if (!paid.succeeded) throw paid.error
+    const toArtifact =
+      opts.toArtifact ??
+      ((result: SupervisedResult<unknown>) => {
+        if (result.kind !== 'winner') {
+          throw new Error(
+            `superviseDispatch: supervised tree ended without a winner (${result.reason})`,
+          )
+        }
+        return result.out as TArtifact
+      })
+    return toArtifact(paid.value)
   }
 }
 

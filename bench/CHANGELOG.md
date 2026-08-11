@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.2
+
+- Consume Runtime 0.131.7, Eval 0.144.10, and Knowledge 7.2.0.
+
 ## 0.8.1
 
 - Consume Eval 0.144.8 and Knowledge 7.1.3 so Bench uses the same published dependency family as Runtime 0.131.6.

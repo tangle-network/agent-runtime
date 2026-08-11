@@ -37,7 +37,7 @@ import type {
   TreeView,
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
-import { zeroTokenUsage } from '../runtime/util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../runtime/util'
 import { contentAddress } from './content-address'
 import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
 
@@ -650,7 +650,7 @@ export async function replaySpawnTree(
       out,
       outRef: ev.outRef,
       verdict: ev.verdict,
-      spent: ev.spent,
+      spent: cloneJournalSpend(ev.spent),
       trace,
       ...settlementTime(ev.at),
       seq: ev.seq,
@@ -768,7 +768,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     if (ev.kind === 'settled') {
       const node = requireNode(nodes, ev.id)
       node.status = ev.status === 'done' ? 'done' : 'failed'
-      node.spent = ev.spent
+      node.spent = cloneJournalSpend(ev.spent)
       node.outRef = ev.outRef
       node.trace = traceEvidenceFor(ev)
       const settledAt = Date.parse(ev.at)
@@ -862,14 +862,29 @@ function zeroSpend(): Spend {
   return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
 }
 
+/** Copy a durable spend into a read model without dropping cache completeness. */
+function cloneJournalSpend(spend: Spend): Spend {
+  return {
+    iterations: spend.iterations,
+    tokens: cloneTokenUsage(spend.tokens),
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
+    usd: spend.usd,
+    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
+    ms: spend.ms,
+  }
+}
+
 /** Add a `metered` spend record onto a node's accumulated spend (per channel). */
 function addJournalSpend(a: Spend, b: Spend): Spend {
   return {
     iterations: a.iterations + b.iterations,
-    tokens: { input: a.tokens.input + b.tokens.input, output: a.tokens.output + b.tokens.output },
+    tokens: (() => {
+      const tokens = cloneTokenUsage(a.tokens)
+      addTokenUsage(tokens, b.tokens)
+      return tokens
+    })(),
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
-    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ms: a.ms + b.ms,
   }

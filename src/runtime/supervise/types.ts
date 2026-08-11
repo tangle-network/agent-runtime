@@ -35,8 +35,8 @@ import type { TraceSource } from './trace-source'
 import type { PendingWait, WaitOutcome, WaitProbeRegistry, WaitRejection, WaitSpec } from './wait'
 import type { WorkerTraceResolver } from './worker-trace'
 
-// `LoopTokenUsage = { input, output }` ONLY (../types). Re-exported so keystone impls
-// import the budget surface from one place. `usd` is a SEPARATE channel (see `UsageEvent`).
+// `LoopTokenUsage` keeps provider totals plus an optional complete cache split. Re-exported so
+// keystone impls import the budget surface from one place. `usd` is a SEPARATE channel.
 /** Wait-state vocabulary, re-exported so the keystone surface stays one import. */
 export type {
   DefaultVerdict,
@@ -217,7 +217,8 @@ export interface ExecutorResult<Out> {
 /**
  * Normalized usage event — the single channel every executor reports through, so the
  * conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
- * `{ input, output }`; `usd` is a SEPARATE channel (never folded into tokens).
+ * `{ input, output }` plus an optional provider cache split; `usd` is a SEPARATE channel (never
+ * folded into tokens).
  *
  * Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
  * therefore remains unknown through live metering and terminal reconciliation instead of becoming
@@ -230,6 +231,14 @@ export type UsageEvent =
       tokensKnown?: false
       input: number
       output: number
+      /** Newly processed prompt tokens. Present only with a complete cache split. */
+      freshInput?: number
+      /** Prompt tokens read from cache. Present only with a complete cache split. */
+      cacheRead?: number
+      /** Prompt tokens written to cache. Present only with a complete cache split. */
+      cacheWrite?: number
+      /** False when this observation cannot classify all positive prompt tokens. */
+      cacheBreakdownKnown?: false
     }
   | {
       kind: 'cost'

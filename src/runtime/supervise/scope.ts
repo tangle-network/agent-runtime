@@ -35,6 +35,7 @@ import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
 import {
   armDeadlineTimer,
@@ -2026,7 +2027,7 @@ export function settledToIteration<Out>(settled: Settled<Out>): Iteration<unknow
     startedAt: 0,
     endedAt: settled.spent.ms,
     costUsd: settled.spent.usd,
-    tokenUsage: { input: settled.spent.tokens.input, output: settled.spent.tokens.output },
+    tokenUsage: cloneTokenUsage(settled.spent.tokens),
   }
 }
 
@@ -2181,7 +2182,7 @@ async function foldStream(
   onProgress?: (running: Spend) => void,
   signal?: AbortSignal,
 ): Promise<Spend> {
-  const tokens = { input: 0, output: 0 }
+  const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
   let usdKnown = true
@@ -2195,8 +2196,7 @@ async function foldStream(
       if (next.done) break
       const ev = next.value
       if (ev.kind === 'tokens') {
-        tokens.input += ev.input
-        tokens.output += ev.output
+        addTokenUsage(tokens, ev)
         if (ev.tokensKnown === false) tokensKnown = false
       } else if (ev.kind === 'cost') {
         usd += ev.usd
@@ -2206,7 +2206,7 @@ async function foldStream(
       }
       onProgress?.({
         iterations,
-        tokens: { ...tokens },
+        tokens: cloneTokenUsage(tokens),
         ...(tokensKnown ? {} : { tokensKnown: false }),
         usd,
         ...(usdKnown ? {} : { usdKnown: false }),
@@ -2232,8 +2232,25 @@ async function foldStream(
 /** Usage events carry measured increments; the terminal artifact carries whether a provider omitted
  * a whole accounting channel. Preserve those unknowns on the common streaming path. */
 function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
+  const terminalTokens = cloneTokenUsage(terminal.tokens)
   return {
     ...streamed,
+    tokens: {
+      ...streamed.tokens,
+      ...(streamed.tokens.freshInput === undefined && terminalTokens.freshInput !== undefined
+        ? { freshInput: terminalTokens.freshInput }
+        : {}),
+      ...(streamed.tokens.cacheRead === undefined && terminalTokens.cacheRead !== undefined
+        ? { cacheRead: terminalTokens.cacheRead }
+        : {}),
+      ...(streamed.tokens.cacheWrite === undefined && terminalTokens.cacheWrite !== undefined
+        ? { cacheWrite: terminalTokens.cacheWrite }
+        : {}),
+      ...(streamed.tokens.cacheBreakdownKnown === false ||
+      terminalTokens.cacheBreakdownKnown === false
+        ? { cacheBreakdownKnown: false as const }
+        : {}),
+    },
     ...(terminal.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(terminal.usdKnown === false ? { usdKnown: false } : {}),
     ms: terminal.ms,
@@ -2299,7 +2316,7 @@ function downRecord(
 }
 
 function zeroSpend(): Spend {
-  return { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

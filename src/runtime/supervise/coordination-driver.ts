@@ -475,18 +475,23 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           )
         }
         for (const [field, value] of Object.entries(res.promptCache ?? {})) {
-          if (typeof value === 'number' && (!Number.isFinite(value) || value < 0)) {
+          if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) {
             evidenceError = new ValidationError(
-              `driverAgent: prompt-cache field ${JSON.stringify(field)} must be finite and nonnegative`,
+              `driverAgent: prompt-cache field ${JSON.stringify(field)} must be a non-negative safe integer`,
             )
             break
           }
         }
         const trustedCost =
           res.costProvenance === 'provider-receipt' || res.costProvenance === 'billing-receipt'
+        const cacheUsage = driverPromptCacheUsage(res.usage?.input, res.promptCache)
         const turnSpend: Spend = {
           iterations: 0,
-          tokens: { input: res.usage?.input ?? 0, output: res.usage?.output ?? 0 },
+          tokens: {
+            input: res.usage?.input ?? 0,
+            output: res.usage?.output ?? 0,
+            ...cacheUsage,
+          },
           ...(res.usage === undefined ? { tokensKnown: false } : {}),
           usd: trustedCost ? (res.costUsd ?? 0) : 0,
           ...(trustedCost && res.costUsd !== undefined ? {} : { usdKnown: false }),
@@ -828,6 +833,35 @@ export async function finalizeBestDelivered(
   const best = pickBestDelivered(delivered)
   if (best === undefined) return undefined
   return best.outRef ? await blobs.get(best.outRef) : undefined
+}
+
+/** Preserve a complete provider cache split; any partial split remains explicitly unknown. */
+function driverPromptCacheUsage(
+  input: number | undefined,
+  promptCache: Readonly<Record<string, number | string>> | undefined,
+): {
+  freshInput?: number
+  cacheRead?: number
+  cacheWrite?: number
+  cacheBreakdownKnown?: false
+} {
+  if (promptCache === undefined) return {}
+  const read = promptCache.readTokens
+  const write = promptCache.writeTokens
+  const hasCacheTelemetry = read !== undefined || write !== undefined
+  if (!hasCacheTelemetry) return {}
+  if (input === undefined || !isTokenCount(read) || !isTokenCount(write) || read + write > input) {
+    return { cacheBreakdownKnown: false }
+  }
+  return {
+    freshInput: input - read - write,
+    cacheRead: read,
+    cacheWrite: write,
+  }
+}
+
+function isTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 function stringifyTask(task: unknown): string {

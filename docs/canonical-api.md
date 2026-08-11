@@ -4,9 +4,9 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.131.6.**
+> **Version 0.131.7.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.144.8 <0.145.0`.
+> `agent-eval` must satisfy `>=0.144.10 <0.145.0`.
 > `sandbox` must satisfy `>=0.19.4 <0.20.0`.
 > Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.46.1 <0.47.0`.
 >
@@ -130,6 +130,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Add a stateful tool-using domain | implement `AgenticSurface` (5 hooks: open/tools/call/score/close): `/kernel` | a bespoke per-benchmark agent runner / tool-loop harness |
 | Run a sandbox coding rollout, round-synchronous (fresh box per round) | `runAgentRounds(options)`: `/kernel` | a `new Sandbox()`+acquire+stream+parse+delete loop, or a 2nd winner-selector |
 | Run **agent-eval fixture folders** through Runtime `runAgentRounds` | agent-eval fixture loading/planning, then `loopCampaignDispatch(...)`: `/kernel`; it starts the Runtime cell inside Eval's paid-call lifecycle | a one-off `runCampaign` dispatch, or attaching a completed `LoopResult` after paid work already ran |
+| Run a **recursive `supervise()` tree** through an agent-eval profile matrix | `superviseDispatch({ toTask, toSuperviseOptions, ... })`: `/kernel`; it admits the tree through Eval before Runtime spends, then records its receipt only when Runtime proves one model. Mixed or unknown trees fail instead of being relabelled. | a Lab receipt mapper, a second scheduler, or attaching a completed `SupervisedResult` after paid work already ran |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)`: `/kernel` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
 | Run **ONE agent turn** on any substrate: box (`streamPrompt`), cli-bridge/router `Executor`, or in-process chat backend: as ONE normalized `RuntimeStreamEvent` stream with a guaranteed terminal result+usage event; opt into in-stream `tool_call`/`tool_result` with `preserveToolParts`, or tap the raw sandbox events with `onRawEvent` | `streamAgentTurn(backend, prompt, { signal, timeoutMs, preserveToolParts?, onRawEvent? })` + `collectAgentTurn(stream)`: `/kernel` | a per-provider stream→event mapper zoo, a hand-faked box around a non-box executor, or raw fetch leaking through the turn abstraction |
 | Use an exact profile and Runtime executor where `runAgentTaskStream` or a conversation expects an `AgentExecutionBackend` | `createProfileExecutionBackend({ profile, executor: createExecutor(config) })`: root `.`; the adapter preserves conversation authorization, recursion-depth, and trace headers | a provider-specific backend constructor or an adapter that reads a second model/prompt configuration |

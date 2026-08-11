@@ -264,7 +264,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
       }),
       complete: tokensOnly.transport,
     }).execute('t', never) as Promise<ExecutorResult<string>>)
-    expect(r2.spent.tokens).toEqual({ input: 3, output: 4 })
+    expect(r2.spent.tokens).toEqual({ input: 3, output: 4, cacheBreakdownKnown: false })
     expect(r2.spent.tokensKnown).toBeUndefined()
     expect(r2.spent.usd).toBe(0)
     expect(r2.spent.usdKnown).toBe(false)
