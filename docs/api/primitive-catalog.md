@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.132.8` and `@tangle-network/agent-eval@0.145.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.132.9` and `@tangle-network/agent-eval@0.145.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 421 exports.
+Import from `@tangle-network/agent-runtime` — 426 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -109,6 +109,7 @@ Import from `@tangle-network/agent-runtime` — 421 exports.
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
+| `runProtectedAgentCandidateModelGrant` | function | Run one bounded unit under a protected model grant. |
 | `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
 | `runtimeStreamServerSentEvent` | function | Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. |
 | `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
@@ -210,7 +211,10 @@ Import from `@tangle-network/agent-runtime` — 421 exports.
 | `OfficialOptimizerContextOptions` | interface | Runtime context appended to an official optimizer's own configuration. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
 | `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
+| `ProtectedAgentCandidateModelGrantContext` | interface | Values available only while one protected model grant is active. |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
+| `RunProtectedAgentCandidateModelGrantOptions` | interface | Inputs for one protected grant scoped to one bounded caller unit. |
+| `RunProtectedAgentCandidateModelGrantResult` | interface | Result and sealed settlement returned after one protected grant closes. |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |
@@ -231,6 +235,7 @@ Import from `@tangle-network/agent-runtime` — 421 exports.
 | `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
 | `AgentCandidateExecutorTaskOutcomeCapture` | type | Raw evaluator capture made only after the candidate process is dead. |
 | `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
+| `AgentCandidateModelGrantRunReservationInput` | type | Reservation fields supplied by a caller before Runtime resolves the model. |
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
 | `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
@@ -1247,7 +1252,7 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 29 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 113 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1272,6 +1277,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 | `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
 | `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
 | `recoverExpiredAgentCandidateExecution` | function | Close an expired crashed attempt from persisted non-secret handles, then record failure. |
+| `runProtectedAgentCandidateModelGrant` | function | Run one bounded unit under a protected model grant. |
 | `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
 | `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
@@ -1304,6 +1310,9 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
+| `ProtectedAgentCandidateModelGrantContext` | interface | Values available only while one protected model grant is active. |
+| `RunProtectedAgentCandidateModelGrantOptions` | interface | Inputs for one protected grant scoped to one bounded caller unit. |
+| `RunProtectedAgentCandidateModelGrantResult` | interface | Result and sealed settlement returned after one protected grant closes. |
 | `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
 | `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
 | `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |
@@ -1316,6 +1325,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 | `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
 | `AgentCandidateExecutorTaskOutcomeCapture` | type | Raw evaluator capture made only after the candidate process is dead. |
 | `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
+| `AgentCandidateModelGrantRunReservationInput` | type | Reservation fields supplied by a caller before Runtime resolves the model. |
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
 | `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `PersistedTaskOutcomeEvidence` | type | Immutable evaluator evidence retained with a verified candidate task outcome. |

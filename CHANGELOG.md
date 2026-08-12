@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.132.9
+
+- Add `runProtectedAgentCandidateModelGrant(...)` for one bounded resolve, reserve, activate, execute, and settle lifecycle.
+- Preserve callback and settlement failures together, and settle activated failures as `failed` or preparation failures as `preparation-failed`.
+
 ## 0.132.8
 
 - Add request-scoped model credentials for loopback cli-bridge execution.
