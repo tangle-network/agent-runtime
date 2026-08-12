@@ -192,7 +192,15 @@ function isRetryable(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
   const e = err as { status?: number; statusCode?: number; name?: string; message?: string }
   const status = e.status ?? e.statusCode
-  if (typeof status === 'number' && RETRYABLE_HTTP.has(status)) return true
+  if (typeof status === 'number') {
+    // An explicit HTTP status is authoritative: retry the known-transient set
+    // and server-side faults (>=500, where provisioning may recover), and treat
+    // every other status — permanent 4xx like 400/401/403 — as terminal no
+    // matter what the message says. A permanent rejection often carries a
+    // transient-looking message ("provision failed"), and retrying it burns the
+    // entire ready budget on an error that cannot heal.
+    return RETRYABLE_HTTP.has(status) || status >= 500
+  }
   const name = e.name ?? ''
   if (name === 'TimeoutError' || name === 'ServerError' || name === 'NetworkError') return true
   const msg = e.message ?? ''
@@ -206,6 +214,8 @@ function isRetryable(err: unknown): boolean {
   }
   // Transient PLATFORM provisioning failures thrown by `create` itself — edge data
   // plane unreachable, container-phase provision failure, or a rolled-back create.
+  // Message signatures classify ONLY status-less errors (transport-level throws);
+  // an error that carried a numeric status was already decided above.
   // Retry create onto a FRESH host rather than failing the whole rollout; the loop
   // stays bounded by the ready deadline. A box that booted and then reached a
   // terminal `failed` status with a real error is NOT retried here — that's a genuine

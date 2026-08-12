@@ -81,6 +81,93 @@ describe('acquireSandbox — cold-start resilience', () => {
     expect(got).toBe(ready)
   })
 
+  it('fails loud on HTTP 400 even when the message matches a transient signature (#808)', async () => {
+    // A permanent provisioning rejection (400 CONFIG_ERROR wrapping a 403) carries
+    // "provision failed" in its message; the explicit status must win over the
+    // message match, or the caller spins for the whole 600s budget.
+    let createCalls = 0
+    let listed = false
+    const client = {
+      create: async () => {
+        createCalls += 1
+        throw Object.assign(new Error('CONFIG_ERROR: model key provision failed'), {
+          status: 400,
+        })
+      },
+      list: async () => {
+        listed = true
+        return []
+      },
+    }
+    await expect(acquireSandbox(client, OPTS, clock())).rejects.toThrow(/provision failed/)
+    expect(createCalls).toBe(1)
+    expect(listed).toBe(false)
+  })
+
+  it('fails loud on HTTP 403 even when the message matches a transient signature (#808)', async () => {
+    let createCalls = 0
+    const client = {
+      create: async () => {
+        createCalls += 1
+        throw Object.assign(new Error('Service "sandbox" is not authorized: provision failed'), {
+          statusCode: 403,
+        })
+      },
+      list: async () => [],
+    }
+    await expect(acquireSandbox(client, OPTS, clock())).rejects.toThrow(/not authorized/)
+    expect(createCalls).toBe(1)
+  })
+
+  it('still retries HTTP 429 (request-level transient)', async () => {
+    let createCalls = 0
+    const ready = box({ id: 'sbx-9', name: 'sbx-1', status: 'running' })
+    const client = {
+      create: async () => {
+        createCalls += 1
+        if (createCalls === 1) throw Object.assign(new Error('too many requests'), { status: 429 })
+        return ready
+      },
+      list: async () => [],
+    }
+    const got = await acquireSandbox(client, OPTS, clock())
+    expect(createCalls).toBe(2)
+    expect(got).toBe(ready)
+  })
+
+  it('still retries HTTP 502 (gateway transient)', async () => {
+    let createCalls = 0
+    const ready = box({ id: 'sbx-9', name: 'sbx-1', status: 'running' })
+    const client = {
+      create: async () => {
+        createCalls += 1
+        if (createCalls === 1) throw Object.assign(new Error('bad gateway'), { status: 502 })
+        return ready
+      },
+      list: async () => [],
+    }
+    const got = await acquireSandbox(client, OPTS, clock())
+    expect(createCalls).toBe(2)
+    expect(got).toBe(ready)
+  })
+
+  it('retries a server-side 500 provisioning fault (status >= 500 is transient)', async () => {
+    let createCalls = 0
+    const ready = box({ id: 'sbx-9', name: 'sbx-1', status: 'running' })
+    const client = {
+      create: async () => {
+        createCalls += 1
+        if (createCalls === 1)
+          throw Object.assign(new Error('internal provisioning error'), { status: 500 })
+        return ready
+      },
+      list: async () => [],
+    }
+    const got = await acquireSandbox(client, OPTS, clock())
+    expect(createCalls).toBe(2)
+    expect(got).toBe(ready)
+  })
+
   it('fails loud on a non-retryable error (auth) — no polling', async () => {
     let listed = false
     const client = {
