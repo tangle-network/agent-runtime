@@ -16,6 +16,7 @@ import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import { observedModelMatchesDeclared } from './model-identity'
 import { type CollectedAgentTurn, collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
@@ -196,7 +197,7 @@ export async function runBoundProfileChat(
       turn,
     }
   }
-  if (!profileModelIdentityMatches(observedModel, binding.model)) {
+  if (!observedModelMatchesDeclared(observedModel, binding.model)) {
     return {
       succeeded: false,
       error: `${binding.context}: Runtime reported model ${JSON.stringify(observedModel)} but AgentProfile requires ${JSON.stringify(binding.model)}`,
@@ -343,13 +344,6 @@ function assertProfileChatRequest(
       )
     }
   }
-}
-
-/** Accept a provider snapshot suffix while keeping the profile's base model exact. */
-function profileModelIdentityMatches(observed: string, declared: string): boolean {
-  if (observed === declared) return true
-  const suffix = observed.startsWith(`${declared}@`) ? observed.slice(declared.length + 1) : ''
-  return suffix.length > 0 && /^[A-Za-z0-9._-]+$/u.test(suffix)
 }
 
 function optimizerReceipt(

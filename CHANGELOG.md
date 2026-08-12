@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.132.12
+
+- Accept a provider-qualified served model when its base model and snapshot match the exact `AgentProfile` model.
+- Use one model identity comparison for direct optimizer calls and recursive Eval dispatch.
+
 ## 0.132.11
 
 - Consume Core 0.6.1, Eval 0.145.2, Interface 0.47.0, Knowledge 7.2.4, Profile Materialize 0.14.0, and Sandbox 0.21.1 as one compatible dependency set.

@@ -46,6 +46,7 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
+import { observedModelMatchesDeclared } from './model-identity'
 import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 import { type SuperviseOptions, supervise } from './supervise/supervise'
 import type { SupervisedResult } from './supervise/types'
@@ -262,7 +263,10 @@ function supervisedTreeModel(
     return { kind: 'unknown' }
   }
   for (const model of rootEvidence.models) {
-    if (!modelHasSnapshot(model) || !observedModelMatchesProfile(model, rootProfile)) {
+    if (
+      !modelHasSnapshot(model) ||
+      !observedModelMatchesDeclared(model, rootProfile.model?.default ?? '')
+    ) {
       return { kind: 'unknown' }
     }
     models.add(model)
@@ -283,26 +287,6 @@ function supervisedTreeModel(
   if (unknown || models.size === 0) return { kind: 'unknown' }
   if (models.size !== 1) return { kind: 'mixed', models: [...models].sort() }
   return { kind: 'known', model: [...models][0] as string }
-}
-
-/** Match a provider-qualified response to the profile's base alias without accepting a different
- * model or using the profile alias as the reported identity. */
-function observedModelMatchesProfile(observed: string, profile: AgentProfile): boolean {
-  const declared = profile.model?.default
-  if (typeof declared !== 'string' || declared.length === 0) return false
-  if (modelHasSnapshot(declared)) return observed === declared
-  const observedBase = modelWithoutSnapshot(observed)
-  const declaredBase = modelWithoutSnapshot(declared)
-  return (
-    observedBase === declaredBase ||
-    observedBase.endsWith(`/${declaredBase}`) ||
-    declaredBase.endsWith(`/${observedBase}`)
-  )
-}
-
-function modelWithoutSnapshot(model: string): string {
-  const at = model.lastIndexOf('@')
-  return at > 0 ? model.slice(0, at) : model
 }
 
 /** The Eval receipt surface has no pre-admitted per-model recursive-tree receipt bundle yet. */
