@@ -1,4 +1,7 @@
-import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
+} from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import {
   InMemoryResultBlobStore,
@@ -14,11 +17,16 @@ import {
   runtimeOwnedPendingExecutorMaterialization,
 } from '../../src/runtime/supervise/materialization'
 import { bridgeExecutor, createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import {
+  recordScopeOwnerMaterialization,
+  scopeOwnerExecutorNodeContext,
+} from '../../src/runtime/supervise/scope'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
   AgentSpec,
   Executor,
+  ExecutorExecutionBinding,
   ExecutorFactory,
   ExecutorResult,
   Scope,
@@ -83,6 +91,61 @@ async function runOneChild(
 
 function childEvents(events: SpawnEvent[] | undefined): SpawnEvent[] {
   return (events ?? []).filter((event) => event.id.endsWith(':s0'))
+}
+
+function deferredOwnerProfile() {
+  return testAgentProfile('deferred-owner', {
+    model: { provider: 'offline', default: 'test/model' },
+  })
+}
+
+function deferredOwnerDeclaration(profile: ReturnType<typeof deferredOwnerProfile>) {
+  return {
+    effectiveProfile: profile,
+    backend: 'test-bridge',
+    model: { status: 'known' as const, id: 'test/model' },
+    execution: { kind: 'session', id: 'test-session' },
+    materializer: 'test-materializer',
+    plan: { kind: 'test-plan', model: 'test/model' },
+  }
+}
+
+function deferredOwnerBinding(attemptId: string, endpoint = 'https://router.example.test') {
+  return {
+    attemptId,
+    binding: { endpoint },
+    descriptor: { kind: 'test-session', transport: 'http' },
+  } satisfies ExecutorExecutionBinding
+}
+
+function deferredOwnerIdentity(profile: ReturnType<typeof deferredOwnerProfile>) {
+  return {
+    profileDigest: canonicalAgentProfileDigest(profile),
+    taskDigest: canonicalCandidateDigest('root task'),
+  }
+}
+
+function deferredOwnerRunOptions(
+  profile: ReturnType<typeof deferredOwnerProfile>,
+  journal: InMemorySpawnJournal,
+  blobs: InMemoryResultBlobStore,
+  runId: string,
+  resume = false,
+) {
+  return {
+    budget: { maxIterations: 4, maxTokens: 1_000 },
+    runId,
+    journal,
+    blobs,
+    executors: createExecutorRegistry(),
+    rootIdentity: deferredOwnerIdentity(profile),
+    rootMaterialization: {
+      runtime: 'cli' as const,
+      declaration: 'deferred' as const,
+      authoredProfile: profile,
+    },
+    ...(resume ? { resume: true as const } : {}),
+  }
 }
 
 describe('kernel-owned materialization evidence', () => {
@@ -217,6 +280,122 @@ describe('kernel-owned materialization evidence', () => {
         }),
       ]),
     )
+  })
+
+  it('does not append a second owner binding after a resumed invalid report', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const runId = 'resumed-invalid-owner-report'
+    const profile = deferredOwnerProfile()
+    const firstRoot: Agent<unknown, unknown> = {
+      name: 'first-root',
+      async act() {
+        throw new Error('first attempt did not reach the backend')
+      },
+    }
+
+    await createSupervisor<unknown, unknown>().run(
+      firstRoot,
+      'root task',
+      deferredOwnerRunOptions(profile, journal, blobs, runId),
+    )
+
+    const resumedRoot: Agent<unknown, unknown> = {
+      name: 'resumed-root',
+      async act(_task, scope) {
+        const attemptId = scopeOwnerExecutorNodeContext(scope).attemptId
+        await expect(
+          recordScopeOwnerMaterialization(
+            scope,
+            'cli',
+            deferredOwnerDeclaration(profile),
+            deferredOwnerBinding(`${attemptId}-wrong`),
+          ),
+        ).rejects.toThrow('scope owner returned invalid materialization evidence')
+        return { recovered: true }
+      },
+    }
+
+    const result = await createSupervisor<unknown, unknown>().run(
+      resumedRoot,
+      'root task',
+      deferredOwnerRunOptions(profile, journal, blobs, runId, true),
+    )
+    expect(result.kind).toBe('winner')
+
+    const events = (await journal.loadTree(runId)) ?? []
+    const bindings = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-bound' }> =>
+        event.kind === 'execution-bound' && event.id === runId,
+    )
+    expect(bindings).toHaveLength(2)
+    expect(bindings.map((event) => event.binding.reason)).toEqual([
+      'root-agent-did-not-report',
+      'invalid-executor-report',
+    ])
+    expect(new Set(bindings.map((event) => event.binding.attemptId)).size).toBe(2)
+  })
+
+  it('appends one new known owner binding when a resumed report matches prior materialization', async () => {
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const runId = 'resumed-valid-owner-report'
+    const profile = deferredOwnerProfile()
+    const declaration = deferredOwnerDeclaration(profile)
+    const firstRoot: Agent<unknown, unknown> = {
+      name: 'first-root',
+      async act(_task, scope) {
+        await recordScopeOwnerMaterialization(
+          scope,
+          'cli',
+          declaration,
+          deferredOwnerBinding(scopeOwnerExecutorNodeContext(scope).attemptId),
+        )
+        throw new Error('first attempt stopped after publishing evidence')
+      },
+    }
+
+    await createSupervisor<unknown, unknown>().run(
+      firstRoot,
+      'root task',
+      deferredOwnerRunOptions(profile, journal, blobs, runId),
+    )
+
+    const resumedRoot: Agent<unknown, unknown> = {
+      name: 'resumed-root',
+      async act(_task, scope) {
+        await recordScopeOwnerMaterialization(
+          scope,
+          'cli',
+          declaration,
+          deferredOwnerBinding(
+            scopeOwnerExecutorNodeContext(scope).attemptId,
+            'https://router-retry.example.test',
+          ),
+        )
+        return { recovered: true }
+      },
+    }
+
+    const result = await createSupervisor<unknown, unknown>().run(
+      resumedRoot,
+      'root task',
+      deferredOwnerRunOptions(profile, journal, blobs, runId, true),
+    )
+    expect(result.kind).toBe('winner')
+
+    const events = (await journal.loadTree(runId)) ?? []
+    const materializations = events.filter(
+      (event) => event.kind === 'materialized' && event.id === runId,
+    )
+    const bindings = events.filter(
+      (event): event is Extract<SpawnEvent, { kind: 'execution-bound' }> =>
+        event.kind === 'execution-bound' && event.id === runId,
+    )
+    expect(materializations).toHaveLength(1)
+    expect(bindings).toHaveLength(2)
+    expect(bindings.every((event) => event.binding.status === 'known')).toBe(true)
+    expect(new Set(bindings.map((event) => event.binding.attemptId)).size).toBe(2)
   })
 
   it('keeps the built-in bridge profile identity stable while endpoints change per attempt', () => {
