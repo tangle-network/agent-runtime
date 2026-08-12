@@ -34,11 +34,12 @@
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
+import { boxReadErrorMessage, readBoxPathWithRetry } from './box-read-retry'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { notifySandboxEventObserver } from './sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
 import type { AgentRunSpec, SandboxClient } from './types'
-import { isAbortError, randomSuffix, sleep } from './util'
+import { isAbortError, randomSuffix } from './util'
 
 /**
  * How a typed deliverable `Out` is materialized from a finished turn.
@@ -269,26 +270,21 @@ export async function openSandboxRun<Out>(
       return { out: deliverable.fromEvents(collected), events: collected }
     }
     if (options.signal.aborted) throw new SandboxRunAbortError(collected)
-    let raw = ''
-    let readError: string | undefined
     // The data plane can transiently 404 a just-written artifact (write not yet
     // flushed, or an edge-read blip) — retry a few times with backoff before
     // declaring the deliverable empty, so a transient read failure is not recorded
     // as "the agent produced nothing".
-    const readAttempts = 4
-    const readDelayMs = options.readRetryDelayMs ?? 1000
-    for (let attempt = 0; attempt < readAttempts; attempt += 1) {
-      if (options.signal.aborted) throw new SandboxRunAbortError(collected, readError)
-      try {
-        raw = await box.fs.read(deliverable.path)
-        readError = undefined
-        break
-      } catch (err) {
-        readError = err instanceof Error ? err.message : String(err)
-        if (attempt < readAttempts - 1 && readDelayMs > 0)
-          await sleep(readDelayMs * (attempt + 1), options.signal)
-      }
-    }
+    const attempted = await readBoxPathWithRetry(box.fs.read.bind(box.fs), deliverable.path, {
+      attempts: 4,
+      delayMs: options.readRetryDelayMs ?? 1000,
+      signal: options.signal,
+      beforeAttempt: (lastError) => {
+        if (options.signal.aborted)
+          throw new SandboxRunAbortError(collected, boxReadErrorMessage(lastError))
+      },
+    })
+    const raw = attempted.succeeded ? attempted.text : ''
+    const readError = attempted.succeeded ? undefined : boxReadErrorMessage(attempted.error)
     return {
       out: deliverable.fromArtifact(raw, collected),
       events: collected,

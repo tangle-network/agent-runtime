@@ -26,6 +26,7 @@
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
+import { readBoxPathWithRetry } from './box-read-retry'
 import type { MountManifestEntry } from './types'
 
 /** Outcome of reading one surface back at settle. `missing: true` means the path no longer exists
@@ -120,6 +121,12 @@ const pathKey = (p: string): string => p.replace(/^\.\//, '')
  * produce no entry; reads run concurrently; output preserves record order, mounts before
  * watch-only paths. Mounts and watches sharing a path key are each collapsed to the LAST entry,
  * and a watched path that was also mounted compares against its mount (never reports `created`).
+ *
+ * The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
+ * itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
+ * ({@link BoxSurfaceReaderOptions.signal}, or close over one in a custom {@link SurfaceReader}) —
+ * that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
+ * than discarding settle-time evidence on a late cancellation.
  */
 export async function harvestSurfaceDiffs(
   options: HarvestSurfaceDiffsOptions,
@@ -201,9 +208,10 @@ export interface BoxSurfaceReaderOptions {
   attempts?: number
   /** Linear backoff base between attempts (delay = base × attempt). Default 250. */
   retryDelayMs?: number
+  /** Cuts the retry waits short when the run is abandoned. The reader still returns a typed
+   *  outcome — the harvest reports what it managed to read rather than rejecting. */
+  signal?: AbortSignal
 }
-
-const sleep = (ms: number) => new Promise<void>((res) => setTimeout(res, ms))
 
 /**
  * A {@link SurfaceReader} over a sandbox box's filesystem — the same `box.fs.read` seam
@@ -219,44 +227,38 @@ export function boxSurfaceReader(
   box: SurfaceReadBox,
   options: BoxSurfaceReaderOptions = {},
 ): SurfaceReader {
-  const attempts = options.attempts ?? 3
-  const retryDelayMs = options.retryDelayMs ?? 250
   return async (path) => {
-    let last: SurfaceReadOutcome = {
-      succeeded: false,
-      missing: false,
-      error: 'boxSurfaceReader: no read attempted',
-    }
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      try {
-        const text = await box.fs.read(path)
-        if (text.includes('�')) {
-          return {
-            succeeded: false,
-            missing: false,
-            error: `boxSurfaceReader: content at ${JSON.stringify(path)} is not valid UTF-8 text (the box text wire lossy-decoded it); binary surfaces need a byte-faithful reader`,
-          }
-        }
-        return { succeeded: true, value: new TextEncoder().encode(text) }
-      } catch (err) {
-        const notFound = err instanceof Error && err.name === 'NotFoundError'
-        const resourceType =
-          err && typeof err === 'object' && 'resourceType' in err
-            ? String((err as { resourceType: unknown }).resourceType)
-            : undefined
-        // A NotFoundError naming a non-file resource (Sandbox / session) means the TRANSPORT is
-        // gone — reporting it as `missing` would read as "every surface was removed".
-        const fileNotFound =
-          notFound && (resourceType === undefined || /file|path/i.test(resourceType))
-        last = {
+    const result = await readBoxPathWithRetry(box.fs.read.bind(box.fs), path, {
+      attempts: options.attempts ?? 3,
+      delayMs: options.retryDelayMs ?? 250,
+      signal: options.signal,
+    })
+    if (result.succeeded) {
+      // A lossy decode is deterministic — retrying cannot recover the bytes, so this is a final
+      // outcome rather than another attempt.
+      if (result.text.includes('�')) {
+        return {
           succeeded: false,
-          missing: fileNotFound,
-          error: err instanceof Error ? err.message : String(err),
+          missing: false,
+          error: `boxSurfaceReader: content at ${JSON.stringify(path)} is not valid UTF-8 text (the box text wire lossy-decoded it); binary surfaces need a byte-faithful reader`,
         }
-        if (attempt < attempts && retryDelayMs > 0) await sleep(retryDelayMs * attempt)
       }
+      return { succeeded: true, value: new TextEncoder().encode(result.text) }
     }
-    return last
+    const err = result.error
+    const notFound = err instanceof Error && err.name === 'NotFoundError'
+    const resourceType =
+      err && typeof err === 'object' && 'resourceType' in err
+        ? String((err as { resourceType: unknown }).resourceType)
+        : undefined
+    // A NotFoundError naming a non-file resource (Sandbox / session) means the TRANSPORT is
+    // gone — reporting it as `missing` would read as "every surface was removed".
+    const fileNotFound = notFound && (resourceType === undefined || /file|path/i.test(resourceType))
+    return {
+      succeeded: false,
+      missing: fileNotFound,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 

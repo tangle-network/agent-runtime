@@ -17023,6 +17023,13 @@ Read attempts per path before settling on a failed outcome. The data plane can t
 
 Linear backoff base between attempts (delay = base × attempt). Default 250.
 
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Cuts the retry waits short when the run is abandoned. The reader still returns a typed
+ outcome — the harvest reports what it managed to read rather than rejecting.
+
 ***
 
 ### CreateTangleSandboxExactProcessProviderOptions
@@ -26273,6 +26280,12 @@ the manifest — modified, removed, or created. Unchanged surfaces and still-abs
 produce no entry; reads run concurrently; output preserves record order, mounts before
 watch-only paths. Mounts and watches sharing a path key are each collapsed to the LAST entry,
 and a watched path that was also mounted compares against its mount (never reports `created`).
+
+The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
+itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
+([BoxSurfaceReaderOptions.signal](#signal-23), or close over one in a custom [SurfaceReader](#surfacereader)) —
+that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
+than discarding settle-time evidence on a late cancellation.
 
 #### Parameters
 

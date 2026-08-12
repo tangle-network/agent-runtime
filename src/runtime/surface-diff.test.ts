@@ -206,6 +206,35 @@ describe('boxSurfaceReader', () => {
     expect(outcome.succeeded).toBe(true)
   })
 
+  it('does not report a still-flushing mounted file as removed when the first read 404s', async () => {
+    const blip = new Error('not flushed yet')
+    blip.name = 'NotFoundError'
+    let calls = 0
+    const box = {
+      fs: {
+        read: () => {
+          calls += 1
+          return calls === 1 ? Promise.reject(blip) : Promise.resolve('edited by the agent')
+        },
+      },
+    }
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('CLAUDE.md', 'original')],
+      read: boxSurfaceReader(box, { retryDelayMs: 0 }),
+    })
+    expect(diffs.map((d) => d.status)).not.toContain('removed')
+    expect(diffs).toEqual([
+      {
+        path: 'CLAUDE.md',
+        status: 'modified',
+        mountedSha256: sha('original'),
+        source: 'test',
+        settledSha256: sha('edited by the agent'),
+        settledBytes: Buffer.byteLength('edited by the agent'),
+      },
+    ])
+  })
+
   it('reports a box-level NotFoundError (resourceType names the sandbox) as unreadable, never missing', async () => {
     const boxGone = Object.assign(new Error('sandbox sb-1 not found'), {
       name: 'NotFoundError',
