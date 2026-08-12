@@ -2340,7 +2340,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   }
   const out = {
     content: lastText,
-    model: observedModel ?? seam.model,
+    ...(observedModel !== undefined ? { model: observedModel } : {}),
     ...(observedSystemFingerprint ? { system_fingerprint: observedSystemFingerprint } : {}),
     toolCalls,
     transportAttempts,
@@ -2349,7 +2349,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   } as unknown
   args.onArtifact({
     outRef: contentRef('bridge', {
-      model: observedModel ?? seam.model,
+      model: observedModel ?? null,
       session: args.sessionId,
       content: lastText,
     }),
@@ -2869,6 +2869,11 @@ function mergeBridgeObservedModel(current: string | undefined, next: string): st
   if (currentBase !== nextBase) {
     throw new ValidationError(
       `bridgeExecutor: bridge changed response model from ${JSON.stringify(current)} to ${JSON.stringify(next)}`,
+    )
+  }
+  if (current.includes('@') && next.includes('@')) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge changed response model snapshot from ${JSON.stringify(current)} to ${JSON.stringify(next)}`,
     )
   }
   return current.includes('@') ? current : next

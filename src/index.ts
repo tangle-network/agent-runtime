@@ -208,6 +208,7 @@ export type {
   ExecutorRegistry,
   FinalizeContext,
   LoopResult,
+  RootProviderModelEvidence,
   Scope,
   Settled,
   Spend,

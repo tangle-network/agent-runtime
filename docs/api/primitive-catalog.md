@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.132.5` and `@tangle-network/agent-eval@0.145.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.132.6` and `@tangle-network/agent-eval@0.145.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 420 exports.
+Import from `@tangle-network/agent-runtime` — 421 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -253,6 +253,7 @@ Import from `@tangle-network/agent-runtime` — 420 exports.
 | `ReadonlyAgentProfile` | type | Complete immutable profile value used during measured execution. |
 | `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
+| `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
 | `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `SpendChannel` | type | The accounting channels a usage gap leaves incomplete. |
@@ -514,7 +515,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 734 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 735 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1065,6 +1066,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 734 exports.
 | `Restart` | type | OTP child-spec restart class. |
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
+| `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
 | `RootSignal` | type | Out-of-band message to a running root. Open by intent — a client extends it. |
 | `RunContext` | type | The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the |
 | `RunPersonified` | type | The composed run signature. |

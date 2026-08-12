@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.132.6
+
+- Settle moving model identities from provider receipts for external harness roots.
+- Reject missing, bare, mixed, or mismatched root model evidence before Eval records a known receipt.
+
 ## 0.132.5
 
 - Preserve the provider's served model and snapshot fingerprint in bridge execution receipts.

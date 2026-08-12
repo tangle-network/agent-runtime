@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.6
+
+- Consume Runtime 0.132.6 with the settled provider-model identity contract.
+
 ## 0.8.5
 
 - Consume Runtime 0.132.5, Eval 0.145.0, and Knowledge 7.2.3 as one compatible dependency set.
