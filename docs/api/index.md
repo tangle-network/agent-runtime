@@ -1033,6 +1033,174 @@ default move, or the loop silently runs a topology nobody chose.
 
 ***
 
+### RetainedRunAdmissionError
+
+**`Stable`**
+
+The caller's `onAdmission` durability hook rejected, so a retained run's
+admission record is not durable while provider work may already be live.
+Distinct from a provider failure: the provider call succeeded, and the
+environment is intentionally kept so `recoverRetainedRun` (or a provider
+metadata lookup) can rebuild or disprove the run. Carries `capture_integrity`
+because the durable record a later recovery requires was not written.
+
+#### Extends
+
+- `AgentEvalError`
+
+#### Constructors
+
+##### Constructor
+
+> **new RetainedRunAdmissionError**(`admission`, `options?`): [`RetainedRunAdmissionError`](#retainedrunadmissionerror)
+
+###### Parameters
+
+###### admission
+
+[`RetainedRunAdmission`](runtime.md#retainedrunadmission)
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`RetainedRunAdmissionError`](#retainedrunadmissionerror)
+
+###### Overrides
+
+`AgentEvalError.constructor`
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"environment"` \| `"dispatched"`
+
+##### admission
+
+> `readonly` **admission**: [`RetainedRunAdmission`](runtime.md#retainedrunadmission)
+
+The exact record the hook failed to persist, for direct recovery.
+
+***
+
+### RetainedRunDispatchBindingError
+
+**`Stable`**
+
+A retained dispatch answered with coordinates that do not bind to the
+identity the runtime requested, or failed exact verification. The
+environment-phase admission is already durable at this point, so its
+coordinates plus the provider reference carried here are the manual
+recovery path. The environment is intentionally kept. Carries
+`backend_integrity` because the provider violated its dispatch contract.
+
+#### Extends
+
+- `AgentEvalError`
+
+#### Constructors
+
+##### Constructor
+
+> **new RetainedRunDispatchBindingError**(`requested`, `returned`, `options?`): [`RetainedRunDispatchBindingError`](#retainedrundispatchbindingerror)
+
+###### Parameters
+
+###### requested
+
+###### provider
+
+`string`
+
+###### environmentId
+
+`string`
+
+###### sessionId
+
+`string`
+
+###### executionId
+
+`string`
+
+###### returned
+
+###### id?
+
+`string`
+
+###### provider?
+
+`string`
+
+###### controlRef?
+
+`unknown`
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`RetainedRunDispatchBindingError`](#retainedrundispatchbindingerror)
+
+###### Overrides
+
+`AgentEvalError.constructor`
+
+#### Properties
+
+##### requested
+
+> `readonly` **requested**: `object`
+
+The coordinates the runtime sent with the dispatch.
+
+###### provider
+
+> `readonly` **provider**: `string`
+
+###### environmentId
+
+> `readonly` **environmentId**: `string`
+
+###### sessionId
+
+> `readonly` **sessionId**: `string`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+##### returned
+
+> `readonly` **returned**: `object`
+
+The loose reference the provider actually returned, for triage.
+
+###### id?
+
+> `readonly` `optional` **id?**: `string`
+
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+###### controlRef?
+
+> `readonly` `optional` **controlRef?**: `unknown`
+
+***
+
 ### OfficialOptimizerUnavailableError
 
 Missing optional Python dependencies for an official optimizer.
@@ -1725,6 +1893,122 @@ Maximum time for task verification, executable grading, and receipt construction
 > `optional` **resultTimeoutMs?**: `number`
 
 Maximum time for task verification, executable grading, and receipt construction.
+
+***
+
+### ProtectedAgentCandidateModelGrantContext
+
+Values available only while one protected model grant is active.
+
+#### Properties
+
+##### activation
+
+> `readonly` **activation**: [`AgentCandidateProtectedModelActivation`](#agentcandidateprotectedmodelactivation)
+
+##### reservation
+
+> `readonly` **reservation**: [`AgentCandidateProtectedModelReservation`](#agentcandidateprotectedmodelreservation)
+
+##### resolved
+
+> `readonly` **resolved**: `AgentCandidateResolvedModel`
+
+***
+
+### RunProtectedAgentCandidateModelGrantOptions
+
+Inputs for one protected grant scoped to one bounded caller unit.
+
+#### Type Parameters
+
+##### TResult
+
+`TResult`
+
+#### Properties
+
+##### port
+
+> `readonly` **port**: [`AgentCandidateModelPort`](#agentcandidatemodelport)
+
+Runtime port that validates and settles the evaluator-owned grant.
+
+##### resolve
+
+> `readonly` **resolve**: `object`
+
+Provider-neutral model request resolved before any grant is reserved.
+
+###### requested
+
+> **requested**: `string`
+
+###### harness
+
+> **harness**: `HarnessType`
+
+###### reasoningEffort
+
+> **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+
+##### reserve
+
+> `readonly` **reserve**: [`AgentCandidateModelGrantRunReservationInput`](#agentcandidatemodelgrantrunreservationinput)
+
+One bounded unit's immutable identity, attempt, expiry, and limits.
+
+##### deadlineAtMs
+
+> `readonly` **deadlineAtMs**: `number`
+
+Must be no later than the reservation expiry.
+
+##### execute
+
+> `readonly` **execute**: (`context`) => `Promise`\<`TResult`\>
+
+Execute exactly one bounded unit while the activated environment is valid.
+
+###### Parameters
+
+###### context
+
+[`ProtectedAgentCandidateModelGrantContext`](#protectedagentcandidatemodelgrantcontext)
+
+###### Returns
+
+`Promise`\<`TResult`\>
+
+***
+
+### RunProtectedAgentCandidateModelGrantResult
+
+Result and sealed settlement returned after one protected grant closes.
+
+#### Type Parameters
+
+##### TResult
+
+`TResult`
+
+#### Properties
+
+##### value
+
+> `readonly` **value**: `TResult`
+
+##### resolved
+
+> `readonly` **resolved**: `AgentCandidateResolvedModel`
+
+##### reservation
+
+> `readonly` **reservation**: [`AgentCandidateProtectedModelReservation`](#agentcandidateprotectedmodelreservation)
+
+##### settlement
+
+> `readonly` **settlement**: [`AgentCandidateProtectedModelSettlement`](#agentcandidateprotectedmodelsettlement)
 
 ***
 
@@ -5825,7 +6109,7 @@ Exact materialized profile presented for validation before any candidate run.
 
 ###### Inherited from
 
-[`ImproveCandidateValidationInput`](#improvecandidatevalidationinput).[`value`](#value-1)
+[`ImproveCandidateValidationInput`](#improvecandidatevalidationinput).[`value`](#value-2)
 
 ##### isBaseline
 
@@ -10254,6 +10538,14 @@ Result of crossing the irreversible candidate-may-run boundary.
 
 ***
 
+### AgentCandidateModelGrantRunReservationInput
+
+> **AgentCandidateModelGrantRunReservationInput** = `Omit`\<[`AgentCandidateModelGrantReserveInput`](#agentcandidatemodelgrantreserveinput), `"resolved"`\>
+
+Reservation fields supplied by a caller before Runtime resolves the model.
+
+***
+
 ### AgentCandidateModelGrantReserveInput
 
 > **AgentCandidateModelGrantReserveInput** = `Parameters`\<[`AgentCandidateModelPort`](#agentcandidatemodelport)\[`"reserveGrant"`\]\>\[`0`\]
@@ -11403,6 +11695,52 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ***
 
+### RootProviderModelEvidence
+
+> **RootProviderModelEvidence** = \{ `status`: `"known"`; `models`: `ReadonlyArray`\<`string`\>; \} \| \{ `status`: `"unknown"`; `models`: `ReadonlyArray`\<`string`\>; `reason`: `"provider-model-missing"`; \}
+
+Provider-observed model identity for the root manager's settled inference turns.
+Runtime records this only from a Runtime-owned provider/bridge receipt; an authored profile
+alias is never substituted when the provider omits the identity.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `status`: `"known"`; `models`: `ReadonlyArray`\<`string`\>; \}
+
+###### status
+
+> `readonly` **status**: `"known"`
+
+###### models
+
+> `readonly` **models**: `ReadonlyArray`\<`string`\>
+
+Every settled root turn reported this identity; duplicates are retained only once.
+
+***
+
+##### Type Literal
+
+\{ `status`: `"unknown"`; `models`: `ReadonlyArray`\<`string`\>; `reason`: `"provider-model-missing"`; \}
+
+###### status
+
+> `readonly` **status**: `"unknown"`
+
+###### models
+
+> `readonly` **models**: `ReadonlyArray`\<`string`\>
+
+Known observations may remain useful for diagnostics, but cannot prove one identity.
+
+###### reason
+
+> `readonly` **reason**: `"provider-model-missing"`
+
+***
+
 ### SpendChannel
 
 > **SpendChannel** = `"tokens"` \| `"usd"`
@@ -11413,7 +11751,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -11427,7 +11765,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -11461,6 +11799,12 @@ The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journ
  record and every settled/metered record carried a complete receipt on that channel;
  `false` comes with the unaccounted nodes named in `spendGaps`.
 
+###### rootProviderModel?
+
+> `readonly` `optional` **rootProviderModel?**: [`RootProviderModelEvidence`](#rootprovidermodelevidence)
+
+Runtime-owned provider evidence for the root manager, when the root executed inference.
+
 ###### spendGaps?
 
 > `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
@@ -11490,7 +11834,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
 
 ###### kind
 
@@ -11523,6 +11867,12 @@ The conserved spend incurred before the run failed — real cost is paid even wh
  off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
  explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
 
+###### rootProviderModel?
+
+> `readonly` `optional` **rootProviderModel?**: [`RootProviderModelEvidence`](#rootprovidermodelevidence)
+
+Runtime-owned provider evidence for the root manager, when the root executed inference.
+
 ###### spendGaps?
 
 > `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
@@ -11541,7 +11891,7 @@ Never present on a lifecycle arm — the discriminant, not prose, is what makes
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 ###### kind
 
@@ -11573,6 +11923,12 @@ The conserved spend incurred before the run failed — real cost is paid even wh
  worker delivers, so the caller always learns what the delegation actually spent. Summed
  off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
  explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`.
+
+###### rootProviderModel?
+
+> `readonly` `optional` **rootProviderModel?**: [`RootProviderModelEvidence`](#rootprovidermodelevidence)
+
+Runtime-owned provider evidence for the root manager, when the root executed inference.
 
 ###### spendGaps?
 
@@ -12698,6 +13054,35 @@ Recursively remove undefined object fields while refusing undefined array entrie
 #### Returns
 
 `unknown`
+
+***
+
+### runProtectedAgentCandidateModelGrant()
+
+> **runProtectedAgentCandidateModelGrant**\<`TResult`\>(`options`): `Promise`\<[`RunProtectedAgentCandidateModelGrantResult`](#runprotectedagentcandidatemodelgrantresult)\<`TResult`\>\>
+
+Run one bounded unit under a protected model grant.
+
+Runtime owns the grant lifecycle; callers own the unit boundary and any
+durable scheduling or accounting around it. A reserved grant is settled
+after activation failure or callback failure, and the callback error is
+preserved when settlement also fails.
+
+#### Type Parameters
+
+##### TResult
+
+`TResult`
+
+#### Parameters
+
+##### options
+
+[`RunProtectedAgentCandidateModelGrantOptions`](#runprotectedagentcandidatemodelgrantoptions)\<`TResult`\>
+
+#### Returns
+
+`Promise`\<[`RunProtectedAgentCandidateModelGrantResult`](#runprotectedagentcandidatemodelgrantresult)\<`TResult`\>\>
 
 ***
 

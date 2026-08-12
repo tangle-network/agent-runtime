@@ -33,7 +33,12 @@
 
 // agent-eval's AgentProfile (the eval-harness unit of variation, `model: string`)
 // — NOT sandbox's AgentProfile. ProfileDispatchFn is keyed on the former.
-import type { AgentProfile, CostReceiptInput, MaximumCharge } from '@tangle-network/agent-eval'
+import {
+  type AgentProfile,
+  type CostReceiptInput,
+  type MaximumCharge,
+  modelHasSnapshot,
+} from '@tangle-network/agent-eval'
 import type {
   CampaignTraceWriter,
   DispatchContext,
@@ -41,6 +46,7 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
+import { observedModelMatchesDeclared } from './model-identity'
 import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 import { type SuperviseOptions, supervise } from './supervise/supervise'
 import type { SupervisedResult } from './supervise/types'
@@ -242,21 +248,29 @@ type SupervisedTreeModel =
 /**
  * Eval has one pre-admitted paid call for this dispatch. A tree can only settle that one call when
  * Runtime can prove every visible leaf used the same model. Child identities come from Runtime's
- * materialization receipts. A router root is validated against its exact profile model before
- * Runtime accepts each response. A nested tree is not flattened in this result view, so it remains
- * unknown rather than being relabelled from its parent. A caller-supplied override would be false.
+ * materialization receipts. The root identity comes only from Runtime's settled provider receipt;
+ * the authored profile remains a matching constraint, never a fallback. A nested tree is not
+ * flattened in this result view, so it remains unknown rather than being relabelled from its
+ * parent. A caller-supplied override would be false.
  */
 function supervisedTreeModel(
   result: SupervisedResult<unknown>,
   rootProfile: AgentProfile,
 ): SupervisedTreeModel {
   const models = new Set<string>()
-  const rootModel =
-    rootProfile.harness === undefined || rootProfile.harness === 'cli-base'
-      ? rootProfile.model?.default
-      : undefined
-  if (rootModel === undefined) return { kind: 'unknown' }
-  models.add(rootModel)
+  const rootEvidence = result.rootProviderModel
+  if (rootEvidence?.status !== 'known' || rootEvidence.models.length === 0) {
+    return { kind: 'unknown' }
+  }
+  for (const model of rootEvidence.models) {
+    if (
+      !modelHasSnapshot(model) ||
+      !observedModelMatchesDeclared(model, rootProfile.model?.default ?? '')
+    ) {
+      return { kind: 'unknown' }
+    }
+    models.add(model)
+  }
   let unknown = false
   for (const node of result.tree.nodes) {
     if (node.ownedTreeRoot !== undefined) {

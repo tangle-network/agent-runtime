@@ -44,6 +44,10 @@ const runtimeOwnedExecutorMaterializations = new WeakMap<
   RuntimeOwnedExecutorMaterializationRef
 >()
 const runtimeOwnedScopeOwners = new WeakMap<object, Runtime>()
+const runtimeOwnedDriveHarnessModelObservations = new WeakMap<
+  object,
+  { readonly observations: Array<string | undefined> }
+>()
 
 interface KnownReceiptInput {
   readonly authoredProfileDigest: Sha256Digest
@@ -209,6 +213,28 @@ export function attestRuntimeOwnedScopeOwner<T extends object>(owner: T, runtime
  * deliberately have no entry even if they add lookalike fields. */
 export function runtimeOwnedScopeOwnerRuntime(owner: object): Runtime | undefined {
   return runtimeOwnedScopeOwners.get(owner)
+}
+
+/** Record provider model observations only for a Runtime-owned drive adapter. Arbitrary caller
+ * harnesses cannot publish a lookalike receipt, so their root identity remains unknown. */
+export function recordRuntimeOwnedDriveHarnessModel(
+  owner: object,
+  model: string | undefined,
+): void {
+  const state = runtimeOwnedDriveHarnessModelObservations.get(owner)
+  if (state === undefined) {
+    runtimeOwnedDriveHarnessModelObservations.set(owner, { observations: [model] })
+    return
+  }
+  state.observations.push(model)
+}
+
+/** Read settled provider observations from one Runtime-owned drive adapter. */
+export function runtimeOwnedDriveHarnessModels(
+  owner: object,
+): ReadonlyArray<string | undefined> | undefined {
+  const state = runtimeOwnedDriveHarnessModelObservations.get(owner)
+  return state === undefined ? undefined : Object.freeze([...state.observations])
 }
 
 /** Build one kernel-owned known receipt from a data-only executor declaration. */

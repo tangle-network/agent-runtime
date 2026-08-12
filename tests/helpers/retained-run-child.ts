@@ -1,3 +1,4 @@
+import { closeSync, fsyncSync, openSync, writeSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import {
   type AgentExactRunControlRef,
@@ -7,19 +8,52 @@ import {
   nativeContextContinuationRequestDigest,
   nativeContextContinuationTurnDigest,
 } from '@tangle-network/agent-interface'
-import { reconnectRetainedRun, startRetainedRun } from '../../src/runtime/retained-run'
+import {
+  reconnectRetainedRun,
+  recoverRetainedRun,
+  startRetainedRun,
+} from '../../src/runtime/retained-run'
+import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
 import { durableRetainedProvider } from './durable-retained-provider'
 
+const phases = [
+  'start',
+  'reconnect',
+  'start-kill-dispatched',
+  'recover-dispatched',
+  'start-kill-environment',
+  'recover-environment',
+  'start-kill-live',
+  'recover-live',
+] as const
+type Phase = (typeof phases)[number]
+
 const [stateFile, referenceFile, phase] = process.argv.slice(2)
-if (!stateFile || !referenceFile || (phase !== 'start' && phase !== 'reconnect')) {
-  throw new Error('usage: retained-run-child <state-file> <reference-file> <start|reconnect>')
+if (!stateFile || !referenceFile || !phases.includes(phase as Phase)) {
+  throw new Error(`usage: retained-run-child <state-file> <reference-file> <${phases.join('|')}>`)
+}
+
+/** Write and fsync in one call: the record must survive an immediate SIGKILL. */
+function persistDurably(file: string, value: unknown): void {
+  const fd = openSync(file, 'w', 0o600)
+  try {
+    writeSync(fd, `${JSON.stringify(value)}\n`)
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
 }
 
 if (phase === 'start') {
+  const admissions: RetainedRunAdmission[] = []
   const run = await startRetainedRun({
     provider: durableRetainedProvider(stateFile),
     environment: { profile: { name: 'worker' }, idempotencyKey: 'restart-proof' },
     turn: { prompt: 'start', turnId: 'restart-proof' },
+    onAdmission: async (admission) => {
+      admissions.push(admission)
+      persistDurably(`${referenceFile}.admissions`, admissions)
+    },
     now: () => Date.parse('2026-08-02T00:00:10.000Z'),
   })
   const iterator = run.events()[Symbol.asyncIterator]()
@@ -53,7 +87,7 @@ if (phase === 'start') {
     `${JSON.stringify({ first: first.value, controlRef: run.controlRef })}\n`,
     'utf8',
   )
-} else {
+} else if (phase === 'reconnect') {
   const reference = JSON.parse(await readFile(referenceFile, 'utf8')) as {
     controlRef: AgentExactRunControlRef
     after: { cursor: string; sequence: number }
@@ -102,6 +136,159 @@ if (phase === 'start') {
       cancellation,
       continuation,
       result: await run.result(),
+    })}\n`,
+    'utf8',
+  )
+} else if (phase === 'start-kill-dispatched') {
+  // Die the way a real process dies: inside the dispatched hook, after the
+  // record is durable, before the hook returns. The parent asserts SIGKILL
+  // and that the observation marker below never appeared.
+  await startRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-dispatched' },
+    turn: { prompt: 'start', turnId: 'kill-dispatched' },
+    onAdmission: async (admission) => {
+      if (admission.phase === 'dispatched') {
+        persistDurably(referenceFile, admission)
+        process.kill(process.pid, 'SIGKILL')
+      }
+    },
+  })
+  persistDurably(`${referenceFile}.observed`, { observed: true })
+  throw new Error('the dispatched admission must kill this process before resolution')
+} else if (phase === 'recover-dispatched') {
+  const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as {
+    phase: 'dispatched'
+    controlRef: AgentExactRunControlRef
+  }
+  const run = await reconnectRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    controlRef: admission.controlRef,
+  })
+  if (!run) throw new Error('the dispatched admission record did not rebuild the run')
+  const events = []
+  for await (const event of run.events()) events.push(event)
+  const first = events[0]
+  if (!first) throw new Error('the recovered run replayed no event')
+  const replayed = []
+  for await (const event of run.events({
+    after: { cursor: first.cursor, sequence: first.sequence },
+  })) {
+    replayed.push(event)
+  }
+  const cancellation = await run.cancel({
+    operationId: 'kill-dispatched-cancel',
+    reason: 'recovered cleanup',
+  })
+  await writeFile(
+    `${referenceFile}.output`,
+    `${JSON.stringify({
+      controlRef: run.controlRef,
+      eventIds: events.map((event) => event.eventId),
+      replayedIds: replayed.map((event) => event.eventId),
+      cancellation,
+    })}\n`,
+    'utf8',
+  )
+} else if (phase === 'start-kill-environment') {
+  await startRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-environment' },
+    turn: { prompt: 'start', turnId: 'kill-environment' },
+    identity: {
+      sessionId: 'session-kill-environment',
+      executionId: 'execution-kill-environment',
+    },
+    onAdmission: async (admission) => {
+      if (admission.phase === 'environment') {
+        persistDurably(referenceFile, admission)
+        process.kill(process.pid, 'SIGKILL')
+      }
+    },
+  })
+  throw new Error('the environment admission must kill this process before dispatch')
+} else if (phase === 'start-kill-live') {
+  // The reviewer-proven window: dispatch has ALREADY committed remotely, and
+  // the process dies before the dispatched record can be persisted. Only the
+  // environment admission survives.
+  await startRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-live' },
+    turn: { prompt: 'start', turnId: 'kill-live' },
+    onAdmission: async (admission) => {
+      if (admission.phase === 'environment') {
+        persistDurably(referenceFile, admission)
+        return
+      }
+      process.kill(process.pid, 'SIGKILL')
+    },
+  })
+  throw new Error('the dispatched admission must kill this process before persisting')
+} else if (phase === 'recover-live') {
+  const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as {
+    phase: 'environment'
+    environmentId: string
+    sessionId: string
+    executionId: string
+  }
+  const result = await recoverRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    environmentId: admission.environmentId,
+    sessionId: admission.sessionId,
+    executionId: admission.executionId,
+  })
+  if (result.outcome !== 'recovered') {
+    throw new Error(`expected a recovered live run, got ${result.outcome}`)
+  }
+  const run = result.handle
+  const events = []
+  for await (const event of run.events()) events.push(event)
+  const cancellation = await run.cancel({
+    operationId: 'kill-live-cancel',
+    reason: 'recovered live cleanup',
+  })
+  await writeFile(
+    `${referenceFile}.output`,
+    `${JSON.stringify({
+      controlRef: run.controlRef,
+      eventIds: events.map((event) => event.eventId),
+      cancellation,
+    })}\n`,
+    'utf8',
+  )
+} else {
+  const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as {
+    phase: 'environment'
+    environmentId: string
+    sessionId: string
+    executionId: string
+  }
+  const provider = durableRetainedProvider(stateFile)
+  const first = await recoverRetainedRun({
+    provider,
+    environmentId: admission.environmentId,
+    sessionId: admission.sessionId,
+    executionId: admission.executionId,
+  })
+  if (!provider.get) throw new Error('durable test provider lost its get contract')
+  const orphan = await provider.get(admission.environmentId)
+  // Test-owned cleanup through the provider surface; the unverifiable outcome
+  // itself never authorizes a destroy.
+  if (first.outcome === 'unverifiable') await first.environment.destroy?.()
+  const second = await recoverRetainedRun({
+    provider,
+    environmentId: admission.environmentId,
+    sessionId: admission.sessionId,
+    executionId: admission.executionId,
+  })
+  const afterCleanup = await provider.get(admission.environmentId)
+  await writeFile(
+    `${referenceFile}.output`,
+    `${JSON.stringify({
+      firstOutcome: first.outcome,
+      orphanFound: orphan !== null,
+      secondOutcome: second.outcome,
+      orphanRemains: afterCleanup !== null,
     })}\n`,
     'utf8',
   )

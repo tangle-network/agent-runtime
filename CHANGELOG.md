@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.133.0
+
+- Require an awaited `onAdmission` durability hook on `startRetainedRun`, called after environment creation and after dispatch, before the start promise resolves.
+  Migration: every `startRetainedRun` caller must add `onAdmission` and persist each record before the hook returns.
+- Mint deterministic dispatch identity from `(idempotencyKey, turnId)` when the caller omits `identity`, and verify after dispatch that the provider honored it; a mismatch fails with `RetainedRunDispatchBindingError` carrying the provider's returned reference.
+- Add `recoverRetainedRun(...)`: from pre-dispatch admission coordinates it reports `recovered`, `not_found`, or `unverifiable`; `unverifiable` is never destroy-safe.
+- Fail a start whose admission hook rejects with `RetainedRunAdmissionError` and keep the environment for recovery.
+- Write the retained recovery keys into provider create metadata; the runtime keys overwrite same-named caller keys, and other caller keys stay preserved.
+
+## 0.132.13
+
+- Normalize official optimizer cost receipts to the requested profile model while preserving the provider-served identity in response evidence.
+
+## 0.132.12
+
+- Accept a provider-qualified served model when its base model and snapshot match the exact `AgentProfile` model.
+- Use one model identity comparison for direct optimizer calls and recursive Eval dispatch.
+
+## 0.132.11
+
+- Consume Core 0.6.1, Eval 0.145.2, Interface 0.47.0, Knowledge 7.2.4, Profile Materialize 0.14.0, and Sandbox 0.21.1 as one compatible dependency set.
+- Raise the Eval, Interface, and Sandbox peer ranges to the current shared release cohort.
+
+## 0.132.10
+
+- Send the request-scoped model gateway URL with its protected token on every bridge request and reconnect.
+- Bind both protected credential digests to the durable bridge run identity.
+- Reject token-only, changed-URL, and non-HTTPS protected routes without exposing secret values or private URL paths.
+
+## 0.132.9
+
+- Add `runProtectedAgentCandidateModelGrant(...)` for one bounded resolve, reserve, activate, execute, and settle lifecycle.
+- Preserve callback and settlement failures together, and settle activated failures as `failed` or preparation failures as `preparation-failed`.
+
+## 0.132.8
+
+- Add request-scoped model credentials for loopback cli-bridge execution.
+- Resolve the credential before each bridge POST and resend it after reconnect.
+- Keep the credential value out of snapshots, artifacts, and errors.
+
+## 0.132.7
+
+- Make repeated finalization of the same root execution binding idempotent after a supported resume.
+- Continue to reject a different binding for the same attempt as journal corruption.
+
+## 0.132.6
+
+- Settle moving model identities from provider receipts for external harness roots.
+- Reject missing, bare, mixed, or mismatched root model evidence before Eval records a known receipt.
+
+## 0.132.5
+
+- Preserve the provider's served model and snapshot fingerprint in bridge execution receipts.
+- Consume Agent Eval 0.145.0 and Agent Knowledge 7.2.3 as one compatible dependency set.
+
+## 0.132.4
+
+- Consume Agent Eval 0.144.13 and Agent Knowledge 7.2.2 as one compatible dependency set.
+
 ## 0.132.1
 
 - Add `candidatePopulation` to `improve(...)` results so consumers can inspect every verified optimizer candidate, including its exact profile, Interface diffs, parent lineage, and selection score.

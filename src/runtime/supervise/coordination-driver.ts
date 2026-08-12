@@ -86,6 +86,8 @@ export interface DriverAgentOptions {
   /** Profile-declared model for a production Router brain. When set, every turn must report this
    * exact provider-observed model before its output is accepted. Omitted by scripted test brains. */
   readonly expectedModel?: string
+  /** Runtime-owned observation sink for the provider identity of each settled driver turn. */
+  readonly onProviderModel?: (model: string | undefined) => void
   /** Shared blob store — `observe_agent` reads settled outputs through it. */
   readonly blobs: ResultBlobStore
   /** Resolve a spawned `profile` to a worker LEAF or a driver child (the recursion seam). */
@@ -455,6 +457,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           throw error
         }
         let evidenceError: ValidationError | undefined
+        opts.onProviderModel?.(res.model)
         if (opts.expectedModel !== undefined) {
           if (res.model === undefined) {
             evidenceError = new ValidationError(

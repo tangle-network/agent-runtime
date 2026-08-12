@@ -307,6 +307,36 @@ Re-exports [parseExactCandidateProfile](index.md#parseexactcandidateprofile)
 
 ***
 
+### AgentCandidateModelGrantRunReservationInput
+
+Re-exports [AgentCandidateModelGrantRunReservationInput](index.md#agentcandidatemodelgrantrunreservationinput)
+
+***
+
+### ProtectedAgentCandidateModelGrantContext
+
+Re-exports [ProtectedAgentCandidateModelGrantContext](index.md#protectedagentcandidatemodelgrantcontext)
+
+***
+
+### RunProtectedAgentCandidateModelGrantOptions
+
+Re-exports [RunProtectedAgentCandidateModelGrantOptions](index.md#runprotectedagentcandidatemodelgrantoptions)
+
+***
+
+### RunProtectedAgentCandidateModelGrantResult
+
+Re-exports [RunProtectedAgentCandidateModelGrantResult](index.md#runprotectedagentcandidatemodelgrantresult)
+
+***
+
+### runProtectedAgentCandidateModelGrant
+
+Re-exports [runProtectedAgentCandidateModelGrant](index.md#runprotectedagentcandidatemodelgrant)
+
+***
+
 ### AgentCandidateModelGrantActivateInput
 
 Re-exports [AgentCandidateModelGrantActivateInput](index.md#agentcandidatemodelgrantactivateinput)

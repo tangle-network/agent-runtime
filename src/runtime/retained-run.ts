@@ -5,14 +5,20 @@
  * startup, replay, binding checks, and handle operations.
  */
 
-export { reconnectRetainedRun, startRetainedRun } from './retained-run-start'
+export { reconnectRetainedRun, recoverRetainedRun, startRetainedRun } from './retained-run-start'
 export type {
   NativeContextContinuationExecution,
   NativeContextContinuationInput,
   ReconnectRetainedRunOptions,
+  RecoverRetainedRunOptions,
+  RecoverRetainedRunResult,
+  RetainedRunAdmission,
+  RetainedRunAdmissionHook,
   RetainedRunCancellation,
   RetainedRunCancelOptions,
+  RetainedRunDispatchedAdmission,
   RetainedRunEffect,
+  RetainedRunEnvironmentAdmission,
   RetainedRunEventOptions,
   RetainedRunHandle,
   RetainedRunReplayPoint,

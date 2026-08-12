@@ -31,6 +31,22 @@ The driver-LLM seam — ONE inference turn over the conversation + the coordinat
 Profile-declared model for a production Router brain. When set, every turn must report this
 exact provider-observed model before its output is accepted. Omitted by scripted test brains.
 
+##### onProviderModel?
+
+> `readonly` `optional` **onProviderModel?**: (`model`) => `void`
+
+Runtime-owned observation sink for the provider identity of each settled driver turn.
+
+###### Parameters
+
+###### model
+
+`string` \| `undefined`
+
+###### Returns
+
+`void`
+
 ##### blobs
 
 > `readonly` **blobs**: [`ResultBlobStore`](runtime.md#resultblobstore)
@@ -450,7 +466,7 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-6)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-7)
 
 ##### otel?
 
@@ -1171,7 +1187,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-12)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-13)
 
 ##### allowedModels?
 
@@ -1283,6 +1299,26 @@ Per-child budget reserved from the conserved pool on each spawn.
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`perWorker`](runtime.md#perworker-2)
+
+##### onProviderModel?
+
+> `readonly` `optional` **onProviderModel?**: (`model`) => `void`
+
+Runtime-owned sink for provider identity observed by this manager's own turns.
+
+###### Parameters
+
+###### model
+
+`string` \| `undefined`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onProviderModel`](runtime.md#onprovidermodel)
 
 ##### deliverable?
 
@@ -1756,7 +1792,7 @@ Deterministic scripted-brain path for graph tests. Not exported from Runtime's m
 
 ### superviseWithTestBrain()
 
-> **superviseWithTestBrain**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+> **superviseWithTestBrain**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>
 
 Deterministic scripted-brain path for tests. Not exported from Runtime's main entry.
 
@@ -1776,7 +1812,7 @@ Deterministic scripted-brain path for tests. Not exported from Runtime's main en
 
 #### Returns
 
-`Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+`Promise`\<\{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>
 
 ***
 

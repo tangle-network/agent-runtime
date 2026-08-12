@@ -1099,6 +1099,22 @@ export interface SupervisorOpts {
   }
 }
 
+/** Provider-observed model identity for the root manager's settled inference turns.
+ * Runtime records this only from a Runtime-owned provider/bridge receipt; an authored profile
+ * alias is never substituted when the provider omits the identity. */
+export type RootProviderModelEvidence =
+  | {
+      readonly status: 'known'
+      /** Every settled root turn reported this identity; duplicates are retained only once. */
+      readonly models: ReadonlyArray<string>
+    }
+  | {
+      readonly status: 'unknown'
+      /** Known observations may remain useful for diagnostics, but cannot prove one identity. */
+      readonly models: ReadonlyArray<string>
+      readonly reason: 'provider-model-missing'
+    }
+
 /**
  * A driver's `act()` rejection, normalized to a serializable triple so it survives the typed
  * no-winner boundary (an `Error` does not cross a structured-clone / JSON hop intact). A
@@ -1147,6 +1163,8 @@ export type SupervisedResult<Out> =
        *  record and every settled/metered record carried a complete receipt on that channel;
        *  `false` comes with the unaccounted nodes named in `spendGaps`. */
       spentTotal: Spend
+      /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
+      readonly rootProviderModel?: RootProviderModelEvidence
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1174,6 +1192,8 @@ export type SupervisedResult<Out> =
        *  off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
        *  explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`. */
       spentTotal: Spend
+      /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
+      readonly rootProviderModel?: RootProviderModelEvidence
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1198,6 +1218,8 @@ export type SupervisedResult<Out> =
        *  off the same journal the `winner` path reads, with the same contract: wall-clock `ms`,
        *  explicit `tokensKnown`/`usdKnown`, gaps named in `spendGaps`. */
       spentTotal: Spend
+      /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
+      readonly rootProviderModel?: RootProviderModelEvidence
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>

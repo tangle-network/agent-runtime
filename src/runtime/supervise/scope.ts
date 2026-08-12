@@ -1469,7 +1469,9 @@ export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNo
 /** @internal Ensure a deferred root that never published evidence remains visibly unknown. */
 export async function finalizeScopeOwnerMaterialization(scope: Scope<unknown>): Promise<void> {
   const state = ownerMaterializationStates.get(scope)
-  if (state === undefined || state.publishedThisProcess) return
+  // Rejection paths publish an unknown binding before returning the original validation error.
+  // Finalization still runs after that error, so it must not append the same attempt again.
+  if (state === undefined || state.publishedThisProcess || state.bindingPublished) return
   if (state.prior !== undefined) {
     await appendUnknownOwnerBinding(state, state.prior, 'root-agent-did-not-report')
     throw new ValidationError(

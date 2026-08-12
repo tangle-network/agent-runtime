@@ -348,14 +348,21 @@ export {
   type NativeContextContinuationExecution,
   type NativeContextContinuationInput,
   type ReconnectRetainedRunOptions,
+  type RecoverRetainedRunOptions,
+  type RecoverRetainedRunResult,
+  type RetainedRunAdmission,
+  type RetainedRunAdmissionHook,
   type RetainedRunCancellation,
   type RetainedRunCancelOptions,
+  type RetainedRunDispatchedAdmission,
   type RetainedRunEffect,
+  type RetainedRunEnvironmentAdmission,
   type RetainedRunEventOptions,
   type RetainedRunHandle,
   type RetainedRunReplayPoint,
   type RetainedRunSnapshot,
   reconnectRetainedRun,
+  recoverRetainedRun,
   type StartRetainedRunOptions,
   startRetainedRun,
 } from './retained-run'
@@ -738,6 +745,7 @@ export {
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
+  type BridgeModelCredential,
   type BridgeSeam,
   type CliSeam,
   type CliWorktreeBridgeSeam,
@@ -870,6 +878,7 @@ export type {
   ResumedWork,
   RootHandle,
   RootMaterialization,
+  RootProviderModelEvidence,
   RootSignal,
   Runtime,
   Scope,

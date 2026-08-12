@@ -12,6 +12,7 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import type {
+  AgentEnvironment,
   AgentEnvironmentProvider,
   AgentTurnInput,
   AgentTurnResult,
@@ -87,16 +88,57 @@ export interface RetainedRunHandle {
   cancel(options: RetainedRunCancelOptions): Promise<RetainedRunCancellation>
 }
 
+/** Recovery coordinates durable after environment creation and before dispatch. @stable */
+export interface RetainedRunEnvironmentAdmission {
+  readonly phase: 'environment'
+  readonly provider: string
+  readonly environmentId: string
+  readonly idempotencyKey: string
+  readonly turnId: string
+  /** Caller-supplied or runtime-minted; always the identity the dispatch will request. */
+  readonly sessionId: string
+  /** Caller-supplied or runtime-minted; always the identity the dispatch will request. */
+  readonly executionId: string
+}
+
+/** The verified exact reference, durable before the start promise resolves. @stable */
+export interface RetainedRunDispatchedAdmission {
+  readonly phase: 'dispatched'
+  readonly controlRef: AgentExactRunControlRef
+  readonly idempotencyKey: string
+  readonly turnId: string
+}
+
+/** One admission record the runtime persists through the caller before proceeding. @stable */
+export type RetainedRunAdmission = RetainedRunEnvironmentAdmission | RetainedRunDispatchedAdmission
+
+/**
+ * Awaited durability hook for retained admission records.
+ *
+ * The runtime blocks after environment creation and again after dispatch until
+ * the hook resolves, so no retained run becomes caller-visible before its
+ * recovery record is durable. A rejection fails the start without destroying
+ * the environment; the persisted record or provider state is the recovery path.
+ *
+ * @stable
+ */
+export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Promise<void>
+
 /** A retained start is retry-safe only when environment and turn keys are explicit. @stable */
 export interface StartRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   readonly turn: AgentTurnInput & { turnId: string }
-  /** Runtime-owned coordinates for providers that support deterministic retained dispatch. */
+  /**
+   * Explicit dispatch coordinates. When omitted, the runtime mints
+   * deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
+   * so every process derives the same values.
+   */
   readonly identity?: {
     readonly sessionId: string
     readonly executionId: string
   }
+  readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
 }
 
@@ -106,3 +148,37 @@ export interface ReconnectRetainedRunOptions {
   readonly controlRef: AgentExactRunControlRef
   readonly now?: () => number
 }
+
+/**
+ * Pre-dispatch admission coordinates for one recovery attempt.
+ *
+ * A `phase: 'environment'` admission record carries these fields, so a caller
+ * can pass that record after a crash before the dispatched record landed.
+ *
+ * @stable
+ */
+export interface RecoverRetainedRunOptions {
+  readonly provider: AgentEnvironmentProvider
+  readonly environmentId: string
+  readonly sessionId: string
+  readonly executionId: string
+  readonly now?: () => number
+}
+
+/**
+ * Outcome of one recovery attempt from pre-dispatch admission coordinates.
+ *
+ * `not_found`: the provider no longer holds the environment; nothing remains
+ * to destroy. `recovered`: the provider self-identified the session with a
+ * strict exact reference matching the recorded coordinates. `unverifiable`:
+ * the environment exists but the provider cannot self-identify the session;
+ * never destroy on this outcome — keep the environment, retry
+ * `reconnectRetainedRun` with a dispatched admission record, or inspect it
+ * with provider-native tools.
+ *
+ * @stable
+ */
+export type RecoverRetainedRunResult =
+  | { readonly outcome: 'recovered'; readonly handle: RetainedRunHandle }
+  | { readonly outcome: 'not_found' }
+  | { readonly outcome: 'unverifiable'; readonly environment: AgentEnvironment }

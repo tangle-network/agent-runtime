@@ -71,6 +71,76 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('keeps a provider snapshot in response evidence while receipt uses the declared model', async () => {
+    const responseModel = 'deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
+    const call = profileOptimizerModelCall({
+      profile,
+      context: 'profile snapshot identity test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async () => ({
+          model: responseModel,
+          choices: [{ message: { content: 'snapshot response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 3, completion_tokens: 2, cost: 0.001 },
+        }),
+      },
+    })
+
+    const result = await call({
+      callId: 'snapshot-identity-1',
+      request: { ...request, model: 'deepseek-v4-flash' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.error)
+    expect(result.response.model).toBe(responseModel)
+    expect(result.receipt).toMatchObject({
+      model: 'deepseek-v4-flash',
+      inputTokens: 3,
+      outputTokens: 2,
+    })
+    expect(result.execution).toMatchObject({ model: responseModel })
+  })
+
+  it('accepts a provider-qualified snapshot for the exact profile model', async () => {
+    const responseModel = 'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
+    const call = profileOptimizerModelCall({
+      profile,
+      context: 'qualified profile snapshot identity test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async () => ({
+          model: responseModel,
+          choices: [{ message: { content: 'qualified snapshot response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 4, completion_tokens: 3, cost: 0.001 },
+        }),
+      },
+    })
+
+    const result = await call({
+      callId: 'qualified-snapshot-identity-1',
+      request: { ...request, model: 'deepseek-v4-flash' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.error)
+    expect(result.response.model).toBe(responseModel)
+    expect(result.receipt).toMatchObject({
+      model: 'deepseek-v4-flash',
+      inputTokens: 4,
+      outputTokens: 3,
+    })
+    expect(result.execution).toMatchObject({ model: responseModel })
+  })
+
   it('carries the exact profile retry policy through the injected Router transport', async () => {
     let attempts = 0
     const complete = vi.fn(async () => {

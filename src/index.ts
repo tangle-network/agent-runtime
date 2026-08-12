@@ -102,6 +102,8 @@ export {
   JudgeError,
   NotFoundError,
   PlannerError,
+  RetainedRunAdmissionError,
+  RetainedRunDispatchBindingError,
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
@@ -208,6 +210,7 @@ export type {
   ExecutorRegistry,
   FinalizeContext,
   LoopResult,
+  RootProviderModelEvidence,
   Scope,
   Settled,
   Spend,

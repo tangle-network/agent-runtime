@@ -10,6 +10,7 @@ import {
   assertTraceMatchesModelSettlement,
   sealAgentCandidateModelSettlement,
 } from '../src/candidate-execution/model-settlement'
+import { runProtectedAgentCandidateModelGrant } from '../src/candidate-execution/protected-model-grant'
 import {
   type AgentCandidateModelGrantActivateInput,
   type AgentCandidateModelGrantClient,
@@ -611,5 +612,120 @@ describe('protected candidate model port', () => {
     )
     expect(protectedSpans).toEqual([span(1)])
     expect(() => assertTraceMatchesModelSettlement(protectedSpans, sealed)).not.toThrow()
+  })
+
+  it('settles one successful callback with the activated environment and exact result', async () => {
+    const client = fakeClient({
+      settle: async () => settlement([modelCall(1)]),
+    })
+    const port = createPort(client)
+    const { resolved: _resolved, ...reserve } = reserveInput()
+    const seen: string[] = []
+
+    const result = await runProtectedAgentCandidateModelGrant({
+      port,
+      resolve: {
+        requested: resolvedModel.requested,
+        harness: 'opencode',
+        reasoningEffort: resolvedModel.reasoningEffort,
+      },
+      reserve,
+      deadlineAtMs: EXPIRES_AT_MS - 1_000,
+      execute: async ({ activation, reservation, resolved }) => {
+        seen.push(activation.env.MODEL_API_KEY)
+        expect(reservation.digest).toBe(sha('b'))
+        expect(resolved).toEqual(resolvedModel)
+        return 'cell-result'
+      },
+    })
+
+    expect(result.value).toBe('cell-result')
+    expect(result.settlement).toEqual(settlement([modelCall(1)]))
+    expect(seen).toEqual(['protected-candidate-token'])
+    expect(client.settleInputs).toEqual([settleInput('completed')])
+  })
+
+  it('settles a callback failure as failed and preserves the callback error', async () => {
+    const client = fakeClient()
+    const port = createPort(client)
+    const { resolved: _resolved, ...reserve } = reserveInput()
+    const failure = new Error('cell failed')
+
+    await expect(
+      runProtectedAgentCandidateModelGrant({
+        port,
+        resolve: {
+          requested: resolvedModel.requested,
+          harness: 'opencode',
+          reasoningEffort: resolvedModel.reasoningEffort,
+        },
+        reserve,
+        deadlineAtMs: EXPIRES_AT_MS - 1_000,
+        execute: async () => {
+          throw failure
+        },
+      }),
+    ).rejects.toBe(failure)
+    expect(client.settleInputs).toEqual([settleInput('failed')])
+  })
+
+  it('settles an activation failure as preparation-failed', async () => {
+    const client = fakeClient({
+      activate: async () => {
+        throw new Error('activation failed')
+      },
+    })
+    const port = createPort(client)
+    const { resolved: _resolved, ...reserve } = reserveInput()
+
+    await expect(
+      runProtectedAgentCandidateModelGrant({
+        port,
+        resolve: {
+          requested: resolvedModel.requested,
+          harness: 'opencode',
+          reasoningEffort: resolvedModel.reasoningEffort,
+        },
+        reserve,
+        deadlineAtMs: EXPIRES_AT_MS - 1_000,
+        execute: async () => 'unreachable',
+      }),
+    ).rejects.toThrow('activation failed')
+    expect(client.settleInputs).toEqual([settleInput('preparation-failed')])
+  })
+
+  it('reports both callback and settlement failures without losing either cause', async () => {
+    const callbackFailure = new Error('cell failed')
+    const settlementFailure = new Error('settlement failed')
+    const client = fakeClient({
+      settle: async () => {
+        throw settlementFailure
+      },
+    })
+    const port = createPort(client)
+    const { resolved: _resolved, ...reserve } = reserveInput()
+
+    await expect(
+      runProtectedAgentCandidateModelGrant({
+        port,
+        resolve: {
+          requested: resolvedModel.requested,
+          harness: 'opencode',
+          reasoningEffort: resolvedModel.reasoningEffort,
+        },
+        reserve,
+        deadlineAtMs: EXPIRES_AT_MS - 1_000,
+        execute: async () => {
+          throw callbackFailure
+        },
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      return (
+        error instanceof AggregateError &&
+        error.errors[0] === callbackFailure &&
+        error.errors[1] === settlementFailure
+      )
+    })
+    expect(client.settleInputs).toEqual([settleInput('failed')])
   })
 })

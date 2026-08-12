@@ -92,7 +92,10 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
       const state = readState(stateFile)
       const environment = state.environments[id]
       if (!environment) throw new Error(`missing environment ${id}`)
-      const sessionId = `session-${input.turnId}`
+      // Honor caller-requested identity, deriving only when it is absent —
+      // the same contract as agent-provider-tangle's dispatch.
+      const sessionId = input.sessionId ?? `session-${input.turnId}`
+      const executionId = input.executionId ?? `execution-${input.turnId}`
       let session = environment.sessions[sessionId]
       if (!session) {
         const controlRef: AgentExactRunControlRef = {
@@ -100,7 +103,7 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
           provider,
           environmentId: id,
           sessionId,
-          executionId: `execution-${input.turnId}`,
+          executionId,
           requestDigest: canonicalCandidateDigest({
             environmentId: id,
             sessionId,
@@ -134,6 +137,11 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
         throw new Error('durable test provider received the wrong control reference')
       }
       return sessionFor(stateFile, id, stored)
+    },
+    async destroy() {
+      const state = readState(stateFile)
+      delete state.environments[id]
+      writeState(stateFile, state)
     },
   }
 }

@@ -1,6 +1,15 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { CostLedger } from '@tangle-network/agent-eval'
 import type { CampaignCostMeter, DispatchContext } from '@tangle-network/agent-eval/campaign'
-import type { AgentProfile as SandboxAgentProfile } from '@tangle-network/agent-interface'
+import { runProfileMatrix } from '@tangle-network/agent-eval/campaign'
+import {
+  canonicalAgentProfileDigest,
+  type AgentProfile as SandboxAgentProfile,
+} from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
@@ -102,6 +111,118 @@ function fakeDispatchContext(costCeilingUsd?: number): {
     cost,
   }
   return { ctx, ledger, spans }
+}
+
+const bridgeRequestDigest = `sha256:${'e'.repeat(64)}`
+
+async function readJsonBody(req: AsyncIterable<Uint8Array>): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(Buffer.from(chunk))
+  return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+}
+
+async function submitBridgeResult(profile: Record<string, unknown>): Promise<void> {
+  const mcp = profile.mcp as Record<string, { url?: string }> | undefined
+  const url = mcp?.['agent-runtime-coordination']?.url
+  if (!url) throw new Error('bridge test profile omitted the Runtime coordination URL')
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 'submit-result',
+      method: 'tools/call',
+      params: { name: 'submit_result', arguments: { result: { answer: 42 } } },
+    }),
+  })
+  if (!response.ok) throw new Error(`bridge test submit_result returned ${response.status}`)
+}
+
+function bridgeMaterialization(profileDigest: string, model: string): Record<string, unknown> {
+  return {
+    schema: 'cli-bridge.profile-materialization.v2',
+    effectiveProfileDigest: profileDigest,
+    harness: 'pi',
+    provider: 'tangle-router',
+    model,
+    reasoningEffort: { requested: null, applied: null },
+    workspacePlanDigest: `sha256:${'f'.repeat(64)}`,
+    files: [],
+    unsupported: [],
+  }
+}
+
+async function startPiBridge(
+  responseModel: string | undefined | ReadonlyArray<string | undefined>,
+): Promise<{
+  server: Server
+  url: string
+}> {
+  const server = createServer(async (req, res) => {
+    if (req.method === 'GET' && req.url === '/') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          capabilities: {
+            profileMaterialization: 'cli-bridge.profile-materialization.v2',
+            usageCostProvenance: 'cli-bridge.usage-cost.v1',
+          },
+        }),
+      )
+      return
+    }
+    if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const body = await readJsonBody(req)
+    const profile = body.agent_profile as Record<string, unknown>
+    const requestModel = String(body.model)
+    const profileDigest = canonicalAgentProfileDigest(profile as unknown as SandboxAgentProfile)
+    await submitBridgeResult(profile)
+    const usage = {
+      prompt_tokens: 11,
+      completion_tokens: 7,
+      cost: 0.01,
+      cost_known: true,
+      cost_provenance: 'provider-receipt',
+    }
+    const modelAt = (index: number): string | undefined =>
+      Array.isArray(responseModel) ? responseModel[index] : responseModel
+    const frames = [
+      JSON.stringify({
+        ...(modelAt(0) === undefined ? {} : { model: modelAt(0) }),
+        choices: [{ delta: { content: 'bridge answer' } }],
+      }),
+      JSON.stringify({ ...(modelAt(1) === undefined ? {} : { model: modelAt(1) }), usage }),
+      JSON.stringify({
+        profile_materialization: bridgeMaterialization(profileDigest, requestModel),
+      }),
+      '[DONE]',
+    ]
+    res.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'x-run-id': String(body.run_id),
+      'x-run-request-digest': bridgeRequestDigest,
+    })
+    res.end(
+      `${frames
+        .map((frame, index) =>
+          frame === '[DONE]' ? `data: ${frame}` : `id: ${index + 1}\ndata: ${frame}`,
+        )
+        .join('\n\n')}\n\n`,
+    )
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return { server, url: `http://127.0.0.1:${port}` }
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()))
+  })
 }
 
 describe('loopDispatch', () => {
@@ -317,6 +438,94 @@ describe('loopDispatch', () => {
 })
 
 describe('superviseDispatch', () => {
+  const movingPiProfile = {
+    name: 'pi-moving',
+    harness: 'pi',
+    model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+  }
+
+  function movingPiDispatch(bridgeUrl: string) {
+    return superviseDispatch<FakeScenario, { answer: number }>({
+      toTask: (scenario) => ({ goal: scenario.id }),
+      toSuperviseOptions: () => ({
+        budget: { maxIterations: 10, maxTokens: 1_000 },
+        maxTurns: 1,
+        backend: { backend: 'bridge', bridgeUrl, bridgeBearer: 'test' },
+        deliverable: {
+          check: (value) => (value as { answer?: unknown }).answer === 42,
+          describe: 'an answer of 42',
+        },
+      }),
+    })
+  }
+
+  it('settles a Pi moving alias from one served snapshot and runProfileMatrix accepts it', async () => {
+    const servedModel = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_20260811'
+    const bridge = await startPiBridge(servedModel)
+    const runDir = await mkdtemp(join(tmpdir(), 'runtime-pi-model-identity-'))
+    try {
+      const matrix = await runProfileMatrix({
+        profiles: [movingPiProfile],
+        scenarios: [{ id: 'pi-moving', kind: 'task' }],
+        dispatch: movingPiDispatch(bridge.url),
+        runDir,
+        commitSha: 'a'.repeat(40),
+        integrity: 'off',
+        maxConcurrency: 1,
+        maxProfileConcurrency: 1,
+      })
+
+      expect(matrix.records).toHaveLength(1)
+      expect(matrix.records[0]).toMatchObject({
+        model: servedModel,
+        terminalOutcome: 'succeeded',
+        tokenUsage: { input: 11, output: 7 },
+      })
+    } finally {
+      await closeServer(bridge.server)
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['missing provider model', undefined],
+    ['bare provider model', 'deepseek-v4-flash'],
+    ['mismatched provider model', 'other-model@fp_provider_snapshot_20260811'],
+    [
+      'mixed provider snapshots',
+      [
+        'tangle-router/deepseek-v4-flash@fp_provider_snapshot_a',
+        'tangle-router/deepseek-v4-flash@fp_provider_snapshot_b',
+      ],
+    ],
+  ] as const)(
+    'fails closed for %s without a false known receipt',
+    async (_label, responseModel) => {
+      const bridge = await startPiBridge(responseModel)
+      const fake = fakeDispatchContext()
+      try {
+        await expect(
+          movingPiDispatch(bridge.url)(
+            movingPiProfile,
+            { id: 'pi-negative', kind: 'task' },
+            fake.ctx,
+          ),
+        ).rejects.toThrow(/cannot settle one Eval paid-call receipt/u)
+        expect(fake.ledger.list()).toEqual([
+          expect.objectContaining({
+            model: 'unknown',
+            inputTokens: 0,
+            outputTokens: 0,
+            usageUnknown: true,
+            costUnknown: true,
+          }),
+        ])
+      } finally {
+        await closeServer(bridge.server)
+      }
+    },
+  )
+
   it('runs a recursive supervisor inside Eval billing, preserves cache classes, and passes maxTurns through', async () => {
     let calls = 0
     const dispatch = superviseDispatch<FakeScenario, { answer: number }>({
@@ -369,7 +578,7 @@ describe('superviseDispatch', () => {
       {
         name: 'recursive-root',
         harness: 'cli-base',
-        model: { provider: 'offline', default: 'test-model' },
+        model: { provider: 'offline', default: 'test-model@2026-08-11' },
       },
       { id: 'recursive', kind: 'task' },
       fake.ctx,
@@ -380,7 +589,7 @@ describe('superviseDispatch', () => {
     expect(fake.ledger.list()).toEqual([
       expect.objectContaining({
         actor: 'supervise',
-        model: 'test-model',
+        model: 'test-model@2026-08-11',
         inputTokens: 54,
         cachedTokens: 126,
         cacheWriteTokens: 0,
@@ -435,7 +644,7 @@ describe('superviseDispatch', () => {
       {
         name: 'partial-cache-root',
         harness: 'cli-base',
-        model: { provider: 'offline', default: 'test-model' },
+        model: { provider: 'offline', default: 'test-model@2026-08-11' },
       },
       { id: 'partial-cache', kind: 'task' },
       fake.ctx,
@@ -498,7 +707,7 @@ describe('superviseDispatch', () => {
       {
         name: 'mixed-cache-root',
         harness: 'cli-base',
-        model: { provider: 'offline', default: 'test-model' },
+        model: { provider: 'offline', default: 'test-model@2026-08-11' },
       },
       { id: 'mixed-cache', kind: 'task' },
       fake.ctx,
@@ -551,7 +760,7 @@ describe('superviseDispatch', () => {
       {
         name: 'unknown-usage-root',
         harness: 'cli-base',
-        model: { provider: 'offline', default: 'test-model' },
+        model: { provider: 'offline', default: 'test-model@2026-08-11' },
       },
       { id: 'unknown-usage', kind: 'task' },
       fake.ctx,
@@ -587,7 +796,7 @@ describe('superviseDispatch', () => {
         {
           name: 'no-winner-root',
           harness: 'cli-base',
-          model: { provider: 'offline', default: 'test-model' },
+          model: { provider: 'offline', default: 'test-model@2026-08-11' },
         },
         { id: 'no-winner', kind: 'task' },
         fake.ctx,
@@ -629,7 +838,7 @@ describe('superviseDispatch', () => {
                         profile: {
                           name: 'deepseek-child',
                           harness: 'cli-base',
-                          model: { provider: 'deepseek', default: 'deepseek-v4-flash' },
+                          model: { provider: 'deepseek', default: 'deepseek-v4-flash@2026-08-11' },
                         },
                         task: 'return the child result',
                       }),
@@ -711,16 +920,16 @@ describe('superviseDispatch', () => {
         {
           name: 'glm-root',
           harness: 'cli-base',
-          model: { provider: 'zai', default: 'glm-root' },
+          model: { provider: 'zai', default: 'glm-root@2026-08-11' },
         },
         { id: 'mixed-model', kind: 'task' },
         fake.ctx,
       ),
     ).rejects.toThrow(
-      /cannot settle one Eval paid-call receipt for a tree with multiple models \(deepseek-v4-flash, glm-root\)/u,
+      /cannot settle one Eval paid-call receipt for a tree with multiple models \(deepseek-v4-flash@2026-08-11, glm-root@2026-08-11\)/u,
     )
-    expect(servedModels).toContain('glm-root')
-    expect(servedModels).toContain('deepseek-v4-flash')
+    expect(servedModels).toContain('glm-root@2026-08-11')
+    expect(servedModels).toContain('deepseek-v4-flash@2026-08-11')
     expect(fake.ledger.list()).toEqual([
       expect.objectContaining({
         model: 'unknown',

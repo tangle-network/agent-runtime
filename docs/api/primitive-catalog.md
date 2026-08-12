@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.132.3` and `@tangle-network/agent-eval@0.144.12` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.133.0` and `@tangle-network/agent-eval@0.145.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 420 exports.
+Import from `@tangle-network/agent-runtime` — 428 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -109,6 +109,7 @@ Import from `@tangle-network/agent-runtime` — 420 exports.
 | `runLoopRunnerCli` | function | Pure CLI core (no process / argv / IO) so it's unit-testable: validate the |
 | `runPersonaConversation` | function | Run one worker profile against one persona as a multi-round conversation. |
 | `runPersonaDispatch` | function | Wrap {@link runPersonaConversation} as a `ProfileDispatchFn` for |
+| `runProtectedAgentCandidateModelGrant` | function | Run one bounded unit under a protected model grant. |
 | `runSupervisedKnowledgeUpdate` | function | Run a runtime supervisor that updates one candidate knowledge base and stops on readiness. |
 | `runtimeStreamServerSentEvent` | function | Serialize a `RuntimeStreamEvent` as a Server-Sent Event string. |
 | `sanitizeAgentRuntimeEvent` | function | Reduce an `AgentRuntimeEvent` to a PII-safe, serializable plain object for telemetry. |
@@ -156,6 +157,8 @@ Import from `@tangle-network/agent-runtime` — 420 exports.
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
 | `OfficialOptimizerUnavailableError` | class | Missing optional Python dependencies for an official optimizer. |
 | `PlannerError` | class | The dynamic-loop planner returned an unusable topology move — the LLM emitted |
+| `RetainedRunAdmissionError` | class | The caller's `onAdmission` durability hook rejected, so a retained run's |
+| `RetainedRunDispatchBindingError` | class | A retained dispatch answered with coordinates that do not bind to the |
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
@@ -210,7 +213,10 @@ Import from `@tangle-network/agent-runtime` — 420 exports.
 | `OfficialOptimizerContextOptions` | interface | Runtime context appended to an official optimizer's own configuration. |
 | `OpenAIChatTool` | interface | OpenAI Chat Completions tool descriptor. The shape mirrors the |
 | `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
+| `ProtectedAgentCandidateModelGrantContext` | interface | Values available only while one protected model grant is active. |
 | `RouterEnv` | interface | Env keys the router base URL is resolved from. |
+| `RunProtectedAgentCandidateModelGrantOptions` | interface | Inputs for one protected grant scoped to one bounded caller unit. |
+| `RunProtectedAgentCandidateModelGrantResult` | interface | Result and sealed settlement returned after one protected grant closes. |
 | `RunRecord` | interface | Mandatory paper-grade fields for a single evaluation run. Optional |
 | `RuntimeHooks` | interface | The observation seam attached to a running loop (never to the portable genome). |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |
@@ -231,6 +237,7 @@ Import from `@tangle-network/agent-runtime` — 420 exports.
 | `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
 | `AgentCandidateExecutorTaskOutcomeCapture` | type | Raw evaluator capture made only after the candidate process is dead. |
 | `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
+| `AgentCandidateModelGrantRunReservationInput` | type | Reservation fields supplied by a caller before Runtime resolves the model. |
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
 | `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `AgentEvalErrorCode` | type | Error taxonomy for `@tangle-network/agent-eval`. |
@@ -253,6 +260,7 @@ Import from `@tangle-network/agent-runtime` — 420 exports.
 | `ReadonlyAgentProfile` | type | Complete immutable profile value used during measured execution. |
 | `RetryableErrorPredicate` | type | Pure judgment of whether an error is worth retrying. Defaults: TimeoutError, AbortError, fetch-level network errors. |
 | `RetryBackoff` | type | Backoff between attempts. Constant ms, or `(attempt: 1-indexed) => ms`. |
+| `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
 | `RuntimeHookPhase` | type | Runtime hook contracts. Hooks are execution-scoped observers, not part of an |
 | `Settled` | type | A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order |
 | `SpendChannel` | type | The accounting channels a usage gap leaves incomplete. |
@@ -514,7 +522,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 744 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 753 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -661,6 +669,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 744 exports.
 | `readWorkerSteerRequests` | function | Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. |
 | `readWorkerTraceContext` | function | Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no |
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
+| `recoverRetainedRun` | function | Rebuild the exact run named by pre-dispatch admission coordinates, or |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
@@ -796,6 +805,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 744 exports.
 | `AuthorizedSpawnContext` | interface | Exact trusted context after a manager-authored spawn has passed product authorization. |
 | `BenchmarkCell` | interface | One strategy's outcome on one task — the per-task cell an optimizer consumes. |
 | `BenchmarkReport` | interface | Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. |
+| `BridgeModelCredential` | interface | A live, request-scoped model credential reference for a local cli-bridge. |
 | `BridgeSeam` | interface | cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs |
 | `Budget` | interface | A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. |
 | `BudgetPoolRestore` | interface | State recovered from a prior process before new work is admitted. `committed` is measured spend |
@@ -917,6 +927,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 744 exports.
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
+| `RecoverRetainedRunOptions` | interface | Pre-dispatch admission coordinates for one recovery attempt. |
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
@@ -928,6 +939,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 744 exports.
 | `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
 | `RetainedRunCancellation` | interface | Durable acknowledgement state for one retained control operation. |
 | `RetainedRunCancelOptions` | interface | Options for an idempotent retained cancellation. |
+| `RetainedRunDispatchedAdmission` | interface | The verified exact reference, durable before the start promise resolves. |
+| `RetainedRunEnvironmentAdmission` | interface | Recovery coordinates durable after environment creation and before dispatch. |
 | `RetainedRunEventOptions` | interface | Options for replaying canonical events strictly after a saved point. |
 | `RetainedRunHandle` | interface | Reconstructable control of one provider-retained run. |
 | `RetainedRunReplayPoint` | interface | Cursor plus runtime sequence needed to continue one ordered replay. |
@@ -1065,13 +1078,17 @@ Import from `@tangle-network/agent-runtime/kernel` — 744 exports.
 | `Pipeline` | type | `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first |
 | `ProfileKeyOf` | type | The profile (matrix row) a record belongs to — default `harness·model` from the record's profile cell, |
 | `ProfileMaterializationReceipt` | type | What the kernel can prove about one node's actual execution plan. |
+| `RecoverRetainedRunResult` | type | Outcome of one recovery attempt from pre-dispatch admission coordinates. |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `ReservationRejection` | type | Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it |
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
 | `Restart` | type | OTP child-spec restart class. |
+| `RetainedRunAdmission` | type | One admission record the runtime persists through the caller before proceeding. |
+| `RetainedRunAdmissionHook` | type | Awaited durability hook for retained admission records. |
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
+| `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |
 | `RootSignal` | type | Out-of-band message to a running root. Open by intent — a client extends it. |
 | `RunContext` | type | The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext` is the |
 | `RunPersonified` | type | The composed run signature. |
@@ -1253,7 +1270,7 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 29 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 113 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1278,6 +1295,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 | `persistCandidateOutputArtifact` | function | Persist evaluator evidence, read it back, and bind the returned locator to the exact bytes. |
 | `prepareAgentCandidateExecution` | function | Materializes a verified candidate into one immutable evaluator-owned execution plan. |
 | `recoverExpiredAgentCandidateExecution` | function | Close an expired crashed attempt from persisted non-secret handles, then record failure. |
+| `runProtectedAgentCandidateModelGrant` | function | Run one bounded unit under a protected model grant. |
 | `sealAgentCandidateBundle` | function | Validate and content-address a candidate bundle before it crosses an approval boundary. |
 | `verifyAgentCandidateBundle` | function | Verifies every digest, resource, workspace, and Git object in a candidate bundle. |
 | `AGENT_CANDIDATE_EXECUTION_SUPPORT` | const | Surfaces admitted by Runtime's verifier before an environment adapter is selected. |
@@ -1310,6 +1328,9 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 | `AgentCandidateWorkspacePort` | interface | Materializes an already-verified workspace archive. |
 | `BuildAgentCandidateBundleInput` | interface | Complete measured surfaces and execution policy compiled into one candidate bundle. |
 | `PreparedAgentCandidateKnowledge` | interface | Exact file-backed knowledge admitted by the candidate bundle. |
+| `ProtectedAgentCandidateModelGrantContext` | interface | Values available only while one protected model grant is active. |
+| `RunProtectedAgentCandidateModelGrantOptions` | interface | Inputs for one protected grant scoped to one bounded caller unit. |
+| `RunProtectedAgentCandidateModelGrantResult` | interface | Result and sealed settlement returned after one protected grant closes. |
 | `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
 | `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
 | `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |
@@ -1322,6 +1343,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 108 exports.
 | `AgentCandidateExecutionTerminalResult` | type | Evaluator-owned terminal facts staged durably before the terminal CAS. |
 | `AgentCandidateExecutorTaskOutcomeCapture` | type | Raw evaluator capture made only after the candidate process is dead. |
 | `AgentCandidateModelGrantReservation` | type | Secret-free response from the service's reservation endpoint. |
+| `AgentCandidateModelGrantRunReservationInput` | type | Reservation fields supplied by a caller before Runtime resolves the model. |
 | `AgentCandidateModelLimits` | type | Limits mechanically enforced by the evaluator-owned model gateway. |
 | `AgentCandidateProfileSource` | type | A complete profile that can be frozen without losing behavior. |
 | `PersistedTaskOutcomeEvidence` | type | Immutable evaluator evidence retained with a verified candidate task outcome. |
@@ -1507,35 +1529,22 @@ The scoring/measurement/judge substrate. **Do NOT re-implement a judge, an authe
 
 ### JUDGE — LLM-as-judge, panels, calibration
 
-Import from `@tangle-network/agent-eval` — 26 exports.
+Import from `@tangle-network/agent-eval` — 12 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `cachedJudge` | function | Wrap a `JudgeConfig` so repeat judgments of the same artifact are served |
 | `calibrateJudge` | function | Measure judge quality against human gold labels: computes Cohen's κ, Pearson correlation, and MAE over matched item ids. |
-| `compilerJudge` | function | Build a `SandboxJudgeSpec` that scores whether the harness compiles without errors. |
-| `contractJudge` | function | Adapt trace contracts to a campaign `JudgeConfig`. One judge dimension per |
 | `createAntiSlopJudge` | function | Create a reusable Judge function from an anti-slop config. |
-| `createIntentMatchJudge` | function | Factory: pin LLM options once, return a closure. |
-| `createReferenceEquivalenceJudge` | function | Build the campaign-native expected-answer judge. |
-| `createSemanticConceptJudge` | function | Factory: pin LLM options once, return a closure that accepts inputs. |
 | `ensembleJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` runs every panel |
+| `judgeAgreementView` | function | _(no summary — add a TSDoc line at the declaration)_ |
 | `judgeFamily` | function | Classify a model id into its provider family. Strips a `@snapshot` suffix |
-| `judgeReplayGate` | function | Confirm a candidate's win with a stronger judge: score baseline and candidate outputs independently, then bootstrap a CI to verify the lift generalises beyond the inner loop. |
 | `judgeSpans` | function | Query judge-kind spans from the trace store, optionally scoped to a single run. |
-| `linterJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by linter rule violations. |
 | `llmJudge` | function | Build a campaign-shaped `JudgeConfig` whose `score()` makes ONE LLM call |
-| `replayTraceThroughJudge` | function | Apply a judge function to every LLM span in a run and record the |
 | `runIntentMatchJudge` | function | Run the intent-match judge. Soft-fails to available=false on error. |
 | `runKeywordCoverageJudge` | function | Score expected concepts against an already-fetched HTML payload + any |
-| `runReferenceEquivalenceJudge` | function | Direct-call adapter over the campaign judge for product callers. |
 | `runSemanticConceptJudge` | function | Run the semantic concept judge. Soft-fails to available=false on |
-| `securityJudge` | function | Build a `SandboxJudgeSpec` that scores the harness output for security issues via a security scanner. |
-| `testJudge` | function | Build a `SandboxJudgeSpec` that scores the harness by its test-suite pass rate. |
-| `traceJudge` | function | Wrap a single JudgeFn so its LLM call emits a traced span. |
-| `CachedJudge` | type | The wrapped judge: same `JudgeConfig` seam, plus hit/miss observability. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`, `JudgeConfig`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `CalibrationResult`, `ContinuousCalibrationResult`.
 
 ### AUTHENTICITY — is-this-real / anti-Goodhart gate
 
@@ -1555,15 +1564,13 @@ Import from `@tangle-network/agent-eval/authenticity` — 14 exports.
 
 ### VERIFICATION — multi-layer verifier + semantic grading
 
-Import from `@tangle-network/agent-eval` — 10 exports.
+Import from `@tangle-network/agent-eval` — 8 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `gradeSemanticStatus` | function | Grade a semantic-concept-style judge result into a single layer status. |
 | `verifyAgentProfileCell` | function | Verify an `AgentProfileCell`'s `cellId` matches the sha256 of its hash-material fields, confirming the record has not been tampered with. |
-| `verifyAttestation` | function | Verify a report against its attestation. Returns a typed outcome rather |
 | `verifyCompletion` | function | Verify whether a run completed the task. `checkCorrectness` is injected — |
-| `verifyManifest` | function | Verify that a signed manifest has not been tampered with. |
 | `MultiLayerVerifier` | class | Ordered DAG of verification layers with dependency-based skipping, per-layer findings, soft-fail semantics, and a blended composite score across all passed layers. |
 | `VerificationReport` | interface | Extends the substrate verdict spine: `valid` = `allPass`; `score` is the |
 
@@ -1571,7 +1578,7 @@ Import from `@tangle-network/agent-eval` — 10 exports.
 
 ### STATISTICS — significance, intervals, effect size
 
-Import from `@tangle-network/agent-eval` — 61 exports.
+Import from `@tangle-network/agent-eval` — 58 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1593,7 +1600,6 @@ Import from `@tangle-network/agent-eval` — 61 exports.
 | `pairedBinaryScale` | function | The common positive level `s` such that EVERY value across both paired arms is |
 | `pairedBootstrap` | function | Paired bootstrap on (after − before) deltas. Returns a CI on the chosen |
 | `pairedCohensDz` | function | Cohen's dz for paired observations: mean(after - before) divided by the |
-| `pairedDecisionShape` | function | Which estimator {@link decidePairedPromotion} would use on this data, and the |
 | `pairedDeltaTest` | function | Tests whether a paired candidate-minus-baseline delta clears a threshold. |
 | `pairedDeltaTieFraction` | function | Fraction of paired observations whose delta is an exact tie (\|after − before\| |
 | `pairedEvalueSequence` | function | Run the paired e-value sequence over an in-order delta stream. |
@@ -1613,7 +1619,6 @@ Import from `@tangle-network/agent-eval` — 61 exports.
 | `weightedMean` | function | Weighted mean — falls back to uniform weights when omitted |
 | `wilcoxonSignedRank` | function | Wilcoxon signed-rank — paired, no distributional assumption on the deltas. |
 | `wilson` | function | Wilson score interval for a binomial proportion. Correct at small n and near |
-| `normalizeScores` | const | Identity: dimensions already follow "higher = better" by prompt convention |
 | `ExactRiskDifferenceResult` | interface | A paired binary effect size with an EXACT interval and the exact test that |
 | `McNemarResult` | interface | Result of a McNemar paired-binary significance test. |
 | `PairedMcNemarEvidence` | interface | McNemar's exact paired-binary evidence, on the two-point path only. |
@@ -1621,7 +1626,7 @@ Import from `@tangle-network/agent-eval` — 61 exports.
 | `RiskDifferenceResult` | interface | A paired binary effect size (treatment rate − control rate) with a CI. |
 | `ScoreRiskDifferenceResult` | interface | A paired binary effect size with an interval that is valid at a NONZERO |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `ClusterBootstrapInterval`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BootstrapOptions`, `BootstrapResult`, `CorpusAgreementOptions`, `CorpusAgreementPerDimension`, `CorpusAgreementReport`, `CorpusScoreRecord`, `EProcess`, `EProcessOptions`, `EProcessState`, `EProcessStep`, `PairedBootstrapOptions`, `PairedBootstrapResult`, `WeightedCompositeInput`, `WeightedCompositeResult`, `CliffsMagnitude`.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
@@ -1817,12 +1822,11 @@ Import from `@tangle-network/agent-eval/campaign` — 363 exports.
 
 ### TOKEN / USAGE — usage extraction + run-record usage types
 
-Import from `@tangle-network/agent-eval` — 5 exports.
+Import from `@tangle-network/agent-eval` — 3 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `extractUsage` | function | Pull `{ input, output, cached?, cacheWrite? }` from a parsed response |
-| `extractUsageFromResponse` | function | Extract usage from an HTTP `Response` without consuming the caller's body: |
 | `extractUsageFromSse` | function | Extract token usage from a complete SSE response body using the shared SSE |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `LlmUsage`, `RunTokenUsage`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `RunTokenUsage`.

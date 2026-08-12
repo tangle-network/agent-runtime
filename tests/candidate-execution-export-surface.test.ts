@@ -3,11 +3,13 @@ import {
   freezeGenericAgentCandidateProfile as fromCandidateExecution,
   omitUndefinedObjectFields as omitFromCandidateExecution,
   parseExactCandidateProfile as parseFromCandidateExecution,
+  runProtectedAgentCandidateModelGrant as runFromCandidateExecution,
 } from '../src/candidate-execution'
 import {
   freezeGenericAgentCandidateProfile as fromRoot,
   omitUndefinedObjectFields as omitFromRoot,
   parseExactCandidateProfile as parseFromRoot,
+  runProtectedAgentCandidateModelGrant as runFromRoot,
 } from '../src/index'
 
 describe('candidate profile conversion public surface', () => {
@@ -15,6 +17,7 @@ describe('candidate profile conversion public surface', () => {
     expect(fromRoot).toBe(fromCandidateExecution)
     expect(parseFromRoot).toBe(parseFromCandidateExecution)
     expect(omitFromRoot).toBe(omitFromCandidateExecution)
+    expect(runFromRoot).toBe(runFromCandidateExecution)
 
     const candidate = fromRoot({
       name: 'public-seed',

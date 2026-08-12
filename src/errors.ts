@@ -22,6 +22,7 @@
  */
 
 import { AgentEvalError } from '@tangle-network/agent-eval'
+import type { RetainedRunAdmission } from './runtime/retained-run-types'
 
 export {
   AgentEvalError,
@@ -127,5 +128,73 @@ export class PlannerError extends AgentEvalError {
 export class AnalystError extends AgentEvalError {
   constructor(message: string, options?: { cause?: unknown }) {
     super('validation', message, options)
+  }
+}
+
+/**
+ *
+ * The caller's `onAdmission` durability hook rejected, so a retained run's
+ * admission record is not durable while provider work may already be live.
+ * Distinct from a provider failure: the provider call succeeded, and the
+ * environment is intentionally kept so `recoverRetainedRun` (or a provider
+ * metadata lookup) can rebuild or disprove the run. Carries `capture_integrity`
+ * because the durable record a later recovery requires was not written.
+ *
+ * @stable
+ */
+export class RetainedRunAdmissionError extends AgentEvalError {
+  readonly phase: RetainedRunAdmission['phase']
+  /** The exact record the hook failed to persist, for direct recovery. */
+  readonly admission: RetainedRunAdmission
+
+  constructor(admission: RetainedRunAdmission, options?: { cause?: unknown }) {
+    super(
+      'capture_integrity',
+      `retained run admission (${admission.phase}) was not persisted; the environment is kept for recovery`,
+      options,
+    )
+    this.phase = admission.phase
+    this.admission = admission
+  }
+}
+
+/**
+ *
+ * A retained dispatch answered with coordinates that do not bind to the
+ * identity the runtime requested, or failed exact verification. The
+ * environment-phase admission is already durable at this point, so its
+ * coordinates plus the provider reference carried here are the manual
+ * recovery path. The environment is intentionally kept. Carries
+ * `backend_integrity` because the provider violated its dispatch contract.
+ *
+ * @stable
+ */
+export class RetainedRunDispatchBindingError extends AgentEvalError {
+  /** The coordinates the runtime sent with the dispatch. */
+  readonly requested: {
+    readonly provider: string
+    readonly environmentId: string
+    readonly sessionId: string
+    readonly executionId: string
+  }
+  /** The loose reference the provider actually returned, for triage. */
+  readonly returned: {
+    readonly id?: string
+    readonly provider?: string
+    readonly controlRef?: unknown
+  }
+
+  constructor(
+    requested: RetainedRunDispatchBindingError['requested'],
+    returned: RetainedRunDispatchBindingError['returned'],
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'backend_integrity',
+      'retained dispatch did not bind to the requested identity; the durable environment admission and the returned reference on this error are the recovery path',
+      options,
+    )
+    this.requested = requested
+    this.returned = returned
   }
 }

@@ -16,6 +16,7 @@ import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import { observedModelMatchesDeclared } from './model-identity'
 import { type CollectedAgentTurn, collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
@@ -196,14 +197,16 @@ export async function runBoundProfileChat(
       turn,
     }
   }
-  if (observedModel !== binding.model) {
+  if (!observedModelMatchesDeclared(observedModel, binding.model)) {
     return {
       succeeded: false,
       error: `${binding.context}: Runtime reported model ${JSON.stringify(observedModel)} but AgentProfile requires ${JSON.stringify(binding.model)}`,
       turn,
     }
   }
-  const resultOut = turn.output as { finishReason?: string } | undefined
+  const resultOut = turn.output as
+    | { finishReason?: string; system_fingerprint?: unknown }
+    | undefined
   const promptTokens = turn.usage.input
   const completionTokens = turn.usage.output
   return {
@@ -240,6 +243,9 @@ export async function runBoundProfileChat(
         ...(turn.usage.promptCache ? { promptCache: turn.usage.promptCache } : {}),
         ...(turn.transportAttempts !== undefined
           ? { transportAttempts: turn.transportAttempts }
+          : {}),
+        ...(typeof resultOut?.system_fingerprint === 'string'
+          ? { systemFingerprint: resultOut.system_fingerprint }
           : {}),
       },
     },
@@ -349,6 +355,8 @@ function optimizerReceipt(
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   if (usage.tokensKnown === false) {
     return {
+      // Eval validates the receipt against the requested model. The observed model stays in
+      // the response and execution evidence for provider identity auditing.
       model,
       inputTokens: 0,
       outputTokens: 0,
@@ -367,6 +375,8 @@ function optimizerReceipt(
     throw new Error('profile optimizer cache classes exceed total input tokens')
   }
   return {
+    // Eval validates the receipt against the requested model. The observed model stays in the
+    // response and execution evidence for provider identity auditing.
     model,
     inputTokens: usage.input - classified,
     outputTokens: usage.output,
@@ -393,6 +403,8 @@ function rawOptimizerReceipt(
   const tokensKnown = usage.tokensKnown !== false
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   return {
+    // Eval validates the receipt against the requested model. The observed model stays in the
+    // execution evidence for provider identity auditing.
     model,
     inputTokens: tokensKnown ? usage.input : 0,
     outputTokens: tokensKnown ? usage.output : 0,

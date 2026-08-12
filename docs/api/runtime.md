@@ -3674,7 +3674,7 @@ The worker's trace — any event array (sandbox events, tool-call records).
 
 ##### outcome?
 
-> `optional` **outcome?**: `"failed"` \| `"unknown"` \| `"passed"`
+> `optional` **outcome?**: `"unknown"` \| `"failed"` \| `"passed"`
 
 Terminal status only (passed/failed/unknown) — NOT a judge score; the
  observer never reads the verdict, it reads behavior.
@@ -6144,6 +6144,74 @@ Reconstructable control of one provider-retained run.
 
 ***
 
+### RetainedRunEnvironmentAdmission
+
+**`Stable`**
+
+Recovery coordinates durable after environment creation and before dispatch.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"environment"`
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### turnId
+
+> `readonly` **turnId**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+Caller-supplied or runtime-minted; always the identity the dispatch will request.
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+Caller-supplied or runtime-minted; always the identity the dispatch will request.
+
+***
+
+### RetainedRunDispatchedAdmission
+
+**`Stable`**
+
+The verified exact reference, durable before the start promise resolves.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"dispatched"`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### turnId
+
+> `readonly` **turnId**: `string`
+
+***
+
 ### StartRetainedRunOptions
 
 **`Stable`**
@@ -6180,7 +6248,9 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 > `readonly` `optional` **identity?**: `object`
 
-Runtime-owned coordinates for providers that support deterministic retained dispatch.
+Explicit dispatch coordinates. When omitted, the runtime mints
+deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
+so every process derives the same values.
 
 ###### sessionId
 
@@ -6189,6 +6259,10 @@ Runtime-owned coordinates for providers that support deterministic retained disp
 ###### executionId
 
 > `readonly` **executionId**: `string`
+
+##### onAdmission
+
+> `readonly` **onAdmission**: [`RetainedRunAdmissionHook`](#retainedrunadmissionhook)
 
 ##### now?
 
@@ -6215,6 +6289,43 @@ Inputs sufficient to rebuild a control client in a new process.
 ##### controlRef
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### RecoverRetainedRunOptions
+
+**`Stable`**
+
+Pre-dispatch admission coordinates for one recovery attempt.
+
+A `phase: 'environment'` admission record carries these fields, so a caller
+can pass that record after a crash before the dispatched record landed.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
 
 ##### now?
 
@@ -12462,6 +12573,16 @@ new harness capability there.
 
 > **bridgeBearer**: `string`
 
+##### modelCredential?
+
+> `optional` **modelCredential?**: [`BridgeModelCredential`](#bridgemodelcredential)
+
+Optional request-scoped model credential.
+
+The key name is portable configuration. The provider is a live service and is intentionally
+not serialised. Runtime resolves both values immediately before every bridge POST and sends
+them only to a loopback bridge through private request headers.
+
 ##### cwd?
 
 > `optional` **cwd?**: `string`
@@ -12493,6 +12614,32 @@ Transport reconnects allowed after the first POST. Default 3; set 0 to disable.
 > `optional` **activityWindow?**: `number`
 
 Newest-last activity window `progress()` reports. Default 12.
+
+***
+
+### BridgeModelCredential
+
+A live, request-scoped model credential reference for a local cli-bridge.
+
+#### Properties
+
+##### key
+
+> **key**: `string`
+
+Provider key name for the scoped model token.
+
+##### baseUrlKey
+
+> **baseUrlKey**: `string`
+
+Provider key name for the exact scoped HTTPS model gateway URL.
+
+##### provider
+
+> **provider**: [`KeyProvider`](#keyprovider)
+
+Live credential service. Runtime retains this reference through reusable captures.
 
 ***
 
@@ -14481,6 +14628,22 @@ Product authorization for every down-leg continuation to a child.
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
 Per-child budget reserved from the conserved pool on each spawn.
+
+##### onProviderModel?
+
+> `readonly` `optional` **onProviderModel?**: (`model`) => `void`
+
+Runtime-owned sink for provider identity observed by this manager's own turns.
+
+###### Parameters
+
+###### model
+
+`string` \| `undefined`
+
+###### Returns
+
+`void`
 
 ##### deliverable?
 
@@ -19116,6 +19279,59 @@ Result of one verified same-session continuation.
 
 ***
 
+### RetainedRunAdmission
+
+> **RetainedRunAdmission** = [`RetainedRunEnvironmentAdmission`](#retainedrunenvironmentadmission) \| [`RetainedRunDispatchedAdmission`](#retainedrundispatchedadmission)
+
+**`Stable`**
+
+One admission record the runtime persists through the caller before proceeding.
+
+***
+
+### RetainedRunAdmissionHook
+
+> **RetainedRunAdmissionHook** = (`admission`) => `Promise`\<`void`\>
+
+**`Stable`**
+
+Awaited durability hook for retained admission records.
+
+The runtime blocks after environment creation and again after dispatch until
+the hook resolves, so no retained run becomes caller-visible before its
+recovery record is durable. A rejection fails the start without destroying
+the environment; the persisted record or provider state is the recovery path.
+
+#### Parameters
+
+##### admission
+
+[`RetainedRunAdmission`](#retainedrunadmission)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### RecoverRetainedRunResult
+
+> **RecoverRetainedRunResult** = \{ `outcome`: `"recovered"`; `handle`: [`RetainedRunHandle`](#retainedrunhandle); \} \| \{ `outcome`: `"not_found"`; \} \| \{ `outcome`: `"unverifiable"`; `environment`: `AgentEnvironment`; \}
+
+**`Stable`**
+
+Outcome of one recovery attempt from pre-dispatch admission coordinates.
+
+`not_found`: the provider no longer holds the environment; nothing remains
+to destroy. `recovered`: the provider self-identified the session with a
+strict exact reference matching the recorded coordinates. `unverifiable`:
+the environment exists but the provider cannot self-identify the session;
+never destroy on this outcome — keep the environment, retry
+`reconnectRetainedRun` with a dispatched admission record, or inspect it
+with provider-native tools.
+
+***
+
 ### Environment
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
@@ -22508,7 +22724,13 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 **`Stable`**
 
 Dispatch one detached, replayable run and return only after exact durable
-coordinates are confirmed by the provider.
+coordinates are confirmed by the provider and persisted by the caller.
+
+The required `onAdmission` hook is awaited twice: with the recovery
+coordinates after environment creation, and with the verified exact control
+reference after dispatch. The returned promise resolves only after the
+dispatched admission is durable, so no caller can observe a successful start
+whose exact reference a crash would lose.
 
 #### Parameters
 
@@ -22519,6 +22741,38 @@ coordinates are confirmed by the provider.
 #### Returns
 
 `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+***
+
+### recoverRetainedRun()
+
+> **recoverRetainedRun**(`options`): `Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
+
+**`Stable`**
+
+Rebuild the exact run named by pre-dispatch admission coordinates, or
+report why the provider cannot prove it.
+
+`not_found`: the provider no longer holds the environment, so nothing
+remains to destroy. `recovered`: the provider self-identified the session
+with a strict exact reference matching the recorded coordinates.
+`unverifiable`: the environment exists but the provider cannot
+self-identify the session — no session accessor, an accessor that throws,
+a lazy accessor with no stored reference, or a loose reference. That
+outcome is never destroy-safe: keep the environment, retry
+`reconnectRetainedRun` with a dispatched admission record, or inspect the
+environment with provider-native tools. A session that self-identifies
+with different coordinates throws: something live is not the recorded run.
+
+#### Parameters
+
+##### options
+
+[`RecoverRetainedRunOptions`](#recoverretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
 
 ***
 
@@ -25284,7 +25538,7 @@ ahead of the worker seam.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>
 
 **`Stable`**
 
@@ -25306,7 +25560,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+`Promise`\<\{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>
 
 ***
 
@@ -26355,6 +26609,12 @@ Re-exports [Executor](index.md#executor-2)
 ### ExecutorRegistry
 
 Re-exports [ExecutorRegistry](index.md#executorregistry)
+
+***
+
+### RootProviderModelEvidence
+
+Re-exports [RootProviderModelEvidence](index.md#rootprovidermodelevidence)
 
 ***
 
