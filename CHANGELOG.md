@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.132.8
+
+- Add request-scoped model credentials for loopback cli-bridge execution.
+- Resolve the credential before each bridge POST and resend it after reconnect.
+- Keep the credential value out of snapshots, artifacts, and errors.
+
 ## 0.132.7
 
 - Make repeated finalization of the same root execution binding idempotent after a supported resume.
