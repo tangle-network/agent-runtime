@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.132.7
+
+- Make repeated finalization of the same root execution binding idempotent after a supported resume.
+- Continue to reject a different binding for the same attempt as journal corruption.
+
 ## 0.132.6
 
 - Settle moving model identities from provider receipts for external harness roots.
