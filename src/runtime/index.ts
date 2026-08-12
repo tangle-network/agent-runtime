@@ -870,6 +870,7 @@ export type {
   ResumedWork,
   RootHandle,
   RootMaterialization,
+  RootProviderModelEvidence,
   RootSignal,
   Runtime,
   Scope,

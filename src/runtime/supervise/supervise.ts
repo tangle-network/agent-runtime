@@ -58,6 +58,8 @@ import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
+  recordRuntimeOwnedDriveHarnessModel,
+  runtimeOwnedDriveHarnessModels,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
   runtimeOwnedPendingExecutorMaterialization,
@@ -112,6 +114,7 @@ import type {
   NodeExecutionIdentity,
   ResultBlobStore,
   RootHandle,
+  RootProviderModelEvidence,
   SpawnJournal,
   UsageEvent,
 } from './types'
@@ -370,6 +373,7 @@ function driveHarnessFromBackend(
     let completed = false
     let started = false
     let terminalAccountingCaptured = false
+    let settledOutput: unknown
     let pendingUsage: UsageEvent[] = []
     let teardownStarted = false
     const deadlineAtMs = scope.budget.deadlineMs || undefined
@@ -496,6 +500,7 @@ function driveHarnessFromBackend(
         }
         await meterPending()
         const artifact = executor.resultArtifact()
+        settledOutput = artifact.out
         terminalAccountingCaptured = true
         // A stream carries increments, while its terminal artifact says whether either accounting
         // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
@@ -514,12 +519,17 @@ function driveHarnessFromBackend(
         }
       } else {
         const artifact = await run
+        settledOutput = artifact.out
         terminalAccountingCaptured = true
         await scope.meter(
           { ...artifact.spent, iterations: 0 },
           { role: 'driver', runtime: executor.runtime },
         )
       }
+      // The settled executor artifact is the only owner-trusted source for the provider model.
+      // The bridge request model is a plan and must not be copied into this receipt when the
+      // provider omitted its response identity.
+      recordRuntimeOwnedDriveHarnessModel(drive, extractExecutorModel(settledOutput))
       if (pending !== undefined) {
         const acknowledged = runtimeOwnedExecutorMaterialization(executor)
         const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
@@ -583,6 +593,12 @@ function driveHarnessFromBackend(
     return deliver.call(activeExecutor, message) !== false
   }
   return attestRuntimeOwnedScopeOwner(drive, 'cli')
+}
+
+function extractExecutorModel(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const model = (value as Record<string, unknown>).model
+  return typeof model === 'string' && model.length > 0 ? model : undefined
 }
 
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
@@ -1332,6 +1348,7 @@ function superviseInternal(
   const runNamespace = supervisionRunNamespace(options.runDir, runId)
   const log = ctx.coordinationLog
   const rootOwnerId = rootCoordinationOwner(rootExecution.identity)
+  const rootProviderModels: Array<string | undefined> = []
   const observeNodeEvent = options.onCoordinationEvent
     ? async (
         context: SupervisorNodeContext,
@@ -1687,6 +1704,9 @@ function superviseInternal(
           }
         : {}),
       ...(deliverable ? { deliverable } : {}),
+      onProviderModel(model: string | undefined) {
+        rootProviderModels.push(model)
+      },
       ...(priorCoordination &&
       (priorCoordination.questions.length > 0 ||
         priorCoordination.findings.length > 0 ||
@@ -1770,11 +1790,24 @@ function superviseInternal(
       // (`trace-unpropagated`) instead of silently producing disconnected child traces.
       ...(recorder && traceUnpropagated ? { workerTraceUnpropagated: traceUnpropagated } : {}),
     })
-    if (!recorder) return run
+    const settle = async () => {
+      const result = await run
+      const observed =
+        rootProviderModels.length > 0
+          ? rootProviderModels
+          : rootDriveHarness === undefined
+            ? []
+            : (runtimeOwnedDriveHarnessModels(rootDriveHarness) ?? [])
+      return {
+        ...result,
+        rootProviderModel: rootProviderModelEvidence(observed),
+      }
+    }
+    if (!recorder) return settle()
     // The recorder closes the root span on BOTH exits and never rethrows, so tracing can neither
     // change the result nor swallow the run's own rejection.
     try {
-      const result = await run
+      const result = await settle()
       await recorder.finish({ result })
       return result
     } catch (error) {
@@ -1784,4 +1817,18 @@ function superviseInternal(
   }
 
   return start()
+}
+
+function rootProviderModelEvidence(
+  observations: ReadonlyArray<string | undefined>,
+): RootProviderModelEvidence {
+  const models = [...new Set(observations.filter((model): model is string => model !== undefined))]
+  if (observations.length === 0 || observations.some((model) => model === undefined)) {
+    return Object.freeze({
+      status: 'unknown' as const,
+      models: Object.freeze(models),
+      reason: 'provider-model-missing' as const,
+    })
+  }
+  return Object.freeze({ status: 'known' as const, models: Object.freeze(models) })
 }

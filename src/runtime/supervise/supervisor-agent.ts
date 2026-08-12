@@ -265,6 +265,8 @@ export interface SupervisorAgentDeps {
   readonly authorizeDownMessage?: AuthorizeDownMessage
   /** Per-child budget reserved from the conserved pool on each spawn. */
   readonly perWorker: Budget
+  /** Runtime-owned sink for provider identity observed by this manager's own turns. */
+  readonly onProviderModel?: (model: string | undefined) => void
   /** Independent completion check for direct driver work (`submit_result`). */
   readonly deliverable?: DeliverableSpec<unknown>
   /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
@@ -488,6 +490,7 @@ function buildSupervisorAgent(
         ...(testBrain === undefined
           ? { expectedModel: resolveSupervisorModelId(stableProfile) }
           : {}),
+        ...(deps.onProviderModel ? { onProviderModel: deps.onProviderModel } : {}),
         blobs: deps.blobs,
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
