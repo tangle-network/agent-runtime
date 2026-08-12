@@ -329,8 +329,8 @@ export interface BridgeSeam {
    * Optional request-scoped model credential.
    *
    * The key name is portable configuration. The provider is a live service and is intentionally
-   * not serialised. Runtime resolves it immediately before every bridge POST and sends the value
-   * only to a loopback bridge through its private request header.
+   * not serialised. Runtime resolves both values immediately before every bridge POST and sends
+   * them only to a loopback bridge through private request headers.
    */
   modelCredential?: BridgeModelCredential
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
@@ -349,8 +349,10 @@ export interface BridgeSeam {
 
 /** A live, request-scoped model credential reference for a local cli-bridge. */
 export interface BridgeModelCredential {
-  /** Provider key name. The value is never part of a profile, artifact, or error. */
+  /** Provider key name for the scoped model token. */
   key: string
+  /** Provider key name for the exact scoped HTTPS model gateway URL. */
+  baseUrlKey: string
   /** Live credential service. Runtime retains this reference through reusable captures. */
   provider: KeyProvider
 }
@@ -376,6 +378,7 @@ const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
 const maxBridgeTimeoutMs = 2_147_483_647
 const bridgeModelCredentialHeader = 'x-cli-bridge-model-credential'
+const bridgeModelBaseUrlHeader = 'x-cli-bridge-model-base-url'
 const bridgeProfileMaterializationSchema = 'cli-bridge.profile-materialization.v2'
 const bridgeUsageCostSchema = 'cli-bridge.usage-cost.v1'
 const cliWorktreeSeamKey = 'cli-worktree'
@@ -410,11 +413,17 @@ function captureBridgeModelCredential(
   }
   assertExactConfigKeys(
     value as unknown as Readonly<Record<string, unknown>>,
-    new Set(['key', 'provider']),
+    new Set(['baseUrlKey', 'key', 'provider']),
     `${context} modelCredential`,
   )
   if (typeof value.key !== 'string' || value.key.trim().length === 0) {
     throw new ValidationError(`${context}: modelCredential.key must be a non-empty string`)
+  }
+  if (typeof value.baseUrlKey !== 'string' || value.baseUrlKey.trim().length === 0) {
+    throw new ValidationError(`${context}: modelCredential.baseUrlKey must be a non-empty string`)
+  }
+  if (value.baseUrlKey === value.key) {
+    throw new ValidationError(`${context}: modelCredential.baseUrlKey must differ from key`)
   }
   if (!value.provider || typeof value.provider.get !== 'function') {
     throw new ValidationError(`${context}: modelCredential.provider must implement get(name)`)
@@ -422,7 +431,7 @@ function captureBridgeModelCredential(
 
   // Keep the service live while making JSON/config snapshots contain only the key NAME. The
   // provider may close over a secret, so it must not be an enumerable property of the snapshot.
-  const captured = { key: value.key } as BridgeModelCredential
+  const captured = { key: value.key, baseUrlKey: value.baseUrlKey } as BridgeModelCredential
   Object.defineProperty(captured, 'provider', {
     configurable: false,
     enumerable: false,
@@ -446,25 +455,58 @@ function validateBridgeModelCredential(
   return captureBridgeModelCredential(value, context)
 }
 
+interface ResolvedBridgeModelCredential {
+  token: string
+  baseUrl: string
+}
+
+function resolveProtectedModelBaseUrl(value: string, context: string): string {
+  let target: URL
+  try {
+    target = new URL(value)
+  } catch {
+    throw new ValidationError(`${context}: modelCredential.baseUrl must be an absolute HTTPS URL`)
+  }
+  if (
+    target.protocol !== 'https:' ||
+    target.username ||
+    target.password ||
+    target.search ||
+    target.hash
+  ) {
+    throw new ValidationError(
+      `${context}: modelCredential.baseUrl must be an HTTPS URL without credentials, query, or fragment`,
+    )
+  }
+  return target.toString().replace(/\/$/u, '')
+}
+
 /** Resolve only at the outbound boundary. Provider errors are redacted because they may contain
- *  the protected value; diagnostics identify the key name, never the value or provider error. */
+ *  the protected value; diagnostics identify key names, never values or provider errors. */
 async function resolveBridgeModelCredential(
   credential: BridgeModelCredential | undefined,
   context: string,
-): Promise<string | undefined> {
+): Promise<ResolvedBridgeModelCredential | undefined> {
   if (credential === undefined) return undefined
-  let value: string | undefined
-  try {
-    value = await credential.provider.get(credential.key)
-  } catch {
-    throw new ValidationError(`${context}: modelCredential provider failed for '${credential.key}'`)
+  const resolveValue = async (key: string): Promise<string> => {
+    let value: string | undefined
+    try {
+      value = await credential.provider.get(key)
+    } catch {
+      throw new ValidationError(`${context}: modelCredential provider failed for '${key}'`)
+    }
+    if (typeof value !== 'string' || value.length === 0 || /[\r\n\0]/u.test(value)) {
+      throw new ValidationError(
+        `${context}: modelCredential provider has no usable value for '${key}'`,
+      )
+    }
+    return value
   }
-  if (typeof value !== 'string' || value.length === 0 || /[\r\n]/u.test(value)) {
-    throw new ValidationError(
-      `${context}: modelCredential provider has no usable value for '${credential.key}'`,
-    )
-  }
-  return value
+  const [token, baseUrl] = await Promise.all([
+    resolveValue(credential.key),
+    resolveValue(credential.baseUrlKey),
+  ])
+  return { token, baseUrl: resolveProtectedModelBaseUrl(baseUrl, context) }
 }
 
 // ── Content-addressed result pointers (the B1 replay source) ───────────────────
@@ -2735,7 +2777,10 @@ async function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promis
           authorization: `Bearer ${args.bearer}`,
           ...(modelCredential === undefined
             ? {}
-            : { [bridgeModelCredentialHeader]: modelCredential }),
+            : {
+                [bridgeModelCredentialHeader]: modelCredential.token,
+                [bridgeModelBaseUrlHeader]: modelCredential.baseUrl,
+              }),
           'x-session-id': args.sessionId,
           'x-run-id': args.runId,
           ...(args.afterEventId > 0 ? { 'last-event-id': String(args.afterEventId) } : {}),

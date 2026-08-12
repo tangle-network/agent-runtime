@@ -12469,8 +12469,8 @@ new harness capability there.
 Optional request-scoped model credential.
 
 The key name is portable configuration. The provider is a live service and is intentionally
-not serialised. Runtime resolves it immediately before every bridge POST and sends the value
-only to a loopback bridge through its private request header.
+not serialised. Runtime resolves both values immediately before every bridge POST and sends
+them only to a loopback bridge through private request headers.
 
 ##### cwd?
 
@@ -12516,7 +12516,13 @@ A live, request-scoped model credential reference for a local cli-bridge.
 
 > **key**: `string`
 
-Provider key name. The value is never part of a profile, artifact, or error.
+Provider key name for the scoped model token.
+
+##### baseUrlKey
+
+> **baseUrlKey**: `string`
+
+Provider key name for the exact scoped HTTPS model gateway URL.
 
 ##### provider
 

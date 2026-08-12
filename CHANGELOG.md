@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.132.10
+
+- Send the request-scoped model gateway URL with its protected token on every bridge request and reconnect.
+- Bind both protected credential digests to the durable bridge run identity.
+- Reject token-only, changed-URL, and non-HTTPS protected routes without exposing secret values or private URL paths.
+
 ## 0.132.9
 
 - Add `runProtectedAgentCandidateModelGrant(...)` for one bounded resolve, reserve, activate, execute, and settle lifecycle.
