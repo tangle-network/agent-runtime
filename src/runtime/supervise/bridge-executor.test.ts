@@ -421,16 +421,20 @@ describe('bridgeExecutor upstream-error propagation', () => {
 
   it('resolves a live model credential immediately before the bridge POST without serializing it', async () => {
     const secret = 'model-token-must-not-leak'
+    const baseUrl = 'https://router.tangle.tools/v1'
     const provider = {
       get: vi.fn(async (name: string) => {
-        expect(name).toBe('MODEL_GATEWAY_TOKEN')
-        return secret
+        if (name === 'MODEL_GATEWAY_TOKEN') return secret
+        if (name === 'MODEL_GATEWAY_BASE_URL') return baseUrl
+        throw new Error(`unexpected key ${name}`)
       }),
     }
     const requestHeaders: Array<string | undefined> = []
+    const requestBaseUrls: Array<string | undefined> = []
     const stub = await startBridgeStub('data: [DONE]\n\n', {
       onRequest: (_body, req) => {
         requestHeaders.push(firstHeader(req.headers['x-cli-bridge-model-credential']))
+        requestBaseUrls.push(firstHeader(req.headers['x-cli-bridge-model-base-url']))
       },
     })
     server = stub.server
@@ -439,7 +443,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
         backend: 'bridge',
         bridgeUrl: stub.url,
         bridgeBearer: 'test-bearer',
-        modelCredential: { key: 'MODEL_GATEWAY_TOKEN', provider },
+        modelCredential: {
+          key: 'MODEL_GATEWAY_TOKEN',
+          baseUrlKey: 'MODEL_GATEWAY_BASE_URL',
+          provider,
+        },
       },
       'credential-test',
     )
@@ -468,8 +476,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
       ) as AsyncIterable<UsageEvent>,
     )
 
-    expect(provider.get).toHaveBeenCalledTimes(1)
+    expect(provider.get).toHaveBeenCalledTimes(2)
+    expect(provider.get).toHaveBeenNthCalledWith(1, 'MODEL_GATEWAY_TOKEN')
+    expect(provider.get).toHaveBeenNthCalledWith(2, 'MODEL_GATEWAY_BASE_URL')
     expect(requestHeaders).toEqual([secret])
+    expect(requestBaseUrls).toEqual([baseUrl])
   })
 
   it('fails before a model POST when the request credential is missing', async () => {
@@ -497,6 +508,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
             bridgeBearer: 'test-bearer',
             modelCredential: {
               key: 'MODEL_GATEWAY_TOKEN',
+              baseUrlKey: 'MODEL_GATEWAY_BASE_URL',
               provider: { get: async () => undefined },
             },
           },
@@ -855,6 +867,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       lastEventId: string | undefined
     }> = []
     const credentialHeaders: Array<string | undefined> = []
+    const credentialBaseUrls: Array<string | undefined> = []
     const liveRuns = new Set<string>()
     const cancelledRuns: string[] = []
     let executions = 0
@@ -893,6 +906,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       const runId = String(body.run_id)
       chatRequests.push({ body, lastEventId: firstHeader(req.headers['last-event-id']) })
       credentialHeaders.push(firstHeader(req.headers['x-cli-bridge-model-credential']))
+      credentialBaseUrls.push(firstHeader(req.headers['x-cli-bridge-model-base-url']))
       if (!liveRuns.has(runId)) {
         liveRuns.add(runId)
         executions += 1
@@ -915,9 +929,14 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
-    const provider = { get: vi.fn(async () => 'reattach-secret') }
+    const provider = {
+      get: vi.fn(async (name: string) =>
+        name === 'MODEL_GATEWAY_TOKEN' ? 'reattach-secret' : 'https://router.tangle.tools/v1',
+      ),
+    }
     const executor = makeExecutor(`http://127.0.0.1:${port}`, {
       key: 'MODEL_GATEWAY_TOKEN',
+      baseUrlKey: 'MODEL_GATEWAY_BASE_URL',
       provider,
     })
     const iterator = (
@@ -936,8 +955,12 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(chatRequests).toHaveLength(2)
     expect(chatRequests[1]?.body).toEqual(chatRequests[0]?.body)
     expect(chatRequests[1]?.lastEventId).toBe('1')
-    expect(provider.get).toHaveBeenCalledTimes(2)
+    expect(provider.get).toHaveBeenCalledTimes(4)
     expect(credentialHeaders).toEqual(['reattach-secret', 'reattach-secret'])
+    expect(credentialBaseUrls).toEqual([
+      'https://router.tangle.tools/v1',
+      'https://router.tangle.tools/v1',
+    ])
 
     let teardownSettled = false
     const teardown = executor.teardown('infinity').then((receipt) => {

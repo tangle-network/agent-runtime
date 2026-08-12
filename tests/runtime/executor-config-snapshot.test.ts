@@ -246,6 +246,7 @@ describe('createExecutor config intake', () => {
         bridgeBearer: 'test-bearer',
         modelCredential: {
           key: 'MODEL_GATEWAY_TOKEN',
+          baseUrlKey: 'MODEL_GATEWAY_BASE_URL',
           provider: { get: async () => 'secret' },
         },
       }),
