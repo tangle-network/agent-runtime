@@ -591,6 +591,8 @@ export type Settled<Out> =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
+      /** Provider model evidence for every inference attempt owned by this node. */
+      providerModel?: ProviderModelExecutionEvidence
       /** Structured tool evidence captured before this settlement was journaled. */
       trace: WorkerTraceEvidence
       /** Epoch ms parsed from the durable settlement record when available. */
@@ -606,6 +608,8 @@ export type Settled<Out> =
       restartCount: number
       /** Partial structured tool evidence captured before this failure was journaled. */
       trace: WorkerTraceEvidence
+      /** Partial provider model evidence survives an aborted or failed execution. */
+      providerModel?: ProviderModelExecutionEvidence
       /** Epoch ms parsed from the durable settlement/cancellation record when available. */
       settledAt?: number
       seq: number
@@ -816,6 +820,8 @@ export interface NodeSnapshot {
   readonly settledAt?: number
   /** Conserved spend so far for this node. */
   readonly spent: Spend
+  /** Provider model evidence persisted separately from the execution plan. */
+  readonly providerModel?: ProviderModelExecutionEvidence
   /** `outRef` once the node is `done` (the replay/result pointer). */
   readonly outRef?: string
   /** Present on terminal executor nodes; legacy records carry an explicit unavailable reason. */
@@ -885,6 +891,8 @@ export type SpawnEvent =
       outRef?: string
       verdict?: DefaultVerdict
       spent: Spend
+      /** Provider model evidence is independent from the planned materialization receipt. */
+      providerModel?: ProviderModelExecutionEvidence
       infra?: boolean
       /** Exact child failure. Present on every new `status: 'down'` record; optional only so
        * journals written before this field existed remain replayable. */
@@ -932,6 +940,8 @@ export type SpawnEvent =
       kind: 'metered'
       id: NodeId
       spend: Spend
+      /** Runtime-owned provider attempt evidence for this driver's own inference turn. */
+      providerModel?: ProviderModelExecutionEvidence
       seq: number
       at: string
     }
@@ -1102,17 +1112,27 @@ export interface SupervisorOpts {
 /** Provider-observed model identity for the root manager's settled inference turns.
  * Runtime records this only from a Runtime-owned provider/bridge receipt; an authored profile
  * alias is never substituted when the provider omits the identity. */
-export type RootProviderModelEvidence =
+export type RootProviderModelEvidence = ProviderModelExecutionEvidence
+
+/** One provider/harness inference attempt. An empty observation list means the attempt started but
+ * no trusted served model identity arrived before it failed or ended. */
+export interface ProviderModelAttemptEvidence {
+  readonly observations: ReadonlyArray<string>
+  readonly identityConflict?: boolean
+}
+
+/** Durable provider identity evidence, independent from the planned materialization alias. */
+export type ProviderModelExecutionEvidence =
   | {
       readonly status: 'known'
-      /** Every settled root turn reported this identity; duplicates are retained only once. */
+      readonly attempts: ReadonlyArray<ProviderModelAttemptEvidence>
       readonly models: ReadonlyArray<string>
     }
   | {
       readonly status: 'unknown'
-      /** Known observations may remain useful for diagnostics, but cannot prove one identity. */
+      readonly attempts: ReadonlyArray<ProviderModelAttemptEvidence>
       readonly models: ReadonlyArray<string>
-      readonly reason: 'provider-model-missing'
+      readonly reason: 'provider-model-missing' | 'provider-model-conflict'
     }
 
 /**
@@ -1165,6 +1185,8 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
       /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
       readonly rootProviderModel?: RootProviderModelEvidence
+      /** Runtime-owned provider evidence reduced across the complete journal forest. */
+      readonly providerModel?: ProviderModelExecutionEvidence
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1194,6 +1216,8 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
       /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
       readonly rootProviderModel?: RootProviderModelEvidence
+      /** Runtime-owned provider evidence reduced across the complete journal forest. */
+      readonly providerModel?: ProviderModelExecutionEvidence
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1220,6 +1244,8 @@ export type SupervisedResult<Out> =
       spentTotal: Spend
       /** Runtime-owned provider evidence for the root manager, when the root executed inference. */
       readonly rootProviderModel?: RootProviderModelEvidence
+      /** Runtime-owned provider evidence reduced across the complete journal forest. */
+      readonly providerModel?: ProviderModelExecutionEvidence
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>

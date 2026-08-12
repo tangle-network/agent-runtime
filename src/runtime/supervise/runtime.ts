@@ -98,6 +98,9 @@ import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
   newExecutionAttemptId,
+  recordRuntimeOwnedProviderAttemptStart,
+  recordRuntimeOwnedProviderIdentityConflict,
+  recordRuntimeOwnedProviderModel,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
 } from './materialization'
@@ -594,7 +597,8 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const executionId = ctx.node?.nodeId ?? `router-request-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
-  return attestRuntimeOwnedExecutor(
+  let executor!: Executor<unknown>
+  executor = attestRuntimeOwnedExecutor(
     {
       runtime: 'router' as Runtime,
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
@@ -607,6 +611,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
             ? { reasoning_effort: profileExecution.reasoningEffort }
             : {}),
         }
+        recordRuntimeOwnedProviderAttemptStart(executor)
         const r = await runRouterTransport<RouterChatResult | RouterChatToolsResult>(
           'routerInlineExecutor',
           () =>
@@ -671,6 +676,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                   },
                 ),
         )
+        if (r.model !== undefined) recordRuntimeOwnedProviderModel(executor, r.model)
         const spent: Spend = {
           iterations: 1,
           tokens: r.usage
@@ -749,6 +755,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       descriptor: { kind: 'router-request', transport: 'http', backend: 'router' },
     },
   )
+  return executor
 }
 
 export type { ToolSpec }
@@ -894,7 +901,8 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   const executionId = ctx.node?.nodeId ?? `router-tools-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
 
-  return attestRuntimeOwnedExecutor(
+  let executor!: Executor<unknown>
+  executor = attestRuntimeOwnedExecutor(
     {
       runtime: 'router' as Runtime,
       deliver: (m) => inbox.deliver(m),
@@ -947,6 +955,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             const cleanup = () => external.removeEventListener('abort', abortTurn)
             let res: Awaited<ReturnType<typeof routerChatWithTools>>
             try {
+              recordRuntimeOwnedProviderAttemptStart(executor)
               res = await (profileExecution.stream === true
                 ? streamRouterChatWithTools
                 : routerChatWithTools)(
@@ -1007,6 +1016,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
             transportAttempts += res.transportAttempts
+            if (res.model !== undefined) recordRuntimeOwnedProviderModel(executor, res.model)
             assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')
             if (res.model !== undefined) observedModel = res.model
             mergePromptCache(promptCache, res.cache)
@@ -1184,6 +1194,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
       descriptor: { kind: 'router-tool-loop', transport: 'http', backend: 'router-tools' },
     },
   )
+  return executor
 }
 
 function assertObservedRouterModel(
@@ -1756,6 +1767,8 @@ function killWithGrace(
 interface ResolvedBridgeSeam extends BridgeSeam {
   /** Derived once from the exact AgentProfile; never accepted as backend configuration. */
   readonly model: string
+  /** Provider response model after removing the harness-only wire prefix. */
+  readonly providerModel: string
   /** Profile-owned ceiling for one completion, forwarded as `max_tokens` when present. */
   readonly maxTokens?: number
 }
@@ -1782,11 +1795,17 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   )
   const effectiveProfile = agentProfileSchema.parse(spec.profile)
   const model = bridgeProfileModel(effectiveProfile, 'bridgeExecutor')
+  const harness = agentHarness(effectiveProfile.harness)
+  const providerModel =
+    harness !== undefined && model.startsWith(`${harness}/`)
+      ? model.slice(harness.length + 1)
+      : model
   const profileExecution = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor')
   const seam: ResolvedBridgeSeam = {
     ...base,
     ...(modelCredential === undefined ? {} : { modelCredential }),
     model,
+    providerModel,
     ...(profileExecution.maxTokens !== undefined ? { maxTokens: profileExecution.maxTokens } : {}),
   }
   if (!seam.bridgeUrl || !seam.bridgeBearer) {
@@ -1926,6 +1945,9 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         record: (step: ToolStepInput) => {
           trace.record(step)
         },
+        onProviderAttemptStart: () => recordRuntimeOwnedProviderAttemptStart(executor),
+        onProviderModel: (model) => recordRuntimeOwnedProviderModel(executor, model),
+        onProviderIdentityConflict: () => recordRuntimeOwnedProviderIdentityConflict(executor),
         onArtifact: (a) => {
           artifact = a
         },
@@ -1985,6 +2007,9 @@ interface StreamBridgeArgs {
   /** The live read-model `progress()` answers from; the turn loop is its only writer. */
   observation: BridgeObservation
   record: (step: ToolStepInput) => void
+  onProviderAttemptStart: () => void
+  onProviderModel: (model: string) => void
+  onProviderIdentityConflict: () => void
   onArtifact: (a: ExecutorResult<unknown>) => void
   onProfileMaterialization: (receipt: BridgeProfileMaterializationReceipt) => void
 }
@@ -2315,6 +2340,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     let turnEstimatedCostSubtotal = 0
     let interrupted = false
     try {
+      args.onProviderAttemptStart()
       for await (const chunk of streamDurableBridgeRun({
         seam,
         profile: args.profile,
@@ -2326,13 +2352,26 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         traceHeaders: args.traceHeaders,
       })) {
         if (chunk.model !== undefined) {
-          observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
+          args.onProviderModel(chunk.model)
+          try {
+            if (!observedModelMatchesDeclared(chunk.model, seam.providerModel)) {
+              args.onProviderIdentityConflict()
+              throw new ValidationError(
+                `bridgeExecutor: bridge reported model ${JSON.stringify(chunk.model)} but the profile requires ${JSON.stringify(seam.providerModel)}`,
+              )
+            }
+            observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
+          } catch (error) {
+            args.onProviderIdentityConflict()
+            throw error
+          }
         }
         if (chunk.systemFingerprint !== undefined) {
           if (
             observedSystemFingerprint !== undefined &&
             observedSystemFingerprint !== chunk.systemFingerprint
           ) {
+            args.onProviderIdentityConflict()
             throw new ValidationError(
               `bridgeExecutor: bridge changed system fingerprint from ${JSON.stringify(observedSystemFingerprint)} to ${JSON.stringify(chunk.systemFingerprint)}`,
             )

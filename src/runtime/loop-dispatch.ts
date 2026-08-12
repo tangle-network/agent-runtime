@@ -33,12 +33,7 @@
 
 // agent-eval's AgentProfile (the eval-harness unit of variation, `model: string`)
 // — NOT sandbox's AgentProfile. ProfileDispatchFn is keyed on the former.
-import {
-  type AgentProfile,
-  type CostReceiptInput,
-  type MaximumCharge,
-  modelHasSnapshot,
-} from '@tangle-network/agent-eval'
+import type { AgentProfile, CostReceiptInput, MaximumCharge } from '@tangle-network/agent-eval'
 import type {
   CampaignTraceWriter,
   DispatchContext,
@@ -46,10 +41,10 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
-import { observedModelMatchesDeclared } from './model-identity'
+import { canonicalObservedModel } from './model-identity'
 import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 import { type SuperviseOptions, supervise } from './supervise/supervise'
-import type { SupervisedResult } from './supervise/types'
+import type { ProviderModelExecutionEvidence, SupervisedResult } from './supervise/types'
 import type { LoopResult, LoopTokenUsage, LoopTraceEmitter, SandboxClient } from './types'
 import { hasCompleteCacheBreakdown } from './util'
 
@@ -245,48 +240,133 @@ type SupervisedTreeModel =
   | { readonly kind: 'mixed'; readonly models: readonly string[] }
   | { readonly kind: 'unknown' }
 
-/**
- * Eval has one pre-admitted paid call for this dispatch. A tree can only settle that one call when
- * Runtime can prove every visible leaf used the same model. Child identities come from Runtime's
- * materialization receipts. The root identity comes only from Runtime's settled provider receipt;
- * the authored profile remains a matching constraint, never a fallback. A nested tree is not
- * flattened in this result view, so it remains unknown rather than being relabelled from its
- * parent. A caller-supplied override would be false.
- */
-function supervisedTreeModel(
+/** Eval has one pre-admitted paid call for this dispatch. A tree can settle that call only when
+ * Runtime has provider-served identity for every inference attempt that actually started. Plan
+ * materialization is deliberately ignored: it describes what Runtime requested, not what the
+ * provider served. Every visible terminal child must carry provider attempt evidence; a missing
+ * evidence record stays unknown, including zero-valued or incomplete spend.
+ * @internal Testable identity projection used by superviseDispatch. */
+export function supervisedTreeModelForDispatch(
   result: SupervisedResult<unknown>,
   rootProfile: AgentProfile,
 ): SupervisedTreeModel {
-  const models = new Set<string>()
-  const rootEvidence = result.rootProviderModel
-  if (rootEvidence?.status !== 'known' || rootEvidence.models.length === 0) {
+  void rootProfile
+  const canonicalModels = new Set<string>()
+  const observedModels: string[] = []
+  const wholeTreeEvidence = result.providerModel
+  if (
+    wholeTreeEvidence === undefined ||
+    (wholeTreeEvidence.status !== 'known' &&
+      wholeTreeEvidence.reason !== 'provider-model-conflict') ||
+    wholeTreeEvidence.attempts.length === 0
+  ) {
     return { kind: 'unknown' }
   }
-  for (const model of rootEvidence.models) {
+  // Runtime validates each configured executor against its own profile before this boundary. The
+  // whole-tree reducer intentionally erases ownership, so this final pass checks only that every
+  // served attempt has one homogeneous canonical identity.
+  const wholeTreeIdentity = collectProviderModels(wholeTreeEvidence, () => true)
+  if (wholeTreeIdentity.kind !== 'known') return wholeTreeIdentity
+  for (const model of wholeTreeIdentity.observed) {
+    observedModels.push(model.raw)
+    canonicalModels.add(model.canonical)
+  }
+  if (canonicalModels.size === 0) return { kind: 'unknown' }
+  if (canonicalModels.size !== 1) {
+    return { kind: 'mixed', models: [...canonicalModels].sort() }
+  }
+  return { kind: 'known', model: observedModels[0] as string }
+}
+
+type CollectedProviderModel = { readonly raw: string; readonly canonical: string }
+
+type ProviderModelCollection =
+  | { readonly kind: 'known'; readonly observed: ReadonlyArray<CollectedProviderModel> }
+  | { readonly kind: 'mixed'; readonly models: ReadonlyArray<string> }
+  | { readonly kind: 'unknown' }
+
+function collectProviderModels(
+  evidence: ProviderModelExecutionEvidence,
+  validate: (model: string) => boolean,
+): ProviderModelCollection {
+  if (
+    (evidence.status !== 'known' && evidence.reason !== 'provider-model-conflict') ||
+    !Array.isArray(evidence.attempts) ||
+    evidence.attempts.length === 0 ||
+    !Array.isArray(evidence.models)
+  ) {
+    return { kind: 'unknown' }
+  }
+  const observed: CollectedProviderModel[] = []
+  const canonical = new Set<string>()
+  const observedRaw = new Set<string>()
+  for (const attempt of evidence.attempts) {
+    // An attempt entry is created immediately before provider execution. Empty means that
+    // execution started but no trusted served model arrived, including an abort after spend.
     if (
-      !modelHasSnapshot(model) ||
-      !observedModelMatchesDeclared(model, rootProfile.model?.default ?? '')
+      attempt === null ||
+      typeof attempt !== 'object' ||
+      !Array.isArray(attempt.observations) ||
+      attempt.observations.length === 0 ||
+      attempt.identityConflict === true
     ) {
       return { kind: 'unknown' }
     }
-    models.add(model)
-  }
-  let unknown = false
-  for (const node of result.tree.nodes) {
-    if (node.ownedTreeRoot !== undefined) {
-      unknown = true
-      continue
+    let attemptBase: string | undefined
+    let attemptSnapshot: string | undefined
+    let representative: string | undefined
+    for (const model of attempt.observations) {
+      if (typeof model !== 'string' || !validate(model)) return { kind: 'unknown' }
+      const identity = canonicalObservedModel(model)
+      if (identity === undefined) return { kind: 'unknown' }
+      const at = identity.lastIndexOf('@')
+      const base = at < 0 ? identity : identity.slice(0, at)
+      const snapshot = at < 0 ? undefined : identity.slice(at + 1)
+      if (attemptBase !== undefined && attemptBase !== base) {
+        return {
+          kind: 'mixed',
+          models: [...new Set([...(attemptBase ? [attemptBase] : []), identity])],
+        }
+      }
+      if (attemptSnapshot !== undefined && snapshot !== undefined && attemptSnapshot !== snapshot) {
+        return {
+          kind: 'mixed',
+          models: [`${attemptBase}@${attemptSnapshot}`, `${base}@${snapshot}`],
+        }
+      }
+      attemptBase = base
+      attemptSnapshot ??= snapshot
+      if (snapshot !== undefined) representative = model
+      observedRaw.add(model)
     }
-    const materialization = node.materialization
-    if (materialization?.status !== 'known' || materialization.model.status !== 'known') {
-      unknown = true
-      continue
+    if (
+      attemptBase === undefined ||
+      attemptSnapshot === undefined ||
+      representative === undefined
+    ) {
+      // A bare route name is useful only as a prefix observation. Exact identity still requires
+      // one qualified snapshot from the same provider attempt.
+      return { kind: 'unknown' }
     }
-    models.add(materialization.model.id)
+    const attemptIdentity = `${attemptBase}@${attemptSnapshot}`
+    observed.push({ raw: representative, canonical: attemptIdentity })
+    canonical.add(attemptIdentity)
   }
-  if (unknown || models.size === 0) return { kind: 'unknown' }
-  if (models.size !== 1) return { kind: 'mixed', models: [...models].sort() }
-  return { kind: 'known', model: [...models][0] as string }
+  if (observed.length === 0) return { kind: 'unknown' }
+  const declaredRaw = new Set<string>()
+  for (const model of evidence.models) {
+    if (typeof model !== 'string') return { kind: 'unknown' }
+    declaredRaw.add(model)
+  }
+  if (
+    declaredRaw.size !== observedRaw.size ||
+    [...declaredRaw].some((model) => !observedRaw.has(model))
+  ) {
+    return { kind: 'unknown' }
+  }
+  return canonical.size > 1
+    ? { kind: 'mixed', models: [...canonical].sort() }
+    : { kind: 'known', observed }
 }
 
 /** The Eval receipt surface has no pre-admitted per-model recursive-tree receipt bundle yet. */
@@ -336,12 +416,12 @@ export function superviseDispatch<TScenario extends Scenario, TArtifact>(
           ...superviseOptions,
           signal: executionSignal,
         })
-        const identity = supervisedTreeModel(result, profile)
+        const identity = supervisedTreeModelForDispatch(result, profile)
         if (identity.kind !== 'known') throw new SupervisedTreeModelIdentityError(identity)
         return result
       },
       receipt: (result) => {
-        const identity = supervisedTreeModel(result, profile)
+        const identity = supervisedTreeModelForDispatch(result, profile)
         if (identity.kind !== 'known') throw new SupervisedTreeModelIdentityError(identity)
         return costReceiptFromUsage(result.spentTotal.tokens, identity.model, {
           usageUnknown: result.spentTotal.tokensKnown === false,

@@ -8796,6 +8796,23 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ***
 
+### ProviderModelAttemptEvidence
+
+One provider/harness inference attempt. An empty observation list means the attempt started but
+no trusted served model identity arrived before it failed or ended.
+
+#### Properties
+
+##### observations
+
+> `readonly` **observations**: readonly `string`[]
+
+##### identityConflict?
+
+> `readonly` `optional` **identityConflict?**: `boolean`
+
+***
+
 ### SpendGap
 
 One journaled node whose usage accounting is incomplete — the named gap behind a `false`
@@ -11591,7 +11608,7 @@ Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -11607,7 +11624,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -11633,6 +11650,12 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 > **spent**: [`Spend`](#spend)
 
+###### providerModel?
+
+> `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+Provider model evidence for every inference attempt owned by this node.
+
 ###### trace
 
 > **trace**: [`WorkerTraceEvidence`](#workertraceevidence)
@@ -11653,7 +11676,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -11683,6 +11706,12 @@ True = infrastructure failure (excluded from merge `n` / equal-k), not a bad res
 
 Partial structured tool evidence captured before this failure was journaled.
 
+###### providerModel?
+
+> `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+Partial provider model evidence survives an aborted or failed execution.
+
 ###### settledAt?
 
 > `optional` **settledAt?**: `number`
@@ -11697,47 +11726,19 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### RootProviderModelEvidence
 
-> **RootProviderModelEvidence** = \{ `status`: `"known"`; `models`: `ReadonlyArray`\<`string`\>; \} \| \{ `status`: `"unknown"`; `models`: `ReadonlyArray`\<`string`\>; `reason`: `"provider-model-missing"`; \}
+> **RootProviderModelEvidence** = [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
 
 Provider-observed model identity for the root manager's settled inference turns.
 Runtime records this only from a Runtime-owned provider/bridge receipt; an authored profile
 alias is never substituted when the provider omits the identity.
 
-#### Union Members
-
-##### Type Literal
-
-\{ `status`: `"known"`; `models`: `ReadonlyArray`\<`string`\>; \}
-
-###### status
-
-> `readonly` **status**: `"known"`
-
-###### models
-
-> `readonly` **models**: `ReadonlyArray`\<`string`\>
-
-Every settled root turn reported this identity; duplicates are retained only once.
-
 ***
 
-##### Type Literal
+### ProviderModelExecutionEvidence
 
-\{ `status`: `"unknown"`; `models`: `ReadonlyArray`\<`string`\>; `reason`: `"provider-model-missing"`; \}
+> **ProviderModelExecutionEvidence** = \{ `status`: `"known"`; `attempts`: `ReadonlyArray`\<[`ProviderModelAttemptEvidence`](#providermodelattemptevidence)\>; `models`: `ReadonlyArray`\<`string`\>; \} \| \{ `status`: `"unknown"`; `attempts`: `ReadonlyArray`\<[`ProviderModelAttemptEvidence`](#providermodelattemptevidence)\>; `models`: `ReadonlyArray`\<`string`\>; `reason`: `"provider-model-missing"` \| `"provider-model-conflict"`; \}
 
-###### status
-
-> `readonly` **status**: `"unknown"`
-
-###### models
-
-> `readonly` **models**: `ReadonlyArray`\<`string`\>
-
-Known observations may remain useful for diagnostics, but cannot prove one identity.
-
-###### reason
-
-> `readonly` **reason**: `"provider-model-missing"`
+Durable provider identity evidence, independent from the planned materialization alias.
 
 ***
 
@@ -11751,7 +11752,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -11765,7 +11766,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -11805,6 +11806,12 @@ The run's terminal accounting. `iterations`/`tokens`/`usd` are per-channel journ
 
 Runtime-owned provider evidence for the root manager, when the root executed inference.
 
+###### providerModel?
+
+> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+Runtime-owned provider evidence reduced across the complete journal forest.
+
 ###### spendGaps?
 
 > `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
@@ -11834,7 +11841,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
 
 ###### kind
 
@@ -11873,6 +11880,12 @@ The conserved spend incurred before the run failed — real cost is paid even wh
 
 Runtime-owned provider evidence for the root manager, when the root executed inference.
 
+###### providerModel?
+
+> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+Runtime-owned provider evidence reduced across the complete journal forest.
+
 ###### spendGaps?
 
 > `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
@@ -11891,7 +11904,7 @@ Never present on a lifecycle arm — the discriminant, not prose, is what makes
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 ###### kind
 
@@ -11929,6 +11942,12 @@ The conserved spend incurred before the run failed — real cost is paid even wh
 > `readonly` `optional` **rootProviderModel?**: [`RootProviderModelEvidence`](#rootprovidermodelevidence)
 
 Runtime-owned provider evidence for the root manager, when the root executed inference.
+
+###### providerModel?
+
+> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
+
+Runtime-owned provider evidence reduced across the complete journal forest.
 
 ###### spendGaps?
 

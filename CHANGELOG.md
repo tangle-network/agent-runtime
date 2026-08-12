@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.133.1
+
+- Preserve provider-served model identity for every Runtime inference attempt, including paid executions that abort before terminal materialization.
+- Keep provider identity separate from the planned materialization alias and replay it through settled tree records.
+- Consumers that derive billing identity from supervised trees must use `providerModel` evidence and treat missing or conflicting attempts as unknown.
+
 ## 0.133.0
 
 - Require an awaited `onAdmission` durability hook on `startRetainedRun`, called after environment creation and after dispatch, before the start promise resolves.

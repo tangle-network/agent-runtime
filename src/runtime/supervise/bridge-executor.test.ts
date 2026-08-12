@@ -6,14 +6,22 @@ import {
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+  materializeTreeView,
+  replaySpawnTree,
+} from '../../durable/spawn-journal'
 import { spendFromUsageEvents } from './budget'
 import {
   type BridgeModelCredential,
   bridgeExecutor,
   captureReusableExecutorConfig,
   createExecutor,
+  createExecutorRegistry,
 } from './runtime'
-import type { UsageEvent } from './types'
+import { createSupervisor } from './supervisor'
+import type { Agent, AgentSpec, Scope, SpawnEvent, UsageEvent } from './types'
 
 const TEST_RUN_DIGEST = `sha256:${'b'.repeat(64)}`
 const TEST_WORKSPACE_DIGEST = `sha256:${'a'.repeat(64)}`
@@ -417,6 +425,126 @@ describe('bridgeExecutor upstream-error propagation', () => {
       model: responseModel,
       system_fingerprint: 'fp_provider_snapshot_20260811',
     })
+  })
+
+  it('journals served identity and paid usage when a bridge child aborts before terminal materialization', async () => {
+    const servedModel = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_abort'
+    let abortChild: (() => void) | undefined
+    let resolveCancel!: () => void
+    const cancelSeen = new Promise<void>((resolve) => {
+      resolveCancel = resolve
+    })
+    server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
+      if (req.method === 'POST' && req.url?.startsWith('/v1/runs/')) {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) chunks.push(Buffer.from(chunk))
+        const runId = cancelledRunId(req.url)
+        if (runId !== undefined) {
+          resolveCancel()
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(terminalCancelBody(runId))
+          return
+        }
+      }
+      if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+      const runId = String(body.run_id)
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'x-run-id': runId,
+        'x-run-request-digest': TEST_RUN_DIGEST,
+      })
+      res.write(
+        `id: 1\ndata: ${JSON.stringify({
+          model: servedModel,
+          choices: [{ delta: { content: 'partial' } }],
+        })}\n\n`,
+      )
+      res.write(
+        `id: 2\ndata: ${JSON.stringify({
+          model: servedModel,
+          usage: {
+            prompt_tokens: 17,
+            completion_tokens: 3,
+            cost: 0.01,
+            cost_known: true,
+            cost_provenance: 'provider-receipt',
+          },
+        })}\n\n`,
+      )
+      setTimeout(() => abortChild?.(), 10)
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const bridgeUrl = `http://127.0.0.1:${port}`
+    const profile: AgentProfile = {
+      name: 'abort-identity-child',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    }
+    const child: Agent<unknown, unknown> = {
+      name: 'bridge-child',
+      act: async () => undefined,
+      executorSpec: {
+        profile,
+        harness: null,
+        executorFactory: (_spec, ctx) =>
+          bridgeExecutor(
+            { profile, harness: null },
+            {
+              signal: ctx.signal,
+              node: ctx.node,
+              seams: { bridge: { bridgeUrl, bridgeBearer: 'test-bearer' } },
+            },
+          ),
+      },
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const root: Agent<unknown, unknown> = {
+      name: 'root',
+      async act(_task, scope: Scope<unknown>) {
+        const spawned = scope.spawn(child, 'partial task', {
+          label: 'abort-identity-child',
+          budget: { maxIterations: 4, maxTokens: 1_000 },
+        })
+        if (!spawned.ok) throw new Error(spawned.reason)
+        abortChild = () => spawned.handle.abort('abort after paid model frame')
+        return scope.next()
+      },
+    }
+    const journal = new InMemorySpawnJournal()
+    const runId = 'bridge-abort-provider-identity'
+    await createSupervisor<unknown, unknown>().run(root, 'root task', {
+      budget: { maxIterations: 10, maxTokens: 10_000 },
+      runId,
+      journal,
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+    })
+    await cancelSeen
+    const events = (await journal.loadTree(runId)) ?? []
+    const settlement = events.find(
+      (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
+        event.kind === 'settled' && event.id.endsWith(':s0'),
+    )
+    expect(settlement?.status).toBe('down')
+    expect(settlement?.spent.tokens).toMatchObject({ input: 17, output: 3 })
+    expect(settlement?.providerModel).toEqual({
+      status: 'known',
+      attempts: [{ observations: [servedModel] }],
+      models: [servedModel],
+    })
+    const view = materializeTreeView(events)
+    const node = view.nodes.find((candidate) => candidate.id.endsWith(':s0'))
+    expect(node?.providerModel).toEqual(settlement?.providerModel)
+    const replayed = await replaySpawnTree(journal, new InMemoryResultBlobStore(), runId)
+    expect(replayed[0]?.providerModel).toEqual(settlement?.providerModel)
   })
 
   it('resolves a live model credential immediately before the bridge POST without serializing it', async () => {
