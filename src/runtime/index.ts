@@ -738,6 +738,7 @@ export {
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
+  type BridgeModelCredential,
   type BridgeSeam,
   type CliSeam,
   type CliWorktreeBridgeSeam,

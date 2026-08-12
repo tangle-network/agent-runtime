@@ -7,7 +7,12 @@ import {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { spendFromUsageEvents } from './budget'
-import { bridgeExecutor, createExecutor } from './runtime'
+import {
+  type BridgeModelCredential,
+  bridgeExecutor,
+  captureReusableExecutorConfig,
+  createExecutor,
+} from './runtime'
 import type { UsageEvent } from './types'
 
 const TEST_RUN_DIGEST = `sha256:${'b'.repeat(64)}`
@@ -146,7 +151,7 @@ async function startBridgeStub(
     status?: number
     contentType?: string
     protocol?: boolean
-    onRequest?: (body: Record<string, unknown>) => void
+    onRequest?: (body: Record<string, unknown>, req: IncomingMessage) => void
   } = {},
 ): Promise<{ url: string; server: Server }> {
   const server = createServer(async (req, res) => {
@@ -158,7 +163,7 @@ async function startBridgeStub(
       unknown
     >
     if (opts.onRequest) {
-      opts.onRequest(requestBody)
+      opts.onRequest(requestBody, req)
     }
     res.writeHead(opts.status ?? 200, {
       'content-type': opts.contentType ?? 'text/event-stream',
@@ -176,7 +181,7 @@ async function startBridgeStub(
   return { url: `http://127.0.0.1:${port}`, server }
 }
 
-function makeExecutor(bridgeUrl: string) {
+function makeExecutor(bridgeUrl: string, modelCredential?: BridgeModelCredential) {
   const profile: AgentProfile = {
     name: 'bridge-test-worker',
     harness: 'pi',
@@ -186,7 +191,13 @@ function makeExecutor(bridgeUrl: string) {
     { profile, harness: null },
     {
       signal: new AbortController().signal,
-      seams: { bridge: { bridgeUrl, bridgeBearer: 'test-bearer' } },
+      seams: {
+        bridge: {
+          bridgeUrl,
+          bridgeBearer: 'test-bearer',
+          ...(modelCredential === undefined ? {} : { modelCredential }),
+        },
+      },
     },
   )
 }
@@ -406,6 +417,99 @@ describe('bridgeExecutor upstream-error propagation', () => {
       model: responseModel,
       system_fingerprint: 'fp_provider_snapshot_20260811',
     })
+  })
+
+  it('resolves a live model credential immediately before the bridge POST without serializing it', async () => {
+    const secret = 'model-token-must-not-leak'
+    const provider = {
+      get: vi.fn(async (name: string) => {
+        expect(name).toBe('MODEL_GATEWAY_TOKEN')
+        return secret
+      }),
+    }
+    const requestHeaders: Array<string | undefined> = []
+    const stub = await startBridgeStub('data: [DONE]\n\n', {
+      onRequest: (_body, req) => {
+        requestHeaders.push(firstHeader(req.headers['x-cli-bridge-model-credential']))
+      },
+    })
+    server = stub.server
+    const captured = captureReusableExecutorConfig(
+      {
+        backend: 'bridge',
+        bridgeUrl: stub.url,
+        bridgeBearer: 'test-bearer',
+        modelCredential: { key: 'MODEL_GATEWAY_TOKEN', provider },
+      },
+      'credential-test',
+    )
+
+    expect(JSON.stringify(captured)).not.toContain(secret)
+    expect(captured.backend === 'bridge' ? captured.modelCredential?.key : undefined).toBe(
+      'MODEL_GATEWAY_TOKEN',
+    )
+    expect(captured.backend === 'bridge' ? captured.modelCredential?.provider : undefined).toBe(
+      provider,
+    )
+
+    const profile: AgentProfile = {
+      name: 'credential-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    }
+    const executor = createExecutor(captured)(
+      { profile, harness: null },
+      { signal: new AbortController().signal, seams: {} },
+    )
+    await drain(
+      executor.execute(
+        'use the protected model',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(provider.get).toHaveBeenCalledTimes(1)
+    expect(requestHeaders).toEqual([secret])
+  })
+
+  it('fails before a model POST when the request credential is missing', async () => {
+    let posts = 0
+    const stub = await startBridgeStub('data: [DONE]\n\n', {
+      onRequest: () => {
+        posts += 1
+      },
+    })
+    server = stub.server
+    const executor = bridgeExecutor(
+      {
+        profile: {
+          name: 'missing-credential-worker',
+          harness: 'pi',
+          model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+        },
+        harness: null,
+      },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: stub.url,
+            bridgeBearer: 'test-bearer',
+            modelCredential: {
+              key: 'MODEL_GATEWAY_TOKEN',
+              provider: { get: async () => undefined },
+            },
+          },
+        },
+      },
+    )
+
+    await expect(
+      drain(
+        executor.execute('must refuse', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/no usable value for 'MODEL_GATEWAY_TOKEN'/u)
+    expect(posts).toBe(0)
   })
 
   it('meters the same terminal OpenAI receipt through direct Router and bridge paths', async () => {
@@ -750,6 +854,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       body: Record<string, unknown>
       lastEventId: string | undefined
     }> = []
+    const credentialHeaders: Array<string | undefined> = []
     const liveRuns = new Set<string>()
     const cancelledRuns: string[] = []
     let executions = 0
@@ -787,6 +892,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
       const runId = String(body.run_id)
       chatRequests.push({ body, lastEventId: firstHeader(req.headers['last-event-id']) })
+      credentialHeaders.push(firstHeader(req.headers['x-cli-bridge-model-credential']))
       if (!liveRuns.has(runId)) {
         liveRuns.add(runId)
         executions += 1
@@ -809,7 +915,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
-    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+    const provider = { get: vi.fn(async () => 'reattach-secret') }
+    const executor = makeExecutor(`http://127.0.0.1:${port}`, {
+      key: 'MODEL_GATEWAY_TOKEN',
+      provider,
+    })
     const iterator = (
       executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>
     )[Symbol.asyncIterator]()
@@ -826,6 +936,8 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(chatRequests).toHaveLength(2)
     expect(chatRequests[1]?.body).toEqual(chatRequests[0]?.body)
     expect(chatRequests[1]?.lastEventId).toBe('1')
+    expect(provider.get).toHaveBeenCalledTimes(2)
+    expect(credentialHeaders).toEqual(['reattach-secret', 'reattach-secret'])
 
     let teardownSettled = false
     const teardown = executor.teardown('infinity').then((receipt) => {

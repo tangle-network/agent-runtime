@@ -238,6 +238,20 @@ describe('createExecutor config intake', () => {
     }
   })
 
+  it('refuses to attach a model credential to a non-loopback bridge', () => {
+    expect(() =>
+      createExecutor({
+        backend: 'bridge',
+        bridgeUrl: 'https://bridge.example.test',
+        bridgeBearer: 'test-bearer',
+        modelCredential: {
+          key: 'MODEL_GATEWAY_TOKEN',
+          provider: { get: async () => 'secret' },
+        },
+      }),
+    ).toThrow(/modelCredential is allowed only for a loopback bridge URL/u)
+  })
+
   it('binds worktree and bridge backends to the supplied durable execution identity', () => {
     const bridge = captureReusableExecutorConfig(
       {
