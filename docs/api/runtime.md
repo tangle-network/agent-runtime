@@ -12462,6 +12462,16 @@ new harness capability there.
 
 > **bridgeBearer**: `string`
 
+##### modelCredential?
+
+> `optional` **modelCredential?**: [`BridgeModelCredential`](#bridgemodelcredential)
+
+Optional request-scoped model credential.
+
+The key name is portable configuration. The provider is a live service and is intentionally
+not serialised. Runtime resolves it immediately before every bridge POST and sends the value
+only to a loopback bridge through its private request header.
+
 ##### cwd?
 
 > `optional` **cwd?**: `string`
@@ -12493,6 +12503,26 @@ Transport reconnects allowed after the first POST. Default 3; set 0 to disable.
 > `optional` **activityWindow?**: `number`
 
 Newest-last activity window `progress()` reports. Default 12.
+
+***
+
+### BridgeModelCredential
+
+A live, request-scoped model credential reference for a local cli-bridge.
+
+#### Properties
+
+##### key
+
+> **key**: `string`
+
+Provider key name. The value is never part of a profile, artifact, or error.
+
+##### provider
+
+> **provider**: [`KeyProvider`](#keyprovider)
+
+Live credential service. Runtime retains this reference through reusable captures.
 
 ***
 

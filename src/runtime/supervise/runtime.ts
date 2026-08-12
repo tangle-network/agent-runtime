@@ -67,6 +67,7 @@ import {
   resolveAgentEnvironmentProvider,
 } from '../environment-provider'
 import { agentHarness } from '../harness-role'
+import type { KeyProvider } from '../key-provider'
 import {
   type PromptCacheUsage,
   type RouterChatResult,
@@ -324,6 +325,14 @@ export interface CliWorktreeBridgeSeam {
 export interface BridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
+  /**
+   * Optional request-scoped model credential.
+   *
+   * The key name is portable configuration. The provider is a live service and is intentionally
+   * not serialised. Runtime resolves it immediately before every bridge POST and sends the value
+   * only to a loopback bridge through its private request header.
+   */
+  modelCredential?: BridgeModelCredential
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
   cwd?: string
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
@@ -336,6 +345,14 @@ export interface BridgeSeam {
   maxReconnects?: number
   /** Newest-last activity window `progress()` reports. Default 12. */
   activityWindow?: number
+}
+
+/** A live, request-scoped model credential reference for a local cli-bridge. */
+export interface BridgeModelCredential {
+  /** Provider key name. The value is never part of a profile, artifact, or error. */
+  key: string
+  /** Live credential service. Runtime retains this reference through reusable captures. */
+  provider: KeyProvider
 }
 
 /** Generic environment provider executor config. External packages implement
@@ -358,10 +375,97 @@ const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
 const maxBridgeTimeoutMs = 2_147_483_647
+const bridgeModelCredentialHeader = 'x-cli-bridge-model-credential'
 const bridgeProfileMaterializationSchema = 'cli-bridge.profile-materialization.v2'
 const bridgeUsageCostSchema = 'cli-bridge.usage-cost.v1'
 const cliWorktreeSeamKey = 'cli-worktree'
 const providerSeamKey = 'provider'
+
+function isLoopbackBridgeHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[/, '').replace(/\]$/, '')
+  if (host === 'localhost' || host === '::1' || host === '0:0:0:0:0:0:0:1') return true
+  if (host === '::ffff:127.0.0.1') return true
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/u.test(host)
+}
+
+function isLoopbackBridgeUrl(value: string): boolean {
+  try {
+    const target = new URL(value)
+    return (
+      (target.protocol === 'http:' || target.protocol === 'https:') &&
+      isLoopbackBridgeHost(target.hostname)
+    )
+  } catch {
+    return false
+  }
+}
+
+/** Validate and capture the non-serialisable credential service without reading its value. */
+function captureBridgeModelCredential(
+  value: BridgeModelCredential,
+  context: string,
+): BridgeModelCredential {
+  if (value === null || typeof value !== 'object') {
+    throw new ValidationError(`${context}: modelCredential must be an object`)
+  }
+  assertExactConfigKeys(
+    value as unknown as Readonly<Record<string, unknown>>,
+    new Set(['key', 'provider']),
+    `${context} modelCredential`,
+  )
+  if (typeof value.key !== 'string' || value.key.trim().length === 0) {
+    throw new ValidationError(`${context}: modelCredential.key must be a non-empty string`)
+  }
+  if (!value.provider || typeof value.provider.get !== 'function') {
+    throw new ValidationError(`${context}: modelCredential.provider must implement get(name)`)
+  }
+
+  // Keep the service live while making JSON/config snapshots contain only the key NAME. The
+  // provider may close over a secret, so it must not be an enumerable property of the snapshot.
+  const captured = { key: value.key } as BridgeModelCredential
+  Object.defineProperty(captured, 'provider', {
+    configurable: false,
+    enumerable: false,
+    value: value.provider,
+    writable: false,
+  })
+  return Object.freeze(captured)
+}
+
+function validateBridgeModelCredential(
+  value: BridgeModelCredential | undefined,
+  bridgeUrl: string,
+  context: string,
+): BridgeModelCredential | undefined {
+  if (value === undefined) return undefined
+  if (!isLoopbackBridgeUrl(bridgeUrl)) {
+    throw new ValidationError(
+      `${context}: modelCredential is allowed only for a loopback bridge URL`,
+    )
+  }
+  return captureBridgeModelCredential(value, context)
+}
+
+/** Resolve only at the outbound boundary. Provider errors are redacted because they may contain
+ *  the protected value; diagnostics identify the key name, never the value or provider error. */
+async function resolveBridgeModelCredential(
+  credential: BridgeModelCredential | undefined,
+  context: string,
+): Promise<string | undefined> {
+  if (credential === undefined) return undefined
+  let value: string | undefined
+  try {
+    value = await credential.provider.get(credential.key)
+  } catch {
+    throw new ValidationError(`${context}: modelCredential provider failed for '${credential.key}'`)
+  }
+  if (typeof value !== 'string' || value.length === 0 || /[\r\n]/u.test(value)) {
+    throw new ValidationError(
+      `${context}: modelCredential provider has no usable value for '${credential.key}'`,
+    )
+  }
+  return value
+}
 
 // ── Content-addressed result pointers (the B1 replay source) ───────────────────
 
@@ -1634,11 +1738,17 @@ function bridgeProfileModel(profile: AgentProfile, context: string): string {
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  const modelCredential = validateBridgeModelCredential(
+    base.modelCredential,
+    base.bridgeUrl,
+    'bridgeExecutor',
+  )
   const effectiveProfile = agentProfileSchema.parse(spec.profile)
   const model = bridgeProfileModel(effectiveProfile, 'bridgeExecutor')
   const profileExecution = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor')
   const seam: ResolvedBridgeSeam = {
     ...base,
+    ...(modelCredential === undefined ? {} : { modelCredential }),
     model,
     ...(profileExecution.maxTokens !== undefined ? { maxTokens: profileExecution.maxTokens } : {}),
   }
@@ -2392,6 +2502,7 @@ async function* streamDurableBridgeRun(
       args.run.transportAttempts += 1
       res = await bridgeStreamPost(args.seam.bridgeUrl, {
         bearer: args.seam.bridgeBearer,
+        modelCredential: args.seam.modelCredential,
         sessionId: args.sessionId,
         runId: args.run.id,
         afterEventId: args.run.lastEventId,
@@ -2401,6 +2512,7 @@ async function* streamDurableBridgeRun(
       })
     } catch (error) {
       if (args.signal.aborted) throw error
+      if (error instanceof ValidationError) throw error
       if (reconnects >= args.maxReconnects) {
         throw new ValidationError(
           `bridgeExecutor: run ${args.run.id} disconnected before terminal acknowledgement after ${reconnects + 1} attempts: ${errorMessage(error)}`,
@@ -2579,6 +2691,7 @@ interface BridgeResponse {
 
 interface BridgeStreamPostArgs {
   bearer: string
+  modelCredential?: BridgeModelCredential
   sessionId: string
   runId: string
   afterEventId: number
@@ -2600,7 +2713,8 @@ interface BridgeStreamPostArgs {
  * `IncomingMessage` (a Node `Readable`) is adapted to a web `ReadableStream` so the
  * shared `parseSseChatStream` consumes it unchanged.
  */
-function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<BridgeResponse> {
+async function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<BridgeResponse> {
+  const modelCredential = await resolveBridgeModelCredential(args.modelCredential, 'bridgeExecutor')
   const target = new URL(`${url.replace(/\/$/, '')}/v1/chat/completions`)
   const payload = JSON.stringify(args.body)
   const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
@@ -2619,6 +2733,9 @@ function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<Brid
           ...args.traceHeaders,
           'content-type': 'application/json',
           authorization: `Bearer ${args.bearer}`,
+          ...(modelCredential === undefined
+            ? {}
+            : { [bridgeModelCredentialHeader]: modelCredential }),
           'x-session-id': args.sessionId,
           'x-run-id': args.runId,
           ...(args.afterEventId > 0 ? { 'last-event-id': String(args.afterEventId) } : {}),
@@ -4049,7 +4166,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         }),
       })
     }
-    case 'bridge':
+    case 'bridge': {
       assertExactConfigKeys(
         config as unknown as Readonly<Record<string, unknown>>,
         new Set([
@@ -4059,12 +4176,24 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
           'bridgeUrl',
           'cwd',
           'maxReconnects',
+          'modelCredential',
           'sessionId',
           'timeoutMs',
         ]),
         'createExecutor bridge config',
       )
-      return detachedSnapshot(config, 'createExecutor bridge config')
+      const { modelCredential, ...decisionData } = config
+      const snapshot = detachedSnapshot(decisionData, 'createExecutor bridge config')
+      const capturedCredential = validateBridgeModelCredential(
+        modelCredential,
+        config.bridgeUrl,
+        'createExecutor bridge config',
+      )
+      return Object.freeze({
+        ...snapshot,
+        ...(capturedCredential === undefined ? {} : { modelCredential: capturedCredential }),
+      })
+    }
     case 'cli':
       return detachedSnapshot(config, `createExecutor ${config.backend} config`)
   }
