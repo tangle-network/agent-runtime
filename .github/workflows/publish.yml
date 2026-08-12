@@ -143,7 +143,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: 57d355f6a048509f16ccf3354229e57a90eb9819 # v0.144.13
+          ref: 7ca0b7d0bd9fdb9ee6d0a888b03866b503283fe9 # v0.145.0
           path: .cohort/agent-eval
           persist-credentials: false
 
@@ -151,7 +151,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: 5d7ac676abfd95441572f8ea1730bc4b05a446db # v7.2.2
+          ref: c1279c5e9064d9a9261357450ba435e229c0d5a7 # v7.2.3
           path: .cohort/agent-knowledge
           persist-credentials: false
 
