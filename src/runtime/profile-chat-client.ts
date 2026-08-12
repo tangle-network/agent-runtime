@@ -352,11 +352,12 @@ function optimizerReceipt(
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
-  const observedModel = usage.model ?? model
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   if (usage.tokensKnown === false) {
     return {
-      model: observedModel,
+      // Eval validates the receipt against the requested model. The observed model stays in
+      // the response and execution evidence for provider identity auditing.
+      model,
       inputTokens: 0,
       outputTokens: 0,
       usageUnknown: true,
@@ -374,7 +375,9 @@ function optimizerReceipt(
     throw new Error('profile optimizer cache classes exceed total input tokens')
   }
   return {
-    model: observedModel,
+    // Eval validates the receipt against the requested model. The observed model stays in the
+    // response and execution evidence for provider identity auditing.
+    model,
     inputTokens: usage.input - classified,
     outputTokens: usage.output,
     ...(cachedTokens !== undefined ? { cachedTokens } : {}),
@@ -397,11 +400,12 @@ function rawOptimizerReceipt(
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
-  const observedModel = usage.model ?? model
   const tokensKnown = usage.tokensKnown !== false
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   return {
-    model: observedModel,
+    // Eval validates the receipt against the requested model. The observed model stays in the
+    // execution evidence for provider identity auditing.
+    model,
     inputTokens: tokensKnown ? usage.input : 0,
     outputTokens: tokensKnown ? usage.output : 0,
     ...(tokensKnown ? {} : { usageUnknown: true }),

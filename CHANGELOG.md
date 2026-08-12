@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.132.13
+
+- Normalize official optimizer cost receipts to the requested profile model while preserving the provider-served identity in response evidence.
+
 ## 0.132.12
 
 - Accept a provider-qualified served model when its base model and snapshot match the exact `AgentProfile` model.
