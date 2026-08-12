@@ -71,6 +71,41 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('accepts a provider snapshot suffix and keeps it in the optimizer receipt', async () => {
+    const responseModel = 'deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
+    const call = profileOptimizerModelCall({
+      profile,
+      context: 'profile snapshot identity test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async () => ({
+          model: responseModel,
+          choices: [{ message: { content: 'snapshot response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 3, completion_tokens: 2, cost: 0.001 },
+        }),
+      },
+    })
+
+    const result = await call({
+      callId: 'snapshot-identity-1',
+      request: { ...request, model: 'deepseek-v4-flash' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.error)
+    expect(result.response.model).toBe(responseModel)
+    expect(result.receipt).toMatchObject({
+      model: responseModel,
+      inputTokens: 3,
+      outputTokens: 2,
+    })
+    expect(result.execution).toMatchObject({ model: responseModel })
+  })
+
   it('carries the exact profile retry policy through the injected Router transport', async () => {
     let attempts = 0
     const complete = vi.fn(async () => {

@@ -196,14 +196,16 @@ export async function runBoundProfileChat(
       turn,
     }
   }
-  if (observedModel !== binding.model) {
+  if (!profileModelIdentityMatches(observedModel, binding.model)) {
     return {
       succeeded: false,
       error: `${binding.context}: Runtime reported model ${JSON.stringify(observedModel)} but AgentProfile requires ${JSON.stringify(binding.model)}`,
       turn,
     }
   }
-  const resultOut = turn.output as { finishReason?: string } | undefined
+  const resultOut = turn.output as
+    | { finishReason?: string; system_fingerprint?: unknown }
+    | undefined
   const promptTokens = turn.usage.input
   const completionTokens = turn.usage.output
   return {
@@ -240,6 +242,9 @@ export async function runBoundProfileChat(
         ...(turn.usage.promptCache ? { promptCache: turn.usage.promptCache } : {}),
         ...(turn.transportAttempts !== undefined
           ? { transportAttempts: turn.transportAttempts }
+          : {}),
+        ...(typeof resultOut?.system_fingerprint === 'string'
+          ? { systemFingerprint: resultOut.system_fingerprint }
           : {}),
       },
     },
@@ -340,16 +345,24 @@ function assertProfileChatRequest(
   }
 }
 
+/** Accept a provider snapshot suffix while keeping the profile's base model exact. */
+function profileModelIdentityMatches(observed: string, declared: string): boolean {
+  if (observed === declared) return true
+  const suffix = observed.startsWith(`${declared}@`) ? observed.slice(declared.length + 1) : ''
+  return suffix.length > 0 && /^[A-Za-z0-9._-]+$/u.test(suffix)
+}
+
 function optimizerReceipt(
   model: string,
   run: ProfileChatRun,
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
+  const observedModel = usage.model ?? model
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   if (usage.tokensKnown === false) {
     return {
-      model,
+      model: observedModel,
       inputTokens: 0,
       outputTokens: 0,
       usageUnknown: true,
@@ -367,7 +380,7 @@ function optimizerReceipt(
     throw new Error('profile optimizer cache classes exceed total input tokens')
   }
   return {
-    model,
+    model: observedModel,
     inputTokens: usage.input - classified,
     outputTokens: usage.output,
     ...(cachedTokens !== undefined ? { cachedTokens } : {}),
@@ -390,10 +403,11 @@ function rawOptimizerReceipt(
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
+  const observedModel = usage.model ?? model
   const tokensKnown = usage.tokensKnown !== false
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   return {
-    model,
+    model: observedModel,
     inputTokens: tokensKnown ? usage.input : 0,
     outputTokens: tokensKnown ? usage.output : 0,
     ...(tokensKnown ? {} : { usageUnknown: true }),

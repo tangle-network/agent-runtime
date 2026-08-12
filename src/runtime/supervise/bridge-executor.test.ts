@@ -379,6 +379,35 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(artifact.spent.tokens).toEqual({ input: 10, output: 4, cacheBreakdownKnown: false })
   })
 
+  it('retains the provider response model and fingerprint in the Runtime artifact', async () => {
+    const responseModel = 'glm-5.2@fp_provider_snapshot_20260811'
+    const chunks = [
+      `data: ${JSON.stringify({
+        model: responseModel,
+        system_fingerprint: 'fp_provider_snapshot_20260811',
+        choices: [{ delta: { content: 'identified' } }],
+      })}`,
+      `data: ${JSON.stringify({
+        model: responseModel,
+        system_fingerprint: 'fp_provider_snapshot_20260811',
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      })}`,
+      'data: [DONE]',
+    ]
+    const stub = await startBridgeStub(`${chunks.join('\n\n')}\n\n`)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(executor.resultArtifact().out).toMatchObject({
+      model: responseModel,
+      system_fingerprint: 'fp_provider_snapshot_20260811',
+    })
+  })
+
   it('meters the same terminal OpenAI receipt through direct Router and bridge paths', async () => {
     const receipt = terminalOpenAiReceipt(3_020, 55, 'stop')
     const direct = await consumeDirectRouterReceipt(receipt)

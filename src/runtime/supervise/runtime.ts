@@ -1044,11 +1044,17 @@ function assertObservedRouterModel(
   expected: string,
   context: string,
 ): void {
-  if (observed !== undefined && observed !== expected) {
+  if (observed !== undefined && !observedRouterModelMatches(observed, expected)) {
     throw new ValidationError(
       `${context}: provider reported model ${JSON.stringify(observed)} but AgentProfile requires ${JSON.stringify(expected)}`,
     )
   }
+}
+
+function observedRouterModelMatches(observed: string, expected: string): boolean {
+  if (observed === expected) return true
+  const suffix = observed.startsWith(`${expected}@`) ? observed.slice(expected.length + 1) : ''
+  return suffix.length > 0 && /^[A-Za-z0-9._-]+$/u.test(suffix)
 }
 
 function routerRequestIdentity(ctx: ExecutorContext): {
@@ -2078,6 +2084,8 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let turns = 0
   let transportAttempts = 0
   let lastText = ''
+  let observedModel: string | undefined
+  let observedSystemFingerprint: string | undefined
   const toolCalls: string[] = []
   const promptCache: { freshInput?: number; readInput?: number; writeInput?: number } = {}
 
@@ -2170,6 +2178,20 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         maxReconnects: args.maxReconnects,
         traceHeaders: args.traceHeaders,
       })) {
+        if (chunk.model !== undefined) {
+          observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
+        }
+        if (chunk.systemFingerprint !== undefined) {
+          if (
+            observedSystemFingerprint !== undefined &&
+            observedSystemFingerprint !== chunk.systemFingerprint
+          ) {
+            throw new ValidationError(
+              `bridgeExecutor: bridge changed system fingerprint from ${JSON.stringify(observedSystemFingerprint)} to ${JSON.stringify(chunk.systemFingerprint)}`,
+            )
+          }
+          observedSystemFingerprint = chunk.systemFingerprint
+        }
         if (chunk.content) {
           turnText += chunk.content
         }
@@ -2318,14 +2340,19 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   }
   const out = {
     content: lastText,
-    model: seam.model,
+    model: observedModel ?? seam.model,
+    ...(observedSystemFingerprint ? { system_fingerprint: observedSystemFingerprint } : {}),
     toolCalls,
     transportAttempts,
     ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
     ...(sawEstimatedUsd ? { estimatedCostUsd: estimatedUsd } : {}),
   } as unknown
   args.onArtifact({
-    outRef: contentRef('bridge', { model: seam.model, session: args.sessionId, content: lastText }),
+    outRef: contentRef('bridge', {
+      model: observedModel ?? seam.model,
+      session: args.sessionId,
+      content: lastText,
+    }),
     out,
     spent,
   })
@@ -2816,6 +2843,10 @@ function errorMessage(error: unknown): string {
 
 interface BridgeStreamChunk {
   content?: string
+  /** Provider-reported response model, not the bridge request model. */
+  model?: string
+  /** Provider response fingerprint carried alongside the response model. */
+  systemFingerprint?: string
   /** Every tool call the delta carried, decoded into the shared tool-step currency. */
   toolCalls?: ReadonlyArray<ToolStepInput>
   usage?: {
@@ -2829,6 +2860,23 @@ interface BridgeStreamChunk {
   estimatedCost?: number
   costScope?: 'incremental' | 'total'
   profileMaterialization?: BridgeProfileMaterializationReceipt
+}
+
+function mergeBridgeObservedModel(current: string | undefined, next: string): string {
+  if (current === undefined || current === next) return next
+  const currentBase = bridgeModelIdentityBase(current)
+  const nextBase = bridgeModelIdentityBase(next)
+  if (currentBase !== nextBase) {
+    throw new ValidationError(
+      `bridgeExecutor: bridge changed response model from ${JSON.stringify(current)} to ${JSON.stringify(next)}`,
+    )
+  }
+  return current.includes('@') ? current : next
+}
+
+function bridgeModelIdentityBase(model: string): string {
+  const at = model.lastIndexOf('@')
+  return at > 0 ? model.slice(0, at) : model
 }
 
 function assertBridgeProfileMaterialization(
@@ -3398,6 +3446,8 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
   const data = dataLines.join('\n')
   if (data === '[DONE]') return { kind: 'done' }
   let parsed: {
+    model?: unknown
+    system_fingerprint?: unknown
     choices?: Array<{
       delta?: {
         content?: string | null
@@ -3453,6 +3503,20 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
     }
   }
   const out: BridgeStreamChunk = {}
+  if (parsed.model !== undefined) {
+    if (typeof parsed.model !== 'string' || parsed.model.length === 0) {
+      throw new ValidationError('bridgeExecutor: bridge response model must be a non-empty string')
+    }
+    out.model = parsed.model
+  }
+  if (parsed.system_fingerprint !== undefined) {
+    if (typeof parsed.system_fingerprint !== 'string' || parsed.system_fingerprint.length === 0) {
+      throw new ValidationError(
+        'bridgeExecutor: bridge system_fingerprint must be a non-empty string',
+      )
+    }
+    out.systemFingerprint = parsed.system_fingerprint
+  }
   const choice = parsed.choices?.[0]
   const content = choice?.delta?.content ?? choice?.message?.content
   if (typeof content === 'string' && content.length > 0) out.content = content
