@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.132.11
+
+- Consume Core 0.6.1, Eval 0.145.2, Interface 0.47.0, Knowledge 7.2.4, Profile Materialize 0.14.0, and Sandbox 0.21.1 as one compatible dependency set.
+- Raise the Eval, Interface, and Sandbox peer ranges to the current shared release cohort.
+
 ## 0.132.10
 
 - Send the request-scoped model gateway URL with its protected token on every bridge request and reconnect.
