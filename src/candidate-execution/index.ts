@@ -76,6 +76,13 @@ export {
   parseExactCandidateProfile,
 } from './profile'
 export {
+  type AgentCandidateModelGrantRunReservationInput,
+  type ProtectedAgentCandidateModelGrantContext,
+  type RunProtectedAgentCandidateModelGrantOptions,
+  type RunProtectedAgentCandidateModelGrantResult,
+  runProtectedAgentCandidateModelGrant,
+} from './protected-model-grant'
+export {
   type AgentCandidateModelGrantActivateInput,
   type AgentCandidateModelGrantClient,
   type AgentCandidateModelGrantReservation,

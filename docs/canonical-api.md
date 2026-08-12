@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.132.8.**
+> **Version 0.132.9.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.145.0 <0.146.0`.
 > `sandbox` must satisfy `>=0.19.4 <0.20.0`.
@@ -178,6 +178,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Freeze a measured profile/diff plus a content-addressed code surface into one executable candidate | `buildAgentCandidateBundle(...)`, then `verifyAgentCandidateBundle(...)` at execution: `/candidate-execution` | a product callback that converts profile fields, reproduces Git diff flags, hashes bytes, or assembles `AgentCandidateBundle` by hand |
 | Record approve/reject/change-request feedback against one exact proposal | `reviewAgentImprovementProposal(proposal, review)`: `/intelligence` | a mutable status row that is not bound to candidate bytes |
 | Run and grade the exact signed baseline-versus-candidate matrix before review | `runAgentCandidateExperiment({ experiment, placeCell })` in `/intelligence`; use `createProtectedExactProcessCandidateExperimentExecutor(...)` for any exact-process provider with protected model grants and pass the remaining product ports as `hostPorts` | product-local pairing, retry, isolation, receipt, and comparison code |
+| Run one bounded unit under a protected model grant | `runProtectedAgentCandidateModelGrant(...)`: `/candidate-execution` (Runtime resolves, reserves, activates, and settles the grant around the caller's callback) | a product-owned reserve/activate/settle wrapper or a grant spanning a whole run |
 | Authorize and execute writes only for the exact measured and approved candidate | `createAgentImprovementActivation(...)`, then `executeAgentImprovementActivation(...)` with one idempotent transition in `/intelligence`; opaque profile changes use `prepareAgentImprovementProfileActivation({ stateDigest, resolveState? })`, target one complete profile identity, and restore only from product-retained state by exact digest; use `createKnowledgeImprovementActivationExecutor(...)` from `/knowledge` for one local KB | a mutable approval flag, a second per-surface approval path, a best-effort profile restore, or a write that does not persist an exact result |
 | Capture and restore exact task, candidate, or memory workspace bytes | `captureAgentCandidateWorkspace(...)` + `createAgentCandidateWorkspacePort(...)`: `/candidate-execution` | a product-specific archive format, ambient `git checkout`, or a materializer that skips byte/path/mode verification |
 | Fold **certified prompt additions into a system prompt you assemble yourself** (product chat routes) | `createCertifiedPromptSource({ target })` → `source.compose(base)`: `/intelligence` (cached, coalesced, fail-closed; `withIntelligence` rides the same source) | a module-scope cache + refresh-window + keep-last-known loop around `pullCertified` in product wiring |

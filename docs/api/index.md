@@ -1728,6 +1728,122 @@ Maximum time for task verification, executable grading, and receipt construction
 
 ***
 
+### ProtectedAgentCandidateModelGrantContext
+
+Values available only while one protected model grant is active.
+
+#### Properties
+
+##### activation
+
+> `readonly` **activation**: [`AgentCandidateProtectedModelActivation`](#agentcandidateprotectedmodelactivation)
+
+##### reservation
+
+> `readonly` **reservation**: [`AgentCandidateProtectedModelReservation`](#agentcandidateprotectedmodelreservation)
+
+##### resolved
+
+> `readonly` **resolved**: `AgentCandidateResolvedModel`
+
+***
+
+### RunProtectedAgentCandidateModelGrantOptions
+
+Inputs for one protected grant scoped to one bounded caller unit.
+
+#### Type Parameters
+
+##### TResult
+
+`TResult`
+
+#### Properties
+
+##### port
+
+> `readonly` **port**: [`AgentCandidateModelPort`](#agentcandidatemodelport)
+
+Runtime port that validates and settles the evaluator-owned grant.
+
+##### resolve
+
+> `readonly` **resolve**: `object`
+
+Provider-neutral model request resolved before any grant is reserved.
+
+###### requested
+
+> **requested**: `string`
+
+###### harness
+
+> **harness**: `HarnessType`
+
+###### reasoningEffort
+
+> **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+
+##### reserve
+
+> `readonly` **reserve**: [`AgentCandidateModelGrantRunReservationInput`](#agentcandidatemodelgrantrunreservationinput)
+
+One bounded unit's immutable identity, attempt, expiry, and limits.
+
+##### deadlineAtMs
+
+> `readonly` **deadlineAtMs**: `number`
+
+Must be no later than the reservation expiry.
+
+##### execute
+
+> `readonly` **execute**: (`context`) => `Promise`\<`TResult`\>
+
+Execute exactly one bounded unit while the activated environment is valid.
+
+###### Parameters
+
+###### context
+
+[`ProtectedAgentCandidateModelGrantContext`](#protectedagentcandidatemodelgrantcontext)
+
+###### Returns
+
+`Promise`\<`TResult`\>
+
+***
+
+### RunProtectedAgentCandidateModelGrantResult
+
+Result and sealed settlement returned after one protected grant closes.
+
+#### Type Parameters
+
+##### TResult
+
+`TResult`
+
+#### Properties
+
+##### value
+
+> `readonly` **value**: `TResult`
+
+##### resolved
+
+> `readonly` **resolved**: `AgentCandidateResolvedModel`
+
+##### reservation
+
+> `readonly` **reservation**: [`AgentCandidateProtectedModelReservation`](#agentcandidateprotectedmodelreservation)
+
+##### settlement
+
+> `readonly` **settlement**: [`AgentCandidateProtectedModelSettlement`](#agentcandidateprotectedmodelsettlement)
+
+***
+
 ### AgentCandidateModelGrantClient
 
 Narrow transport contract for a service that owns scoped model credentials
@@ -5825,7 +5941,7 @@ Exact materialized profile presented for validation before any candidate run.
 
 ###### Inherited from
 
-[`ImproveCandidateValidationInput`](#improvecandidatevalidationinput).[`value`](#value-1)
+[`ImproveCandidateValidationInput`](#improvecandidatevalidationinput).[`value`](#value-2)
 
 ##### isBaseline
 
@@ -10254,6 +10370,14 @@ Result of crossing the irreversible candidate-may-run boundary.
 
 ***
 
+### AgentCandidateModelGrantRunReservationInput
+
+> **AgentCandidateModelGrantRunReservationInput** = `Omit`\<[`AgentCandidateModelGrantReserveInput`](#agentcandidatemodelgrantreserveinput), `"resolved"`\>
+
+Reservation fields supplied by a caller before Runtime resolves the model.
+
+***
+
 ### AgentCandidateModelGrantReserveInput
 
 > **AgentCandidateModelGrantReserveInput** = `Parameters`\<[`AgentCandidateModelPort`](#agentcandidatemodelport)\[`"reserveGrant"`\]\>\[`0`\]
@@ -12762,6 +12886,35 @@ Recursively remove undefined object fields while refusing undefined array entrie
 #### Returns
 
 `unknown`
+
+***
+
+### runProtectedAgentCandidateModelGrant()
+
+> **runProtectedAgentCandidateModelGrant**\<`TResult`\>(`options`): `Promise`\<[`RunProtectedAgentCandidateModelGrantResult`](#runprotectedagentcandidatemodelgrantresult)\<`TResult`\>\>
+
+Run one bounded unit under a protected model grant.
+
+Runtime owns the grant lifecycle; callers own the unit boundary and any
+durable scheduling or accounting around it. A reserved grant is settled
+after activation failure or callback failure, and the callback error is
+preserved when settlement also fails.
+
+#### Type Parameters
+
+##### TResult
+
+`TResult`
+
+#### Parameters
+
+##### options
+
+[`RunProtectedAgentCandidateModelGrantOptions`](#runprotectedagentcandidatemodelgrantoptions)\<`TResult`\>
+
+#### Returns
+
+`Promise`\<[`RunProtectedAgentCandidateModelGrantResult`](#runprotectedagentcandidatemodelgrantresult)\<`TResult`\>\>
 
 ***
 
