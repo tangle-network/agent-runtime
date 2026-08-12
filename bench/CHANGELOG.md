@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.7
+
+- Consume Runtime 0.132.11, Eval 0.145.2, Interface 0.47.0, Knowledge 7.2.4, and Sandbox 0.21.1 as one compatible dependency set.
+
 ## 0.8.6
 
 - Consume Runtime 0.132.6 with the settled provider-model identity contract.
