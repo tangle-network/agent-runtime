@@ -6144,6 +6144,74 @@ Reconstructable control of one provider-retained run.
 
 ***
 
+### RetainedRunEnvironmentAdmission
+
+**`Stable`**
+
+Recovery coordinates durable after environment creation and before dispatch.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"environment"`
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### turnId
+
+> `readonly` **turnId**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+Caller-supplied or runtime-minted; always the identity the dispatch will request.
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+Caller-supplied or runtime-minted; always the identity the dispatch will request.
+
+***
+
+### RetainedRunDispatchedAdmission
+
+**`Stable`**
+
+The verified exact reference, durable before the start promise resolves.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"dispatched"`
+
+##### controlRef
+
+> `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### turnId
+
+> `readonly` **turnId**: `string`
+
+***
+
 ### StartRetainedRunOptions
 
 **`Stable`**
@@ -6180,7 +6248,9 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 > `readonly` `optional` **identity?**: `object`
 
-Runtime-owned coordinates for providers that support deterministic retained dispatch.
+Explicit dispatch coordinates. When omitted, the runtime mints
+deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
+so every process derives the same values.
 
 ###### sessionId
 
@@ -6189,6 +6259,10 @@ Runtime-owned coordinates for providers that support deterministic retained disp
 ###### executionId
 
 > `readonly` **executionId**: `string`
+
+##### onAdmission
+
+> `readonly` **onAdmission**: [`RetainedRunAdmissionHook`](#retainedrunadmissionhook)
 
 ##### now?
 
@@ -6215,6 +6289,43 @@ Inputs sufficient to rebuild a control client in a new process.
 ##### controlRef
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### RecoverRetainedRunOptions
+
+**`Stable`**
+
+Pre-dispatch admission coordinates for one recovery attempt.
+
+A `phase: 'environment'` admission record carries these fields, so a caller
+can pass that record after a crash before the dispatched record landed.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
 
 ##### now?
 
@@ -19010,6 +19121,59 @@ Result of one verified same-session continuation.
 
 ***
 
+### RetainedRunAdmission
+
+> **RetainedRunAdmission** = [`RetainedRunEnvironmentAdmission`](#retainedrunenvironmentadmission) \| [`RetainedRunDispatchedAdmission`](#retainedrundispatchedadmission)
+
+**`Stable`**
+
+One admission record the runtime persists through the caller before proceeding.
+
+***
+
+### RetainedRunAdmissionHook
+
+> **RetainedRunAdmissionHook** = (`admission`) => `Promise`\<`void`\>
+
+**`Stable`**
+
+Awaited durability hook for retained admission records.
+
+The runtime blocks after environment creation and again after dispatch until
+the hook resolves, so no retained run becomes caller-visible before its
+recovery record is durable. A rejection fails the start without destroying
+the environment; the persisted record or provider state is the recovery path.
+
+#### Parameters
+
+##### admission
+
+[`RetainedRunAdmission`](#retainedrunadmission)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### RecoverRetainedRunResult
+
+> **RecoverRetainedRunResult** = \{ `outcome`: `"recovered"`; `handle`: [`RetainedRunHandle`](#retainedrunhandle); \} \| \{ `outcome`: `"not_found"`; \} \| \{ `outcome`: `"unverifiable"`; `environment`: `AgentEnvironment`; \}
+
+**`Stable`**
+
+Outcome of one recovery attempt from pre-dispatch admission coordinates.
+
+`not_found`: the provider no longer holds the environment; nothing remains
+to destroy. `recovered`: the provider self-identified the session with a
+strict exact reference matching the recorded coordinates. `unverifiable`:
+the environment exists but the provider cannot self-identify the session;
+never destroy on this outcome — keep the environment, retry
+`reconnectRetainedRun` with a dispatched admission record, or inspect it
+with provider-native tools.
+
+***
+
 ### Environment
 
 > **Environment** = [`AgenticSurface`](#agenticsurface)
@@ -22374,7 +22538,13 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 **`Stable`**
 
 Dispatch one detached, replayable run and return only after exact durable
-coordinates are confirmed by the provider.
+coordinates are confirmed by the provider and persisted by the caller.
+
+The required `onAdmission` hook is awaited twice: with the recovery
+coordinates after environment creation, and with the verified exact control
+reference after dispatch. The returned promise resolves only after the
+dispatched admission is durable, so no caller can observe a successful start
+whose exact reference a crash would lose.
 
 #### Parameters
 
@@ -22385,6 +22555,38 @@ coordinates are confirmed by the provider.
 #### Returns
 
 `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+***
+
+### recoverRetainedRun()
+
+> **recoverRetainedRun**(`options`): `Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
+
+**`Stable`**
+
+Rebuild the exact run named by pre-dispatch admission coordinates, or
+report why the provider cannot prove it.
+
+`not_found`: the provider no longer holds the environment, so nothing
+remains to destroy. `recovered`: the provider self-identified the session
+with a strict exact reference matching the recorded coordinates.
+`unverifiable`: the environment exists but the provider cannot
+self-identify the session — no session accessor, an accessor that throws,
+a lazy accessor with no stored reference, or a loose reference. That
+outcome is never destroy-safe: keep the environment, retry
+`reconnectRetainedRun` with a dispatched admission record, or inspect the
+environment with provider-native tools. A session that self-identifies
+with different coordinates throws: something live is not the recorded run.
+
+#### Parameters
+
+##### options
+
+[`RecoverRetainedRunOptions`](#recoverretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
 
 ***
 

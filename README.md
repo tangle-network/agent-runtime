@@ -122,16 +122,21 @@ Use the retained-run API when the provider owns a job that must outlive one HTTP
 The provider must advertise exact run identity, replay, result identity, and idempotent cancellation.
 
 ```ts
-import { reconnectRetainedRun, startRetainedRun } from '@tangle-network/agent-runtime'
+import {
+  reconnectRetainedRun,
+  recoverRetainedRun,
+  startRetainedRun,
+} from '@tangle-network/agent-runtime/kernel'
 
 const run = await startRetainedRun({
   provider,
   environment: { idempotencyKey: 'workspace-42', profile },
   turn: { turnId: 'turn-7', prompt: 'Finish the migration and run its tests.' },
   identity: { sessionId: 'thread-42', executionId: 'execution-7' },
+  onAdmission: async (admission) => {
+    await journal.write(admission)
+  },
 })
-
-await journal.write(run.controlRef)
 
 for await (const event of run.events()) {
   await journal.write(event)
@@ -139,7 +144,7 @@ for await (const event of run.events()) {
 
 const recovered = await reconnectRetainedRun({
   provider: freshProvider,
-  controlRef: await journal.readControlRef(),
+  controlRef: (await journal.readDispatchedAdmission()).controlRef,
 })
 if (!recovered) throw new Error('the provider no longer retains this environment')
 
@@ -147,9 +152,17 @@ const snapshot = await recovered.status({ waitMs: 30_000 })
 const result = await recovered.result()
 ```
 
-Persist `controlRef` before acknowledging dispatch to the caller.
+The runtime awaits `onAdmission` after environment creation and again after dispatch.
+The start promise resolves only after the dispatched admission, so the exact reference is durable before any caller observes success.
+Persist each admission record inside the hook before it returns.
+A hook rejection fails the start with `RetainedRunAdmissionError` and keeps the environment for recovery.
+When you omit `identity`, the runtime mints deterministic coordinates from the two keys, so every process derives the same values.
+After dispatch, the runtime verifies the provider honored the requested identity and fails with `RetainedRunDispatchBindingError` when it did not.
 Persist each event cursor and sequence before advancing the visible transcript.
-`reconnectRetainedRun` reconstructs a client from those values and rejects any provider, environment, session, execution, run, or digest mismatch.
+`reconnectRetainedRun` reconstructs a client from a dispatched admission's `controlRef` and rejects any provider, environment, session, execution, run, or digest mismatch.
+After a crash that left only the `environment` admission, call `recoverRetainedRun` with its coordinates.
+It reports `recovered` with a handle, `not_found` when the environment is gone, or `unverifiable` when the provider cannot self-identify the session.
+Never destroy an environment on `unverifiable`; keep it, retry `reconnectRetainedRun` later, or inspect it with provider-native tools.
 An unknown provider result remains unknown; the runtime never converts it into success or confirmed cancellation.
 
 ### Supervise a team of agents
@@ -531,7 +544,7 @@ The general-purpose pieces, by import path. Every export with its one-line summa
 | Primitive | What it does | Import |
 |---|---|---|
 | Chat-turn runtime | Stream and persist one production chat turn (`handleChatTurn`); derive its stable execution and turn identity (`deriveExecutionId`); normalize any backend's stream into one event shape (`streamAgentTurn`) | `/durable` · `/kernel` |
-| Retained provider runs | Start one detached provider job, replay exact events, reconnect after restart, continue its native context, and cancel idempotently (`startRetainedRun`, `reconnectRetainedRun`) | root |
+| Retained provider runs | Start one detached provider job with a durable admission hook, replay exact events, reconnect after restart, rebuild from pre-dispatch coordinates, continue its native context, and cancel idempotently (`startRetainedRun`, `reconnectRetainedRun`, `recoverRetainedRun`) | `/kernel` |
 | Tool-call loop | Run one model turn, execute requested tools, feed results back, and stop on completion, repetition, time, or cost limits (`runToolLoop`, `streamToolLoop`) | `/tool-loop` |
 | Supervision | One agent spawns, budgets, and steers workers toward a goal (`supervise`, `delegate`), on an in-process loop or a sandboxed coding harness | `/kernel` · `/mcp` |
 | Loop kernel + combinators | Write a driver (`plan`/`decide`) and run it (`runAgentRounds`), or compose fixed shapes: refine (`loopUntil`), best-of-N (`fanout`), chain (`pipeline`), multi-judge (`panel`) | `/kernel` |

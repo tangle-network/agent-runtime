@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,12 +17,34 @@ import type {
   AgentSession,
   AgentSessionStatus,
   AgentTurnInput,
+  CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { reconnectRetainedRun, startRetainedRun } from './retained-run'
+import { RetainedRunAdmissionError, RetainedRunDispatchBindingError } from '../errors'
+import {
+  type RetainedRunAdmission,
+  type RetainedRunAdmissionHook,
+  reconnectRetainedRun,
+  recoverRetainedRun,
+  startRetainedRun,
+} from './retained-run'
+import { mintRetainedIdentity } from './retained-run-start'
 
 const childScript = new URL('../../tests/helpers/retained-run-child.ts', import.meta.url).pathname
 const retainedRequestDigest = `sha256:${'a'.repeat(64)}` as const
+
+function recordedAdmissions(): {
+  admissions: RetainedRunAdmission[]
+  onAdmission: RetainedRunAdmissionHook
+} {
+  const admissions: RetainedRunAdmission[] = []
+  return {
+    admissions,
+    onAdmission: async (admission) => {
+      admissions.push(admission)
+    },
+  }
+}
 
 interface ChildExit {
   readonly code: number | null
@@ -33,7 +56,15 @@ interface ChildExit {
 async function runChild(
   stateFile: string,
   referenceFile: string,
-  phase: 'start' | 'reconnect',
+  phase:
+    | 'start'
+    | 'reconnect'
+    | 'start-kill-dispatched'
+    | 'recover-dispatched'
+    | 'start-kill-environment'
+    | 'recover-environment'
+    | 'start-kill-live'
+    | 'recover-live',
 ): Promise<ChildExit> {
   return await new Promise<ChildExit>((resolveChild, rejectChild) => {
     const child = spawn(
@@ -82,6 +113,16 @@ describe('retained runtime run control', () => {
       sequence: 0,
       runId: started.controlRef.runId,
     })
+    const admissions = JSON.parse(await readFile(`${referenceFile}.admissions`, 'utf8')) as Array<{
+      phase: string
+      sessionId?: string
+      executionId?: string
+      controlRef?: { runId: string }
+    }>
+    expect(admissions.map((admission) => admission.phase)).toEqual(['environment', 'dispatched'])
+    expect(admissions[1]?.controlRef).toEqual(started.controlRef)
+    // The child minted identity in its own process; re-mint here and compare.
+    expect(admissions[0]).toMatchObject(mintRetainedIdentity('restart-proof', 'restart-proof'))
 
     const second = await runChild(stateFile, referenceFile, 'reconnect')
     expect(second.code, second.stderr).toBe(0)
@@ -147,13 +188,14 @@ describe('retained runtime run control', () => {
         }
       >
     }
+    // The child omitted identity; this process re-mints the same coordinates.
+    const minted = mintRetainedIdentity('restart-proof', 'restart-proof')
     expect(
-      durableState.environments['environment-restart-proof']?.sessions['session-restart-proof']
-        ?.status,
+      durableState.environments['environment-restart-proof']?.sessions[minted.sessionId]?.status,
     ).toBe('cancelled')
     expect(
       Object.keys(
-        durableState.environments['environment-restart-proof']?.sessions['session-restart-proof']
+        durableState.environments['environment-restart-proof']?.sessions[minted.sessionId]
           ?.nativeOperations ?? {},
       ),
     ).toEqual(['restart-native-operation'])
@@ -169,14 +211,20 @@ describe('retained runtime run control', () => {
         destroys += 1
       },
     })
+    const uncertainRecorder = recordedAdmissions()
     await expect(
       startRetainedRun({
         provider: uncertain,
         environment: { profile: { name: 'worker' }, idempotencyKey: 'environment-key' },
         turn: { prompt: 'go', turnId: 'turn-key' },
+        onAdmission: uncertainRecorder.onAdmission,
       }),
     ).rejects.toThrow('connection lost after dispatch')
     expect(destroys).toBe(0)
+    // The environment admission was durable before the uncertain dispatch.
+    expect(uncertainRecorder.admissions.map((admission) => admission.phase)).toEqual([
+      'environment',
+    ])
 
     const unusable = providerWithEnvironment({
       dispatch: undefined,
@@ -185,14 +233,18 @@ describe('retained runtime run control', () => {
         destroys += 1
       },
     })
+    const unusableRecorder = recordedAdmissions()
     await expect(
       startRetainedRun({
         provider: unusable,
         environment: { profile: { name: 'worker' }, idempotencyKey: 'unused-key' },
         turn: { prompt: 'go', turnId: 'unused-turn' },
+        onAdmission: unusableRecorder.onAdmission,
       }),
     ).rejects.toThrow('does not expose detached session control')
     expect(destroys).toBe(1)
+    // A destroyed unusable environment never leaves an admission record.
+    expect(unusableRecorder.admissions).toEqual([])
   })
 
   it('allowlists a fresh retained start when JavaScript supplies stale run fields', async () => {
@@ -240,9 +292,17 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'fresh-environment' },
       turn: staleTurn,
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
-    expect(recorded).toEqual({ prompt: 'fresh prompt', turnId: 'fresh-turn', detach: true })
+    expect(recorded).toEqual({
+      prompt: 'fresh prompt',
+      turnId: 'fresh-turn',
+      detach: true,
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+    })
   })
 
   it('injects explicit Runtime-owned identity into a retained dispatch', async () => {
@@ -274,11 +334,23 @@ describe('retained runtime run control', () => {
       },
       session: () => session,
     })
+    let created: CreateAgentEnvironmentInput | undefined
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      created = input
+      return originalCreate(input)
+    }
 
+    const recorder = recordedAdmissions()
     await startRetainedRun({
       provider,
-      environment: { profile: { name: 'worker' }, idempotencyKey: controlRef.environmentId },
+      environment: {
+        profile: { name: 'worker' },
+        idempotencyKey: controlRef.environmentId,
+        metadata: { tenant: 'acme' },
+      },
       turn: { prompt: 'owned task', turnId: 'owned-turn', sessionId: 'stale-session' },
+      onAdmission: recorder.onAdmission,
       identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
@@ -289,6 +361,30 @@ describe('retained runtime run control', () => {
       sessionId: controlRef.sessionId,
       executionId: controlRef.executionId,
     })
+    // Caller metadata is merged, never clobbered, with the recovery coordinates.
+    expect(created?.metadata).toEqual({
+      tenant: 'acme',
+      retainedIdempotencyKey: controlRef.environmentId,
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+    })
+    expect(recorder.admissions).toEqual([
+      {
+        phase: 'environment',
+        provider: controlRef.provider,
+        environmentId: controlRef.environmentId,
+        idempotencyKey: controlRef.environmentId,
+        turnId: 'owned-turn',
+        sessionId: controlRef.sessionId,
+        executionId: controlRef.executionId,
+      },
+      {
+        phase: 'dispatched',
+        controlRef,
+        idempotencyKey: controlRef.environmentId,
+        turnId: 'owned-turn',
+      },
+    ])
   })
 
   it('rejects a schema-valid result bound to another session', async () => {
@@ -321,6 +417,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'result-environment' },
       turn: { prompt: 'go', turnId: 'result-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     await expect(run.result()).rejects.toThrow('another retained session')
@@ -361,6 +459,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'exact-environment' },
       turn: { prompt: 'go', turnId: 'exact-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
     await expect(
       reconnectRetainedRun({
@@ -441,6 +541,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'cancel-environment' },
       turn: { prompt: 'go', turnId: 'cancel-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
     const first = await run.cancel({ operationId: 'cancel-operation', reason: 'stop now' })
     const replay = await run.cancel({ operationId: 'cancel-operation', reason: 'stop now' })
@@ -508,6 +610,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'cancel-no-reason' },
       turn: { prompt: 'go', turnId: 'cancel-no-reason-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     await expect(run.cancel({ operationId: 'cancel-without-reason' })).resolves.toMatchObject({
@@ -550,6 +654,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'cancel-unsupported' },
       turn: { prompt: 'go', turnId: 'cancel-unsupported-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     await expect(run.cancel({ operationId: 'cancel-unsupported-operation' })).rejects.toThrow(
@@ -613,13 +719,20 @@ describe('retained runtime run control', () => {
       session: () => session,
     })
 
-    await expect(
-      startRetainedRun({
-        provider: contradictoryReference,
-        environment: { profile: { name: 'worker' }, idempotencyKey: 'identity-environment' },
-        turn: { prompt: 'go', turnId: 'identity-turn' },
-      }),
-    ).rejects.toThrow('session reference for another provider')
+    const contradiction = await startRetainedRun({
+      provider: contradictoryReference,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'identity-environment' },
+      turn: { prompt: 'go', turnId: 'identity-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    }).catch((error: unknown) => error)
+    expect(contradiction).toBeInstanceOf(RetainedRunDispatchBindingError)
+    expect((contradiction as RetainedRunDispatchBindingError).cause).toMatchObject({
+      message: 'provider dispatch returned a session reference for another provider',
+    })
+    expect((contradiction as RetainedRunDispatchBindingError).returned).toMatchObject({
+      provider: 'another-provider',
+    })
 
     const wrongEnvironment = providerWithEnvironment({
       id: 'another-environment',
@@ -643,6 +756,7 @@ describe('retained runtime run control', () => {
         provider,
         environment: { profile: { name: 'worker' }, idempotencyKey: 'unsafe-key' },
         turn: { prompt: 'go', turnId: 'unsafe-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
       }),
     ).rejects.toThrow('cannot control a retry-safe retained run')
     expect(creates).toBe(0)
@@ -691,6 +805,8 @@ describe('retained runtime run control', () => {
         provider,
         environment: { profile: { name: 'worker' }, idempotencyKey: 'no-session-rebuild' },
         turn: { prompt: 'go', turnId: 'no-session-rebuild-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+        identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
       }),
     ).rejects.toThrow('cannot control a retry-safe retained run')
     expect(creates).toBe(0)
@@ -725,6 +841,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'status-environment' },
       turn: { prompt: 'go', turnId: 'status-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     await expect(run.status({ waitMs: 200 })).resolves.toMatchObject({
@@ -776,6 +894,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'status-abort-environment' },
       turn: { prompt: 'go', turnId: 'status-abort-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
     const controller = new AbortController()
     const pending = run.status({ signal: controller.signal })
@@ -830,6 +950,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'cancel-abort-environment' },
       turn: { prompt: 'go', turnId: 'cancel-abort-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
     const controller = new AbortController()
     const pending = run.cancel({ operationId: 'cancel-abort-operation', signal: controller.signal })
@@ -887,6 +1009,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'events-abort-environment' },
       turn: { prompt: 'go', turnId: 'events-abort-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
     const controller = new AbortController()
     const iterator = run.events({ signal: controller.signal })[Symbol.asyncIterator]()
@@ -938,6 +1062,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'interaction-environment' },
       turn: { prompt: 'go', turnId: 'interaction-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     const binding = {
@@ -1008,6 +1134,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'fallback-environment' },
       turn: { prompt: 'go', turnId: 'fallback-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
     const events: RuntimeEventEnvelope[] = []
     for await (const event of run.events()) events.push(event)
@@ -1082,6 +1210,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'generated-sequence' },
       turn: { prompt: 'go', turnId: 'generated-sequence-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     const fresh: RuntimeEventEnvelope[] = []
@@ -1154,6 +1284,8 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'anchor-environment' },
       turn: { prompt: 'go', turnId: 'anchor-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     await expect(
@@ -1193,9 +1325,450 @@ describe('retained runtime run control', () => {
       provider,
       environment: { profile: { name: 'worker' }, idempotencyKey: 'transport-binding' },
       turn: { prompt: 'go', turnId: 'transport-binding-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
     await expect(collectRetainedEvents(run.events())).rejects.toThrow('another retained run')
+  })
+
+  it('rejects a start with no admission hook before any provider call', async () => {
+    let creates = 0
+    const provider = providerWithEnvironment({})
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      creates += 1
+      return originalCreate(input)
+    }
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'hookless-environment' },
+        turn: { prompt: 'go', turnId: 'hookless-turn' },
+        onAdmission: undefined as unknown as RetainedRunAdmissionHook,
+      }),
+    ).rejects.toThrow('requires an awaited onAdmission durability hook')
+    expect(creates).toBe(0)
+  })
+
+  it('awaits each admission before dispatch and before the start resolves', async () => {
+    const log: string[] = []
+    const controlRef = {
+      runId: 'ordering-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'ordering-session',
+      executionId: 'ordering-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true, sessionId: controlRef.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        log.push('dispatch')
+        return { id: session.id, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+    })
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      log.push('create')
+      return originalCreate(input)
+    }
+
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'ordering-environment' },
+      turn: { prompt: 'go', turnId: 'ordering-turn' },
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+      onAdmission: async (admission) => {
+        // The delay proves the runtime awaits the hook instead of racing past it.
+        await new Promise((resolve) => setTimeout(resolve, 10))
+        log.push(`admission:${admission.phase}`)
+      },
+    })
+    log.push('resolved')
+
+    expect(log).toEqual([
+      'create',
+      'admission:environment',
+      'dispatch',
+      'admission:dispatched',
+      'resolved',
+    ])
+    expect(run.controlRef).toEqual(controlRef)
+  })
+
+  it('fails a start whose admission cannot persist, keeps the environment, and stays recoverable', async () => {
+    let destroys = 0
+    const controlRef = {
+      runId: 'admission-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'admission-session',
+      executionId: 'admission-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true, sessionId: controlRef.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        return { id: session.id, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+      async destroy() {
+        destroys += 1
+      },
+    })
+
+    const failure = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'admission-environment' },
+      turn: { prompt: 'go', turnId: 'admission-turn' },
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+      onAdmission: async (admission) => {
+        if (admission.phase === 'dispatched') throw new Error('journal write failed')
+      },
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(RetainedRunAdmissionError)
+    const admissionFailure = failure as RetainedRunAdmissionError
+    expect(admissionFailure.code).toBe('capture_integrity')
+    expect(admissionFailure.phase).toBe('dispatched')
+    expect(admissionFailure.admission).toMatchObject({ phase: 'dispatched', controlRef })
+    expect(admissionFailure.cause).toMatchObject({ message: 'journal write failed' })
+    expect(destroys).toBe(0)
+
+    const recovered = await recoverRetainedRun({
+      provider,
+      environmentId: controlRef.environmentId,
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+    })
+    expect(recovered.outcome).toBe('recovered')
+    if (recovered.outcome === 'recovered') {
+      expect(recovered.handle.controlRef).toEqual(controlRef)
+    }
+  })
+
+  it('fails closed when recovery coordinates name a session bound to another execution', async () => {
+    const controlRef = {
+      runId: 'mismatch-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'mismatch-session',
+      executionId: 'other-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true, sessionId: controlRef.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({ session: () => session })
+
+    await expect(
+      recoverRetainedRun({
+        provider,
+        environmentId: 'environment-1',
+        sessionId: 'mismatch-session',
+        executionId: 'expected-execution',
+      }),
+    ).rejects.toThrow('other retained run coordinates')
+  })
+
+  it('reports not_found from recovery when the provider no longer holds the environment', async () => {
+    const provider = providerWithEnvironment({})
+    provider.get = async () => null
+
+    await expect(
+      recoverRetainedRun({
+        provider,
+        environmentId: 'environment-gone',
+        sessionId: 'session-gone',
+        executionId: 'execution-gone',
+      }),
+    ).resolves.toEqual({ outcome: 'not_found' })
+  })
+
+  it('recovers a run whose caller was SIGKILLed inside the dispatched admission', {
+    timeout: 120_000,
+  }, async () => {
+    const stateFile = join(directory, 'kill-dispatched-provider.json')
+    const referenceFile = join(directory, 'kill-dispatched-admission.json')
+
+    const killed = await runChild(stateFile, referenceFile, 'start-kill-dispatched')
+    expect(killed.signal, killed.stderr).toBe('SIGKILL')
+    expect(killed.code).toBeNull()
+    // The child died inside the hook, so it never observed a resolved handle.
+    expect(existsSync(`${referenceFile}.observed`)).toBe(false)
+    // The child omitted identity; re-mint the same coordinates in this process.
+    const minted = mintRetainedIdentity('kill-dispatched', 'kill-dispatched')
+    const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as {
+      phase: string
+      controlRef: Record<string, string>
+    }
+    expect(admission.phase).toBe('dispatched')
+    expect(admission.controlRef).toMatchObject({
+      runId: 'run-kill-dispatched',
+      provider: 'durable-test',
+      environmentId: 'environment-kill-dispatched',
+      sessionId: minted.sessionId,
+      executionId: minted.executionId,
+    })
+
+    const recovered = await runChild(stateFile, referenceFile, 'recover-dispatched')
+    expect(recovered.code, recovered.stderr).toBe(0)
+    expect(recovered.signal).toBeNull()
+    const output = JSON.parse(await readFile(`${referenceFile}.output`, 'utf8')) as {
+      controlRef: { runId: string }
+      eventIds: string[]
+      replayedIds: string[]
+      cancellation: { operationId: string; status: string; effect: string }
+    }
+    expect(output.controlRef.runId).toBe('run-kill-dispatched')
+    expect(output.eventIds).toEqual(['event-0', 'event-1', 'event-2'])
+    // The replay after the saved cursor repeats no already-consumed event id.
+    expect(output.replayedIds).toEqual(['event-1', 'event-2'])
+    expect(output.replayedIds).not.toContain('event-0')
+    expect(output.cancellation).toMatchObject({
+      operationId: 'kill-dispatched-cancel',
+      status: 'accepted',
+      effect: 'cancelled',
+    })
+    const durableState = JSON.parse(await readFile(stateFile, 'utf8')) as {
+      environments: Record<string, { sessions: Record<string, { status: string }> }>
+    }
+    expect(
+      durableState.environments['environment-kill-dispatched']?.sessions[minted.sessionId]?.status,
+    ).toBe('cancelled')
+  })
+
+  it('finds no run but a destroyable environment after a SIGKILL inside the environment admission', {
+    timeout: 120_000,
+  }, async () => {
+    const stateFile = join(directory, 'kill-environment-provider.json')
+    const referenceFile = join(directory, 'kill-environment-admission.json')
+
+    const killed = await runChild(stateFile, referenceFile, 'start-kill-environment')
+    expect(killed.signal, killed.stderr).toBe('SIGKILL')
+    expect(killed.code).toBeNull()
+    const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as Record<string, string>
+    expect(admission).toMatchObject({
+      phase: 'environment',
+      provider: 'durable-test',
+      environmentId: 'environment-kill-environment',
+      idempotencyKey: 'kill-environment',
+      turnId: 'kill-environment',
+      sessionId: 'session-kill-environment',
+      executionId: 'execution-kill-environment',
+    })
+    // The kill happened before dispatch: the provider holds the environment, no session.
+    const stateAfterKill = JSON.parse(await readFile(stateFile, 'utf8')) as {
+      environments: Record<string, { sessions: Record<string, unknown> }>
+    }
+    expect(stateAfterKill.environments['environment-kill-environment']?.sessions).toEqual({})
+
+    const recovered = await runChild(stateFile, referenceFile, 'recover-environment')
+    expect(recovered.code, recovered.stderr).toBe(0)
+    expect(recovered.signal).toBeNull()
+    const output = JSON.parse(await readFile(`${referenceFile}.output`, 'utf8')) as {
+      firstOutcome: string
+      orphanFound: boolean
+      secondOutcome: string
+      orphanRemains: boolean
+    }
+    // A provider that cannot self-identify the never-dispatched session
+    // reports unverifiable, and the environment stays findable for triage.
+    expect(output.firstOutcome).toBe('unverifiable')
+    expect(output.orphanFound).toBe(true)
+    // After the test-owned destroy, recovery proves the environment is gone.
+    expect(output.secondOutcome).toBe('not_found')
+    expect(output.orphanRemains).toBe(false)
+    const durableState = JSON.parse(await readFile(stateFile, 'utf8')) as {
+      environments: Record<string, unknown>
+    }
+    expect(durableState.environments).toEqual({})
+  })
+
+  it('recovers a live run from only the environment admission after a SIGKILL before the dispatched record', {
+    timeout: 120_000,
+  }, async () => {
+    const stateFile = join(directory, 'kill-live-provider.json')
+    const referenceFile = join(directory, 'kill-live-admission.json')
+
+    // The reviewer-proven window: dispatch commits remotely, the process dies
+    // before the dispatched record persists, and only the environment
+    // admission survives.
+    const killed = await runChild(stateFile, referenceFile, 'start-kill-live')
+    expect(killed.signal, killed.stderr).toBe('SIGKILL')
+    expect(killed.code).toBeNull()
+    const minted = mintRetainedIdentity('kill-live', 'kill-live')
+    const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as Record<string, string>
+    expect(admission).toMatchObject({
+      phase: 'environment',
+      environmentId: 'environment-kill-live',
+      sessionId: minted.sessionId,
+      executionId: minted.executionId,
+    })
+    // The dispatch committed before the kill: the provider holds the session.
+    const stateAfterKill = JSON.parse(await readFile(stateFile, 'utf8')) as {
+      environments: Record<string, { sessions: Record<string, unknown> }>
+    }
+    expect(
+      Object.keys(stateAfterKill.environments['environment-kill-live']?.sessions ?? {}),
+    ).toEqual([minted.sessionId])
+
+    const recovered = await runChild(stateFile, referenceFile, 'recover-live')
+    expect(recovered.code, recovered.stderr).toBe(0)
+    expect(recovered.signal).toBeNull()
+    const output = JSON.parse(await readFile(`${referenceFile}.output`, 'utf8')) as {
+      controlRef: Record<string, string>
+      eventIds: string[]
+      cancellation: { operationId: string; status: string; effect: string }
+    }
+    expect(output.controlRef).toMatchObject({
+      environmentId: 'environment-kill-live',
+      sessionId: minted.sessionId,
+      executionId: minted.executionId,
+    })
+    expect(output.eventIds).toEqual(['event-0', 'event-1', 'event-2'])
+    expect(output.cancellation).toMatchObject({
+      operationId: 'kill-live-cancel',
+      status: 'accepted',
+      effect: 'cancelled',
+    })
+    const durableState = JSON.parse(await readFile(stateFile, 'utf8')) as {
+      environments: Record<string, { sessions: Record<string, { status: string }> }>
+    }
+    expect(
+      durableState.environments['environment-kill-live']?.sessions[minted.sessionId]?.status,
+    ).toBe('cancelled')
+  })
+
+  it('mints deterministic identity into the dispatch input and both admissions when identity is omitted', async () => {
+    const minted = mintRetainedIdentity('mint-environment', 'mint-turn')
+    const controlRef = {
+      runId: 'mint-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: minted.sessionId,
+      executionId: minted.executionId,
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true, sessionId: controlRef.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let dispatched: AgentTurnInput | undefined
+    const provider = providerWithEnvironment({
+      async dispatch(input) {
+        dispatched = input
+        return { id: controlRef.sessionId, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+    })
+    let created: CreateAgentEnvironmentInput | undefined
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      created = input
+      return originalCreate(input)
+    }
+
+    const recorder = recordedAdmissions()
+    await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'mint-environment' },
+      turn: { prompt: 'go', turnId: 'mint-turn' },
+      onAdmission: recorder.onAdmission,
+    })
+
+    expect(dispatched).toMatchObject(minted)
+    expect(created?.metadata).toMatchObject(minted)
+    expect(recorder.admissions[0]).toMatchObject({ phase: 'environment', ...minted })
+    expect(recorder.admissions[1]).toMatchObject({
+      phase: 'dispatched',
+      controlRef: { sessionId: minted.sessionId, executionId: minted.executionId },
+    })
+  })
+
+  it('fails loud with the provider reference when dispatch dishonors the requested identity', async () => {
+    let destroys = 0
+    const rogueRef = {
+      runId: 'rogue-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'rogue-session',
+      executionId: 'rogue-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        return { id: rogueRef.sessionId, provider: 'test-provider', controlRef: rogueRef }
+      },
+      async destroy() {
+        destroys += 1
+      },
+    })
+
+    const recorder = recordedAdmissions()
+    const failure = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'dishonor-environment' },
+      turn: { prompt: 'go', turnId: 'dishonor-turn' },
+      identity: { sessionId: 'honest-session', executionId: 'honest-execution' },
+      onAdmission: recorder.onAdmission,
+    }).catch((error: unknown) => error)
+
+    expect(failure).toBeInstanceOf(RetainedRunDispatchBindingError)
+    const binding = failure as RetainedRunDispatchBindingError
+    expect(binding.code).toBe('backend_integrity')
+    expect(binding.requested).toEqual({
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'honest-session',
+      executionId: 'honest-execution',
+    })
+    expect(binding.returned).toMatchObject({ id: 'rogue-session' })
+    expect(binding.returned.controlRef).toMatchObject({ sessionId: 'rogue-session' })
+    // The environment stays alive, and its admission is already durable.
+    expect(destroys).toBe(0)
+    expect(recorder.admissions.map((admission) => admission.phase)).toEqual(['environment'])
+    expect(recorder.admissions[0]).toMatchObject({
+      sessionId: 'honest-session',
+      executionId: 'honest-execution',
+    })
   })
 })
 

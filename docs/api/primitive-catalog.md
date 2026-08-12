@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.132.13` and `@tangle-network/agent-eval@0.145.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.133.0` and `@tangle-network/agent-eval@0.145.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 426 exports.
+Import from `@tangle-network/agent-runtime` — 428 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -157,6 +157,8 @@ Import from `@tangle-network/agent-runtime` — 426 exports.
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
 | `OfficialOptimizerUnavailableError` | class | Missing optional Python dependencies for an official optimizer. |
 | `PlannerError` | class | The dynamic-loop planner returned an unusable topology move — the LLM emitted |
+| `RetainedRunAdmissionError` | class | The caller's `onAdmission` durability hook rejected, so a retained run's |
+| `RetainedRunDispatchBindingError` | class | A retained dispatch answered with coordinates that do not bind to the |
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
 | `ValidationError` | class | Caller passed invalid arguments (out of range, mutually-exclusive options, bad shape). |
@@ -520,7 +522,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 736 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 743 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -664,6 +666,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 736 exports.
 | `readWorkerSteerRequests` | function | Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. |
 | `readWorkerTraceContext` | function | Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no |
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
+| `recoverRetainedRun` | function | Rebuild the exact run named by pre-dispatch admission coordinates, or |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
@@ -920,6 +923,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 736 exports.
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
+| `RecoverRetainedRunOptions` | interface | Pre-dispatch admission coordinates for one recovery attempt. |
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
 | `RenderCorpusToInstructionsOptions` | interface | Project accreted corpus facts into an `AgentProfile`'s instruction seams — the learning-flywheel |
@@ -931,6 +935,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 736 exports.
 | `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
 | `RetainedRunCancellation` | interface | Durable acknowledgement state for one retained control operation. |
 | `RetainedRunCancelOptions` | interface | Options for an idempotent retained cancellation. |
+| `RetainedRunDispatchedAdmission` | interface | The verified exact reference, durable before the start promise resolves. |
+| `RetainedRunEnvironmentAdmission` | interface | Recovery coordinates durable after environment creation and before dispatch. |
 | `RetainedRunEventOptions` | interface | Options for replaying canonical events strictly after a saved point. |
 | `RetainedRunHandle` | interface | Reconstructable control of one provider-retained run. |
 | `RetainedRunReplayPoint` | interface | Cursor plus runtime sequence needed to continue one ordered replay. |
@@ -1065,11 +1071,14 @@ Import from `@tangle-network/agent-runtime/kernel` — 736 exports.
 | `Pipeline` | type | `pipeline(stages)` — build the sequential combinator from an ordered stage list. The first |
 | `ProfileKeyOf` | type | The profile (matrix row) a record belongs to — default `harness·model` from the record's profile cell, |
 | `ProfileMaterializationReceipt` | type | What the kernel can prove about one node's actual execution plan. |
+| `RecoverRetainedRunResult` | type | Outcome of one recovery attempt from pre-dispatch admission coordinates. |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `ReservationRejection` | type | Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it |
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
 | `Restart` | type | OTP child-spec restart class. |
+| `RetainedRunAdmission` | type | One admission record the runtime persists through the caller before proceeding. |
+| `RetainedRunAdmissionHook` | type | Awaited durability hook for retained admission records. |
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
 | `RootProviderModelEvidence` | type | Provider-observed model identity for the root manager's settled inference turns. |

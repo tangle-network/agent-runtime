@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.133.0
+
+- Require an awaited `onAdmission` durability hook on `startRetainedRun`, called after environment creation and after dispatch, before the start promise resolves.
+  Migration: every `startRetainedRun` caller must add `onAdmission` and persist each record before the hook returns.
+- Mint deterministic dispatch identity from `(idempotencyKey, turnId)` when the caller omits `identity`, and verify after dispatch that the provider honored it; a mismatch fails with `RetainedRunDispatchBindingError` carrying the provider's returned reference.
+- Add `recoverRetainedRun(...)`: from pre-dispatch admission coordinates it reports `recovered`, `not_found`, or `unverifiable`; `unverifiable` is never destroy-safe.
+- Fail a start whose admission hook rejects with `RetainedRunAdmissionError` and keep the environment for recovery.
+- Write the retained recovery keys into provider create metadata; the runtime keys overwrite same-named caller keys, and other caller keys stay preserved.
+
 ## 0.132.13
 
 - Normalize official optimizer cost receipts to the requested profile model while preserving the provider-served identity in response evidence.

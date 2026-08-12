@@ -1033,6 +1033,174 @@ default move, or the loop silently runs a topology nobody chose.
 
 ***
 
+### RetainedRunAdmissionError
+
+**`Stable`**
+
+The caller's `onAdmission` durability hook rejected, so a retained run's
+admission record is not durable while provider work may already be live.
+Distinct from a provider failure: the provider call succeeded, and the
+environment is intentionally kept so `recoverRetainedRun` (or a provider
+metadata lookup) can rebuild or disprove the run. Carries `capture_integrity`
+because the durable record a later recovery requires was not written.
+
+#### Extends
+
+- `AgentEvalError`
+
+#### Constructors
+
+##### Constructor
+
+> **new RetainedRunAdmissionError**(`admission`, `options?`): [`RetainedRunAdmissionError`](#retainedrunadmissionerror)
+
+###### Parameters
+
+###### admission
+
+[`RetainedRunAdmission`](runtime.md#retainedrunadmission)
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`RetainedRunAdmissionError`](#retainedrunadmissionerror)
+
+###### Overrides
+
+`AgentEvalError.constructor`
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"environment"` \| `"dispatched"`
+
+##### admission
+
+> `readonly` **admission**: [`RetainedRunAdmission`](runtime.md#retainedrunadmission)
+
+The exact record the hook failed to persist, for direct recovery.
+
+***
+
+### RetainedRunDispatchBindingError
+
+**`Stable`**
+
+A retained dispatch answered with coordinates that do not bind to the
+identity the runtime requested, or failed exact verification. The
+environment-phase admission is already durable at this point, so its
+coordinates plus the provider reference carried here are the manual
+recovery path. The environment is intentionally kept. Carries
+`backend_integrity` because the provider violated its dispatch contract.
+
+#### Extends
+
+- `AgentEvalError`
+
+#### Constructors
+
+##### Constructor
+
+> **new RetainedRunDispatchBindingError**(`requested`, `returned`, `options?`): [`RetainedRunDispatchBindingError`](#retainedrundispatchbindingerror)
+
+###### Parameters
+
+###### requested
+
+###### provider
+
+`string`
+
+###### environmentId
+
+`string`
+
+###### sessionId
+
+`string`
+
+###### executionId
+
+`string`
+
+###### returned
+
+###### id?
+
+`string`
+
+###### provider?
+
+`string`
+
+###### controlRef?
+
+`unknown`
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`RetainedRunDispatchBindingError`](#retainedrundispatchbindingerror)
+
+###### Overrides
+
+`AgentEvalError.constructor`
+
+#### Properties
+
+##### requested
+
+> `readonly` **requested**: `object`
+
+The coordinates the runtime sent with the dispatch.
+
+###### provider
+
+> `readonly` **provider**: `string`
+
+###### environmentId
+
+> `readonly` **environmentId**: `string`
+
+###### sessionId
+
+> `readonly` **sessionId**: `string`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+##### returned
+
+> `readonly` **returned**: `object`
+
+The loose reference the provider actually returned, for triage.
+
+###### id?
+
+> `readonly` `optional` **id?**: `string`
+
+###### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+###### controlRef?
+
+> `readonly` `optional` **controlRef?**: `unknown`
+
+***
+
 ### OfficialOptimizerUnavailableError
 
 Missing optional Python dependencies for an official optimizer.
