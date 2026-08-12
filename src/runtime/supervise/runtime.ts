@@ -68,6 +68,7 @@ import {
 } from '../environment-provider'
 import { agentHarness } from '../harness-role'
 import type { KeyProvider } from '../key-provider'
+import { observedModelMatchesDeclared } from '../model-identity'
 import {
   type PromptCacheUsage,
   type RouterChatResult,
@@ -1190,17 +1191,11 @@ function assertObservedRouterModel(
   expected: string,
   context: string,
 ): void {
-  if (observed !== undefined && !observedRouterModelMatches(observed, expected)) {
+  if (observed !== undefined && !observedModelMatchesDeclared(observed, expected)) {
     throw new ValidationError(
       `${context}: provider reported model ${JSON.stringify(observed)} but AgentProfile requires ${JSON.stringify(expected)}`,
     )
   }
-}
-
-function observedRouterModelMatches(observed: string, expected: string): boolean {
-  if (observed === expected) return true
-  const suffix = observed.startsWith(`${expected}@`) ? observed.slice(expected.length + 1) : ''
-  return suffix.length > 0 && /^[A-Za-z0-9._-]+$/u.test(suffix)
 }
 
 function routerRequestIdentity(ctx: ExecutorContext): {
