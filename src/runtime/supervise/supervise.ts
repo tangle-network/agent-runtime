@@ -58,10 +58,11 @@ import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
-  recordRuntimeOwnedDriveHarnessModel,
-  runtimeOwnedDriveHarnessModels,
+  recordRuntimeOwnedDriveHarnessProviderEvidence,
+  runtimeOwnedDriveHarnessProviderEvidence,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedExecutorProviderEvidence,
   runtimeOwnedPendingExecutorMaterialization,
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
@@ -85,6 +86,7 @@ import {
 } from './runtime'
 import {
   deriveNodeExecutionIdentity,
+  meterRuntimeOwnedProviderAttempt,
   recordScopeOwnerMaterialization,
   scopeOwnerExecutorNodeContext,
 } from './scope'
@@ -112,6 +114,8 @@ import type {
   Executor,
   ExecutorContext,
   NodeExecutionIdentity,
+  ProviderModelAttemptEvidence,
+  ProviderModelExecutionEvidence,
   ResultBlobStore,
   RootHandle,
   RootProviderModelEvidence,
@@ -373,8 +377,40 @@ function driveHarnessFromBackend(
     let completed = false
     let started = false
     let terminalAccountingCaptured = false
-    let settledOutput: unknown
     let pendingUsage: UsageEvent[] = []
+    let meteredProviderAttempts = 0
+    const providerEvidenceForNextMeter = (): ProviderModelExecutionEvidence => {
+      const evidence = runtimeOwnedExecutorProviderEvidence(executor)
+      const attempt: ProviderModelAttemptEvidence | undefined =
+        evidence?.attempts[meteredProviderAttempts++]
+      if (attempt === undefined) {
+        return providerAttemptEvidence(undefined)
+      }
+      const observations = Object.freeze([...attempt.observations])
+      const models = Object.freeze([...new Set(observations)])
+      return Object.freeze(
+        attempt.identityConflict === true || observations.length === 0
+          ? {
+              status: 'unknown' as const,
+              attempts: Object.freeze([
+                Object.freeze({
+                  observations,
+                  ...(attempt.identityConflict === true ? { identityConflict: true } : {}),
+                }),
+              ]),
+              models,
+              reason:
+                attempt.identityConflict === true
+                  ? ('provider-model-conflict' as const)
+                  : ('provider-model-missing' as const),
+            }
+          : {
+              status: 'known' as const,
+              attempts: Object.freeze([Object.freeze({ observations })]),
+              models,
+            },
+      )
+    }
     let teardownStarted = false
     const deadlineAtMs = scope.budget.deadlineMs || undefined
     const teardownOnce = async (grace: number | 'brutalKill' | 'infinity') => {
@@ -382,14 +418,26 @@ function driveHarnessFromBackend(
       teardownStarted = true
       await teardownExecutor(executor, grace, deadlineAtMs, now)
     }
-    const meterPending = async () => {
+    const meterPending = async (forceUnknown = false) => {
       if (pendingUsage.length === 0) return
       const batch = pendingUsage
       pendingUsage = []
-      await scope.meter(spendFromUsageEvents(batch), {
-        role: 'driver',
-        runtime: executor.runtime,
-      })
+      const measured = spendFromUsageEvents(batch)
+      await meterRuntimeOwnedProviderAttempt(
+        scope,
+        forceUnknown
+          ? {
+              ...measured,
+              tokensKnown: false,
+              usdKnown: false,
+            }
+          : measured,
+        providerEvidenceForNextMeter(),
+        {
+          role: 'driver',
+          runtime: executor.runtime,
+        },
+      )
       const budget = scope.budget
       if (
         budget.tokensLeft <= 0 ||
@@ -500,12 +548,12 @@ function driveHarnessFromBackend(
         }
         await meterPending()
         const artifact = executor.resultArtifact()
-        settledOutput = artifact.out
         terminalAccountingCaptured = true
         // A stream carries increments, while its terminal artifact says whether either accounting
         // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
         if (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false) {
-          await scope.meter(
+          await meterRuntimeOwnedProviderAttempt(
+            scope,
             {
               iterations: 0,
               tokens: { input: 0, output: 0 },
@@ -514,22 +562,20 @@ function driveHarnessFromBackend(
               ...(artifact.spent.usdKnown === false ? { usdKnown: false } : {}),
               ms: 0,
             },
+            providerEvidenceForNextMeter(),
             { role: 'driver', runtime: executor.runtime, telemetry: 'unknown' },
           )
         }
       } else {
         const artifact = await run
-        settledOutput = artifact.out
         terminalAccountingCaptured = true
-        await scope.meter(
+        await meterRuntimeOwnedProviderAttempt(
+          scope,
           { ...artifact.spent, iterations: 0 },
+          providerEvidenceForNextMeter(),
           { role: 'driver', runtime: executor.runtime },
         )
       }
-      // The settled executor artifact is the only owner-trusted source for the provider model.
-      // The bridge request model is a plan and must not be copied into this receipt when the
-      // provider omitted its response identity.
-      recordRuntimeOwnedDriveHarnessModel(drive, extractExecutorModel(settledOutput))
       if (pending !== undefined) {
         const acknowledged = runtimeOwnedExecutorMaterialization(executor)
         const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
@@ -545,8 +591,15 @@ function driveHarnessFromBackend(
       failed = true
       failure = error
     } finally {
+      // Capture provider evidence before teardown destroys the executor-owned observation state.
+      // This is independent from terminal materialization: an aborted paid turn still needs its
+      // served identity, while a plan-only receipt must never be used as a substitute.
+      recordRuntimeOwnedDriveHarnessProviderEvidence(
+        drive,
+        runtimeOwnedExecutorProviderEvidence(executor),
+      )
       try {
-        await meterPending()
+        await meterPending(failed && started && !terminalAccountingCaptured)
       } catch (error) {
         if (!failed) {
           failed = true
@@ -555,17 +608,41 @@ function driveHarnessFromBackend(
       }
       if (failed && started && !terminalAccountingCaptured) {
         try {
-          await scope.meter(
-            {
-              iterations: 0,
-              tokens: { input: 0, output: 0 },
-              tokensKnown: false,
-              usd: 0,
-              usdKnown: false,
-              ms: 0,
-            },
-            { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
-          )
+          // A reconnect may have started several provider attempts before the bridge failed.
+          // Persist one unknown-cost marker for every unmetered attempt; dropping a later model
+          // observation would let an earlier model appear homogeneous by accident.
+          for (;;) {
+            const attempts = runtimeOwnedExecutorProviderEvidence(executor)?.attempts.length ?? 0
+            if (attempts <= meteredProviderAttempts) break
+            await meterRuntimeOwnedProviderAttempt(
+              scope,
+              {
+                iterations: 0,
+                tokens: { input: 0, output: 0 },
+                tokensKnown: false,
+                usd: 0,
+                usdKnown: false,
+                ms: 0,
+              },
+              providerEvidenceForNextMeter(),
+              { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
+            )
+          }
+          if (meteredProviderAttempts === 0) {
+            await meterRuntimeOwnedProviderAttempt(
+              scope,
+              {
+                iterations: 0,
+                tokens: { input: 0, output: 0 },
+                tokensKnown: false,
+                usd: 0,
+                usdKnown: false,
+                ms: 0,
+              },
+              providerEvidenceForNextMeter(),
+              { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
+            )
+          }
         } catch (error) {
           // The budget pool intentionally throws after durably recording unknown capped usage and
           // closing that capacity. Only replace the original failure if the marker did not land.
@@ -595,18 +672,24 @@ function driveHarnessFromBackend(
   return attestRuntimeOwnedScopeOwner(drive, 'cli')
 }
 
-function extractExecutorModel(value: unknown): string | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const model = (value as Record<string, unknown>).model
-  return typeof model === 'string' && model.length > 0 ? model : undefined
-}
-
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
   return (
     value !== null &&
     typeof value === 'object' &&
     Symbol.asyncIterator in value &&
     typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === 'function'
+  )
+}
+
+function providerAttemptEvidence(model: string | undefined): ProviderModelExecutionEvidence {
+  const attempts = Object.freeze([
+    Object.freeze({ observations: Object.freeze(model === undefined ? [] : [model]) }),
+  ])
+  const models = Object.freeze(model === undefined ? [] : [model])
+  return Object.freeze(
+    model === undefined
+      ? { status: 'unknown' as const, attempts, models, reason: 'provider-model-missing' as const }
+      : { status: 'known' as const, attempts, models },
   )
 }
 
@@ -1792,15 +1875,19 @@ function superviseInternal(
     })
     const settle = async () => {
       const result = await run
-      const observed =
-        rootProviderModels.length > 0
-          ? rootProviderModels
-          : rootDriveHarness === undefined
-            ? []
-            : (runtimeOwnedDriveHarnessModels(rootDriveHarness) ?? [])
+      const rootProviderModel =
+        ctx.resume === true
+          ? rootProviderModelEvidence([])
+          : rootProviderModels.length > 0
+            ? rootProviderModelEvidence(rootProviderModels)
+            : rootDriveHarness === undefined
+              ? rootProviderModelEvidence([])
+              : rootProviderModelEvidenceFromExecution(
+                  runtimeOwnedDriveHarnessProviderEvidence(rootDriveHarness),
+                )
       return {
         ...result,
-        rootProviderModel: rootProviderModelEvidence(observed),
+        rootProviderModel,
       }
     }
     if (!recorder) return settle()
@@ -1822,13 +1909,25 @@ function superviseInternal(
 function rootProviderModelEvidence(
   observations: ReadonlyArray<string | undefined>,
 ): RootProviderModelEvidence {
+  const attempts = Object.freeze(
+    observations.map((model) =>
+      Object.freeze({ observations: Object.freeze(model === undefined ? [] : [model]) }),
+    ),
+  )
   const models = [...new Set(observations.filter((model): model is string => model !== undefined))]
   if (observations.length === 0 || observations.some((model) => model === undefined)) {
     return Object.freeze({
       status: 'unknown' as const,
+      attempts,
       models: Object.freeze(models),
       reason: 'provider-model-missing' as const,
     })
   }
-  return Object.freeze({ status: 'known' as const, models: Object.freeze(models) })
+  return Object.freeze({ status: 'known' as const, attempts, models: Object.freeze(models) })
+}
+
+function rootProviderModelEvidenceFromExecution(
+  evidence: RootProviderModelEvidence | undefined,
+): RootProviderModelEvidence {
+  return evidence ?? rootProviderModelEvidence([])
 }

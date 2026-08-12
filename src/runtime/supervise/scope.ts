@@ -53,6 +53,7 @@ import {
   runtimeOwnedDeferredExecutorRuntime,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedExecutorProviderEvidence,
   runtimeOwnedPendingExecutorMaterialization,
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
@@ -85,6 +86,7 @@ import type {
   NodeSnapshot,
   NodeStatus,
   ProfileMaterializationReceipt,
+  ProviderModelExecutionEvidence,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,
@@ -210,6 +212,15 @@ export interface ScopeArgs {
   }
 }
 
+type RuntimeOwnedProviderMeter = (
+  spend: Spend,
+  providerModel: ProviderModelExecutionEvidence,
+  detail?: Record<string, unknown>,
+) => Promise<void>
+
+/** Runtime-owned provider evidence is written through this private scope capability. */
+const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
+
 /** Mutable only inside Scope admission/release. Every nested scope receives this exact object. */
 export interface LiveWorkerCapacityState {
   readonly max: number | undefined
@@ -239,6 +250,8 @@ interface LiveChild {
   outRef?: string
   /** Durable structured tool evidence once this executor is terminal. */
   trace?: WorkerTraceEvidence
+  /** Provider-served model evidence once this executor has attempted inference. */
+  providerModel?: import('./types').ProviderModelExecutionEvidence
   /** Exact terminal timestamp committed to the journal. */
   settledAt?: number
   /** Resolves with the terminal settlement WITHOUT a `seq` — `next()` stamps the seq. */
@@ -289,6 +302,7 @@ type PreSeqSettled =
       outRef: string
       verdict?: DefaultVerdict
       spent: Spend
+      providerModel?: import('./types').ProviderModelExecutionEvidence
       trace: WorkerTraceEvidence
       /** A driver child's OWN-inference subtree total (from `Executor.metered()`) — journaled as a
        *  `metered` event for this node, NOT reconciled (already debited live via `observe`). */
@@ -300,6 +314,7 @@ type PreSeqSettled =
       infra: boolean
       restartCount: number
       trace: WorkerTraceEvidence
+      providerModel?: import('./types').ProviderModelExecutionEvidence
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
        *  too, so the journal matches the pool (which already debited it via `observe`). */
       metered?: Spend
@@ -1236,7 +1251,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
   }
 
-  async function meter(spend: Spend, detail?: Record<string, unknown>): Promise<void> {
+  async function meterInternal(
+    spend: Spend,
+    detail?: Record<string, unknown>,
+    providerModel?: ProviderModelExecutionEvidence,
+  ): Promise<void> {
     if (args.signal.aborted) {
       throw new ValidationError('scope.meter: cannot record new driver work after scope abort')
     }
@@ -1260,6 +1279,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       kind: 'metered',
       id: args.parentId,
       spend,
+      ...(providerModel === undefined
+        ? {}
+        : { providerModel: detachedSnapshot(providerModel, 'runtime provider model evidence') }),
       seq,
       at: new Date(now()).toISOString(),
     })
@@ -1302,7 +1324,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     progress,
     traceSource,
     signal: args.signal,
-    meter,
+    meter: (spend, detail) => meterInternal(spend, detail),
     ...(resume ? { resume } : {}),
     get view(): TreeView {
       return makeTreeView(args.parentId, children)
@@ -1317,6 +1339,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     },
   }
+  runtimeOwnedProviderMeters.set(scope as Scope<unknown>, async (spend, providerModel, detail) =>
+    meterInternal(spend, detail, providerModel),
+  )
   if (args.ownerMaterialization !== undefined) {
     const authoredProfile =
       args.ownerMaterialization.authoredProfile === undefined
@@ -1349,6 +1374,20 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     })
   }
   return scope
+}
+
+/** @internal Meter one Runtime-owned provider attempt into the durable scope journal. */
+export function meterRuntimeOwnedProviderAttempt(
+  scope: Scope<unknown>,
+  spend: Spend,
+  providerModel: ProviderModelExecutionEvidence,
+  detail?: Record<string, unknown>,
+): Promise<void> {
+  const meter = runtimeOwnedProviderMeters.get(scope as object)
+  if (meter === undefined) {
+    throw new ValidationError('scope: Runtime-owned provider meter is not bound to this scope')
+  }
+  return meter(spend, providerModel, detail)
 }
 
 interface OwnerMaterializationState {
@@ -1626,6 +1665,7 @@ async function finalizeSettlement<Out>(
   if (settlement.kind === 'down') {
     child.status = 'failed'
     child.trace = settlement.trace
+    child.providerModel = settlement.providerModel
     await args.journal.appendEvent(args.root, {
       kind: 'settled',
       id: child.id,
@@ -1633,6 +1673,7 @@ async function finalizeSettlement<Out>(
       spent: child.spent,
       infra: settlement.infra,
       reason: settlement.reason,
+      ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
       trace: settlement.trace,
       seq,
       at,
@@ -1674,6 +1715,7 @@ async function finalizeSettlement<Out>(
       reason: settlement.reason,
       infra: settlement.infra,
       restartCount: settlement.restartCount,
+      ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
       trace: settlement.trace,
       settledAt,
       seq,
@@ -1684,6 +1726,7 @@ async function finalizeSettlement<Out>(
   child.outRef = settlement.outRef
   child.spent = settlement.spent
   child.trace = settlement.trace
+  child.providerModel = settlement.providerModel
   await args.journal.appendEvent(args.root, {
     kind: 'settled',
     id: child.id,
@@ -1691,6 +1734,7 @@ async function finalizeSettlement<Out>(
     outRef: settlement.outRef,
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
+    ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
     trace: settlement.trace,
     seq,
     at,
@@ -1735,6 +1779,7 @@ async function finalizeSettlement<Out>(
     outRef: settlement.outRef,
     ...(settlement.verdict ? { verdict: settlement.verdict } : {}),
     spent: settlement.spent,
+    ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
     trace: settlement.trace,
     settledAt,
     seq,
@@ -1930,7 +1975,13 @@ async function runChild<C>(
 
     if (childAbort.signal.aborted) {
       await teardownOnce(opts.shutdown ?? 'brutalKill')
-      return downRecord('aborted before settle', true, trace, ownMetered)
+      return downRecord(
+        'aborted before settle',
+        true,
+        trace,
+        ownMetered,
+        runtimeOwnedExecutorProviderEvidence(executor),
+      )
     }
 
     // The durable record is keyed by the canonical content address of the output — the
@@ -1949,6 +2000,7 @@ async function runChild<C>(
       ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
       spent: live.spent,
       trace,
+      providerModel: runtimeOwnedExecutorProviderEvidence(executor),
       ...(ownMetered ? { metered: ownMetered } : {}),
     }
   } catch (err) {
@@ -1973,6 +2025,7 @@ async function runChild<C>(
     }
     const accounting = executor.accounting?.()
     if (accounting) live.spent = accounting.reported
+    const providerModel = runtimeOwnedExecutorProviderEvidence(executor)
     const aborted = childAbort.signal.aborted || isAbortError(err)
     if (started && !terminalTelemetryCaptured && accounting === undefined) {
       // The provider never delivered a terminal usage receipt. This is true for an ordinary
@@ -1998,6 +2051,7 @@ async function runChild<C>(
         isInfraError(err),
       trace,
       executor.metered?.(),
+      providerModel,
     )
   }
 }
@@ -2083,6 +2137,7 @@ function makeTreeView(root: NodeId, children: Map<NodeId, LiveChild>): TreeView 
     ...(c.settledAt === undefined ? {} : { settledAt: c.settledAt }),
     ...(c.outRef ? { outRef: c.outRef } : {}),
     ...(c.trace ? { trace: c.trace } : {}),
+    ...(c.providerModel ? { providerModel: c.providerModel } : {}),
   }))
   return {
     root,
@@ -2313,8 +2368,17 @@ function downRecord(
   infra: boolean,
   trace: WorkerTraceEvidence,
   metered?: Spend,
+  providerModel?: import('./types').ProviderModelExecutionEvidence,
 ): PreSeqSettled {
-  return { kind: 'down', reason, infra, restartCount: 0, trace, ...(metered ? { metered } : {}) }
+  return {
+    kind: 'down',
+    reason,
+    infra,
+    restartCount: 0,
+    trace,
+    ...(providerModel ? { providerModel } : {}),
+    ...(metered ? { metered } : {}),
+  }
 }
 
 function zeroSpend(): Spend {

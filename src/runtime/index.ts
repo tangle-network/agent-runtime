@@ -872,6 +872,8 @@ export type {
   NodeStatus,
   NoWinnerError,
   ProfileMaterializationReceipt,
+  ProviderModelAttemptEvidence,
+  ProviderModelExecutionEvidence,
   Restart,
   ResultBlobStore,
   ResumedKeyState,
