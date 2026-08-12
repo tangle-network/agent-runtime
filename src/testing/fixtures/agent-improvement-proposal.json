@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:72de0ecca408b44a569d674670ef0a3bb972814f576aa74b21a9acc68d35cb49",
+  "digest": "sha256:5af1af9068651ce1ccac63c277da0d873f1bdb3086e78811f3a8424ea85509cf",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -4870,7 +4870,7 @@
     ],
     "metadata": {
       "fixture": "agent-improvement-proposal",
-      "runtimeVersion": "0.132.5"
+      "runtimeVersion": "0.132.6"
     },
     "objectives": [
       {
@@ -4981,8 +4981,8 @@
       "baselineContentHash": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
       "candidateContentHash": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:1aa347a7a9d48e380c8ea9a2b778d51f9850607a43ed470765fe25d1e25b38e6",
-      "runId": "agent-runtime-0.132.5-proposal-fixture",
+      "recordDigest": "sha256:eaae50c187405653fae58336c1cb709cd64070cff48ddbf3be2699bbbe6882e3",
+      "runId": "agent-runtime-0.132.6-proposal-fixture",
       "schema": "agent-candidate-experiment"
     }
   },
@@ -5009,5 +5009,5 @@
   ],
   "kind": "agent-improvement-proposal",
   "proposedAt": "2026-07-10T01:00:00.000Z",
-  "runId": "agent-runtime-0.132.5-proposal-fixture"
+  "runId": "agent-runtime-0.132.6-proposal-fixture"
 }

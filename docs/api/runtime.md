@@ -3674,7 +3674,7 @@ The worker's trace — any event array (sandbox events, tool-call records).
 
 ##### outcome?
 
-> `optional` **outcome?**: `"failed"` \| `"unknown"` \| `"passed"`
+> `optional` **outcome?**: `"unknown"` \| `"failed"` \| `"passed"`
 
 Terminal status only (passed/failed/unknown) — NOT a judge score; the
  observer never reads the verdict, it reads behavior.
@@ -14482,6 +14482,22 @@ Product authorization for every down-leg continuation to a child.
 
 Per-child budget reserved from the conserved pool on each spawn.
 
+##### onProviderModel?
+
+> `readonly` `optional` **onProviderModel?**: (`model`) => `void`
+
+Runtime-owned sink for provider identity observed by this manager's own turns.
+
+###### Parameters
+
+###### model
+
+`string` \| `undefined`
+
+###### Returns
+
+`void`
+
 ##### deliverable?
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
@@ -25098,7 +25114,7 @@ ahead of the worker seam.
 
 ### supervise()
 
-> **supervise**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+> **supervise**(`profile`, `task`, `opts`): `Promise`\<\{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>
 
 **`Stable`**
 
@@ -25120,7 +25136,7 @@ One-call supervisor: build + run a supervisor from its exact profile.
 
 #### Returns
 
-`Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>\>
+`Promise`\<\{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](#nowinnererror); \} \| \{ `rootProviderModel`: [`RootProviderModelEvidence`](index.md#rootprovidermodelevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](#treeview); `spentTotal`: [`Spend`](index.md#spend); `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>
 
 ***
 
@@ -26095,6 +26111,12 @@ Re-exports [Executor](index.md#executor-2)
 ### ExecutorRegistry
 
 Re-exports [ExecutorRegistry](index.md#executorregistry)
+
+***
+
+### RootProviderModelEvidence
+
+Re-exports [RootProviderModelEvidence](index.md#rootprovidermodelevidence)
 
 ***
 
