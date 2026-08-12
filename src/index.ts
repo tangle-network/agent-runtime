@@ -102,6 +102,8 @@ export {
   JudgeError,
   NotFoundError,
   PlannerError,
+  RetainedRunAdmissionError,
+  RetainedRunDispatchBindingError,
   RuntimeRunStateError,
   ValidationError,
 } from './errors'
