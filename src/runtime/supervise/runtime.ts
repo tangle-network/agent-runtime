@@ -68,7 +68,7 @@ import {
 } from '../environment-provider'
 import { agentHarness } from '../harness-role'
 import type { KeyProvider } from '../key-provider'
-import { observedModelMatchesDeclared } from '../model-identity'
+import { mergeObservedModelIdentity, observedModelMatchesDeclared } from '../model-identity'
 import {
   type PromptCacheUsage,
   type RouterChatResult,
@@ -3060,24 +3060,13 @@ interface BridgeStreamChunk {
 
 function mergeBridgeObservedModel(current: string | undefined, next: string): string {
   if (current === undefined || current === next) return next
-  const currentBase = bridgeModelIdentityBase(current)
-  const nextBase = bridgeModelIdentityBase(next)
-  if (currentBase !== nextBase) {
+  const merged = mergeObservedModelIdentity(current, next)
+  if (merged === undefined) {
     throw new ValidationError(
       `bridgeExecutor: bridge changed response model from ${JSON.stringify(current)} to ${JSON.stringify(next)}`,
     )
   }
-  if (current.includes('@') && next.includes('@')) {
-    throw new ValidationError(
-      `bridgeExecutor: bridge changed response model snapshot from ${JSON.stringify(current)} to ${JSON.stringify(next)}`,
-    )
-  }
-  return current.includes('@') ? current : next
-}
-
-function bridgeModelIdentityBase(model: string): string {
-  const at = model.lastIndexOf('@')
-  return at > 0 ? model.slice(0, at) : model
+  return merged
 }
 
 function assertBridgeProfileMaterialization(
