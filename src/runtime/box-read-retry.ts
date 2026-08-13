@@ -23,8 +23,9 @@ export interface BoxReadRetryOptions {
   attempts: number
   /** Linear backoff base in ms; the i-th retry waits `delayMs × i`. 0 disables the wait. */
   delayMs: number
-  /** Cuts the backoff waits short. The loop still ends through `beforeAttempt`, so a caller that
-   *  must throw its own abort error keeps that authority. */
+  /** Stops the retries once aborted: the pending wait ends and no further attempt is spent on an
+   *  abandoned run. The last error is still returned, so a caller that must raise its own abort
+   *  error keeps that authority through `beforeAttempt`. */
   signal?: AbortSignal
   /** Runs before every attempt, carrying the previous attempt's error (`undefined` on the first).
    *  Throw from here to abandon the read — the way an aborting caller cancels with an error only
@@ -54,6 +55,12 @@ export async function readBoxPathWithRetry(
       lastError = err
       if (attempt < attempts && options.delayMs > 0)
         await sleep(options.delayMs * attempt, options.signal)
+      // An abandoned run earns no further attempts. `beforeAttempt` still runs first, so a caller
+      // that must raise its own abort error keeps that authority instead of getting a bare result.
+      if (options.signal?.aborted) {
+        options.beforeAttempt?.(lastError)
+        break
+      }
     }
   }
   return { succeeded: false, error: lastError }

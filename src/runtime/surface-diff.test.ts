@@ -235,6 +235,48 @@ describe('boxSurfaceReader', () => {
     ])
   })
 
+  it("treats the SDK's default 'Resource' resourceType as a missing FILE, so a deletion reports removed", async () => {
+    // The SDK's HTTP mapper builds `new NotFoundError(data.resourceType || 'Resource', ...)`, so a
+    // file 404 carries 'Resource' whenever the server does not name the type.
+    const deleted = Object.assign(new Error('not found'), {
+      name: 'NotFoundError',
+      resourceType: 'Resource',
+      resourceId: 'unknown',
+    })
+    const box = { fs: { read: () => Promise.reject(deleted) } }
+    expect(await boxSurfaceReader(box, { attempts: 1 })('CLAUDE.md')).toEqual({
+      succeeded: false,
+      missing: true,
+      error: 'not found',
+    })
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('CLAUDE.md', 'original')],
+      read: boxSurfaceReader(box, { attempts: 1 }),
+    })
+    expect(diffs.map((d) => d.status)).toEqual(['removed'])
+  })
+
+  it('stops retrying once the signal aborts instead of spending the remaining attempts', async () => {
+    const controller = new AbortController()
+    let calls = 0
+    const box = {
+      fs: {
+        read: () => {
+          calls += 1
+          controller.abort()
+          return Promise.reject(new Error('transport down'))
+        },
+      },
+    }
+    const outcome = await boxSurfaceReader(box, {
+      attempts: 5,
+      retryDelayMs: 0,
+      signal: controller.signal,
+    })('CLAUDE.md')
+    expect(calls).toBe(1)
+    expect(outcome).toEqual({ succeeded: false, missing: false, error: 'transport down' })
+  })
+
   it('reports a box-level NotFoundError (resourceType names the sandbox) as unreadable, never missing', async () => {
     const boxGone = Object.assign(new Error('sandbox sb-1 not found'), {
       name: 'NotFoundError',

@@ -200,6 +200,7 @@ export interface SurfaceReadBox {
   fs: { read(path: string): Promise<string> }
 }
 
+/** Retry and cancellation controls for {@link boxSurfaceReader}. */
 export interface BoxSurfaceReaderOptions {
   /** Read attempts per path before settling on a failed outcome. The data plane can transiently
    *  404 a just-written file (the same blip `openSandboxRun`'s deliverable read retries for), and a
@@ -251,12 +252,15 @@ export function boxSurfaceReader(
       err && typeof err === 'object' && 'resourceType' in err
         ? String((err as { resourceType: unknown }).resourceType)
         : undefined
-    // A NotFoundError naming a non-file resource (Sandbox / session) means the TRANSPORT is
-    // gone — reporting it as `missing` would read as "every surface was removed".
-    const fileNotFound = notFound && (resourceType === undefined || /file|path/i.test(resourceType))
+    // A NotFoundError naming the BOX or the session means the TRANSPORT is gone — calling that
+    // `missing` would read as "the agent deleted every surface". Anything else is the file: the
+    // SDK's HTTP mapper defaults `resourceType` to `'Resource'` when the server does not name one,
+    // so matching only file-ish names would classify an ordinary deletion as `unreadable` and the
+    // harvest would never report `removed`.
+    const transportGone = resourceType !== undefined && /sandbox|session/i.test(resourceType)
     return {
       succeeded: false,
-      missing: fileNotFound,
+      missing: notFound && !transportGone,
       error: err instanceof Error ? err.message : String(err),
     }
   }

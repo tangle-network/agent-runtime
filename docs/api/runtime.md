@@ -17006,6 +17006,8 @@ The minimal box surface the box-backed reader needs — structurally typed so th
 
 ### BoxSurfaceReaderOptions
 
+Retry and cancellation controls for [boxSurfaceReader](#boxsurfacereader).
+
 #### Properties
 
 ##### attempts?
