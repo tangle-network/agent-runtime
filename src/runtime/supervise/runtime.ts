@@ -711,7 +711,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         return artifact
       },
       teardown(_grace): Promise<{ destroyed: boolean }> {
-        controller.abort()
+        controller.abort('executor torn down')
         return Promise.resolve({ destroyed: true })
       },
       resultArtifact() {
@@ -1148,7 +1148,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         return artifact
       },
       teardown(_grace): Promise<{ destroyed: boolean }> {
-        controller.abort()
+        controller.abort('executor torn down')
         return Promise.resolve({ destroyed: true })
       },
       resultArtifact() {
@@ -1429,11 +1429,14 @@ interface StreamSandboxArgs {
 
 async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageEvent> {
   const linked = new AbortController()
-  const cascade = () => linked.abort()
-  if (args.signal.aborted || args.controller.signal.aborted) linked.abort()
-  else {
-    args.signal.addEventListener('abort', cascade, { once: true })
-    args.controller.signal.addEventListener('abort', cascade, { once: true })
+  // Stable listener identities: the finally block removes these by reference.
+  const cascadeExternal = (): void => linked.abort(abortReasonOf(args.signal))
+  const cascadeScope = (): void => linked.abort(abortReasonOf(args.controller.signal))
+  if (args.signal.aborted || args.controller.signal.aborted) {
+    linked.abort(abortReasonOf(args.signal.aborted ? args.signal : args.controller.signal))
+  } else {
+    args.signal.addEventListener('abort', cascadeExternal, { once: true })
+    args.controller.signal.addEventListener('abort', cascadeScope, { once: true })
   }
 
   const agentRun: AgentRunSpec<unknown> = {
@@ -1522,8 +1525,8 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       yield { kind: 'cost', usd: result.costUsd, ...(usdKnown ? {} : { usdKnown: false }) }
     }
   } finally {
-    args.signal.removeEventListener('abort', cascade)
-    args.controller.signal.removeEventListener('abort', cascade)
+    args.signal.removeEventListener('abort', cascadeExternal)
+    args.controller.signal.removeEventListener('abort', cascadeScope)
   }
 }
 
@@ -4732,14 +4735,29 @@ function singleShotDriver<Out>(maxIterations: number): Driver<unknown, Out, stri
 function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
   if (a.aborted || b.aborted) {
     const c = new AbortController()
-    c.abort()
+    c.abort(abortReasonOf(a.aborted ? a : b))
     return c.signal
   }
   const c = new AbortController()
-  const onAbort = () => c.abort()
-  a.addEventListener('abort', onAbort, { once: true })
-  b.addEventListener('abort', onAbort, { once: true })
+  a.addEventListener('abort', () => c.abort(abortReasonOf(a)), { once: true })
+  b.addEventListener('abort', () => c.abort(abortReasonOf(b)), { once: true })
   return c.signal
+}
+
+/** The reason a signal carries, or a named fallback. A cascade that drops the upstream reason
+ *  turns every downstream death into the generic "execution aborted": the worker's `down`
+ *  record then says nothing about WHY, which is what makes a whole class of child mortality
+ *  undiagnosable from the journal alone. */
+function abortReasonOf(signal: AbortSignal, fallback = 'aborted by parent scope'): unknown {
+  const reason = signal.reason
+  if (typeof reason === 'string' && reason.length > 0) return reason
+  // `controller.abort()` with no argument sets a DOMException whose message is the platform
+  // placeholder ("This operation was aborted"), which carries no more information than the
+  // generic death it replaces — treat it as reasonless and name the scope instead.
+  if (reason instanceof Error && reason.name !== 'AbortError' && reason.message.length > 0) {
+    return reason.message
+  }
+  return fallback
 }
 
 /** Combine N abort signals into one that fires when ANY does. Node-portable (no `AbortSignal.any`,

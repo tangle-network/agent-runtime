@@ -1361,11 +1361,22 @@ function defaultTangleSandboxCapabilities(options: {
 
 function mergeAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
   const controller = new AbortController()
-  const abort = () => controller.abort()
-  if (a.aborted || b.aborted) controller.abort()
+  // Forward the firing signal's reason. Dropping it here renamed every cascaded death to the
+  // generic "execution aborted", which is what made this class undiagnosable from a journal.
+  const reasonOf = (signal: AbortSignal): unknown => {
+    const reason = signal.reason
+    if (typeof reason === 'string' && reason.length > 0) return reason
+    // A bare `abort()` sets a DOMException carrying the platform placeholder message, which
+    // is no more diagnostic than the generic death — name the scope instead.
+    if (reason instanceof Error && reason.name !== 'AbortError' && reason.message.length > 0) {
+      return reason.message
+    }
+    return 'aborted by parent scope'
+  }
+  if (a.aborted || b.aborted) controller.abort(reasonOf(a.aborted ? a : b))
   else {
-    a.addEventListener('abort', abort, { once: true })
-    b.addEventListener('abort', abort, { once: true })
+    a.addEventListener('abort', () => controller.abort(reasonOf(a)), { once: true })
+    b.addEventListener('abort', () => controller.abort(reasonOf(b)), { once: true })
   }
   return controller.signal
 }

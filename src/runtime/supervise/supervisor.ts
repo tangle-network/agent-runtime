@@ -1026,7 +1026,10 @@ async function drainLiveChildren(
     )
     graceTimer.unref?.()
   } else if (!controller.signal.aborted) {
-    controller.abort()
+    // Same event as the grace-timer branch above, so it carries the same named reason: one
+    // path stating why and the other going silent is what put identical deaths in two
+    // different diagnostic buckets.
+    controller.abort('root driver failed; no child settle grace configured')
   }
   try {
     await drainCursor(scope)
