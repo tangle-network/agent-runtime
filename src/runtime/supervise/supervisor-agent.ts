@@ -241,6 +241,8 @@ export interface DriveHarness {
     readonly task: unknown
     readonly scope: Scope<unknown>
     readonly coordinationMcpUrl: string
+    /** Fires when the coordination server accepts a result or declares completion. */
+    readonly stopSignal?: AbortSignal
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
      *  this in their materialization evidence without persisting executable handlers. */
     readonly coordinationTools: ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
@@ -572,6 +574,7 @@ function buildSupervisorAgent(
           ? await bindSupervisorTools(resolveTools, context, scope.signal)
           : undefined
       const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
+      const stopController = new AbortController()
       const mcp = await serveCoordinationMcp({
         scope,
         blobs: deps.blobs,
@@ -587,6 +590,11 @@ function buildSupervisorAgent(
           ? { allowUnauthenticatedRemote: true }
           : {}),
         ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+        onStop: (reason) => {
+          if (!stopController.signal.aborted) {
+            stopController.abort(reason ?? 'coordination stop')
+          }
+        },
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
@@ -616,6 +624,7 @@ function buildSupervisorAgent(
                 task,
                 scope,
                 coordinationMcpUrl: mcp.url,
+                stopSignal: stopController.signal,
                 coordinationTools: (nodeTools ?? []).map(({ name, description, inputSchema }) => ({
                   name,
                   description,
@@ -626,7 +635,7 @@ function buildSupervisorAgent(
               // Once the injected check has accepted a result, a later backend shutdown/timeout
               // cannot erase that completed work — and there is nothing left to retry FOR. Without
               // an accepted submission the backend error propagates into the retry decision.
-              if (!mcp.submittedResult()) throw error
+              if (!mcp.submittedResult() && !mcp.isStopped()) throw error
             }
           },
           progress: () => ({

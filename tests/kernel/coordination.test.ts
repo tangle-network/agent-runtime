@@ -149,11 +149,13 @@ describe('coordination tools', () => {
     expect(withoutCheck.tools.map((t) => t.name)).not.toContain('submit_result')
 
     const checked: unknown[] = []
+    const stopReasons: Array<string | undefined> = []
     const withCheck = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
+      onStop: (reason) => stopReasons.push(reason),
       deliverable: {
         describe: 'an object whose answer is 42',
         check(result) {
@@ -193,7 +195,11 @@ describe('coordination tools', () => {
       retained: 'earlier-passing-result',
       stop: true,
     })
+    expect(await tool(withCheck, 'stop').handler({ reason: 'redundant-stop' })).toEqual({
+      stopped: true,
+    })
     expect(checked).toHaveLength(3)
+    expect(stopReasons).toEqual(['result-accepted'])
     expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
   })
 

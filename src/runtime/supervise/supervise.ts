@@ -82,6 +82,7 @@ import {
   captureReusableExecutorConfig,
   createExecutor,
   type ExecutorConfig,
+  mergeAbortSignals,
   snapshotExecutorConfig,
 } from './runtime'
 import {
@@ -331,6 +332,7 @@ function driveHarnessFromBackend(
     task,
     scope,
     coordinationMcpUrl,
+    stopSignal,
     coordinationTools,
   }) => {
     const initialBudget = scope.budget
@@ -537,7 +539,9 @@ function driveHarnessFromBackend(
       }
 
       started = true
-      const run = executor.execute(task, scope.signal)
+      const runSignal =
+        stopSignal === undefined ? scope.signal : mergeAbortSignals(scope.signal, stopSignal)
+      const run = executor.execute(task, runSignal)
       if (isAsyncIterable<UsageEvent>(run)) {
         for await (const event of run) {
           if (event.kind === 'iteration') {

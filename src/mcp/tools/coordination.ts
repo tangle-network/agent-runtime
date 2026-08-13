@@ -337,6 +337,8 @@ export interface CoordinationToolsOptions {
   readonly blobs: ResultBlobStore
   readonly makeWorkerAgent: MakeWorkerAgent
   readonly perWorker: Budget
+  /** Called once when this manager declares completion through `stop` or an accepted submission. */
+  readonly onStop?: (reason: string | undefined) => void
   /**
    * The same independent completion check used for workers. When present, the driver receives a
    * `submit_result` tool and may finish work itself instead of being forced to delegate it. The
@@ -716,11 +718,18 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const deliverable = opts.deliverable
   let stopped = false
   let reason: string | undefined
+  let stopNotified = false
   let submitted: { readonly result: unknown } | undefined
   let questionSeq = 0
   const ledger: SettledWorker[] = []
   const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
   const questionPolicy = opts.questionPolicy ?? 'auto'
+
+  const notifyStop = (): void => {
+    if (stopNotified) return
+    stopNotified = true
+    opts.onStop?.(reason)
+  }
 
   // Keyed-assignment bookkeeping for the live-worker fence. `completedKeys` is every key this run
   // can already answer from committed work — seeded from the prior journal on a resume, extended as
@@ -2243,6 +2252,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               submitted = Object.freeze({ result })
               stopped = true
               reason = 'result-accepted'
+              notifyStop()
               return { accepted: true, retained: 'this-result', stop: true }
             },
           } satisfies McpToolDescriptor,
@@ -2267,6 +2277,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         stopped = true
         const r = obj(raw).reason
         reason = typeof r === 'string' ? r : undefined
+        notifyStop()
         return Promise.resolve({ stopped: true })
       },
     },

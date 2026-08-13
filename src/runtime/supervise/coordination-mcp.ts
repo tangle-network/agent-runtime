@@ -85,6 +85,8 @@ export async function serveCoordinationMcp(opts: {
   perWorker: Budget
   /** Independent completion check exposed to the driver as `submit_result`. */
   deliverable?: DeliverableSpec<unknown>
+  /** Called once when the external manager accepts a result or declares completion. */
+  onStop?: (reason: string | undefined) => void
   /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   maxLiveWorkers?: number
@@ -147,6 +149,7 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.authorizeDownMessage ? { authorizeDownMessage: opts.authorizeDownMessage } : {}),
     perWorker: opts.perWorker,
     ...(opts.deliverable ? { deliverable: opts.deliverable } : {}),
+    ...(opts.onStop ? { onStop: opts.onStop } : {}),
     ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
     awaitTimeoutMs: opts.awaitTimeoutMs ?? DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
     ...(opts.analysts ? { analysts: opts.analysts } : {}),
