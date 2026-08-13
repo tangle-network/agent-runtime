@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.133.8
+
+- Stop an external supervisor's active harness after `submit_result` accepts a result or `stop` declares completion.
+- Custom `DriveHarness` implementations should honor the new `stopSignal` so they stop provider work after completion.
+
 ## 0.133.7
 
 - Preserve cli-bridge profile materialization receipts when a terminal provider error follows the receipt.
