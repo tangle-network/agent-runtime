@@ -70,6 +70,13 @@ export class BackendTransportError extends AgentEvalError {
   readonly backend: string
   readonly status?: number
   /**
+   * Router-owned proof that a rejected request never reached a provider.
+   *
+   * This is intentionally one-sided. An absent value, or any value this
+   * package does not understand, remains unknown to Runtime.
+   */
+  readonly providerDispatch?: 'not_started'
+  /**
    * Truncated upstream response body (≤2 KiB) when available. Diagnostic
    * only — surfaces in `backend_error.error.body` and `final.error.body`
    * so operators can see "free_tier_limit", "invalid_api_key", etc. without
@@ -80,12 +87,18 @@ export class BackendTransportError extends AgentEvalError {
   constructor(
     backend: string,
     message: string,
-    options?: { cause?: unknown; status?: number; body?: string },
+    options?: {
+      cause?: unknown
+      status?: number
+      body?: string
+      providerDispatch?: 'not_started'
+    },
   ) {
     super('config', message, options)
     this.backend = backend
     this.status = options?.status
     this.body = options?.body
+    this.providerDispatch = options?.providerDispatch
   }
 }
 

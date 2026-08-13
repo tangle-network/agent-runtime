@@ -100,6 +100,7 @@ import {
   finalizeRuntimeOwnedPendingExecutor,
   newExecutionAttemptId,
   recordRuntimeOwnedProviderAttemptStart,
+  recordRuntimeOwnedProviderDispatchNotStarted,
   recordRuntimeOwnedProviderIdentityConflict,
   recordRuntimeOwnedProviderModel,
   runtimeOwnedExecutorExecutionBinding,
@@ -1982,6 +1983,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           trace.record(step)
         },
         onProviderAttemptStart: () => recordRuntimeOwnedProviderAttemptStart(executor),
+        onProviderDispatchNotStarted: () => recordRuntimeOwnedProviderDispatchNotStarted(executor),
         onProviderModel: (model) => recordRuntimeOwnedProviderModel(executor, model),
         onProviderIdentityConflict: () => recordRuntimeOwnedProviderIdentityConflict(executor),
         onArtifact: (a) => {
@@ -2046,6 +2048,7 @@ interface StreamBridgeArgs {
   observation: BridgeObservation
   record: (step: ToolStepInput) => void
   onProviderAttemptStart: () => void
+  onProviderDispatchNotStarted: () => void
   onProviderModel: (model: string) => void
   onProviderIdentityConflict: () => void
   onArtifact: (a: ExecutorResult<unknown>) => void
@@ -2527,6 +2530,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       publishProfileMaterialization()
     } catch (error) {
       publishProfileMaterialization()
+      if (isTrustedPreProviderRejection(error)) {
+        args.onProviderDispatchNotStarted()
+      }
       // A forceful steer first detaches this HTTP reader, then explicitly cancels
       // the durable run and waits for terminal proof. Starting the resume turn
       // before that acknowledgement would race two harness processes against one
@@ -2643,7 +2649,7 @@ async function* streamDurableBridgeRun(
 ): AsyncIterable<BridgeStreamChunk> {
   await assertBridgeExecutionCapabilities(args.seam, args.signal)
   let reconnects = 0
-  let pendingUpstreamError: ValidationError | undefined
+  let pendingUpstreamError: Error | undefined
 
   for (;;) {
     let res: BridgeResponse
@@ -2677,9 +2683,11 @@ async function* streamDurableBridgeRun(
       // the upstream status — a 502 from a dying harness is recoverable, a 401 is not. Typing this
       // as a validation failure made every bridge fault look like a deliberate refusal.
       const body = (await res.text()).slice(0, 300)
+      const providerDispatch = providerDispatchFromErrorBody(body)
       throw new BackendTransportError('bridge', `bridgeExecutor: bridge ${res.status}: ${body}`, {
         status: res.status,
         body,
+        ...(providerDispatch === 'not_started' ? { providerDispatch } : {}),
       })
     }
     if (!res.body) {
@@ -3108,6 +3116,40 @@ async function cancelBridgeRunToTerminal(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** Only Router's exact one-sided fact proves that provider dispatch did not start. */
+function isTrustedPreProviderRejection(error: unknown): error is BackendTransportError {
+  return error instanceof BackendTransportError && error.providerDispatch === 'not_started'
+}
+
+/** Read only the Router-owned one-sided field from an error body. */
+function providerDispatchFromErrorBody(body: string): 'not_started' | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return undefined
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined
+  const error = (parsed as { error?: unknown }).error
+  if (typeof error !== 'object' || error === null) return undefined
+  return (error as { provider_dispatch?: unknown }).provider_dispatch === 'not_started'
+    ? 'not_started'
+    : undefined
+}
+
+function bridgeUpstreamError(
+  error: { message?: string; type?: string; provider_dispatch?: unknown },
+  prefix: string,
+): BackendTransportError {
+  const providerDispatch =
+    error.provider_dispatch === 'not_started' ? ('not_started' as const) : undefined
+  return new BackendTransportError(
+    'bridge',
+    `${prefix}: ${error.message ?? error.type ?? 'unknown'}`,
+    providerDispatch === undefined ? undefined : { providerDispatch },
+  )
 }
 
 interface BridgeStreamChunk {
@@ -3615,7 +3657,7 @@ function decodeBridgeToolCalls(raw: unknown): ToolStepInput[] {
 }
 
 type BridgeSseEvent =
-  | { kind: 'event'; id: number; chunk?: BridgeStreamChunk; error?: ValidationError }
+  | { kind: 'event'; id: number; chunk?: BridgeStreamChunk; error?: Error }
   | { kind: 'done' }
 
 /**
@@ -3668,16 +3710,16 @@ function parseSseStreamTail(buf: string): BridgeSseEvent | undefined {
   if (!tail) return undefined
   const framed = parseSseFrame(tail)
   if (framed !== undefined) return framed
-  let parsed: { error?: { message?: string; type?: string } }
+  let parsed: {
+    error?: { message?: string; type?: string; provider_dispatch?: unknown }
+  }
   try {
     parsed = JSON.parse(tail)
   } catch {
     return undefined
   }
   if (parsed.error) {
-    throw new ValidationError(
-      `bridgeExecutor: bridge upstream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
-    )
+    throw bridgeUpstreamError(parsed.error, 'bridgeExecutor: bridge upstream error')
   }
   return undefined
 }
@@ -3718,7 +3760,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       }
       message?: { content?: string | null }
     }>
-    error?: { message?: string; type?: string }
+    error?: { message?: string; type?: string; provider_dispatch?: unknown }
     usage?: {
       prompt_tokens?: unknown
       completion_tokens?: unknown
@@ -3759,10 +3801,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
     return {
       kind: 'event',
       id,
-      error: new BackendTransportError(
-        'bridge',
-        `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
-      ),
+      error: bridgeUpstreamError(parsed.error, 'bridgeExecutor: bridge stream error'),
     }
   }
   const out: BridgeStreamChunk = {}

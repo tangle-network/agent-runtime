@@ -917,6 +917,10 @@ branch on the upstream status code.
 
 `string`
 
+###### providerDispatch?
+
+`"not_started"`
+
 ###### Returns
 
 [`BackendTransportError`](#backendtransporterror)
@@ -934,6 +938,15 @@ branch on the upstream status code.
 ##### status?
 
 > `readonly` `optional` **status?**: `number`
+
+##### providerDispatch?
+
+> `readonly` `optional` **providerDispatch?**: `"not_started"`
+
+Router-owned proof that a rejected request never reached a provider.
+
+This is intentionally one-sided. An absent value, or any value this
+package does not understand, remains unknown to Runtime.
 
 ##### body?
 
@@ -8805,7 +8818,8 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 ### ProviderModelAttemptEvidence
 
 One provider/harness inference attempt. An empty observation list means the attempt started but
-no trusted served model identity arrived before it failed or ended.
+no trusted served model identity arrived before it failed or ended, unless Router explicitly
+proves that admission rejected it before provider dispatch.
 
 #### Properties
 
@@ -8816,6 +8830,12 @@ no trusted served model identity arrived before it failed or ended.
 ##### identityConflict?
 
 > `readonly` `optional` **identityConflict?**: `boolean`
+
+##### providerDispatch?
+
+> `readonly` `optional` **providerDispatch?**: `"not_started"`
+
+Router-owned proof that this attempt never reached a provider.
 
 ***
 

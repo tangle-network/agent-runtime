@@ -563,6 +563,30 @@ describe('superviseDispatch', () => {
     })
   })
 
+  it('ignores a Router-proven pre-provider rejection but keeps ambiguous failures unknown', () => {
+    const served = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_matrix'
+    const preProvider = { observations: [], providerDispatch: 'not_started' as const }
+    const successfulTree = identityResult({
+      status: 'known',
+      attempts: [preProvider, { observations: [served] }],
+      models: [served],
+    })
+    expect(supervisedTreeModelForDispatch(successfulTree, movingPiProfile)).toEqual({
+      kind: 'known',
+      model: served,
+    })
+
+    const ambiguousTree = identityResult({
+      status: 'unknown',
+      attempts: [preProvider, { observations: [] }],
+      models: [],
+      reason: 'provider-model-missing',
+    })
+    expect(supervisedTreeModelForDispatch(ambiguousTree, movingPiProfile)).toEqual({
+      kind: 'unknown',
+    })
+  })
+
   it.each([
     [
       'zero-valued child without evidence',
