@@ -47,6 +47,9 @@ export interface RunProtectedAgentCandidateModelGrantResult<TResult> {
   readonly settlement: AgentCandidateProtectedModelSettlement
 }
 
+const SETTLEMENT_RETRY_INITIAL_DELAY_MS = 25
+const SETTLEMENT_RETRY_MAX_DELAY_MS = 1_000
+
 /**
  * Run one bounded unit under a protected model grant.
  *
@@ -93,7 +96,7 @@ export async function runProtectedAgentCandidateModelGrant<TResult>(
 
   let settlement: AgentCandidateProtectedModelSettlement
   try {
-    settlement = await options.port.settleGrant({
+    settlement = await settleProtectedModelGrant(options, {
       executionId: options.reserve.executionId,
       preparationId: options.reserve.preparationId,
       grantDigest: reservation.digest,
@@ -112,4 +115,37 @@ export async function runProtectedAgentCandidateModelGrant<TResult>(
 
   if (executionFailed) throw executionError
   return { value, resolved, reservation, settlement }
+}
+
+async function settleProtectedModelGrant<TResult>(
+  options: RunProtectedAgentCandidateModelGrantOptions<TResult>,
+  input: AgentCandidateModelGrantSettleInput,
+): Promise<AgentCandidateProtectedModelSettlement> {
+  let delayMs = SETTLEMENT_RETRY_INITIAL_DELAY_MS
+  for (;;) {
+    try {
+      return await options.port.settleGrant(input)
+    } catch (error) {
+      if (!isCandidateGrantDrainingError(error)) throw error
+      const remainingMs = options.deadlineAtMs - Date.now()
+      if (remainingMs <= 0) throw error
+      await waitForSettlementRetry(Math.min(delayMs, remainingMs))
+      if (Date.now() >= options.deadlineAtMs) throw error
+      delayMs = Math.min(delayMs * 2, SETTLEMENT_RETRY_MAX_DELAY_MS)
+    }
+  }
+}
+
+function waitForSettlementRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
+/** Only the gateway's explicit draining state is retryable; auth and ledger errors fail closed. */
+function isCandidateGrantDrainingError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const candidate = error as { code?: unknown; message?: unknown }
+  if (candidate.code === 'candidate_grant_draining') return true
+  return (
+    typeof candidate.message === 'string' && /\bcandidate_grant_draining\b/u.test(candidate.message)
+  )
 }

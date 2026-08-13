@@ -13,6 +13,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { spendFromUsageEvents } from './budget'
+import { runtimeOwnedExecutorMaterialization } from './materialization'
 import {
   type BridgeModelCredential,
   bridgeExecutor,
@@ -309,6 +310,24 @@ describe('bridgeExecutor upstream-error propagation', () => {
     await expect(drain(stream as AsyncIterable<UsageEvent>)).rejects.toThrow(
       /bridge stream error: quota exhausted/,
     )
+  })
+
+  it('publishes a terminal profile acknowledgement before rethrowing a provider error', async () => {
+    const body = [
+      `data: ${JSON.stringify({ error: { message: 'provider failed' } })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    await expect(
+      drain(
+        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/bridge stream error: provider failed/)
+    expect(runtimeOwnedExecutorMaterialization(executor)).toBeDefined()
   })
 
   it('refuses an old bridge before any model POST', async () => {
@@ -849,9 +868,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
     )
     server = stub.server
     const executor = makeExecutor(stub.url)
-    await drain(
+    const events = await drain(
       executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
     )
+    expect(events).toContainEqual({ kind: 'cost', usd: 0, usdKnown: false })
+    expect(spendFromUsageEvents(events).usdKnown).toBe(false)
     expect(executor.resultArtifact().spent).toMatchObject({
       tokens: { input: 3, output: 2 },
       usd: 0,
