@@ -170,6 +170,28 @@ function hasClassifiedCacheBreakdown(usage: LoopTokenUsage): boolean {
   return usage.freshInput + usage.cacheRead + usage.cacheWrite === usage.input
 }
 
+/**
+ * The token charge for one observation: every token counted ONCE, at the moment it first enters
+ * the context.
+ *
+ * `input` is a rolled-up prompt total that re-counts a cached prefix on every turn that reads it,
+ * so charging `input` makes a 100K prefix read 40 times cost 4.1M for content authored once. The
+ * three cache classes partition `input`, so `freshInput + cacheWrite` is exactly the prompt the
+ * provider had to present anew. No price weight is involved: this counts work, and money is a
+ * separate channel.
+ *
+ * Without a readable split the charge stays the rolled-up `input + output`. That number is an
+ * UPPER BOUND on newly-presented work, not a measurement, and every caller that enforces a ceiling
+ * must report the difference (`BudgetPool` does it through `readout().cacheBreakdownKnown`).
+ */
+export function chargedTokens(usage: LoopTokenUsage): number {
+  if (!hasCompleteCacheBreakdown(usage)) return usage.input + usage.output
+  // A complete split classifies every prompt token. The one complete case that carries no class
+  // fields is `input === 0`, where there is no prompt to charge.
+  const { freshInput = 0, cacheWrite = 0 } = usage
+  return freshInput + cacheWrite + usage.output
+}
+
 /** Add the observed subtotal into `acc`; token and cache incompleteness are sticky. */
 export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage>): void {
   acc.input += delta.input ?? 0

@@ -615,6 +615,239 @@ describe('conserved budget pool', () => {
   })
 })
 
+// ── 1b. The token unit: every token charged once, when it first enters the context ────
+
+describe('conserved budget pool: the token charge counts each token once', () => {
+  it('charges only the newly-presented tokens when the spend is mostly cache reads', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 5, maxTokens: 1_000_000 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+
+    // The fleet shape that motivated the unit: 98% of the rolled-up prompt total is cache reads.
+    pool.reconcile(r.ticket, {
+      iterations: 1,
+      tokens: {
+        input: 400_000,
+        output: 3_000,
+        freshInput: 7_000,
+        cacheRead: 392_000,
+        cacheWrite: 1_000,
+      },
+      usd: 0,
+      ms: 0,
+    })
+
+    // 7_000 fresh + 1_000 cacheWrite + 3_000 output = 11_000, not 403_000.
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 1_000_000 - 11_000,
+      tokensKnown: true,
+      cacheBreakdownKnown: true,
+      reservedTokens: 0,
+    })
+  })
+
+  it('charges a prefix once no matter how many turns read it back', () => {
+    const prefix = 100_000
+    const reads = 40
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 1_000_000 }, () => 0)
+
+    // Turn 1 authors the prefix; turns 2..N re-present the identical content from cache.
+    const events: UsageEvent[] = [
+      { kind: 'iteration' },
+      {
+        kind: 'tokens',
+        input: prefix,
+        output: 0,
+        freshInput: 0,
+        cacheRead: 0,
+        cacheWrite: prefix,
+      },
+    ]
+    for (let i = 0; i < reads; i++) {
+      events.push({ kind: 'iteration' })
+      events.push({
+        kind: 'tokens',
+        input: prefix,
+        output: 0,
+        freshInput: 0,
+        cacheRead: prefix,
+        cacheWrite: 0,
+      })
+    }
+
+    const spend = spendFromUsageEvents(events)
+    expect(spend.tokens.input).toBe(prefix * (reads + 1))
+    pool.observe(spend)
+
+    // The content was authored once, so it is charged once — not 41 times.
+    expect(pool.readout().tokensLeft).toBe(1_000_000 - prefix)
+    expect(pool.readout().cacheBreakdownKnown).toBe(true)
+  })
+
+  it('a cache-heavy child no longer overdraws a cap it declared honestly', () => {
+    // Same numbers as the fleet's `arena-v9c1-q36-structure-b`: a 2M cap, ~4.01M rolled-up prompt
+    // total, ~79k of it new. Charging the roll-up killed the run; charging new work does not.
+    const pool = createBudgetPool({ maxIterations: 30, maxTokens: 2_000_000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 30, maxTokens: 2_000_000 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 30,
+        tokens: {
+          input: 4_012_893,
+          output: 28_273,
+          freshInput: 79_453,
+          cacheRead: 3_933_440,
+          cacheWrite: 0,
+        },
+        usd: 0,
+        ms: 0,
+      }),
+    ).not.toThrow()
+
+    expect(pool.readout().tokensLeft).toBe(2_000_000 - (79_453 + 28_273))
+  })
+
+  it('keeps charging the rolled-up total when the split is missing, and says the balance is a bound', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 5, maxTokens: 500_000 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+
+    pool.reconcile(r.ticket, {
+      iterations: 1,
+      tokens: { input: 400_000, output: 3_000 },
+      usd: 0,
+      ms: 0,
+    })
+
+    // Enforcement continues on what the pool knows — a provider that skipped a cache report must
+    // not become a free turn — but the readout no longer presents the debit as a measurement.
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 1_000_000 - 403_000,
+      tokensKnown: true,
+      cacheBreakdownKnown: false,
+    })
+  })
+
+  it('marks the balance a bound for an explicit cacheBreakdownKnown: false, and never clears it', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    pool.observe({
+      iterations: 1,
+      tokens: { input: 10, output: 5, cacheBreakdownKnown: false },
+      usd: 0,
+      ms: 0,
+    })
+    expect(pool.readout().cacheBreakdownKnown).toBe(false)
+
+    // A later fully-classified turn cannot repair the earlier unclassified charge.
+    pool.observe({
+      iterations: 1,
+      tokens: { input: 10, output: 5, freshInput: 10, cacheRead: 0, cacheWrite: 0 },
+      usd: 0,
+      ms: 0,
+    })
+    expect(pool.readout().cacheBreakdownKnown).toBe(false)
+  })
+
+  it('separates an unknown COUNT from an unknown COMPOSITION', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    pool.observe({
+      iterations: 1,
+      tokens: { input: 0, output: 0, tokensKnown: false },
+      tokensKnown: false,
+      usd: 0,
+      ms: 0,
+    })
+    // Nothing was charged, so no cached prefix was double-counted: the counts are missing, the
+    // composition of what WAS charged is not in doubt.
+    expect(pool.readout()).toMatchObject({ tokensKnown: false, cacheBreakdownKnown: true })
+  })
+
+  it('charges restored committed spend in the same unit', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+      committed: {
+        iterations: 2,
+        tokens: {
+          input: 400_000,
+          output: 3_000,
+          freshInput: 7_000,
+          cacheRead: 392_000,
+          cacheWrite: 1_000,
+        },
+        usd: 0,
+        ms: 0,
+      },
+    })
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 1_000_000 - 11_000,
+      cacheBreakdownKnown: true,
+    })
+  })
+
+  it('a restored uncertain reservation charges its ceiling without claiming a cache misread', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+      uncertainReservations: [{ maxIterations: 1, maxTokens: 500_000 }],
+    })
+    // The ceiling charge is already reported as a ceiling by `tokensKnown`; a declared ceiling
+    // carries no cache composition, so the composition flag stays true.
+    expect(pool.readout()).toMatchObject({
+      tokensLeft: 500_000,
+      tokensKnown: false,
+      cacheBreakdownKnown: true,
+    })
+  })
+
+  it('still throws when the cache classes do not partition the prompt total', () => {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const r = pool.reserve({ maxIterations: 5, maxTokens: 500_000 })
+    if (!r.ok) throw new Error('reserve should have succeeded')
+    expect(() =>
+      pool.reconcile(r.ticket, {
+        iterations: 1,
+        // 7_000 + 392_000 + 1_000 = 400_000, but the roll-up claims 500_000.
+        tokens: {
+          input: 500_000,
+          output: 0,
+          freshInput: 7_000,
+          cacheRead: 392_000,
+          cacheWrite: 1_000,
+        },
+        usd: 0,
+        ms: 0,
+      }),
+    ).toThrow(/cache classes must sum to input/)
+  })
+
+  it('reservation and reconciliation agree on the unit — a child settles inside the ceiling it reserved', () => {
+    // The worker-pool refusal in #831 came from the two ends disagreeing: a child reserved a
+    // ceiling in declared tokens and settled against a rolled-up prompt total. Both ends now use
+    // the same charge, so a child whose NEW work fits its ceiling never overdraws the pool.
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 200_000 }, () => 0)
+    const first = pool.reserve({ maxIterations: 2, maxTokens: 100_000 })
+    if (!first.ok) throw new Error('reserve should have succeeded')
+
+    expect(() =>
+      pool.reconcile(first.ticket, {
+        iterations: 2,
+        tokens: {
+          input: 900_000,
+          output: 10_000,
+          freshInput: 50_000,
+          cacheRead: 850_000,
+          cacheWrite: 0,
+        },
+        usd: 0,
+        ms: 0,
+      }),
+    ).not.toThrow()
+
+    // 60_000 charged of 100_000 reserved → 40_000 refunds, and the sibling spawn is admitted.
+    expect(pool.readout().tokensLeft).toBe(140_000)
+    expect(pool.reserve({ maxIterations: 2, maxTokens: 100_000 }).ok).toBe(true)
+  })
+})
+
 // ── 2. equal-k by construction ──────────────────────────────────────────────────
 
 describe('equal-k by construction', () => {

@@ -55,8 +55,9 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 
 | Term | Meaning | Anchor |
 |---|---|---|
-| **Budget** | A ceiling envelope on a spawn/root: `{maxIterations, maxTokens, maxUsd?, deadlineMs?}`. (Keystone substrate.) `deadlineMs` is currently classify-only, does not fire an abort — known gap. | `supervise/types.ts:189` |
+| **Budget** | A ceiling envelope on a spawn/root: `{maxIterations, maxTokens, maxUsd?, deadlineMs?}`. (Keystone substrate.) `maxTokens` counts NEWLY-PRESENTED tokens (see **Charged tokens**). `deadlineMs` is currently classify-only, does not fire an abort — known gap. | `supervise/types.ts:189` |
 | **Spend** | Conserved actual cost reconciled from `UsageEvent`s: `{iterations, tokens, usd, ms}`. Tokens and usd are separate channels, never folded. | `supervise/types.ts:198` |
+| **Charged tokens** | The pool's token unit: `freshInput + cacheWrite + output`, so each token is counted once, when it first enters the context. A cache read re-presents content already charged at write time. With no readable cache split the charge falls back to `input + output` and `BudgetReadout.cacheBreakdownKnown` reads false, marking the balance an upper bound. | `runtime/util.ts` |
 | **BudgetPool / ReservationTicket** | The **conserved reservation pool**: each spawn *reserves* against the root then settles to actual `Spend`. This is what makes **equal-compute hold by construction** (the anti-confound invariant for the gate). | `supervise/budget.ts:48,29` |
 | **UsageEvent** | The normalized usage increment every executor emits, so the pool meters all runtimes identically. | `supervise/types.ts:120` |
 | `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `run-loop.ts:88` |
