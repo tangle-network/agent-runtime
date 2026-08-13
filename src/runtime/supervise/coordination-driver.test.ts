@@ -18,12 +18,31 @@ describe('validateDriverPromptCache', () => {
 
   it('refuses a negative USD amount and a non-finite one', () => {
     expect(validateDriverPromptCache({ readSavingsUsd: -0.01 })?.message).toContain(
-      'non-negative finite number',
+      'non-negative finite number of dollars',
     )
     expect(validateDriverPromptCache({ writeCostUsd: Number.NaN })?.message).toContain(
-      'non-negative finite number',
+      'non-negative finite number of dollars',
     )
     expect(validateDriverPromptCache({ writeCostUsd: Number.POSITIVE_INFINITY })).toBeDefined()
+  })
+
+  it('accepts a whole-dollar USD amount and -0, and keeps an absurd one out', () => {
+    expect(validateDriverPromptCache({ readSavingsUsd: 5 })).toBeUndefined()
+    expect(validateDriverPromptCache({ readSavingsUsd: -0 })).toBeUndefined()
+    // The old all-integer rule rejected 1e308 as a side effect; the ceiling keeps that.
+    expect(validateDriverPromptCache({ readSavingsUsd: 1e308 })?.message).toContain('dollars')
+  })
+
+  it('accepts the full router-reported shape including missTokens', () => {
+    expect(
+      validateDriverPromptCache({
+        readTokens: 5888,
+        writeTokens: 0,
+        missTokens: 111,
+        readSavingsUsd: 0.0034,
+        status: 'hit',
+      }),
+    ).toBeUndefined()
   })
 
   it('refuses a negative token count and ignores string fields', () => {
@@ -36,7 +55,14 @@ describe('validateDriverPromptCache', () => {
     expect(validateDriverPromptCache({})).toBeUndefined()
   })
 
-  it('matches USD fields case-insensitively at the end of the name only', () => {
+  it('classifies known schema members by what they are, not by their name', () => {
+    // readSavingsUsd is the schema's only dollar member; the token members stay counts even
+    // though nothing in their names says so.
+    expect(validateDriverPromptCache({ missTokens: 12.5 })?.message).toContain('safe integer')
+    expect(validateDriverPromptCache({ readSavingsUsd: 0.5 })).toBeUndefined()
+  })
+
+  it('falls back to the usd name-suffix convention for unknown pass-through fields', () => {
     expect(validateDriverPromptCache({ savingsUSD: 1.25 })).toBeUndefined()
     // `usdTokens` is a count despite carrying the substring — the suffix is what decides.
     expect(validateDriverPromptCache({ usdTokens: 1.25 })?.message).toContain('safe integer')
