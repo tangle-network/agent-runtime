@@ -1231,7 +1231,7 @@ Build a source-grounded researcher profile with output parsing and validation.
 
 ##### validator
 
-> **validator**: [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
+> **validator**: [`Validator`](runtime.md#validator-2)\<[`ResearchOutput`](#researchoutput)\>
 
 ##### agentRunSpec
 
@@ -1269,7 +1269,7 @@ picks the highest-scoring valid output.
 
 ##### validator
 
-> **validator**: [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
+> **validator**: [`Validator`](runtime.md#validator-2)\<[`ResearchOutput`](#researchoutput)\>
 
 ##### driver
 
@@ -1279,7 +1279,7 @@ picks the highest-scoring valid output.
 
 ### createResearcherValidator()
 
-> **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
+> **createResearcherValidator**(`task`, `config?`): [`Validator`](runtime.md#validator-2)\<[`ResearchOutput`](#researchoutput)\>
 
 **`Experimental`**
 
@@ -1317,7 +1317,7 @@ Aggregate score:
 
 #### Returns
 
-[`Validator`](runtime.md#validator-1)\<[`ResearchOutput`](#researchoutput)\>
+[`Validator`](runtime.md#validator-2)\<[`ResearchOutput`](#researchoutput)\>
 
 ***
 
@@ -1425,7 +1425,7 @@ Produce the user message for one audit iteration: lens, captures to take, and th
 
 ### createUiAuditorValidator()
 
-> **createUiAuditorValidator**(`task`): [`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>
+> **createUiAuditorValidator**(`task`): [`Validator`](runtime.md#validator-2)\<[`UiAuditOutput`](#uiauditoutput)\>
 
 **`Experimental`**
 
@@ -1439,4 +1439,4 @@ Build a `Validator` that rejects off-lens findings and findings missing screensh
 
 #### Returns
 
-[`Validator`](runtime.md#validator-1)\<[`UiAuditOutput`](#uiauditoutput)\>
+[`Validator`](runtime.md#validator-2)\<[`UiAuditOutput`](#uiauditoutput)\>

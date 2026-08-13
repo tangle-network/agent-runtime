@@ -89,6 +89,7 @@ import type {
   Iteration,
   OutputAdapter,
   SandboxClient,
+  Validator,
 } from '../types'
 import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
@@ -195,6 +196,22 @@ export interface SandboxSeam {
   /** Hard cap on the composed loop's iterations. The budget pool reserves against
    *  the spawn `Budget.maxIterations`; this is the leaf's own ceiling. Default 1. */
   maxIterations?: number
+  /**
+   * OPT-IN executable score for this worker. Forwarded to the composed
+   * `runAgentRounds` as its `validator`, so the kernel calls `validate` while the
+   * iteration's box is still alive: `ValidationCtx.box` is a LIVE `SandboxInstance`
+   * and the check can run commands or read files in the container it is scoring.
+   * Every other supervised hook fires after teardown and can only read the artifact.
+   *
+   * The resulting verdict becomes the winner's verdict, which this executor already
+   * surfaces on its `ExecutorResult`. Absent, nothing changes: the loop runs
+   * unscored and the leaf falls back to its own settle verdict.
+   *
+   * Not representable with `steering` — a steerable session is a multi-turn session
+   * on one box, not a `runAgentRounds` composition, so the pair is rejected instead
+   * of silently dropping the score.
+   */
+  validator?: Validator<SandboxLeafOut>
   /**
    * OPT-IN: run this worker as a multi-turn, STEERABLE session instead of the historical
    * single-shot `runAgentRounds` composition. Setting it gives the sandbox worker an `Executor.deliver`
@@ -1320,6 +1337,11 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // inbox, so a driver's steer has a turn boundary to be folded into. This is the path that
   // makes `Scope.send` return `true` for the DEFAULT cloud worker.
   if (seam.steering) {
+    if (seam.validator) {
+      throw new ValidationError(
+        'sandboxExecutor: validator is not representable with steering — the steerable session is not a runAgentRounds composition, so the score would be silently dropped',
+      )
+    }
     const inbox = createInbox()
     const session = createSteerableSandboxSession({
       controller,
@@ -1386,6 +1408,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           maxIterations,
           controller,
           loopCtx: seam.loopCtx,
+          ...(seam.validator ? { validator: seam.validator } : {}),
           traceEnv,
           onArtifact: (a) => {
             artifact = a
@@ -1410,7 +1433,9 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   )
 }
 
-interface SandboxLeafOut {
+/** Parsed output of the sandbox leaf: the iteration's raw event stream. What a
+ *  `SandboxSeam.validator` receives as its `output` argument. */
+export interface SandboxLeafOut {
   events: SandboxEvent[]
 }
 
@@ -1424,6 +1449,8 @@ interface StreamSandboxArgs {
   driver: Driver<unknown, SandboxLeafOut, string>
   maxIterations: number
   controller: AbortController
+  /** Forwarded to the composed loop, which scores each iteration against its LIVE box. */
+  validator?: Validator<SandboxLeafOut>
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
   /** Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box; empty when tracing is off. */
   traceEnv: Record<string, string>
@@ -1460,6 +1487,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     driver: args.driver,
     agentRun,
     output: args.output,
+    ...(args.validator ? { validator: args.validator } : {}),
     task: args.task,
     maxIterations: args.maxIterations,
     maxConcurrency: 1,
@@ -4253,13 +4281,27 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
     case 'sandbox': {
       assertExactConfigKeys(
         config as unknown as Readonly<Record<string, unknown>>,
-        new Set(['backend', 'lineage', 'loopCtx', 'maxIterations', 'sandboxClient', 'steering']),
+        new Set([
+          'backend',
+          'lineage',
+          'loopCtx',
+          'maxIterations',
+          'sandboxClient',
+          'steering',
+          'validator',
+        ]),
         'createExecutor sandbox config',
       )
-      const { sandboxClient, loopCtx, ...decisionData } = config
+      // `validator` is an executable port like `sandboxClient`: retained live by reference,
+      // never cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
+      const { sandboxClient, loopCtx, validator, ...decisionData } = config
+      const port = {
+        sandboxClient,
+        ...(validator === undefined ? {} : { validator }),
+      }
       if (loopCtx === undefined) {
         const snapshot = detachedSnapshot(decisionData, 'createExecutor sandbox config')
-        return Object.freeze({ ...snapshot, sandboxClient })
+        return Object.freeze({ ...snapshot, ...port })
       }
       const { hooks, traceEmitter, onSandboxEvent, runHandle, ...loopDecisionData } = loopCtx
       const snapshot = detachedSnapshot(
@@ -4269,7 +4311,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       const loopSnapshot = snapshot.loopCtx
       return Object.freeze({
         ...snapshot,
-        sandboxClient,
+        ...port,
         loopCtx: Object.freeze({
           ...loopSnapshot,
           ...(hooks === undefined ? {} : { hooks }),

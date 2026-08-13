@@ -525,7 +525,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 757 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 758 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -961,6 +961,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 757 exports.
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
 | `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
+| `SandboxLeafOut` | interface | Parsed output of the sandbox leaf: the iteration's raw event stream. What a |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
 | `SandboxSeam` | interface | Sandbox executor seam. The `sandboxClient` the composed `runAgentRounds` creates |

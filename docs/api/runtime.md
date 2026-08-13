@@ -6807,7 +6807,7 @@ through them when the driver plans N tasks. Mutually exclusive with
 
 ##### validator?
 
-> `optional` **validator?**: [`Validator`](#validator-1)\<`Output`, `DefaultVerdict`\>
+> `optional` **validator?**: [`Validator`](#validator-2)\<`Output`, `DefaultVerdict`\>
 
 ##### task
 
@@ -12423,6 +12423,24 @@ PR #150 `RunAgentRoundsOptions.lineage` passthrough — opaque; forwarded, not p
 Hard cap on the composed loop's iterations. The budget pool reserves against
  the spawn `Budget.maxIterations`; this is the leaf's own ceiling. Default 1.
 
+##### validator?
+
+> `optional` **validator?**: [`Validator`](#validator-2)\<[`SandboxLeafOut`](#sandboxleafout), `DefaultVerdict`\>
+
+OPT-IN executable score for this worker. Forwarded to the composed
+`runAgentRounds` as its `validator`, so the kernel calls `validate` while the
+iteration's box is still alive: `ValidationCtx.box` is a LIVE `SandboxInstance`
+and the check can run commands or read files in the container it is scoring.
+Every other supervised hook fires after teardown and can only read the artifact.
+
+The resulting verdict becomes the winner's verdict, which this executor already
+surfaces on its `ExecutorResult`. Absent, nothing changes: the loop runs
+unscored and the leaf falls back to its own settle verdict.
+
+Not representable with `steering` — a steerable session is a multi-turn session
+on one box, not a `runAgentRounds` composition, so the pair is rejected instead
+of silently dropping the score.
+
 ##### steering?
 
 > `optional` **steering?**: [`SandboxSteeringOptions`](#sandboxsteeringoptions)
@@ -12976,6 +12994,19 @@ Online observer of each tool step — the seam a `DetectorMonitor` taps to watch
 ###### Returns
 
 `void`
+
+***
+
+### SandboxLeafOut
+
+Parsed output of the sandbox leaf: the iteration's raw event stream. What a
+ `SandboxSeam.validator` receives as its `output` argument.
+
+#### Properties
+
+##### events
+
+> **events**: `SandboxEvent`[]
 
 ***
 
