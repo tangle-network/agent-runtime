@@ -363,8 +363,10 @@ export {
   type RetainedRunSnapshot,
   reconnectRetainedRun,
   recoverRetainedRun,
+  type StartRetainedRunInEnvironmentOptions,
   type StartRetainedRunOptions,
   startRetainedRun,
+  startRetainedRunInEnvironment,
 } from './retained-run'
 // Router requests are an internal transport adapter. Public execution always enters through an
 // exact AgentProfile (`createExecutor` + `streamAgentTurn`); callers may configure only the

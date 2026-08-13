@@ -27,6 +27,7 @@ import {
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
+  startRetainedRunInEnvironment,
 } from './retained-run'
 import { mintRetainedIdentity } from './retained-run-start'
 
@@ -245,6 +246,152 @@ describe('retained runtime run control', () => {
     expect(destroys).toBe(1)
     // A destroyed unusable environment never leaves an admission record.
     expect(unusableRecorder.admissions).toEqual([])
+  })
+
+  it('starts a fresh retained session inside an existing environment', async () => {
+    const identity = mintRetainedIdentity('durable-environment-key', 'fresh-workspace-turn')
+    const controlRef = {
+      runId: 'fresh-run-in-existing-environment',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      ...identity,
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: identity.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({
+        text: 'same workspace, fresh harness chat',
+        success: true,
+        sessionId: identity.sessionId,
+        metadata: {
+          runId: controlRef.runId,
+          executionId: controlRef.executionId,
+          requestDigest: controlRef.requestDigest,
+        },
+      }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let createCalls = 0
+    let destroyCalls = 0
+    const getIds: string[] = []
+    let dispatched: AgentTurnInput | undefined
+    const provider = providerWithEnvironment({
+      async dispatch(input) {
+        dispatched = input
+        return { id: identity.sessionId, provider: 'test-provider', controlRef }
+      },
+      session(id) {
+        if (id !== identity.sessionId) throw new Error('unexpected session id')
+        return session
+      },
+      async destroy() {
+        destroyCalls += 1
+      },
+    })
+    provider.create = async () => {
+      createCalls += 1
+      throw new Error('existing-environment start must not create')
+    }
+    const get = provider.get!
+    provider.get = async (id) => {
+      getIds.push(id)
+      return get(id)
+    }
+    const recorder = recordedAdmissions()
+
+    const run = await startRetainedRunInEnvironment({
+      provider,
+      environment: { id: 'environment-1', idempotencyKey: 'durable-environment-key' },
+      turn: { prompt: 'inspect the existing workspace', turnId: 'fresh-workspace-turn' },
+      onAdmission: recorder.onAdmission,
+    })
+
+    expect(createCalls).toBe(0)
+    expect(destroyCalls).toBe(0)
+    expect(getIds).toEqual(['environment-1'])
+    expect(dispatched).toEqual({
+      prompt: 'inspect the existing workspace',
+      turnId: 'fresh-workspace-turn',
+      detach: true,
+      ...identity,
+    })
+    expect(recorder.admissions).toMatchObject([
+      {
+        phase: 'environment',
+        environmentId: 'environment-1',
+        idempotencyKey: 'durable-environment-key',
+        turnId: 'fresh-workspace-turn',
+        ...identity,
+      },
+      {
+        phase: 'dispatched',
+        idempotencyKey: 'durable-environment-key',
+        turnId: 'fresh-workspace-turn',
+        controlRef,
+      },
+    ])
+    await expect(run.result()).resolves.toMatchObject({
+      text: 'same workspace, fresh harness chat',
+      sessionId: identity.sessionId,
+    })
+  })
+
+  it('fails before admission when an existing retained environment is unavailable or unusable', async () => {
+    const missing = providerWithEnvironment({})
+    missing.get = async () => null
+    const missingRecorder = recordedAdmissions()
+    await expect(
+      startRetainedRunInEnvironment({
+        provider: missing,
+        environment: { id: 'missing-environment', idempotencyKey: 'missing-key' },
+        turn: { prompt: 'go', turnId: 'missing-turn' },
+        onAdmission: missingRecorder.onAdmission,
+      }),
+    ).rejects.toThrow('no longer holds environment')
+    expect(missingRecorder.admissions).toEqual([])
+
+    let destroyCalls = 0
+    const unusable = providerWithEnvironment({
+      dispatch: undefined,
+      session: undefined,
+      async destroy() {
+        destroyCalls += 1
+      },
+    })
+    const unusableRecorder = recordedAdmissions()
+    await expect(
+      startRetainedRunInEnvironment({
+        provider: unusable,
+        environment: { id: 'environment-1', idempotencyKey: 'existing-key' },
+        turn: { prompt: 'go', turnId: 'existing-turn' },
+        onAdmission: unusableRecorder.onAdmission,
+      }),
+    ).rejects.toThrow('does not expose detached session control')
+    expect(destroyCalls).toBe(0)
+    expect(unusableRecorder.admissions).toEqual([])
+
+    const foreign = providerWithEnvironment({})
+    const getForeign = foreign.get!
+    foreign.get = async (id) => {
+      const environment = await getForeign(id)
+      return environment === null ? null : { ...environment, provider: 'other-provider' }
+    }
+    const foreignRecorder = recordedAdmissions()
+    await expect(
+      startRetainedRunInEnvironment({
+        provider: foreign,
+        environment: { id: 'environment-1', idempotencyKey: 'existing-key' },
+        turn: { prompt: 'go', turnId: 'foreign-turn' },
+        onAdmission: foreignRecorder.onAdmission,
+      }),
+    ).rejects.toThrow('reconstructed a different retained environment')
+    expect(foreignRecorder.admissions).toEqual([])
   })
 
   it('allowlists a fresh retained start when JavaScript supplies stale run fields', async () => {
@@ -1230,6 +1377,113 @@ describe('retained runtime run control', () => {
     expect(replayed.map(({ eventId, sequence }) => ({ eventId, sequence }))).toEqual([
       { eventId: 'generated-event-2', sequence: 2 },
     ])
+  })
+
+  it('preserves a harness-native id while binding session.updated to its execution', async () => {
+    const controlRef = {
+      runId: 'native-session-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'retained-provider-session',
+      executionId: 'native-session-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield {
+          id: 'native-session-event',
+          type: 'session.updated',
+          data: {
+            sessionId: 'harness-native-session',
+            runId: controlRef.runId,
+            executionId: controlRef.executionId,
+          },
+          normalized: {
+            type: 'session.updated',
+            sessionId: 'harness-native-session',
+          },
+        }
+        yield {
+          id: 'foreign-native-session-event',
+          type: 'session.updated',
+          data: {
+            sessionId: 'another-harness-session',
+            runId: controlRef.runId,
+            executionId: 'foreign-execution',
+          },
+          normalized: {
+            type: 'session.updated',
+            sessionId: 'another-harness-session',
+          },
+        }
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'native-session' },
+      turn: { prompt: 'go', turnId: 'native-session-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    const events = run.events()[Symbol.asyncIterator]()
+    await expect(events.next()).resolves.toMatchObject({
+      value: {
+        eventId: 'native-session-event',
+        event: { type: 'session.updated', sessionId: 'harness-native-session' },
+      },
+    })
+    await expect(events.next()).rejects.toThrow('another retained execution')
+  })
+
+  it('still rejects a foreign retained session on lifecycle event payloads', async () => {
+    const controlRef = {
+      runId: 'foreign-session-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'expected-retained-session',
+      executionId: 'foreign-session-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield {
+          id: 'foreign-session-event',
+          type: 'status',
+          data: { sessionId: 'foreign-retained-session' },
+          normalized: { type: 'status', status: 'processing' },
+        }
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'foreign-session' },
+      turn: { prompt: 'go', turnId: 'foreign-session-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    await expect(collectRetainedEvents(run.events())).rejects.toThrow('another retained session')
   })
 
   it('validates a replay anchor before skipping it', async () => {

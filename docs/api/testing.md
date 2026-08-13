@@ -466,7 +466,7 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-7)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-8)
 
 ##### otel?
 
@@ -1187,7 +1187,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-13)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-14)
 
 ##### allowedModels?
 

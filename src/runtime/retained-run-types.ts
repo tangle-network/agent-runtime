@@ -142,6 +142,28 @@ export interface StartRetainedRunOptions {
   readonly now?: () => number
 }
 
+/** A fresh retained session inside a provider environment that already exists. @stable */
+export interface StartRetainedRunInEnvironmentOptions {
+  readonly provider: AgentEnvironmentProvider
+  readonly environment: {
+    /** Stable provider environment identifier used by `provider.get`. */
+    readonly id: string
+    /** Original environment key retained for deterministic run identity and recovery records. */
+    readonly idempotencyKey: string
+  }
+  readonly turn: AgentTurnInput & { turnId: string }
+  /**
+   * Explicit fresh-session coordinates. When omitted, the runtime mints them
+   * from `(environment.idempotencyKey, turn.turnId)`.
+   */
+  readonly identity?: {
+    readonly sessionId: string
+    readonly executionId: string
+  }
+  readonly onAdmission: RetainedRunAdmissionHook
+  readonly now?: () => number
+}
+
 /** Inputs sufficient to rebuild a control client in a new process. @stable */
 export interface ReconnectRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
