@@ -4,7 +4,7 @@
 
 - The direct protected model-grant port accepts an optional caller-declared `maxTotalTokens` cap across input and output tokens.
 - Bind that cap into the exact reservation response and reject a final ledger that exceeds it or omits token usage.
-- Signed execution plans remain unchanged until Agent Interface publishes the matching schema field; callers must not add this field to those plans.
+- Signed execution plans in the Interface 0.47 cohort remain unchanged; only the direct protected model-grant port accepts this field.
 
 ## 0.133.3
 
