@@ -264,19 +264,31 @@ export function assertEventBinding(
   controlRef: AgentExactRunControlRef,
 ): void {
   const transport = isRecord(source) ? source : undefined
-  const record = isRecord(source.data) ? source.data : undefined
+  const payload = isRecord(source.data) ? source.data : undefined
   const providerEvent = isRecord(source.providerEvent) ? source.providerEvent : undefined
-  const values = [transport, record, providerEvent].filter(
-    (value): value is Record<string, unknown> => value !== undefined,
-  )
-  for (const value of values) {
+  const bindings = [
+    { value: transport, checkSessionId: true },
+    {
+      value: payload,
+      // The canonical session.updated payload identifies the harness-native chat.
+      // It is event content, not the retained provider session coordinate.
+      checkSessionId: source.type !== 'session.updated',
+    },
+    { value: providerEvent, checkSessionId: true },
+  ]
+  for (const { value, checkSessionId } of bindings) {
+    if (value === undefined) continue
     if (value.runId !== undefined && value.runId !== controlRef.runId) {
       throw new Error('provider returned an event for another retained run')
     }
     if (value.executionId !== undefined && value.executionId !== controlRef.executionId) {
       throw new Error('provider returned an event for another retained execution')
     }
-    if (value.sessionId !== undefined && value.sessionId !== controlRef.sessionId) {
+    if (
+      checkSessionId &&
+      value.sessionId !== undefined &&
+      value.sessionId !== controlRef.sessionId
+    ) {
       throw new Error('provider returned an event for another retained session')
     }
   }

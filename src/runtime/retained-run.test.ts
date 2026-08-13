@@ -1232,6 +1232,113 @@ describe('retained runtime run control', () => {
     ])
   })
 
+  it('preserves a harness-native id while binding session.updated to its execution', async () => {
+    const controlRef = {
+      runId: 'native-session-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'retained-provider-session',
+      executionId: 'native-session-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield {
+          id: 'native-session-event',
+          type: 'session.updated',
+          data: {
+            sessionId: 'harness-native-session',
+            runId: controlRef.runId,
+            executionId: controlRef.executionId,
+          },
+          normalized: {
+            type: 'session.updated',
+            sessionId: 'harness-native-session',
+          },
+        }
+        yield {
+          id: 'foreign-native-session-event',
+          type: 'session.updated',
+          data: {
+            sessionId: 'another-harness-session',
+            runId: controlRef.runId,
+            executionId: 'foreign-execution',
+          },
+          normalized: {
+            type: 'session.updated',
+            sessionId: 'another-harness-session',
+          },
+        }
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'native-session' },
+      turn: { prompt: 'go', turnId: 'native-session-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    const events = run.events()[Symbol.asyncIterator]()
+    await expect(events.next()).resolves.toMatchObject({
+      value: {
+        eventId: 'native-session-event',
+        event: { type: 'session.updated', sessionId: 'harness-native-session' },
+      },
+    })
+    await expect(events.next()).rejects.toThrow('another retained execution')
+  })
+
+  it('still rejects a foreign retained session on lifecycle event payloads', async () => {
+    const controlRef = {
+      runId: 'foreign-session-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'expected-retained-session',
+      executionId: 'foreign-session-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield {
+          id: 'foreign-session-event',
+          type: 'status',
+          data: { sessionId: 'foreign-retained-session' },
+          normalized: { type: 'status', status: 'processing' },
+        }
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'foreign-session' },
+      turn: { prompt: 'go', turnId: 'foreign-session-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    await expect(collectRetainedEvents(run.events())).rejects.toThrow('another retained session')
+  })
+
   it('validates a replay anchor before skipping it', async () => {
     const controlRef = {
       runId: 'anchor-run',
