@@ -293,6 +293,16 @@ export function fsSurfaceReader(root: string): SurfaceReader {
       // The root itself may be reached through a link (a worktree, a temp dir); compare
       // link-resolved against link-resolved so a legitimate mount is not read as an escape.
       resolvedRoot ??= await realpath(lexicalRoot)
+    } catch (err) {
+      // The WORKSPACE is gone, not the surface. Calling this `missing` would report every mount as
+      // a deliberate agent deletion — the filesystem twin of a dead box answering for each path.
+      return {
+        succeeded: false,
+        missing: false,
+        error: `fsSurfaceReader: reader root ${JSON.stringify(lexicalRoot)} is unreadable (${err instanceof Error ? err.message : String(err)})`,
+      }
+    }
+    try {
       const resolvedTarget = await realpath(target)
       if (escapes(resolvedTarget, resolvedRoot)) return outside(path, resolvedRoot)
       return { succeeded: true, value: new Uint8Array(await readFile(resolvedTarget)) }

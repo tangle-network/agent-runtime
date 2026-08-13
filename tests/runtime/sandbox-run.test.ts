@@ -574,6 +574,27 @@ describe('openSandboxRun — abort-aware artifact read preserves the partial tra
     // One read attempted, then the post-backoff guard short-circuits the retries.
     expect(reads).toBe(1)
   })
+
+  it('returns the turn with its readError when every read attempt fails without an abort', async () => {
+    let reads = 0
+    const { client } = createFakeClient({
+      events: [{ type: 'result', data: { ok: true } } as SandboxEvent],
+      fsRead: () => {
+        reads += 1
+        throw new Error('Resource not found: never flushed')
+      },
+    })
+    const run = await openSandboxRun(
+      client,
+      { agentRun: spec(), signal: new AbortController().signal, readRetryDelayMs: 0 },
+      artifactDeliverable('solution.patch'),
+    )
+    const turn = await run.start('write the patch')
+    // The retry budget is spent, then the failure is REPORTED rather than thrown, so a caller
+    // still distinguishes "produced nothing" from a read fault.
+    expect(reads).toBe(4)
+    expect(turn.readError).toMatch(/never flushed/)
+  })
 })
 
 describe('openSandboxRun — runtime hooks', () => {

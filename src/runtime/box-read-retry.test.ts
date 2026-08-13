@@ -44,6 +44,46 @@ describe('readBoxPathWithRetry', () => {
     expect(calls).toBe(1)
   })
 
+  it('spends no read at all when the signal is already aborted', async () => {
+    let calls = 0
+    const controller = new AbortController()
+    controller.abort()
+    const result = await readBoxPathWithRetry(
+      () => {
+        calls += 1
+        return Promise.resolve('never reached')
+      },
+      'a.md',
+      { attempts: 3, delayMs: 0, signal: controller.signal },
+    )
+    expect(calls).toBe(0)
+    expect(result.succeeded).toBe(false)
+    if (!result.succeeded)
+      expect(boxReadErrorMessage(result.error)).toContain('aborted before reading')
+  })
+
+  it('runs beforeAttempt exactly once per attempt, including the aborted one', async () => {
+    const controller = new AbortController()
+    const seen: (string | undefined)[] = []
+    await readBoxPathWithRetry(
+      () => {
+        controller.abort()
+        return Promise.reject(new Error('transient'))
+      },
+      'a.md',
+      {
+        attempts: 4,
+        delayMs: 0,
+        signal: controller.signal,
+        beforeAttempt: (lastError) => {
+          seen.push(boxReadErrorMessage(lastError))
+        },
+      },
+    )
+    // One call before the read that failed, one before the attempt the abort cancels.
+    expect(seen).toEqual([undefined, 'transient'])
+  })
+
   it('treats a sub-1 attempt count as a single attempt rather than skipping the read', async () => {
     let calls = 0
     const read = () => {

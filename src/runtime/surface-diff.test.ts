@@ -370,6 +370,19 @@ describe('fsSurfaceReader', () => {
     rmSync(realRoot, { recursive: true, force: true })
   })
 
+  it('reports a vanished worktree root as unreadable, never as every mount removed', async () => {
+    const doomed = mkdtempSync(join(tmpdir(), 'surface-diff-doomed-'))
+    writeFileSync(join(doomed, 'a.md'), 'v1')
+    const read = fsSurfaceReader(doomed)
+    rmSync(doomed, { recursive: true, force: true })
+    const diffs = await harvestSurfaceDiffs({
+      mounts: [mount('a.md', 'v1'), mount('b.md', 'v1')],
+      read,
+    })
+    expect(diffs.map((d) => d.status)).toEqual(['unreadable', 'unreadable'])
+    expect(diffs[0]?.error).toContain('reader root')
+  })
+
   it('composes with the harvest over a real worktree edit', async () => {
     writeFileSync(join(root, 'skill.md'), 'v1')
     const mounts = [mount('skill.md', 'v1')]

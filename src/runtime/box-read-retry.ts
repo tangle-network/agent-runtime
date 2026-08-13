@@ -49,18 +49,21 @@ export async function readBoxPathWithRetry(
   let lastError: unknown
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     options.beforeAttempt?.(lastError)
+    // An abandoned run earns no further reads. The guard sits AFTER `beforeAttempt` so a caller
+    // that raises its own abort error keeps that authority, and BEFORE the read so an already
+    // cancelled run spends nothing.
+    if (options.signal?.aborted) {
+      lastError ??= new Error(
+        `readBoxPathWithRetry: aborted before reading ${JSON.stringify(path)}`,
+      )
+      break
+    }
     try {
       return { succeeded: true, text: await read(path) }
     } catch (err) {
       lastError = err
       if (attempt < attempts && options.delayMs > 0)
         await sleep(options.delayMs * attempt, options.signal)
-      // An abandoned run earns no further attempts. `beforeAttempt` still runs first, so a caller
-      // that must raise its own abort error keeps that authority instead of getting a bare result.
-      if (options.signal?.aborted) {
-        options.beforeAttempt?.(lastError)
-        break
-      }
     }
   }
   return { succeeded: false, error: lastError }
