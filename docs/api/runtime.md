@@ -6316,7 +6316,7 @@ Stable provider environment identifier used by `provider.get`.
 
 > `readonly` **idempotencyKey**: `string`
 
-Original environment key retained for deterministic run identity and recovery records.
+Original environment key. The provider must return the matching retained metadata.
 
 ##### turn
 

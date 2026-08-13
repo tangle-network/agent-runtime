@@ -280,6 +280,7 @@ describe('retained runtime run control', () => {
     let createCalls = 0
     let destroyCalls = 0
     const getIds: string[] = []
+    const listQueries: Array<Record<string, unknown> | undefined> = []
     let dispatched: AgentTurnInput | undefined
     const provider = providerWithEnvironment({
       async dispatch(input) {
@@ -303,6 +304,16 @@ describe('retained runtime run control', () => {
       getIds.push(id)
       return get(id)
     }
+    provider.list = async (query) => {
+      listQueries.push(query?.metadata)
+      return [
+        {
+          id: 'environment-1',
+          provider: 'test-provider',
+          metadata: { retainedIdempotencyKey: 'durable-environment-key' },
+        },
+      ]
+    }
     const recorder = recordedAdmissions()
 
     const run = await startRetainedRunInEnvironment({
@@ -315,6 +326,7 @@ describe('retained runtime run control', () => {
     expect(createCalls).toBe(0)
     expect(destroyCalls).toBe(0)
     expect(getIds).toEqual(['environment-1'])
+    expect(listQueries).toEqual([{ retainedIdempotencyKey: 'durable-environment-key' }])
     expect(dispatched).toEqual({
       prompt: 'inspect the existing workspace',
       turnId: 'fresh-workspace-turn',
@@ -392,6 +404,46 @@ describe('retained runtime run control', () => {
       }),
     ).rejects.toThrow('reconstructed a different retained environment')
     expect(foreignRecorder.admissions).toEqual([])
+  })
+
+  it('fails before admission when retained environment ownership is not proven', async () => {
+    let dispatchCalls = 0
+    const mismatched = providerWithEnvironment({
+      async dispatch() {
+        dispatchCalls += 1
+        throw new Error('dispatch must not run for a mismatched owner')
+      },
+    })
+    mismatched.list = async () => [
+      {
+        id: 'environment-1',
+        provider: 'test-provider',
+        metadata: { retainedIdempotencyKey: 'owner-key' },
+      },
+    ]
+    const mismatchedRecorder = recordedAdmissions()
+    await expect(
+      startRetainedRunInEnvironment({
+        provider: mismatched,
+        environment: { id: 'environment-1', idempotencyKey: 'attacker-key' },
+        turn: { prompt: 'go', turnId: 'fresh-turn' },
+        onAdmission: mismatchedRecorder.onAdmission,
+      }),
+    ).rejects.toThrow('could not bind environment "environment-1"')
+    expect(dispatchCalls).toBe(0)
+    expect(mismatchedRecorder.admissions).toEqual([])
+
+    const unobservable = providerWithEnvironment({})
+    const unobservableRecorder = recordedAdmissions()
+    await expect(
+      startRetainedRunInEnvironment({
+        provider: unobservable,
+        environment: { id: 'environment-1', idempotencyKey: 'owner-key' },
+        turn: { prompt: 'go', turnId: 'fresh-turn' },
+        onAdmission: unobservableRecorder.onAdmission,
+      }),
+    ).rejects.toThrow('cannot prove retained environment ownership')
+    expect(unobservableRecorder.admissions).toEqual([])
   })
 
   it('allowlists a fresh retained start when JavaScript supplies stale run fields', async () => {
