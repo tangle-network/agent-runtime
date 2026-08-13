@@ -148,7 +148,7 @@ export interface StartRetainedRunInEnvironmentOptions {
   readonly environment: {
     /** Stable provider environment identifier used by `provider.get`. */
     readonly id: string
-    /** Original environment key retained for deterministic run identity and recovery records. */
+    /** Original environment key. The provider must return the matching retained metadata. */
     readonly idempotencyKey: string
   }
   readonly turn: AgentTurnInput & { turnId: string }

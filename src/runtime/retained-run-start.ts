@@ -162,6 +162,11 @@ export async function startRetainedRunInEnvironment(
   if (!environment.dispatch || !environment.session) {
     throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
+  await assertRetainedEnvironmentOwnership(
+    options.provider,
+    environment.id,
+    options.environment.idempotencyKey,
+  )
 
   return dispatchRetainedRun({
     provider: options.provider,
@@ -173,6 +178,29 @@ export async function startRetainedRunInEnvironment(
     capabilities,
     now: options.now,
   })
+}
+
+async function assertRetainedEnvironmentOwnership(
+  provider: AgentEnvironmentProvider,
+  environmentId: string,
+  idempotencyKey: string,
+): Promise<void> {
+  if (!provider.list) {
+    throw new Error(
+      `provider "${provider.name}" cannot prove retained environment ownership by metadata`,
+    )
+  }
+  const summaries = await provider.list({
+    metadata: { retainedIdempotencyKey: idempotencyKey },
+  })
+  const matches = summaries.filter(
+    (summary) => summary.id === environmentId && summary.provider === provider.name,
+  )
+  if (matches.length !== 1 || matches[0]?.metadata?.retainedIdempotencyKey !== idempotencyKey) {
+    throw new Error(
+      `provider "${provider.name}" could not bind environment "${environmentId}" to its retained idempotency key`,
+    )
+  }
 }
 
 interface DispatchRetainedRunOptions {
