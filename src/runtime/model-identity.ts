@@ -19,6 +19,14 @@ export function observedModelMatchesDeclared(observed: string, declared: string)
   return equivalentModelBase(observedIdentity.base, declaredIdentity.base)
 }
 
+/** Canonicalize a served model for cross-route identity comparisons. */
+export function canonicalObservedModel(model: string): string | undefined {
+  const identity = modelIdentityParts(model)
+  if (!identity) return undefined
+  const base = identity.base.slice(identity.base.lastIndexOf('/') + 1)
+  return identity.snapshot === undefined ? base : `${base}@${identity.snapshot}`
+}
+
 function modelIdentityParts(model: string): ModelIdentityParts | null {
   if (model.length === 0) return null
   const at = model.lastIndexOf('@')

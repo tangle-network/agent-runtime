@@ -20,6 +20,12 @@ import {
   superviseDispatch,
   type Validator,
 } from '../../src/runtime'
+import { supervisedTreeModelForDispatch } from '../../src/runtime/loop-dispatch'
+import type {
+  NodeSnapshot,
+  ProviderModelExecutionEvidence,
+  SupervisedResult,
+} from '../../src/runtime/supervise/types'
 import { refineDriver } from './refine-driver'
 
 interface Task {
@@ -458,6 +464,144 @@ describe('superviseDispatch', () => {
       }),
     })
   }
+
+  function modelEvidence(
+    attempts: ReadonlyArray<ReadonlyArray<string>>,
+    models: ReadonlyArray<string> = [...new Set(attempts.flat())],
+  ): ProviderModelExecutionEvidence {
+    return {
+      status: 'known',
+      attempts: attempts.map((observations) => ({ observations })),
+      models,
+    }
+  }
+
+  function identityResult(
+    rootProviderModel: ProviderModelExecutionEvidence,
+    child?: Partial<NodeSnapshot>,
+  ): SupervisedResult<unknown> {
+    const spend = { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
+    const childProviderModel = child?.providerModel
+    const providerModel: ProviderModelExecutionEvidence =
+      child === undefined
+        ? rootProviderModel
+        : child.ownedTreeRoot !== undefined
+          ? {
+              status: 'unknown',
+              attempts: rootProviderModel.attempts,
+              models: rootProviderModel.models,
+              reason: 'provider-model-missing',
+            }
+          : childProviderModel === undefined
+            ? {
+                status: 'unknown',
+                attempts: [...rootProviderModel.attempts, { observations: [] }],
+                models: rootProviderModel.models,
+                reason: 'provider-model-missing',
+              }
+            : rootProviderModel.status === 'unknown' || childProviderModel.status === 'unknown'
+              ? {
+                  status: 'unknown',
+                  attempts: [...rootProviderModel.attempts, ...childProviderModel.attempts],
+                  models: [...new Set([...rootProviderModel.models, ...childProviderModel.models])],
+                  reason:
+                    rootProviderModel.reason === 'provider-model-conflict' ||
+                    childProviderModel.reason === 'provider-model-conflict'
+                      ? 'provider-model-conflict'
+                      : 'provider-model-missing',
+                }
+              : {
+                  status: 'known',
+                  attempts: [...rootProviderModel.attempts, ...childProviderModel.attempts],
+                  models: [...new Set([...rootProviderModel.models, ...childProviderModel.models])],
+                }
+    return {
+      kind: 'winner',
+      out: {},
+      outRef: `sha256:${'a'.repeat(64)}`,
+      tree: {
+        root: 'root',
+        nodes: child
+          ? [
+              {
+                id: 'root:s0',
+                parent: 'root',
+                label: 'child',
+                status: 'done',
+                runtime: 'router',
+                budget: { maxIterations: 1, maxTokens: 1 },
+                spent: spend,
+                ...child,
+              },
+            ]
+          : [],
+        inFlight: 0,
+        waiting: 0,
+      },
+      spentTotal: spend,
+      rootProviderModel,
+      providerModel,
+    } as SupervisedResult<unknown>
+  }
+
+  it('uses only provider attempt evidence and canonicalizes bare plus qualified observations', () => {
+    const served = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_matrix'
+    const result = identityResult(modelEvidence([['deepseek-v4-flash', served]]), {
+      materialization: {
+        status: 'known',
+        runtime: 'router',
+        authoredProfileDigest: `sha256:${'b'.repeat(64)}`,
+        effectiveProfileDigest: `sha256:${'c'.repeat(64)}`,
+        backend: 'router',
+        model: { status: 'known', id: 'plan-only-wrong-model' },
+      } as NodeSnapshot['materialization'],
+      providerModel: modelEvidence([[served]]),
+    })
+    expect(supervisedTreeModelForDispatch(result, movingPiProfile)).toEqual({
+      kind: 'known',
+      model: served,
+    })
+  })
+
+  it.each([
+    [
+      'zero-valued child without evidence',
+      { spent: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 } },
+    ],
+    [
+      'plan-only child',
+      { materialization: { status: 'known', model: { status: 'known', id: 'plan-alias' } } },
+    ],
+    [
+      'missing identity after a paid attempt',
+      { providerModel: modelEvidence([['deepseek-v4-flash@fp_a'], []]) },
+    ],
+    [
+      'mutated redundant identity fields',
+      { providerModel: modelEvidence([['deepseek-v4-flash@fp_b']], ['deepseek-v4-flash@fp_a']) },
+    ],
+  ] as const)('fails closed for %s', (_label, child) => {
+    const result = identityResult(
+      modelEvidence([['deepseek-v4-flash@fp_a']]),
+      child as Partial<NodeSnapshot>,
+    )
+    expect(supervisedTreeModelForDispatch(result, movingPiProfile)).toEqual({ kind: 'unknown' })
+  })
+
+  it('rejects mixed served snapshots and nested trees instead of flattening plan aliases', () => {
+    const mixed = identityResult(modelEvidence([['deepseek-v4-flash@fp_a']]), {
+      providerModel: modelEvidence([['other-model@fp_b']]),
+    })
+    expect(supervisedTreeModelForDispatch(mixed, movingPiProfile)).toEqual({
+      kind: 'mixed',
+      models: ['deepseek-v4-flash@fp_a', 'other-model@fp_b'],
+    })
+    const nested = identityResult(modelEvidence([['deepseek-v4-flash@fp_a']]), {
+      ownedTreeRoot: 'root:s0',
+      providerModel: modelEvidence([['deepseek-v4-flash@fp_a']]),
+    })
+    expect(supervisedTreeModelForDispatch(nested, movingPiProfile)).toEqual({ kind: 'unknown' })
+  })
 
   it('settles a Pi moving alias from one served snapshot and runProfileMatrix accepts it', async () => {
     const servedModel = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_20260811'

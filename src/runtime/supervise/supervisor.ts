@@ -36,7 +36,9 @@
 
 import { sha256DigestSchema } from '@tangle-network/agent-interface'
 import {
+  aggregateProviderModelEvidence,
   contentAddress,
+  loadSpawnForest,
   materializeTreeView,
   pendingWaits,
   replaySpawnTree,
@@ -739,17 +741,15 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           // ONE ledger: the journal. `settled` events carry spawned-child WORK; `metered` events carry
           // the drivers' OWN inference (the twin of `pool.observe`). `spentTotal` is their sum and the
           // breakdown keeps the two separable — the A++ view of where the tokens went. No pool bridge.
-          const { spentTotal, childWork, driverInference, gaps } = await terminalAccounting(
-            journal,
-            opts.runId,
-            now() - runEpochMs,
-          )
+          const { spentTotal, childWork, driverInference, gaps, providerModel } =
+            await terminalAccounting(journal, opts.runId, now() - runEpochMs)
           return {
             kind: 'winner',
             out,
             outRef,
             tree,
             spentTotal,
+            providerModel,
             ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
             ...(isNonEmptySpend(driverInference)
               ? { spentBreakdown: { driverInference, childWork } }
@@ -769,7 +769,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // A no-winner still incurred real conserved spend before failing, so it carries `spentTotal`
       // summed off the SAME journal the winner path reads — the caller always learns the cost.
       async function noWinner(rejection?: DriverRejection): Promise<SupervisedResult<Out>> {
-        const { spentTotal, gaps } = await terminalAccounting(
+        const { spentTotal, gaps, providerModel } = await terminalAccounting(
           journal,
           opts.runId,
           now() - runEpochMs,
@@ -779,6 +779,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           tree,
           downCount: breaker.downCount(),
           spentTotal,
+          providerModel,
           ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
@@ -1190,7 +1191,13 @@ async function terminalAccounting(
   journal: SpawnJournal,
   root: string,
   elapsedMs: number,
-): Promise<{ spentTotal: Spend; childWork: Spend; driverInference: Spend; gaps: SpendGap[] }> {
+): Promise<{
+  spentTotal: Spend
+  childWork: Spend
+  driverInference: Spend
+  gaps: SpendGap[]
+  providerModel: import('./types').ProviderModelExecutionEvidence
+}> {
   const events = await journal.loadTree(root)
   if (events === undefined) {
     throw new RuntimeRunStateError(
@@ -1199,6 +1206,8 @@ async function terminalAccounting(
   }
   const { childWork, driverInference } = sumSpendFromEvents(events)
   const gaps = spendGapsFromEvents(events)
+  const forest = await loadSpawnForest(journal, root)
+  const providerModel = aggregateProviderModelEvidence(forest)
   const summed = addSpend(childWork, driverInference)
   const spentTotal: Spend = {
     ...summed,
@@ -1207,7 +1216,7 @@ async function terminalAccounting(
       summed.tokensKnown !== false && !gaps.some((gap) => gap.channels.includes('tokens')),
     usdKnown: summed.usdKnown !== false && !gaps.some((gap) => gap.channels.includes('usd')),
   }
-  return { spentTotal, childWork, driverInference, gaps }
+  return { spentTotal, childWork, driverInference, gaps, providerModel }
 }
 
 /** The journaled nodes whose usage accounting is incomplete — one `SpendGap` per node+kind,

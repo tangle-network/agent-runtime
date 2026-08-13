@@ -60,6 +60,7 @@ import {
   type SupervisorFinalizer,
 } from './finalizer'
 import { createInbox, type Inbox } from './inbox'
+import { meterRuntimeOwnedProviderAttempt } from './scope'
 import {
   createProgressTracker,
   type ProgressTracker,
@@ -70,6 +71,7 @@ import type {
   Agent,
   Budget,
   NodeSnapshot,
+  ProviderModelExecutionEvidence,
   ResultBlobStore,
   ResumedWork,
   Scope,
@@ -282,6 +284,18 @@ function progressStop(
   return tracker.evaluate(rule, scope, stallAfterMs !== undefined ? { stallAfterMs } : undefined)
 }
 
+function providerAttemptEvidence(model: string | undefined): ProviderModelExecutionEvidence {
+  const attempts = Object.freeze([
+    Object.freeze({ observations: Object.freeze(model === undefined ? [] : [model]) }),
+  ])
+  const models = Object.freeze(model === undefined ? [] : [model])
+  return Object.freeze(
+    model === undefined
+      ? { status: 'unknown' as const, attempts, models, reason: 'provider-model-missing' as const }
+      : { status: 'known' as const, attempts, models },
+  )
+}
+
 /**
  * Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
  * `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
@@ -436,7 +450,11 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         try {
           res = await opts.brain(messages, tools, callContext)
         } catch (error) {
-          await scope.meter(
+          // Calling the brain is the provider-attempt boundary. A rejection after that boundary
+          // carries no trusted served identity, so preserve an empty attempt for root settlement.
+          opts.onProviderModel?.(undefined)
+          await meterRuntimeOwnedProviderAttempt(
+            scope,
             {
               iterations: 0,
               tokens: { input: 0, output: 0 },
@@ -445,6 +463,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               usdKnown: false,
               ms: 0,
             },
+            providerAttemptEvidence(undefined),
             {
               driver: opts.name,
               inferenceFailed: true,
@@ -500,25 +519,30 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           ...(trustedCost && res.costUsd !== undefined ? {} : { usdKnown: false }),
           ms: 0,
         }
-        await scope.meter(turnSpend, {
-          driver: opts.name,
-          call,
-          callId: callContext.callId,
-          correlationId: callContext.correlationId,
-          toolCalls: (res.toolCalls ?? []).map((c) => c.name),
-          ...(res.model !== undefined ? { model: res.model } : {}),
-          ...(res.transportAttempts !== undefined
-            ? { transportAttempts: res.transportAttempts }
-            : {}),
-          ...(res.usage?.reasoning !== undefined ? { reasoningTokens: res.usage.reasoning } : {}),
-          ...(res.promptCache !== undefined ? { promptCache: res.promptCache } : {}),
-          // The streamed transport says explicitly when it finished with no usage chunk (a broken
-          // `include_usage` contract), which is a different fact from a brain that never reports
-          // usage at all. Recorded on the turn so the journal distinguishes them.
-          ...(res.usageUnknown === true ? { streamUsageMissing: true } : {}),
-          ...(res.costProvenance === 'catalog-estimate' ? { estimatedCostUsd: res.costUsd } : {}),
-          ...detail,
-        })
+        await meterRuntimeOwnedProviderAttempt(
+          scope,
+          turnSpend,
+          providerAttemptEvidence(res.model),
+          {
+            driver: opts.name,
+            call,
+            callId: callContext.callId,
+            correlationId: callContext.correlationId,
+            toolCalls: (res.toolCalls ?? []).map((c) => c.name),
+            ...(res.model !== undefined ? { model: res.model } : {}),
+            ...(res.transportAttempts !== undefined
+              ? { transportAttempts: res.transportAttempts }
+              : {}),
+            ...(res.usage?.reasoning !== undefined ? { reasoningTokens: res.usage.reasoning } : {}),
+            ...(res.promptCache !== undefined ? { promptCache: res.promptCache } : {}),
+            // The streamed transport says explicitly when it finished with no usage chunk (a broken
+            // `include_usage` contract), which is a different fact from a brain that never reports
+            // usage at all. Recorded on the turn so the journal distinguishes them.
+            ...(res.usageUnknown === true ? { streamUsageMissing: true } : {}),
+            ...(res.costProvenance === 'catalog-estimate' ? { estimatedCostUsd: res.costUsd } : {}),
+            ...detail,
+          },
+        )
         if (evidenceError !== undefined) throw evidenceError
         return res
       }

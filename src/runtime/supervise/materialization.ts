@@ -13,6 +13,8 @@ import type {
   ExecutorExecutionBinding,
   ExecutorMaterialization,
   ProfileMaterializationReceipt,
+  ProviderModelAttemptEvidence,
+  ProviderModelExecutionEvidence,
   Runtime,
   UnknownMaterializationReason,
 } from './types'
@@ -44,9 +46,13 @@ const runtimeOwnedExecutorMaterializations = new WeakMap<
   RuntimeOwnedExecutorMaterializationRef
 >()
 const runtimeOwnedScopeOwners = new WeakMap<object, Runtime>()
-const runtimeOwnedDriveHarnessModelObservations = new WeakMap<
+const runtimeOwnedExecutorProviderEvidenceState = new WeakMap<
   object,
-  { readonly observations: Array<string | undefined> }
+  { readonly attempts: Array<{ readonly observations: string[]; identityConflict?: boolean }> }
+>()
+const runtimeOwnedDriveHarnessProviderEvidenceState = new WeakMap<
+  object,
+  ProviderModelExecutionEvidence
 >()
 
 interface KnownReceiptInput {
@@ -92,6 +98,7 @@ export function attestRuntimeOwnedExecutor<Out>(
           }),
     }),
   })
+  ensureProviderEvidenceState(executor)
   return executor
 }
 
@@ -157,7 +164,19 @@ export function inheritRuntimeOwnedExecutorAttestation<In, Out>(
   if (ref !== undefined) {
     runtimeOwnedExecutorMaterializations.set(wrapper as object, ref)
   }
+  const providerState = ensureProviderEvidenceState(source)
+  runtimeOwnedExecutorProviderEvidenceState.set(wrapper as object, providerState)
   return wrapper
+}
+
+function ensureProviderEvidenceState<Out>(executor: Executor<Out>): {
+  readonly attempts: Array<{ readonly observations: string[]; identityConflict?: boolean }>
+} {
+  const existing = runtimeOwnedExecutorProviderEvidenceState.get(executor as object)
+  if (existing !== undefined) return existing
+  const state = { attempts: [] }
+  runtimeOwnedExecutorProviderEvidenceState.set(executor as object, state)
+  return state
 }
 
 /** Read a declaration only when Runtime itself branded this exact executor object. */
@@ -215,26 +234,100 @@ export function runtimeOwnedScopeOwnerRuntime(owner: object): Runtime | undefine
   return runtimeOwnedScopeOwners.get(owner)
 }
 
-/** Record provider model observations only for a Runtime-owned drive adapter. Arbitrary caller
- * harnesses cannot publish a lookalike receipt, so their root identity remains unknown. */
-export function recordRuntimeOwnedDriveHarnessModel(
-  owner: object,
-  model: string | undefined,
-): void {
-  const state = runtimeOwnedDriveHarnessModelObservations.get(owner)
-  if (state === undefined) {
-    runtimeOwnedDriveHarnessModelObservations.set(owner, { observations: [model] })
-    return
-  }
-  state.observations.push(model)
+/** Mark one provider inference attempt on a Runtime-owned executor. */
+export function recordRuntimeOwnedProviderAttemptStart<Out>(executor: Executor<Out>): void {
+  const state = ensureProviderEvidenceState(executor)
+  state.attempts.push({ observations: [] })
 }
 
-/** Read settled provider observations from one Runtime-owned drive adapter. */
-export function runtimeOwnedDriveHarnessModels(
+/** Record a trusted served model on the current provider attempt. */
+export function recordRuntimeOwnedProviderModel<Out>(executor: Executor<Out>, model: string): void {
+  const state = runtimeOwnedExecutorProviderEvidenceState.get(executor as object)
+  const attempt = state?.attempts.at(-1)
+  if (attempt === undefined) {
+    throw new ValidationError('provider model observation arrived before an attempt started')
+  }
+  if (attempt.observations.at(-1) !== model) attempt.observations.push(model)
+}
+
+/** Convert process-local provider observations into a frozen, replayable evidence value. */
+export function runtimeOwnedExecutorProviderEvidence<Out>(
+  executor: Executor<Out>,
+): ProviderModelExecutionEvidence | undefined {
+  const state = runtimeOwnedExecutorProviderEvidenceState.get(executor as object)
+  if (state === undefined || state.attempts.length === 0) return undefined
+  const attempts: ReadonlyArray<ProviderModelAttemptEvidence> = Object.freeze(
+    state.attempts.map((attempt) =>
+      Object.freeze({
+        observations: Object.freeze([...attempt.observations]),
+        ...(attempt.identityConflict ? { identityConflict: true } : {}),
+      }),
+    ),
+  )
+  const models = Object.freeze([...new Set(attempts.flatMap((attempt) => attempt.observations))])
+  const missing = attempts.some((attempt) => attempt.observations.length === 0)
+  const conflict = attempts.some((attempt) => attempt.identityConflict === true)
+  return Object.freeze(
+    missing || conflict
+      ? {
+          status: 'unknown' as const,
+          attempts,
+          models,
+          reason: conflict
+            ? ('provider-model-conflict' as const)
+            : ('provider-model-missing' as const),
+        }
+      : { status: 'known' as const, attempts, models },
+  )
+}
+
+/** Mark the current provider attempt unusable after conflicting served identity metadata. */
+export function recordRuntimeOwnedProviderIdentityConflict<Out>(executor: Executor<Out>): void {
+  const state = ensureProviderEvidenceState(executor)
+  const attempt = state.attempts.at(-1)
+  if (attempt === undefined) {
+    throw new ValidationError('provider identity conflict arrived before an attempt started')
+  }
+  attempt.identityConflict = true
+}
+
+/** Attach one executor's provider evidence to a Runtime-owned root drive for final projection. */
+export function recordRuntimeOwnedDriveHarnessProviderEvidence(
   owner: object,
-): ReadonlyArray<string | undefined> | undefined {
-  const state = runtimeOwnedDriveHarnessModelObservations.get(owner)
-  return state === undefined ? undefined : Object.freeze([...state.observations])
+  evidence: ProviderModelExecutionEvidence | undefined,
+): void {
+  if (evidence === undefined) return
+  const prior = runtimeOwnedDriveHarnessProviderEvidenceState.get(owner)
+  if (prior === undefined) {
+    runtimeOwnedDriveHarnessProviderEvidenceState.set(owner, evidence)
+    return
+  }
+  const attempts = Object.freeze([...prior.attempts, ...evidence.attempts])
+  const models = Object.freeze([...new Set([...prior.models, ...evidence.models])])
+  const missing = attempts.some((attempt) => attempt.observations.length === 0)
+  const conflict = attempts.some((attempt) => attempt.identityConflict === true)
+  runtimeOwnedDriveHarnessProviderEvidenceState.set(
+    owner,
+    Object.freeze(
+      missing || conflict
+        ? {
+            status: 'unknown' as const,
+            attempts,
+            models,
+            reason: conflict
+              ? ('provider-model-conflict' as const)
+              : ('provider-model-missing' as const),
+          }
+        : { status: 'known' as const, attempts, models },
+    ),
+  )
+}
+
+/** Read provider evidence recorded by a Runtime-owned root drive. */
+export function runtimeOwnedDriveHarnessProviderEvidence(
+  owner: object,
+): ProviderModelExecutionEvidence | undefined {
+  return runtimeOwnedDriveHarnessProviderEvidenceState.get(owner)
 }
 
 /** Build one kernel-owned known receipt from a data-only executor declaration. */

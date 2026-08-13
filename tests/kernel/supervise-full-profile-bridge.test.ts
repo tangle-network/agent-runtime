@@ -279,6 +279,100 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(() => handle.deliver({ steer: 'after completion' })).toThrow()
   })
 
+  it('journals every outstanding served model when a resumed turn dies before terminal proof', async () => {
+    const runId = 'bridge-two-outstanding-provider-attempts'
+    const journal = new InMemorySpawnJournal()
+    const handle = createRootHandle<unknown>()
+    const requests: BridgeRequest[] = []
+    const firstRequest = new Promise<void>((resolve) => {
+      server = createBridgeServer(async (req, res) => {
+        const cancelledId = cancelledRunId(req.url)
+        if (cancelledId !== undefined) {
+          respondWithTerminalCancellation(res, cancelledId)
+          return
+        }
+        const body = await readJson(req)
+        requests.push(body)
+        if (requests.length === 1) {
+          res.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'x-run-id': body.run_id,
+            'x-run-request-digest': TEST_RUN_DIGEST,
+          })
+          res.write(
+            `id: 1\ndata: ${JSON.stringify({
+              model: 'openai/test@fp_x',
+              usage: {
+                prompt_tokens: 13,
+                completion_tokens: 5,
+                cost: 0.02,
+                cost_known: true,
+                cost_provenance: 'provider-receipt',
+              },
+            })}\n\n`,
+          )
+          setTimeout(resolve, 20)
+          return
+        }
+        res.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'x-run-id': body.run_id,
+          'x-run-request-digest': TEST_RUN_DIGEST,
+        })
+        res.write(
+          `id: 1\ndata: ${JSON.stringify({
+            model: 'openai/test@fp_y',
+            usage: {
+              prompt_tokens: 17,
+              completion_tokens: 7,
+              cost: 0.03,
+              cost_known: true,
+              cost_provenance: 'provider-receipt',
+            },
+          })}\n\n`,
+        )
+        setTimeout(() => res.socket?.destroy(new Error('socket died before terminal receipt')), 10)
+      })
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const running = supervise(codexTestProfile('pi-leader', 'Lead.'), 'Choose.', {
+      rootHandle: handle,
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { enabled: false },
+      journal,
+      runId,
+    })
+
+    await firstRequest
+    expect(handle.deliver({ steer: 'continue with the falsification test', interrupt: true })).toBe(
+      true,
+    )
+    const result = await running
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    expect(result.providerModel).toMatchObject({
+      status: 'unknown',
+      reason: 'provider-model-conflict',
+    })
+
+    const events = (await journal.loadTree(runId)) ?? []
+    const metered = events.filter(
+      (event): event is Extract<typeof event, { kind: 'metered' }> => event.kind === 'metered',
+    )
+    expect(metered.map((event) => event.providerModel?.attempts[0]?.observations[0])).toEqual([
+      'openai/test@fp_x',
+      'openai/test@fp_y',
+    ])
+  })
+
   it('selects heterogeneous leaf completion checks from the exact authorized spawn context', async () => {
     const requests: BridgeRequest[] = []
     server = createBridgeServer(async (req, res) => {
