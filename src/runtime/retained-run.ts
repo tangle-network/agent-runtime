@@ -5,7 +5,12 @@
  * startup, replay, binding checks, and handle operations.
  */
 
-export { reconnectRetainedRun, recoverRetainedRun, startRetainedRun } from './retained-run-start'
+export {
+  reconnectRetainedRun,
+  recoverRetainedRun,
+  startRetainedRun,
+  startRetainedRunInEnvironment,
+} from './retained-run-start'
 export type {
   NativeContextContinuationExecution,
   NativeContextContinuationInput,
@@ -23,5 +28,6 @@ export type {
   RetainedRunHandle,
   RetainedRunReplayPoint,
   RetainedRunSnapshot,
+  StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'

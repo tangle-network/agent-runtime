@@ -3,6 +3,7 @@ import {
   AgentExactRunControlRefSchema,
 } from '@tangle-network/agent-interface'
 import type {
+  AgentEnvironment,
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
   AgentSession,
@@ -22,6 +23,7 @@ import type {
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunHandle,
+  StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
 import { freshTurnInput } from './turn-input'
@@ -107,22 +109,101 @@ export async function startRetainedRun(
     throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
 
-  // The environment admission fires only for a dispatch-capable environment:
-  // an environment destroyed above must never leave a durable record.
+  return dispatchRetainedRun({
+    provider: options.provider,
+    environment,
+    environmentIdempotencyKey: options.environment.idempotencyKey,
+    turn: options.turn,
+    identity,
+    onAdmission: options.onAdmission,
+    capabilities,
+    now: options.now,
+  })
+}
+
+/**
+ * Dispatch a fresh retained session inside an existing provider environment.
+ *
+ * This operation reuses only the environment. It does not append to a prior
+ * harness chat and does not claim native conversation continuity. The caller
+ * must use `RetainedRunHandle.continueNative` for a verified same-chat turn.
+ *
+ * @stable
+ */
+export async function startRetainedRunInEnvironment(
+  options: StartRetainedRunInEnvironmentOptions,
+): Promise<RetainedRunHandle> {
+  assertStableText(options.environment.id, 'retained environment id')
+  assertStableText(options.environment.idempotencyKey, 'environment idempotency key')
+  assertStableText(options.turn.turnId, 'turn idempotency key')
+  if (options.identity !== undefined) {
+    assertStableText(options.identity.sessionId, 'retained session id')
+    assertStableText(options.identity.executionId, 'retained execution id')
+  }
+  if (typeof options.onAdmission !== 'function') {
+    throw new Error('startRetainedRunInEnvironment requires an awaited onAdmission durability hook')
+  }
+  const identity =
+    options.identity ??
+    mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
+  const capabilities = await assertRetainedCapabilities(options.provider)
+  if (!options.provider.get) {
+    throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
+  }
+  const environment = await options.provider.get(options.environment.id)
+  if (!environment) {
+    throw new Error(
+      `provider "${options.provider.name}" no longer holds environment "${options.environment.id}"`,
+    )
+  }
+  if (environment.id !== options.environment.id || environment.provider !== options.provider.name) {
+    throw new Error('provider reconstructed a different retained environment')
+  }
+  if (!environment.dispatch || !environment.session) {
+    throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
+  }
+
+  return dispatchRetainedRun({
+    provider: options.provider,
+    environment,
+    environmentIdempotencyKey: options.environment.idempotencyKey,
+    turn: options.turn,
+    identity,
+    onAdmission: options.onAdmission,
+    capabilities,
+    now: options.now,
+  })
+}
+
+interface DispatchRetainedRunOptions {
+  readonly provider: AgentEnvironmentProvider
+  readonly environment: AgentEnvironment
+  readonly environmentIdempotencyKey: string
+  readonly turn: StartRetainedRunOptions['turn']
+  readonly identity: { readonly sessionId: string; readonly executionId: string }
+  readonly onAdmission: RetainedRunAdmissionHook
+  readonly capabilities: AgentEnvironmentCapabilities
+  readonly now?: () => number
+}
+
+async function dispatchRetainedRun(
+  options: DispatchRetainedRunOptions,
+): Promise<RetainedRunHandle> {
+  const { environment, identity } = options
+  // The environment admission fires only for a dispatch-capable environment.
   await admitDurably(options.onAdmission, {
     phase: 'environment',
     provider: options.provider.name,
     environmentId: environment.id,
-    idempotencyKey: options.environment.idempotencyKey,
+    idempotencyKey: options.environmentIdempotencyKey,
     turnId: options.turn.turnId,
     sessionId: identity.sessionId,
     executionId: identity.executionId,
   })
 
   // Once dispatch begins, its outcome may be unknown to this process. Keep the
-  // idempotently-created environment so a retry or reconnect can recover the
-  // retained operation instead of destroying work that may already be live.
-  const reference = await environment.dispatch(
+  // environment so a retry or reconnect can recover work that may already be live.
+  const reference = await environment.dispatch!(
     freshTurnInput(options.turn, {
       turnId: options.turn.turnId,
       detach: true,
@@ -168,14 +249,14 @@ export async function startRetainedRun(
   await admitDurably(options.onAdmission, {
     phase: 'dispatched',
     controlRef: freezeControlRef(exact.controlRef),
-    idempotencyKey: options.environment.idempotencyKey,
+    idempotencyKey: options.environmentIdempotencyKey,
     turnId: options.turn.turnId,
   })
   return createRetainedRunHandle(
     environment,
     exact.session,
     exact.controlRef,
-    capabilities,
+    options.capabilities,
     options.now,
   )
 }

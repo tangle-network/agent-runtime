@@ -57,7 +57,9 @@ The work is ordered to prove the two-agent atom before adding scale.
 - Extend the existing run record with revisions, ownership generation, commands, provider references, and coordination events.
 - Add durable adapters with conditional writes.
 - Persist dispatch intent before provider creation.
-  Partially done: `startRetainedRun` blocks on its required `onAdmission` hook after creation and after dispatch, and `recoverRetainedRun` rebuilds a run from the pre-dispatch record.
+  Partially done: `startRetainedRun` persists admission after creation and dispatch.
+  `startRetainedRunInEnvironment` applies the same boundary to a fresh session in an existing environment.
+  `recoverRetainedRun` rebuilds a run from the pre-dispatch record.
   The pre-creation intent record remains open.
 - Add a durable provider-command outbox with coordinator generation and command sequence.
 - Rebuild budget reservations and interaction state on restart.

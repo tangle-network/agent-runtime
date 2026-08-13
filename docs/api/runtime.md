@@ -920,7 +920,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-7)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-8)
 
 ##### materialization?
 
@@ -6267,6 +6267,73 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 Explicit dispatch coordinates. When omitted, the runtime mints
 deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
 so every process derives the same values.
+
+###### sessionId
+
+> `readonly` **sessionId**: `string`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+##### onAdmission
+
+> `readonly` **onAdmission**: [`RetainedRunAdmissionHook`](#retainedrunadmissionhook)
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### StartRetainedRunInEnvironmentOptions
+
+**`Stable`**
+
+A fresh retained session inside a provider environment that already exists.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### environment
+
+> `readonly` **environment**: `object`
+
+###### id
+
+> `readonly` **id**: `string`
+
+Stable provider environment identifier used by `provider.get`.
+
+###### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+Original environment key retained for deterministic run identity and recovery records.
+
+##### turn
+
+> `readonly` **turn**: `AgentTurnInput` & `object`
+
+###### Type Declaration
+
+###### turnId
+
+> **turnId**: `string`
+
+##### identity?
+
+> `readonly` `optional` **identity?**: `object`
+
+Explicit fresh-session coordinates. When omitted, the runtime mints them
+from `(environment.idempotencyKey, turn.turnId)`.
 
 ###### sessionId
 
@@ -14446,7 +14513,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-2)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-3)
 
 ##### assignmentId?
 
@@ -22780,6 +22847,30 @@ whose exact reference a crash would lose.
 ##### options
 
 [`StartRetainedRunOptions`](#startretainedrunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+***
+
+### startRetainedRunInEnvironment()
+
+> **startRetainedRunInEnvironment**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
+
+**`Stable`**
+
+Dispatch a fresh retained session inside an existing provider environment.
+
+This operation reuses only the environment. It does not append to a prior
+harness chat and does not claim native conversation continuity. The caller
+must use `RetainedRunHandle.continueNative` for a verified same-chat turn.
+
+#### Parameters
+
+##### options
+
+[`StartRetainedRunInEnvironmentOptions`](#startretainedruninenvironmentoptions)
 
 #### Returns
 
