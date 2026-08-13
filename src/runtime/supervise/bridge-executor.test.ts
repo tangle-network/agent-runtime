@@ -427,6 +427,81 @@ describe('bridgeExecutor upstream-error propagation', () => {
     })
   })
 
+  it('accepts a routed DeepSeek response and retains its upstream identity', async () => {
+    const responseModel = 'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
+    const chunks = [
+      `data: ${JSON.stringify({
+        model: 'deepseek-v4-flash',
+        choices: [{ delta: { content: 'routed' } }],
+      })}`,
+      `data: ${JSON.stringify({
+        model: responseModel,
+        system_fingerprint: 'fp_a18b46594c_prod0820_fp8_kvcache_20260402',
+        choices: [{ delta: { content: ' response' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      })}`,
+      'data: [DONE]',
+    ]
+    const stub = await startBridgeStub(`${chunks.join('\n\n')}\n\n`)
+    server = stub.server
+    const profile: AgentProfile = {
+      name: 'routed-deepseek-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer' } },
+      },
+    )
+
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(executor.resultArtifact().out).toMatchObject({
+      content: 'routed response',
+      model: responseModel,
+      system_fingerprint: 'fp_a18b46594c_prod0820_fp8_kvcache_20260402',
+    })
+  })
+
+  it('rejects a routed stream that changes its provider snapshot', async () => {
+    const chunks = [
+      `data: ${JSON.stringify({
+        model: 'deepseek/deepseek-v4-flash@fp_a',
+        choices: [{ delta: { content: 'partial' } }],
+      })}`,
+      `data: ${JSON.stringify({
+        model: 'deepseek/deepseek-v4-flash@fp_b',
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      })}`,
+      'data: [DONE]',
+    ]
+    const stub = await startBridgeStub(`${chunks.join('\n\n')}\n\n`)
+    server = stub.server
+    const profile: AgentProfile = {
+      name: 'routed-deepseek-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer' } },
+      },
+    )
+
+    await expect(
+      drain(
+        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/bridge changed response model/u)
+  })
+
   it('journals served identity and paid usage when a bridge child aborts before terminal materialization', async () => {
     const servedModel = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_abort'
     let abortChild: (() => void) | undefined

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.133.2
+
+- Accept a routed response when its served-provider prefix differs from the profile's gateway prefix but its model name matches.
+- Preserve the complete provider-qualified model and snapshot in execution evidence.
+- Reject a different model name, a changed snapshot, or a missing snapshot when the profile pins one.
+
 ## 0.133.1
 
 - Preserve provider-served model identity for every Runtime inference attempt, including paid executions that abort before terminal materialization.
