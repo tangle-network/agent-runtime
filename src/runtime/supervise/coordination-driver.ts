@@ -297,6 +297,39 @@ function providerAttemptEvidence(model: string | undefined): ProviderModelExecut
 }
 
 /**
+ * Validate provider-reported prompt-cache evidence.
+ *
+ * Prompt-cache carries two kinds of number and they obey different rules: token COUNTS are
+ * integers, and USD amounts are fractional by nature. Applying the count rule to a dollar
+ * field refuses every provider that reports cache savings in dollars — a healthy router
+ * response carrying `readSavingsUsd: 0.0034` failed the driver outright before this split.
+ *
+ * Returns the refusal, or `undefined` when the evidence is acceptable.
+ */
+export function validateDriverPromptCache(
+  promptCache: Readonly<Record<string, number | string>> | undefined,
+): ValidationError | undefined {
+  for (const [field, value] of Object.entries(promptCache ?? {})) {
+    if (typeof value !== 'number') continue
+    const isUsdField = /usd$/i.test(field)
+    if (isUsdField) {
+      if (!Number.isFinite(value) || value < 0) {
+        return new ValidationError(
+          `driverAgent: prompt-cache field ${JSON.stringify(field)} must be a non-negative finite number`,
+        )
+      }
+      continue
+    }
+    if (!Number.isSafeInteger(value) || value < 0) {
+      return new ValidationError(
+        `driverAgent: prompt-cache field ${JSON.stringify(field)} must be a non-negative safe integer`,
+      )
+    }
+  }
+  return undefined
+}
+
+/**
  * Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a
  * `driverChild` (`driver-executor.ts`) to run it inside a nested scope, recursively.
  */
@@ -496,14 +529,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
             'driverAgent: transportAttempts must be a positive safe integer when reported',
           )
         }
-        for (const [field, value] of Object.entries(res.promptCache ?? {})) {
-          if (typeof value === 'number' && (!Number.isSafeInteger(value) || value < 0)) {
-            evidenceError = new ValidationError(
-              `driverAgent: prompt-cache field ${JSON.stringify(field)} must be a non-negative safe integer`,
-            )
-            break
-          }
-        }
+        evidenceError = validateDriverPromptCache(res.promptCache) ?? evidenceError
         const trustedCost =
           res.costProvenance === 'provider-receipt' || res.costProvenance === 'billing-receipt'
         const cacheUsage = driverPromptCacheUsage(res.usage?.input, res.promptCache)
