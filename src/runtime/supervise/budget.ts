@@ -13,6 +13,15 @@
  * spend, and refunds the unspent remainder to `free`. Tokens and usd are separate
  * channels (`LoopTokenUsage` has no `usd`); iterations are conserved alongside them.
  *
+ * The token unit is `chargedTokens`: every token counted ONCE, when it first enters the context
+ * (`freshInput + cacheWrite + output`). A cached prefix is re-presented content that was already
+ * charged when it was written, so charging a cache read again would charge the same tokens twice —
+ * on a real fleet cache is 98% of the rolled-up prompt total, which made a declared cap bite about
+ * 56x early. No price weight enters the token channel; money is budgeted separately on `maxUsd`.
+ * When a provider reports no usable cache split the pool keeps charging the rolled-up
+ * `input + output` and marks `readout().cacheBreakdownKnown` false, so the balance reads as an
+ * upper bound on newly-presented work rather than a measurement.
+ *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
  * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always
@@ -37,8 +46,8 @@
  */
 
 import { ValidationError } from '../../errors'
-import { addTokenUsage, zeroTokenUsage } from '../util'
-import type { Budget, LoopTokenUsage, Spend, UsageEvent } from './types'
+import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
+import type { Budget, Spend, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
 
@@ -77,6 +86,14 @@ export type BudgetReadout = Readonly<{
    * flag would present an under-count as an exact balance.
    */
   tokensKnown: boolean
+  /**
+   * False once the pool has charged work whose prompt-cache split it could not read. Those tokens
+   * were charged at the rolled-up prompt total, which counts a cached prefix again on every turn
+   * that reads it, so the debited amount is an upper bound on newly-presented work rather than a
+   * measurement. It is a separate fact from `tokensKnown`: the counts arrived, but their
+   * composition did not.
+   */
+  cacheBreakdownKnown: boolean
   usdLeft: number
   usdCapped: boolean
   /** False once any recorded work reported an unknown dollar cost; the dollar totals are then a
@@ -259,10 +276,6 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
   }
 }
 
-function totalTokens(usage: LoopTokenUsage): number {
-  return usage.input + usage.output
-}
-
 /**
  * Create a conserved reservation pool from a root `Budget`. `now()` is injected so the
  * deadline readout is deterministic; defaults to `Date.now` for non-test callers. The
@@ -292,6 +305,12 @@ export function createBudgetPool(
   // keeps enforcing the cap on what it knows and reports, via `readout().tokensKnown`, that the
   // balance is an under-count rather than a measurement.
   let tokensTainted = false
+  // Set once the pool charges a spend whose cache split it could not read, and never cleared. That
+  // spend was charged at its rolled-up prompt total, so the balance is an upper bound on
+  // newly-presented tokens. Same admission treatment as `tokensTainted`: enforce on what is known,
+  // report the uncertainty. A restored uncertain reservation does NOT set it — a declared ceiling
+  // carries no cache composition to misread, and `tokensTainted` already reports that charge.
+  let cacheBreakdownTainted = false
 
   const usdCapped = root.maxUsd !== undefined
   let freeUsd = root.maxUsd ?? 0
@@ -365,7 +384,7 @@ export function createBudgetPool(
     assertValidSpend(spent, `budget pool ticket ${ticket.id} spend`)
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
     const unknownUnderCap = usdCapped && spent.usdKnown === false
-    const spentTokens = totalTokens(spent.tokens)
+    const spentTokens = chargedTokens(spent.tokens)
     // A child whose `Budget` named no `maxUsd` reserved NO dollar allocation, so it has no
     // dollar ceiling to exceed: under a capped root its real dollars are OBSERVED spend, and
     // the settlement below commits them and debits them from `free` (the same treatment
@@ -406,6 +425,7 @@ export function createBudgetPool(
     // Release the whole reservation, then commit actual spend; the difference is the
     // refund that flows back to `free`.
     if (spent.tokensKnown === false) tokensTainted = true
+    if (!hasCompleteCacheBreakdown(spent.tokens)) cacheBreakdownTainted = true
     if (spent.usdKnown === false) usdMeasured = false
     reservedTokens -= rTokens
     committedTokens += spentTokens
@@ -453,8 +473,9 @@ export function createBudgetPool(
     // marks the balance incomplete. The alternative — refusing to record it — is the "free turn"
     // the pool must never see.
     if (spend.tokensKnown === false) tokensTainted = true
+    if (!hasCompleteCacheBreakdown(spend.tokens)) cacheBreakdownTainted = true
     if (spend.usdKnown === false) usdMeasured = false
-    const tokens = totalTokens(spend.tokens)
+    const tokens = chargedTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
     // The DURABLE record of this spend is the journal's `metered` event (the twin written by
@@ -471,6 +492,7 @@ export function createBudgetPool(
     return {
       tokensLeft: freeTokens,
       tokensKnown: !tokensTainted,
+      cacheBreakdownKnown: !cacheBreakdownTainted,
       usdLeft: usdCapped ? (usdTainted ? 0 : freeUsd) : 0,
       usdCapped,
       usdKnown: usdMeasured && !usdTainted,
@@ -498,8 +520,9 @@ export function createBudgetPool(
     assertValidSpend(restore.committed, 'budget restore committed')
     const committed = restore.committed
     if (committed.tokensKnown === false) tokensTainted = true
+    if (!hasCompleteCacheBreakdown(committed.tokens)) cacheBreakdownTainted = true
     if (committed.usdKnown === false) usdMeasured = false
-    const tokens = totalTokens(committed.tokens)
+    const tokens = chargedTokens(committed.tokens)
     freeTokens -= tokens
     committedTokens += tokens
     freeIterations -= committed.iterations

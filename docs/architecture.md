@@ -375,8 +375,13 @@ The `Scope` it runs inside is the budget-conserving reactive control surface (`t
    ├─ progress(nodeId) / traceSource(nodeId)        explicit live observation
    ├─ meter(spend) / recordMaterialization(receipt) runtime accounting and wire-profile evidence
    ├─ view / workerCapacity                         live tree and shared execution slots
-   └─ budget → {tokensLeft,tokensKnown,usdLeft,usdKnown,iterationsLeft,deadlineMs,reservedTokens}
+   └─ budget → {tokensLeft,tokensKnown,cacheBreakdownKnown,usdLeft,usdKnown,iterationsLeft,deadlineMs,reservedTokens}
 ```
+
+The token channel charges each token ONCE, when it first enters the context: `freshInput + cacheWrite + output`.
+A cache read re-presents content that was already charged when it was written, so charging it again charges the same tokens twice.
+No price weight enters this channel; money is budgeted separately on `maxUsd`.
+When a provider reports no usable cache split, the pool charges the rolled-up `input + output` and sets `cacheBreakdownKnown: false`, which marks `tokensLeft` an upper bound on newly-presented work rather than a measurement.
 
 Two facts make this the whole game:
 - `spawn` **reserves** from one root total and refunds the unspent remainder on settle.

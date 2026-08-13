@@ -5101,7 +5101,7 @@ readonly `AnalystFinding`[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -16355,7 +16355,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -19607,7 +19607,7 @@ What the supervisor AUTHORS per sub-task: one complete canonical profile whose n
 
 ### BudgetReadout
 
-> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
@@ -22746,6 +22746,11 @@ within-tolerance when the per-channel spread (max − min across arms) over the 
 `≤ tolerance`. Pure over the reports — no I/O. Fails loud on an empty arm list (nothing to
 compare) so a vacuous "equal" is never returned.
 
+The token channel uses `chargedTokens`, the same unit the conserved pool spends, so the cross-run
+check and the within-run pool cannot disagree about what an arm cost. Charging the rolled-up
+prompt total instead would rate an arm by how often it re-read a cached prefix: two arms given
+identical work would read as unequal compute whenever their cache hit rates differed.
+
 #### Parameters
 
 ##### arms
@@ -24846,7 +24851,7 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 #### Returns
 

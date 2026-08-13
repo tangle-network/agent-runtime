@@ -663,6 +663,52 @@ describe('trajectory trace + cost ledger', () => {
     )
     expect(verdict.withinTolerance).toBe(true)
   })
+
+  it('rates two arms doing the same new work as equal-k however their cache hit rates differ', async () => {
+    // Identical new work: 10_000 fresh prompt + 1_000 output each. The warm arm re-read a cached
+    // prefix 30 times, which the rolled-up prompt total would price as 30x the compute.
+    const cached = (fresh: number, cacheRead: number, output: number): Spend => ({
+      iterations: 1,
+      tokens: {
+        input: fresh + cacheRead,
+        output,
+        freshInput: fresh,
+        cacheRead,
+        cacheWrite: 0,
+      },
+      usd: 0,
+      ms: 0,
+    })
+    const cold = await journalTree(
+      'cold',
+      [{ id: 'cold:s0', parent: 'cold', label: 'leaf' }],
+      [
+        { id: 'cold', spend: cached(0, 0, 0) },
+        { id: 'cold:s0', spend: cached(10_000, 0, 1_000) },
+      ],
+    )
+    const warm = await journalTree(
+      'warm',
+      [{ id: 'warm:s0', parent: 'warm', label: 'leaf' }],
+      [
+        { id: 'warm', spend: cached(0, 0, 0) },
+        { id: 'warm:s0', spend: cached(10_000, 300_000, 1_000) },
+      ],
+    )
+    const coldReport = await trajectoryReport(cold.journal, cold.blobs, 'cold')
+    const warmReport = await trajectoryReport(warm.journal, warm.blobs, 'warm')
+
+    // The rolled-up prompt totals differ by 300_000; the conserved charge does not differ at all.
+    expect(warmReport.total.tokens.input - coldReport.total.tokens.input).toBe(300_000)
+
+    const verdict = equalKOnCost([
+      { label: 'cold', report: coldReport },
+      { label: 'warm', report: warmReport },
+    ])
+    expect(verdict.withinTolerance).toBe(true)
+    expect(verdict.spread.tokens).toBe(0)
+    expect(verdict.arms.map((a) => a.tokens)).toEqual([11_000, 11_000])
+  })
 })
 
 function tokensOf(value: Spend | undefined): number {

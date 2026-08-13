@@ -739,6 +739,10 @@ export interface Scope<Out> {
     /** `false` once a turn settled without reporting its tokens: `tokensLeft` is then a ceiling,
      *  not a measurement. */
     tokensKnown: boolean
+    /** `false` once a charged spend arrived without a readable prompt-cache split. That spend was
+     *  charged at its rolled-up prompt total, which counts a cached prefix again on every turn that
+     *  reads it, so `tokensLeft` is an upper bound on newly-presented work. */
+    cacheBreakdownKnown: boolean
     usdLeft: number
     usdCapped: boolean
     usdKnown: boolean

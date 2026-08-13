@@ -49,6 +49,7 @@ import {
   type ToolLoopCompaction,
   type ToolLoopCompactionOptions,
 } from '../tool-loop'
+import { chargedTokens } from '../util'
 import type { DeliverableSpec } from './completion-gate'
 import type { PriorCoordination } from './coordination-log'
 import type { BusRecord } from './event-bus'
@@ -786,8 +787,12 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
   lines.push(
     '',
     'Budget the run ALREADY spent before this process (it counts toward the run total):',
-    `- child work: tokens in=${spent.childWork.tokens.input} out=${spent.childWork.tokens.output}, usd=${spent.childWork.usd}, iterations=${spent.childWork.iterations}`,
-    `- driver inference: tokens in=${spent.driverInference.tokens.input} out=${spent.driverInference.tokens.output}, usd=${spent.driverInference.usd}`,
+    // `charged` is what the token cap debited: newly-presented tokens, not the rolled-up prompt
+    // total, which counts a cached prefix again on every turn that reads it. A driver told the
+    // rolled-up number would read a cache-heavy resume as near-exhaustion of a cap it has barely
+    // touched.
+    `- child work: tokens charged=${chargedTokens(spent.childWork.tokens)} (in=${spent.childWork.tokens.input} out=${spent.childWork.tokens.output}), usd=${spent.childWork.usd}, iterations=${spent.childWork.iterations}`,
+    `- driver inference: tokens charged=${chargedTokens(spent.driverInference.tokens)} (in=${spent.driverInference.tokens.input} out=${spent.driverInference.tokens.output}), usd=${spent.driverInference.usd}`,
   )
   return lines.join('\n')
 }

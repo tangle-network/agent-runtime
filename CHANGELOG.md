@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.134.0
+
+- BEHAVIOR CHANGE: the supervised token budget now charges each token once, when it first enters the context — `freshInput + cacheWrite + output`. It previously charged the rolled-up prompt total, which counts a cached prefix again on every turn that reads it.
+- Your existing `maxTokens` numbers are unchanged, but the unit they measure is not. On a 299-run fleet cache was 98.2% of the counted prompt total, so a run that died at about 1.8% of its declared budget now gets the budget it declared.
+- Migration: a caller who lowered `maxTokens` to compensate for the old inflation will get much longer runs. Re-derive that ceiling from newly-presented tokens before the next campaign.
+- `BudgetReadout` and `Scope.budget` gain `cacheBreakdownKnown`. It reads false once the pool charged a spend whose cache split it could not read; `tokensLeft` is then an upper bound on newly-presented work, not a measurement. A provider that reports no split still spends against the cap, exactly as an unreported token count does.
+- `equalKOnCost` compares arms on the same charged unit, so two arms doing identical new work no longer read as unequal compute because their cache hit rates differed.
+- The token cap no longer bounds the cost of cache reads. Dollars are bounded only by `maxUsd`, which is optional and unset on nearly every run today — budget it explicitly when cost matters.
+
 ## 0.133.8
 
 - Stop an external supervisor's active harness after `submit_result` accepts a result or `stop` declares completion.

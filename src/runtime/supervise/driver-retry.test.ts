@@ -15,6 +15,7 @@ function budget(over: Partial<DriverBudgetReadout> = {}): DriverBudgetReadout {
   return {
     tokensLeft: 1_000_000,
     tokensKnown: true,
+    cacheBreakdownKnown: true,
     usdLeft: 100,
     usdCapped: false,
     usdKnown: true,
