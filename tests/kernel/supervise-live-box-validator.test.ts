@@ -247,6 +247,14 @@ describe('a supervised worker can be scored by an executable check against its L
     expect(settle?.verdict?.valid).toBe(false)
     expect(settle?.verdict?.score).toBe(0)
     expect(settle?.verdict?.notes).toBe('in-box check read "not the answer"')
+
+    // A failing check DOWNGRADES the verdict; it does not erase the work. `defaultSelectWinner`
+    // falls back to all candidates when none is valid (`run-loop.ts:1184`), so the worker still
+    // settles `done` with its artifact and the run keeps the evidence of what the worker produced.
+    // A validator that dropped the output would make every failure indistinguishable from a crash.
+    expect(settle?.status).toBe('done')
+    expect(settle?.outRef).toBeDefined()
+    expect(check.seen[0]?.events).toBeGreaterThan(0)
   })
 
   it('refuses a validator on a STEERABLE worker instead of silently dropping the score', async () => {
