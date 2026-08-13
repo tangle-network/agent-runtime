@@ -3836,6 +3836,22 @@ Epoch ms from the durable terminal record — the resolution a progress-based st
 
 > `readonly` **perWorker**: [`Budget`](index.md#budget-4)
 
+##### onStop?
+
+> `readonly` `optional` **onStop?**: (`reason`) => `void`
+
+Called once when this manager declares completion through `stop` or an accepted submission.
+
+###### Parameters
+
+###### reason
+
+`string` \| `undefined`
+
+###### Returns
+
+`void`
+
 ##### deliverable?
 
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>

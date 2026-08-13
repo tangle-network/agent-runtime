@@ -14650,6 +14650,12 @@ The standing instruction assembled from the profile: its system prompt in either
 
 `string`
 
+###### stopSignal?
+
+`AbortSignal`
+
+Fires when the coordination server accepts a result or declares completion.
+
 ###### coordinationTools
 
 readonly `Omit`\<[`McpToolDescriptor`](mcp.md#mcptooldescriptor), `"handler"`\>[]
@@ -24382,6 +24388,12 @@ Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1`
 [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 Independent completion check exposed to the driver as `submit_result`.
+
+###### onStop?
+
+(`reason`) => `void`
+
+Called once when the external manager accepts a result or declares completion.
 
 ###### maxLiveWorkers?
 

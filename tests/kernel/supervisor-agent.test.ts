@@ -188,6 +188,55 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
   })
 
+  it('SANDBOX arm stops the active harness before a provider turn after accepted submission', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let providerCalls = 0
+    let observedStop = false
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, stopSignal }) => {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'submit_result',
+        arguments: { result: { answer: 42 } },
+      })
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          providerCalls += 1
+          resolve()
+        }, 10)
+        if (stopSignal === undefined) return
+        const stopped = () => {
+          clearTimeout(timer)
+          observedStop = true
+          resolve()
+        }
+        if (stopSignal.aborted) stopped()
+        else stopSignal.addEventListener('abort', stopped, { once: true })
+      })
+      if (providerCalls > 0) throw new Error('provider call after accepted submission')
+    }
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        prompt: { systemPrompt: 'solve or delegate' },
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness,
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (result) => (result as { answer?: unknown }).answer === 42,
+        },
+      },
+    )
+
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    expect(observedStop).toBe(true)
+    expect(providerCalls).toBe(0)
+  })
+
   it('fails loud when a sandboxed-harness supervisor has no driveHarness substrate', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
