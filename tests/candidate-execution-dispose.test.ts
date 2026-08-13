@@ -23,6 +23,7 @@ describe('prepared candidate disposal', () => {
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }
     }
@@ -60,6 +61,7 @@ describe('prepared candidate disposal', () => {
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }
     }
@@ -90,6 +92,7 @@ describe('prepared candidate disposal', () => {
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }
     }

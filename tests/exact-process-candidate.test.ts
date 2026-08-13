@@ -95,6 +95,7 @@ describe('exact process candidate experiment executor', () => {
         preparationId: input.preparationId,
         grantDigest: input.grantDigest,
         closed: true as const,
+        usageWithinLimits: true as const,
         calls: [],
       })),
     }

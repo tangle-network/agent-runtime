@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.133.6
+
+- The direct protected model-grant port accepts an optional caller-declared `maxTotalTokens` cap across input and output tokens.
+- Bind that cap into the exact reservation response and reject a final ledger that exceeds it or omits token usage.
+- Signed execution plans remain unchanged until Agent Interface publishes the matching schema field; callers must not add this field to those plans.
+
 ## 0.133.3
 
 - Preserve the provider-served model snapshot in official optimizer cost receipts so Eval can match the response, receipt, and execution evidence.

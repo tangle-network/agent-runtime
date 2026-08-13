@@ -1,10 +1,6 @@
 import { InMemoryTraceStore, type LlmSpan } from '@tangle-network/agent-eval'
-import type {
-  AgentCandidateModelSettlementCall,
-  AgentCandidateResolvedModel,
-  Sha256Digest,
-} from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import type { AgentCandidateResolvedModel, Sha256Digest } from '@tangle-network/agent-interface'
+import { describe, expect, it, vi } from 'vitest'
 import {
   appendAuthoritativeModelSettlementSpans,
   assertTraceMatchesModelSettlement,
@@ -23,6 +19,7 @@ import type {
   AgentCandidateModelPort,
   AgentCandidateProtectedModelActivation,
   AgentCandidateProtectedModelSettlement,
+  AgentCandidateProtectedModelSettlementCall,
 } from '../src/candidate-execution/types'
 
 const GATEWAY_DOMAIN = 'router.tangle.tools'
@@ -99,9 +96,9 @@ function settleInput(
 
 function modelCall(
   index: number,
-  overrides: Partial<AgentCandidateModelSettlementCall> = {},
-): AgentCandidateModelSettlementCall {
-  return {
+  overrides: Partial<AgentCandidateProtectedModelSettlementCall> = {},
+): AgentCandidateProtectedModelSettlementCall {
+  const base = {
     callId: `call-${index}`,
     generationId: `generation-${index}`,
     traceSpanId: `generation-${index}`,
@@ -110,22 +107,29 @@ function modelCall(
     startedAtMs: 1_000 + index * 100,
     endedAtMs: 1_050 + index * 100,
     inputTokens: 10,
+    accountedInputTokens: 10,
     outputTokens: 5,
     cachedInputTokens: 0,
     reasoningTokens: 0,
     costUsdNanos: 10_000_000,
     costProvenance: 'observed' as const,
+  }
+  return {
+    ...base,
     ...overrides,
+    accountedInputTokens:
+      overrides.accountedInputTokens ?? overrides.inputTokens ?? base.inputTokens,
   }
 }
 
 function settlement(
-  calls: readonly AgentCandidateModelSettlementCall[] = [],
+  calls: readonly AgentCandidateProtectedModelSettlementCall[] = [],
 ): AgentCandidateProtectedModelSettlement {
   return {
     preparationId: 'preparation-1',
     grantDigest: sha('b'),
     closed: true,
+    usageWithinLimits: true,
     calls,
   }
 }
@@ -491,6 +495,138 @@ describe('protected candidate model port', () => {
     await reserve(port)
     await expect(port.settleGrant(settleInput())).rejects.toThrow(
       new RegExp(`${label}.*exceeds reserved`),
+    )
+  })
+
+  it('rejects aggregate token overflow when each channel remains below its own cap', async () => {
+    const limits = {
+      ...reserveInput().limits,
+      maxTotalTokens: 40,
+    }
+    const client = fakeClient({
+      settle: async () =>
+        settlement([
+          modelCall(1, {
+            inputTokens: 30,
+            outputTokens: 20,
+            costUsdNanos: 0,
+          }),
+        ]),
+    })
+    const port = createPort(client)
+    await reserve(port, reserveInput(limits))
+    await expect(port.settleGrant(settleInput())).rejects.toThrow(
+      /total tokens 50 exceeds reserved 40/,
+    )
+  })
+
+  it('accepts the exact aggregate token boundary and binds it to the reservation', async () => {
+    const limits = {
+      ...reserveInput().limits,
+      maxTotalTokens: 40,
+    }
+    const client = fakeClient({
+      reserve: async (input) => reservation(input),
+      settle: async () =>
+        settlement([
+          modelCall(1, {
+            inputTokens: 25,
+            outputTokens: 15,
+            costUsdNanos: 0,
+          }),
+        ]),
+    })
+    const port = createPort(client)
+    await expect(reserve(port, reserveInput(limits))).resolves.toMatchObject({
+      enforcedLimits: limits,
+    })
+    await expect(port.settleGrant(settleInput())).resolves.toEqual(
+      settlement([
+        modelCall(1, {
+          inputTokens: 25,
+          outputTokens: 15,
+          costUsdNanos: 0,
+        }),
+      ]),
+    )
+  })
+
+  it('counts the Router accounted input total for aggregate enforcement', async () => {
+    const limits = {
+      ...reserveInput().limits,
+      maxTotalTokens: 40,
+    }
+    const client = fakeClient({
+      settle: async () =>
+        settlement([
+          modelCall(1, {
+            inputTokens: 20,
+            accountedInputTokens: 30,
+            outputTokens: 15,
+            costUsdNanos: 0,
+          }),
+        ]),
+    })
+    const port = createPort(client)
+    await reserve(port, reserveInput(limits))
+    await expect(port.settleGrant(settleInput())).rejects.toThrow(
+      /total tokens 45 exceeds reserved 40/,
+    )
+  })
+
+  it('fails closed when Router reports a settlement outside frozen limits', async () => {
+    const client = fakeClient({
+      settle: async () => ({ ...settlement(), usageWithinLimits: false }),
+    })
+    const port = createPort(client)
+    await reserve(port)
+    await expect(port.settleGrant(settleInput())).rejects.toThrow(
+      /reports usage outside frozen limits/,
+    )
+  })
+
+  it('keeps expired reservation limits for terminal local validation', async () => {
+    const limits = {
+      ...reserveInput().limits,
+      maxTotalTokens: 40,
+    }
+    const expiresAtMs = Date.now() + 10
+    const client = fakeClient({
+      settle: async () =>
+        settlement([
+          modelCall(1, {
+            inputTokens: 30,
+            outputTokens: 20,
+            costUsdNanos: 0,
+          }),
+        ]),
+    })
+    const port = createPort(client)
+    await reserve(port, { ...reserveInput(limits), expiresAtMs })
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(expiresAtMs + 1)
+    try {
+      await expect(port.settleGrant(settleInput())).rejects.toThrow(
+        /total tokens 50 exceeds reserved 40/,
+      )
+    } finally {
+      clock.mockRestore()
+    }
+  })
+
+  it('rejects incomplete token usage before claiming aggregate compliance', async () => {
+    const limits = {
+      ...reserveInput().limits,
+      maxTotalTokens: 40,
+    }
+    const partialCall = modelCall(1, { inputTokens: 25, outputTokens: 15, costUsdNanos: 0 })
+    delete (partialCall as Partial<AgentCandidateProtectedModelSettlementCall>).outputTokens
+    const client = fakeClient({
+      settle: async () => settlement([partialCall as AgentCandidateProtectedModelSettlementCall]),
+    })
+    const port = createPort(client)
+    await reserve(port, reserveInput(limits))
+    await expect(port.settleGrant(settleInput())).rejects.toThrow(
+      /model settlement call 0 is missing field outputTokens/,
     )
   })
 

@@ -91,6 +91,8 @@ export async function persistCandidateModelSettlementEvidence(
     grantDigest: settlement.value.grantDigest,
     closed: true as const,
     resolved: identity.resolvedModel,
+    // Interface 0.47 signed evidence has no protected-port proof fields.
+    // The direct port validates them first and carries accounted input in usage.
     calls: settlement.value.calls.map((call) => ({
       callId: call.callId,
       generationId: call.generationId,

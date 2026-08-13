@@ -119,6 +119,7 @@ export {
   type AgentCandidateProtectedModelActivation,
   type AgentCandidateProtectedModelReservation,
   type AgentCandidateProtectedModelSettlement,
+  type AgentCandidateProtectedModelSettlementCall,
   type AgentCandidateProtectedRunCapture,
   type AgentCandidateRepositoryPort,
   type AgentCandidateRunFinalization,

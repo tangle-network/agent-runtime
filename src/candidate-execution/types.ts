@@ -165,14 +165,17 @@ export interface AgentCandidateModelPort {
 export type AgentCandidateModelLimits = Pick<
   AgentCandidateExecutionLimits,
   'maxModelCalls' | 'maxInputTokens' | 'maxOutputTokens' | 'maxCostUsd'
->
+> & {
+  /** Optional caller-declared cap across input and output tokens. */
+  maxTotalTokens?: number
+}
 
 export interface AgentCandidateProtectedModelReservation {
   preparationId: string
   digest: Sha256Digest
   /** Evaluator service must expire and revoke this reservation at this epoch millisecond. */
   expiresAtMs: number
-  /** The gateway must stop calls before any one of these limits is exceeded. */
+  /** The gateway must stop calls before any declared model limit is exceeded. */
   enforcedLimits: AgentCandidateModelLimits
   /** Exact public endpoint exception; every other candidate destination stays blocked. */
   network: AgentCandidateModelAccessNetwork
@@ -187,7 +190,14 @@ export interface AgentCandidateProtectedModelSettlement {
   preparationId: string
   grantDigest: Sha256Digest
   closed: true
-  calls: readonly AgentCandidateModelSettlementCall[]
+  /** Router's terminal integrity result. False must never become a receipt. */
+  usageWithinLimits: boolean
+  calls: readonly AgentCandidateProtectedModelSettlementCall[]
+}
+
+/** Protected-port wire call with the gateway's counted input total preserved. */
+export type AgentCandidateProtectedModelSettlementCall = AgentCandidateModelSettlementCall & {
+  accountedInputTokens: number
 }
 
 export interface AgentCandidateMemoryResetResult {

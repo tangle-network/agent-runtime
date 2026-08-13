@@ -93,6 +93,10 @@ export function createProtectedAgentCandidateModelPort(
   const gatewayDomain = assertGatewayDomain(options.gatewayDomain)
   const activationEnvNames = exactEnvironmentNames(options.activationEnvNames)
   const reservations = new Map<string, RememberedReservation>()
+  const expiredReservations = new Map<
+    string,
+    { state: RememberedReservation; retainedUntilMs: number }
+  >()
   const recentSettlements = new Map<string, RememberedSettlement>()
 
   return {
@@ -103,7 +107,7 @@ export function createProtectedAgentCandidateModelPort(
     },
 
     reserveGrant: async (input) => {
-      pruneExpiredState(reservations, recentSettlements, Date.now())
+      pruneExpiredState(reservations, expiredReservations, recentSettlements, Date.now())
       const request = immutableCandidateValue(input)
       validateReserveInput(request)
       const requestDigest = canonicalCandidateDigest(request)
@@ -111,6 +115,8 @@ export function createProtectedAgentCandidateModelPort(
       if (recentSettlements.has(key)) {
         throw new Error('protected model reservation is already settled')
       }
+      const expired = expiredReservations.get(key)
+      if (expired) throw new Error('protected model reservation has expired')
       const previous = reservations.get(key)
       if (previous && previous.requestDigest !== requestDigest) {
         throw new Error('protected model reservation retry changed immutable input')
@@ -150,11 +156,14 @@ export function createProtectedAgentCandidateModelPort(
     },
 
     activateGrant: async (input) => {
-      pruneExpiredState(reservations, recentSettlements, Date.now())
+      pruneExpiredState(reservations, expiredReservations, recentSettlements, Date.now())
       const request = immutableCandidateValue(input)
       const key = reservationKey(request.executionId, request.preparationId)
       if (recentSettlements.has(key)) throw new Error('protected model grant is already settled')
       const state = reservations.get(key)
+      if (!state && expiredReservations.has(key)) {
+        throw new Error('protected model grant reservation has expired')
+      }
       if (!state) throw new Error('protected model grant was not reserved by this port')
       assertGrantIdentity(state, request)
       if (state.settlementDigest) throw new Error('protected model grant is already settled')
@@ -189,10 +198,10 @@ export function createProtectedAgentCandidateModelPort(
 
     settleGrant: async (input) => {
       const now = Date.now()
-      pruneExpiredState(reservations, recentSettlements, now)
+      pruneExpiredState(reservations, expiredReservations, recentSettlements, now)
       const request = immutableCandidateValue(input)
       const key = reservationKey(request.executionId, request.preparationId)
-      const state = reservations.get(key)
+      const state = reservations.get(key) ?? expiredReservations.get(key)?.state
       if (state) assertGrantIdentity(state, request)
       const remembered = state ?? recentSettlements.get(key)
       if (remembered?.settlementReason && remembered.settlementReason !== request.reason) {
@@ -219,6 +228,7 @@ export function createProtectedAgentCandidateModelPort(
         state.settlementReason = request.reason
       }
       reservations.delete(key)
+      expiredReservations.delete(key)
       rememberSettlement(recentSettlements, key, {
         settlementDigest,
         settlementReason: request.reason,
@@ -240,7 +250,9 @@ function validateReserveInput(input: AgentCandidateModelGrantReserveInput): void
     ['maxModelCalls', input.limits.maxModelCalls],
     ['maxInputTokens', input.limits.maxInputTokens],
     ['maxOutputTokens', input.limits.maxOutputTokens],
+    ['maxTotalTokens', input.limits.maxTotalTokens],
   ] as const) {
+    if (value === undefined) continue
     if (!Number.isSafeInteger(value) || value < 0) {
       throw new Error(`protected model reservation ${name} must be a nonnegative safe integer`)
     }
@@ -269,7 +281,7 @@ function validateReservation(
   }
   exactRecord(
     source.enforcedLimits,
-    ['maxModelCalls', 'maxInputTokens', 'maxOutputTokens', 'maxCostUsd'],
+    modelLimitKeys(expected.limits),
     'protected model reservation enforced limits',
   )
   if (
@@ -399,6 +411,24 @@ function assertWithinReservedLimits(
       throw new Error(`protected model settlement ${name} ${actual} exceeds reserved ${limit}`)
     }
   }
+  const maxTotalTokens = reservation.limits.maxTotalTokens
+  if (maxTotalTokens !== undefined) {
+    const totalTokens = usage.inputTokens + usage.outputTokens
+    if (!Number.isSafeInteger(totalTokens)) {
+      throw new Error('protected model settlement total token usage is incomplete')
+    }
+    if (totalTokens > maxTotalTokens) {
+      throw new Error(
+        `protected model settlement total tokens ${totalTokens} exceeds reserved ${maxTotalTokens}`,
+      )
+    }
+  }
+}
+
+function modelLimitKeys(limits: AgentCandidateModelLimits): readonly string[] {
+  return limits.maxTotalTokens === undefined
+    ? ['maxModelCalls', 'maxInputTokens', 'maxOutputTokens', 'maxCostUsd']
+    : ['maxModelCalls', 'maxInputTokens', 'maxOutputTokens', 'maxTotalTokens', 'maxCostUsd']
 }
 
 function exactEnvironmentNames(values: readonly string[]): readonly string[] {
@@ -453,11 +483,21 @@ function reservationKey(executionId: string, preparationId: string): string {
 
 function pruneExpiredState(
   reservations: Map<string, RememberedReservation>,
+  expiredReservations: Map<string, { state: RememberedReservation; retainedUntilMs: number }>,
   settlements: Map<string, RememberedSettlement>,
   now: number,
 ): void {
   for (const [key, value] of reservations) {
-    if (value.expiresAtMs <= now) reservations.delete(key)
+    if (value.expiresAtMs <= now) {
+      reservations.delete(key)
+      expiredReservations.set(key, {
+        state: value,
+        retainedUntilMs: now + RECOVERED_SETTLEMENT_RETENTION_MS,
+      })
+    }
+  }
+  for (const [key, value] of expiredReservations) {
+    if (value.retainedUntilMs <= now) expiredReservations.delete(key)
   }
   for (const [key, value] of settlements) {
     if (value.expiresAtMs <= now) settlements.delete(key)

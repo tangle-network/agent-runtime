@@ -10,6 +10,7 @@ const USD_NANOS = 1_000_000_000
 
 export interface SealedAgentCandidateModelSettlement {
   readonly value: AgentCandidateProtectedModelSettlement
+  /** `inputTokens` is the gateway's accounted input total. */
   readonly usage: AgentCandidateFixedSpend
 }
 
@@ -20,10 +21,13 @@ export function sealAgentCandidateModelSettlement(
 ): SealedAgentCandidateModelSettlement {
   assertExactObjectKeys(
     settlement,
-    ['preparationId', 'grantDigest', 'closed', 'calls'],
+    ['preparationId', 'grantDigest', 'closed', 'usageWithinLimits', 'calls'],
     'model settlement',
   )
   if (settlement.closed !== true) throw new Error('protected model grant is not closed')
+  if (settlement.usageWithinLimits !== true) {
+    throw new Error('protected model settlement reports usage outside frozen limits')
+  }
   if (settlement.grantDigest !== expected.grantDigest) {
     throw new Error('protected model settlement grant digest does not match the reservation')
   }
@@ -36,7 +40,7 @@ export function sealAgentCandidateModelSettlement(
 
   const callIds = new Set<string>()
   const spanIds = new Set<string>()
-  let inputTokens = 0
+  let accountedInputTokens = 0
   let outputTokens = 0
   let cachedInputTokens = 0
   let reasoningTokens = 0
@@ -54,6 +58,7 @@ export function sealAgentCandidateModelSettlement(
         'startedAtMs',
         'endedAtMs',
         'inputTokens',
+        'accountedInputTokens',
         'outputTokens',
         'cachedInputTokens',
         'reasoningTokens',
@@ -87,6 +92,12 @@ export function sealAgentCandidateModelSettlement(
       throw new Error(`model settlement call ${index} ended before it started`)
     }
     assertCount(source.inputTokens, `model settlement call ${index} inputTokens`)
+    assertCount(source.accountedInputTokens, `model settlement call ${index} accountedInputTokens`)
+    if (source.accountedInputTokens < source.inputTokens) {
+      throw new Error(
+        `model settlement call ${index} accountedInputTokens cannot be less than inputTokens`,
+      )
+    }
     assertCount(source.outputTokens, `model settlement call ${index} outputTokens`)
     assertCount(source.cachedInputTokens, `model settlement call ${index} cachedInputTokens`)
     cachedInputTokens = safeAdd(
@@ -101,7 +112,11 @@ export function sealAgentCandidateModelSettlement(
       throw new Error(`model settlement call ${index} has an invalid cost provenance`)
     }
     if (source.costProvenance === 'estimated') costProvenance = 'estimated'
-    inputTokens = safeAdd(inputTokens, source.inputTokens, 'input token total')
+    accountedInputTokens = safeAdd(
+      accountedInputTokens,
+      source.accountedInputTokens,
+      'accounted input token total',
+    )
     outputTokens = safeAdd(outputTokens, source.outputTokens, 'output token total')
     costUsdNanos = safeAdd(costUsdNanos, source.costUsdNanos, 'cost total')
     return Object.freeze({ ...source })
@@ -109,7 +124,7 @@ export function sealAgentCandidateModelSettlement(
 
   const usage = Object.freeze({
     costUsdNanos,
-    inputTokens,
+    inputTokens: accountedInputTokens,
     outputTokens,
     cachedInputTokens,
     reasoningTokens,
@@ -121,6 +136,7 @@ export function sealAgentCandidateModelSettlement(
       preparationId: settlement.preparationId,
       grantDigest: settlement.grantDigest,
       closed: true as const,
+      usageWithinLimits: true as const,
       calls: Object.freeze(calls),
     }),
     usage,

@@ -618,7 +618,13 @@ describe('candidate execution preparation', () => {
     })
     unenforced.ports.models.settleGrant = async ({ preparationId }) => {
       settledReservations++
-      return { preparationId, grantDigest: sha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: sha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     await expect(
       prepareAgentCandidateExecution(
@@ -642,7 +648,13 @@ describe('candidate execution preparation', () => {
     })
     invalid.ports.models.settleGrant = async ({ preparationId }) => {
       settledReservations++
-      return { preparationId, grantDigest: sha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: sha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     await expect(
       prepareAgentCandidateExecution(
@@ -704,6 +716,7 @@ describe('candidate execution preparation', () => {
       preparationId: `candidate-preparation.${'A'.repeat(43)}`,
       grantDigest: sha('c'),
       closed: true,
+      usageWithinLimits: true,
       calls: [],
     })
     await expect(

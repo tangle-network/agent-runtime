@@ -71,6 +71,7 @@ async function finalizePrepared(
         preparationId: state.preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [
           {
             callId: 'call-1',
@@ -81,6 +82,7 @@ async function finalizePrepared(
             startedAtMs: 120,
             endedAtMs: 200,
             inputTokens: 10,
+            accountedInputTokens: 10,
             outputTokens: 5,
             cachedInputTokens: 2,
             reasoningTokens: 0,
@@ -432,6 +434,7 @@ describe('protected candidate run finalization', () => {
         preparationId: assertPreparedCandidateIntegrity(execution).preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [
           {
             callId: 'call-1',
@@ -442,6 +445,7 @@ describe('protected candidate run finalization', () => {
             startedAtMs: 120,
             endedAtMs: 180,
             inputTokens: 5,
+            accountedInputTokens: 5,
             outputTokens: 2,
             cachedInputTokens: 0,
             reasoningTokens: 0,
@@ -457,6 +461,7 @@ describe('protected candidate run finalization', () => {
             startedAtMs: 220,
             endedAtMs: 280,
             inputTokens: 5,
+            accountedInputTokens: 5,
             outputTokens: 2,
             cachedInputTokens: 0,
             reasoningTokens: 0,
