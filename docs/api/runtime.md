@@ -26372,8 +26372,10 @@ A [SurfaceReader](#surfacereader) over the local filesystem, for worktree/local 
 relative or absolute — must resolve INSIDE `root`: a path that escapes it (`../`, an absolute
 path elsewhere) fails as a contained non-missing outcome rather than reading outside the
 worktree, so a persisted or mistyped manifest path cannot turn the harvest into an
-existence/hash oracle over the host filesystem. Absence maps to `missing: true`; every other
-failure carries the error message.
+existence/hash oracle over the host filesystem. Containment is checked twice — once on the
+lexical path, then again on the symlink-resolved path, because `readFile` follows a link and a
+link planted inside the root would otherwise read host bytes through a contained-looking name.
+Absence maps to `missing: true`; every other failure carries the error message.
 
 #### Parameters
 

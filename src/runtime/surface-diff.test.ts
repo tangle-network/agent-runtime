@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -345,6 +345,29 @@ describe('fsSurfaceReader', () => {
     expect(absolute).toMatchObject({ succeeded: false, missing: false })
     const insideAbsolute = await read(join(root, 'notes.md'))
     expect(insideAbsolute.succeeded).toBe(true)
+  })
+
+  it('refuses a symlink planted inside the root that points at a host file', async () => {
+    const outside = mkdtempSync(join(tmpdir(), 'surface-diff-outside-'))
+    const secret = join(outside, 'host-secret.txt')
+    writeFileSync(secret, 'host bytes')
+    symlinkSync(secret, join(root, 'looks-contained.md'))
+    const read = fsSurfaceReader(root)
+    const outcome = await read('looks-contained.md')
+    expect(outcome).toMatchObject({ succeeded: false, missing: false })
+    if (!outcome.succeeded) expect(outcome.error).toContain('outside the reader root')
+    rmSync(outside, { recursive: true, force: true })
+  })
+
+  it('still reads a file reached through a symlinked root', async () => {
+    const realRoot = mkdtempSync(join(tmpdir(), 'surface-diff-real-'))
+    const linkedRoot = join(mkdtempSync(join(tmpdir(), 'surface-diff-link-')), 'root-link')
+    writeFileSync(join(realRoot, 'inside.md'), 'contained')
+    symlinkSync(realRoot, linkedRoot)
+    const outcome = await fsSurfaceReader(linkedRoot)('inside.md')
+    expect(outcome.succeeded).toBe(true)
+    if (outcome.succeeded) expect(new TextDecoder().decode(outcome.value)).toBe('contained')
+    rmSync(realRoot, { recursive: true, force: true })
   })
 
   it('composes with the harvest over a real worktree edit', async () => {

@@ -24,7 +24,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
 import { readBoxPathWithRetry } from './box-read-retry'
 import type { MountManifestEntry } from './types'
@@ -271,22 +271,31 @@ export function boxSurfaceReader(
  * relative or absolute — must resolve INSIDE `root`: a path that escapes it (`../`, an absolute
  * path elsewhere) fails as a contained non-missing outcome rather than reading outside the
  * worktree, so a persisted or mistyped manifest path cannot turn the harvest into an
- * existence/hash oracle over the host filesystem. Absence maps to `missing: true`; every other
- * failure carries the error message.
+ * existence/hash oracle over the host filesystem. Containment is checked twice — once on the
+ * lexical path, then again on the symlink-resolved path, because `readFile` follows a link and a
+ * link planted inside the root would otherwise read host bytes through a contained-looking name.
+ * Absence maps to `missing: true`; every other failure carries the error message.
  */
 export function fsSurfaceReader(root: string): SurfaceReader {
-  const boundary = resolve(root)
+  const lexicalRoot = resolve(root)
+  let resolvedRoot: string | undefined
+  const escapes = (candidate: string, boundary: string): boolean =>
+    candidate !== boundary && !candidate.startsWith(boundary + sep)
+  const outside = (path: string, boundary: string): SurfaceReadOutcome => ({
+    succeeded: false,
+    missing: false,
+    error: `fsSurfaceReader: path ${JSON.stringify(path)} resolves outside the reader root ${JSON.stringify(boundary)}`,
+  })
   return async (path) => {
-    const target = isAbsolute(path) ? resolve(path) : resolve(boundary, path)
-    if (target !== boundary && !target.startsWith(boundary + sep)) {
-      return {
-        succeeded: false,
-        missing: false,
-        error: `fsSurfaceReader: path ${JSON.stringify(path)} resolves outside the reader root ${JSON.stringify(boundary)}`,
-      }
-    }
+    const target = isAbsolute(path) ? resolve(path) : resolve(lexicalRoot, path)
+    if (escapes(target, lexicalRoot)) return outside(path, lexicalRoot)
     try {
-      return { succeeded: true, value: new Uint8Array(await readFile(target)) }
+      // The root itself may be reached through a link (a worktree, a temp dir); compare
+      // link-resolved against link-resolved so a legitimate mount is not read as an escape.
+      resolvedRoot ??= await realpath(lexicalRoot)
+      const resolvedTarget = await realpath(target)
+      if (escapes(resolvedTarget, resolvedRoot)) return outside(path, resolvedRoot)
+      return { succeeded: true, value: new Uint8Array(await readFile(resolvedTarget)) }
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code
       return {
