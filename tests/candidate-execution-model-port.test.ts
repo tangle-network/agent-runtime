@@ -781,6 +781,40 @@ describe('protected candidate model port', () => {
     expect(client.settleInputs).toEqual([settleInput('completed')])
   })
 
+  it('retries only an explicit draining settlement until the final ledger closes', async () => {
+    let attempts = 0
+    const client = fakeClient({
+      settle: async () => {
+        attempts += 1
+        if (attempts === 1) {
+          throw Object.assign(
+            new Error('/v1/candidate-model-grants/settle failed: 409 candidate_grant_draining'),
+            { code: 'candidate_grant_draining', status: 409 },
+          )
+        }
+        return settlement([modelCall(1)])
+      },
+    })
+    const port = createPort(client)
+    const { resolved: _resolved, ...reserve } = reserveInput()
+
+    const result = await runProtectedAgentCandidateModelGrant({
+      port,
+      resolve: {
+        requested: resolvedModel.requested,
+        harness: 'opencode',
+        reasoningEffort: resolvedModel.reasoningEffort,
+      },
+      reserve,
+      deadlineAtMs: Date.now() + 2_000,
+      execute: async () => 'cell-result',
+    })
+
+    expect(result.value).toBe('cell-result')
+    expect(result.settlement).toEqual(settlement([modelCall(1)]))
+    expect(client.settleInputs).toHaveLength(2)
+  })
+
   it('settles a callback failure as failed and preserves the callback error', async () => {
     const client = fakeClient()
     const port = createPort(client)

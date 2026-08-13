@@ -4,6 +4,7 @@
 
 - Preserve cli-bridge profile materialization receipts when a terminal provider error follows the receipt.
 - Emit an explicit unknown dollar-usage event when a bridge turn has no trusted billed-cost receipt.
+- Retry only an explicit `candidate_grant_draining` settlement response until the caller deadline.
 - Consumers that require exact dollar settlement must treat `usdKnown: false` as unknown until a trusted provider or billing receipt is available.
 
 ## 0.133.6
