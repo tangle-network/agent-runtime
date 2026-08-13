@@ -2342,6 +2342,19 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     let turnKnownCostSubtotal = 0
     let turnEstimatedCostSubtotal = 0
     let interrupted = false
+    let profileMaterializationPublished = false
+    const publishProfileMaterialization = (): void => {
+      // A receipt is terminal evidence only after the durable bridge run reached [DONE].
+      // A provider error may follow that acknowledgement, so publish it before rethrowing.
+      if (
+        !profileMaterializationPublished &&
+        activeRun.terminal &&
+        activeRun.profileMaterialization !== undefined
+      ) {
+        args.onProfileMaterialization(activeRun.profileMaterialization)
+        profileMaterializationPublished = true
+      }
+    }
     try {
       args.onProviderAttemptStart()
       for await (const chunk of streamDurableBridgeRun({
@@ -2465,8 +2478,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           sawEstimatedUsd = true
         }
       }
-      args.onProfileMaterialization(activeRun.profileMaterialization!)
+      publishProfileMaterialization()
     } catch (error) {
+      publishProfileMaterialization()
       // A forceful steer first detaches this HTTP reader, then explicitly cancels
       // the durable run and waits for terminal proof. Starting the resume turn
       // before that acknowledgement would race two harness processes against one
@@ -2504,6 +2518,11 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
     if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
+    if (!sawTurnCostStatus || !turnUsdKnown) {
+      // Missing billing proof is not a free turn. Emit it explicitly so Scope's budget fold
+      // cannot default the observed dollar subtotal to known $0.
+      yield { kind: 'cost', usd: 0, usdKnown: false }
+    }
     yield { kind: 'iteration' }
     if (!interrupted && turnText) lastText = turnText
 
