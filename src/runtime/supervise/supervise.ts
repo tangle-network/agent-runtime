@@ -390,14 +390,18 @@ function driveHarnessFromBackend(
       }
       const observations = Object.freeze([...attempt.observations])
       const models = Object.freeze([...new Set(observations)])
+      const providerDispatch = attempt.providerDispatch
       return Object.freeze(
-        attempt.identityConflict === true || observations.length === 0
+        attempt.identityConflict === true ||
+          providerDispatch === 'not_started' ||
+          (providerDispatch !== 'not_started' && observations.length === 0)
           ? {
               status: 'unknown' as const,
               attempts: Object.freeze([
                 Object.freeze({
                   observations,
                   ...(attempt.identityConflict === true ? { identityConflict: true } : {}),
+                  ...(providerDispatch === 'not_started' ? { providerDispatch } : {}),
                 }),
               ]),
               models,

@@ -1115,10 +1115,13 @@ export interface SupervisorOpts {
 export type RootProviderModelEvidence = ProviderModelExecutionEvidence
 
 /** One provider/harness inference attempt. An empty observation list means the attempt started but
- * no trusted served model identity arrived before it failed or ended. */
+ * no trusted served model identity arrived before it failed or ended, unless Router explicitly
+ * proves that admission rejected it before provider dispatch. */
 export interface ProviderModelAttemptEvidence {
   readonly observations: ReadonlyArray<string>
   readonly identityConflict?: boolean
+  /** Router-owned proof that this attempt never reached a provider. */
+  readonly providerDispatch?: 'not_started'
 }
 
 /** Durable provider identity evidence, independent from the planned materialization alias. */
