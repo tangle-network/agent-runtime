@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.133.3
+
+- Preserve the provider-served model snapshot in official optimizer cost receipts so Eval can match the response, receipt, and execution evidence.
+
 ## 0.133.2
 
 - Accept a routed response when its served-provider prefix differs from the profile's gateway prefix but its model name matches.
