@@ -815,6 +815,79 @@ describe('protected candidate model port', () => {
     expect(client.settleInputs).toHaveLength(2)
   })
 
+  it('does not retry a non-draining settlement failure', async () => {
+    const failure = Object.assign(
+      new Error(
+        '/v1/candidate-model-grants/settle failed: 409 candidate_grant_control_auth_failed',
+      ),
+      { code: 'candidate_grant_control_auth_failed', status: 409 },
+    )
+    let attempts = 0
+    const client = fakeClient({
+      settle: async () => {
+        attempts += 1
+        throw failure
+      },
+    })
+    const port = createPort(client)
+    const { resolved: _resolved, ...reserve } = reserveInput()
+
+    await expect(
+      runProtectedAgentCandidateModelGrant({
+        port,
+        resolve: {
+          requested: resolvedModel.requested,
+          harness: 'opencode',
+          reasoningEffort: resolvedModel.reasoningEffort,
+        },
+        reserve,
+        deadlineAtMs: Date.now() + 2_000,
+        execute: async () => 'cell-result',
+      }),
+    ).rejects.toBe(failure)
+    expect(attempts).toBe(1)
+  })
+
+  it('stops repeated draining retries at the caller deadline and preserves the last error', async () => {
+    vi.useFakeTimers({ now: EXPIRES_AT_MS - 100 })
+    try {
+      const failure = Object.assign(
+        new Error('/v1/candidate-model-grants/settle failed: 409 candidate_grant_draining'),
+        { code: 'candidate_grant_draining', status: 409 },
+      )
+      let attempts = 0
+      const client = fakeClient({
+        settle: async () => {
+          attempts += 1
+          throw failure
+        },
+      })
+      const port = createPort(client)
+      const { resolved: _resolved, ...reserve } = reserveInput()
+      const pending = runProtectedAgentCandidateModelGrant({
+        port,
+        resolve: {
+          requested: resolvedModel.requested,
+          harness: 'opencode',
+          reasoningEffort: resolvedModel.reasoningEffort,
+        },
+        reserve,
+        deadlineAtMs: EXPIRES_AT_MS - 50,
+        execute: async () => 'cell-result',
+      })
+      const outcome = pending.then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+      await vi.advanceTimersByTimeAsync(50)
+      await expect(outcome).resolves.toBe(failure)
+      expect(attempts).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('settles a callback failure as failed and preserves the callback error', async () => {
     const client = fakeClient()
     const port = createPort(client)
