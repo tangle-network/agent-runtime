@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.134.1
+
+- Preserve a cli-bridge root's known profile materialization when Runtime exhausts the token budget after the bridge emits its terminal receipt.
+- An accepted `submit_result` winner and the original budget diagnostic now survive together.
+- Consumers that read failed-run trees must keep using a known materialization receipt when the result is `budget-exhausted`; they must not replace it with `unknown`.
+
 ## 0.134.0
 
 - BEHAVIOR CHANGE: the supervised token budget now charges each token once, when it first enters the context — `freshInput + cacheWrite + output`. It previously charged the rolled-up prompt total, which counts a cached prefix again on every turn that reads it.
