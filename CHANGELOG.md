@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.134.2
+
+- Make the supervised token charge additive: `input - cacheRead + output`, which equals `freshInput + cacheWrite + output` under a complete cache split. A spend that folded a classified turn together with an unclassified one previously fell back to the rolled-up prompt total for the whole aggregate, so one unreported turn re-charged every cached prefix beside it.
+- Charge nothing for prompt tokens when the prompt total is zero, and credit no cache read that exceeds the prompt total it partitions. Bad cache telemetry can over-charge; it can never buy free tokens.
+- Accept a `Spend` whose cache classes cover only part of `input` when it carries `cacheBreakdownKnown: false`. Requiring an exact partition there rejected the shape aggregation produces, and a resumed pool restored from such a record failed at construction. Classes that EXCEED `input` are still refused, and a spend claiming a complete split must still partition `input` exactly.
+- `equalKOnCost` now rates a rolled-up arm at what the pool charged it, including trees where one node reported no cache split.
+
 ## 0.134.1
 
 - Preserve a cli-bridge root's known profile materialization when Runtime exhausts the token budget after the bridge emits its terminal receipt.

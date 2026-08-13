@@ -709,6 +709,36 @@ describe('trajectory trace + cost ledger', () => {
     expect(verdict.spread.tokens).toBe(0)
     expect(verdict.arms.map((a) => a.tokens)).toEqual([11_000, 11_000])
   })
+
+  it('rates a rolled-up arm at what the pool charged, even where one node went unclassified', async () => {
+    // The roll-up folds a classified node and an unclassified one into one aggregate. If the
+    // aggregate fell back to the rolled-up prompt total, the arm would read 1010 against a pool
+    // that charged 110, and the cross-run check would contradict the within-run pool.
+    const classified: Spend = {
+      iterations: 1,
+      tokens: { input: 1_000, output: 0, freshInput: 100, cacheRead: 900, cacheWrite: 0 },
+      usd: 0,
+      ms: 0,
+    }
+    const unclassified: Spend = { iterations: 1, tokens: { input: 10, output: 0 }, usd: 0, ms: 0 }
+    const mixed = await journalTree(
+      'mixed',
+      [
+        { id: 'mixed:s0', parent: 'mixed', label: 'leaf' },
+        { id: 'mixed:s1', parent: 'mixed', label: 'leaf' },
+      ],
+      [
+        { id: 'mixed', spend: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 } },
+        { id: 'mixed:s0', spend: classified },
+        { id: 'mixed:s1', spend: unclassified },
+      ],
+    )
+    const report = await trajectoryReport(mixed.journal, mixed.blobs, 'mixed')
+    expect(report.total.tokens.input).toBe(1_010)
+
+    const verdict = equalKOnCost([{ label: 'mixed', report }])
+    expect(verdict.arms[0]?.tokens).toBe(110)
+  })
 })
 
 function tokensOf(value: Spend | undefined): number {

@@ -172,24 +172,36 @@ function hasClassifiedCacheBreakdown(usage: LoopTokenUsage): boolean {
 
 /**
  * The token charge for one observation: every token counted ONCE, at the moment it first enters
- * the context.
+ * the context — `input − cacheRead + output`.
  *
  * `input` is a rolled-up prompt total that re-counts a cached prefix on every turn that reads it,
- * so charging `input` makes a 100K prefix read 40 times cost 4.1M for content authored once. The
- * three cache classes partition `input`, so `freshInput + cacheWrite` is exactly the prompt the
- * provider had to present anew. No price weight is involved: this counts work, and money is a
- * separate channel.
+ * so charging `input` makes a 100K prefix read 40 times cost 4.1M for content authored once. A
+ * cache read is content that was already charged when it was written, so it is the one class the
+ * charge subtracts. Under a complete split the result is exactly `freshInput + cacheWrite`. No
+ * price weight is involved: this counts work, and money is a separate channel.
  *
- * Without a readable split the charge stays the rolled-up `input + output`. That number is an
- * UPPER BOUND on newly-presented work, not a measurement, and every caller that enforces a ceiling
- * must report the difference (`BudgetPool` does it through `readout().cacheBreakdownKnown`).
+ * The subtraction form is what makes the charge ADDITIVE. `input` and `cacheRead` both accumulate
+ * through `addTokenUsage`, so the charge on an aggregate equals the sum of the charges on the
+ * records that built it — including an aggregate that mixes classified and unclassified turns,
+ * where the unclassified remainder is charged in full and only the reported cache reads are
+ * credited. A form that read `freshInput + cacheWrite` directly loses that: one unclassified turn
+ * would drop the whole aggregate to `input + output` and over-charge every classified turn with it.
+ *
+ * A reported class may never exceed the prompt total it partitions. An over-reported `cacheRead`
+ * credits nothing, so bad cache telemetry can only over-charge, never buy free tokens. An
+ * unreadable split therefore charges an UPPER BOUND on newly-presented work, not a measurement,
+ * and every caller that enforces a ceiling must report the difference (`BudgetPool` does it through
+ * `readout().cacheBreakdownKnown`).
  */
 export function chargedTokens(usage: LoopTokenUsage): number {
-  if (!hasCompleteCacheBreakdown(usage)) return usage.input + usage.output
-  // A complete split classifies every prompt token. The one complete case that carries no class
-  // fields is `input === 0`, where there is no prompt to charge.
-  const { freshInput = 0, cacheWrite = 0 } = usage
-  return freshInput + cacheWrite + usage.output
+  return usage.input - creditedCacheRead(usage) + usage.output
+}
+
+function creditedCacheRead(usage: LoopTokenUsage): number {
+  const { cacheRead } = usage
+  if (cacheRead === undefined) return 0
+  const classified = (usage.freshInput ?? 0) + cacheRead + (usage.cacheWrite ?? 0)
+  return classified > usage.input ? 0 : cacheRead
 }
 
 /** Add the observed subtotal into `acc`; token and cache incompleteness are sticky. */

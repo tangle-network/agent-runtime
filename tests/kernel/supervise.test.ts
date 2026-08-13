@@ -819,6 +819,97 @@ describe('conserved budget pool: the token charge counts each token once', () =>
     ).toThrow(/cache classes must sum to input/)
   })
 
+  it('accepts an incomplete split that covers only part of the prompt total, and still rejects one that exceeds it', () => {
+    // A spend that declares its split incomplete reports classes for part of `input`. Demanding an
+    // exact partition rejected that shape and killed a resumed pool at construction.
+    const restored = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+      committed: {
+        iterations: 2,
+        tokens: {
+          input: 1_010,
+          output: 0,
+          freshInput: 100,
+          cacheRead: 900,
+          cacheWrite: 0,
+          cacheBreakdownKnown: false,
+        },
+        usd: 0,
+        ms: 0,
+      },
+    })
+    expect(restored.readout()).toMatchObject({
+      tokensLeft: 1_000_000 - 110,
+      cacheBreakdownKnown: false,
+    })
+
+    // The classes may still never exceed the total they partition, incomplete or not.
+    expect(() =>
+      createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+        committed: {
+          iterations: 1,
+          tokens: {
+            input: 100,
+            output: 0,
+            freshInput: 100,
+            cacheRead: 900,
+            cacheWrite: 0,
+            cacheBreakdownKnown: false,
+          },
+          usd: 0,
+          ms: 0,
+        },
+      }),
+    ).toThrow(/cache classes must not exceed input/)
+  })
+
+  it('charges an aggregate exactly what its records charged, mixing classified and unclassified turns', () => {
+    // One classified turn (100 new of 1000 prompt) and one turn the provider never classified.
+    // The charge has to be additive: the unclassified 10 is charged in full, and the 900 reported
+    // cache reads stay credited. A whole-aggregate fallback would charge 1010 and wipe out the fix.
+    const perTurn = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    perTurn.observe({
+      iterations: 1,
+      tokens: { input: 1_000, output: 0, freshInput: 100, cacheRead: 900, cacheWrite: 0 },
+      usd: 0,
+      ms: 0,
+    })
+    perTurn.observe({ iterations: 1, tokens: { input: 10, output: 0 }, usd: 0, ms: 0 })
+
+    const folded = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    folded.observe(
+      spendFromUsageEvents([
+        { kind: 'iteration' },
+        { kind: 'tokens', input: 1_000, output: 0, freshInput: 100, cacheRead: 900, cacheWrite: 0 },
+        { kind: 'iteration' },
+        { kind: 'tokens', input: 10, output: 0 },
+      ]),
+    )
+
+    expect(folded.readout().tokensLeft).toBe(perTurn.readout().tokensLeft)
+    expect(folded.readout().tokensLeft).toBe(1_000_000 - 110)
+    // The composition of the aggregate is still incomplete, and the readout says so.
+    expect(folded.readout().cacheBreakdownKnown).toBe(false)
+  })
+
+  it('credits nothing when a reported cache class exceeds the prompt total it partitions', () => {
+    // Bad telemetry may over-charge; it may never buy free tokens.
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    pool.observe({
+      iterations: 1,
+      tokens: { input: 10, output: 0, cacheRead: 4_000 },
+      usd: 0,
+      ms: 0,
+    })
+    expect(pool.readout()).toMatchObject({ tokensLeft: 990, cacheBreakdownKnown: false })
+  })
+
+  it('charges nothing for prompt tokens when the prompt total is zero', () => {
+    // A stray class field on a zero-prompt observation must not invent a charge.
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, () => 0)
+    pool.observe({ iterations: 1, tokens: { input: 0, output: 1, freshInput: 5 }, usd: 0, ms: 0 })
+    expect(pool.readout().tokensLeft).toBe(99)
+  })
+
   it('reservation and reconciliation agree on the unit — a child settles inside the ceiling it reserved', () => {
     // The worker-pool refusal in #831 came from the two ends disagreeing: a child reserved a
     // ceiling in declared tokens and settled against a rolled-up prompt total. Both ends now use
