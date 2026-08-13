@@ -986,6 +986,18 @@ export {
   type SurfaceWorkerOut,
   superviseSurface,
 } from './supervise-surface'
+export {
+  type BoxSurfaceReaderOptions,
+  boxSurfaceReader,
+  fsSurfaceReader,
+  type HarvestSurfaceDiffsOptions,
+  harvestSurfaceDiffs,
+  type SurfaceDiff,
+  type SurfaceReadBox,
+  type SurfaceReader,
+  type SurfaceReadOutcome,
+  type WatchedSurface,
+} from './surface-diff'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
 // Profile-owned supervisor configuration. The arbitrary model callback and raw driver constructor
 // live only under `/testing`; production model execution enters through `supervise(AgentProfile)`.

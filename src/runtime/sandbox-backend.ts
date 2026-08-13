@@ -30,6 +30,7 @@ const harnessBackends = [
   'opencode',
   'kimi-code',
   'pi',
+  'prime',
   'hermes',
   'openclaw',
   'amp',

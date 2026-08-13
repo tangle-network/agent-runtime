@@ -28,5 +28,19 @@ Harnesses wired via cli-bridge: **claude-code** (2.1.177), **codex** (0.139.0), 
 5. **Three different MCP wiring mechanisms** (file-flag / synthetic-HOME-TOML / env-config-file) — no uniform `--mcp-config`. opencode http = `"type":"remote"`+`url` (the MEMORY `transport:'http'` note is the *claude/kimi* `--mcp-config` layer, a different file).
 6. **Resume identity differs per harness** (claude uuid / codex thread_id / opencode session id) — a driver resuming across a sandbox boundary must keep the external→internal id map per-harness; ids are not cross-harness valid.
 
+## Pending columns
+
+- **prime** — Prime Intellect's agent OS (persistent IPython kernel, native `rlm(…)`
+  subagents, `/refine` continual-harness edits, daemon-backed session trees). The id
+  shipped in `agent-interface` `HarnessType` + the sandbox backend enum; see
+  [design/prime-agent-harness-integration.md](../design/prime-agent-harness-integration.md).
+  **Do not inherit `pi`'s row** — Prime is Pi-lineage but the fork's wire protocol has
+  diverged (its daemon rejects pi-line clients); every cell must be measured against the
+  real CLI before this column fills in.
+  Expected steering-relevant deltas to verify: native subagent fan-out cap and whether it
+  is configurable (runaway surface #3), whether the daemon protocol allows mid-step
+  interrupt (black-box harnesses today degrade `steer_agent({interrupt:true})` to next
+  spawn), and whether tool activity surfaces as structured parts or only via the kernel.
+
 ## Files
 `~/code/cli-bridge/src/backends/{claude,codex,opencode}.ts` (invocation), `.../profile-support.ts` (MCP materializers), `.../modes.ts` (byob/hosted-safe gating); `~/code/agent-dev-container` sidecar registry (12 bindings).

@@ -47,6 +47,7 @@ These are internal working documents: design theses, research narrative, and roa
 
 | Doc | Role | Purpose |
 |---|---|---|
+| [design/prime-agent-harness-integration.md](./design/prime-agent-harness-integration.md) | integration contract | Prime Agent as a sandbox-materialized harness: the boundary, the anti-reinvention map, the substrate wish-list, and the first gated experiment. |
 | [simplification-plan.md](./research/simplification-plan.md) | historical tracker | Earlier simplification analysis. The active execution and API convergence plan is [agent-managed-compute/roadmap.md](./agent-managed-compute/roadmap.md). |
 | [research/README.md](./research/README.md) | research index | Forward-looking design threads + decision log. Not the canonical spine. |
 | [archive/](./archive/) | retired notes | Superseded/niche docs kept for history (delivery manifest, conversation economics, artifact-lifecycle, go-live, results, benchmark-matrix consolidation). |

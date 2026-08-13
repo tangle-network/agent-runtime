@@ -16889,6 +16889,173 @@ returning an incomplete reproducibility receipt.
 
 ***
 
+### SurfaceDiff
+
+One watched surface whose settled state differs from what was mounted (or from absence).
+
+- `modified` — the surface exists with different bytes (`settledSha256`/`settledBytes` present).
+- `removed` — the surface no longer exists at its mounted path.
+- `created` — a watched path that was never mounted now exists (`settledSha256`/`settledBytes`
+  present, no `mountedSha256`) — the shape a harness's new memory/skill file takes.
+- `unreadable` — the read seam failed for a reason other than absence; `error` carries the
+  diagnostic. Reported rather than dropped so a permissions or transport failure cannot
+  masquerade as "nothing changed".
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+The mounted/watched path, exactly as recorded.
+
+##### status
+
+> **status**: `"modified"` \| `"removed"` \| `"created"` \| `"unreadable"`
+
+##### mountedSha256?
+
+> `optional` **mountedSha256?**: `string`
+
+Hex SHA-256 of the bytes that were mounted (from the manifest). Absent for `created`.
+
+##### source
+
+> **source**: `string`
+
+Free-form origin: the manifest entry's `source`, or the watch entry's `source`.
+
+##### settledSha256?
+
+> `optional` **settledSha256?**: `string`
+
+Hex SHA-256 of the settled bytes. Present for `modified` and `created`.
+
+##### settledBytes?
+
+> `optional` **settledBytes?**: `number`
+
+Size of the settled bytes. Present for `modified` and `created`.
+
+##### error?
+
+> `optional` **error?**: `string`
+
+The read seam's diagnostic. Present only for `unreadable`.
+
+***
+
+### WatchedSurface
+
+A path to check at settle that was NOT necessarily mounted — where a harness is known to write
+ self-authored surfaces (a memory dir's files, a refinement log). A watched path that was also
+ mounted compares against its mount; one that wasn't reports `created` if it now exists.
+ `created` is an inference from the mount manifest, not a proof of authorship: a file the box
+ IMAGE shipped at a never-mounted path also reports `created`. Watch paths known absent at run
+ start (or enumerate the tree at start AND settle and watch the difference) to make the label
+ mean what it says.
+
+#### Properties
+
+##### path
+
+> **path**: `string`
+
+##### source?
+
+> `optional` **source?**: `string`
+
+Origin label carried onto the diff (default `'watched'`).
+
+***
+
+### HarvestSurfaceDiffsOptions
+
+Inputs to [harvestSurfaceDiffs](#harvestsurfacediffs): the run's mount manifest, the read seam, and optional
+ watch paths for surfaces the agent may have created.
+
+#### Properties
+
+##### mounts
+
+> **mounts**: readonly [`MountManifestEntry`](#mountmanifestentry)[]
+
+The run's mount manifest (`RunProvenance.mounts`). Entries sharing a path are collapsed to the
+ LAST entry — the bytes the agent actually saw at start.
+
+##### read
+
+> **read**: [`SurfaceReader`](#surfacereader)
+
+How to read a mounted path's current bytes.
+
+##### watch?
+
+> `optional` **watch?**: readonly [`WatchedSurface`](#watchedsurface)[]
+
+Additional paths to check that may not have been mounted (see [WatchedSurface](#watchedsurface)). The
+ caller enumerates them (it knows the harness's state layout — e.g. via the box's file tree);
+ the harvest stays layout-agnostic.
+
+***
+
+### SurfaceReadBox
+
+The minimal box surface the box-backed reader needs — structurally typed so the real
+ `@tangle-network/sandbox` box and a test double both satisfy it, no SDK import.
+
+#### Properties
+
+##### fs
+
+> **fs**: `object`
+
+###### read()
+
+> **read**(`path`): `Promise`\<`string`\>
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### Returns
+
+`Promise`\<`string`\>
+
+***
+
+### BoxSurfaceReaderOptions
+
+Retry and cancellation controls for [boxSurfaceReader](#boxsurfacereader).
+
+#### Properties
+
+##### attempts?
+
+> `optional` **attempts?**: `number`
+
+Read attempts per path before settling on a failed outcome. The data plane can transiently
+ 404 a just-written file (the same blip `openSandboxRun`'s deliverable read retries for), and a
+ first-attempt 404 taken at face value turns a fresh self-edit into a false `removed`/dropped
+ `created`. Default 3.
+
+##### retryDelayMs?
+
+> `optional` **retryDelayMs?**: `number`
+
+Linear backoff base between attempts (delay = base × attempt). Default 250.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+Cuts the retry waits short when the run is abandoned. The reader still returns a typed
+ outcome — the harvest reports what it managed to read rather than rejecting.
+
+***
+
 ### CreateTangleSandboxExactProcessProviderOptions
 
 #### Properties
@@ -20504,6 +20671,34 @@ this run records no spans, so nothing is stamped. Supplied by
 
 Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured
  diff + the harness's run record + the derived checks).
+
+***
+
+### SurfaceReadOutcome
+
+> **SurfaceReadOutcome** = \{ `succeeded`: `true`; `value`: `Uint8Array`; \} \| \{ `succeeded`: `false`; `missing`: `boolean`; `error`: `string`; \}
+
+Outcome of reading one surface back at settle. `missing: true` means the path no longer exists
+ (a deletion — a valid, reportable outcome); any other failure carries its diagnostic.
+
+***
+
+### SurfaceReader
+
+> **SurfaceReader** = (`path`) => `Promise`\<[`SurfaceReadOutcome`](#surfacereadoutcome)\>
+
+The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's
+ `fs.read`, a local worktree read ([fsSurfaceReader](#fssurfacereader)), or a test double.
+
+#### Parameters
+
+##### path
+
+`string`
+
+#### Returns
+
+`Promise`\<[`SurfaceReadOutcome`](#surfacereadoutcome)\>
 
 ***
 
@@ -26109,6 +26304,88 @@ the shared valid-only `selectValidWinner` (never a judge).
 #### Returns
 
 [`CombinatorShape`](#combinatorshape)\<`Task`, [`WorktreeHarnessResult`](#worktreeharnessresult)\>
+
+***
+
+### harvestSurfaceDiffs()
+
+> **harvestSurfaceDiffs**(`options`): `Promise`\<[`SurfaceDiff`](#surfacediff)[]\>
+
+Re-read every mounted (and watched) surface and report the ones whose settled state differs from
+the manifest — modified, removed, or created. Unchanged surfaces and still-absent watched paths
+produce no entry; reads run concurrently; output preserves record order, mounts before
+watch-only paths. Mounts and watches sharing a path key are each collapsed to the LAST entry,
+and a watched path that was also mounted compares against its mount (never reports `created`).
+
+The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
+itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
+([BoxSurfaceReaderOptions.signal](#signal-23), or close over one in a custom [SurfaceReader](#surfacereader)) —
+that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
+than discarding settle-time evidence on a late cancellation.
+
+#### Parameters
+
+##### options
+
+[`HarvestSurfaceDiffsOptions`](#harvestsurfacediffsoptions)
+
+#### Returns
+
+`Promise`\<[`SurfaceDiff`](#surfacediff)[]\>
+
+***
+
+### boxSurfaceReader()
+
+> **boxSurfaceReader**(`box`, `options?`): [`SurfaceReader`](#surfacereader)
+
+A [SurfaceReader](#surfacereader) over a sandbox box's filesystem — the same `box.fs.read` seam
+`openSandboxRun` reads deliverables through, with the same transient-404 posture (bounded
+retry). The box wire returns UTF-8 TEXT (the SDK's binary path is `download()`), which profile
+surfaces are; hashes are computed over the UTF-8 encoding, and content the wire had to
+lossy-decode (a U+FFFD replacement character) is reported `unreadable` rather than hashed as
+mojibake. The SDK's not-found error is detected structurally (`err.name === 'NotFoundError'`)
+and maps to `missing: true` — unless its `resourceType` names something other than a file/path
+(the BOX or session being gone), which is a transport failure, not an absent surface.
+
+#### Parameters
+
+##### box
+
+[`SurfaceReadBox`](#surfacereadbox)
+
+##### options?
+
+[`BoxSurfaceReaderOptions`](#boxsurfacereaderoptions) = `{}`
+
+#### Returns
+
+[`SurfaceReader`](#surfacereader)
+
+***
+
+### fsSurfaceReader()
+
+> **fsSurfaceReader**(`root`): [`SurfaceReader`](#surfacereader)
+
+A [SurfaceReader](#surfacereader) over the local filesystem, for worktree/local workers. Every path —
+relative or absolute — must resolve INSIDE `root`: a path that escapes it (`../`, an absolute
+path elsewhere) fails as a contained non-missing outcome rather than reading outside the
+worktree, so a persisted or mistyped manifest path cannot turn the harvest into an
+existence/hash oracle over the host filesystem. Containment is checked twice — once on the
+lexical path, then again on the symlink-resolved path, because `readFile` follows a link and a
+link planted inside the root would otherwise read host bytes through a contained-looking name.
+Absence maps to `missing: true`; every other failure carries the error message.
+
+#### Parameters
+
+##### root
+
+`string`
+
+#### Returns
+
+[`SurfaceReader`](#surfacereader)
 
 ***
 
