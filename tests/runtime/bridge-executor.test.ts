@@ -12,9 +12,14 @@ import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import {
   runtimeOwnedExecutorMaterialization,
+  runtimeOwnedExecutorProviderEvidence,
   runtimeOwnedPendingExecutorMaterialization,
 } from '../../src/runtime/supervise/materialization'
-import { bridgeExecutor, createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import {
+  bridgeExecutor,
+  bridgeStopSignalKey,
+  createExecutorRegistry,
+} from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
@@ -389,6 +394,135 @@ describe('bridgeExecutor over node:http', () => {
 
     expect(requests).toBe(1)
     expect(executor.resultArtifact().spent.iterations).toBe(1)
+  })
+
+  it('drains an active turn after completion and blocks the next bridge request', async () => {
+    let requests = 0
+    const stop = new AbortController()
+    let deliver: (message: unknown) => void = () => {}
+    bridgeHttpHandler = () => {
+      requests += 1
+      deliver({ steer: 'a queued continuation must not start' })
+      if (!activeBridgePayload) throw new Error('active bridge payload missing')
+      const payload = activeBridgePayload
+      const profile = payload.agent_profile as AgentProfile
+      const model = String(payload.model)
+      const stream = new PassThrough()
+      stream.write(
+        `id: 1\ndata: ${JSON.stringify({
+          model,
+          choices: [{ delta: { content: 'accepted answer' } }],
+        })}\n\n`,
+      )
+      setImmediate(() => {
+        stop.abort('result accepted')
+        stream.end(
+          [
+            `id: 2\ndata: ${JSON.stringify({
+              model,
+              usage: {
+                prompt_tokens: 7,
+                completion_tokens: 3,
+                cost: 0.001,
+                cost_known: true,
+                cost_provenance: 'provider-receipt',
+              },
+            })}\n\n`,
+            `id: 3\ndata: ${JSON.stringify({
+              profile_materialization: {
+                schema: 'cli-bridge.profile-materialization.v2',
+                effectiveProfileDigest: canonicalAgentProfileDigest(profile),
+                harness: 'pi',
+                provider: 'tangle-router',
+                model,
+                reasoningEffort: { requested: null, applied: null },
+                workspacePlanDigest: `sha256:${'b'.repeat(64)}`,
+                files: [],
+                unsupported: [],
+              },
+            })}\n\n`,
+            'data: [DONE]\n\n',
+          ].join(''),
+        )
+      })
+      return stream
+    }
+    const profile: AgentProfile = {
+      name: 'completion-stop-worker',
+      harness: 'pi',
+      model: {
+        provider: 'tangle-router',
+        default: 'deepseek-v4-flash',
+        metadata: { maxTurns: 3 },
+      },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' },
+          [bridgeStopSignalKey]: stop.signal,
+        },
+      },
+    )
+    deliver = (message) => executor.deliver?.(message)
+
+    await drainExecutor(executor)
+
+    expect(requests).toBe(1)
+    expect(runtimeOwnedExecutorMaterialization(executor)).toMatchObject({
+      plan: {
+        terminalAcknowledgement: {
+          model: 'pi/tangle-router/deepseek-v4-flash',
+        },
+      },
+    })
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toMatchObject({
+      status: 'known',
+      attempts: [{ observations: ['pi/tangle-router/deepseek-v4-flash'] }],
+    })
+    expect(executor.resultArtifact().out).toMatchObject({ content: 'accepted answer' })
+  })
+
+  it('keeps identity and materialization unknown when an active stream aborts before [DONE]', async () => {
+    const abort = new AbortController()
+    bridgeHttpHandler = () => {
+      const stream = new PassThrough()
+      stream.write(frame(1, { choices: [{ delta: { content: 'partial' } }] }))
+      queueMicrotask(() => {
+        abort.abort('bridge disconnected')
+        stream.end()
+      })
+      return stream
+    }
+    const profile = exactBridgeProfile('ambiguous-abort-worker', 'safe-model')
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
+      },
+    )
+
+    const run = executor.execute('go', abort.signal)
+    if (!isUsageStream(run)) throw new Error('bridge worker must stream usage')
+    await expect(
+      (async () => {
+        for await (const _event of run) {
+          // consume the partial response before the transport aborts
+        }
+      })(),
+    ).rejects.toThrow(/aborted/u)
+
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'unknown',
+      attempts: [{ observations: [] }],
+      models: [],
+      reason: 'provider-model-missing',
+    })
+    expect(runtimeOwnedExecutorMaterialization(executor)).toBeUndefined()
+    expect(runtimeOwnedPendingExecutorMaterialization(executor)).toBeDefined()
   })
 
   it('forwards the profile completion cap on initial and resumed bridge requests', async () => {

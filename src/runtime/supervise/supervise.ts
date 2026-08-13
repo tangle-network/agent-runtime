@@ -79,10 +79,10 @@ import {
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
   bindReusableExecutorExecutionId,
+  bridgeStopSignalKey,
   captureReusableExecutorConfig,
   createExecutor,
   type ExecutorConfig,
-  mergeAbortSignals,
   snapshotExecutorConfig,
 } from './runtime'
 import {
@@ -373,7 +373,7 @@ function driveHarnessFromBackend(
     const executor = baseFactory(spec, {
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
-      seams: {},
+      seams: stopSignal === undefined ? {} : { [bridgeStopSignalKey]: stopSignal },
     })
     activeExecutor = executor
     let completed = false
@@ -539,9 +539,9 @@ function driveHarnessFromBackend(
       }
 
       started = true
-      const runSignal =
-        stopSignal === undefined ? scope.signal : mergeAbortSignals(scope.signal, stopSignal)
-      const run = executor.execute(task, runSignal)
+      // A coordination completion stops the NEXT external turn. The active bridge request must
+      // drain so its served model and terminal materialization remain valid evidence.
+      const run = executor.execute(task, scope.signal)
       if (isAsyncIterable<UsageEvent>(run)) {
         for await (const event of run) {
           if (event.kind === 'iteration') {

@@ -380,6 +380,9 @@ const routerSeamKey = 'router'
 const sandboxSeamKey = 'sandbox'
 const cliSeamKey = 'cli'
 const bridgeSeamKey = 'bridge'
+/** Internal control seam used by Runtime-owned external supervisors. A completion request stops
+ * the next bridge turn; it must not abort the paid request that is already streaming. */
+export const bridgeStopSignalKey = '__bridge_stop_signal'
 const maxBridgeTimeoutMs = 2_147_483_647
 const bridgeModelCredentialHeader = 'x-cli-bridge-model-credential'
 const bridgeModelBaseUrlHeader = 'x-cli-bridge-model-base-url'
@@ -1791,6 +1794,7 @@ function bridgeProfileModel(profile: AgentProfile, context: string): string {
 
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
+  const stopSignal = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'bridge')
   const modelCredential = validateBridgeModelCredential(
     base.modelCredential,
     base.bridgeUrl,
@@ -1935,6 +1939,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       return streamBridgeSession({
         task,
         signal,
+        ...(stopSignal === undefined ? {} : { stopSignal }),
         profile: effectiveProfile,
         seam,
         sessionId,
@@ -1997,6 +2002,8 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 interface StreamBridgeArgs {
   task: unknown
   signal: AbortSignal
+  /** Completion request from a Runtime-owned driver. It stops future turns after the current one. */
+  stopSignal?: AbortSignal
   profile: AgentProfile
   seam: ResolvedBridgeSeam
   sessionId: string
@@ -2268,6 +2275,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
   for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; t += 1) {
+    if (args.stopSignal?.aborted) {
+      observation.note = 'settled after completion request'
+      break
+    }
     // Drain queued down-messages; on turns > 0 they ARE the prompt (resume content).
     const pending = inbox.drain()
     if (pending.length) {
@@ -2356,6 +2367,13 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       }
     }
     try {
+      // A completion request may arrive while the previous turn is still streaming. The current
+      // request owns the provider receipt and terminal materialization, so let it drain before
+      // checking the request at the next turn boundary.
+      if (args.stopSignal?.aborted) {
+        observation.note = 'settled after completion request'
+        break
+      }
       args.onProviderAttemptStart()
       for await (const chunk of streamDurableBridgeRun({
         seam,
@@ -2529,6 +2547,11 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (interrupted) {
       observation.note = `turn ${turns} interrupted, resuming`
       continue
+    }
+
+    if (args.stopSignal?.aborted) {
+      observation.note = 'settled after completion request'
+      break
     }
 
     // Before settling, drain once more — the worker can't finish while a steer it
@@ -4534,6 +4557,24 @@ function readSeam<T>(ctx: ExecutorContext, key: string, who: string): T {
     throw new ValidationError(`${who} executor: missing required seam "${key}" on ExecutorContext`)
   }
   return seam as T
+}
+
+function readOptionalAbortSignal(
+  ctx: ExecutorContext,
+  key: string,
+  who: string,
+): AbortSignal | undefined {
+  const value = ctx.seams[key]
+  if (value === undefined) return undefined
+  if (
+    value === null ||
+    typeof value !== 'object' ||
+    typeof (value as { aborted?: unknown }).aborted !== 'boolean' ||
+    typeof (value as { addEventListener?: unknown }).addEventListener !== 'function'
+  ) {
+    throw new ValidationError(`${who} executor: seam "${key}" must be an AbortSignal`)
+  }
+  return value as AbortSignal
 }
 
 /** A leaf task is opaque (`unknown`). A string is the prompt verbatim; an object
