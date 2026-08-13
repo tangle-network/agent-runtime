@@ -114,6 +114,8 @@ import type {
   Budget,
   Executor,
   ExecutorContext,
+  ExecutorExecutionBinding,
+  ExecutorMaterialization,
   NodeExecutionIdentity,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
@@ -454,60 +456,61 @@ function driveHarnessFromBackend(
       }
     }
 
+    const pending = runtimeOwnedPendingExecutorMaterialization(executor)
     let failed = false
     let failure: unknown
+    let ownerMaterializationPublished = false
+    const ownerDeclaration = (
+      exactDeclaration: ExecutorMaterialization,
+    ): ExecutorMaterialization => ({
+      ...exactDeclaration,
+      // The coordination MCP is a Runtime-owned platform attachment, not authored behavior.
+      effectiveProfile: canonicalDriverProfile,
+      platformAttachments: {
+        [coordinationMcpAlias]: {
+          kind: 'coordination-mcp',
+          transport: 'http',
+          tools: stableCoordinationTools,
+        },
+      },
+    })
+    const publishMaterialization = async (
+      exactDeclaration: ExecutorMaterialization,
+      exactBinding: ExecutorExecutionBinding,
+    ): Promise<void> => {
+      await recordScopeOwnerMaterialization(
+        scope,
+        executor.runtime,
+        ownerDeclaration(exactDeclaration),
+        {
+          ...exactBinding,
+          binding: {
+            stableBinding: exactBinding.binding,
+            platformAttachments: {
+              [coordinationMcpAlias]: {
+                transport: 'http',
+                url: coordinationMcpUrl,
+              },
+            },
+          },
+          descriptor: {
+            ...exactBinding.descriptor,
+            coordination: true,
+          },
+        },
+      )
+    }
     try {
       // Construction transfers cleanup ownership immediately. Even a rejected receipt or an
       // unmetered runtime reaches the single bounded teardown path below.
       const declaration = runtimeOwnedExecutorMaterialization(executor)
       const executionBinding = runtimeOwnedExecutorExecutionBinding(executor)
-      const pending = runtimeOwnedPendingExecutorMaterialization(executor)
       const authoredProfileFromDriverExecution = (profile: AgentProfile): AgentProfile => {
         const mcp = profile.mcp ?? {}
         const { [coordinationMcpAlias]: _runtimeAttachment, ...authoredMcp } = mcp
         const { mcp: _mcp, ...withoutMcp } = profile
         return agentProfileSchema.parse(
           Object.keys(authoredMcp).length > 0 ? { ...withoutMcp, mcp: authoredMcp } : withoutMcp,
-        )
-      }
-      const ownerDeclaration = (
-        exactDeclaration: NonNullable<typeof declaration>,
-      ): NonNullable<typeof declaration> => ({
-        ...exactDeclaration,
-        // The coordination MCP is a Runtime-owned platform attachment, not authored behavior.
-        effectiveProfile: canonicalDriverProfile,
-        platformAttachments: {
-          [coordinationMcpAlias]: {
-            kind: 'coordination-mcp',
-            transport: 'http',
-            tools: stableCoordinationTools,
-          },
-        },
-      })
-      const publishMaterialization = async (
-        exactDeclaration: NonNullable<typeof declaration>,
-        exactBinding: NonNullable<typeof executionBinding>,
-      ) => {
-        await recordScopeOwnerMaterialization(
-          scope,
-          executor.runtime,
-          ownerDeclaration(exactDeclaration),
-          {
-            ...exactBinding,
-            binding: {
-              stableBinding: exactBinding.binding,
-              platformAttachments: {
-                [coordinationMcpAlias]: {
-                  transport: 'http',
-                  url: coordinationMcpUrl,
-                },
-              },
-            },
-            descriptor: {
-              ...exactBinding.descriptor,
-              coordination: true,
-            },
-          },
         )
       }
       if (pending === undefined && (declaration === undefined || executionBinding === undefined)) {
@@ -593,12 +596,33 @@ function driveHarnessFromBackend(
           )
         }
         await publishMaterialization(acknowledged, acknowledgedBinding)
+        ownerMaterializationPublished = true
       }
       completed = true
     } catch (error) {
       failed = true
       failure = error
     } finally {
+      // The bridge can return its terminal receipt, then Runtime metering can fail before normal
+      // publication (for example, after an accepted submit_result exceeds the token budget).
+      // The executor attestation is the trusted receipt; publish it before teardown destroys the
+      // bridge-owned state. If no receipt exists, leave the owner unknown and preserve the
+      // original failure instead of inventing evidence or replacing its diagnostic.
+      if (pending !== undefined && !ownerMaterializationPublished) {
+        const acknowledged = runtimeOwnedExecutorMaterialization(executor)
+        const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
+        if (acknowledged !== undefined && acknowledgedBinding !== undefined) {
+          try {
+            await publishMaterialization(acknowledged, acknowledgedBinding)
+            ownerMaterializationPublished = true
+          } catch (error) {
+            if (!failed) {
+              failed = true
+              failure = error
+            }
+          }
+        }
+      }
       // Capture provider evidence before teardown destroys the executor-owned observation state.
       // This is independent from terminal materialization: an aborted paid turn still needs its
       // served identity, while a plan-only receipt must never be used as a substitute.
