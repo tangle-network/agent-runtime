@@ -523,6 +523,12 @@ Re-exports [AgentCandidateProtectedModelSettlement](index.md#agentcandidateprote
 
 ***
 
+### AgentCandidateProtectedModelSettlementCall
+
+Re-exports [AgentCandidateProtectedModelSettlementCall](index.md#agentcandidateprotectedmodelsettlementcall)
+
+***
+
 ### AgentCandidateProtectedRunCapture
 
 Re-exports [AgentCandidateProtectedRunCapture](index.md#agentcandidateprotectedruncapture)

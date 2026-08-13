@@ -379,6 +379,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }),
     },

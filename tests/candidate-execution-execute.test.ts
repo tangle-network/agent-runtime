@@ -365,6 +365,7 @@ describe('atomic prepared candidate execution', () => {
       preparationId,
       grantDigest: candidateSha('c'),
       closed: true,
+      usageWithinLimits: true,
       calls: [
         {
           callId: 'call-paid-success',
@@ -375,6 +376,7 @@ describe('atomic prepared candidate execution', () => {
           startedAtMs: 120,
           endedAtMs: 180,
           inputTokens: 10,
+          accountedInputTokens: 10,
           outputTokens: 5,
           cachedInputTokens: 2,
           reasoningTokens: 1,
@@ -476,7 +478,13 @@ describe('atomic prepared candidate execution', () => {
     }
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       settlements++
-      return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: candidateSha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     const result = await executePreparedAgentCandidate(
       prepared,
@@ -631,7 +639,13 @@ describe('atomic prepared candidate execution', () => {
     })
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       advanceClock(cleanupTimeoutMs - 1)
-      return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: candidateSha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
@@ -848,6 +862,7 @@ describe('atomic prepared candidate execution', () => {
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }
     }
@@ -1095,6 +1110,7 @@ describe('atomic prepared candidate execution', () => {
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }
     }
@@ -1171,6 +1187,7 @@ describe('atomic prepared candidate execution', () => {
         preparationId,
         grantDigest: candidateSha('c'),
         closed: true,
+        usageWithinLimits: true,
         calls: [
           {
             callId: 'call-paid-1',
@@ -1181,6 +1198,7 @@ describe('atomic prepared candidate execution', () => {
             startedAtMs: 100,
             endedAtMs: 150,
             inputTokens: 10,
+            accountedInputTokens: 10,
             outputTokens: 5,
             cachedInputTokens: 0,
             reasoningTokens: 0,
@@ -1229,7 +1247,13 @@ describe('atomic prepared candidate execution', () => {
     let settledAfterStop = false
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       settledAfterStop = stoppedAfterAbort
-      return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: candidateSha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     vi.useFakeTimers({ now: Date.now() })
     const startedAt = Date.now()
@@ -1370,7 +1394,13 @@ describe('atomic prepared candidate execution', () => {
     let disposals = 0
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       settlements++
-      return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: candidateSha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),
@@ -1563,7 +1593,13 @@ describe('atomic prepared candidate execution', () => {
     }
     fixture.ports.models.settleGrant = async ({ preparationId }) => {
       order.push('model-settle')
-      return { preparationId, grantDigest: candidateSha('c'), closed: true, calls: [] }
+      return {
+        preparationId,
+        grantDigest: candidateSha('c'),
+        closed: true,
+        usageWithinLimits: true,
+        calls: [],
+      }
     }
     const prepared = await prepareAgentCandidateExecution(
       await verifyAgentCandidateBundle(fixture.bundle, fixture.ports),

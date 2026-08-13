@@ -512,6 +512,7 @@ ${proofArm === 'success' ? "(task / 'src/status.txt').write_text('ready\\nowner=
         preparationId,
         grantDigest: `sha256:${'c'.repeat(64)}`,
         closed: true,
+        usageWithinLimits: true,
         calls: [],
       }),
     },

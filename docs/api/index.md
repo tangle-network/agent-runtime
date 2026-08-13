@@ -2608,7 +2608,7 @@ Evaluator service must expire and revoke this reservation at this epoch millisec
 
 > **enforcedLimits**: [`AgentCandidateModelLimits`](#agentcandidatemodellimits)
 
-The gateway must stop calls before any one of these limits is exceeded.
+The gateway must stop calls before any declared model limit is exceeded.
 
 ##### network
 
@@ -2646,9 +2646,15 @@ Injected only into the trusted executor after all pre-launch checks pass.
 
 > **closed**: `true`
 
+##### usageWithinLimits
+
+> **usageWithinLimits**: `boolean`
+
+Router's terminal integrity result. False must never become a receipt.
+
 ##### calls
 
-> **calls**: readonly `AgentCandidateModelSettlementCall`[]
+> **calls**: readonly [`AgentCandidateProtectedModelSettlementCall`](#agentcandidateprotectedmodelsettlementcall)[]
 
 ***
 
@@ -10597,9 +10603,31 @@ Secret-free response from the service's reservation endpoint.
 
 ### AgentCandidateModelLimits
 
-> **AgentCandidateModelLimits** = `Pick`\<`AgentCandidateExecutionLimits`, `"maxModelCalls"` \| `"maxInputTokens"` \| `"maxOutputTokens"` \| `"maxCostUsd"`\>
+> **AgentCandidateModelLimits** = `Pick`\<`AgentCandidateExecutionLimits`, `"maxModelCalls"` \| `"maxInputTokens"` \| `"maxOutputTokens"` \| `"maxCostUsd"`\> & `object`
 
 Limits mechanically enforced by the evaluator-owned model gateway.
+
+#### Type Declaration
+
+##### maxTotalTokens?
+
+> `optional` **maxTotalTokens?**: `number`
+
+Optional caller-declared cap across input and output tokens.
+
+***
+
+### AgentCandidateProtectedModelSettlementCall
+
+> **AgentCandidateProtectedModelSettlementCall** = `AgentCandidateModelSettlementCall` & `object`
+
+Protected-port wire call with the gateway's counted input total preserved.
+
+#### Type Declaration
+
+##### accountedInputTokens
+
+> **accountedInputTokens**: `number`
 
 ***
 
