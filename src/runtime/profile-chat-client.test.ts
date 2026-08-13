@@ -71,7 +71,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('keeps a provider snapshot in response evidence while receipt uses the declared model', async () => {
+  it('uses the provider-served snapshot in the successful optimizer receipt', async () => {
     const responseModel = 'deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
     const call = profileOptimizerModelCall({
       profile,
@@ -99,14 +99,14 @@ describe('profileChatClient exact Runtime adapter', () => {
     if (!result.succeeded) throw new Error(result.error)
     expect(result.response.model).toBe(responseModel)
     expect(result.receipt).toMatchObject({
-      model: 'deepseek-v4-flash',
+      model: responseModel,
       inputTokens: 3,
       outputTokens: 2,
     })
     expect(result.execution).toMatchObject({ model: responseModel })
   })
 
-  it('accepts a provider-qualified snapshot for the exact profile model', async () => {
+  it('uses the provider-qualified served model in the successful optimizer receipt', async () => {
     const responseModel = 'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
     const call = profileOptimizerModelCall({
       profile,
@@ -134,11 +134,50 @@ describe('profileChatClient exact Runtime adapter', () => {
     if (!result.succeeded) throw new Error(result.error)
     expect(result.response.model).toBe(responseModel)
     expect(result.receipt).toMatchObject({
-      model: 'deepseek-v4-flash',
+      model: responseModel,
       inputTokens: 4,
       outputTokens: 3,
     })
     expect(result.execution).toMatchObject({ model: responseModel })
+  })
+
+  it('keeps the declared model on a failed optimizer receipt after rejecting the served model', async () => {
+    const call = profileOptimizerModelCall({
+      profile,
+      context: 'failed optimizer model identity test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async () => ({
+          model: 'some-other-model',
+          choices: [{ message: { content: 'untrusted response' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 3, completion_tokens: 2, cost: 0.001 },
+        }),
+      },
+    })
+
+    const result = await call({
+      callId: 'failed-optimizer-model-identity-1',
+      request: { ...request, model: 'deepseek-v4-flash' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(false)
+    if (result.succeeded) throw new Error('expected served-model validation failure')
+    expect(result.receipt).toMatchObject({
+      model: 'deepseek-v4-flash',
+      inputTokens: 0,
+      outputTokens: 0,
+      usageUnknown: true,
+      costUnknown: true,
+    })
+    expect(result.execution).toMatchObject({
+      executed: true,
+      succeeded: false,
+      model: null,
+    })
   })
 
   it('carries the exact profile retry policy through the injected Router transport', async () => {

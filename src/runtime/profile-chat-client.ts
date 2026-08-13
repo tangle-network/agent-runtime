@@ -352,12 +352,11 @@ function optimizerReceipt(
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
+  const receiptModel = optimizerReceiptModel(model, run)
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   if (usage.tokensKnown === false) {
     return {
-      // Eval validates the receipt against the requested model. The observed model stays in
-      // the response and execution evidence for provider identity auditing.
-      model,
+      model: receiptModel,
       inputTokens: 0,
       outputTokens: 0,
       usageUnknown: true,
@@ -375,9 +374,7 @@ function optimizerReceipt(
     throw new Error('profile optimizer cache classes exceed total input tokens')
   }
   return {
-    // Eval validates the receipt against the requested model. The observed model stays in the
-    // response and execution evidence for provider identity auditing.
-    model,
+    model: receiptModel,
     inputTokens: usage.input - classified,
     outputTokens: usage.output,
     ...(cachedTokens !== undefined ? { cachedTokens } : {}),
@@ -400,12 +397,11 @@ function rawOptimizerReceipt(
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
+  const receiptModel = optimizerReceiptModel(model, run)
   const tokensKnown = usage.tokensKnown !== false
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   return {
-    // Eval validates the receipt against the requested model. The observed model stays in the
-    // execution evidence for provider identity auditing.
-    model,
+    model: receiptModel,
     inputTokens: tokensKnown ? usage.input : 0,
     outputTokens: tokensKnown ? usage.output : 0,
     ...(tokensKnown ? {} : { usageUnknown: true }),
@@ -418,6 +414,11 @@ function rawOptimizerReceipt(
           ? { customTokenPricing: pricing }
           : { costUnknown: true }),
   }
+}
+
+/** Successful exact turns use the provider-served model; failed turns remain fail-closed. */
+function optimizerReceiptModel(model: string, run: ProfileChatRun): string {
+  return run.succeeded ? run.response.model : model
 }
 
 function optimizerExecution(

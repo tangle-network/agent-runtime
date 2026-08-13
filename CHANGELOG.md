@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.133.3
+
+- Record the provider-served model in successful profile optimizer cost receipts, including routed snapshots.
+- Keep declared model and unknown usage on failed or unproven execution paths.
+
 ## 0.133.2
 
 - Accept a routed response when its served-provider prefix differs from the profile's gateway prefix but its model name matches.
