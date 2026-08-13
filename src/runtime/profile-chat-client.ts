@@ -96,8 +96,9 @@ export function profileOptimizerModelCall(args: {
       }
     }
     const execution = optimizerExecution(profileDigest, requestDigest, request, run)
+    const receiptModel = optimizerReceiptModel(binding.model, run)
     try {
-      const receipt = optimizerReceipt(binding.model, run, args.pricing)
+      const receipt = optimizerReceipt(receiptModel, run, args.pricing)
       return run.succeeded
         ? {
             succeeded: true,
@@ -111,7 +112,7 @@ export function profileOptimizerModelCall(args: {
       return {
         succeeded: false,
         error: message,
-        receipt: rawOptimizerReceipt(binding.model, run, args.pricing),
+        receipt: rawOptimizerReceipt(receiptModel, run, args.pricing),
         execution: {
           ...execution,
           succeeded: false,
@@ -355,8 +356,8 @@ function optimizerReceipt(
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   if (usage.tokensKnown === false) {
     return {
-      // Eval validates the receipt against the requested model. The observed model stays in
-      // the response and execution evidence for provider identity auditing.
+      // The receipt model is the served identity when Runtime observed one. Eval and the response
+      // must carry the same identity, while this branch still preserves unknown token usage.
       model,
       inputTokens: 0,
       outputTokens: 0,
@@ -375,8 +376,6 @@ function optimizerReceipt(
     throw new Error('profile optimizer cache classes exceed total input tokens')
   }
   return {
-    // Eval validates the receipt against the requested model. The observed model stays in the
-    // response and execution evidence for provider identity auditing.
     model,
     inputTokens: usage.input - classified,
     outputTokens: usage.output,
@@ -403,8 +402,6 @@ function rawOptimizerReceipt(
   const tokensKnown = usage.tokensKnown !== false
   const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   return {
-    // Eval validates the receipt against the requested model. The observed model stays in the
-    // execution evidence for provider identity auditing.
     model,
     inputTokens: tokensKnown ? usage.input : 0,
     outputTokens: tokensKnown ? usage.output : 0,
@@ -418,6 +415,13 @@ function rawOptimizerReceipt(
           ? { customTokenPricing: pricing }
           : { costUnknown: true }),
   }
+}
+
+function optimizerReceiptModel(model: string, run: ProfileChatRun): string {
+  const observedModel = run.succeeded ? run.response.model : run.turn.usage.model
+  return observedModel !== undefined && observedModelMatchesDeclared(observedModel, model)
+    ? observedModel
+    : model
 }
 
 function optimizerExecution(

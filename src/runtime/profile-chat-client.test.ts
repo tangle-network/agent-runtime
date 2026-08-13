@@ -71,7 +71,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
-  it('keeps a provider snapshot in response evidence while receipt uses the declared model', async () => {
+  it('uses the same provider snapshot in the response and optimizer receipt', async () => {
     const responseModel = 'deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
     const call = profileOptimizerModelCall({
       profile,
@@ -99,7 +99,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     if (!result.succeeded) throw new Error(result.error)
     expect(result.response.model).toBe(responseModel)
     expect(result.receipt).toMatchObject({
-      model: 'deepseek-v4-flash',
+      model: responseModel,
       inputTokens: 3,
       outputTokens: 2,
     })
@@ -134,7 +134,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     if (!result.succeeded) throw new Error(result.error)
     expect(result.response.model).toBe(responseModel)
     expect(result.receipt).toMatchObject({
-      model: 'deepseek-v4-flash',
+      model: responseModel,
       inputTokens: 4,
       outputTokens: 3,
     })
