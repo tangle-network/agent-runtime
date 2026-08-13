@@ -25,7 +25,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 |---|---|---|
 | **Driver** | Owns topology. `plan(task, history) → Task[]` (1 = refine, N = fanout, 0 = stop) and `decide(history) → Decision`. The authority on what runs next. **Live and central.** | `types.ts:138` |
 | **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
-| **Validator** | Owns scoring: `validate(output) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. | `types.ts:52` |
+| **Validator** | Owns scoring: `validate(output, ctx) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. `ctx.box` is the iteration's LIVE sandbox, so a check can execute commands in the container it scores; a supervised worker gets one through `SandboxSeam.validator`. | `types.ts:52` |
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
 | **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
 
