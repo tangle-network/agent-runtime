@@ -3,7 +3,8 @@
 ## 0.134.2
 
 - Make the supervised token charge additive: `input - cacheRead + output`, which equals `freshInput + cacheWrite + output` under a complete cache split. A spend that folded a classified turn together with an unclassified one previously fell back to the rolled-up prompt total for the whole aggregate, so one unreported turn re-charged every cached prefix beside it.
-- Charge nothing for prompt tokens when the prompt total is zero, and credit no cache read that exceeds the prompt total it partitions. Bad cache telemetry can over-charge; it can never buy free tokens.
+- Credit no cache read whose reported classes do not fit inside the prompt total they partition, at the record AND in the fold: `addTokenUsage` no longer accumulates the classes of a turn that overflowed its own `input`, because the accumulator's larger total would otherwise absorb the overflow and charge the aggregate less than its records. The charge is never below the output tokens, and a zero prompt total charges no prompt tokens.
+- The token channel trusts a reported cache read the same way it trusts a reported `input`. It is an accounting unit, not a trust boundary against a provider that misreports its own usage.
 - Accept a `Spend` whose cache classes cover only part of `input` when it carries `cacheBreakdownKnown: false`. Requiring an exact partition there rejected the shape aggregation produces, and a resumed pool restored from such a record failed at construction. Classes that EXCEED `input` are still refused, and a spend claiming a complete split must still partition `input` exactly.
 - `equalKOnCost` now rates a rolled-up arm at what the pool charged it, including trees where one node reported no cache split.
 

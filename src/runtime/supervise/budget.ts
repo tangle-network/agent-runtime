@@ -22,7 +22,9 @@
  * child's settlement charges what its turns charged and a rolled-up report agrees with the pool.
  * Prompt tokens the provider never classified are charged in full, and
  * `readout().cacheBreakdownKnown` then reads false, so the balance reads as an upper bound on
- * newly-presented work rather than a measurement.
+ * newly-presented work rather than a measurement. The pool trusts a reported cache read the same way
+ * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
+ * against a provider that misreports its own usage.
  *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or

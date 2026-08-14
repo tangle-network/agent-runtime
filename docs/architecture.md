@@ -381,7 +381,7 @@ The `Scope` it runs inside is the budget-conserving reactive control surface (`t
 The token channel charges each token ONCE, when it first enters the context: `input - cacheRead + output`, which is `freshInput + cacheWrite + output` under a complete split.
 A cache read re-presents content that was already charged when it was written, so charging it again charges the same tokens twice.
 No price weight enters this channel; money is budgeted separately on `maxUsd`.
-The charge is additive, so a rolled-up report agrees with the pool. Prompt tokens the provider never classified are charged in full, and `cacheBreakdownKnown: false` then marks `tokensLeft` an upper bound on newly-presented work rather than a measurement.
+The charge is additive, so a rolled-up report agrees with the pool; a cache class that does not fit inside the prompt total it partitions credits nothing. Prompt tokens the provider never classified are charged in full, and `cacheBreakdownKnown: false` then marks `tokensLeft` an upper bound on newly-presented work rather than a measurement.
 
 Two facts make this the whole game:
 - `spawn` **reserves** from one root total and refunds the unspent remainder on settle.

@@ -187,35 +187,54 @@ function hasClassifiedCacheBreakdown(usage: LoopTokenUsage): boolean {
  * credited. A form that read `freshInput + cacheWrite` directly loses that: one unclassified turn
  * would drop the whole aggregate to `input + output` and over-charge every classified turn with it.
  *
- * A reported class may never exceed the prompt total it partitions. An over-reported `cacheRead`
- * credits nothing, so bad cache telemetry can only over-charge, never buy free tokens. An
- * unreadable split therefore charges an UPPER BOUND on newly-presented work, not a measurement,
- * and every caller that enforces a ceiling must report the difference (`BudgetPool` does it through
- * `readout().cacheBreakdownKnown`).
+ * The one arithmetic guarantee: a set of classes that does not FIT inside the prompt total it
+ * partitions credits nothing, so the charge is never below `output` and a class that overflows its
+ * own total buys no tokens. It is not a guarantee against a provider that reports a cache read it
+ * never served — that provider can under-report `input` just as easily, and the token channel is an
+ * accounting unit, not a trust boundary. Prompt tokens the provider left unclassified are charged
+ * in full, so a spend with no readable split charges an upper bound on newly-presented work rather
+ * than a measurement, and every caller that enforces a ceiling must report the difference
+ * (`BudgetPool` does it through `readout().cacheBreakdownKnown`).
  */
 export function chargedTokens(usage: LoopTokenUsage): number {
   return usage.input - creditedCacheRead(usage) + usage.output
 }
 
+/** `cacheRead` if the reported classes fit inside `input`, else nothing. */
 function creditedCacheRead(usage: LoopTokenUsage): number {
   const { cacheRead } = usage
   if (cacheRead === undefined) return 0
-  const classified = (usage.freshInput ?? 0) + cacheRead + (usage.cacheWrite ?? 0)
-  return classified > usage.input ? 0 : cacheRead
+  return classifiedTotal(usage, cacheRead) > usage.input ? 0 : cacheRead
 }
 
-/** Add the observed subtotal into `acc`; token and cache incompleteness are sticky. */
+function classifiedTotal(usage: Partial<LoopTokenUsage>, cacheRead: number): number {
+  return (usage.freshInput ?? 0) + cacheRead + (usage.cacheWrite ?? 0)
+}
+
+/**
+ * Add the observed subtotal into `acc`; token and cache incompleteness are sticky.
+ *
+ * A delta whose classes do not FIT inside its own `input` contributes its prompt total and NO
+ * classes. Folding them in would hide the overflow: the accumulator's larger `input` can absorb a
+ * class total that overflowed the one delta that reported it, and `chargedTokens` would then credit
+ * at the aggregate a cache read it refuses at the record. That is the one way the charge could come
+ * out below the sum of the charges on the records that built it.
+ */
 export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage>): void {
   acc.input += delta.input ?? 0
   acc.output += delta.output ?? 0
   if (delta.tokensKnown === false) acc.tokensKnown = false
 
-  if (delta.freshInput !== undefined) acc.freshInput = (acc.freshInput ?? 0) + delta.freshInput
-  if (delta.cacheRead !== undefined) acc.cacheRead = (acc.cacheRead ?? 0) + delta.cacheRead
-  if (delta.cacheWrite !== undefined) acc.cacheWrite = (acc.cacheWrite ?? 0) + delta.cacheWrite
-
   const input = delta.input ?? 0
+  const fits = classifiedTotal(delta, delta.cacheRead ?? 0) <= input
+  if (fits) {
+    if (delta.freshInput !== undefined) acc.freshInput = (acc.freshInput ?? 0) + delta.freshInput
+    if (delta.cacheRead !== undefined) acc.cacheRead = (acc.cacheRead ?? 0) + delta.cacheRead
+    if (delta.cacheWrite !== undefined) acc.cacheWrite = (acc.cacheWrite ?? 0) + delta.cacheWrite
+  }
+
   const classified =
+    fits &&
     delta.freshInput !== undefined &&
     delta.cacheRead !== undefined &&
     delta.cacheWrite !== undefined &&

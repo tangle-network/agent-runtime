@@ -891,6 +891,42 @@ describe('conserved budget pool: the token charge counts each token once', () =>
     expect(folded.readout().cacheBreakdownKnown).toBe(false)
   })
 
+  it('does not let a fold rescue a cache read that overflowed its own turn', () => {
+    // The accumulator's larger prompt total can absorb a class total that overflowed the one turn
+    // that reported it. Crediting it there would charge the aggregate LESS than its records.
+    const overflowing = {
+      kind: 'tokens' as const,
+      input: 10,
+      output: 0,
+      freshInput: 5,
+      cacheRead: 10,
+      cacheWrite: 0,
+    }
+    const plain = { kind: 'tokens' as const, input: 100, output: 0 }
+
+    const perTurn = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    perTurn.observe(spendFromUsageEvents([overflowing]))
+    perTurn.observe(spendFromUsageEvents([plain]))
+
+    const folded = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    folded.observe(spendFromUsageEvents([overflowing, plain]))
+
+    expect(folded.readout().tokensLeft).toBe(perTurn.readout().tokensLeft)
+    expect(folded.readout().tokensLeft).toBe(1_000 - 110)
+  })
+
+  it('never charges less than the output tokens, whatever the cache report claims', () => {
+    // The floor that makes the subtraction safe: a credit can never exceed the prompt total.
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    pool.observe(
+      spendFromUsageEvents([
+        { kind: 'tokens', input: 0, output: 7, freshInput: 0, cacheRead: 1, cacheWrite: 0 },
+        { kind: 'tokens', input: 50, output: 3, freshInput: 0, cacheRead: 50, cacheWrite: 0 },
+      ]),
+    )
+    expect(pool.readout().tokensLeft).toBe(1_000 - 10)
+  })
+
   it('credits nothing when a reported cache class exceeds the prompt total it partitions', () => {
     // Bad telemetry may over-charge; it may never buy free tokens.
     const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
