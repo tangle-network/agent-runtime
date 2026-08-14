@@ -982,6 +982,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
       cacheRead: 7,
       cacheWrite: 0,
     })
+    // The artifact's own cache report must speak the `PromptCacheUsage` vocabulary. Every consumer
+    // of `out.promptCache` reads `readTokens` / `writeTokens`; a private dialect reaches them as no
+    // cache report at all, and the cost receipt then charges the re-read prefix in full.
+    const out = executor.resultArtifact().out as { promptCache?: Record<string, number> }
+    expect(out.promptCache).toEqual({ freshInput: 13, readTokens: 7, writeTokens: 0 })
   })
 
   it('keeps dollar cost unknown when a later completed turn omits price', async () => {
