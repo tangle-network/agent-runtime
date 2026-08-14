@@ -19938,7 +19938,7 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
@@ -20004,7 +20004,7 @@ them is an upper bound. A counter the provider did not report is absent, never z
 
 ##### Type Literal
 
-\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \}
+\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \}
 
 ###### kind
 
@@ -20019,6 +20019,17 @@ Known dollar subtotal. When false, `usd` must not be treated as total cost.
 ###### usd
 
 > **usd**: `number`
+
+###### usdEstimated?
+
+> `optional` **usdEstimated?**: `number`
+
+The part of `usd` this runtime priced from a model catalog because no provider receipt
+covered the work. Requires `usdKnown: false` — a catalog price approximates what a
+provider would bill and never measures what it did.
+
+Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
+is what says whether a dollar figure is measured.
 
 ***
 
