@@ -60,6 +60,7 @@ import type {
 import {
   addTokenUsage,
   deleteBoxSafe,
+  promptCacheTokenClasses,
   randomSuffix,
   stringifySafe,
   throwAbort,
@@ -751,10 +752,14 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
           slot.promptCache ??= {}
           mergeUsageMetadata(slot.promptCache, llmCall.promptCache)
         }
+        // The prompt-cache report is spend evidence, not only telemetry: it is what tells the
+        // budget which prompt tokens are a re-read of content already charged. Classify per call,
+        // because only this record's own `input` is the total its classes must partition.
         addTokenUsage(slot.tokenUsage, {
           input: llmCall.tokensIn,
           output: llmCall.tokensOut,
           ...(llmCall.tokensKnown === false ? { tokensKnown: false } : {}),
+          ...promptCacheTokenClasses(llmCall.tokensIn, llmCall.promptCache),
         })
         args.ctx.runHandle?.observe(llmCall)
       }

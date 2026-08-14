@@ -36,7 +36,7 @@ import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import { extractLlmCallEvent } from '../sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
-import { zeroTokenUsage } from '../util'
+import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import type { Inbox } from './inbox'
 import {
   type ActivityLog,
@@ -227,14 +227,17 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
             const input = call.tokensIn ?? 0
             const output = call.tokensOut ?? 0
             if (input || output || !callTokensKnown) {
-              tokens.input += input
-              tokens.output += output
-              yield {
+              const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
                 kind: 'tokens',
                 input,
                 output,
                 ...(callTokensKnown ? {} : { tokensKnown: false }),
+                // Classify against THIS call's own prompt total, so the classes partition the
+                // number they belong to rather than a running sum from other calls.
+                ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
               }
+              addTokenUsage(tokens, usage)
+              yield usage
             }
             if (typeof call.costUsd === 'number' && call.costUsd > 0) {
               usd += call.costUsd

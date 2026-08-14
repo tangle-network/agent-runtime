@@ -211,6 +211,58 @@ function classifiedTotal(usage: Partial<LoopTokenUsage>, cacheRead: number): num
   return (usage.freshInput ?? 0) + cacheRead + (usage.cacheWrite ?? 0)
 }
 
+/** The prompt-cache token classes of one observation, as `LoopTokenUsage` members. */
+export type PromptCacheTokenClasses = Pick<
+  LoopTokenUsage,
+  'freshInput' | 'cacheRead' | 'cacheWrite' | 'cacheBreakdownKnown'
+>
+
+/**
+ * Translate one provider prompt-cache report into the prompt token classes `addTokenUsage` folds
+ * and `chargedTokens` credits.
+ *
+ * The input is the open `promptCache` record an `llm_call` carries, keyed by the `PromptCacheUsage`
+ * vocabulary (`readTokens`, `writeTokens`). Providers report that vocabulary unevenly, and the
+ * three outcomes are different facts that must not collapse into one another:
+ *
+ *  - **Nothing reported** — no classes and no marker. The caller's own unknown handling decides,
+ *    because a provider that says nothing about caching has not said the split is unknowable.
+ *  - **Read and write both reported, and fitting inside `input`** — a complete partition, so
+ *    `freshInput` is the remainder and the split is known.
+ *  - **One counter reported, or classes that overflow `input`** — the counters that ARE measured
+ *    pass through and `cacheBreakdownKnown` is false. A read with no write counter (OpenAI reports
+ *    no write) still credits the read it measured, while declaring the rest unclassified so the
+ *    charge stays a declared upper bound. An overflowing claim buys nothing: it cannot be a
+ *    partition of a total it exceeds.
+ *
+ * A counter the provider did not report stays absent. A zero would claim the provider measured no
+ * cache, which is a different fact from a provider that did not report.
+ */
+export function promptCacheTokenClasses(
+  input: number | undefined,
+  promptCache: Readonly<Record<string, number | string>> | undefined,
+): PromptCacheTokenClasses {
+  if (promptCache === undefined) return {}
+  const read = tokenCount(promptCache.readTokens)
+  const write = tokenCount(promptCache.writeTokens)
+  if (read === undefined && write === undefined) return {}
+  if (input === undefined || (read ?? 0) + (write ?? 0) > input) {
+    return { cacheBreakdownKnown: false }
+  }
+  if (read !== undefined && write !== undefined) {
+    return { freshInput: input - read - write, cacheRead: read, cacheWrite: write }
+  }
+  return {
+    ...(read !== undefined ? { cacheRead: read } : {}),
+    ...(write !== undefined ? { cacheWrite: write } : {}),
+    cacheBreakdownKnown: false,
+  }
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
 /**
  * Add the observed subtotal into `acc`; token and cache incompleteness are sticky.
  *
