@@ -121,9 +121,9 @@ export interface LoopTokenUsage {
   tokensKnown?: false
   /** Prompt tokens newly processed by the provider, when every prompt class is known. */
   freshInput?: number
-  /** Prompt tokens served from a provider cache, when every prompt class is known. */
+  /** Prompt tokens the provider reported serving from its cache. */
   cacheRead?: number
-  /** Prompt tokens written to a provider cache, when every prompt class is known. */
+  /** Prompt tokens the provider reported writing to its cache. */
   cacheWrite?: number
   /**
    * False when any positive-input observation omitted or contradicted the prompt-cache split.

@@ -385,6 +385,13 @@ The charge is additive, so a rolled-up report agrees with the pool.
 A cache class that does not fit inside the prompt total it partitions credits nothing.
 Prompt tokens the provider never classified are charged in full, and `cacheBreakdownKnown: false` then marks `tokensLeft` an upper bound on newly-presented work rather than a measurement.
 
+The classes come from the provider, not from an estimate.
+`sandbox-events.ts` reads the prompt-cache counters off each usage-bearing event into the `PromptCacheUsage` vocabulary (`readTokens`, `writeTokens`, `missTokens`), which is the vocabulary the router and driver paths already speak.
+It accepts every wire spelling the sandbox, cli-bridge, Anthropic, OpenAI, and DeepSeek paths use, and it forwards an unrecognized provider field verbatim beside the canonical names.
+`promptCacheTokenClasses` in `runtime/util.ts` then turns one report into spend classes: a read and a write that fit inside `input` give a complete partition, one counter alone gives that counter plus `cacheBreakdownKnown: false`, and an overflowing claim gives the marker alone.
+A counter the provider did not report stays absent.
+A zero would assert the provider measured no cache, which is a different fact from a provider that reported nothing.
+
 Two facts make this the whole game:
 - `spawn` **reserves** from one root total and refunds the unspent remainder on settle.
   A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`supervise/budget.ts`).

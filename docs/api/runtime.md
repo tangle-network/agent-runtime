@@ -17520,13 +17520,13 @@ Prompt tokens newly processed by the provider, when every prompt class is known.
 
 > `optional` **cacheRead?**: `number`
 
-Prompt tokens served from a provider cache, when every prompt class is known.
+Prompt tokens the provider reported serving from its cache.
 
 ##### cacheWrite?
 
 > `optional` **cacheWrite?**: `number`
 
-Prompt tokens written to a provider cache, when every prompt class is known.
+Prompt tokens the provider reported writing to its cache.
 
 ##### cacheBreakdownKnown?
 
@@ -19983,19 +19983,22 @@ Newly processed prompt tokens. Present only with a complete cache split.
 
 > `optional` **cacheRead?**: `number`
 
-Prompt tokens read from cache. Present only with a complete cache split.
+Prompt tokens the provider reported reading from cache.
 
 ###### cacheWrite?
 
 > `optional` **cacheWrite?**: `number`
 
-Prompt tokens written to cache. Present only with a complete cache split.
+Prompt tokens the provider reported writing to cache.
 
 ###### cacheBreakdownKnown?
 
 > `optional` **cacheBreakdownKnown?**: `false`
 
-False when this observation cannot classify all positive prompt tokens.
+False when this observation cannot classify all positive prompt tokens — including a
+provider that reports a read with no write counter. The measured counters are still
+carried; the marker says the remaining prompt tokens are unclassified, so a charge over
+them is an upper bound. A counter the provider did not report is absent, never zero.
 
 ***
 

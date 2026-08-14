@@ -2300,7 +2300,11 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let observedModel: string | undefined
   let observedSystemFingerprint: string | undefined
   const toolCalls: string[] = []
-  const promptCache: { freshInput?: number; readInput?: number; writeInput?: number } = {}
+  // Keyed by the `PromptCacheUsage` vocabulary, not the SSE parse shape. Every consumer of an
+  // artifact's `promptCache` reads `readTokens` / `writeTokens` — `profile-chat-client.ts`,
+  // `improvement/agentic-generator.ts`, and `readPromptCache` — so a private dialect here reaches
+  // them as no cache report at all, and the cost receipt then charges a re-read prefix in full.
+  const promptCache: { freshInput?: number; readTokens?: number; writeTokens?: number } = {}
 
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
@@ -2484,12 +2488,12 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
                 (promptCache.freshInput ?? 0) + chunk.usage.promptCache.freshInput
             }
             if (chunk.usage.promptCache.readInput !== undefined) {
-              promptCache.readInput =
-                (promptCache.readInput ?? 0) + chunk.usage.promptCache.readInput
+              promptCache.readTokens =
+                (promptCache.readTokens ?? 0) + chunk.usage.promptCache.readInput
             }
             if (chunk.usage.promptCache.writeInput !== undefined) {
-              promptCache.writeInput =
-                (promptCache.writeInput ?? 0) + chunk.usage.promptCache.writeInput
+              promptCache.writeTokens =
+                (promptCache.writeTokens ?? 0) + chunk.usage.promptCache.writeInput
             }
           }
         }

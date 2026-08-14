@@ -233,11 +233,16 @@ export type UsageEvent =
       output: number
       /** Newly processed prompt tokens. Present only with a complete cache split. */
       freshInput?: number
-      /** Prompt tokens read from cache. Present only with a complete cache split. */
+      /** Prompt tokens the provider reported reading from cache. */
       cacheRead?: number
-      /** Prompt tokens written to cache. Present only with a complete cache split. */
+      /** Prompt tokens the provider reported writing to cache. */
       cacheWrite?: number
-      /** False when this observation cannot classify all positive prompt tokens. */
+      /**
+       * False when this observation cannot classify all positive prompt tokens — including a
+       * provider that reports a read with no write counter. The measured counters are still
+       * carried; the marker says the remaining prompt tokens are unclassified, so a charge over
+       * them is an upper bound. A counter the provider did not report is absent, never zero.
+       */
       cacheBreakdownKnown?: false
     }
   | {
