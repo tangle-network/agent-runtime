@@ -275,6 +275,12 @@ function assertBackendProfileMaterialization(
  * `resources.instructions`), and the resolved model id (`model.default`); the remaining model
  * fields are either applied by the profile-bound Router adapter or refused. Every behavioral axis
  * the Router brain cannot materialize fails before compute.
+ *
+ * `resourceFailOnError` is carried by the router arm itself. A strict root fails closed on an
+ * instruction resource the arm cannot fetch, which is the policy the profile declares. A
+ * best-effort root is refused, because the arm reports no skipped resource. Dropping the field
+ * would instead force an edit to a champion profile before it can be re-seated as a supervisor
+ * root, and that edit changes the profile's canonical identity.
  */
 const routerSupervisorProfileMaterialization = defineProfileMaterializationContract({
   name: 'router-supervisor-execution',
@@ -286,6 +292,7 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
     'systemPrompt',
     'instructions',
     'resourceInstructions',
+    'resourceFailOnError',
     'modelDefault',
     'modelProvider',
     'modelReasoningEffort',

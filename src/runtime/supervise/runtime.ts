@@ -157,6 +157,15 @@ export interface RouterSeam {
   tools?: ReadonlyArray<ToolSpec>
 }
 
+/**
+ * Materialization contract for one direct Router turn.
+ *
+ * `resourceFailOnError` is carried: this executor has no workspace, so it inlines resource content
+ * into the system prompt and applies the profile's own resource-failure policy while it does so
+ * (`renderRouterProfilePrompt`). No value of the field is dropped — a strict profile fails closed
+ * on a resource that cannot be inlined, and a best-effort profile is refused because this path has
+ * no way to report a skipped resource.
+ */
 const routerTurnProfileMaterialization = defineProfileMaterializationContract({
   name: 'router-profile-turn',
   axes: [
@@ -178,6 +187,7 @@ const routerTurnProfileMaterialization = defineProfileMaterializationContract({
     'resourceAgents',
     'commands',
     'resourceInstructions',
+    'resourceFailOnError',
     'metadata',
   ],
 })
@@ -4803,6 +4813,14 @@ function exactRouterModel(profile: AgentProfile, context: string): string {
   return concreteProfileModel(profile)!
 }
 
+/**
+ * Render the profile prompt plus every resource this executor can inline.
+ *
+ * The profile's `resources.failOnError` policy decides what happens to a resource that cannot be
+ * inlined. Strict (`true` or absent) is the canonical default and fails closed. Best-effort
+ * (`false`) asks for the supported subset plus a warning about the rest; this executor has no
+ * channel to carry that warning, so it refuses the value instead of silently running strict.
+ */
 function renderRouterProfilePrompt(profile: AgentProfile): string {
   const sections: string[] = [
     profile.prompt?.systemPrompt,
@@ -4810,6 +4828,13 @@ function renderRouterProfilePrompt(profile: AgentProfile): string {
   ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
   const resources = profile.resources
   if (!resources) return sections.join('\n')
+  if (resources.failOnError === false) {
+    throw new ValidationError(
+      'routerInlineExecutor: resources.failOnError: false requests a best-effort resource subset; ' +
+        'the direct Router executor always fails closed on a resource it cannot inline and reports ' +
+        'no skipped resource, so the best-effort policy is refused rather than applied as strict',
+    )
+  }
 
   if (typeof resources.instructions === 'string') {
     if (resources.instructions.trim()) sections.push(resources.instructions)
