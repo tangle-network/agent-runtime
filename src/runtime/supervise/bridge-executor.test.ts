@@ -374,6 +374,32 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(() => executor.resultArtifact()).toThrow(/before stream drained/u)
   })
 
+  it('reports the bridge error, not the missing receipt, when the bridge refused the profile', async () => {
+    // A bridge that refuses a profile at setup fails before it can retain a receipt, so the
+    // absence is downstream of the refusal. The refusal message is the only actionable text on
+    // the wire and it names the fix; reporting the absence instead renames a fixable profile
+    // defect as a broken transport.
+    const body = [
+      `data: ${JSON.stringify({
+        error: {
+          message:
+            'backend opencode cannot replace its harness’s system prompt: agent_profile.prompt.systemPrompt deletes the harness’s own prompt, and this backend has no control that does that. Use agent_profile.prompt.appendSystemPrompt',
+        },
+      })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    const stub = await startBridgeStub(body, { protocol: false })
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    await expect(
+      drain(
+        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+      ),
+    ).rejects.toThrow(/appendSystemPrompt/u)
+  })
+
   it('rejects a terminal profile acknowledgement with the wrong effective profile digest', async () => {
     const badReceipt = {
       schema: 'cli-bridge.profile-materialization.v2',
