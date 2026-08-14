@@ -137,6 +137,26 @@ export function zeroTokenUsage(): LoopTokenUsage {
   return { input: 0, output: 0 }
 }
 
+/**
+ * Sum the catalog-priced part of a dollar total across spends, as a field to spread.
+ *
+ * Returns nothing when no input carried one. A fold of pure provider receipts must not gain a
+ * `usdEstimated: 0`, which would read as "this runtime checked and priced none" on a path that
+ * never prices at all.
+ */
+export function usdEstimatedOf(...spends: ReadonlyArray<{ usdEstimated?: number }>): {
+  usdEstimated?: number
+} {
+  let total = 0
+  let priced = false
+  for (const spend of spends) {
+    if (spend.usdEstimated === undefined) continue
+    priced = true
+    total += spend.usdEstimated
+  }
+  return priced ? { usdEstimated: total } : {}
+}
+
 /** Copy a token subtotal without dropping optional provider cache telemetry. */
 export function cloneTokenUsage(usage: LoopTokenUsage): LoopTokenUsage {
   const cacheBreakdownUnknown =

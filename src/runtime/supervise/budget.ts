@@ -193,6 +193,21 @@ function assertValidSpend(spend: Spend, label: string): void {
       throw new Error(`${label}.${field} must be a non-negative finite number`)
     }
   }
+  if (spend.usdEstimated !== undefined) {
+    if (!Number.isFinite(spend.usdEstimated) || spend.usdEstimated < 0) {
+      throw new Error(`${label}.usdEstimated must be a non-negative finite number`)
+    }
+    // The catalog-priced part is a part OF `usd`, not an addition to it. A larger value would let
+    // `usd - usdEstimated` report negative provider-billed dollars.
+    if (spend.usdEstimated > spend.usd) {
+      throw new Error(`${label}.usdEstimated must not exceed ${label}.usd`)
+    }
+    // A catalog price is never a measurement. Admitting one under `usdKnown: true` would let an
+    // estimate be read as billed spend.
+    if (spend.usdKnown !== false) {
+      throw new Error(`${label}.usdEstimated requires ${label}.usdKnown false`)
+    }
+  }
 }
 
 export interface BudgetPool {
@@ -240,6 +255,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
+  let usdEstimated = 0
   let usdKnown = true
   let iterations = 0
   for (const ev of events) {
@@ -248,6 +264,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
       if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      usdEstimated += ev.usdEstimated ?? 0
       if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
@@ -259,6 +276,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
     ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
+    ...(usdEstimated > 0 ? { usdEstimated } : {}),
     ms: 0,
   }
 }
@@ -268,6 +286,7 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
   const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
+  let usdEstimated = 0
   let usdKnown = true
   let iterations = 0
   for await (const ev of events) {
@@ -276,6 +295,7 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
       if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
+      usdEstimated += ev.usdEstimated ?? 0
       if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
@@ -287,6 +307,7 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
     ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
+    ...(usdEstimated > 0 ? { usdEstimated } : {}),
     ms: 0,
   }
 }
@@ -422,16 +443,19 @@ export function createBudgetPool(
       violation = `ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`
     } else if (spent.iterations > rIterations) {
       violation = `ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`
+    } else if (unknownUnderCap) {
+      // Decided BEFORE the dollar comparison below. Dollars that are not measured may not be
+      // compared against a reservation as if they were billed: a catalog-priced turn can exceed
+      // the ceiling and would then be reported as an overspend the child never made. The known
+      // channels still settle, then the dollar channel is permanently tainted and admission
+      // closes.
+      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     } else if (usdCapped && usdBudgeted && spent.usd > rUsd) {
       // USD is conserved ONLY when the root declared a ceiling AND the child declared one to
       // be measured against. `maxUsd` is optional on both: when either is unset, usd is an
       // OBSERVED quantity (committed for accounting), never a budgeted constraint — an unset
       // ceiling must not behave as a hard $0 limit that fail-closes a real priced spend.
       violation = `ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`
-    } else if (unknownUnderCap) {
-      // The known channels still settle, then the dollar channel is permanently tainted and
-      // admission closes.
-      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     }
 
     // ── Settlement: unconditional, and the only place the ticket closes ───────────────

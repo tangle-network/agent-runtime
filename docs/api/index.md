@@ -8484,6 +8484,15 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 > **usd**: `number`
 
+##### usdEstimated?
+
+> `optional` **usdEstimated?**: `number`
+
+The part of `usd` priced from a model catalog because no provider receipt covered the work.
+ `usd - usdEstimated` is what a provider is known to have billed. Present only with
+ `usdKnown: false`; absence means nothing here was catalog-priced, not that `usd` is
+ measured.
+
 ##### ms
 
 > **ms**: `number`
