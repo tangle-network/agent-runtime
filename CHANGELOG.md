@@ -4,6 +4,7 @@
 
 - Consume Core 0.8.0, Eval 0.145.11, Interface 0.52.0, Knowledge 7.2.6, Profile Materialize 0.14.2, and Sandbox 0.26.1 as one compatible dependency set.
 - Use Sandbox 0.26's live `branch(count)` API for shared-context fanout while retaining the legacy checkpoint path for custom clients.
+- Preserve the router's usage-limit result and accounted input tokens in signed model-settlement evidence required by Interface 0.52.
 
 ## 0.134.3
 
