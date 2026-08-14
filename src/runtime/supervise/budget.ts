@@ -14,13 +14,17 @@
  * channels (`LoopTokenUsage` has no `usd`); iterations are conserved alongside them.
  *
  * The token unit is `chargedTokens`: every token counted ONCE, when it first enters the context
- * (`freshInput + cacheWrite + output`). A cached prefix is re-presented content that was already
- * charged when it was written, so charging a cache read again would charge the same tokens twice —
- * on a real fleet cache is 98% of the rolled-up prompt total, which made a declared cap bite about
- * 56x early. No price weight enters the token channel; money is budgeted separately on `maxUsd`.
- * When a provider reports no usable cache split the pool keeps charging the rolled-up
- * `input + output` and marks `readout().cacheBreakdownKnown` false, so the balance reads as an
- * upper bound on newly-presented work rather than a measurement.
+ * (`input − cacheRead + output`, which is `freshInput + cacheWrite + output` under a complete
+ * split). A cached prefix is re-presented content that was already charged when it was written, so
+ * charging a cache read again would charge the same tokens twice — on a real fleet cache is 98% of
+ * the rolled-up prompt total, which made a declared cap bite about 56x early. No price weight
+ * enters the token channel; money is budgeted separately on `maxUsd`. The unit is additive, so a
+ * child's settlement charges what its turns charged and a rolled-up report agrees with the pool.
+ * Prompt tokens the provider never classified are charged in full, and
+ * `readout().cacheBreakdownKnown` then reads false, so the balance reads as an upper bound on
+ * newly-presented work rather than a measurement. The pool trusts a reported cache read the same way
+ * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
+ * against a provider that misreports its own usage.
  *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
@@ -87,11 +91,13 @@ export type BudgetReadout = Readonly<{
    */
   tokensKnown: boolean
   /**
-   * False once the pool has charged work whose prompt-cache split it could not read. Those tokens
-   * were charged at the rolled-up prompt total, which counts a cached prefix again on every turn
-   * that reads it, so the debited amount is an upper bound on newly-presented work rather than a
-   * measurement. It is a separate fact from `tokensKnown`: the counts arrived, but their
-   * composition did not.
+   * False once the pool has charged a REPORTED spend whose prompt-cache split it could not read.
+   * The prompt tokens that carried no class were charged in full, and a cached prefix reaches the
+   * pool again on every turn that reads it, so the debited amount is an upper bound on
+   * newly-presented work rather than a measurement. It is a separate fact from `tokensKnown`: the
+   * counts arrived, but their composition did not. A restored uncertain reservation leaves this
+   * flag alone — it charges a declared ceiling, which has no composition to misread, and
+   * `tokensKnown` already reports that the balance is not a measurement.
    */
   cacheBreakdownKnown: boolean
   usdLeft: number
@@ -162,13 +168,22 @@ function assertValidSpend(spend: Spend, label: string): void {
     }
   }
   const { freshInput, cacheRead, cacheWrite } = spend.tokens
-  if (
-    freshInput !== undefined &&
-    cacheRead !== undefined &&
-    cacheWrite !== undefined &&
-    freshInput + cacheRead + cacheWrite !== spend.tokens.input
-  ) {
-    throw new Error(`${label}.tokens cache classes must sum to input`)
+  if (freshInput !== undefined && cacheRead !== undefined && cacheWrite !== undefined) {
+    const classified = freshInput + cacheRead + cacheWrite
+    // A spend that CLAIMS a complete split must partition `input` exactly — that invariant is what
+    // lets the charge credit a cache read. A spend that declares its split INCOMPLETE reports
+    // classes covering only part of `input`, which is exactly what `addTokenUsage` produces when it
+    // folds a classified turn together with an unclassified one. Demanding an exact partition there
+    // rejects the shape the incomplete flag exists to describe, and a resumed pool built from such
+    // an aggregate died at construction. Either way the classes may never EXCEED the total they
+    // partition; that direction would let bad telemetry credit tokens nobody presented.
+    if (spend.tokens.cacheBreakdownKnown !== false) {
+      if (classified !== spend.tokens.input) {
+        throw new Error(`${label}.tokens cache classes must sum to input`)
+      }
+    } else if (classified > spend.tokens.input) {
+      throw new Error(`${label}.tokens cache classes must not exceed input`)
+    }
   }
   for (const [field, value] of [
     ['usd', spend.usd],

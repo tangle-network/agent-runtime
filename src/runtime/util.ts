@@ -172,38 +172,69 @@ function hasClassifiedCacheBreakdown(usage: LoopTokenUsage): boolean {
 
 /**
  * The token charge for one observation: every token counted ONCE, at the moment it first enters
- * the context.
+ * the context — `input − cacheRead + output`.
  *
  * `input` is a rolled-up prompt total that re-counts a cached prefix on every turn that reads it,
- * so charging `input` makes a 100K prefix read 40 times cost 4.1M for content authored once. The
- * three cache classes partition `input`, so `freshInput + cacheWrite` is exactly the prompt the
- * provider had to present anew. No price weight is involved: this counts work, and money is a
- * separate channel.
+ * so charging `input` makes a 100K prefix read 40 times cost 4.1M for content authored once. A
+ * cache read is content that was already charged when it was written, so it is the one class the
+ * charge subtracts. Under a complete split the result is exactly `freshInput + cacheWrite`. No
+ * price weight is involved: this counts work, and money is a separate channel.
  *
- * Without a readable split the charge stays the rolled-up `input + output`. That number is an
- * UPPER BOUND on newly-presented work, not a measurement, and every caller that enforces a ceiling
- * must report the difference (`BudgetPool` does it through `readout().cacheBreakdownKnown`).
+ * The subtraction form is what makes the charge ADDITIVE. `input` and `cacheRead` both accumulate
+ * through `addTokenUsage`, so the charge on an aggregate equals the sum of the charges on the
+ * records that built it — including an aggregate that mixes classified and unclassified turns,
+ * where the unclassified remainder is charged in full and only the reported cache reads are
+ * credited. A form that read `freshInput + cacheWrite` directly loses that: one unclassified turn
+ * would drop the whole aggregate to `input + output` and over-charge every classified turn with it.
+ *
+ * The one arithmetic guarantee: a set of classes that does not FIT inside the prompt total it
+ * partitions credits nothing, so the charge is never below `output` and a class that overflows its
+ * own total buys no tokens. It is not a guarantee against a provider that reports a cache read it
+ * never served — that provider can under-report `input` just as easily, and the token channel is an
+ * accounting unit, not a trust boundary. Prompt tokens the provider left unclassified are charged
+ * in full, so a spend with no readable split charges an upper bound on newly-presented work rather
+ * than a measurement, and every caller that enforces a ceiling must report the difference
+ * (`BudgetPool` does it through `readout().cacheBreakdownKnown`).
  */
 export function chargedTokens(usage: LoopTokenUsage): number {
-  if (!hasCompleteCacheBreakdown(usage)) return usage.input + usage.output
-  // A complete split classifies every prompt token. The one complete case that carries no class
-  // fields is `input === 0`, where there is no prompt to charge.
-  const { freshInput = 0, cacheWrite = 0 } = usage
-  return freshInput + cacheWrite + usage.output
+  return usage.input - creditedCacheRead(usage) + usage.output
 }
 
-/** Add the observed subtotal into `acc`; token and cache incompleteness are sticky. */
+/** `cacheRead` if the reported classes fit inside `input`, else nothing. */
+function creditedCacheRead(usage: LoopTokenUsage): number {
+  const { cacheRead } = usage
+  if (cacheRead === undefined) return 0
+  return classifiedTotal(usage, cacheRead) > usage.input ? 0 : cacheRead
+}
+
+function classifiedTotal(usage: Partial<LoopTokenUsage>, cacheRead: number): number {
+  return (usage.freshInput ?? 0) + cacheRead + (usage.cacheWrite ?? 0)
+}
+
+/**
+ * Add the observed subtotal into `acc`; token and cache incompleteness are sticky.
+ *
+ * A delta whose classes do not FIT inside its own `input` contributes its prompt total and NO
+ * classes. Folding them in would hide the overflow: the accumulator's larger `input` can absorb a
+ * class total that overflowed the one delta that reported it, and `chargedTokens` would then credit
+ * at the aggregate a cache read it refuses at the record. That is the one way the charge could come
+ * out below the sum of the charges on the records that built it.
+ */
 export function addTokenUsage(acc: LoopTokenUsage, delta: Partial<LoopTokenUsage>): void {
   acc.input += delta.input ?? 0
   acc.output += delta.output ?? 0
   if (delta.tokensKnown === false) acc.tokensKnown = false
 
-  if (delta.freshInput !== undefined) acc.freshInput = (acc.freshInput ?? 0) + delta.freshInput
-  if (delta.cacheRead !== undefined) acc.cacheRead = (acc.cacheRead ?? 0) + delta.cacheRead
-  if (delta.cacheWrite !== undefined) acc.cacheWrite = (acc.cacheWrite ?? 0) + delta.cacheWrite
-
   const input = delta.input ?? 0
+  const fits = classifiedTotal(delta, delta.cacheRead ?? 0) <= input
+  if (fits) {
+    if (delta.freshInput !== undefined) acc.freshInput = (acc.freshInput ?? 0) + delta.freshInput
+    if (delta.cacheRead !== undefined) acc.cacheRead = (acc.cacheRead ?? 0) + delta.cacheRead
+    if (delta.cacheWrite !== undefined) acc.cacheWrite = (acc.cacheWrite ?? 0) + delta.cacheWrite
+  }
+
   const classified =
+    fits &&
     delta.freshInput !== undefined &&
     delta.cacheRead !== undefined &&
     delta.cacheWrite !== undefined &&
