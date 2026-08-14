@@ -250,6 +250,15 @@ export type UsageEvent =
       /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
       usdKnown?: false
       usd: number
+      /**
+       * The part of `usd` this runtime priced from a model catalog because no provider receipt
+       * covered the work. Requires `usdKnown: false` — a catalog price approximates what a
+       * provider would bill and never measures what it did.
+       *
+       * Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
+       * is what says whether a dollar figure is measured.
+       */
+      usdEstimated?: number
     }
   | { kind: 'iteration' }
 
@@ -479,6 +488,11 @@ export interface Spend {
    *  when enforcing a dollar-denominated comparison or limit. */
   usdKnown?: boolean
   usd: number
+  /** The part of `usd` priced from a model catalog because no provider receipt covered the work.
+   *  `usd - usdEstimated` is what a provider is known to have billed. Present only with
+   *  `usdKnown: false`; absence means nothing here was catalog-priced, not that `usd` is
+   *  measured. */
+  usdEstimated?: number
   ms: number
 }
 

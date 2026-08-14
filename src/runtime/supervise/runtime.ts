@@ -92,6 +92,7 @@ import type {
   Validator,
 } from '../types'
 import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import { priceUnreceiptedWork } from './cost-estimate'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInbox, type Inbox } from './inbox'
 import {
@@ -2292,6 +2293,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let tokensKnown = true
   let usd = 0
   let usdKnown = true
+  // The part of `usd` this runtime priced from the catalog. `usd - estimatedUsdCharged` is what a
+  // provider is known to have billed.
+  let estimatedUsdCharged = 0
   let estimatedUsd = 0
   let sawEstimatedUsd = false
   let turns = 0
@@ -2387,6 +2391,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     let turnUsdKnown = true
     let turnKnownCostSubtotal = 0
     let turnEstimatedCostSubtotal = 0
+    // This turn's own token totals, kept apart from the run-wide `tokens` so an unreceipted turn
+    // is priced on what IT presented rather than on the running sum of every turn before it.
+    let turnInputTokens = 0
+    let turnOutputTokens = 0
     let interrupted = false
     let profileMaterializationPublished = false
     const publishProfileMaterialization = (): void => {
@@ -2465,6 +2473,8 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         if (chunk.usage) {
           sawTurnTokenUsage = true
           if (!chunk.usage.known) turnTokensKnown = false
+          turnInputTokens += chunk.usage.input
+          turnOutputTokens += chunk.usage.output
           const usageEvent: Extract<UsageEvent, { kind: 'tokens' }> = {
             kind: 'tokens',
             input: chunk.usage.input,
@@ -2575,9 +2585,24 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) {
-      // Missing billing proof is not a free turn. Emit it explicitly so Scope's budget fold
-      // cannot default the observed dollar subtotal to known $0.
-      yield { kind: 'cost', usd: 0, usdKnown: false }
+      // Missing billing proof is not a free turn. Price what the turn presented, so the dollar
+      // channel carries a number instead of a zero that reads as a measured free turn. The event
+      // is always `usdKnown: false`, and the priced part rides `usdEstimated`.
+      //
+      // Only a turn that billed NOTHING is priced. A turn holding a partial receipt already put
+      // real dollars on the channel, and a whole-turn catalog price on top would charge the same
+      // tokens twice.
+      const priced =
+        turnKnownCostSubtotal === 0
+          ? priceUnreceiptedWork({
+              inputTokens: turnInputTokens,
+              outputTokens: turnOutputTokens,
+              model: observedModel ?? seam.providerModel,
+            })
+          : { kind: 'cost' as const, usd: 0, usdKnown: false as const }
+      if (priced.usdEstimated !== undefined) estimatedUsdCharged += priced.usdEstimated
+      usd += priced.usd
+      yield priced
     }
     yield { kind: 'iteration' }
     if (!interrupted && turnText) lastText = turnText
@@ -2605,6 +2630,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
+    ...(estimatedUsdCharged > 0 ? { usdEstimated: estimatedUsdCharged } : {}),
     ms: Date.now() - started,
   }
   const out = {

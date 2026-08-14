@@ -39,7 +39,7 @@ import type {
   TreeView,
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
-import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../runtime/util'
+import { addTokenUsage, cloneTokenUsage, usdEstimatedOf, zeroTokenUsage } from '../runtime/util'
 import { contentAddress } from './content-address'
 import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
 
@@ -1136,6 +1136,7 @@ function cloneJournalSpend(spend: Spend): Spend {
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
+    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
     ms: spend.ms,
   }
 }
@@ -1176,6 +1177,7 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
+    ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
   }
 }

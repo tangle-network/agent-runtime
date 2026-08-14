@@ -1396,7 +1396,12 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     if (result.reason === 'driver-failed') {
       expect(result.error.message).toMatch(/unknown dollar cost under a dollar-capped budget/)
     }
-    expect(result.spentTotal).toMatchObject({ usd: 0, usdKnown: false })
+    // The turn carried no receipt, so its dollars are the catalog price of what it presented —
+    // recorded, and explicitly not a measurement. Pricing an estimate does not open the cap: the
+    // refusal above is unchanged.
+    expect(result.spentTotal.usdKnown).toBe(false)
+    expect(result.spentTotal.usd).toBeGreaterThan(0)
+    expect(result.spentTotal.usdEstimated).toBe(result.spentTotal.usd)
   })
 
   it('records a manager with unknown token usage as unknown telemetry without ending the run', async () => {

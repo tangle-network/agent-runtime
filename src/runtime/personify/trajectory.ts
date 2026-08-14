@@ -31,7 +31,13 @@ import type {
   SpawnJournal,
   Spend,
 } from '../supervise/types'
-import { addTokenUsage, chargedTokens, cloneTokenUsage, zeroTokenUsage } from '../util'
+import {
+  addTokenUsage,
+  chargedTokens,
+  cloneTokenUsage,
+  usdEstimatedOf,
+  zeroTokenUsage,
+} from '../util'
 import type {
   EqualKArm,
   EqualKOnCostOptions,
@@ -306,6 +312,7 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
+    ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
   }
 }
@@ -317,6 +324,7 @@ function cloneSpend(spend: Spend): Spend {
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
+    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
     ms: spend.ms,
   }
 }
@@ -328,6 +336,8 @@ function addSpend(acc: Spend, delta: Spend): void {
   if (delta.tokensKnown === false) acc.tokensKnown = false
   acc.usd += delta.usd
   if (delta.usdKnown === false) acc.usdKnown = false
+  if (delta.usdEstimated !== undefined)
+    acc.usdEstimated = (acc.usdEstimated ?? 0) + delta.usdEstimated
   acc.ms += delta.ms
 }
 
