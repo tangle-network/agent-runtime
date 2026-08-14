@@ -6900,9 +6900,9 @@ a planner sees an arbitrary branch's filesystem — pair it with refine.
 Opt-in box-lineage controls. Default OFF — unset means every iteration
 acquires a fresh box, streams once, and tears it down (today's behavior,
 byte-identical). With `sessionContinuity` on, a refine round continues the
-parent iteration's session on its live box; with `forkFanout` on (and a
-fork-capable platform), a fanout round forks the parent's checkpoint so the
-branches share a context prefix. The lineage owns every box it starts or
+parent iteration's session on its live box; with `forkFanout` on, a fanout
+round branches the parent's live box so the branches share a context prefix.
+The lineage owns every box it starts or
 forks and tears them all down at loop end — so these paths are mutually
 exclusive with `onWorkerBox`, which claims the same box-ownership channel.
 
@@ -6985,9 +6985,8 @@ Sleep override for deterministic tests.
 **`Experimental`**
 
 What the loop kernel is allowed to know about a sandbox backend: a single
-capability bit, never the backend's identity. `canFork` gates the
-checkpoint+fork fanout path; everything else (session continuation) is a
-universal SDK feature that needs no probe.
+capability bit, never the backend's identity. `canFork` gates the legacy
+checkpoint+fork fanout path; current live branching is detected on the box.
 
 #### Properties
 
@@ -6997,9 +6996,9 @@ universal SDK feature that needs no probe.
 
 **`Experimental`**
 
-True only when `client.criuStatus()` returned `{ available: true }`. When
-false, a fork-enabled fanout degrades to independent fresh boxes — same
-result, no shared context prefix.
+True only when `client.criuStatus()` returned `{ available: true }`.
+Current live `branch(count)` boxes do not need this bit. When both paths
+are absent, a fork-enabled fanout degrades to independent fresh boxes.
 
 ***
 
@@ -7169,10 +7168,12 @@ of a contextless turn the caller mistakes for a real continuation.
 **`Experimental`**
 
 Branch `count` children from `parent`. When the platform exposes live
-branching, each child inherits the parent's running state — and therefore the parent's IMAGE and
-PROFILE: under a real fork `specs[i]` does NOT re-select a per-branch
+branching, each child inherits the parent's running state — and therefore
+the parent's IMAGE and PROFILE: under a real fork `specs[i]` does NOT
+re-select a per-branch
 profile (the SDK forks the running box, it can't swap the image). `specs[i]`
-picks the per-branch profile ONLY on the degraded fresh-box path (no CRIU).
+picks the per-branch profile ONLY on the degraded fresh-box path (no branch
+or legacy fork support).
 A heterogeneous-profile fanout therefore homogenizes to the parent's profile
 when fork is available — pass a single shared spec for forked fanouts, or
 use `random@k` (no fork) when branches must differ. Each child's first turn
@@ -17888,11 +17889,11 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 **`Experimental`**
 
-Optional CRIU capability probe. When present and it resolves
-`{ available: true }`, the loop's `lineage.fork` seam may checkpoint+fork a
-parent box so a fanout's branches inherit a shared context prefix; absent or
-`false`, the fanout degrades to independent fresh boxes. The kernel reads
-this ONLY through the capability probe — it never branches on backend kind.
+Optional legacy CRIU capability probe. When present and it resolves
+`{ available: true }`, the loop's `lineage.fork` seam may checkpoint and fork
+a parent box when live `branch(count)` is unavailable. Current Sandbox boxes
+expose live branching directly. The kernel reads this ONLY through the
+capability probe — it never branches on backend kind.
 The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
 (⇒ `canFork = false`).
 
@@ -17921,8 +17922,8 @@ round can reach after each round, so the live set tracks the active frontier.
 When the driver authors its own branch point (`describePlan().parentIndex`),
 it may descend from any prior
 iteration, so no box is pruned and the live-box count rises to the total
-iterations across all rounds. Size `forkFanout` runs accordingly (CRIU forks
-are copy-on-write, but each is still a live box until loop end).
+iterations across all rounds. Size `forkFanout` runs accordingly. Live branch
+children use copy-on-write, but each is still a live box until loop end.
 
 #### Properties
 
@@ -17951,10 +17952,10 @@ proves the session EXISTS server-side, not that prior turns replay into it.
 
 **`Experimental`**
 
-When true AND the platform reports CRIU fork support, a fanout round (N
-planned tasks) descending from a prior round FORKS the parent iteration's
-checkpoint so all N branches inherit a shared context prefix. Without fork
-support it degrades to N independent fresh boxes (same result, no prefix).
+When true, a fanout round (N planned tasks) descending from a prior round
+branches the parent's live box so all N branches inherit its context prefix.
+If live branching is unavailable, the lineage uses legacy CRIU when its
+probe is positive. Otherwise it degrades to N fresh boxes with no prefix.
 Round 0 always starts fresh. NEVER set this for a `random@k` control arm —
 forking would couple the independent samples.
 

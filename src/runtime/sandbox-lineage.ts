@@ -171,7 +171,8 @@ export interface SandboxLineage {
    * the parent's IMAGE and PROFILE: under a real fork `specs[i]` does NOT
    * re-select a per-branch
    * profile (the SDK forks the running box, it can't swap the image). `specs[i]`
-   * picks the per-branch profile ONLY on the degraded fresh-box path (no CRIU).
+   * picks the per-branch profile ONLY on the degraded fresh-box path (no branch
+   * or legacy fork support).
    * A heterogeneous-profile fanout therefore homogenizes to the parent's profile
    * when fork is available — pass a single shared spec for forked fanouts, or
    * use `random@k` (no fork) when branches must differ. Each child's first turn
