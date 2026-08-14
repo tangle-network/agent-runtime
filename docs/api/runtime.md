@@ -7083,7 +7083,8 @@ The owned, running sandbox this handle drives.
 Stable session id threaded through this box's `streamPrompt` calls. Minted
 by the lineage on `start`; reused on `continue` so the server continues the
 same conversation. A forked handle starts a fresh session on its new box —
-the shared context comes from the checkpoint, not a shared session id.
+the shared context comes from the live branch or legacy checkpoint, not a
+shared session id.
 
 ***
 
