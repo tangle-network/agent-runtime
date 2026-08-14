@@ -1,11 +1,10 @@
 /**
  *
  * Capability probe for the loop kernel's backend-blind lineage seams. The
- * kernel must NEVER ask "is this Docker or Firecracker?"; it asks "can this
- * platform fork a checkpoint?" via `client.criuStatus()` and degrades to fresh
- * boxes when the answer is no. CRIU availability is a per-platform fact, so the
- * probe is memoized per client — one network round-trip, reused across every
- * fanout in the run.
+ * kernel must NEVER ask "is this Docker or Firecracker?"; it asks whether a
+ * legacy client can fork a checkpoint through `client.criuStatus()`. Current
+ * Sandbox clients expose live `branch(count)` on each box, so the lineage
+ * checks that method directly and uses this probe only for legacy clients.
  *
  * Invariant: a client with no `criuStatus` method (the loop's test fakes, the
  * raw SDK before it grew the probe) reports `canFork = false`. The seam is
@@ -18,17 +17,16 @@ import type { SandboxClient } from './types'
 
 /**
  * What the loop kernel is allowed to know about a sandbox backend: a single
- * capability bit, never the backend's identity. `canFork` gates the
- * checkpoint+fork fanout path; everything else (session continuation) is a
- * universal SDK feature that needs no probe.
+ * capability bit, never the backend's identity. `canFork` gates the legacy
+ * checkpoint+fork fanout path; current live branching is detected on the box.
  *
  * @experimental
  */
 export interface SandboxCapabilities {
   /**
-   * True only when `client.criuStatus()` returned `{ available: true }`. When
-   * false, a fork-enabled fanout degrades to independent fresh boxes — same
-   * result, no shared context prefix.
+   * True only when `client.criuStatus()` returned `{ available: true }`.
+   * Current live `branch(count)` boxes do not need this bit. When both paths
+   * are absent, a fork-enabled fanout degrades to independent fresh boxes.
    */
   canFork: boolean
 }

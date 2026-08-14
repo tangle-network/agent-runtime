@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.134.4
+
+- Align the Runtime contract cohort with Core 0.8.0, Eval 0.145.11, Interface 0.52.0, Knowledge 7.2.6, Profile Materialize 0.14.2, and Sandbox 0.26.1.
+- Preserve the router's aggregate-limit result and accounted input tokens in signed candidate settlement evidence.
+- Use Sandbox 0.26 live branching for shared-context fanout and reap partial child sets on failure.
+
 ## 0.134.3
 
 - Bridge terminal accounting no longer creates a second empty provider attempt when the billed dollar amount is unknown.

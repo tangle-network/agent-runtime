@@ -127,9 +127,9 @@ export interface RunAgentRoundsOptions<Task, Output, Decision> {
    * Opt-in box-lineage controls. Default OFF — unset means every iteration
    * acquires a fresh box, streams once, and tears it down (today's behavior,
    * byte-identical). With `sessionContinuity` on, a refine round continues the
-   * parent iteration's session on its live box; with `forkFanout` on (and a
-   * fork-capable platform), a fanout round forks the parent's checkpoint so the
-   * branches share a context prefix. The lineage owns every box it starts or
+   * parent iteration's session on its live box; with `forkFanout` on, a fanout
+   * round branches the parent's live box so the branches share a context prefix.
+   * The lineage owns every box it starts or
    * forks and tears them all down at loop end — so these paths are mutually
    * exclusive with `onWorkerBox`, which claims the same box-ownership channel.
    * @experimental
@@ -197,7 +197,7 @@ export async function runAgentRounds<Task, Output, Decision>(
 
   // Opt-in box lineage: when either flag is set, a backend-blind lineage owns
   // box+session handles so a refine continues the parent session and a fanout
-  // forks the parent checkpoint. Both flags off ⇒ lineage stays undefined and
+  // branches the parent box. Both flags off ⇒ lineage stays undefined and
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
   const lineageState = await setUpLineage(options, maxConcurrency, recordMount)
 
@@ -310,7 +310,7 @@ export async function runAgentRounds<Task, Output, Decision>(
 
       // Decide how this round acquires its sandbox streams. Without lineage it's
       // a fresh box per iteration (today's path). With lineage it may continue
-      // the parent session (refine) or fork the parent checkpoint (fanout).
+      // the parent session (refine) or branch the parent box (fanout).
       const lineagePlan = lineageState
         ? planLineageRound(lineageState, specs, slice, parentIndex, controller.signal)
         : undefined
@@ -393,7 +393,7 @@ export async function runAgentRounds<Task, Output, Decision>(
       ownedBoxes.map((b) => destroySandboxSafe(b, options.ctx.traceEmitter, runId, now)),
     )
     if (options.onWorkerBox) options.onWorkerBox(undefined)
-    // The lineage owns every box it started or forked across all rounds; it tears
+    // The lineage owns every box it started or branched across all rounds; it tears
     // them down at loop end (kept alive between rounds so a later round can
     // continue/fork them).
     if (lineageState) await lineageState.lineage.teardown()
@@ -422,8 +422,8 @@ interface LineageState {
 }
 
 /**
- * Build the lineage when either lineage flag is set. Probes the platform's fork
- * capability once per run (the lineage degrades gracefully when it's absent).
+ * Build the lineage when either lineage flag is set. Probes the legacy fork
+ * capability once per run (live branching is detected on each box).
  * Rejects the lineage + `onWorkerBox` combination: both claim the same
  * box-ownership channel, and silently honoring one would leak or double-free.
  */
@@ -471,9 +471,9 @@ type LineageRoundPlan = (LineageStreamSource | undefined)[]
  * Decide, for one round, how each iteration acquires its sandbox stream:
  *   - refine (1 task) + `sessionContinuity` + a live parent handle ⇒ continue
  *     the parent session on its box.
- *   - fanout (N tasks) + `forkFanout` + a live parent handle ⇒ fork the parent
- *     checkpoint once and stream each branch from a child box (degrades to fresh
- *     boxes inside the lineage when the platform can't fork).
+ *   - fanout (N tasks) + `forkFanout` + a live parent handle ⇒ branch the parent
+ *     box once and stream each branch from a child box (legacy CRIU or fresh-box
+ *     fallback is handled inside the lineage).
  *   - otherwise (round 0, no parent, the off flag) ⇒ start a fresh box per
  *     iteration THROUGH the lineage so it's owned + a handle is recorded for a
  *     later round to descend from.
@@ -517,9 +517,9 @@ function planLineageRound<Task>(
     ]
   }
 
-  // Fork the parent checkpoint: a multi-task round descending from a live handle,
-  // with the flag on. One checkpoint, N child streams — lazily awaited once and
-  // shared across the offsets so the batch checkpoints exactly once.
+  // Branch the parent box: a multi-task round descending from a live handle,
+  // with the flag on. One branch request, N child streams — lazily awaited once
+  // and shared across offsets so the batch branches exactly once.
   if (slice.length > 1 && parent && state.options.forkFanout) {
     const prompts = slice.map((_, offset) => promptFor(offset))
     const childSpecs = slice.map((_, offset) => specAt(offset))

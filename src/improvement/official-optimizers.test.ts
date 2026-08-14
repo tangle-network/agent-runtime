@@ -650,8 +650,18 @@ describe('official optimizer methods', () => {
       status: 'unavailable',
       reason: 'optimizer-did-not-report-candidate-lineage',
     })
+    const dispatchError =
+      `improve(): the 'mcp' candidate is not valid JSON, so it cannot form a profile candidate: ` +
+      `Unexpected token 'o', "not-json" is not valid JSON`
     expect(JSON.parse(readFileSync(observedResponsePath, 'utf8'))).toEqual({
-      error: 'evaluation failed',
+      score: 0,
+      info: {
+        dimensions: {},
+        error: { stage: 'dispatch', message: dispatchError },
+        notes: `Evaluation failed at dispatch; optimizer penalty score 0 is not a measured zero. ${dispatchError}`,
+        scenarioId: 'train',
+        status: 'failed',
+      },
     })
   })
 
@@ -852,10 +862,14 @@ describe('official optimizer methods', () => {
           },
         },
       ),
-    ).rejects.toThrow(/callback failed: 500/)
+    ).rejects.toThrow(
+      'officialGepa: the selected profile surface contains fields that may carry private values: $. ' +
+        'Remove them, replace values with safe references, or authorize the exact profile with authorizeSensitiveCandidate.',
+    )
     expect(agentCalls).toBe(0)
     expect(reviewed).toEqual([
       { isBaseline: true, command: undefined, sensitivePaths: ['$'] },
+      { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
       { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
     ])
   })
