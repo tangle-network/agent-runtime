@@ -149,6 +149,24 @@ describe('the estimated part may never be read as billed spend', () => {
     ).not.toThrow()
   })
 
+  it('diagnoses an unreceipted child as unknown dollars, not as overspending its ceiling', () => {
+    // A catalog price can exceed a child's declared dollar ceiling. Reporting that as an
+    // overspend would assert the child spent dollars a provider billed, which is the exact
+    // confusion this field exists to prevent.
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000, maxUsd: 100 }, () => 0)
+    const reserved = pool.reserve({ maxIterations: 2, maxTokens: 1_000, maxUsd: 0.001 })
+    expect(reserved.ok).toBe(true)
+    if (!reserved.ok) return
+    const priced = priceUnreceiptedWork({ inputTokens: 10_000, outputTokens: 2_000, model: MODEL })
+    expect(priced.usd).toBeGreaterThan(0.001)
+    expect(() =>
+      pool.reconcile(
+        reserved.ticket,
+        spend({ usd: priced.usd, usdEstimated: priced.usd, usdKnown: false }),
+      ),
+    ).toThrow(/reported unknown dollar cost under a dollar-capped budget/)
+  })
+
   it('still refuses unknown dollars under a dollar-capped root', () => {
     // Pricing an estimate does not open a dollar cap. A capped root refuses work whose dollars
     // are not measured, exactly as before, because the estimate rides `usdKnown: false`.

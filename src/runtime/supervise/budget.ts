@@ -443,16 +443,19 @@ export function createBudgetPool(
       violation = `ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`
     } else if (spent.iterations > rIterations) {
       violation = `ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`
+    } else if (unknownUnderCap) {
+      // Decided BEFORE the dollar comparison below. Dollars that are not measured may not be
+      // compared against a reservation as if they were billed: a catalog-priced turn can exceed
+      // the ceiling and would then be reported as an overspend the child never made. The known
+      // channels still settle, then the dollar channel is permanently tainted and admission
+      // closes.
+      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     } else if (usdCapped && usdBudgeted && spent.usd > rUsd) {
       // USD is conserved ONLY when the root declared a ceiling AND the child declared one to
       // be measured against. `maxUsd` is optional on both: when either is unset, usd is an
       // OBSERVED quantity (committed for accounting), never a budgeted constraint — an unset
       // ceiling must not behave as a hard $0 limit that fail-closes a real priced spend.
       violation = `ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`
-    } else if (unknownUnderCap) {
-      // The known channels still settle, then the dollar channel is permanently tainted and
-      // admission closes.
-      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     }
 
     // ── Settlement: unconditional, and the only place the ticket closes ───────────────
