@@ -963,6 +963,8 @@ export type SpawnEvent =
       kind: 'metered'
       id: NodeId
       spend: Spend
+      /** Runtime bookkeeping only; this record carries no provider inference attempt. */
+      accountingOnly?: true
       /** Runtime-owned provider attempt evidence for this driver's own inference turn. */
       providerModel?: ProviderModelExecutionEvidence
       seq: number

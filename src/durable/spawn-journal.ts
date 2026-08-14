@@ -464,8 +464,8 @@ function ownedTreeRootSpawn(
  *
  * Missing legacy evidence, an unfinished node, an unopened owned tree, an identity conflict, and a
  * paid attempt without a qualified served snapshot all return unknown. An explicit
- * `providerDispatch: "not_started"` arm is ignored for served-model identity, while absent or
- * malformed legacy data remains unknown here.
+ * `providerDispatch: "not_started"` arm and Runtime accounting-only metered records are ignored
+ * for served-model identity, while absent or malformed legacy data remains unknown here.
  */
 export function aggregateProviderModelEvidence(
   forest: SpawnForest,
@@ -614,6 +614,10 @@ export function aggregateProviderModelEvidence(
   for (const tree of forest.trees) {
     for (const event of tree.events) {
       if (event.kind === 'metered') {
+        if (event.accountingOnly === true) {
+          if (event.providerModel !== undefined) markMissing()
+          continue
+        }
         // The parent scope re-homes a driver's nested metered spend onto the driver's parent node.
         // Its owned tree carries the provider attempts; consuming this summary would both
         // double-count and treat the spend-only legacy summary as missing identity evidence.
