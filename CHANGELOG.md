@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.134.3
+
+- Bridge terminal accounting no longer creates a second empty provider attempt when the billed dollar amount is unknown.
+- Consumers that inspect `SpawnEvent` must ignore `metered` events with `accountingOnly: true` when counting provider executions.
+- Continue rejecting genuine provider attempts without a provider model identity; this release does not weaken that check.
+
 ## 0.134.2
 
 - Make the supervised token charge additive: `input - cacheRead + output`, which equals `freshInput + cacheWrite + output` under a complete cache split. A spend that folded a classified turn together with an unclassified one previously fell back to the rolled-up prompt total for the whole aggregate, so one unreported turn re-charged every cached prefix beside it.
