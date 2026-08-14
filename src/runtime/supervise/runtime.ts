@@ -2772,11 +2772,21 @@ async function* streamDurableBridgeRun(
 
     if (sawDone) {
       if (args.run.profileMaterialization === undefined) {
+        // The bridge said WHY. Prefer its diagnostic over the missing-receipt inference: a bridge
+        // that refuses a profile at setup fails before it can retain a receipt, so the absence is
+        // a CONSEQUENCE of the reported error, not independent evidence of anything. Reporting the
+        // absence instead discards the only actionable message on the wire and renames a fixable
+        // profile defect as a broken transport — an opencode arm that refused
+        // `prompt.systemPrompt` and named `prompt.appendSystemPrompt` as the fix was read as a
+        // dead seat and abandoned after 12 attempts. This mirrors the no-DONE path below, which
+        // has preserved the provider's actual diagnostic since it was written.
+        if (pendingUpstreamError) throw pendingUpstreamError
         // Also TRANSPORT: a bridge that advertises the capability emits this receipt on every
-        // healthy turn, so its absence means the turn did not survive to send it — the same
-        // mid-stream death as above, arriving as a missing field instead of an error frame.
-        // Typed as validation it read as a permanently broken bridge and the root-driver retry
-        // refused to re-enter; one arm of a six-arm wave was lost to exactly this.
+        // healthy turn, so its absence WITH NO REPORTED ERROR means the turn did not survive to
+        // send it — the same mid-stream death as above, arriving as a missing field instead of an
+        // error frame. Typed as validation it read as a permanently broken bridge and the
+        // root-driver retry refused to re-enter; one arm of a six-arm wave was lost to exactly
+        // this.
         throw new BackendTransportError(
           'bridge',
           `bridgeExecutor: run ${args.run.id} completed without ${bridgeProfileMaterializationSchema}`,
