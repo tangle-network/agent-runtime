@@ -956,6 +956,39 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(executor.resultArtifact().spent.usdKnown).not.toBe(false)
   })
 
+  it('takes a claude invocation receipt as measured dollars, with no estimated part', async () => {
+    // The EXACT usage object cli-bridge emits for a claude turn carrying `total_cost_usd`
+    // (drewstone/cli-bridge#159), captured off `deltaToOpenAIChunk`. Tokens and the receipt
+    // arrive in ONE frame, which is the shape that must not be re-priced.
+    const body = `data: ${JSON.stringify({
+      choices: [{ delta: {}, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 12_000,
+        completion_tokens: 900,
+        total_tokens: 12_900,
+        cost: 0.0731,
+        cost_known: true,
+        cost_provenance: 'provider-receipt',
+        cost_scope: 'total',
+      },
+    })}\n\ndata: [DONE]\n\n`
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    const events = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(events).toContainEqual({ kind: 'cost', usd: 0.0731 })
+    const spent = executor.resultArtifact().spent
+    expect(spent).toMatchObject({ tokens: { input: 12_000, output: 900 }, usd: 0.0731 })
+    // A receipt is a measurement, and a turn holding one is never catalog-priced on top.
+    expect(spent.usdKnown).not.toBe(false)
+    expect(spent.usdEstimated).toBeUndefined()
+    expect(spendFromUsageEvents(events).usdEstimated).toBeUndefined()
+  })
+
   it('preserves absent prompt-cache fields instead of inventing zeroes', async () => {
     const body = `data: ${JSON.stringify({
       usage: {
