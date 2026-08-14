@@ -87,6 +87,7 @@ import {
 } from './runtime'
 import {
   deriveNodeExecutionIdentity,
+  meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
   recordScopeOwnerMaterialization,
   scopeOwnerExecutorNodeContext,
@@ -563,7 +564,7 @@ function driveHarnessFromBackend(
         // A stream carries increments, while its terminal artifact says whether either accounting
         // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
         if (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false) {
-          await meterRuntimeOwnedProviderAttempt(
+          await meterRuntimeOwnedAccounting(
             scope,
             {
               iterations: 0,
@@ -573,7 +574,6 @@ function driveHarnessFromBackend(
               ...(artifact.spent.usdKnown === false ? { usdKnown: false } : {}),
               ms: 0,
             },
-            providerEvidenceForNextMeter(),
             { role: 'driver', runtime: executor.runtime, telemetry: 'unknown' },
           )
         }

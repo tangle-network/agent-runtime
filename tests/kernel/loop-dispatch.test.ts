@@ -160,6 +160,7 @@ function bridgeMaterialization(profileDigest: string, model: string): Record<str
 
 async function startPiBridge(
   responseModel: string | undefined | ReadonlyArray<string | undefined>,
+  options: { readonly unknownCost?: boolean } = {},
 ): Promise<{
   server: Server
   url: string
@@ -187,13 +188,15 @@ async function startPiBridge(
     const requestModel = String(body.model)
     const profileDigest = canonicalAgentProfileDigest(profile as unknown as SandboxAgentProfile)
     await submitBridgeResult(profile)
-    const usage = {
-      prompt_tokens: 11,
-      completion_tokens: 7,
-      cost: 0.01,
-      cost_known: true,
-      cost_provenance: 'provider-receipt',
-    }
+    const usage = options.unknownCost
+      ? { prompt_tokens: 11, completion_tokens: 7, cost_known: false }
+      : {
+          prompt_tokens: 11,
+          completion_tokens: 7,
+          cost: 0.01,
+          cost_known: true,
+          cost_provenance: 'provider-receipt',
+        }
     const modelAt = (index: number): string | undefined =>
       Array.isArray(responseModel) ? responseModel[index] : responseModel
     const frames = [
@@ -652,6 +655,59 @@ describe('superviseDispatch', () => {
     } finally {
       await closeServer(bridge.server)
       await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not treat terminal unknown-cost bookkeeping as a second provider attempt', async () => {
+    const servedModel = 'tangle-router/deepseek-v4-flash@fp_terminal_unknown_cost'
+    const bridge = await startPiBridge(servedModel, { unknownCost: true })
+    const runDir = await mkdtemp(join(tmpdir(), 'runtime-pi-terminal-unknown-cost-'))
+    try {
+      const matrix = await runProfileMatrix({
+        profiles: [movingPiProfile],
+        scenarios: [{ id: 'pi-terminal-unknown-cost', kind: 'task' }],
+        dispatch: movingPiDispatch(bridge.url),
+        runDir,
+        commitSha: 'a'.repeat(40),
+        integrity: 'off',
+        maxConcurrency: 1,
+        maxProfileConcurrency: 1,
+      })
+
+      expect(matrix.records).toHaveLength(1)
+      expect(matrix.records[0]).toMatchObject({
+        model: servedModel,
+        terminalOutcome: 'succeeded',
+        tokenUsage: { input: 11, output: 7 },
+      })
+    } finally {
+      await closeServer(bridge.server)
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a real provider attempt unknown when both identity and cost are missing', async () => {
+    const bridge = await startPiBridge(undefined, { unknownCost: true })
+    const fake = fakeDispatchContext()
+    try {
+      await expect(
+        movingPiDispatch(bridge.url)(
+          movingPiProfile,
+          { id: 'pi-unknown-model-and-cost', kind: 'task' },
+          fake.ctx,
+        ),
+      ).rejects.toThrow(/cannot settle one Eval paid-call receipt/u)
+      expect(fake.ledger.list()).toEqual([
+        expect.objectContaining({
+          model: 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          usageUnknown: true,
+          costUnknown: true,
+        }),
+      ])
+    } finally {
+      await closeServer(bridge.server)
     }
   })
 

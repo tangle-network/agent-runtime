@@ -214,8 +214,9 @@ export interface ScopeArgs {
 
 type RuntimeOwnedProviderMeter = (
   spend: Spend,
-  providerModel: ProviderModelExecutionEvidence,
+  providerModel: ProviderModelExecutionEvidence | undefined,
   detail?: Record<string, unknown>,
+  accountingOnly?: boolean,
 ) => Promise<void>
 
 /** Runtime-owned provider evidence is written through this private scope capability. */
@@ -1255,6 +1256,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     spend: Spend,
     detail?: Record<string, unknown>,
     providerModel?: ProviderModelExecutionEvidence,
+    accountingOnly = false,
   ): Promise<void> {
     if (args.signal.aborted) {
       throw new ValidationError('scope.meter: cannot record new driver work after scope abort')
@@ -1279,6 +1281,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       kind: 'metered',
       id: args.parentId,
       spend,
+      ...(accountingOnly ? { accountingOnly: true as const } : {}),
       ...(providerModel === undefined
         ? {}
         : { providerModel: detachedSnapshot(providerModel, 'runtime provider model evidence') }),
@@ -1339,8 +1342,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     },
   }
-  runtimeOwnedProviderMeters.set(scope as Scope<unknown>, async (spend, providerModel, detail) =>
-    meterInternal(spend, detail, providerModel),
+  runtimeOwnedProviderMeters.set(
+    scope as Scope<unknown>,
+    async (spend, providerModel, detail, accountingOnly) =>
+      meterInternal(spend, detail, providerModel, accountingOnly),
   )
   if (args.ownerMaterialization !== undefined) {
     const authoredProfile =
@@ -1388,6 +1393,19 @@ export function meterRuntimeOwnedProviderAttempt(
     throw new ValidationError('scope: Runtime-owned provider meter is not bound to this scope')
   }
   return meter(spend, providerModel, detail)
+}
+
+/** @internal Meter Runtime-owned accounting that does not represent provider execution. */
+export function meterRuntimeOwnedAccounting(
+  scope: Scope<unknown>,
+  spend: Spend,
+  detail?: Record<string, unknown>,
+): Promise<void> {
+  const meter = runtimeOwnedProviderMeters.get(scope as object)
+  if (meter === undefined) {
+    throw new ValidationError('scope: Runtime-owned provider meter is not bound to this scope')
+  }
+  return meter(spend, undefined, detail, true)
 }
 
 interface OwnerMaterializationState {
