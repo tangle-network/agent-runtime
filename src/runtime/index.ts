@@ -402,6 +402,7 @@ export {
   sumSandboxUsage,
 } from './sandbox-events'
 export {
+  type BranchCapableBox,
   type CheckpointCapableBox,
   createSandboxLineage,
   type ForkCapableBox,

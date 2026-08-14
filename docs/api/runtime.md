@@ -7168,8 +7168,8 @@ of a contextless turn the caller mistakes for a real continuation.
 
 **`Experimental`**
 
-Branch `count` children from `parent`. When the platform can fork, each
-child inherits `parent`'s checkpoint — and therefore the parent's IMAGE and
+Branch `count` children from `parent`. When the platform exposes live
+branching, each child inherits the parent's running state — and therefore the parent's IMAGE and
 PROFILE: under a real fork `specs[i]` does NOT re-select a per-branch
 profile (the SDK forks the running box, it can't swap the image). `specs[i]`
 picks the per-branch profile ONLY on the degraded fresh-box path (no CRIU).
@@ -7271,11 +7271,41 @@ without importing sandbox-backend specifics.
 
 ***
 
+### BranchCapableBox
+
+**`Experimental`**
+
+Loop-side view of the current Sandbox SDK's live branch method.
+
+#### Properties
+
+##### branch?
+
+> `optional` **branch?**: (`count`, `options?`) => `Promise`\<`SandboxInstance`[]\>
+
+**`Experimental`**
+
+###### Parameters
+
+###### count
+
+`number`
+
+###### options?
+
+`BranchOptions`
+
+###### Returns
+
+`Promise`\<`SandboxInstance`[]\>
+
+***
+
 ### ForkCapableBox
 
 **`Experimental`**
 
-Loop-side widening of the box's optional fork method.
+Loop-side widening of the legacy checkpoint fork method.
 
 #### Properties
 
