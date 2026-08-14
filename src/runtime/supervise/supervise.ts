@@ -1219,6 +1219,28 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
 }
 
 /** A quarter of token and optional dollar capacity per worker; nested managers partition again. */
+/** A per-child budget may not exceed the conserved pool it is reserved from. */
+function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
+  const over = (child: number, total: number, field: string): string | null =>
+    child > total
+      ? `supervise perWorker.${field} (${child}) exceeds budget.${field} (${total})`
+      : null
+  const problems = [
+    over(perWorker.maxTokens, pool.maxTokens, 'maxTokens'),
+    over(perWorker.maxIterations, pool.maxIterations, 'maxIterations'),
+    perWorker.maxUsd !== undefined && pool.maxUsd !== undefined
+      ? over(perWorker.maxUsd, pool.maxUsd, 'maxUsd')
+      : null,
+  ].filter((x): x is string => x !== null)
+  if (problems.length > 0) {
+    throw new ValidationError(
+      `${problems.join('; ')} — a per-child ceiling cannot exceed the pool it draws from, and ` +
+        'accepting it silently leaves the caller believing a knob is in effect when the ' +
+        'reservation still clamps the child.',
+    )
+  }
+}
+
 function defaultPerWorker(budget: Budget): Budget {
   return {
     maxIterations: Math.max(1, Math.floor(budget.maxIterations / 4)),
@@ -1458,6 +1480,13 @@ function superviseInternal(
   const blobs = options.blobs ?? ctx.blobs
   const perWorker = options.perWorker ?? defaultPerWorker(options.budget)
   assertValidBudget(perWorker, 'supervise perWorker')
+  // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
+  // silently misleads the caller: the child is capped by the reservation instead and dies with
+  // "ticket N spent X tokens > reserved Y", which reads as a budget outcome rather than a
+  // misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
+  // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
+  // tell the knob was inert. Refuse at construction, where the caller can still fix it.
+  assertPerWorkerWithinPool(perWorker, options.budget)
   const journal = options.journal ?? ctx.journal
   const runId = options.runId ?? 'supervise'
   const runNamespace = supervisionRunNamespace(options.runDir, runId)
