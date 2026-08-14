@@ -363,11 +363,9 @@ async function branchParent(
     const requested = Math.min(concurrency, count - offset)
     const batch = await branch.call(box, requested)
     children.push(...batch)
-    if (batch.length !== requested) {
-      throw new ValidationError(
-        `SandboxLineage.fork: Sandbox returned ${batch.length} of ${requested} requested children`,
-      )
-    }
+    // Return partial batches to the caller so it can register every child for
+    // teardown before rejecting the incomplete fan-out.
+    if (batch.length !== requested) return children
   }
   return children
 }

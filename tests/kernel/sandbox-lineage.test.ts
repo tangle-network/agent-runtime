@@ -49,6 +49,8 @@ interface FakeClientOpts {
   criuAvailable: boolean
   /** Whether boxes expose the current live branch(count) API. */
   branchAvailable?: boolean
+  /** Return fewer live children than requested to exercise cleanup. */
+  branchResultCount?: number
   /**
    * Whether boxes expose `session(id).status()`. `'live'` ⇒ status resolves a
    * SessionInfo (the platform honored the id); `'dead'` ⇒ status resolves null
@@ -112,7 +114,10 @@ function createFakeClient(opts: FakeClientOpts) {
       ...(opts.branchAvailable
         ? {
             async branch(count: number): Promise<SandboxInstance[]> {
-              const children = Array.from({ length: count }, () => makeBox(`branch-${branchSeq++}`))
+              const resultCount = opts.branchResultCount ?? count
+              const children = Array.from({ length: resultCount }, () =>
+                makeBox(`branch-${branchSeq++}`),
+              )
               branched.push(...children.map((child) => child.id as string))
               return children
             },
@@ -289,6 +294,33 @@ describe('runAgentRounds lineage — forkFanout', () => {
     expect(forked).toHaveLength(0)
     expect(branched).toHaveLength(3)
     expect(streamCalls.slice(1).every((call) => call.boxId.startsWith('branch-'))).toBe(true)
+  })
+
+  it('reaps partial live branches before rejecting the fanout', async () => {
+    const { client, deleted, branched } = createFakeClient({
+      criuAvailable: false,
+      branchAvailable: true,
+      branchResultCount: 1,
+    })
+    const planner = scriptedPlanner([
+      { kind: 'refine', task: { goal: 'seed' } },
+      { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }] },
+      { kind: 'stop' },
+    ])
+
+    await expect(
+      runAgentRounds({
+        driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
+        agentRuns: [spec('a'), spec('b')],
+        output,
+        task: { goal: 'seed' },
+        ctx: { sandboxClient: client },
+        lineage: { forkFanout: true },
+      }),
+    ).rejects.toThrow(/returned 1 of 2 requested children/)
+
+    expect(branched).toEqual(['branch-0'])
+    expect(deleted.sort()).toEqual(['box-0', 'branch-0'])
   })
 
   it('forks the parent checkpoint when criuStatus.available', async () => {
