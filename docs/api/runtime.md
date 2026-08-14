@@ -11446,6 +11446,18 @@ The concrete worker node id, once known.
 
 WHERE worker nodes run — the executor backend. Provide this OR `makeWorkerAgent`.
 
+##### driverBackend?
+
+> `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](#executorconfig)
+
+WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim (see
+ `SuperviseOptions.driverBackend`). Needed when the root node's profile declares an external
+ harness (`codex`, `claude-code`, `opencode`): that root is driven by the harness, not by the
+ router brain, and automatic execution supports a local `bridge`. Unlike `supervise()`, this
+ does NOT default to `backend`: a graph's `backend` places WORKER nodes, so the root driver
+ is selected only by this field. Omit = no harness driver, which is correct for a root whose
+ `profile.harness` is omitted or `cli-base` (that root runs on the router brain).
+
 ##### makeWorkerAgent?
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
