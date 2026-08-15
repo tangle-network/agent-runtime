@@ -3189,16 +3189,45 @@ function providerDispatchFromErrorBody(body: string): 'not_started' | undefined 
     : undefined
 }
 
+/**
+ * Recover the upstream HTTP status the bridge reports inside its message text.
+ *
+ * `classifyDriverFailure` already splits a transport failure correctly by status — 408/429/5xx
+ * retryable, other 4xx terminal — but it reads `error.status`, and a bridge stream error carries
+ * the status only as text: `pi assistant turn failed: 400: {"message":"The max_tokens parameter
+ * is illegal ..."}`. With `status` undefined the classifier takes its "unknown, so assume the
+ * upstream had a bad moment" branch, and a malformed request is retried to the attempt ceiling.
+ * Measured: a 400 `invalid_request_error` retried 12 times, and it fails identically every time.
+ *
+ * Anchored to `: <status>: ` so it matches the bridge's own framing and not a status-shaped number
+ * inside a provider's prose. A body that names no status leaves `status` undefined, which keeps
+ * the existing retry-on-unknown behaviour.
+ */
+function upstreamStatusFromMessage(message: string | undefined): number | undefined {
+  const match = message?.match(/: (\d{3}): /)
+  if (!match) return undefined
+  const status = Number(match[1])
+  return status >= 100 && status <= 599 ? status : undefined
+}
+
 function bridgeUpstreamError(
-  error: { message?: string; type?: string; provider_dispatch?: unknown },
+  error: { message?: string; type?: string; provider_dispatch?: unknown; status?: unknown },
   prefix: string,
 ): BackendTransportError {
   const providerDispatch =
     error.provider_dispatch === 'not_started' ? ('not_started' as const) : undefined
+  // A structured status is authoritative; the message text is the fallback the bridge actually
+  // sends today.
+  const status =
+    typeof error.status === 'number' ? error.status : upstreamStatusFromMessage(error.message)
+  const options = {
+    ...(providerDispatch === undefined ? {} : { providerDispatch }),
+    ...(status === undefined ? {} : { status }),
+  }
   return new BackendTransportError(
     'bridge',
     `${prefix}: ${error.message ?? error.type ?? 'unknown'}`,
-    providerDispatch === undefined ? undefined : { providerDispatch },
+    Object.keys(options).length === 0 ? undefined : options,
   )
 }
 
