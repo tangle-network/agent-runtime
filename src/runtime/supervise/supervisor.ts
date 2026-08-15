@@ -160,7 +160,7 @@ function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): Spawn
   }
   if (!sameOptionalIdentity(recorded.identity, opts.rootIdentity)) {
     throw new RuntimeRunStateError(
-      `supervisor: resume identity mismatch for run '${opts.runId}'; task, profile, candidate, and correlation must match`,
+      `supervisor: resume identity mismatch for run '${opts.runId}'; ${describeIdentityMismatch(recorded.identity, opts.rootIdentity)}`,
     )
   }
   const receipts = events.filter(
@@ -249,6 +249,43 @@ function sameOptionalIdentity(
 ): boolean {
   if (recorded === undefined || requested === undefined) return recorded === requested
   return contentAddress(recorded) === contentAddress(requested)
+}
+
+/**
+ * Name the identity fields that actually differ, with both values.
+ *
+ * The identity is compared as one content address, so a mismatch is a single boolean and the
+ * message could only list every field that MIGHT have caused it. A caller then has to diff four
+ * digests by hand to learn which one moved, and the common cause — a task file regenerated with
+ * one character different — is indistinguishable from a genuinely different profile.
+ *
+ * Digests are truncated because the prefix identifies them and the full 64 characters push the
+ * real content off the end of a terminal line.
+ */
+function describeIdentityMismatch(
+  recorded: SpawnedEvent['identity'],
+  requested: SpawnedEvent['identity'],
+): string {
+  if (recorded === undefined)
+    return 'the recorded root carried no identity but this resume supplies one'
+  if (requested === undefined)
+    return 'the recorded root carried an identity but this resume supplies none'
+  const short = (value: unknown): string => {
+    if (value === undefined) return '(absent)'
+    const text = typeof value === 'string' ? value : JSON.stringify(value)
+    return text.length > 20 ? `${text.slice(0, 20)}…` : text
+  }
+  const differing = (['profileDigest', 'taskDigest', 'candidateDigest', 'correlation'] as const)
+    .filter((field) => contentAddress(recorded[field]) !== contentAddress(requested[field]))
+    .map(
+      (field) =>
+        `${field} recorded ${short(recorded[field])} but resumed with ${short(requested[field])}`,
+    )
+  // A differing content address with no differing field means the shape itself changed (an extra
+  // key, a different key order the address is sensitive to). Say that rather than nothing.
+  if (differing.length === 0)
+    return 'the identity objects differ in shape while every known field matches'
+  return `${differing.join('; ')} — use a new runId to change any of these`
 }
 
 /** Validate caller-supplied root identity before any journal access. Fresh runs may omit identity,

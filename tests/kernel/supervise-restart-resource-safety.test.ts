@@ -412,6 +412,51 @@ describe('supervision restart and resource safety', () => {
     expect(secondActs).toBe(0)
   })
 
+  it('names the identity field that moved, so a resume refusal is actionable', async () => {
+    // The identity is compared as one content address, so the refusal used to list every field
+    // that MIGHT have caused it. A caller then diffs four digests by hand, and the common cause —
+    // a task file regenerated with one character different — reads identically to a genuinely
+    // different profile. Two runs died this way with 31 children mid-work.
+    const journal = new InMemorySpawnJournal()
+    const blobs = new InMemoryResultBlobStore()
+    const executors = createExecutorRegistry()
+    const budget = { maxIterations: 2, maxTokens: 100 }
+    const profileDigest = `sha256:${'1'.repeat(64)}`
+    const first = { profileDigest, taskDigest: `sha256:${'2'.repeat(64)}` }
+    const second = { profileDigest, taskDigest: `sha256:${'4'.repeat(64)}` }
+
+    await createSupervisor<unknown, string>().run(
+      { name: 'root-a', act: async () => 'A' },
+      'task A',
+      {
+        budget,
+        rootIdentity: first,
+        runId: 'resume-names-field',
+        journal,
+        blobs,
+        executors,
+        resume: true,
+      },
+    )
+
+    const refusal = createSupervisor<unknown, string>().run(
+      { name: 'root-b', act: async () => 'B' },
+      'task B',
+      {
+        budget,
+        rootIdentity: second,
+        runId: 'resume-names-field',
+        journal,
+        blobs,
+        executors,
+        resume: true,
+      },
+    )
+    // The field that moved is named; the field that did not is not.
+    await expect(refusal).rejects.toThrow(/taskDigest recorded/)
+    await expect(refusal).rejects.not.toThrow(/profileDigest recorded/)
+  })
+
   it('refuses resume without an exact root identity before reading, mutating, or acting', async () => {
     const base = new InMemorySpawnJournal()
     let loads = 0
