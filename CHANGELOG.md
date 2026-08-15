@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.135.2
+
+- Publish the 0.135.1 content.
+The v0.135.1 tag never published: its release commit skipped `generate:testing-fixture`, so the Publish verify step failed on stale fixture versions, and the fixture fix (#870) moved the tip of `main` past the tag.
+No runtime behavior changes.
+
 ## 0.135.1
 
 ### The caller-brain seam is production on `runGraph` (#694, option A)
