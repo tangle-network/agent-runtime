@@ -61,6 +61,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
+import { harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -216,6 +217,19 @@ export interface RunGraphOptions {
   readonly makeWorkerAgent?: MakeWorkerAgent
   /** The driver brain's router substrate (`profile.harness` omitted or `cli-base`). */
   readonly router?: RouterTransportConfig
+  /** The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes every root
+   *  model call. Use it when the root's decisions must be caller-owned orchestration (a
+   *  deterministic conversation driver, a persona loop with its own LLM calls) rather than a
+   *  router-derived model call. The graph machinery around the seam is unchanged: node pinning,
+   *  directive delivery, the edge ledger, and the journal twin all run the same shipped path,
+   *  and the root profile keeps prompt control (`prompt-control-execution` materialization —
+   *  `systemPrompt`/`instructions` still apply). What moves to the caller with the brain:
+   *  model selection and provider-identity validation (`expectedModel` cannot be enforced on a
+   *  call the runtime did not place) and per-turn usage reporting (a brain that reports no
+   *  usage meters nothing into the pool). Omit = the router brain derived from the root
+   *  profile — the unchanged default. Mutually exclusive with `driverBackend`, and refused
+   *  when the root profile declares an external harness (that root is driven BY the harness). */
+  readonly brain?: ToolLoopChat
   /** Caller-side runtime hooks (telemetry, policy, product extensions). Composed AFTER the
    *  graph's own spawn-binding hook on the SAME event stream — the graph never swallows the
    *  seam supervise() exposes. */
@@ -263,7 +277,8 @@ export interface GraphResult<Out = unknown> {
   readonly runId: string
 }
 
-/** Test-only graph options, exported only through the package's explicit `/testing` entry. */
+/** `RunGraphOptions` with the brain REQUIRED — the shape the `/testing` entry's
+ *  `runGraphWithTestBrain` keeps accepting now that `brain` is a production option. */
 export interface RunGraphTestOptions extends RunGraphOptions {
   readonly brain: ToolLoopChat
 }
@@ -533,15 +548,12 @@ function stringifyPayload(payload: unknown): string {
  * traversal is ledgered and journaled.
  */
 export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<GraphResult> {
-  if ('brain' in opts) {
-    throw new ValidationError(
-      'runGraph: direct brain injection is test-only; production execution derives the model call from the root AgentProfile',
-    )
-  }
-  return runGraphInternal(graph, opts)
+  const { brain, ...runtimeOptions } = opts
+  return runGraphInternal(graph, runtimeOptions, brain)
 }
 
-/** Deterministic scripted-brain path for graph tests. Not exported from Runtime's main entry. */
+/** Alias for graph tests written before `RunGraphOptions.brain` was production. The production
+ *  entry accepts the same shape; this wrapper only keeps the `/testing` import path working. */
 export function runGraphWithTestBrain(
   graph: AgentGraph,
   opts: RunGraphTestOptions,
@@ -553,7 +565,7 @@ export function runGraphWithTestBrain(
 function runGraphInternal(
   graph: AgentGraph,
   opts: RunGraphOptions,
-  testBrain?: ToolLoopChat,
+  brain?: ToolLoopChat,
 ): Promise<GraphResult> {
   const registry = opts.registry ?? kernelPromptRegistry()
   const { root, workers, delegatesByWorker, analyzes, analystNodes } = validateGraph(
@@ -561,6 +573,19 @@ function runGraphInternal(
     registry,
     opts.analysts,
   )
+  // A caller brain and a harness driver are two answers to WHO makes the root's calls: refuse
+  // the contradiction before any compute, and refuse a harness-driven root outright — the
+  // harness IS that root's brain, so a supplied one would be silently ignored downstream.
+  if (brain && opts.driverBackend) {
+    throw new ValidationError(
+      'runGraph: brain and driverBackend are mutually exclusive — a caller brain makes the root model calls, a driverBackend places a harness that makes its own',
+    )
+  }
+  if (brain && harnessRunsAgent(root.profile.harness)) {
+    throw new ValidationError(
+      `runGraph: root node '${root.id}' declares harness '${root.profile.harness}', so the harness drives it — a caller brain applies only to a router-brained root (profile.harness omitted or 'cli-base')`,
+    )
+  }
   if (!opts.backend && !opts.makeWorkerAgent) {
     throw new ValidationError(
       'runGraph: provide opts.backend (where nodes run) or opts.makeWorkerAgent',
@@ -986,11 +1011,11 @@ function runGraphInternal(
       ...(opts.allowedModels ? { allowedModels: opts.allowedModels } : {}),
     } satisfies SuperviseOptions
     const result =
-      testBrain === undefined
+      brain === undefined
         ? await supervise(rootProfile, graphTask(graph, root), superviseOptions)
         : await superviseWithTestBrain(rootProfile, graphTask(graph, root), {
             ...superviseOptions,
-            brain: testBrain,
+            brain,
           })
 
     // A spawn row is PROVISIONAL until the `agent.spawn` hook (fired synchronously once a worker

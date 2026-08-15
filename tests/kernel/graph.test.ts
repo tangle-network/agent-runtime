@@ -48,7 +48,11 @@ import { describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ValidationError } from '../../src/errors'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../src/mcp/tools/coordination'
-import { type AgentGraph, GraphEdgeCapError } from '../../src/runtime/supervise/graph'
+import {
+  type AgentGraph,
+  GraphEdgeCapError,
+  runGraph as productionRunGraph,
+} from '../../src/runtime/supervise/graph'
 import {
   analyzesFindingsReportPrompt,
   createPromptRegistry,
@@ -1253,6 +1257,143 @@ describe('runGraph — driverBackend selects WHERE the root harness brain runs',
         driverBackend: bridge({ sessionId: 'SHARED' }),
       }),
     ).rejects.toThrow(/driveHarnessFromBackend: fixed sessionId.*isolated id/)
+  })
+})
+
+describe('runGraph — the caller-brain seam on the production surface (#694 option A)', () => {
+  /** The driver's three decisions, identical across both arms: spawn, await the settle, stop. */
+  const driverDecisions = [
+    {
+      toolCalls: [
+        { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+      ],
+    },
+    { toolCalls: [{ name: 'await_event', arguments: {} }] },
+    { content: 'done' },
+  ]
+
+  /** The same three decisions as raw OpenAI-shape responses for the injected router transport. */
+  const scriptedComplete = () => {
+    let turn = 0
+    return async (): Promise<unknown> => {
+      const decision = driverDecisions[Math.min(turn, driverDecisions.length - 1)]!
+      turn += 1
+      return {
+        model: 'offline-test-model',
+        choices: [
+          {
+            message: {
+              ...(decision.content !== undefined ? { content: decision.content } : {}),
+              ...(decision.toolCalls
+                ? {
+                    tool_calls: decision.toolCalls.map((tc, j) => ({
+                      id: `call-${turn}-${j}`,
+                      function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+                    })),
+                  }
+                : {}),
+            },
+          },
+        ],
+        usage: { prompt_tokens: 7, completion_tokens: 3 },
+      }
+    }
+  }
+
+  it('a caller brain drives the 2-node graph to completion and the ledger matches the router-brained run row for row', async () => {
+    // Both arms run the PRODUCTION entry: same graph, same runId, same leaf seam, pinned clock.
+    // Only WHO makes the root's model calls differs — the injected router transport vs. the
+    // caller's brain — so any ledger difference would be the seam leaking into the record.
+    const runArm = async (arm: 'router' | 'caller') => {
+      const journal = new InMemorySpawnJournal()
+      const received: AgentProfile[] = []
+      const res = await productionRunGraph(twoNodeGraph(), {
+        runId: 'gcb',
+        journal,
+        makeWorkerAgent: leafSeam(received),
+        now: () => 1_700_000_000_000,
+        ...(arm === 'caller'
+          ? { brain: scriptedBrain(driverDecisions) }
+          : {
+              router: {
+                routerBaseUrl: 'http://injected.invalid/v1',
+                routerKey: 'injected-transport',
+                complete: scriptedComplete(),
+              },
+            }),
+      })
+      const events = (await journal.loadTree('gcb')) ?? []
+      const edgeEvents = events.filter(
+        (ev): ev is Extract<SpawnEvent, { kind: 'edge' }> => ev.kind === 'edge',
+      )
+      return { res, edgeEvents }
+    }
+
+    const router = await runArm('router')
+    const caller = await runArm('caller')
+
+    // Both arms complete with the worker's delivered artifact.
+    expect(router.res.result.kind).toBe('winner')
+    expect(caller.res.result.kind).toBe('winner')
+    if (router.res.result.kind === 'winner' && caller.res.result.kind === 'winner') {
+      expect(caller.res.result.out).toEqual(router.res.result.out)
+    }
+
+    // The edge ledger is IDENTICAL row for row — outcome, bytes, worker binding, continuity.
+    expect(caller.res.ledger).toEqual(router.res.ledger)
+    expect(caller.res.ledger).toHaveLength(1)
+    expect(caller.res.ledger[0]).toMatchObject({
+      edge: 'delegates:driver->worker',
+      outcome: 'delivered',
+      workerId: 'gcb:s0',
+    })
+    expect(caller.res.exhaustedEdges).toEqual(router.res.exhaustedEdges)
+    expect(caller.res.runId).toBe(router.res.runId)
+
+    // The journal's edge twin is identical too (the clock is pinned, so `at` cannot differ).
+    expect(caller.edgeEvents).toEqual(router.edgeEvents)
+  })
+
+  it('omitting the brain leaves the router-brained default in force — no router config still refuses', async () => {
+    await expect(
+      productionRunGraph(twoNodeGraph(), { runId: 'gcb-d', makeWorkerAgent: leafSeam([]) }),
+    ).rejects.toThrow(/router/)
+  })
+
+  it('refuses brain + driverBackend — two answers to who makes the root model calls', () => {
+    expect(() =>
+      productionRunGraph(twoNodeGraph(), {
+        runId: 'gcb-x',
+        makeWorkerAgent: leafSeam([]),
+        brain: scriptedBrain(driverDecisions),
+        driverBackend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: 'b' },
+      }),
+    ).toThrow(/brain and driverBackend are mutually exclusive/)
+  })
+
+  it('refuses a caller brain on an external-harness root — the harness IS that brain', () => {
+    const graph = twoNodeGraph({
+      nodes: [
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', {
+            harness: 'codex',
+            prompt: { systemPrompt: 'Drive.' },
+          }),
+        },
+        {
+          id: 'worker',
+          profile: testAgentProfile('worker', { prompt: { systemPrompt: 'Build.' } }),
+        },
+      ],
+    })
+    expect(() =>
+      productionRunGraph(graph, {
+        runId: 'gcb-h',
+        makeWorkerAgent: leafSeam([]),
+        brain: scriptedBrain(driverDecisions),
+      }),
+    ).toThrow(/harness 'codex'/)
   })
 })
 
