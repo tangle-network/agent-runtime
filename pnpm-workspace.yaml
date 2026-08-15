@@ -22,7 +22,7 @@ catalog:
   '@types/node': 26.1.1
   '@tangle-network/agent-eval': 0.145.11
   '@tangle-network/agent-interface': 0.52.0
-  '@tangle-network/agent-knowledge': 7.2.6
+  '@tangle-network/agent-knowledge': 8.0.0
   '@tangle-network/agent-profile-materialize': 0.14.2
   '@tangle-network/agent-trace-contract': ^1.0.2
   '@tangle-network/sandbox': 0.26.1
