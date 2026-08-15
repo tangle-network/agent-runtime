@@ -4,7 +4,7 @@
 
 Use this when a web route must stream one turn to a browser and save the reply.
 `handleChatTurn` owns the framing every chat product hand-rolls: NDJSON lines, a start and finish envelope, and one persist call after the last token.
-You give it how to produce the tokens and how to save the final text.
+You give it how to produce the response and how to persist it; it streams, traces, and persists.
 
 Use a sibling instead when you do not need the HTTP layer.
 
