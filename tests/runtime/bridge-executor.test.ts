@@ -479,8 +479,8 @@ describe('bridgeExecutor over node:http', () => {
       },
     })
     expect(runtimeOwnedExecutorProviderEvidence(executor)).toMatchObject({
-      status: 'known',
-      attempts: [{ observations: ['pi/tangle-router/deepseek-v4-flash'] }],
+      status: 'unknown',
+      attempts: [{ observations: [] }],
     })
     expect(executor.resultArtifact().out).toMatchObject({ content: 'accepted answer' })
   })

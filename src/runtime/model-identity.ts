@@ -45,6 +45,11 @@ export function canonicalObservedModel(model: string): string | undefined {
   return identity.snapshot === undefined ? base : `${base}@${identity.snapshot}`
 }
 
+/** Return whether an observed identity includes a provider snapshot. */
+export function observedModelHasSnapshot(model: string): boolean {
+  return modelIdentityParts(model)?.snapshot !== undefined
+}
+
 function modelIdentityParts(model: string): ModelIdentityParts | null {
   if (model.length === 0) return null
   const at = model.lastIndexOf('@')

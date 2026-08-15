@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { mergeObservedModelIdentity, observedModelMatchesDeclared } from './model-identity'
+import {
+  mergeObservedModelIdentity,
+  observedModelHasSnapshot,
+  observedModelMatchesDeclared,
+} from './model-identity'
 
 describe('served model identity', () => {
   it.each([
@@ -22,6 +26,15 @@ describe('served model identity', () => {
         'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402',
       ),
     ).toBe('deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402')
+  })
+
+  it.each([
+    ['deepseek-v4-flash', false],
+    ['pi/tangle-router/deepseek-v4-flash', false],
+    ['deepseek/deepseek-v4-flash@fp_a', true],
+    ['deepseek/deepseek-v4-flash@', false],
+  ])('identifies snapshot-bearing observations in %s as %s', (model, expected) => {
+    expect(observedModelHasSnapshot(model)).toBe(expected)
   })
 
   it.each([
