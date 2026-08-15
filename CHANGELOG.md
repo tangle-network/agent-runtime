@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.135.0
+
+### workerFromBackend honors `continuity: 'resume'` on the bridge backend
+
+The backend-derived worker seam re-attaches cli-bridge sessions (#694, the chat-transport resume executor's bridge arm).
+A bridge session id IS the harness conversation key — cli-bridge maps it to the CLI's own resume (opencode `-s <id>`, claude `--resume`) — so a resume spawn is real session re-attachment, never a fresh session wearing a `resume` stamp.
+
+- `workerFromBackend` records the session id each supervised bridge spawn was bound to, keyed by the worker id the Scope assigned. A `continuity: 'resume'` spawn binds the prior worker's recorded session id (`spawnContext.resume.ofWorker`) instead of deriving a fresh one, so the new worker continues the exact harness conversation. A fresh → resume → resume chain stays on ONE session.
+- The record is process-local by construction, which matches the kernel's documented resume boundary: a prior process's workers are not resume targets.
+- Fail-loud contract unchanged everywhere else: a non-bridge backend still refuses a resume spawn (its executors have no re-attachable session), and a resume of a worker this seam never bound a session for refuses by name. Every refusal throws BEFORE a worker exists, so the kernel never ledgers `continuity: 'resume'` over a session that was not re-attached.
+- `runGraph` handed a `backend: 'bridge'` config now honors a delegates edge's `continuity: 'resume'` natively — the revise-edge pattern (write fresh, revise by resuming the writer's session) runs without a custom `makeWorkerAgent`.
+- FIX, found by the live proof: the derived external session id now scopes by the spawning manager node. Assignment ordinals restart at `ordinal:0` under every manager, so the unscoped digest mapped worker 1 of EVERY run — and of every sibling manager — to ONE bridge session id; on a bridge with a persistent session store, a `'fresh'` spawn then silently continued a foreign run's harness conversation (measured live: three separate runs shared one claude conversation, `turns: 6`). Durable recovery within a run is unchanged (a replay re-issues the same manager node id and assignments). Migration: a journaled run from an older version replayed under this version derives DIFFERENT session ids and will not re-attach its old harness sessions.
+
 ## 0.134.4
 
 - Consume Core 0.8.0, Eval 0.145.11, Interface 0.52.0, Knowledge 7.2.6, Profile Materialize 0.14.2, and Sandbox 0.26.1 as one compatible dependency set.

@@ -26078,6 +26078,16 @@ construction, so a caller may hand back something the run only learns later — 
 `supervise()` gives a traced run's workers their trace context without ordering the span recorder
 ahead of the worker seam.
 
+Continuity: the `bridge` backend honors `continuity: 'resume'` by session re-attachment. A
+bridge session id IS the harness conversation key (cli-bridge maps it to the CLI's own resume —
+opencode `-s <id>`, claude `--resume`), so this seam records the session id each supervised
+spawn was bound to, keyed by the worker id the Scope assigned, and a resume spawn binds the
+prior worker's recorded session id instead of deriving a fresh one. The record is process-local
+by construction, which matches the kernel's resume boundary (a prior process's workers are not
+resume targets). Every other backend keeps failing loud: their executors have no re-attachable
+session, and accepting the spawn would ledger `continuity: 'resume'` over a brand-new session —
+a stamp asserting something that never happened.
+
 #### Parameters
 
 ##### backend

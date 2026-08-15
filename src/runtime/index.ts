@@ -555,8 +555,9 @@ export {
 } from './supervise/budget'
 // The chat-transport leaf (#721): a worker that IS a model conversation on a bare
 // OpenAI-compatible /v1/chat/completions endpoint — no sandbox. Ships with its session store and
-// the continuity-honoring `makeWorkerAgent` seam (the resume consumer `workerFromBackend`
-// refuses to be), so conversation graphs and chat-shot loops compose from data.
+// the continuity-honoring `makeWorkerAgent` seam. `workerFromBackend` resumes only bridge-backed
+// workers; this leaf resumes its own sessions, so conversation graphs and chat-shot loops
+// compose from data on any transport.
 export {
   type ChatCompletionsTransport,
   type ChatSessionStore,

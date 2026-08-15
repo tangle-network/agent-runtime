@@ -10,11 +10,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createExecutor, type ExecutorConfig, inlineSandboxClient } from '../../src/runtime'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
+import type { AgentGraph } from '../../src/runtime/supervise/graph'
 import {
   runtimeOwnedExecutorMaterialization,
   runtimeOwnedExecutorProviderEvidence,
   runtimeOwnedPendingExecutorMaterialization,
 } from '../../src/runtime/supervise/materialization'
+import { promptHandle } from '../../src/runtime/supervise/prompt-registry'
 import {
   bridgeExecutor,
   bridgeStopSignalKey,
@@ -23,6 +25,9 @@ import {
 import { createScope } from '../../src/runtime/supervise/scope'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
 import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
+import { runGraph } from '../helpers/runtime-with-test-brain'
+import { scriptedBrain } from '../kernel/scripted-brain'
+import { testAgentProfile } from '../kernel/test-agent-profile'
 
 // `bridgeExecutor` POSTs each turn over the `node:http` core client, not global
 // `fetch`: the bridge runs a harness CLI and streams only once it starts
@@ -1421,5 +1426,180 @@ describe('profile-selected model keeps its provider', () => {
         model: { provider: 'tangle-router', default: HARNESS_NATIVE_MODEL },
       }),
     ).rejects.toThrow(/model\.default is runtime-selected/)
+  })
+})
+
+describe('workerFromBackend continuity — bridge session re-attachment', () => {
+  afterEach(() => {
+    bridgeHttpHandler = null
+  })
+
+  const bridgeBackend = {
+    backend: 'bridge' as const,
+    bridgeUrl: 'http://bridge.test',
+    bridgeBearer: 'secret',
+  }
+  const nodeCtx = (nodeId: string) => ({
+    signal: new AbortController().signal,
+    seams: {},
+    node: { rootId: 'root', parentId: 'root', nodeId, attemptId: `attempt-${nodeId}` },
+  })
+  const spawnCtx = (assignmentId: string, extra: Record<string, unknown> = {}) => ({
+    assignmentId,
+    parentNodeId: 'root',
+    budget: { maxIterations: 1, maxTokens: 100 },
+    task: 'go',
+    label: 'worker',
+    ...extra,
+  })
+
+  it("re-attaches the prior worker's bridge session across a fresh → resume → resume chain", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    const make = workerFromBackend(bridgeBackend)
+    const spawns: Array<[string, Record<string, unknown>]> = [
+      ['w1', spawnCtx('ordinal:0', { continuity: 'fresh' })],
+      [
+        'w2',
+        spawnCtx('ordinal:1', { continuity: 'resume', resume: { ofWorker: 'w1', sequence: 2 } }),
+      ],
+      [
+        'w3',
+        spawnCtx('ordinal:2', { continuity: 'resume', resume: { ofWorker: 'w2', sequence: 3 } }),
+      ],
+    ]
+    for (const [nodeId, context] of spawns) {
+      const worker = make(exactBridgeProfile('worker', 'safe-model'), context as never) as Agent<
+        unknown,
+        unknown
+      > & { executorSpec: AgentSpec }
+      const executor = worker.executorSpec.executorFactory?.(worker.executorSpec, nodeCtx(nodeId))
+      if (!executor) throw new Error('worker executor factory missing')
+      await drainExecutor(executor)
+    }
+
+    expect(seen).toHaveLength(3)
+    const sessions = seen.map((request) => request.session_id)
+    expect(sessions[0]).toMatch(/^supervised-worker-[a-f0-9]{64}$/)
+    // Re-attachment on the wire: every resumed turn carries the FIRST worker's session id, so
+    // cli-bridge continues the same harness conversation instead of opening a new one.
+    expect(sessions[1]).toBe(sessions[0])
+    expect(sessions[2]).toBe(sessions[0])
+  })
+
+  it('isolates equal assignment ordinals under different managers into different sessions', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    // Two runs (or two sibling managers) both issue 'ordinal:0'. Without manager scoping the
+    // derived session id collides and a 'fresh' spawn continues a FOREIGN harness conversation
+    // wherever the bridge session store persists.
+    for (const parent of ['run-a:root', 'run-b:root']) {
+      const worker = workerFromBackend(bridgeBackend)(
+        exactBridgeProfile('worker', 'safe-model'),
+        spawnCtx('ordinal:0', { parentNodeId: parent }) as never,
+      ) as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+      const executor = worker.executorSpec.executorFactory?.(worker.executorSpec, nodeCtx(parent))
+      if (!executor) throw new Error('worker executor factory missing')
+      await drainExecutor(executor)
+    }
+    expect(seen).toHaveLength(2)
+    expect(seen[0]?.session_id).not.toBe(seen[1]?.session_id)
+  })
+
+  it('refuses a resume of a worker this seam never bound a session for', () => {
+    const make = workerFromBackend(bridgeBackend)
+    expect(() =>
+      make(
+        exactBridgeProfile('worker', 'safe-model'),
+        spawnCtx('ordinal:0', {
+          continuity: 'resume',
+          resume: { ofWorker: 'ghost', sequence: 2 },
+        }) as never,
+      ),
+    ).toThrow(/no recorded bridge session for worker 'ghost'/)
+  })
+
+  it('keeps failing loud on a backend whose sessions cannot be re-attached', () => {
+    const make = workerFromBackend({
+      backend: 'router',
+      routerBaseUrl: 'http://router.test',
+      routerKey: 'key',
+    })
+    expect(() =>
+      make(
+        testAgentProfile('worker', { harness: 'cli-base' }),
+        spawnCtx('ordinal:0', {
+          continuity: 'resume',
+          resume: { ofWorker: 'w1', sequence: 2 },
+        }) as never,
+      ),
+    ).toThrow(/'router' backend seam does not re-attach sessions/)
+  })
+
+  it("runGraph over a bridge backend: a resume edge re-attaches the session and ledgers 'resume' with the wire as witness", async () => {
+    const seen: Array<Record<string, unknown>> = []
+    bridgeHttpHandler = (payload) => {
+      seen.push(payload)
+      return sse('ok', 1, 2)
+    }
+    const graph: AgentGraph = {
+      nodes: [
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', {
+            harness: 'cli-base',
+            prompt: { systemPrompt: 'Drive the worker until it delivers.' },
+          }),
+        },
+        { id: 'worker', profile: exactBridgeProfile('worker', 'safe-model') },
+      ],
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'worker',
+          directive: promptHandle('delegates/worker-brief/v1'),
+          maxTraversals: 3,
+          continuity: 'resume',
+        },
+      ],
+      deliverable: { describe: 'the built artifact', check: (out) => out !== undefined },
+      budget: { maxIterations: 20, maxTokens: 50_000 },
+    }
+    const spawnTurn = (task: string) => ({
+      toolCalls: [{ name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task } }],
+    })
+    const awaitTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
+    const res = await runGraph(graph, {
+      runId: 'bridge-resume',
+      journal: new InMemorySpawnJournal(),
+      backend: bridgeBackend,
+      brain: scriptedBrain([
+        spawnTurn('shot 1'),
+        awaitTurn,
+        spawnTurn('shot 2'),
+        awaitTurn,
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+
+    // The kernel ledgered the SECOND traversal as 'resume' and the wire proves the claim: both
+    // worker turns carried one bridge session id, so the stamp records a real re-attachment.
+    const rows = res.ledger.filter((row) => row.kind === 'delegates')
+    expect(rows.map((row) => [row.traversal, row.outcome, row.continuity])).toEqual([
+      [1, 'delivered', 'fresh'],
+      [2, 'delivered', 'resume'],
+    ])
+    expect(rows[0]?.workerId).not.toBe(rows[1]?.workerId)
+    expect(seen).toHaveLength(2)
+    expect(seen[0]?.session_id).toMatch(/^supervised-worker-[a-f0-9]{64}$/)
+    expect(seen[1]?.session_id).toBe(seen[0]?.session_id)
   })
 })
