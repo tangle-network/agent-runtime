@@ -1,5 +1,9 @@
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  type InteractionRequestMaterial,
+  interactionRequestDigest,
+} from '@tangle-network/agent-interface'
 import type {
   BackendType,
   CreateSandboxOptions,
@@ -28,7 +32,113 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return out
 }
 
+function permissionRequest(): InteractionRequestMaterial & { requestDigest: string } {
+  const material: InteractionRequestMaterial = {
+    id: 'interaction-1',
+    kind: 'permission',
+    title: 'Run command?',
+    body: 'The agent wants to run a command.',
+    answerSpec: {
+      fields: [{ type: 'boolean', name: 'allow', label: 'Allow', required: true }],
+    },
+    binding: {
+      runId: 'run-1',
+      provider: 'tangle-sandbox',
+      environmentId: 'environment-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      interactionId: 'interaction-1',
+    },
+  }
+  return { ...material, requestDigest: interactionRequestDigest(material) }
+}
+
 describe('environment provider adapters', () => {
+  it('preserves per-turn interactions and canonical control events through Sandbox', async () => {
+    let optionsSeen: Record<string, unknown> | undefined
+    const request = permissionRequest()
+    const plan = {
+      id: 'plan-1',
+      revision: 1,
+      body: 'Inspect the repository, then run the focused tests.',
+      submittedAt: '2026-08-15T00:00:00.000Z',
+    }
+    const box = {
+      id: 'sandbox-interactions',
+      status: 'running',
+      async *streamPrompt(
+        _prompt: unknown,
+        options?: Record<string, unknown>,
+      ): AsyncIterable<SandboxEvent> {
+        optionsSeen = options
+        yield { type: 'interaction', data: { request } }
+        yield { type: 'interaction.cancel', data: { id: request.id, reason: 'superseded' } }
+        yield { type: 'plan.submitted', data: { plan } }
+        yield { type: 'vendor.control.waiting', data: { phase: 'approval' } }
+        yield { type: 'done', data: {} }
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }
+    const environment = await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+    })
+
+    const events = await collect(
+      environment.stream({
+        prompt: 'continue',
+        interactions: { permission: true, question: false, plan: true },
+      }),
+    )
+
+    expect(optionsSeen).toMatchObject({
+      backend: { interactions: { permission: true, question: false, plan: true } },
+    })
+    expect(events[0]?.normalized).toEqual({ type: 'interaction', request })
+    expect(events[1]?.normalized).toEqual({
+      type: 'interaction.cancel',
+      id: request.id,
+      reason: 'superseded',
+    })
+    expect(events[2]?.normalized).toEqual({ type: 'plan.submitted', plan })
+    expect(events[3]?.type).toBe('vendor.control.waiting')
+    expect(events[3]?.normalized).toBeUndefined()
+    expect(events[3]?.providerEvent).toMatchObject({
+      type: 'vendor.control.waiting',
+      data: { phase: 'approval' },
+    })
+  })
+
+  it('preserves interactions when Sandbox prompt options enter a neutral provider', async () => {
+    let inputSeen: AgentTurnInput | undefined
+    const provider: AgentEnvironmentProvider = {
+      name: 'neutral-provider',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (input): AsyncIterable<AgentEnvironmentEvent> {
+            inputSeen = input
+            yield { type: 'result', data: { finalText: 'ok' } }
+          },
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { profile: { name: 'worker' } },
+    })
+
+    await collect(
+      box.streamPrompt('continue', {
+        backend: { interactions: { permission: true, question: true, plan: false } },
+      }),
+    )
+
+    expect(inputSeen?.interactions).toEqual({ permission: true, question: true, plan: false })
+  })
+
   it('adapts a neutral provider to SandboxClient without losing profile/backend/dispatch data', async () => {
     let created: unknown
     let turn: AgentTurnInput | undefined

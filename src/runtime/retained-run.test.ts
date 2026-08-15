@@ -319,7 +319,11 @@ describe('retained runtime run control', () => {
     const run = await startRetainedRunInEnvironment({
       provider,
       environment: { id: 'environment-1', idempotencyKey: 'durable-environment-key' },
-      turn: { prompt: 'inspect the existing workspace', turnId: 'fresh-workspace-turn' },
+      turn: {
+        prompt: 'inspect the existing workspace',
+        interactions: { permission: true, question: true, plan: false },
+        turnId: 'fresh-workspace-turn',
+      },
       onAdmission: recorder.onAdmission,
     })
 
@@ -329,6 +333,7 @@ describe('retained runtime run control', () => {
     expect(listQueries).toEqual([{ retainedIdempotencyKey: 'durable-environment-key' }])
     expect(dispatched).toEqual({
       prompt: 'inspect the existing workspace',
+      interactions: { permission: true, question: true, plan: false },
       turnId: 'fresh-workspace-turn',
       detach: true,
       ...identity,
@@ -476,6 +481,7 @@ describe('retained runtime run control', () => {
     })
     const staleTurn = {
       prompt: 'fresh prompt',
+      interactions: { permission: true, question: false, plan: true },
       turnId: 'fresh-turn',
       runId: 'old-run',
       sessionId: 'old-session',
@@ -497,6 +503,7 @@ describe('retained runtime run control', () => {
 
     expect(recorded).toEqual({
       prompt: 'fresh prompt',
+      interactions: { permission: true, question: false, plan: true },
       turnId: 'fresh-turn',
       detach: true,
       sessionId: controlRef.sessionId,

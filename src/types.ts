@@ -22,6 +22,7 @@ import type {
   TraceStore,
   UserQuestion,
 } from '@tangle-network/agent-eval'
+import type { StreamEvent } from '@tangle-network/agent-interface'
 
 /** @stable */
 export interface AgentTaskSpec {
@@ -276,8 +277,22 @@ export type OpenAIChatResponseFormat =
   | { type: 'json_object' }
   | { type: 'json_schema'; json_schema: Record<string, unknown> }
 
+/**
+ * Agent Interface events that do not belong to Runtime's task vocabulary.
+ *
+ * The canonical event remains the payload authority. Runtime metadata is
+ * optional so existing stream consumers can continue to handle the event as
+ * an Agent Interface `StreamEvent`.
+ */
+export type RuntimeCanonicalStreamEvent = StreamEvent & {
+  task?: AgentTaskSpec
+  session?: RuntimeSession
+  timestamp?: string
+}
+
 /** @stable */
 export type RuntimeStreamEvent =
+  | RuntimeCanonicalStreamEvent
   | { type: 'task_start'; task: AgentTaskSpec; timestamp: string }
   | { type: 'readiness_start'; task: AgentTaskSpec; timestamp: string }
   | {

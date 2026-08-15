@@ -62,7 +62,13 @@ import type {
   RuntimeSession,
   RuntimeStreamEvent,
 } from '../types'
-import { createSandboxToolPartState, mapSandboxEvent, mapSandboxToolEvent } from './sandbox-events'
+import {
+  canonicalStreamEventFromSandboxEvent,
+  createSandboxToolPartState,
+  mapSandboxEvent,
+  mapSandboxToolEvent,
+  unknownSandboxEventAsRaw,
+} from './sandbox-events'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
   authoredProfileDigest,
@@ -850,16 +856,38 @@ async function* driveBoxTurn(
     if (cfg.onRawEvent) await cfg.onRawEvent(event)
     const terminalText = terminalTextFromSandboxEvent(event)
     if (terminalText !== undefined) acc.terminalText = terminalText
+    let emittedToolEvent = false
     if (toolParts) {
-      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) yield toolEvent
+      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) {
+        emittedToolEvent = true
+        yield toolEvent
+      }
     }
     const mapped = mapSandboxEvent(event, { agentRunName })
-    if (!mapped) continue
-    // `mapSandboxEvent` stamps `agentRunName` as the model label when the
-    // event carried none — a run label, not a reported model. Exclude it from
-    // the terminal usage so `usage.model` is never a fabricated value.
-    foldEvent(mapped, acc, agentRunName)
-    yield mapped
+    if (mapped) {
+      // `mapSandboxEvent` stamps `agentRunName` as the model label when the
+      // event carried none — a run label, not a reported model. Exclude it from
+      // the terminal usage so `usage.model` is never a fabricated value.
+      foldEvent(mapped, acc, agentRunName)
+      yield mapped
+      continue
+    }
+
+    const canonical = canonicalStreamEventFromSandboxEvent(event)
+    if (canonical && canonical.type !== 'message.part.updated') {
+      yield canonical
+      continue
+    }
+    // Tool parts have their existing opt-in projection. Do not duplicate them
+    // as raw events, but retain every other unmapped provider event.
+    if (
+      !emittedToolEvent &&
+      !canonical &&
+      !isTerminalSandboxEvent(event) &&
+      !isToolPartSandboxEvent(event)
+    ) {
+      yield unknownSandboxEventAsRaw(event)
+    }
   }
 }
 
@@ -1093,6 +1121,21 @@ function terminalTextFromSandboxEvent(event: SandboxEvent): string | undefined {
     if (typeof value === 'string') return value
   }
   return undefined
+}
+
+function isTerminalSandboxEvent(event: SandboxEvent): boolean {
+  const type = String(event?.type ?? '')
+  return type === 'result' || type === 'done' || type === 'final'
+}
+
+function isToolPartSandboxEvent(event: SandboxEvent): boolean {
+  if (String(event?.type ?? '') !== 'message.part.updated') return false
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : undefined
+  const part = data?.part
+  return part !== null && typeof part === 'object' && (part as { type?: unknown }).type === 'tool'
 }
 
 function buildFinalEvent(

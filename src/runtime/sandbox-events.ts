@@ -12,8 +12,87 @@
  * Both live here so the empirically-observed `type` vocabulary has one home.
  */
 
+import { CanonicalStreamEventSchema, type StreamEvent } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
+import { parseCanonicalTransportEvent } from './sandbox-transport-events'
+
+const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'message.part.updated',
+  'tool-heartbeat',
+  'tool-slow',
+  'model-processing',
+  'status',
+  'warning',
+  'raw',
+  'session.updated',
+  'interaction',
+  'interaction.cancel',
+  'plan.submitted',
+])
+
+/**
+ * Decode the Agent Interface event carried by a Sandbox event, when the
+ * outer type is part of the canonical vocabulary. Unknown provider events
+ * remain opaque and are handled by `unknownSandboxEventAsRaw`.
+ */
+export function canonicalStreamEventFromSandboxEvent(event: SandboxEvent): StreamEvent | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+  const normalized = data.normalized
+  if (normalized === undefined && !CANONICAL_STREAM_EVENT_TYPES.has(type)) return undefined
+  return parseCanonicalTransportEvent(type, data, normalized, 'sandbox')
+}
+
+/**
+ * Preserve an event that has no known projection as a bounded canonical raw
+ * event. The payload is JSON-safe before it reaches Runtime's stream.
+ */
+export function unknownSandboxEventAsRaw(
+  event: SandboxEvent,
+): Extract<StreamEvent, { type: 'raw' }> {
+  const type = String(event?.type ?? '')
+  const data =
+    event?.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : event?.data
+  const payload = boundedJsonSnapshot({
+    type,
+    ...(data === undefined ? {} : { data }),
+    ...(event?.id === undefined ? {} : { id: event.id }),
+  })
+  const parsed = CanonicalStreamEventSchema.safeParse({
+    type: 'raw',
+    backend: 'sandbox',
+    event: payload,
+  })
+  if (parsed.success && parsed.data.type === 'raw') return parsed.data
+  return {
+    type: 'raw',
+    backend: 'sandbox',
+    event: { type, data: '[unserializable or oversized provider event]' },
+  }
+}
+
+const MAX_RAW_EVENT_JSON_LENGTH = 64 * 1024
+
+function boundedJsonSnapshot(value: unknown): unknown {
+  try {
+    const serialized = JSON.stringify(value, (_key, child) =>
+      typeof child === 'bigint' ? `${child}n` : child,
+    )
+    if (serialized === undefined || serialized.length > MAX_RAW_EVENT_JSON_LENGTH) {
+      return '[unserializable or oversized provider event]'
+    }
+    return JSON.parse(serialized) as unknown
+  } catch {
+    return '[unserializable or oversized provider event]'
+  }
+}
 
 /**
  * Forward a sandbox event to an optional observer without letting observer

@@ -38,6 +38,7 @@ import type {
   ExecResult as SandboxExecResult,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+import { canonicalStreamEventFromSandboxEvent } from './sandbox-events'
 import type {
   Executor,
   ExecutorContext,
@@ -897,10 +898,12 @@ function environmentEventFromSandboxEvent(event: SandboxEvent): AgentEnvironment
     event.data && typeof event.data === 'object'
       ? (event.data as Record<string, unknown>)
       : ({} as Record<string, unknown>)
+  const normalized = canonicalStreamEventFromSandboxEvent(event)
   return {
     type: String(event.type),
     data,
     ...(event.id ? { id: event.id } : {}),
+    ...(normalized ? { normalized } : {}),
     usage: tokenUsageFromData(data),
     providerEvent: event,
   }
@@ -998,6 +1001,9 @@ function turnInputFromPrompt(
     ...(options?.turnId ? { turnId: options.turnId } : {}),
     ...(options?.detach !== undefined ? { detach: options.detach } : {}),
     ...(options?.context ? { context: options.context } : {}),
+    ...(options?.backend?.interactions !== undefined
+      ? { interactions: options.backend.interactions }
+      : {}),
     ...(options?.signal ? { signal: options.signal } : {}),
     ...(options?.backend ? { providerOptions: { backend: options.backend } } : {}),
   }
@@ -1027,6 +1033,16 @@ function promptPartFromInputPart(part: InputPart): PromptInputPart {
 }
 
 function promptOptionsFromTurnInput(input: AgentTurnInput): PromptOptions {
+  const providerBackend =
+    input.providerOptions?.backend &&
+    typeof input.providerOptions.backend === 'object' &&
+    !Array.isArray(input.providerOptions.backend)
+      ? (input.providerOptions.backend as NonNullable<PromptOptions['backend']>)
+      : undefined
+  const backend = {
+    ...(providerBackend ?? {}),
+    ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
+  }
   return {
     ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     ...(input.model ? { model: input.model } : {}),
@@ -1037,6 +1053,7 @@ function promptOptionsFromTurnInput(input: AgentTurnInput): PromptOptions {
     ...(input.lastEventId ? { lastEventId: input.lastEventId } : {}),
     ...(input.turnId ? { turnId: input.turnId } : {}),
     ...(input.detach !== undefined ? { detach: input.detach } : {}),
+    ...(Object.keys(backend).length > 0 ? { backend } : {}),
   }
 }
 

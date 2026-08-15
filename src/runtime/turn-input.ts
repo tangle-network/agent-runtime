@@ -24,6 +24,7 @@ export function freshTurnInput(
     ...(input.model === undefined ? {} : { model: input.model }),
     ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
     ...(input.context === undefined ? {} : { context: input.context }),
+    ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
     ...(input.providerOptions === undefined ? {} : { providerOptions: input.providerOptions }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
     turnId: runtime.turnId,

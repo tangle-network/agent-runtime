@@ -7,6 +7,10 @@
  * paths. No network, no credentials.
  */
 
+import {
+  type InteractionRequestMaterial,
+  interactionRequestDigest,
+} from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
@@ -26,6 +30,26 @@ function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'fi
   const final = events.at(-1)
   if (final?.type !== 'final') throw new Error('no terminal final event')
   return final
+}
+
+function interactionRequest(): InteractionRequestMaterial & { requestDigest: string } {
+  const material: InteractionRequestMaterial = {
+    id: 'interaction-1',
+    kind: 'permission',
+    title: 'Run command?',
+    answerSpec: {
+      fields: [{ type: 'boolean', name: 'allow', label: 'Allow', required: true }],
+    },
+    binding: {
+      runId: 'run-1',
+      provider: 'sandbox',
+      environmentId: 'environment-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      interactionId: 'interaction-1',
+    },
+  }
+  return { ...material, requestDigest: interactionRequestDigest(material) }
 }
 
 describe('streamAgentTurn: box backend', () => {
@@ -80,6 +104,47 @@ describe('streamAgentTurn: box backend', () => {
       'llm_call',
       'final',
     ])
+  })
+
+  it('streams canonical interaction controls and preserves unknown control events', async () => {
+    const request = interactionRequest()
+    const plan = {
+      id: 'plan-1',
+      revision: 1,
+      body: 'Inspect the repository, then run the focused tests.',
+      submittedAt: '2026-08-15T00:00:00.000Z',
+    }
+    const box = await makeBox([
+      { type: 'interaction', data: { request } },
+      { type: 'interaction.cancel', data: { id: request.id, reason: 'superseded' } },
+      { type: 'plan.submitted', data: { plan } },
+      { type: 'vendor.control.waiting', data: { phase: 'approval' } },
+      { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 1 } } },
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(streamObservedAgentTurn({ kind: 'box', box }, 'continue'))
+
+    expect(turn.events.map((event) => event.type)).toEqual([
+      'backend_start',
+      'interaction',
+      'interaction.cancel',
+      'plan.submitted',
+      'raw',
+      'llm_call',
+      'final',
+    ])
+    expect(turn.events[1]).toEqual({ type: 'interaction', request })
+    expect(turn.events[2]).toEqual({
+      type: 'interaction.cancel',
+      id: request.id,
+      reason: 'superseded',
+    })
+    expect(turn.events[3]).toEqual({ type: 'plan.submitted', plan })
+    expect(turn.events[4]).toMatchObject({
+      type: 'raw',
+      backend: 'sandbox',
+      event: { type: 'vendor.control.waiting', data: { phase: 'approval' } },
+    })
   })
 
   it('surfaces a throwing box as backend_error + final failed (never throws)', async () => {
@@ -319,6 +384,7 @@ describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
     expect(log).toEqual([
       'mapped:backend_start',
       'raw:message.part.updated',
+      'mapped:raw',
       'raw:message.part.updated',
       'mapped:text_delta',
       'raw:done',
