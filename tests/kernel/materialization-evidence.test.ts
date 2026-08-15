@@ -11,7 +11,9 @@ import {
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import {
   attestRuntimeOwnedExecutor,
+  attestRuntimeOwnedPendingExecutor,
   attestRuntimeOwnedScopeOwner,
+  finalizeRuntimeOwnedPendingExecutor,
   runtimeOwnedExecutorExecutionBinding,
   runtimeOwnedExecutorMaterialization,
   runtimeOwnedPendingExecutorMaterialization,
@@ -58,6 +60,44 @@ function successfulExecutor(runtime = 'test-runtime'): Executor<unknown> {
     teardown: async () => ({ destroyed: true }),
     resultArtifact: () => artifact,
   }
+}
+
+/** A two-phase bridge-style executor: it declares its plan up front and only acknowledges the
+ * terminal receipt after the work finishes. `dies` throws before it can acknowledge. */
+function pendingExecutorAgent(
+  name: string,
+  behavior: 'dies' | 'acknowledges',
+): Agent<unknown, unknown> {
+  return leafAgent(name, (spec, ctx) => {
+    const runtime = 'test-runtime'
+    const declaration = {
+      effectiveProfile: spec.profile,
+      backend: 'test-bridge',
+      model: { status: 'known' as const, id: 'test/model' },
+      execution: { kind: 'session', id: ctx.node?.nodeId ?? 'direct' },
+      materializer: 'test-materializer',
+      plan: { kind: 'test-plan', model: 'test/model' },
+    }
+    const binding = {
+      attemptId: ctx.node?.attemptId ?? 'direct-attempt',
+      binding: { endpoint: 'https://bridge.example.test' },
+      descriptor: { kind: 'test-session', transport: 'http' },
+    } satisfies ExecutorExecutionBinding
+    const artifact: ExecutorResult<unknown> = { outRef: 'ignored', out: { ok: true }, spent }
+    const executor: Executor<unknown> = {
+      runtime,
+      execute: async () => {
+        if (behavior === 'dies') {
+          throw new Error('bridge 503: cli-bridge admission timed out after 30000ms')
+        }
+        finalizeRuntimeOwnedPendingExecutor(executor, declaration, binding)
+        return artifact
+      },
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => artifact,
+    }
+    return attestRuntimeOwnedPendingExecutor(executor, runtime, declaration, binding)
+  })
 }
 
 async function runOneChild(
@@ -249,6 +289,63 @@ describe('kernel-owned materialization evidence', () => {
     expect(live?.executionBindings).toHaveLength(1)
     expect(replay?.materialization).toEqual(live?.materialization)
     expect(replay?.executionBindings).toEqual(live?.executionBindings)
+  })
+
+  it('names the terminal outcome, not a pending wait, when a pending executor dies', async () => {
+    const journal = new InMemorySpawnJournal()
+    await runOneChild(pendingExecutorAgent('doomed', 'dies'), journal, 'pending-executor-died')
+    const events = childEvents(await journal.loadTree('pending-executor-died'))
+
+    // The attempt is over, so no receipt can still arrive. A terminal row that says the receipt
+    // is pending reads as "not yet known" on a record that is final.
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'materialized',
+          receipt: expect.objectContaining({
+            status: 'unknown',
+            reason: 'executor-failed-before-receipt',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'execution-bound',
+          binding: expect.objectContaining({
+            status: 'unknown',
+            reason: 'executor-failed-before-receipt',
+          }),
+        }),
+        expect.objectContaining({ kind: 'settled', status: 'down' }),
+      ]),
+    )
+    const reasons = events.flatMap((event) => {
+      const receipt = (event as { receipt?: { reason?: string } }).receipt
+      const binding = (event as { binding?: { reason?: string } }).binding
+      return [receipt?.reason, binding?.reason].filter((value) => value !== undefined)
+    })
+    expect(reasons).not.toContain('executor-receipt-pending')
+  })
+
+  it('records known evidence when a pending executor acknowledges, so no survivor is ever pending', async () => {
+    const journal = new InMemorySpawnJournal()
+    await runOneChild(
+      pendingExecutorAgent('healthy', 'acknowledges'),
+      journal,
+      'pending-executor-ok',
+    )
+    const events = childEvents(await journal.loadTree('pending-executor-ok'))
+
+    // The healthy path overwrites the pending placeholder with terminal evidence. Together with
+    // the test above this is why a pending reason correlated 1:1 with death in a consumer fleet:
+    // only the failure path ever wrote it, so the value records a death, it does not predict one.
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'materialized',
+          receipt: expect.objectContaining({ status: 'known', backend: 'test-bridge' }),
+        }),
+        expect.objectContaining({ kind: 'settled', status: 'done' }),
+      ]),
+    )
   })
 
   it('types a trusted deferred manager down when it never publishes before completing', async () => {

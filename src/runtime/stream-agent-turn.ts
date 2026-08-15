@@ -653,6 +653,28 @@ async function* streamAgentTurnInternal(
       ),
     )
   } catch (err) {
+    // The turn is over, so a pending receipt cannot still resolve. `backend_start` already
+    // carried the pending value, where it was true; the final event must name the terminal
+    // outcome instead of a wait that has ended.
+    if (
+      materialization?.status === 'unknown' &&
+      materialization.reason === 'executor-receipt-pending' &&
+      executionBinding?.status === 'unknown'
+    ) {
+      const terminal = unknownMaterializationReceipt({
+        ...(materialization.authoredProfileDigest === undefined
+          ? {}
+          : { authoredProfileDigest: materialization.authoredProfileDigest }),
+        runtime: materialization.runtime,
+        reason: 'executor-failed-before-receipt',
+      })
+      executionBinding = unknownExecutionBindingReceipt(
+        terminal,
+        executionBinding.attemptId,
+        'executor-failed-before-receipt',
+      )
+      materialization = terminal
+    }
     const callerAborted = opts.signal?.aborted === true
     const status: AgentTaskStatus = callerAborted ? 'aborted' : 'failed'
     const message = err instanceof Error ? err.message : String(err)

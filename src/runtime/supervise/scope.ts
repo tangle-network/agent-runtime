@@ -846,15 +846,20 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                 await pendingEvidence?.complete()
                 return
               }
+              // This is the terminal record for a failed attempt, so the receipt is not pending:
+              // the child is down and the executor will never acknowledge. Recording a wait that
+              // has already ended reads as "not yet known" on a row that is final, and a consumer
+              // fleet mined exactly that value as a pre-launch death predictor (41 of 41 deaths).
+              // The correlation was total because only this failure path ever wrote the value.
               const unknown = unknownMaterializationReceipt({
                 authoredProfileDigest: profileDigest,
                 runtime: executor.runtime,
-                reason: 'executor-receipt-pending',
+                reason: 'executor-failed-before-receipt',
               })
               const unknownBinding = unknownExecutionBindingReceipt(
                 unknown,
                 attemptId,
-                'executor-receipt-pending',
+                'executor-failed-before-receipt',
               )
               await appendNodeMaterialization(args, id, ordinal, unknown, unknownBinding, now)
               live.materialization = unknown
