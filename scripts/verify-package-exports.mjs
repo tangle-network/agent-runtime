@@ -623,8 +623,19 @@ try {
             throw new Error('test-only model execution export leaked into kernel: ' + name)
           }
         }
+        // runGraph's caller-brain seam is production (issue 694 option A): a brain must be
+        // ACCEPTED, so the failure on an empty graph is about the graph, never about the brain.
+        try {
+          kernel.runGraph({}, { brain: async () => ({ toolCalls: [] }) })
+          throw new Error('runGraph accepted an empty graph')
+        } catch (error) {
+          if (!(error instanceof Error) || error.message.includes('test-only')) {
+            throw new Error('runGraph refused the production caller brain: ' + (error instanceof Error ? error.message : String(error)))
+          }
+          if (!error.message.includes('graph.nodes')) throw error
+        }
+        // supervise and supervisorAgent keep their guards: direct model injection stays test-only.
         for (const [name, invoke] of [
-          ['runGraph', () => kernel.runGraph({}, { brain: async () => ({ toolCalls: [] }) })],
           ['supervise', () => kernel.supervise({}, null, { brain: async () => ({ toolCalls: [] }) })],
           ['supervisorAgent', () => kernel.supervisorAgent({}, { brain: async () => ({ toolCalls: [] }) })],
         ]) {
