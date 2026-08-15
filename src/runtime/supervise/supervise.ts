@@ -1894,6 +1894,9 @@ function superviseInternal(
       ...(options.compaction ? { compaction: options.compaction } : {}),
       ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
       ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
+      // A durable run's layout dir doubles as the worker-cancel control surface: the root
+      // manager's turn loop acknowledges `cancelWorker` requests written there.
+      ...(options.runDir === undefined ? {} : { controlDir: resolve(options.runDir) }),
     } satisfies SupervisorAgentDeps
     const agent =
       testBrain === undefined

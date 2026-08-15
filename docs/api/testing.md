@@ -285,6 +285,20 @@ How the settled-worker ledger becomes the run's output. Default `bestDelivered` 
 Optional shared manager inbox used by a wrapper that must accept messages before async node
 setup finishes. Ordinary callers omit it and the driver owns a fresh inbox.
 
+##### controlDir?
+
+> `readonly` `optional` **controlDir?**: `string`
+
+The durable run directory (`SuperviseOptions.runDir` / the `run-layout` event dir) this driver
+ACKNOWLEDGES worker-scoped cancel requests from. Each turn the driver reads the layout's
+cancellation inbox once, applies any request naming one of ITS OWN workers through that
+worker's existing per-child abort (cascading to the worker's subtree and no sibling), and
+writes the durable [WorkerCancellation](runtime.md#workercancellation) acknowledgement: `cancel_requested` when the
+abort is issued, `cancelled` only when the worker reaches a terminal `down` on the settle
+path, `not_live` when the worker is already gone — a missing worker never reads as success.
+A request naming a deeper descendant stays unanswered (cancel its lead instead). Omit = no
+acknowledger (in-memory runs keep in-process control via handles).
+
 ***
 
 ### RunGraphTestOptions
@@ -1672,6 +1686,18 @@ Where the coordination MCP binds (external arm). Omit = an ephemeral loopback po
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`coordination`](runtime.md#coordination-1)
+
+##### controlDir?
+
+> `readonly` `optional` **controlDir?**: `string`
+
+The durable run directory this manager acknowledges worker-scoped cancel requests from
+ (router arm only — the in-process turn loop is the acknowledger). See
+ `DriverAgentOptions.controlDir`.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`controlDir`](runtime.md#controldir)
 
 ##### brain
 

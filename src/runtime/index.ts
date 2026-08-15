@@ -732,14 +732,22 @@ export {
 // readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
 // writer contract is published alongside its reader.
 export {
+  cancelWorker,
   legacySupervisorRunDir,
   legacySupervisorRunsRoot,
+  readWorkerCancellation,
+  readWorkerCancelRequests,
   readWorkerSteerRequests,
   safeWorkerFile,
   supervisorRunDir,
   supervisorRunsRoot,
   supervisorWorkersDir,
+  type WorkerCancellation,
+  type WorkerCancelRequest,
   type WorkerSteerRequest,
+  workerCancellationFile,
+  workerCancellationsDir,
+  workerCancelRequestsFile,
   workerControlLogFile,
   workerInboxFile,
   workerInboxFileFromEventDir,

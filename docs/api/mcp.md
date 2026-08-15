@@ -4098,6 +4098,31 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 `Promise`\<`void`\>
 
+##### abortWorker()
+
+> **abortWorker**(`ref`, `reason?`): \{ `id`: `string`; `label`: `string`; \} \| `undefined`
+
+Abort ONE live worker this manager spawned, through the worker's own per-child abort chain
+(the scope cascades that abort into the worker's subtree and no sibling). `ref` resolves
+workerId-first, then profile name, then spawn label, against LIVE workers only. Returns the
+resolved identity, or `undefined` when no live worker matches — an already-settled or unknown
+reference is never reported as aborted. The runtime cancel acknowledger is the intended
+caller; the durable contract around it lives in `supervise/run-layout`.
+
+###### Parameters
+
+###### ref
+
+`string`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+\{ `id`: `string`; `label`: `string`; \} \| `undefined`
+
 ##### drainResolved()
 
 > **drainResolved**(): `Promise`\<`number`\>

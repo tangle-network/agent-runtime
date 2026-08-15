@@ -1,11 +1,13 @@
 /**
  * The interactive side of the supervisor-run TUI: a keypress/mouse loop over the frames
- * `./top-model` renders, plus the two operator controls that write back to the run — steer a live
- * worker, and request cancellation of a run.
+ * `./top-model` renders, plus the operator controls that write back to the run — steer a live
+ * worker, cancel one worker, and request cancellation of a whole run.
  *
- * Both controls go through the owned run layout: steers via `writeWorkerSteer` (the durable inbox
- * append), cancellation via a file inside the run directory the snapshot reported. Nothing here
- * joins a path from the workspace root.
+ * The controls go through the owned run layout: steers via `writeWorkerSteer` (the durable inbox
+ * append) and worker cancellation via `cancelWorker` (the acknowledged operation the runtime's
+ * turn loop applies). Run-level cancellation targets the ROOT, which has no acknowledged runtime
+ * path yet for a non-retained tree — it stays a `cancel.request.json` write inside the run
+ * directory for a host process to honor. Nothing here joins a path from the workspace root.
  *
  * Extracted from the `loops` repo (`src/top.ts`). The module-level singletons are the origin's
  * shape and are kept: this drives one terminal, and `runTopApp` is its one entry point.
@@ -14,10 +16,11 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
-import { writeWorkerSteer } from '../runtime/supervise/run-layout'
+import { cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
 import {
   loadTopSnapshot,
   type RenderTarget,
@@ -389,6 +392,29 @@ function requestCancel(): void {
     state.notice = `${supervisor.id} is ${supervisor.status}; no cancel request written`
     return
   }
+  // Worker focus cancels ONE worker through the acknowledged runtime path: the request lands in
+  // the run layout's cancellation inbox, the run's own turn loop applies the abort to exactly
+  // that worker's subtree, and the acknowledgement records what it proved.
+  const worker = state.focus === 'workers' ? selectedWorker() : undefined
+  if (worker) {
+    if (worker.status !== 'running') {
+      state.notice = `${worker.label} is ${worker.status}; nothing to cancel`
+      return
+    }
+    try {
+      const record = cancelWorker(supervisor.stateDir, worker.id, randomUUID(), {
+        reason: 'operator requested cancel from TUI',
+        source: 'agent-runtime-top',
+      })
+      state.notice = `cancel ${record.effect} for ${supervisor.id}/${worker.label} (op ${record.operationId})`
+    } catch (err) {
+      state.notice = `cancel request failed: ${err instanceof Error ? err.message : String(err)}`
+    }
+    return
+  }
+  // Supervisor focus cancels the WHOLE run — a root-scoped intent, which is out of the
+  // worker-scoped acknowledgement contract: a non-retained supervisor tree exposes no root
+  // handle to acknowledge with, so the request stays a file the run's HOST process may honor.
   try {
     mkdirSync(supervisor.stateDir, { recursive: true })
     writeFileSync(
@@ -404,7 +430,7 @@ function requestCancel(): void {
       )}\n`,
       'utf8',
     )
-    state.notice = `cancel requested for ${supervisor.id}`
+    state.notice = `run cancel requested for ${supervisor.id} (host-honored; not runtime-acknowledged)`
   } catch (err) {
     state.notice = `cancel request failed: ${err instanceof Error ? err.message : String(err)}`
   }

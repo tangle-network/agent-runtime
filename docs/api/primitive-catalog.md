@@ -525,7 +525,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 759 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 767 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -548,6 +548,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 759 exports.
 | `boxSurfaceReader` | function | A {@link SurfaceReader} over a sandbox box's filesystem — the same `box.fs.read` seam |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
+| `cancelWorker` | function | Request the cancellation of ONE worker, idempotently, and return the operation's current |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
 | `canonicalFindingEvent` | function | Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst |
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
@@ -668,6 +669,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 759 exports.
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
+| `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
+| `readWorkerCancelRequests` | function | Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
 | `readWorkerSteerRequests` | function | Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. |
 | `readWorkerTraceContext` | function | Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no |
@@ -737,6 +740,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 759 exports.
 | `watchTrace` | function | Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an |
 | `widen` | function | `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS |
 | `withUntrackedArtifacts` | function | Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside |
+| `workerCancellationFile` | function | The acknowledgement file for one cancel operation. The filename is a sanitized stem of the |
+| `workerCancellationsDir` | function | The directory holding every cancellation artifact of one run (request inbox + acknowledgements). |
+| `workerCancelRequestsFile` | function | The durable cancel-request inbox of one run — one NDJSON line per {@link WorkerCancelRequest}. |
 | `workerControlLogFile` | function | The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
 | `workerInboxFile` | function | The durable inbox file for one worker of one run. |
@@ -1029,6 +1035,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 759 exports.
 | `WidenGate` | interface | The progressive-widening gate (MCTS-PW). Decides whether a settled child is |
 | `WidenLineage` | interface | A lineage the gate may widen toward — the settled child that looked promising + the findings |
 | `WidenSpec` | interface | `widen({ gate })` (G5) — the STREAMING spawn-on-completion driver. Unlike the static-fanout |
+| `WorkerCancellation` | interface | The durable acknowledgement state for one worker-scoped cancel operation, keyed by |
+| `WorkerCancelRequest` | interface | One durable worker-scoped cancel request appended to the run's cancellation inbox. |
 | `WorkerProgress` | interface | The full live view of one worker, as `observe_agent` returns it mid-flight. |
 | `WorkerResumeContext` | interface | The resume lineage a `'resume'` spawn hands the executor seam |
 | `WorkerSpawnContext` | interface | Immutable task, allocation, identity attribution, and semantic key supplied while a manager's |

@@ -12386,6 +12386,113 @@ The worker LABEL the request targets (already resolved by the caller).
 
 ***
 
+### WorkerCancelRequest
+
+One durable worker-scoped cancel request appended to the run's cancellation inbox.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+Caller-minted stable operation identifier — the idempotency key of the whole operation.
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO timestamp of the append.
+
+##### source
+
+> `readonly` **source**: `string`
+
+Who asked — 'human', a brain label, a tool name. Provenance, not authorization.
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+The worker the request targets: a workerId (node id), a profile name, or a spawn label.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### WorkerCancellation
+
+The durable acknowledgement state for one worker-scoped cancel operation, keyed by
+`operationId`. The runtime acknowledger is the ONLY writer; `cancelWorker` only reads it.
+
+`effect` reuses the retained-run vocabulary ([RetainedRunEffect](#retainedruneffect)) so the runtime has one
+spelling of the four cancellation states:
+ - `'unknown'`          — not yet resolved by the runtime (also what `cancelWorker` returns for
+                          a request no acknowledger has answered). Never a success.
+ - `'cancel_requested'` — the runtime issued the worker's abort; termination not yet proven.
+ - `'cancelled'`        — the worker reached a terminal `down` state on the settle path.
+ - `'not_live'`         — the worker was not live to cancel (already settled, or it settled
+                          `done` despite the abort). Never a success of THIS operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+The worker reference exactly as requested.
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### requestedAt
+
+> `readonly` **requestedAt**: `string`
+
+ISO timestamp of the original request.
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+ISO timestamp of the runtime's most recent observation of this operation.
+
+##### workerId?
+
+> `readonly` `optional` **workerId?**: `string`
+
+The node id the acknowledger resolved `worker` to, once resolved.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+The caller's reason, carried verbatim from the request.
+
+##### detail?
+
+> `readonly` `optional` **detail?**: `string`
+
+The runtime's explanation of how it arrived at `effect`.
+
+##### terminated
+
+> `readonly` **terminated**: readonly `string`[]
+
+Every node id this operation PROVED terminated: the requested worker plus each descendant of
+its subtree observed to reach a terminal `down`/`cancelled` journal record at or after
+`requestedAt` (a cancelled lead cascades to its subtree by design — the scope signal chain —
+so the acknowledgement names the set, not one id). Empty until termination is proven.
+
+***
+
 ### RouterSeam
 
 Router/inline transport seam. The profile owns model, prompt, and generation behavior.
@@ -15041,6 +15148,14 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
  unreachable from an off-host harness. A non-loopback host fails closed — see
  [assertCoordinationBinding](#assertcoordinationbinding).
+
+##### controlDir?
+
+> `readonly` `optional` **controlDir?**: `string`
+
+The durable run directory this manager acknowledges worker-scoped cancel requests from
+ (router arm only — the in-process turn loop is the acknowledger). See
+ `DriverAgentOptions.controlDir`.
 
 ***
 
@@ -25488,6 +25603,157 @@ Read every valid steer request in a worker's inbox. Corrupt or partial lines are
 #### Returns
 
 [`WorkerSteerRequest`](#workersteerrequest)[]
+
+***
+
+### workerCancellationsDir()
+
+> **workerCancellationsDir**(`eventDir`): `string`
+
+The directory holding every cancellation artifact of one run (request inbox + acknowledgements).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerCancelRequestsFile()
+
+> **workerCancelRequestsFile**(`eventDir`): `string`
+
+The durable cancel-request inbox of one run — one NDJSON line per [WorkerCancelRequest](#workercancelrequest).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerCancellationFile()
+
+> **workerCancellationFile**(`eventDir`, `operationId`): `string`
+
+The acknowledgement file for one cancel operation. The filename is a sanitized stem of the
+`operationId`; the record inside carries the exact id, and readers verify it so two distinct
+ids that sanitize to one stem fail loud instead of answering for each other.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### readWorkerCancelRequests()
+
+> **readWorkerCancelRequests**(`eventDir`): [`WorkerCancelRequest`](#workercancelrequest)[]
+
+Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+[`WorkerCancelRequest`](#workercancelrequest)[]
+
+***
+
+### readWorkerCancellation()
+
+> **readWorkerCancellation**(`eventDir`, `operationId`): [`WorkerCancellation`](#workercancellation) \| `undefined`
+
+Read the acknowledgement for one cancel operation. `undefined` when the runtime has not
+answered. A record whose stored `operationId` differs from the requested one is a filename
+collision between two sanitized ids — fail loud rather than return another operation's answer.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+[`WorkerCancellation`](#workercancellation) \| `undefined`
+
+***
+
+### cancelWorker()
+
+> **cancelWorker**(`eventDir`, `worker`, `operationId`, `options?`): [`WorkerCancellation`](#workercancellation)
+
+Request the cancellation of ONE worker, idempotently, and return the operation's current
+durable state.
+
+The write half of the acknowledged-cancellation contract (`writeWorkerSteer` is the steer
+analog): append the request to the run's cancellation inbox, where the runtime's acknowledger
+(the coordination driver's turn loop) applies it — aborting exactly that worker's subtree and
+recording what it proved. This function never applies the cancellation itself; writing a
+request file is not an acknowledgement.
+
+Idempotency is a lookup: when an acknowledgement for `operationId` already exists, it is
+returned AS-IS and nothing is appended — repeating one operation can never apply twice. A
+request the runtime has not answered yet returns `effect: 'unknown'` (never a success); call
+again with the same `operationId` — or `readWorkerCancellation` — to read the acknowledged
+result after a reconnect.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### worker
+
+`string`
+
+##### operationId
+
+`string`
+
+##### options?
+
+###### reason?
+
+`string`
+
+###### source?
+
+`string`
+
+#### Returns
+
+[`WorkerCancellation`](#workercancellation)
 
 ***
 
