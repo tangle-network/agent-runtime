@@ -68,7 +68,11 @@ import {
 } from '../environment-provider'
 import { agentHarness } from '../harness-role'
 import type { KeyProvider } from '../key-provider'
-import { mergeObservedModelIdentity, observedModelMatchesDeclared } from '../model-identity'
+import {
+  mergeObservedModelIdentity,
+  observedModelHasSnapshot,
+  observedModelMatchesDeclared,
+} from '../model-identity'
 import {
   type PromptCacheUsage,
   type RouterChatResult,
@@ -2439,7 +2443,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         traceHeaders: args.traceHeaders,
       })) {
         if (chunk.model !== undefined) {
-          args.onProviderModel(chunk.model)
           try {
             if (!observedModelMatchesDeclared(chunk.model, seam.providerModel)) {
               args.onProviderIdentityConflict()
@@ -2447,7 +2450,17 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
                 `bridgeExecutor: bridge reported model ${JSON.stringify(chunk.model)} but the profile requires ${JSON.stringify(seam.providerModel)}`,
               )
             }
-            observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
+            const isWireModel = chunk.model === seam.model
+            // The exact request id is transport metadata, even when it carries a snapshot.
+            // Never let it seed served identity or block a later provider snapshot.
+            if (!isWireModel && observedModelHasSnapshot(chunk.model)) {
+              // Record each validated served snapshot before merging. A later conflicting
+              // snapshot must remain visible in evidence so the attempt stays fail-closed.
+              args.onProviderModel(chunk.model)
+            }
+            if (!isWireModel) {
+              observedModel = mergeBridgeObservedModel(observedModel, chunk.model)
+            }
           } catch (error) {
             args.onProviderIdentityConflict()
             throw error

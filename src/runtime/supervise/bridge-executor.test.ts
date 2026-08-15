@@ -16,7 +16,10 @@ import {
 import { BackendTransportError } from '../../errors'
 import { spendFromUsageEvents } from './budget'
 import { classifyDriverFailure } from './driver-retry'
-import { runtimeOwnedExecutorMaterialization } from './materialization'
+import {
+  runtimeOwnedExecutorMaterialization,
+  runtimeOwnedExecutorProviderEvidence,
+} from './materialization'
 import {
   type BridgeModelCredential,
   bridgeExecutor,
@@ -531,7 +534,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const responseModel = 'deepseek/deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
     const chunks = [
       `data: ${JSON.stringify({
-        model: 'deepseek-v4-flash',
+        model: 'pi/tangle-router/deepseek-v4-flash',
         choices: [{ delta: { content: 'routed' } }],
       })}`,
       `data: ${JSON.stringify({
@@ -565,6 +568,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
       content: 'routed response',
       model: responseModel,
       system_fingerprint: 'fp_a18b46594c_prod0820_fp8_kvcache_20260402',
+    })
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'known',
+      attempts: [{ observations: [responseModel] }],
+      models: [responseModel],
     })
   })
 
@@ -600,6 +608,17 @@ describe('bridgeExecutor upstream-error propagation', () => {
         executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
       ),
     ).rejects.toThrow(/bridge changed response model/u)
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'unknown',
+      attempts: [
+        {
+          observations: ['deepseek/deepseek-v4-flash@fp_a', 'deepseek/deepseek-v4-flash@fp_b'],
+          identityConflict: true,
+        },
+      ],
+      models: ['deepseek/deepseek-v4-flash@fp_a', 'deepseek/deepseek-v4-flash@fp_b'],
+      reason: 'provider-model-conflict',
+    })
   })
 
   it('journals served identity and paid usage when a bridge child aborts before terminal materialization', async () => {
