@@ -35,7 +35,7 @@ When no worker delivers, it prints the reason and the spend instead:
 
 Three settings are worth knowing.
 
-- `profile.harness` picks what drives the supervisor's brain. This example uses an in-process model tool-loop. Set `opencode`, `claude-code`, or `codex` to run a coding CLI in a sandbox.
+- `profile.harness` picks what drives the supervisor's brain. This example uses `cli-base`, the router-backed brain with no coding agent. Set `opencode`, `claude-code`, or `codex` to run a coding CLI in a sandbox.
 - `backend` is where the workers run. This example uses `router-tools`. Change it to `sandbox` plus a harness to run each worker as a coding agent in a real box.
 - `deliverable` is the completion check. It is optional, and it is what makes "done" mean verified.
 

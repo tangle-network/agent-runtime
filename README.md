@@ -72,7 +72,7 @@ Five words appear everywhere:
 | **driver** | Your code. It runs a worker, reads the output, and writes the next prompt. |
 | **decision** | What `decide` returns. The four keywords in `TERMINAL_DECISIONS` (`stop`, `pick-winner`, `fail`, `done`) end the loop; every other value is your own vocabulary and continues it. |
 | **verdict** | What a validator returns: valid or not, with a score. |
-| **harness** | What drives an agent: an in-process model loop (`cli-base`), or a coding CLI such as `claude-code`, `codex`, or `opencode`. |
+| **harness** | What drives an agent. `cli-base` is the router-backed mode with no coding agent behind it; `claude-code`, `codex`, and `opencode` each run a real coding CLI. |
 
 ## Which front door
 
