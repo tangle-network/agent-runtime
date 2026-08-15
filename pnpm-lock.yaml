@@ -22,8 +22,8 @@ catalogs:
       specifier: 0.52.0
       version: 0.52.0
     '@tangle-network/agent-knowledge':
-      specifier: 7.2.6
-      version: 7.2.6
+      specifier: 8.0.0
+      version: 8.0.0
     '@tangle-network/agent-profile-materialize':
       specifier: 0.14.2
       version: 0.14.2
@@ -58,7 +58,7 @@ importers:
         version: 0.8.0
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 7.2.6(@tangle-network/agent-eval@0.145.11)(@tangle-network/agent-interface@0.52.0)
+        version: 8.0.0(@tangle-network/agent-eval@0.145.11)(@tangle-network/agent-interface@0.52.0)
       '@tangle-network/agent-profile-materialize':
         specifier: 'catalog:'
         version: 0.14.2(@tangle-network/agent-interface@0.52.0)
@@ -134,7 +134,7 @@ importers:
         version: 0.52.0
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
-        version: 7.2.6(@tangle-network/agent-eval@0.145.11)(@tangle-network/agent-interface@0.52.0)
+        version: 8.0.0(@tangle-network/agent-eval@0.145.11)(@tangle-network/agent-interface@0.52.0)
       '@tangle-network/agent-runtime':
         specifier: workspace:*
         version: link:..
@@ -1135,8 +1135,8 @@ packages:
   '@tangle-network/agent-interface@0.52.0':
     resolution: {integrity: sha512-jISw0y/VqQxeyuI7N5zsEb2+AMAYoIkPCtDVbWwZ9n2KL45rur//0ih72xPo3M+fiE0eUj9weTAYg4mzZckiHg==}
 
-  '@tangle-network/agent-knowledge@7.2.6':
-    resolution: {integrity: sha512-0JKCWGWfevzSIt2WALhQ6RSk1grn0wB1Yj8vVMhW5XNcMQthmJ4lQRX3pBlk1cPg5yhuk48H9u4iY2YuoKnRKg==}
+  '@tangle-network/agent-knowledge@8.0.0':
+    resolution: {integrity: sha512-29so4fdP/pp7rKzXgnJFmwyvD9HNpA+FxlraxSQuq4jFKMpSePop1AXMLrHEerP7W1Z8Jq4vrKrp7cFy8y7Xnw==}
     engines: {node: '>=20.19.0'}
     hasBin: true
     peerDependencies:
@@ -3188,7 +3188,7 @@ snapshots:
       spdx-expression-parse: 5.0.0
       zod: 4.4.3
 
-  '@tangle-network/agent-knowledge@7.2.6(@tangle-network/agent-eval@0.145.11)(@tangle-network/agent-interface@0.52.0)':
+  '@tangle-network/agent-knowledge@8.0.0(@tangle-network/agent-eval@0.145.11)(@tangle-network/agent-interface@0.52.0)':
     dependencies:
       '@tangle-network/agent-eval': 0.145.11
       '@tangle-network/agent-interface': 0.52.0
