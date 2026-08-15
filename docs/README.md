@@ -4,7 +4,7 @@ The map of every doc. **Start here** if you're new; the deeper tracks follow.
 
 ## Start here
 
-1. [The README](../README.md) — what the package is, a runnable offline quickstart, and the primitives catalog.
+1. [The README](../README.md) — what the package is, a runnable offline quickstart, and the front-door table.
 2. [concepts.md](./concepts.md) — the mental model (chat turns, tasks, runs) in plain terms.
 3. [canonical-api.md](./canonical-api.md) — find the right primitive: "I want to ___ → use ___".
 4. [../examples/](../examples) — copy a runnable example near your task.
@@ -35,6 +35,8 @@ These are internal working documents: design theses, research narrative, and roa
 | [STABILITY.md](./STABILITY.md) | stability contract | What `@stable` / `@experimental` promise consumers, the graduation bar, and the demotion/removal policy. |
 | [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
 | [glossary.md](./glossary.md) | canonical vocabulary | One definition per term, grounded to `file:line`; drifted synonyms flagged. |
+| [improve.md](./improve.md) | improvement reference | The `improve()` call, the optimizer object, official GEPA and SkillOpt installs, surfaces, redaction, and the proposal→review→activation path. |
+| [primeintellect.md](./primeintellect.md) | training/eval adapter | Package the same runtime program as a PrimeIntellect Verifiers environment and import its traces back. |
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | SQL-backed journal and restart behavior for conversations. Supervised-tree recovery is not implemented. |
