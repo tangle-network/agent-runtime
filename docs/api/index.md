@@ -8903,7 +8903,8 @@ The spawn label, when the node's `spawned` event is in this journal tree.
 
 > `readonly` `optional` **name?**: `string`
 
-Stable identifier surfaced in trace events. Default `'driver'`.
+Trace label surfaced in trace events. No behavioral effect: it never
+selects a strategy or a decision path. Default `'driver'`.
 
 #### Methods
 
@@ -8933,9 +8934,11 @@ readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
 > **decide**(`history`): `Decision` \| `Promise`\<`Decision`\>
 
 Inspect history and return the next state. The kernel terminates the
-loop when `decide` returns a value listed in `isTerminalDecision`
-(`'stop' | 'pick-winner' | 'fail' | 'done'`), when `maxIterations`
-is hit, or when the abort signal fires.
+loop when `decide` returns a `TerminalDecision`
+(`'stop' | 'pick-winner' | 'fail' | 'done'`, exported as
+`TERMINAL_DECISIONS` with the `isTerminalDecision` guard), when
+`maxIterations` is hit, or when the abort signal fires. Every other
+value is caller vocabulary and continues the loop.
 
 ###### Parameters
 

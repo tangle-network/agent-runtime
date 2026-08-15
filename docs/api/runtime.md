@@ -19635,6 +19635,16 @@ A checkable task domain — implement these 5 hooks and the suite does the rest.
 
 ***
 
+### TerminalDecision
+
+> **TerminalDecision** = *typeof* [`TERMINAL_DECISIONS`](#terminal_decisions)\[`number`\]
+
+**`Stable`**
+
+One of the kernel's terminal decision values.
+
+***
+
 ### Deliverable
 
 > **Deliverable**\<`Out`\> = \{ `kind`: `"events"`; `fromEvents`: (`events`) => `Out`; \} \| \{ `kind`: `"artifact"`; `path`: `string`; `fromArtifact`: (`raw`, `events`) => `Out`; \}
@@ -21129,6 +21139,19 @@ Reject analyst findings derived from evaluation scores instead of execution trac
 
 The default registry `runPersonified` resolves a shape name against. Empty by construction —
  a caller registers its own composed shapes; the engine ships no domain shape.
+
+***
+
+### TERMINAL\_DECISIONS
+
+> `const` **TERMINAL\_DECISIONS**: readonly \[`"stop"`, `"pick-winner"`, `"fail"`, `"done"`\]
+
+**`Stable`**
+
+Decision values the kernel treats as terminal. Every other value returned by
+`decide` continues the loop. Type a driver's `decide` return as
+`'your-word' | TerminalDecision` so caller vocabulary and kernel keywords
+stay visibly distinct.
 
 ***
 
@@ -23267,6 +23290,26 @@ a forked copy).
 #### Returns
 
 [`LoopWinner`](#loopwinner)\<`Task`, `Output`\> \| `undefined`
+
+***
+
+### isTerminalDecision()
+
+> **isTerminalDecision**(`decision`): decision is "stop" \| "done" \| "pick-winner" \| "fail"
+
+**`Stable`**
+
+True when the kernel stops the loop for this decision value.
+
+#### Parameters
+
+##### decision
+
+`unknown`
+
+#### Returns
+
+decision is "stop" \| "done" \| "pick-winner" \| "fail"
 
 ***
 

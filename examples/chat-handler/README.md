@@ -1,75 +1,64 @@
-# Stream an agent's reply over HTTP, then save it — in one call
+# Serve one chat turn over HTTP
 
-You have an agent that emits its reply token-by-token. You want to serve that to a browser as a
-live, streaming HTTP response, and once the reply finishes, save the final text to your database.
-`handleChatTurn` (from the edge-safe `@tangle-network/agent-runtime/durable` entry point) does exactly that plumbing so you
-don't hand-roll it.
+## When to use it
 
-Give it two things — a `produce()` function that yields your agent's token stream, and a
-`persistAssistantMessage` hook — and it hands back a ready-to-return HTTP body that streams every
-token as it arrives, wrapped in a clean start/finish envelope, and calls your save hook the instant
-the stream ends.
+Use this when a web route must stream one turn to a browser and save the reply.
+`handleChatTurn` owns the framing every chat product hand-rolls: NDJSON lines, a start and finish envelope, and one persist call after the last token.
+You give it how to produce the tokens and how to save the final text.
 
-## Why it matters
+Use a sibling instead when you do not need the HTTP layer.
 
-Every chat product re-implements the same fiddly middle layer: turn an async stream of partial
-tokens into a well-framed HTTP response, tell the client when the turn starts and ends, and persist
-the final message exactly once after the last token. Get the framing wrong and the client hangs,
-double-saves, or drops the tail. `handleChatTurn` is that layer, done once and correctly:
+| You need | Use |
+|---|---|
+| The event stream, with no HTTP framing | [`../stream-a-turn`](../stream-a-turn) |
+| The model to call your tools inside the turn | [`../tool-loop`](../tool-loop) |
+| A cost figure and one persisted row | [`../runtime-run`](../runtime-run) |
+| A turn that survives the reader disconnecting | [`../retained-run`](../retained-run) |
 
-- **Streams as NDJSON** — one JSON event per line (`application/x-ndjson`), so a browser or any HTTP
-  client reads tokens live instead of waiting for the whole reply.
-- **Wraps each turn** in a `session.run.started` / `session.run.completed` envelope, so the client
-  always knows when a turn begins and ends.
-- **Persists after the stream drains**, exactly once — your `persistAssistantMessage` hook fires
-  with the final text after the last token, the natural place to write to your DB.
-
-## Run it — no key, no network
+## How to use it
 
 ```bash
-pnpm tsx examples/chat-handler/chat-handler.ts
+pnpm build && pnpm tsx examples/chat-handler/chat-handler.ts
 ```
 
-The example scripts a tiny two-turn tax-assistant conversation so it runs fully offline. You'll see
-each turn start, stream (one `.` per token chunk), finish, persist, and print its final text:
+The example scripts a two-turn conversation, so it runs offline and needs no credentials.
+It prints each turn as it starts, streams, finishes, and persists:
 
-```
+```text
 [run started ] turn=0
 ...............
 [run done    ] turn=0
 [persist     ] turn=0 chars=52
 [turn 0 text ] Acknowledged: "Where do I start with my 2026 return?". Drafting a reply.
-
-[run started ] turn=1
-...................
-[run done    ] turn=1
-[persist     ] turn=1 chars=62
-[turn 1 text ] The 2026 return is missing Schedule B and one W-2. Please upload them.
 ```
 
-The bottom half of `chat-handler.ts` reads the stream back by hand only so the example is
-self-contained — that reader is illustrative, not something to copy. In your product you just return
-`result.body` from your HTTP route and any NDJSON reader on the client consumes it.
-
-## From offline to production — one swap
-
-The only scripted part is `produce()`. In a real product it wraps a profile-bound Runtime turn:
+In a route you return `result.body` and let the client read the NDJSON.
 
 ```ts
-produce: () => streamAgentTurn(
-  { kind: 'executor', profile, factory: createExecutor(executorConfig) },
-  input,
-)
+const executionId = deriveExecutionId({ projectId, sessionId: threadId, turnIndex })
+const result = handleChatTurn({
+  identity: { tenantId, sessionId: threadId, userId, turnIndex },
+  hooks: {
+    produce: () => ({ stream: box.streamPrompt(userMessage, { sessionId: threadId, executionId, turnId: executionId, detach: true }), finalText: () => box.lastResponse() }),
+    persistAssistantMessage: async ({ identity, finalText }) => db.insertMessage(identity, finalText),
+  },
+  waitUntil,
+})
+return new Response(result.body, { headers: { 'content-type': result.contentType } })
 ```
 
-The exact `AgentProfile` selects the model and tools; the Runtime executor owns credentials,
-routing, retries, and usage evidence.
+Only `produce()` is scripted in the example.
+In production it wraps a profile-bound turn: `streamAgentTurn({ kind: 'executor', profile, factory: createExecutor(config) }, input)`.
 
-Everything else — the NDJSON framing, the `session.run.*` envelope, the after-drain persist — stays
-identical. That framing is the whole point of `handleChatTurn`.
+Two identity rules matter.
+For a stream reconnect, call `streamPrompt` again with the same `executionId` and the last event id the client received.
+For a repeated first dispatch, reuse both `sessionId` and `turnId`, because `executionId` alone is not an idempotency key.
 
-## Files
+The bottom half of [`chat-handler.ts`](./chat-handler.ts) reads the stream back by hand only to keep the file self-contained.
+Do not copy that reader.
 
-| file | what it is |
-|---|---|
-| `chat-handler.ts` | the full example: a scripted producer, `handleChatTurn`, and a hand-written reader that prints the stream |
+## Why this exists
+
+The middle layer of a chat product is small, fiddly, and always the same.
+Bad framing makes the client hang, save twice, or drop the tail of a reply.
+`handleChatTurn` does that layer once: one JSON event per line, a `session.run.started` and `session.run.completed` envelope, and one persist call after the stream drains.

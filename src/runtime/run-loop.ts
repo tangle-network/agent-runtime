@@ -1212,10 +1212,22 @@ function resolveAgentRuns<Task, Output, Decision>(
   throw new ValidationError('runAgentRounds: `agentRun` or non-empty `agentRuns` is required')
 }
 
-function isTerminalDecision(decision: unknown): boolean {
-  return (
-    decision === 'stop' || decision === 'pick-winner' || decision === 'fail' || decision === 'done'
-  )
+/**
+ * Decision values the kernel treats as terminal. Every other value returned by
+ * `decide` continues the loop. Type a driver's `decide` return as
+ * `'your-word' | TerminalDecision` so caller vocabulary and kernel keywords
+ * stay visibly distinct.
+ *
+ * @stable
+ */
+export const TERMINAL_DECISIONS = ['stop', 'pick-winner', 'fail', 'done'] as const
+
+/** One of the kernel's terminal decision values. @stable */
+export type TerminalDecision = (typeof TERMINAL_DECISIONS)[number]
+
+/** True when the kernel stops the loop for this decision value. @stable */
+export function isTerminalDecision(decision: unknown): decision is TerminalDecision {
+  return (TERMINAL_DECISIONS as readonly unknown[]).includes(decision)
 }
 
 function emitRunLoopHook<Task, Output, Decision>(

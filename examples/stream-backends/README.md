@@ -1,47 +1,30 @@
-# Three sources of an AI's streaming output, one wire format for your app
+# Choose where the tokens come from
 
-An agent's output arrives as a live stream of events: text as it's typed, tool calls as they
-fire, tool results as they return. That stream can come from three very different places — a
-function you wrote, a remote sandbox running a coding agent, or an exact `AgentProfile` executed
-by Runtime through the Tangle Router. This example runs all three and shows they emit the **same typed events** and serialize
-to the **same format a browser reads**, so the source is a swappable detail your UI never
-sees.
+## When to use it
 
-## Why it matters
+Use this when you must choose where the tokens come from.
+Three sources feed the same `runAgentTaskStream` call and emit the same typed events, so your route never learns which one ran.
 
-The painful coupling in agent apps is that the frontend ends up knowing which backend it's
-talking to — mock in tests, a real model in prod, a sandbox for the heavy stuff — because
-each streams a different shape. Here they don't. Every backend lands on one typed event
-stream and one SSE serialization, so you swap transports (test → sandbox → hosted model)
-without touching the route that streams to the browser or the code that collects the events.
-
-("SSE" is Server-Sent Events, the plain `data: ...\n\n` streaming format a browser reads with
-`EventSource` — the standard way a web app receives a live token stream.)
-
-## The three backends
-
-| Backend | You'd use it for |
+| Source | Use it for |
 |---|---|
-| **Iterable** (`createIterableBackend`) | You own the loop: write an async generator that yields events directly. For tests, scripted demos, or wrapping a stream shape the others don't map. |
-| **Sandbox** (`createSandboxPromptBackend`) | A remote `@tangle-network/sandbox` box runs the agent and streams back its native events (text updates, tool calls, tool results). The default mapper already understands them, so you write no translation code. |
-| **Exact model turn** (`streamAgentTurn`) | A concrete profile whose prompt, provider, model, and generation controls Runtime preserves and meters. |
+| `createIterableBackend` | You own the loop. Write an async generator that yields events. Good for tests and scripted demos. |
+| `createSandboxPromptBackend` | A remote sandbox box runs the agent and streams its native events. The default mapper reads them, so you write no translation. |
+| `streamAgentTurn` | An exact `AgentProfile` through Runtime. Runtime keeps the prompt, provider, model, and generation controls, and meters the spend. |
 
-All three feed `runAgentTaskStream`, which emits a typed `RuntimeStreamEvent` stream, which
-two helpers serialize to SSE (`runtimeStreamServerSentEvent` per event, plus
-`readinessServerSentEvent` for a one-off "still waiting on required info" event a gated task
-can emit).
+Use a sibling instead when the backend is not the question.
+[`../stream-a-turn`](../stream-a-turn) writes one backend by hand and reads the events.
+[`../chat-handler`](../chat-handler) serves the same stream over HTTP.
 
-## Run it
+## How to use it
 
 ```bash
-pnpm tsx examples/stream-backends/stream-backends.ts
+pnpm build && pnpm tsx examples/stream-backends/stream-backends.ts
 ```
 
-No API key needed for the first two backends: the iterable and sandbox sections run offline
-against a synthetic in-process box. You'll see each section stream SSE frames to stdout,
-e.g.:
+The first two sections run offline against an in-process box.
+Each section serializes its events as Server-Sent Events, the `data: ...` format a browser reads with `EventSource`:
 
-```
+```text
 --- iterable backend ---
 data: {"type":"text_delta","text":"you said: hello\n"}
 
@@ -51,11 +34,18 @@ data: {"type":"tool_call","toolName":"Read","toolCallId":"call_1", ...}
 data: {"type":"tool_result","toolName":"Read", ...}
 ```
 
-The third section is skipped unless you provide a Tangle Router key:
+The third section needs a router key:
 
 ```bash
 TANGLE_API_KEY=sk-... pnpm tsx examples/stream-backends/stream-backends.ts
 ```
 
-`MODEL` and `MODEL_PROVIDER` override the concrete DeepSeek defaults, while `ROUTER_BASE` changes
-only the transport endpoint. The output is the same SSE shape as the offline sections.
+`MODEL` and `MODEL_PROVIDER` override the defaults.
+`ROUTER_BASE` changes only the transport endpoint.
+The output keeps the same shape as the offline sections.
+
+## Why this exists
+
+The usual coupling in an agent app is that the frontend learns which backend it talks to, because each one streams a different shape.
+Here every source lands on one typed event union and one SSE serialization.
+You swap test, sandbox, and hosted model without touching the route or the collector.

@@ -233,7 +233,8 @@ export interface Iteration<Task, Output> {
 /** @stable */
 export interface Driver<Task, Output, Decision> {
   /**
-   * Stable identifier surfaced in trace events. Default `'driver'`.
+   * Trace label surfaced in trace events. No behavioral effect: it never
+   * selects a strategy or a decision path. Default `'driver'`.
    */
   readonly name?: string
   /**
@@ -243,9 +244,11 @@ export interface Driver<Task, Output, Decision> {
   plan(task: Task, history: ReadonlyArray<Iteration<Task, Output>>): Promise<Task[]>
   /**
    * Inspect history and return the next state. The kernel terminates the
-   * loop when `decide` returns a value listed in `isTerminalDecision`
-   * (`'stop' | 'pick-winner' | 'fail' | 'done'`), when `maxIterations`
-   * is hit, or when the abort signal fires.
+   * loop when `decide` returns a `TerminalDecision`
+   * (`'stop' | 'pick-winner' | 'fail' | 'done'`, exported as
+   * `TERMINAL_DECISIONS` with the `isTerminalDecision` guard), when
+   * `maxIterations` is hit, or when the abort signal fires. Every other
+   * value is caller vocabulary and continues the loop.
    */
   decide(history: ReadonlyArray<Iteration<Task, Output>>): Decision | Promise<Decision>
   /**
