@@ -11,7 +11,13 @@ import {
   workerControlLogFile,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
-import { loadTopSnapshot, renderTopFrame, renderTopFrameWithLayout } from '../../src/tui/top-model'
+import {
+  loadTopSnapshot,
+  renderTopFrame,
+  renderTopFrameWithLayout,
+  type WorkerView,
+  workerCancelRoute,
+} from '../../src/tui/top-model'
 
 describe('supervisor top model', () => {
   const roots: string[] = []
@@ -461,6 +467,55 @@ describe('supervisor top model', () => {
     expect(frame).toContain('NO SUPERVISORS')
     expect(frame).toContain(join(root, '.agent', 'supervisor'))
   })
+
+  it('routes a worker cancel to a direct child, and a nested descendant to its top-level lead', () => {
+    // Node ids mirror the journal's hierarchy: the root ('run') never appears in the worker list,
+    // so a parent that matches no listed worker marks a top-level worker.
+    const workers = [
+      worker('run:s0', 'lead', 'run'),
+      worker('run:s0:s0', 'd1', 'run:s0'),
+      worker('run:s0:s0:s1', 'd1-child', 'run:s0:s0'),
+      worker('run:s1', 'peer', 'run'),
+    ]
+    expect(workerCancelRoute(workers, 'run:s0')).toEqual({ kind: 'direct', worker: workers[0] })
+    expect(workerCancelRoute(workers, 'run:s1')).toEqual({ kind: 'direct', worker: workers[3] })
+    // One and two levels down both resolve to the SAME top-level lead — the only node the
+    // runtime acknowledger can apply an abort to.
+    expect(workerCancelRoute(workers, 'run:s0:s0')).toEqual({
+      kind: 'nested',
+      worker: workers[1],
+      lead: workers[0],
+    })
+    expect(workerCancelRoute(workers, 'run:s0:s0:s1')).toEqual({
+      kind: 'nested',
+      worker: workers[2],
+      lead: workers[0],
+    })
+    expect(workerCancelRoute(workers, 'missing')).toEqual({ kind: 'unknown' })
+    // A worker with no recorded parent is treated as top-level: refusing it would strand a
+    // cancel the acknowledger may well be able to apply.
+    expect(workerCancelRoute([worker('run:s2', 'orphan')], 'run:s2')).toEqual({
+      kind: 'direct',
+      worker: worker('run:s2', 'orphan'),
+    })
+    // A malformed parent cycle must terminate, not hang the TUI.
+    const cyclic = [worker('a', 'a', 'b'), worker('b', 'b', 'a')]
+    expect(workerCancelRoute(cyclic, 'a').kind).toBe('nested')
+  })
+
+  function worker(id: string, label: string, parent?: string): WorkerView {
+    const spend = { iterations: 0, tokensInput: 0, tokensOutput: 0, usd: 0, ms: 0 }
+    return {
+      id,
+      label,
+      ...(parent === undefined ? {} : { parent }),
+      status: 'running',
+      latencyMs: 0,
+      spend,
+      metered: spend,
+      liveTail: [],
+    }
+  }
 
   function fixtureRoot(): string {
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-top-'))
