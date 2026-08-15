@@ -11471,6 +11471,23 @@ Leaf-execution override (offline tests / advanced). `runGraph` still owns node p
 
 The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
 
+##### brain?
+
+> `readonly` `optional` **brain?**: [`ToolLoopChat`](#toolloopchat)
+
+The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes every root
+ model call. Use it when the root's decisions must be caller-owned orchestration (a
+ deterministic conversation driver, a persona loop with its own LLM calls) rather than a
+ router-derived model call. The graph machinery around the seam is unchanged: node pinning,
+ directive delivery, the edge ledger, and the journal twin all run the same shipped path,
+ and the root profile keeps prompt control (`prompt-control-execution` materialization —
+ `systemPrompt`/`instructions` still apply). What moves to the caller with the brain:
+ model selection and provider-identity validation (`expectedModel` cannot be enforced on a
+ call the runtime did not place) and per-turn usage reporting (a brain that reports no
+ usage meters nothing into the pool). Omit = the router brain derived from the root
+ profile — the unchanged default. Mutually exclusive with `driverBackend`, and refused
+ when the root profile declares an external harness (that root is driven BY the harness).
+
 ##### hooks?
 
 > `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
@@ -17351,6 +17368,27 @@ Raw JSON arguments emitted by the model.
 
 ***
 
+### ToolLoopCallContext
+
+Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen
+before dispatch; a transport may observe the signal but cannot replace the authority it names.
+
+#### Properties
+
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+##### callId
+
+> `readonly` **callId**: `string`
+
+##### correlationId
+
+> `readonly` **correlationId**: `string`
+
+***
+
 ### ToolLoopCompaction
 
 Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop
@@ -21013,6 +21051,33 @@ The read seam: fetch the current bytes at a mounted path. Implemented by a sandb
 > **ToolLoopMessageRecord** = `Record`\<`string`, `unknown`\>
 
 Provider-neutral conversation record accepted by a tool-loop brain.
+
+***
+
+### ToolLoopChat
+
+> **ToolLoopChat** = (`messages`, `tools`, `context?`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
+
+One inference turn over the running conversation + the tool specs → the model's text, any
+ tool calls, and token usage. The seam every brain satisfies.
+
+#### Parameters
+
+##### messages
+
+`ReadonlyArray`\<[`ToolLoopMessageRecord`](#toolloopmessagerecord)\>
+
+##### tools
+
+`ReadonlyArray`\<[`ToolSpec`](#toolspec)\>
+
+##### context?
+
+[`ToolLoopCallContext`](#toolloopcallcontext)
+
+#### Returns
+
+`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
 
 ***
 

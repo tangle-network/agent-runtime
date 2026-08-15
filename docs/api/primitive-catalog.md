@@ -525,7 +525,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 770 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1021,6 +1021,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 770 exports.
 | `SurfaceReadBox` | interface | The minimal box surface the box-backed reader needs — structurally typed so the real |
 | `SurfaceWorkerConfig` | interface | How a worker runs the surface task (its router substrate + per-attempt bounds). |
 | `SurfaceWorkerOut` | interface | What a surface worker settles with — the surface verdict the driver + deliverable read. `resolved` is |
+| `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
 | `ToolLoopCompaction` | interface | Self-compaction — bound the loop's OWN context window the way a fresh-respawn (dumb-Ralph) loop |
 | `ToolLoopToolCall` | interface | One provider-neutral tool request emitted by a tool-loop model. |
 | `TrajectoryNode` | interface | One node in the reconstructed trajectory tree — a driver OR a leaf, with its OWN spend and the |
@@ -1133,6 +1134,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 770 exports.
 | `SurfaceReader` | type | The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's |
 | `SurfaceReadOutcome` | type | Outcome of reading one surface back at settle. `missing: true` means the path no longer exists |
 | `TerminalDecision` | type | One of the kernel's terminal decision values. |
+| `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
 | `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
 | `ToolLoopMessageRecord` | type | Provider-neutral conversation record accepted by a tool-loop brain. |
 | `TrajectoryReportFn` | type | `trajectoryReport(...)` — the tree+cost reconstructor. Async (reads journal + optionally blobs). |
@@ -1382,11 +1384,11 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 | `driverAgent` | function | Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it as a |
 | `loadAgentImprovementProposalFixture` | function | Load an isolated, production-validated Runtime proposal for consumer tests. |
 | `loadAgentProfileImprovementFixture` | function | Load an isolated profile proposal and its private activation state for consumer tests. |
-| `runGraphWithTestBrain` | function | Deterministic scripted-brain path for graph tests. Not exported from Runtime's main entry. |
+| `runGraphWithTestBrain` | function | Alias for graph tests written before `RunGraphOptions.brain` was production. The production |
 | `superviseWithTestBrain` | function | Deterministic scripted-brain path for tests. Not exported from Runtime's main entry. |
 | `supervisorAgentWithTestBrain` | function | Scripted-brain construction for deterministic tests. Not exported from Runtime's main entry. |
 | `AgentProfileImprovementFixture` | interface | Complete private state for exercising profile activation and restore in consumer tests. |
-| `RunGraphTestOptions` | interface | Test-only graph options, exported only through the package's explicit `/testing` entry. |
+| `RunGraphTestOptions` | interface | `RunGraphOptions` with the brain REQUIRED — the shape the `/testing` entry's |
 | `SuperviseTestOptions` | interface | Test-only one-call shape, exported only through the package's explicit `/testing` entry. |
 | `SupervisorAgentTestDeps` | interface | Test-only dependency shape. It is exported only through the package's explicit `/testing` |
 | `ToolLoopCallContext` | interface | Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen |
