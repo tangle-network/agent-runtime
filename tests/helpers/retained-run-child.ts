@@ -104,6 +104,13 @@ if (phase === 'start') {
   const events = []
   for await (const event of run.events({ after: reference.after })) events.push(event)
   const statusBefore = await run.status()
+  const interactionEvent = events.find((event) => event.event.type === 'interaction')?.event
+  if (interactionEvent?.type !== 'interaction') {
+    throw new Error('retained provider replayed no interaction request')
+  }
+  if (interactionEvent.request.requestDigest === run.controlRef.requestDigest) {
+    throw new Error('interaction request digest unexpectedly matched the retained turn digest')
+  }
   const interactionBinding = {
     runId: run.controlRef.runId,
     provider: run.controlRef.provider,
@@ -111,7 +118,7 @@ if (phase === 'start') {
     sessionId: run.controlRef.sessionId,
     executionId: run.controlRef.executionId,
     interactionId: 'interaction-1',
-    requestDigest: run.controlRef.requestDigest,
+    requestDigest: interactionEvent.request.requestDigest,
   }
   const interactionResponse = { id: 'interaction-1', outcome: 'accepted' as const }
   const interaction = await run.respondToInteraction({

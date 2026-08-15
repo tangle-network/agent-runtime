@@ -99,13 +99,14 @@ export function assertInteractionBinding(
   controlRef: AgentExactRunControlRef,
   command: InteractionResponseCommand,
 ): void {
+  // This digest identifies the interaction request, not the retained turn.
+  // The provider validates it against its durable interaction record.
   if (
     command.binding.runId !== controlRef.runId ||
     command.binding.provider !== controlRef.provider ||
     command.binding.environmentId !== controlRef.environmentId ||
     command.binding.sessionId !== controlRef.sessionId ||
-    command.binding.executionId !== controlRef.executionId ||
-    command.binding.requestDigest !== controlRef.requestDigest
+    command.binding.executionId !== controlRef.executionId
   ) {
     throw new Error('interaction response command does not target this retained run')
   }
