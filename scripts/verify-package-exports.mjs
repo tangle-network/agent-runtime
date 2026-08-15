@@ -201,8 +201,8 @@ try {
       } from '@tangle-network/agent-runtime/testing'
       // @ts-expect-error Arbitrary driver construction is confined to the testing entrypoint.
       import type { DriverAgentOptions as ForbiddenDriverAgentOptions } from '@tangle-network/agent-runtime/kernel'
-      // @ts-expect-error Arbitrary model callbacks are confined to the testing entrypoint.
-      import type { ToolLoopChat as ForbiddenToolLoopChat } from '@tangle-network/agent-runtime/kernel'
+      // The caller-brain seam is production: ToolLoopChat resolves from /kernel (issue 694 option A).
+      import type { ToolLoopChat as KernelToolLoopChat } from '@tangle-network/agent-runtime/kernel'
       import {
         deriveExecutionId,
         handleChatTurn,
@@ -357,7 +357,7 @@ try {
       void (undefined as unknown as DriverAgentOptions)
       void (undefined as unknown as ToolLoopChat)
       void (undefined as unknown as ForbiddenDriverAgentOptions)
-      void (undefined as unknown as ForbiddenToolLoopChat)
+      void (undefined as unknown as KernelToolLoopChat)
     `,
   )
   // This fixture type-checks with its declared dev toolchain; ambient production
