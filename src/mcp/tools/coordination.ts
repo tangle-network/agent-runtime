@@ -19,6 +19,7 @@ import type {
   AgentExecutionRef,
   Budget,
   ExecutionBindingReceipt,
+  Handle,
   NodeExecutionIdentity,
   ProfileMaterializationReceipt,
   ResultBlobStore,
@@ -468,6 +469,18 @@ export interface CoordinationTools {
    *  moment it happens, instead of only at settle. Queued for `await_event` + pass-through. */
   raiseFinding(finding: AnalystFindingEvent): Promise<void>
   /**
+   * Abort ONE live worker this manager spawned, through the worker's own per-child abort chain
+   * (the scope cascades that abort into the worker's subtree and no sibling). `ref` resolves
+   * workerId-first, then profile name, then spawn label, against LIVE workers only. Returns the
+   * resolved identity, or `undefined` when no live worker matches — an already-settled or unknown
+   * reference is never reported as aborted. The runtime cancel acknowledger is the intended
+   * caller; the durable contract around it lives in `supervise/run-layout`.
+   */
+  abortWorker(
+    ref: string,
+    reason?: string,
+  ): { readonly id: string; readonly label: string } | undefined
+  /**
    * Post-loop drain: pull every ALREADY-settled, unpulled child into the ledger (publishing each
    * as a `settled` bus event for the audit trail) WITHOUT awaiting live children. The driver
    * calls this once its brain loop ends, so a delivered child the brain never awaited still
@@ -742,6 +755,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // the profile name is what a graph pins a node by. Recorded at spawn, dropped never (a settled
   // source can still be matched by `over` after it is gone).
   const profileNameByWorker = new Map<string, string>()
+  // Worker id → the live child Handle from its spawn. `Handle.abort` is the ONLY per-child abort
+  // (its controller cascades to that child's subtree and no sibling), and the scope does not
+  // re-expose it, so `abortWorker` must keep the handle from the spawn that minted it. Entries
+  // are never deleted (liveness is re-checked against the view at abort time); the map is
+  // bounded by the run's spawn count, like `profileNameByWorker`.
+  const liveHandles = new Map<string, Handle<unknown>>()
   // `Scope` advances its node/cursor ordinals on resume, but assignment identity belongs to this
   // manager. Seed it independently from durable evidence so a restarted manager never calls new
   // work `ordinal:0` when a prior process already used that assignment. Use the maximum rather
@@ -1880,6 +1899,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         }
         if (res.ok) {
           watchWorker(res.handle.id)
+          liveHandles.set(res.handle.id, res.handle)
           // Bind the new worker to its key so its settlement can mark the key complete.
           if (key !== undefined) keyByWorker.set(res.handle.id, key)
           if (typeof profile.name === 'string' && profile.name.length > 0) {
@@ -2330,6 +2350,25 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     })
   }
 
+  // Per-child abort by stable reference. Resolution order matches the steer destination rule
+  // (profile name before label) with the exact workerId first; only LIVE workers resolve, so an
+  // already-settled or unknown reference returns `undefined` instead of a false "aborted".
+  const abortWorker = (
+    ref: string,
+    reason?: string,
+  ): { readonly id: string; readonly label: string } | undefined => {
+    const live = opts.scope.view.nodes.filter((node) => isLive(node.status))
+    const target =
+      live.find((node) => node.id === ref) ??
+      live.find((node) => profileNameByWorker.get(node.id) === ref) ??
+      live.find((node) => node.label === ref)
+    if (target === undefined) return undefined
+    const handle = liveHandles.get(target.id)
+    if (handle === undefined) return undefined
+    handle.abort(reason)
+    return { id: target.id, label: target.label }
+  }
+
   return {
     tools,
     ready,
@@ -2345,6 +2384,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     settled: () => ledger,
     questions: () => questions,
     drainResolved,
+    abortWorker,
   }
 }
 

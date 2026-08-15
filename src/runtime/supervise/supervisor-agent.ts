@@ -375,6 +375,10 @@ export interface SupervisorAgentDeps {
    *  unreachable from an off-host harness. A non-loopback host fails closed — see
    *  {@link assertCoordinationBinding}. */
   readonly coordination?: CoordinationBinding
+  /** The durable run directory this manager acknowledges worker-scoped cancel requests from
+   *  (router arm only — the in-process turn loop is the acknowledger). See
+   *  `DriverAgentOptions.controlDir`. */
+  readonly controlDir?: string
 }
 
 const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete'])
@@ -539,6 +543,7 @@ function buildSupervisorAgent(
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(priorCoordination ? { priorCoordination } : {}),
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
+        ...(deps.controlDir === undefined ? {} : { controlDir: deps.controlDir }),
         inbox,
       })
     if (!deps.loadPriorCoordination && !resolveTools && !observeNodeEvent) {
