@@ -67,4 +67,5 @@ The annotated version of the same loop, with every seam explained, is [`../drive
 
 A retry that sends the same prompt again learns nothing.
 This loop reads what the worker produced, scores it with your check, and writes the next prompt from the real output.
-The kernel owns the parts that are easy to get wrong — one fresh worker per attempt, a hard iteration cap, and teardown of every worker at the end — so your driver stays a few lines of plain code.
+The kernel owns the parts that are easy to get wrong: one fresh worker per attempt, a hard iteration cap, and teardown of every worker at the end.
+Your driver stays a few lines of plain code.

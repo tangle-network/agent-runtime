@@ -92,7 +92,13 @@ Each row links to a runnable example.
 | **`improve`** · [example](./examples/improve) | You must change one part of an agent and prove the gain. | a profile field, three case sets, a judge | a detached candidate, a lift interval, ship or hold |
 
 Five mechanisms continue interrupted work.
-Pick by what died: the HTTP connection (`streamPrompt` with the same `executionId`), nothing but you want the same box (`openSandboxRun`), the coordinator process (`supervise({ runDir })`), the user's chat session (`/conversation` stores), or everything except the provider ([retained runs](./examples/retained-run)).
+Pick by what died.
+
+- The HTTP connection — call `streamPrompt` again with the same `executionId`.
+- Nothing, but you want the same box for the next turn — `openSandboxRun`.
+- The coordinator process, mid-orchestration — `supervise({ runDir })`.
+- The user's chat session — the `/conversation` store adapters.
+- Everything except the provider — [retained runs](./examples/retained-run).
 
 ## Also in the box
 
