@@ -197,6 +197,9 @@ export type GraphArmBackend =
       /** Transport-only Router substrate; the reviewer profile owns the model. */
       readonly router: RouterTransportConfig
       readonly shotPassed: (workerOutText: string) => boolean
+      /** Driver tool-loop turn cap, forwarded to `runGraph`. Live runs bound a confused driver
+       *  brain; the delegates cap still owns the SHOT budget. */
+      readonly maxTurns?: number
     }
 
 // ── The graph topology (exported so tests can assert on the exact inputs) ──────
@@ -449,6 +452,7 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
           router: backend.router,
           analysts: parityAnalysts(),
           hooks: infraHooks,
+          ...(backend.maxTurns !== undefined ? { maxTurns: backend.maxTurns } : {}),
         }
   const startedAt = Date.now()
   try {
