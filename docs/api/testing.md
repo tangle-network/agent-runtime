@@ -18,7 +18,7 @@
 
 ##### brain
 
-> `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
+> `readonly` **brain**: [`ToolLoopChat`](runtime.md#toolloopchat)
 
 The driver-LLM seam — ONE inference turn over the conversation + the coordination tool specs
  (the canonical `ToolLoopChat`): a scripted mock offline, the router's tool-calling in
@@ -303,7 +303,8 @@ acknowledger (in-memory runs keep in-process control via handles).
 
 ### RunGraphTestOptions
 
-Test-only graph options, exported only through the package's explicit `/testing` entry.
+`RunGraphOptions` with the brain REQUIRED — the shape the `/testing` entry's
+ `runGraphWithTestBrain` keeps accepting now that `brain` is a production option.
 
 #### Extends
 
@@ -524,7 +525,24 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ##### brain
 
-> `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
+> `readonly` **brain**: [`ToolLoopChat`](runtime.md#toolloopchat)
+
+The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes every root
+ model call. Use it when the root's decisions must be caller-owned orchestration (a
+ deterministic conversation driver, a persona loop with its own LLM calls) rather than a
+ router-derived model call. The graph machinery around the seam is unchanged: node pinning,
+ directive delivery, the edge ledger, and the journal twin all run the same shipped path,
+ and the root profile keeps prompt control (`prompt-control-execution` materialization —
+ `systemPrompt`/`instructions` still apply). What moves to the caller with the brain:
+ model selection and provider-identity validation (`expectedModel` cannot be enforced on a
+ call the runtime did not place) and per-turn usage reporting (a brain that reports no
+ usage meters nothing into the pool). Omit = the router brain derived from the root
+ profile — the unchanged default. Mutually exclusive with `driverBackend`, and refused
+ when the root profile declares an external harness (that root is driven BY the harness).
+
+###### Overrides
+
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`brain`](runtime.md#brain)
 
 ***
 
@@ -1277,7 +1295,7 @@ spans are telemetry, never the replay/resume record.
 
 ##### brain
 
-> `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
+> `readonly` **brain**: [`ToolLoopChat`](runtime.md#toolloopchat)
 
 ***
 
@@ -1701,28 +1719,7 @@ The durable run directory this manager acknowledges worker-scoped cancel request
 
 ##### brain
 
-> `readonly` **brain**: [`ToolLoopChat`](#toolloopchat)
-
-***
-
-### ToolLoopCallContext
-
-Runtime-owned identity and cancellation for one logical inference call. The wrapper is frozen
-before dispatch; a transport may observe the signal but cannot replace the authority it names.
-
-#### Properties
-
-##### signal
-
-> `readonly` **signal**: `AbortSignal`
-
-##### callId
-
-> `readonly` **callId**: `string`
-
-##### correlationId
-
-> `readonly` **correlationId**: `string`
+> `readonly` **brain**: [`ToolLoopChat`](runtime.md#toolloopchat)
 
 ***
 
@@ -1749,33 +1746,6 @@ Complete private state for exercising profile activation and restore in consumer
 > **recommendedSize**: `"nano"` \| `"small"` \| `"medium"` \| `"large"`
 
 ## Type Aliases
-
-### ToolLoopChat
-
-> **ToolLoopChat** = (`messages`, `tools`, `context?`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](runtime.md#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
-
-One inference turn over the running conversation + the tool specs → the model's text, any
- tool calls, and token usage. The seam every brain satisfies.
-
-#### Parameters
-
-##### messages
-
-`ReadonlyArray`\<[`ToolLoopMessageRecord`](runtime.md#toolloopmessagerecord)\>
-
-##### tools
-
-`ReadonlyArray`\<[`ToolSpec`](runtime.md#toolspec)\>
-
-##### context?
-
-[`ToolLoopCallContext`](#toolloopcallcontext)
-
-#### Returns
-
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](runtime.md#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
-
-***
 
 ### AgentProfileImprovementProposalFixture
 
@@ -1814,7 +1784,8 @@ Build the intelligent recursive driver. Its `act` is the LLM tool-loop; spawn it
 
 > **runGraphWithTestBrain**(`graph`, `opts`): `Promise`\<[`GraphResult`](runtime.md#graphresult)\<`unknown`\>\>
 
-Deterministic scripted-brain path for graph tests. Not exported from Runtime's main entry.
+Alias for graph tests written before `RunGraphOptions.brain` was production. The production
+ entry accepts the same shape; this wrapper only keeps the `/testing` import path working.
 
 #### Parameters
 
@@ -1901,3 +1872,15 @@ Load an isolated profile proposal and its private activation state for consumer 
 #### Returns
 
 [`AgentProfileImprovementFixture`](#agentprofileimprovementfixture)
+
+## References
+
+### ToolLoopCallContext
+
+Re-exports [ToolLoopCallContext](runtime.md#toolloopcallcontext)
+
+***
+
+### ToolLoopChat
+
+Re-exports [ToolLoopChat](runtime.md#toolloopchat)

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.135.1
+
+### The caller-brain seam is production on `runGraph` (#694, option A)
+
+`RunGraphOptions.brain` accepts a caller-owned `ToolLoopChat` on the `/kernel` production entry.
+The root driver's inference becomes caller data: a deterministic conversation driver or a persona loop that makes its own LLM calls can drive a graph without a `/testing` detour, and the graph machinery around the seam — node pinning, directive delivery, the edge ledger, the journal twin — is the same shipped path.
+This is the seam the multishot→`runGraph` consumer migrations require (issue #694, phase 4): strict-alternation driver orchestration must be caller-owned for the recorded artifacts to stay byte-compatible.
+
+Graduation evidence per [docs/STABILITY.md](./docs/STABILITY.md):
+
+- Tests: `tests/kernel/graph.test.ts` ("the caller-brain seam on the production surface") — a caller brain drives the 2-node graph to completion and the edge ledger plus its journal twin match the router-brained run row for row; the two refusals below are asserted; the router-brained default is proven unchanged.
+- Curated doc: `docs/canonical-api.md` (the `/kernel` table's `runGraph(graph, { brain })` row).
+- Consumer: `examples/graphs/user-sim-conversation.ts` runs the persona driver on the production surface end-to-end (`pnpm tsx examples/graphs/user-sim-conversation.ts`).
+- Seam shape: `brain: ToolLoopChat` is unchanged since before 0.128.0; only its placement (test-only → production) moves in this release.
+
+Contract details:
+
+- Omitting `brain` leaves the router-brained default byte-identical: the root's model call derives from the root `AgentProfile` exactly as before.
+- With a brain, the root profile keeps prompt control (`prompt-control-execution` materialization — `systemPrompt`/`instructions` still apply). Model selection, provider-identity validation (`expectedModel`), and per-turn usage reporting move to the caller.
+- Fail-loud refusals before any compute: `brain` + `driverBackend` (two answers to who makes the root's model calls), and `brain` on a root whose profile declares an external harness (the harness IS that root's brain).
+- `/kernel` re-exports `ToolLoopChat` / `ToolLoopCallContext` so a consumer can type its brain from the production entry.
+- `supervise` and `supervisorAgent` keep refusing direct brain injection; the graduated surface is the graph root only. The `/testing` entry (`runGraphWithTestBrain`, `RunGraphTestOptions`) keeps working as an alias for tests written before this release.
+
 ## 0.135.0
 
 ### workerFromBackend honors `continuity: 'resume'` on the bridge backend
