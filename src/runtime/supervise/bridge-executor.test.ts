@@ -13,7 +13,9 @@ import {
   materializeTreeView,
   replaySpawnTree,
 } from '../../durable/spawn-journal'
+import { BackendTransportError } from '../../errors'
 import { spendFromUsageEvents } from './budget'
+import { classifyDriverFailure } from './driver-retry'
 import { runtimeOwnedExecutorMaterialization } from './materialization'
 import {
   type BridgeModelCredential,
@@ -329,6 +331,58 @@ describe('bridgeExecutor upstream-error propagation', () => {
       ),
     ).rejects.toThrow(/bridge stream error: provider failed/)
     expect(runtimeOwnedExecutorMaterialization(executor)).toBeDefined()
+  })
+
+  it('carries the upstream status the bridge reports in its message, so a 400 is not retried', async () => {
+    // The bridge reports the provider status as TEXT inside the message, and `status` was left
+    // undefined. `classifyDriverFailure` reads `status`, so a malformed request took the
+    // "unknown, assume a bad moment" branch and the driver retried it to the ceiling — measured at
+    // 12 attempts against `The max_tokens parameter is illegal`, which fails identically forever.
+    const body = [
+      `data: ${JSON.stringify({
+        error: {
+          message:
+            'pi assistant turn failed: 400: {"message":"The max_tokens parameter is illegal.","type":"invalid_request_error"}',
+        },
+      })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    const failure = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(BackendTransportError)
+    expect((failure as BackendTransportError).status).toBe(400)
+    expect(classifyDriverFailure(failure)).toBe('terminal')
+  })
+
+  it('leaves a 503 retryable, so a provider outage still recovers', async () => {
+    const body = [
+      `data: ${JSON.stringify({
+        error: { message: 'pi assistant turn failed: 503: {"message":"Platform unreachable"}' },
+      })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    const failure = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect((failure as BackendTransportError).status).toBe(503)
+    expect(classifyDriverFailure(failure)).toBe('transient')
   })
 
   it('refuses an old bridge before any model POST', async () => {
