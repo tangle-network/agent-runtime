@@ -455,6 +455,77 @@ describe('acknowledged worker cancellation (#758)', () => {
     expect(cancelWorker(dir, 'ghost', 'op-ghost').effect).toBe('unknown')
   })
 
+  it('a request naming a nested descendant stays unanswered — cancel its lead instead', async () => {
+    // The acknowledger resolves references against the root manager's DIRECT children only
+    // (`DriverAgentOptions.controlDir`). This pins the boundary: an operation naming a live
+    // nested descendant is neither acknowledged nor applied, across every acknowledger pass
+    // including the post-drain one, and still reads `unknown` after the run — never a success.
+    const dir = runDir()
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
+
+    let markStarted: (() => void) | undefined
+    const descendantLive = new Promise<void>((resolveGate) => {
+      markStarted = resolveGate
+    })
+    const makeAgent = (p: AgentProfile): Agent<unknown, unknown> => {
+      if (p.metadata?.kind === 'lead') {
+        const leadBrain = scriptedBrain([
+          { toolCalls: spawnCall('d1') },
+          awaitTurn, // repeats forever — the lead never stops on its own
+        ])
+        return driverChild(
+          testAgentProfile('lead'),
+          driverAgent(driverOpts('lead', leadBrain, makeAgent, blobs)),
+          journal,
+        )
+      }
+      return hangingLeaf('d1', { onStart: () => markStarted?.() })
+    }
+
+    const rootScript = scriptedBrain([
+      {
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: {
+              profile: { metadata: { kind: 'lead' } },
+              task: 'go',
+              label: 'lead',
+              budget: { maxTokens: 10_000, maxIterations: 20 },
+            },
+          },
+        ],
+      },
+      { toolCalls: [{ name: 'list_questions', arguments: {} }] },
+      { toolCalls: [{ name: 'list_questions', arguments: {} }] },
+      { content: 'stopping' },
+    ])
+    let call = 0
+    const rootChat: ToolLoopChat = async (messages, tools, context) => {
+      const index = call
+      call += 1
+      if (index === 1) {
+        await descendantLive
+        cancelWorker(dir, 'run-deep:s0:s0', 'op-deep', { source: 'test' })
+      }
+      return rootScript(messages, tools, context)
+    }
+
+    const root = driverAgent(driverOpts('root', rootChat, makeAgent, blobs, { controlDir: dir }))
+    await createSupervisor<unknown, unknown>().run(root, 'x', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'run-deep',
+      journal,
+      blobs,
+      executors: withDriverExecutor(createExecutorRegistry()),
+      maxDepth: 4,
+    })
+
+    expect(readWorkerCancellation(dir, 'op-deep')).toBeUndefined()
+    expect(cancelWorker(dir, 'run-deep:s0:s0', 'op-deep').effect).toBe('unknown')
+  })
+
   it('the cancelled worker reaches a terminal down state visible on the settle path', async () => {
     const dir = runDir()
     const blobs = new InMemoryResultBlobStore()

@@ -419,6 +419,40 @@ function buildSupervisorView(
   }
 }
 
+/**
+ * Where a worker-scoped cancel for `workerId` must go.
+ *
+ * The runtime's cancel acknowledger runs in the ROOT manager's turn loop and resolves references
+ * against its DIRECT children only; a request naming a deeper descendant stays pending forever
+ * (`cancelWorker` keeps answering `unknown`). See `DriverAgentOptions.controlDir`. So a cancel is
+ * routable only for a top-level worker; for a nested one the operator must cancel its top-level
+ * LEAD, which cancels that lead's whole subtree.
+ *
+ * The worker list never contains the root itself, so the top-level ancestor is the highest node
+ * in the parent chain that is still a listed worker. A `parent` that matches no listed worker is
+ * the root (or missing journal data) — both mean the worker is treated as top-level.
+ */
+export function workerCancelRoute(
+  workers: ReadonlyArray<WorkerView>,
+  workerId: string,
+):
+  | { readonly kind: 'direct'; readonly worker: WorkerView }
+  | { readonly kind: 'nested'; readonly worker: WorkerView; readonly lead: WorkerView }
+  | { readonly kind: 'unknown' } {
+  const byId = new Map(workers.map((worker) => [worker.id, worker]))
+  const worker = byId.get(workerId)
+  if (worker === undefined) return { kind: 'unknown' }
+  let lead = worker
+  const seen = new Set<string>([lead.id])
+  while (lead.parent !== undefined) {
+    const parent = byId.get(lead.parent)
+    if (parent === undefined || seen.has(parent.id)) break
+    seen.add(parent.id)
+    lead = parent
+  }
+  return lead.id === worker.id ? { kind: 'direct', worker } : { kind: 'nested', worker, lead }
+}
+
 /** Render one snapshot to an ANSI frame. Use this when nothing needs to be clickable. */
 export function renderTopFrame(snapshot: TopSnapshot, options: RenderOptions = {}): string {
   return renderTopFrameWithLayout(snapshot, options).frame

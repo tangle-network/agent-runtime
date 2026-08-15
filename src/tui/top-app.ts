@@ -26,6 +26,7 @@ import {
   type RenderTarget,
   renderTopFrameWithLayout,
   type TopSnapshot,
+  workerCancelRoute,
 } from './top-model'
 
 interface UiState {
@@ -401,12 +402,25 @@ function requestCancel(): void {
       state.notice = `${worker.label} is ${worker.status}; nothing to cancel`
       return
     }
+    // The acknowledger resolves DIRECT children of the root manager only; a request naming a
+    // nested descendant would sit unanswered forever. Refuse it and name the routable lead
+    // instead of queueing an operation nothing will ever apply.
+    const route = workerCancelRoute(supervisor.workers, worker.id)
+    if (route.kind === 'nested') {
+      state.notice =
+        `${worker.label} is nested under lead ${route.lead.label}; ` +
+        `cancel ${route.lead.label} to cancel its whole subtree`
+      return
+    }
     try {
       const record = cancelWorker(supervisor.stateDir, worker.id, randomUUID(), {
         reason: 'operator requested cancel from TUI',
         source: 'agent-runtime-top',
       })
-      state.notice = `cancel ${record.effect} for ${supervisor.id}/${worker.label} (op ${record.operationId})`
+      state.notice =
+        record.effect === 'unknown'
+          ? `cancel queued for ${supervisor.id}/${worker.label} (op ${record.operationId}); awaiting runtime acknowledgement`
+          : `cancel ${record.effect} for ${supervisor.id}/${worker.label} (op ${record.operationId})`
     } catch (err) {
       state.notice = `cancel request failed: ${err instanceof Error ? err.message : String(err)}`
     }
