@@ -50,11 +50,7 @@ import {
   runGraph,
   type Spend,
 } from '@tangle-network/agent-runtime/kernel'
-import {
-  type RunGraphTestOptions,
-  runGraphWithTestBrain,
-  type ToolLoopChat,
-} from '../../src/testing'
+import type { ToolLoopChat } from '../../src/testing'
 
 // ── The shared coder sampling (the F1 parity pin) ──────────────────────────────
 
@@ -429,7 +425,7 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
       }
     },
   }
-  const opts: RunGraphOptions | RunGraphTestOptions =
+  const opts: RunGraphOptions =
     backend.kind === 'seam'
       ? {
           makeWorkerAgent: backend.makeWorkerAgent,
@@ -452,8 +448,8 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
         }
   const startedAt = Date.now()
   try {
-    const res =
-      'brain' in opts ? await runGraphWithTestBrain(graph, opts) : await runGraph(graph, opts)
+    // `brain` is a production option on `RunGraphOptions`, so both arms enter the same door.
+    const res = await runGraph(graph, opts)
     return graphRecord(
       res.result.kind === 'winner',
       res.result.spentTotal,

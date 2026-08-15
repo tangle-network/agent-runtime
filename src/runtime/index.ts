@@ -1019,9 +1019,12 @@ export {
   type WatchedSurface,
 } from './surface-diff'
 export type { SandboxControlClient } from './tangle-sandbox-exact-process-provider'
-// Profile-owned supervisor configuration. The arbitrary model callback and raw driver constructor
-// live only under `/testing`; production model execution enters through `supervise(AgentProfile)`.
+// Profile-owned supervisor configuration. The raw driver constructor lives only under `/testing`;
+// production model execution enters through `supervise(AgentProfile)` — except the graph's root,
+// where `RunGraphOptions.brain` accepts a caller-owned `ToolLoopChat` (see `runGraph`).
 export type {
+  ToolLoopCallContext,
+  ToolLoopChat,
   ToolLoopCompaction,
   ToolLoopCompactionOptions,
   ToolLoopMessageRecord,
