@@ -1,78 +1,50 @@
-# A cost-and-audit ledger for any agent run — one row, any database
+# Record what a run cost
 
-Wrap a running agent task and this records what it cost and what happened: every model call rolls up
-into a live tally (tokens in, tokens out, dollars, wall-clock, number of calls), and at the end you
-get one durable row — run id, workspace, session, status, cost, start/finish timestamps — written to
-whatever store you use through a single `upsert(row)` method. Point that method at Postgres, SQLite,
-Cloudflare D1, or an in-memory array; the ledger doesn't care.
+## When to use it
 
-## Why it matters
+Use this when you must record what a run cost and whether it succeeded.
+`startRuntimeRun` opens a run handle, keeps a live tally from the stream, and writes one canonical row through your store adapter.
+The tally counts model calls only, so you can pipe the whole stream through it.
 
-Once agents run in production you need to answer "what did this run cost?" and "did it succeed?" for
-every session — for dashboards, billing, and audit. Hand-rolling that means threading cost
-accounting through your whole stream and inventing a row schema. This gives you both: a correct cost
-tally that ignores everything except model-call events, and a canonical row shape you persist with
-one method. Backend-agnostic (works over any agent backend) and store-agnostic (works over any DB).
+Use a sibling instead when cost is not the question.
+[`../stream-a-turn`](../stream-a-turn) is the same stream with no ledger.
+[`../chat-handler`](../chat-handler) adds the HTTP framing and the message write.
+[`../sanitized-telemetry-streaming`](../sanitized-telemetry-streaming) redacts user data before you log it.
 
-## How it works
-
-Four calls make up the lifecycle:
-
-1. `startRuntimeRun({ workspaceId, sessionId, agentId, taskSpec, adapter })` opens a run. The
-   identity fields land in the persisted row's typed columns; the task spec carries only what
-   describes the *work*.
-2. `run.observe(event)` on every streamed event keeps the cost tally in sync. Only `llm_call` events
-   add to it — everything else is a no-op, so you can safely pipe the *entire* stream through it.
-3. `run.complete({ status, resultSummary, error? })` exactly once at end of stream. It's idempotent
-   for the same status and throws if you try to change a status after the fact.
-4. `run.persist()` writes the row via your adapter; `run.cost()` returns the live tally any time.
-
-## Run — fully offline, no key, no network
+## How to use it
 
 ```bash
-pnpm tsx examples/runtime-run/runtime-run.ts
+pnpm build && pnpm tsx examples/runtime-run/runtime-run.ts
 ```
 
-A toy backend emits two model calls and some text, so the ledger has real numbers to add up. You'll
-see the accumulated cost, then the exact row that would hit your database:
+The example runs offline.
+A toy backend emits two model calls, so the ledger has real numbers:
 
-```
-Cost ledger: {
-  tokensIn: 1800,
-  tokensOut: 390,
-  costUsd: 0.0060999999999999995,
-  wallMs: 1,
-  llmCalls: 2
-}
+```text
+Cost ledger: { tokensIn: 1800, tokensOut: 390, costUsd: 0.0061, wallMs: 1, llmCalls: 2 }
 Persisted row: {
   id: 'legal-chat:thread-42:puomxsx1',
-  workspaceId: 'ws-1',
-  sessionId: 'thread-42',
-  agentId: 'legal-chat-runtime',
-  domain: 'legal',
-  taskId: 'legal-chat:thread-42',
-  scenarioId: 'legal-chat:thread-42',
-  status: 'completed',
-  resultSummary: 'Reviewed',
+  workspaceId: 'ws-1', sessionId: 'thread-42', agentId: 'legal-chat-runtime',
+  status: 'completed', resultSummary: 'Reviewed',
   cost: { tokensIn: 1800, tokensOut: 390, costUsd: 0.0061, wallMs: 1, llmCalls: 2 },
-  startedAt: '...', completedAt: '...',
-  metadata: { note: 'demo persistence metadata' }
+  startedAt: '...', completedAt: '...'
 }
 ```
 
-`1800` in / `390` out / `2` calls is the tally summed from the two `llm_call` events (1200+600 in,
-280+110 out) — proof `observe` only counts model calls.
+The tally sums the two `llm_call` events (1200+600 in, 280+110 out), which proves `observe` counts model calls only.
 
-## Make it real
+Four calls make the lifecycle.
 
-- **Real work:** replace the toy backend with `createSandboxPromptBackend` (a cloud sandbox) or
-  another caller-owned `AgentExecutionBackend`. Paid model work uses `streamAgentTurn` with an
-  exact `AgentProfile` and Runtime executor instead of a provider transport in this lifecycle.
-- **Real store:** implement `RuntimeRunPersistenceAdapter` — one `upsert(row)` method — against D1,
-  Postgres, or your existing runs table. The row shape doesn't change.
+1. `startRuntimeRun({ workspaceId, sessionId, agentId, taskSpec, adapter })` opens the run. The identity lands in typed columns; the task spec describes only the work.
+2. `run.observe(event)` on every streamed event keeps the tally correct.
+3. `run.complete({ status, resultSummary, error })` once, at the end of the stream. It is idempotent for the same status and refuses a changed status.
+4. `run.persist()` writes the row. `run.cost()` returns the live tally at any time.
 
-## Files
+Implement `RuntimeRunPersistenceAdapter` — one `upsert(row)` method — against D1, Postgres, SQLite, or your existing runs table.
+The row shape does not change.
 
-| file | what it is |
-|---|---|
-| `runtime-run.ts` | the full lifecycle: open → observe → complete → persist, with a toy backend and in-memory store |
+## Why this exists
+
+Once agents run in production, two questions arrive for every session: what did this cost, and did it work.
+Answering them by hand means threading cost accounting through the whole stream and inventing a row schema.
+This gives you a correct tally and one canonical row, over any backend and any store.

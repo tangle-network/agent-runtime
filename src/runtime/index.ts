@@ -386,7 +386,14 @@ export {
 // `runAgentRounds` is the multi-agent fanout/vote/refine kernel over many sandbox sessions.
 // It is distinct from `runToolLoop`/`streamToolLoop`, which execute one chat turn and fold
 // tool results back into that same conversation.
-export { defaultSelectWinner, type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
+export {
+  defaultSelectWinner,
+  isTerminalDecision,
+  type RunAgentRoundsOptions,
+  runAgentRounds,
+  TERMINAL_DECISIONS,
+  type TerminalDecision,
+} from './run-loop'
 export { type AcquireOptions, acquireSandbox } from './sandbox-acquire'
 export {
   type CriuCapableClient,

@@ -5,17 +5,33 @@ budget, score them against a real check, and let them improve from their own run
 imports from the published package (`@tangle-network/agent-runtime`) exactly as your code would, and
 most run **offline with no API key** so you can see the machinery before spending anything.
 
-New here? Run these three, in order (the first two cost $0):
+## The front doors
+
+One directory per entry point, ordered by how often real products use it. Each carries a README with
+three sections: when to use it, how to use it, and why it exists.
+
+| Front door | Call | Runs offline |
+|---|---|---|
+| [`stream-a-turn/`](./stream-a-turn/) | `runAgentTaskStream` — one turn, and you read the events | yes |
+| [`chat-handler/`](./chat-handler/) | `handleChatTurn` — stream one turn over HTTP and save the reply | yes |
+| [`stream-backends/`](./stream-backends/) | `AgentExecutionBackend` — choose where the tokens come from | first two sections |
+| [`tool-loop/`](./tool-loop/) | `runToolLoop` — the model calls your tools, then answers | yes |
+| [`runtime-run/`](./runtime-run/) | `startRuntimeRun` — the cost tally and one persisted row | yes |
+| [`quickstart/`](./quickstart/) | `runAgentRounds` — several attempts under your own stop rule | yes |
+| [`supervise/`](./supervise/) | `supervise` — a model decides the plan and drives other agents | needs `TANGLE_API_KEY` |
+| [`retained-run/`](./retained-run/) | `startRetainedRun` — a job that outlives your process | compile-checked only |
+| [`improve/`](./improve/) | `improve` — change one profile field and prove the gain | yes |
+
+New here? Run these three, in order (all cost $0):
 
 ```bash
-pnpm tsx examples/driver-loop/driver-loop.ts                  # 1. one agent steering another — offline
-pnpm tsx examples/improve/improve.ts                          # 2. an agent that rewrites its own prompt, safely — offline
-TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts   # 3. one function call = a supervisor over real workers
+pnpm tsx examples/stream-a-turn/stream-a-turn.ts   # 1. the smallest real path: one turn, its events
+pnpm tsx examples/driver-loop/driver-loop.ts       # 2. one agent steering another — see the fold
+pnpm tsx examples/improve/improve.ts               # 3. an agent that rewrites its own prompt, safely
 ```
 
-`driver-loop` is the core move everything else builds on; `improve` is the self-improvement primitive;
-`supervise` is the one-call product entry point. [`quickstart/`](./quickstart/) is the same loop as
-`driver-loop` compressed into one un-annotated file — it is the quickstart shown in the root README.
+[`quickstart/`](./quickstart/) holds the root README's `minimal.ts` plus the same loop grown into a
+refine loop; [`driver-loop/`](./driver-loop/) is that loop with every seam annotated.
 
 ## A few words that appear everywhere
 
@@ -57,7 +73,6 @@ repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 | # | Example | What it shows |
 |---|---|---|
 | 8 | [`researcher-loop/`](./researcher-loop/) | A research agent whose validator hard-fails if one tenant's data leaks into another's namespace, so the leak is pruned automatically. Needs the optional `@tangle-network/agent-knowledge` peer installed. |
-| 9 | [`ui-audit/`](./ui-audit/) | The smallest end-to-end loop over a real browser (Playwright) with a stub judge, persisting the findings. |
 | 9b | [`coding-benchmark/`](./coding-benchmark/) | Rank coding agents (Claude Code, opencode, Codex, a bare CLI) on real tasks with an **anti-cheat**: each agent is graded on hidden tests it never saw, so it can't hardcode the answer. Includes a secondary quality judge and real significance stats. Offline by default; `--live` uses real agent boxes. |
 | 9c | [`webcode-matrix/`](./webcode-matrix/) | The real WebCode benchmark (Exa's 33-task dataset, graded by its own hidden tests) across a harness × model grid, rendered as a publishable leaderboard with charts, confidence bands, and pairwise significance. |
 
@@ -65,6 +80,9 @@ repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 
 | # | Example | What it shows |
 |---|---|---|
+| 9d | [`stream-a-turn/`](./stream-a-turn/) | One turn end to end: write an `AgentExecutionBackend`, run it through `runAgentTaskStream`, and read the `RuntimeStreamEvent` union back. Offline. |
+| 9e | [`tool-loop/`](./tool-loop/) | One chat turn where the model calls your tools, each result folds back, and the turn re-runs until it stops. Offline. |
+| 9f | [`retained-run/`](./retained-run/) | A job the provider owns: persist the claim ticket, then rebuild control in a fresh process. Compile-checked; needs your own provider to run. |
 | 10 | [`knowledge-gating/`](./knowledge-gating/) | Stop an agent before it acts on facts it isn't confident about: the loop blocks when a required-knowledge confidence is below threshold. |
 | 11 | [`runtime-run/`](./runtime-run/) | The run-record + cost-ledger you persist for dashboards — one row per run, any database. |
 | 12 | [`stream-backends/`](./stream-backends/) | Pick where an agent's streaming output comes from (in-process iterator, cloud sandbox, or an OpenAI-compatible endpoint) behind one wire format. The OpenAI path needs `OPENAI_API_KEY`; the rest is offline. |
@@ -115,6 +133,8 @@ From the repo root:
 
 ```bash
 # Start here
+pnpm tsx examples/stream-a-turn/stream-a-turn.ts
+pnpm tsx examples/tool-loop/tool-loop.ts
 pnpm tsx examples/chat-handler/chat-handler.ts
 pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline; TANGLE_API_KEY swaps in the real model
 pnpm tsx examples/recursive-supervisor/recursive-supervisor.ts

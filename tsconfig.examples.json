@@ -9,6 +9,7 @@
       "@tangle-network/agent-runtime/durable": ["./src/durable/index.ts"],
       "@tangle-network/agent-runtime/intelligence": ["./src/intelligence/index.ts"],
       "@tangle-network/agent-runtime/kernel": ["./src/runtime/index.ts"],
+      "@tangle-network/agent-runtime/tool-loop": ["./src/tool-loop.ts"],
       "@tangle-network/agent-runtime/environment-provider": [
         "./src/runtime/environment-provider.ts"
       ],

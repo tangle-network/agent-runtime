@@ -1,5 +1,5 @@
 /**
- * quickstart — the smallest complete agent loop. Offline, deterministic, no API keys.
+ * quickstart — the smallest complete refine loop. Offline, deterministic, no API keys.
  *
  * One driver runs a worker, reads the worker's real output, and writes the next prompt
  * from it until a check passes. The worker here is a scripted stand-in so the loop runs
@@ -11,7 +11,11 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { inProcessSandboxClient, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
+import {
+  inProcessSandboxClient,
+  runAgentRounds,
+  type TerminalDecision,
+} from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 type Task = { prompt: string }
@@ -39,27 +43,11 @@ const worker = inProcessSandboxClient({
   ],
 })
 
-const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail'>({
-  task: { prompt: 'Write a one-line release note for one-click restore.' },
-  driver: {
-    name: 'refine',
-    plan: async (task, history) => {
-      const last = history[history.length - 1]
-      if (!last) return [task] // shot 0: run the task as written
-      if (last.verdict?.valid || history.length >= 3) return [] // done, or out of shots
-      // The core move: read the last worker's real output, write the next prompt FROM it.
-      return [{ prompt: `Rewrite "${last.output?.note}" to mention the rollback path.` }]
-    },
-    decide: (history) =>
-      history.some((shot) => shot.verdict?.valid)
-        ? 'pick-winner'
-        : history.length < 3
-          ? 'refine'
-          : 'fail',
-  },
+const result = await runAgentRounds({
+  task: { prompt: 'Write a one-line release note for one-click restore.' } as Task,
   agentRun: { profile: noteWriterProfile, taskToPrompt: (t) => t.prompt },
   output: {
-    parse: (events) => {
+    parse: (events): Note => {
       for (const ev of events) {
         if (ev.type === 'result') {
           const r = (ev as { data?: { result?: unknown } }).data?.result
@@ -75,8 +63,26 @@ const result = await runAgentRounds<Task, Note, 'refine' | 'pick-winner' | 'fail
       score: out.note.includes('rollback') ? 1 : 0,
     }),
   },
+  driver: {
+    // Trace label only; it never selects a strategy or a decision path.
+    name: 'release-note-driver',
+    plan: async (task, history) => {
+      const last = history[history.length - 1]
+      if (!last) return [task] // shot 0: run the task as written
+      if (last.verdict?.valid || history.length >= 3) return [] // done, or out of shots
+      // The core move: read the last worker's real output, write the next prompt FROM it.
+      return [{ prompt: `Rewrite "${last.output?.note}" to mention the rollback path.` }]
+    },
+    // 'refine' is this driver's own word — any non-terminal value continues the
+    // loop. 'pick-winner' and 'fail' are kernel keywords from TERMINAL_DECISIONS.
+    decide: (history): 'refine' | TerminalDecision =>
+      history.some((shot) => shot.verdict?.valid)
+        ? 'pick-winner'
+        : history.length < 3
+          ? 'refine'
+          : 'fail',
+  },
   ctx: { sandboxClient: worker },
-  maxIterations: 3,
 })
 
 for (const shot of result.iterations) {

@@ -1,66 +1,46 @@
-# Run a supervisor agent that delegates the work, in one function call
+# Let one agent run other agents
 
-Give a goal to a supervisor agent and it breaks the work off to worker agents, waits for them
-to finish, and only calls itself done when a real check passes on a worker's actual output —
-not when a worker *claims* success. This whole pattern is one call: `supervise(profile, task,
-opts)`. Everything else (bookkeeping, worker plumbing, depth limits) is defaulted for you.
+## When to use it
 
-## Why it matters
+Use this when a model must decide the plan, not your code.
+One supervisor spawns workers, steers them, and stops when a check passes on a worker's real output.
+Budget, journaling, and depth limits are defaulted.
 
-Multi-agent orchestration usually means a pile of glue: spawning workers, tracking who's
-running, collecting results, deciding when it's truly done. Two things here make that
-tractable. First, it's a single call with sane defaults, so you write a goal and a profile,
-not a framework. Second, "done" is a **check you provide** that runs against the worker's
-output — so a worker can't lie its way to completion, and a failure reports the real reason
-and the spend instead of a silent "no winner."
+Use a sibling instead when your code owns the plan.
+[`../quickstart`](../quickstart) is the loop you write yourself with `plan` and `decide`.
+[`../graphs`](../graphs) is a fixed topology authored as data.
+[`../supervisor-loop`](../supervisor-loop) is this same call with a real worker backend, such as a sandbox or a coding CLI.
+[`../delegate`](../delegate) is the zero-configuration entry: one intent string in, one result out.
 
-## What runs
-
-The goal is deliberately tiny: *produce the exact line `READY`*. It's a stand-in for real
-delegated work so the mechanics are visible.
-
-1. The supervisor (its brain is a model reasoning over `spawn_agent` / `await_event` / `stop`
-   tools) is told to **delegate, not solve**: spawn a worker, wait for it to settle, then stop.
-2. A worker agent runs and produces its output.
-3. The completion check `out => ...includes('READY')` runs against that output. Only if it
-   passes is the run a win. If no worker ever delivers, the run ends with a typed reason plus
-   token/dollar spend.
-
-Three knobs are worth knowing:
-
-- **`profile.harness`** picks what drives the supervisor's brain: `null` (this example) uses
-  an in-process model tool-loop; `'opencode'` / `'claude-code'` / `'codex'` run a real coding
-  CLI in a sandbox instead.
-- **`backend`** is *where the workers run* — one value to swap. Here it's `router-tools`
-  (off-box model agents); change it to `sandbox` + a harness to run each worker as a coding
-  agent in a real box.
-- **`deliverable`** is the completion check described above. Optional, but it's what makes
-  "done" mean *verified* rather than *self-reported*.
-
-## Run it
+## How to use it
 
 ```bash
-TANGLE_API_KEY=sk-tan-... pnpm tsx examples/supervise/supervise.ts
+TANGLE_API_KEY=sk-tan-... pnpm build && pnpm tsx examples/supervise/supervise.ts
 ```
 
-A key is required (the supervisor's brain and the worker both call the Tangle router).
-Optional: `MODEL` (default `gemini-2.5-pro`), `TANGLE_ROUTER_URL`.
+A key is required, because the supervisor's brain and the worker both call the router.
+`MODEL` and `TANGLE_ROUTER_URL` are optional.
 
 On success it prints the delivered output:
 
-```
+```text
 [OK] delivered: {"content":"READY"}
 ```
 
-If no worker delivers, it prints the reason and what it cost instead:
+When no worker delivers, it prints the reason and the spend instead:
 
-```
+```text
 [--] no winner (budget-exhausted) — 1 child(ren) down, spent 4210 tokens / $0.0031
 ```
 
-## Going further
+Three settings are worth knowing.
 
-This is the smallest possible call — model brain, off-box workers, everything defaulted. When
-your workers need a real backend (a sandbox box, a local coding CLI, or an MCP tool server),
-go to [`../supervisor-loop/`](../supervisor-loop/): the same `supervise()` call with the
-worker backend swapped in as the only change.
+- `profile.harness` picks what drives the supervisor's brain. This example uses `cli-base`, the router-backed brain with no coding agent. Set `opencode`, `claude-code`, or `codex` to run a coding CLI in a sandbox.
+- `backend` is where the workers run. This example uses `router-tools`. Change it to `sandbox` plus a harness to run each worker as a coding agent in a real box.
+- `deliverable` is the completion check. It is optional, and it is what makes "done" mean verified.
+
+## Why this exists
+
+Multi-agent orchestration usually becomes glue code: spawn, track, collect, and guess when the work is done.
+This is one call with defaults, so you write a goal and a profile instead of a framework.
+"Done" is your check against a worker's output, so a worker cannot claim success, and a failure reports the real reason and the spend.
