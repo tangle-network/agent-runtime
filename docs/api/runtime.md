@@ -20102,9 +20102,16 @@ A named model carried into an execution, or an explicit reason the exact model i
 
 ### UnknownMaterializationReason
 
-> **UnknownMaterializationReason** = `"executor-did-not-report"` \| `"executor-receipt-pending"` \| `"invalid-executor-report"` \| `"root-agent-did-not-report"`
+> **UnknownMaterializationReason** = `"executor-did-not-report"` \| `"executor-failed-before-receipt"` \| `"executor-receipt-pending"` \| `"invalid-executor-report"` \| `"root-agent-did-not-report"`
 
 Why exact materialization evidence is unavailable for a node.
+
+`executor-receipt-pending` is an IN-FLIGHT value only. It states that a pending executor has
+declared its plan and has not yet sent the terminal acknowledgement, so the answer can still
+arrive. A terminal record must never carry it: the attempt is over and no receipt is coming.
+A terminal attempt that ended before its acknowledgement records
+`executor-failed-before-receipt` instead, which names the outcome rather than a wait that
+already finished.
 
 ***
 
