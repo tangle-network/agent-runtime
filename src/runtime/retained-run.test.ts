@@ -7,6 +7,8 @@ import {
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
+  type InteractionCapabilities,
+  interactionRequestDigest,
   interactionResponseCommandDigest,
   type RuntimeEventEnvelope,
 } from '@tangle-network/agent-interface'
@@ -497,6 +499,8 @@ describe('retained runtime run control', () => {
 
     expect(recorded).toEqual({
       prompt: 'fresh prompt',
+      controlRef: { ...controlRef, runId: 'old-run' },
+      nativeContinuation: { stale: true },
       turnId: 'fresh-turn',
       detach: true,
       sessionId: controlRef.sessionId,
@@ -958,6 +962,71 @@ describe('retained runtime run control', () => {
         onAdmission: recordedAdmissions().onAdmission,
       }),
     ).rejects.toThrow('cannot control a retry-safe retained run')
+    expect(creates).toBe(0)
+  })
+
+  it.each([true, false])(
+    'rejects an unsupported declared interaction before create or dispatch (%s)',
+    async (enabled) => {
+      let creates = 0
+      let dispatches = 0
+      const provider = providerWithEnvironment({
+        async dispatch() {
+          dispatches += 1
+          throw new Error('dispatch must not run')
+        },
+      })
+      const create = provider.create
+      provider.create = async (input) => {
+        creates += 1
+        return create(input)
+      }
+
+      await expect(
+        startRetainedRun({
+          provider,
+          environment: { profile: { name: 'worker' }, idempotencyKey: `unsupported-${enabled}` },
+          turn: {
+            prompt: 'go',
+            turnId: `unsupported-turn-${enabled}`,
+            interactions: { question: enabled },
+          },
+          onAdmission: recordedAdmissions().onAdmission,
+        }),
+      ).rejects.toThrow('does not support requested interactions: question')
+      expect({ creates, dispatches }).toEqual({ creates: 0, dispatches: 0 })
+    },
+  )
+
+  it.each([
+    ['replay', { replay: false, responseIdempotency: true }],
+    ['response idempotency', { replay: true, responseIdempotency: false }],
+  ] as const)('requires %s for an interaction dispatch', async (_missing, override) => {
+    let creates = 0
+    const provider = providerWithEnvironment({})
+    const baseCapabilities = provider.capabilities
+    provider.capabilities = async () => ({
+      ...(await baseCapabilities()),
+      interactions: interactionCapabilities(override),
+    })
+    const create = provider.create
+    provider.create = async (input) => {
+      creates += 1
+      return create(input)
+    }
+
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: `unsafe-${_missing}` },
+        turn: {
+          prompt: 'go',
+          turnId: `unsafe-${_missing}-turn`,
+          interactions: { question: true },
+        },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).rejects.toThrow('without replay and response idempotency')
     expect(creates).toBe(0)
   })
 
@@ -1537,6 +1606,80 @@ describe('retained runtime run control', () => {
 
     await expect(collectRetainedEvents(run.events())).rejects.toThrow('another retained session')
   })
+
+  it.each(['live', 'replay'] as const)(
+    'validates nested interaction binding on the %s event path',
+    async (path) => {
+      const controlRef = {
+        runId: `nested-interaction-${path}-run`,
+        provider: 'test-provider',
+        environmentId: 'environment-1',
+        sessionId: `nested-interaction-${path}-session`,
+        executionId: `nested-interaction-${path}-execution`,
+        requestDigest: retainedRequestDigest,
+      }
+      const requestMaterial = {
+        id: `nested-interaction-${path}`,
+        kind: 'question',
+        title: 'Need input',
+        answerSpec: {
+          fields: [{ type: 'text' as const, name: 'answer', label: 'Answer' }],
+        },
+        binding: {
+          runId: controlRef.runId,
+          provider: controlRef.provider,
+          environmentId: controlRef.environmentId,
+          sessionId: controlRef.sessionId,
+          executionId: 'foreign-execution',
+          interactionId: `nested-interaction-${path}`,
+        },
+      }
+      const session: AgentSession = {
+        id: controlRef.sessionId,
+        controlRef,
+        status: async () => 'running',
+        async *events(): AsyncIterable<AgentEnvironmentEvent> {
+          yield {
+            id: `nested-interaction-${path}-event`,
+            type: 'interaction',
+            data: {},
+            normalized: {
+              type: 'interaction',
+              request: {
+                ...requestMaterial,
+                requestDigest: interactionRequestDigest(requestMaterial),
+              },
+            },
+          }
+        },
+        result: async () => ({ text: 'done', success: true }),
+        prompt: async () => ({ text: 'continued', success: true }),
+        cancel: async () => {},
+      }
+      const provider = providerWithEnvironment({
+        dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+        session: () => session,
+      })
+      const run = await startRetainedRun({
+        provider,
+        environment: {
+          profile: { name: 'worker' },
+          idempotencyKey: `nested-interaction-${path}-environment`,
+        },
+        turn: { prompt: 'go', turnId: `nested-interaction-${path}-turn` },
+        onAdmission: recordedAdmissions().onAdmission,
+        identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+      })
+
+      const events =
+        path === 'live'
+          ? run.events()
+          : run.events({ after: { cursor: 'before-event', sequence: 0 } })
+      await expect(collectRetainedEvents(events)).rejects.toThrow(
+        'provider returned an interaction for another retained execution',
+      )
+    },
+  )
 
   it('validates a replay anchor before skipping it', async () => {
     const controlRef = {
@@ -2149,5 +2292,20 @@ function providerWithEnvironment(
     async get() {
       return environment
     },
+  }
+}
+
+function interactionCapabilities(
+  overrides: Partial<InteractionCapabilities> = {},
+): InteractionCapabilities {
+  return {
+    kinds: ['question'],
+    answerFieldTypes: ['text'],
+    responseScopes: ['interaction'],
+    secretAnswers: false,
+    concurrentRequests: false,
+    replay: true,
+    responseIdempotency: true,
+    ...overrides,
   }
 }

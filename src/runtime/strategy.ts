@@ -263,7 +263,11 @@ async function runShot(
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', profile, factory },
-      { messages: messages as Array<{ role: string; content: unknown }> },
+      {
+        providerOptions: {
+          messages,
+        },
+      },
     ),
   )
   if (turn.status !== 'completed') {

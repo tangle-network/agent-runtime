@@ -55,6 +55,7 @@ export function createRetainedRunHandle(
   now: (() => number) | undefined,
 ): RetainedRunHandle {
   const clock = now ?? Date.now
+  const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
   const snapshot = async (reason?: string, signal?: AbortSignal): Promise<RetainedRunSnapshot> => {
     if (signal?.aborted) throw abortError(signal.reason)
@@ -88,6 +89,9 @@ export function createRetainedRunHandle(
     get controlRef() {
       return copyControlRef(activeControlRef)
     },
+    get capabilities() {
+      return structuredClone(measuredCapabilities)
+    },
     status: async (options) => {
       const waitMs = options?.waitMs ?? 0
       assertWaitDuration(waitMs, 'retained status wait')
@@ -114,7 +118,10 @@ export function createRetainedRunHandle(
     async respondToInteraction(command, options): Promise<InteractionAcknowledgement> {
       const exactCommand = InteractionResponseCommandSchema.parse(command)
       assertInteractionBinding(activeControlRef, exactCommand)
-      if (capabilities.interactions?.responseIdempotency !== true) {
+      if (
+        measuredCapabilities.interactions?.replay !== true ||
+        measuredCapabilities.interactions.responseIdempotency !== true
+      ) {
         throw new Error(
           `provider "${activeControlRef.provider}" does not promise retry-safe interaction responses`,
         )
@@ -168,8 +175,8 @@ export function createRetainedRunHandle(
         throw new Error('native continuation request targets another user turn')
       }
       if (
-        capabilities.nativeContinuation?.atomicBoundary !== true ||
-        capabilities.nativeContinuation.requestIdempotency !== true ||
+        measuredCapabilities.nativeContinuation?.atomicBoundary !== true ||
+        measuredCapabilities.nativeContinuation.requestIdempotency !== true ||
         !session.continueNative
       ) {
         throw new Error(

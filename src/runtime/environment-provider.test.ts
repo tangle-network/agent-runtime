@@ -1,5 +1,10 @@
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  type AgentExactRunControlRef,
+  type AgentProfile,
+  type AgentRunCancellationRequest,
+  agentRunCancellationRequestDigest,
+} from '@tangle-network/agent-interface'
 import type {
   BackendType,
   CreateSandboxOptions,
@@ -520,6 +525,336 @@ describe('environment provider adapters', () => {
 
     await environment.session?.('session-1').cancel()
     expect(interrupted).toBe(1)
+  })
+
+  it('preserves exact dispatch identity and scopes concurrent Sandbox sessions independently', async () => {
+    const requestDigest = `sha256:${'a'.repeat(64)}` as `sha256:${string}`
+    const controlRef = (sessionId: string, executionId: string): AgentExactRunControlRef => ({
+      runId: `run-${sessionId}`,
+      provider: 'tangle-sandbox',
+      environmentId: 'sbx-durable',
+      sessionId,
+      executionId,
+      requestDigest,
+    })
+    const firstRef = controlRef('session-a', 'execution-a')
+    const secondRef = controlRef('session-b', 'execution-b')
+    const executionReads: string[] = []
+    const interrupts: string[] = []
+    const cancelCalls: AgentRunCancellationRequest[] = []
+    const makeSession = (ref: AgentExactRunControlRef) => ({
+      id: ref.sessionId,
+      async status() {
+        executionReads.push(`status:${ref.executionId}`)
+        return {
+          id: ref.sessionId,
+          status: 'running',
+          activeExecutionId: ref.executionId,
+          latestExecutionId: ref.executionId,
+          runControlRef: ref,
+        }
+      },
+      async *events(options?: { executionId?: string }): AsyncIterable<SandboxEvent> {
+        executionReads.push(`events:${options?.executionId}`)
+        yield { type: 'status', data: { status: 'running' } }
+      },
+      async result(options?: { executionId?: string }) {
+        executionReads.push(`result:${options?.executionId}`)
+        return { response: `result:${ref.executionId}`, success: true }
+      },
+      async prompt() {
+        return { response: '', success: true }
+      },
+      async interrupt(options?: { executionId?: string }) {
+        interrupts.push(options?.executionId ?? 'missing')
+        return { cancelled: true }
+      },
+      async cancelRun(request: AgentRunCancellationRequest) {
+        cancelCalls.push(request)
+        return {
+          operationId: request.operationId,
+          requestDigest: request.requestDigest,
+          run: request.run,
+          status: 'accepted',
+          effect: 'cancel_requested',
+        }
+      },
+    })
+    const sessions = new Map([
+      [firstRef.sessionId, makeSession(firstRef)],
+      [secondRef.sessionId, makeSession(secondRef)],
+    ])
+    const box = {
+      id: 'sbx-durable',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {},
+      async dispatchPrompt(_message: string, options?: { sessionId?: string }) {
+        const ref = sessions.get(options?.sessionId ?? firstRef.sessionId)
+        if (!ref) throw new Error('unknown test session')
+        return {
+          sessionId: ref.id,
+          executionId: ref.id === firstRef.sessionId ? firstRef.executionId : secondRef.executionId,
+          runControlRef: ref.id === firstRef.sessionId ? firstRef : secondRef,
+          status: 'running',
+          alreadyExisted: false,
+          dispatched: true,
+        }
+      },
+      session(id: string) {
+        const session = sessions.get(id)
+        if (!session) throw new Error(`unknown test session ${id}`)
+        return session
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }
+    const environment = await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+    })
+
+    const dispatched = await environment.dispatch?.({
+      prompt: 'detached',
+      sessionId: firstRef.sessionId,
+      executionId: firstRef.executionId,
+    })
+    expect(dispatched).toMatchObject({
+      id: firstRef.sessionId,
+      controlRef: firstRef,
+      metadata: { executionId: firstRef.executionId },
+    })
+
+    // SandboxSession has no synchronous controlRef. The exact dispatch result
+    // is the persisted wrapper binding, and later status evidence is checked.
+    const firstSession = environment.session?.(firstRef.sessionId, { controlRef: firstRef })
+    const secondSession = environment.session?.(secondRef.sessionId, { controlRef: secondRef })
+    if (!firstSession || !secondSession) throw new Error('expected durable sessions')
+    await firstSession.status()
+    await collect(firstSession.events())
+    await firstSession.result()
+    expect(executionReads).toEqual([
+      `status:${firstRef.executionId}`,
+      `events:${firstRef.executionId}`,
+      `result:${firstRef.executionId}`,
+    ])
+
+    await Promise.all([firstSession.cancel(), secondSession.cancel()])
+    expect(interrupts.sort()).toEqual([firstRef.executionId, secondRef.executionId].sort())
+
+    const mismatched = cancellationRequest(secondRef, 'cross-cancel')
+    await expect(firstSession.cancelRun?.(mismatched)).rejects.toThrow(
+      'cancellation targeted a different execution',
+    )
+    expect(cancelCalls).toHaveLength(0)
+  })
+
+  it('makes Sandbox result abortable even though Sandbox result accepts only executionId', async () => {
+    const controlRef: AgentExactRunControlRef = {
+      runId: 'result-abort-run',
+      provider: 'tangle-sandbox',
+      environmentId: 'sbx-result-abort',
+      sessionId: 'result-abort-session',
+      executionId: 'result-abort-execution',
+      requestDigest: `sha256:${'b'.repeat(64)}` as `sha256:${string}`,
+    }
+    const box = {
+      id: controlRef.environmentId,
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {},
+      session() {
+        return {
+          id: controlRef.sessionId,
+          async result() {
+            return await new Promise<never>(() => {})
+          },
+        }
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const environment = await sandboxClientAsProvider({
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }).create({ profile: { name: 'worker' } })
+    const session = environment.session?.(controlRef.sessionId, { controlRef })
+    if (!session) throw new Error('expected result session')
+    const controller = new AbortController()
+    const pending = session.result({ signal: controller.signal })
+    controller.abort('stop waiting')
+    await expect(pending).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'stop waiting',
+    })
+  })
+
+  it('round-trips exact dispatch identity through both adapter directions', async () => {
+    const controlRef: AgentExactRunControlRef = {
+      runId: 'round-trip-run',
+      provider: 'fake-provider',
+      environmentId: 'environment-1',
+      sessionId: 'round-trip-session',
+      executionId: 'round-trip-execution',
+      requestDigest: `sha256:${'d'.repeat(64)}` as `sha256:${string}`,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events(): AsyncIterable<AgentEnvironmentEvent> {},
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: controlRef.provider,
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          dispatch: async () => ({
+            id: controlRef.sessionId,
+            provider: controlRef.provider,
+            controlRef,
+            metadata: {
+              status: 'running',
+              executionId: controlRef.executionId,
+              dispatched: true,
+            },
+          }),
+          session: () => session,
+          stream: async function* () {},
+        })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+    await expect(box.dispatchPrompt?.('detached')).resolves.toMatchObject({
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+      runControlRef: controlRef,
+      dispatched: true,
+    })
+  })
+
+  it.each([
+    ['malformed', { runControlRef: { runId: 'malformed' } }],
+    [
+      'mismatched execution',
+      {
+        executionId: 'execution-a',
+        runControlRef: {
+          runId: 'run-a',
+          provider: 'tangle-sandbox',
+          environmentId: 'sandbox-dispatch-identity',
+          sessionId: 'session-a',
+          executionId: 'execution-b',
+          requestDigest: `sha256:${'e'.repeat(64)}` as `sha256:${string}`,
+        },
+      },
+    ],
+  ] as const)('rejects %s dispatch identity before exposing a session', async (_label, result) => {
+    const box = {
+      id: 'sandbox-dispatch-identity',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {},
+      async dispatchPrompt() {
+        return { sessionId: 'session-a', status: 'running', alreadyExisted: false, ...result }
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const environment = await sandboxClientAsProvider({
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    }).create({ profile: { name: 'worker' } })
+
+    await expect(environment.dispatch?.({ prompt: 'detached' })).rejects.toThrow()
+  })
+
+  it('rejects malformed or mismatched control evidence and scopes cancelRun in both directions', async () => {
+    const ref: AgentExactRunControlRef = {
+      runId: 'scope-run',
+      provider: 'fake-provider',
+      environmentId: 'scope-environment',
+      sessionId: 'scope-session',
+      executionId: 'scope-execution',
+      requestDigest: `sha256:${'c'.repeat(64)}` as `sha256:${string}`,
+    }
+    const otherRef = { ...ref, executionId: 'other-execution' }
+    let neutralCancelCalls = 0
+    const neutralSession: AgentSession = {
+      id: ref.sessionId,
+      controlRef: ref,
+      status: async () => 'running',
+      async *events(): AsyncIterable<AgentEnvironmentEvent> {},
+      result: async () => ({ text: '', success: true }),
+      prompt: async () => ({ text: '', success: true }),
+      cancel: async () => {},
+      async cancelRun(request) {
+        neutralCancelCalls += 1
+        return {
+          operationId: request.operationId,
+          requestDigest: request.requestDigest,
+          run: request.run,
+          status: 'accepted',
+          effect: 'cancel_requested',
+        }
+      },
+    }
+    const provider: AgentEnvironmentProvider = {
+      name: ref.provider,
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({ session: () => neutralSession, stream: async function* () {} })
+      },
+    }
+    const box = await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+    const sandboxSession = box.session(ref.sessionId)
+    await expect(
+      sandboxSession.cancelRun?.(cancellationRequest(otherRef, 'wrong-execution')),
+    ).rejects.toThrow('cancellation targeted a different execution')
+    expect(neutralCancelCalls).toBe(0)
+
+    const malformedProvider: AgentEnvironmentProvider = {
+      ...provider,
+      async create() {
+        return fakeEnvironment({
+          session: () =>
+            ({ ...neutralSession, controlRef: { runId: 'malformed' } }) as unknown as AgentSession,
+          stream: async function* () {},
+        })
+      },
+    }
+    const malformedBox = await providerAsSandboxClient(malformedProvider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+    })
+    expect(() => malformedBox.session(ref.sessionId)).toThrow(/expected string/)
+
+    const mismatchBox = {
+      id: ref.environmentId,
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {},
+      session() {
+        return {
+          id: ref.sessionId,
+          controlRef: otherRef,
+        }
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const mismatchEnvironment = await sandboxClientAsProvider({
+      async create(): Promise<SandboxInstance> {
+        return mismatchBox
+      },
+    }).create({ profile: { name: 'worker' } })
+    expect(() => mismatchEnvironment.session?.(ref.sessionId, { controlRef: ref })).toThrow(
+      /different exact run control reference/,
+    )
   })
 
   it('fails closed when a neutral session only reports stopped', async () => {
@@ -1325,4 +1660,15 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     resolve = done
   })
   return { promise, resolve }
+}
+
+function cancellationRequest(
+  run: AgentExactRunControlRef,
+  operationId: string,
+): AgentRunCancellationRequest {
+  const material = { operationId, run }
+  return {
+    ...material,
+    requestDigest: agentRunCancellationRequestDigest(material),
+  }
 }

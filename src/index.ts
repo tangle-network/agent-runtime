@@ -298,6 +298,7 @@ export type {
   OpenAIChatToolChoice,
   RunAgentTaskOptions,
   RunAgentTaskStreamOptions,
+  RuntimeCanonicalStreamEvent,
   RuntimeSession,
   RuntimeSessionStore,
   RuntimeStreamEvent,

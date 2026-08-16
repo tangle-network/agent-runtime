@@ -6048,6 +6048,12 @@ Reconstructable control of one provider-retained run.
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
 
+##### capabilities
+
+> `readonly` **capabilities**: `AgentEnvironmentCapabilities`
+
+Capabilities measured from the exact environment that owns this run.
+
 #### Methods
 
 ##### status()
@@ -19765,14 +19771,6 @@ Model label stamped on cost-only `llm_call` events. Default `'agent'`.
 
 ***
 
-### AgentTurnInput
-
-> **AgentTurnInput** = `string` \| \{ `messages`: `ReadonlyArray`\<`Readonly`\<`Record`\<`string`, `unknown`\>\>\>; \}
-
-One prompt or an exact OpenAI-compatible conversation carried as the turn input.
-
-***
-
 ### StructuralRolloutMessage
 
 > **StructuralRolloutMessage** = `Record`\<`string`, `unknown`\>
@@ -24031,7 +24029,7 @@ timeout alike. The generator never throws; failures surface in-band as
 
 ##### input
 
-[`AgentTurnInput`](#agentturninput)
+`AgentTurnInput`
 
 ##### opts?
 

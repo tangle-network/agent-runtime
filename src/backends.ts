@@ -7,6 +7,7 @@
  * @stable
  */
 
+import { providerMessageText } from './runtime/turn-input'
 import { newRuntimeSession, nowIso, touchSession } from './sessions'
 import type {
   AgentBackendContext,
@@ -54,7 +55,11 @@ export function createSandboxPromptBackend<
     },
     async *stream(input, context) {
       const box = await options.getBox(input, context)
-      const message = input.message ?? input.messages?.at(-1)?.content ?? context.task.intent
+      const message =
+        input.message ??
+        input.messages?.at(-1)?.content ??
+        providerMessageText(input.providerOptions) ??
+        context.task.intent
       for await (const event of options.streamPrompt(box, message, context)) {
         const mapped = options.mapEvent?.(event, context) ?? mapCommonBackendEvent(event, context)
         if (mapped) yield mapped

@@ -14,6 +14,7 @@
  * @stable
  */
 
+import { providerMessageText } from '../runtime/turn-input'
 import { newRuntimeSession, nowIso } from '../sessions'
 import type {
   AgentBackendContext,
@@ -45,7 +46,11 @@ export function createConversationBackend(options: {
       input: AgentBackendInput,
       context: AgentBackendContext,
     ): AsyncIterable<RuntimeStreamEvent> {
-      const seed = input.message ?? input.messages?.at(-1)?.content ?? context.task.intent
+      const seed =
+        input.message ??
+        input.messages?.at(-1)?.content ??
+        providerMessageText(input.providerOptions) ??
+        context.task.intent
       const task = context.task
       const session = context.session
 

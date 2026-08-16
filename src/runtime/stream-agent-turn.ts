@@ -48,7 +48,12 @@
  */
 
 import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
-import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import {
+  type AgentProfile,
+  canonicalCandidateDigest,
+  renderInputPartsAsText,
+} from '@tangle-network/agent-interface'
+import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { normalizeBackendStreamEvent } from '../backends'
 import { BackendTransportError, ValidationError } from '../errors'
@@ -62,7 +67,12 @@ import type {
   RuntimeSession,
   RuntimeStreamEvent,
 } from '../types'
-import { createSandboxToolPartState, mapSandboxEvent, mapSandboxToolEvent } from './sandbox-events'
+import {
+  canonicalStreamEventFromSandboxEvent,
+  createSandboxToolPartState,
+  mapSandboxEvent,
+  mapSandboxToolEvent,
+} from './sandbox-events'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
   authoredProfileDigest,
@@ -88,6 +98,7 @@ import type {
   ProfileMaterializationReceipt,
   UsageEvent,
 } from './supervise/types'
+import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
 
 /**
  * The execution substrate one turn runs on — a closed discriminated union over
@@ -132,10 +143,7 @@ type ObservedAgentTurnBackend =
       backend: AgentExecutionBackend
     }
 
-/** One prompt or an exact OpenAI-compatible conversation carried as the turn input. */
-export type AgentTurnInput =
-  | string
-  | { readonly messages: ReadonlyArray<Readonly<Record<string, unknown>>> }
+export type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
 
 /** @stable */
 export interface StreamAgentTurnOptions {
@@ -173,19 +181,20 @@ export interface StreamAgentTurnOptions {
 }
 
 function turnIntent(input: AgentTurnInput): string {
-  if (typeof input === 'string') return input
-  for (let index = input.messages.length - 1; index >= 0; index -= 1) {
-    const message = input.messages[index]
-    if (message?.role === 'user' && typeof message.content === 'string') return message.content
-  }
+  if (input.prompt !== undefined) return input.prompt
+  if (input.parts !== undefined) return renderInputPartsAsText(input.parts)
   return 'structured agent turn'
 }
 
 function turnBackendInput(task: AgentTaskSpec, input: AgentTurnInput): AgentBackendInput {
-  if (typeof input === 'string') return { task, message: input }
   return {
     task,
-    messages: input.messages.map((message) => ({ ...message })) as AgentBackendInput['messages'],
+    ...(input.prompt === undefined ? {} : { message: input.prompt }),
+    ...(input.parts === undefined ? {} : { parts: structuredClone(input.parts) }),
+    ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
+    ...(input.providerOptions === undefined
+      ? {}
+      : { providerOptions: structuredClone(input.providerOptions) }),
   }
 }
 
@@ -617,7 +626,7 @@ async function* streamAgentTurnInternal(
             )
           : driveBoxTurn(
               backend.box,
-              turnIntent(input),
+              input,
               deadline.signal,
               backend.agentRunName ?? 'agent',
               acc,
@@ -631,6 +640,9 @@ async function* streamAgentTurnInternal(
       yield event
       throwIfAborted(deadline.signal)
     }
+    // Some providers close their iterator instead of throwing after an abort
+    // or deadline. Never turn that silent close into a successful completion.
+    throwIfAborted(deadline.signal)
 
     if (backend.kind === 'executor') {
       ;({ materialization, executionBinding } = executorEvidence(executor!, profile!, attemptId))
@@ -837,29 +849,45 @@ interface BoxTurnConfig {
  */
 async function* driveBoxTurn(
   box: SandboxInstance,
-  prompt: string,
+  input: AgentTurnInput,
   signal: AbortSignal,
   agentRunName: string,
   acc: TurnAccumulator,
   cfg: BoxTurnConfig,
 ): AsyncGenerator<RuntimeStreamEvent> {
   const callOptions: PromptOptions = { ...(cfg.options ?? {}), signal }
-  const stream = box.streamPrompt(prompt, callOptions)
+  const stream = box.streamPrompt(promptFromAgentTurnInput(input), {
+    ...callOptions,
+    ...promptOptionsFromAgentTurnInput(input),
+    signal,
+  })
   const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
   for await (const event of stream) {
     if (cfg.onRawEvent) await cfg.onRawEvent(event)
     const terminalText = terminalTextFromSandboxEvent(event)
     if (terminalText !== undefined) acc.terminalText = terminalText
+    const canonical = canonicalStreamEventFromSandboxEvent(event)
+    if (canonical) {
+      yield canonical
+      continue
+    }
+
     if (toolParts) {
-      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) yield toolEvent
+      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) {
+        yield toolEvent
+      }
     }
     const mapped = mapSandboxEvent(event, { agentRunName })
-    if (!mapped) continue
-    // `mapSandboxEvent` stamps `agentRunName` as the model label when the
-    // event carried none — a run label, not a reported model. Exclude it from
-    // the terminal usage so `usage.model` is never a fabricated value.
-    foldEvent(mapped, acc, agentRunName)
-    yield mapped
+    if (mapped) {
+      // `mapSandboxEvent` stamps `agentRunName` as the model label when the
+      // event carried none — a run label, not a reported model. Exclude it from
+      // the terminal usage so `usage.model` is never a fabricated value.
+      foldEvent(mapped, acc, agentRunName)
+      yield mapped
+    }
+
+    // Unknown provider events stay available through onRawEvent. Do not copy
+    // arbitrary provider payloads into the public stream.
   }
 }
 
@@ -891,7 +919,7 @@ async function* driveExecutorTurn(
   acc: TurnAccumulator,
   declaredModel: string | undefined,
 ): AsyncGenerator<RuntimeStreamEvent> {
-  const taskValue = typeof input === 'string' ? input : { messages: input.messages }
+  const taskValue = executorTaskValue(input)
   const run = executor.execute(taskValue, signal)
   let result: ExecutorResult<unknown>
   if (isAsyncIterable(run)) {
@@ -962,6 +990,18 @@ async function* driveExecutorTurn(
       ...(result.verdict ? { verdict: result.verdict } : {}),
     },
     timestamp: nowIso(),
+  }
+}
+
+function executorTaskValue(input: AgentTurnInput): unknown {
+  const messages = input.providerOptions?.messages
+  if (Array.isArray(messages)) {
+    return { messages: structuredClone(messages) }
+  }
+  return {
+    ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+    ...(input.parts === undefined ? {} : { parts: structuredClone(input.parts) }),
+    ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
   }
 }
 
