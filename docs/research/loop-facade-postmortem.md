@@ -101,3 +101,47 @@ before building. The prevention rule is sound; its DISCOVERABILITY was the gap.
 Loop/orchestration primitives are governed by the `canonical-api.md` §2 decision
 table — that table now points here, and any "new loop primitive" idea must clear
 this record's executable-proof-with-real-agents bar before a line is written.
+
+## Audit 20260816: the entries are four families, not one duplicated grammar
+
+Issue #874 carried the opposite reading of this record.
+It counted ten symbols on the published surface, called five of them "loop entries" and four of them rival graph runtimes, and ruled that consolidation should leave two.
+The audit measured the surface instead of the symbol names, and the ruling did not survive it.
+
+Two of the five named entries are not public at all.
+`runLoop` has never existed in this package: zero occurrences in `src/`, zero in the published `dist` types.
+`routerToolLoop` is a `src/runtime/router-client.ts` internal that no barrel exports; the three hits in `dist` are prose inside doc comments.
+Both counts came from grepping mentions in `.d.ts` text rather than reading the export lists.
+
+The remaining eight are four families with different reasons to exist:
+
+| Entry | Family | What it is |
+|---|---|---|
+| `loopUntil` | combinator | one step child per round until the stop gate passes |
+| `pipeline` | combinator | ordered stages, each stage fed the previous deliverable |
+| `worktreeFanout` | combinator preset | returns `fanout(...)` over worktree-CLI leaves |
+| `loopDispatch` | eval adapter | returns a `ProfileDispatchFn` for `runProfileMatrix` |
+| `loopCampaignDispatch` | eval adapter | returns a `DispatchFn` for `runCampaign` |
+| `runGraph` | graph runtime | a model-decided topology over `supervise()` |
+| `replaySpawnTree` | durable replay | re-feeds a journaled tree as `Settled[]` |
+| `runTree` | view merge | folds a resumed run's committed nodes into the live view |
+
+No combinator is subsumed by `runGraph`, and the reason is behavioural rather than stylistic.
+`runPersonified` accepts no brain, no router, and no model configuration, so a combinator's order is a property of the program.
+`runGraph` always routes delegation through a model, whether the caller supplies a `brain`, places a `driverBackend` harness, or falls through to the root profile's router brain.
+`tests/kernel/composition-families.test.ts` holds the distinction: one two-node graph runs its worker when the scripted brain emits `spawn_agent` and runs nothing when the same brain declines.
+A `pipeline` stage cannot be skipped that way, so the two entries do not express the same behaviour.
+
+The dispatch pair already shares one core, `runLoopWithCampaignContext`.
+The two public faces exist because agent-eval has two entry points with different signatures, and both remain live.
+They stay.
+
+`runTree` was the one genuine removal, and it was never a runtime.
+It is nine lines that merge a resumed run's prior nodes into the live view, the supervisor applies it before returning, and `SupervisedResult.tree` therefore already carries the merged tree.
+No consumer imported it: verified across 23 first-party repositories and the only published dependent.
+It left the `/kernel` barrel in 0.138.0 and stayed as a supervisor internal.
+
+**Why this recurred:** the ledger reasoned from names.
+A `run*` prefix on a pure view merge, and two `loop*` prefixes on eval adapters, read as duplicated runtimes to a reader counting symbols.
+Before proposing that two entries consolidate, read both implementations and name the behaviour that separates them.
+If no behaviour separates them, a test must be able to tell the surviving entry from the deleted one.
