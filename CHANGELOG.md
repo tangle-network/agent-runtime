@@ -2,9 +2,10 @@
 
 ## 0.135.3
 
-- Widen the `@tangle-network/agent-interface` peer range to `>=0.52.0 <0.54.0`.
-`agent-knowledge` 8.x requires interface `>=0.53.0`, so the previous `<0.53.0` cap made no published set installable for a consumer that carries both packages.
+- Move the `@tangle-network/agent-interface` peer range to `>=0.53.0 <0.54.0`.
+`agent-knowledge` 8.x requires interface `>=0.53.0`, so the previous `>=0.52.0 <0.53.0` range made no published set installable for a consumer that carries both packages.
 Interface 0.53.0 is additive over 0.52.0 (strict per-turn interaction requests on Sandbox backend prompt options); typecheck and the test suite pass against 0.53.0.
+A consumer on interface 0.52.x must move to 0.53.x when it adopts this release.
 No runtime behavior changes.
 
 ## 0.135.2
