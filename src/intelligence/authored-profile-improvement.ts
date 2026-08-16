@@ -28,7 +28,6 @@ import {
   createAgentImprovementProposal,
 } from './improvement-cycle'
 import { agentImprovementProfileDiffs } from './improvement-surfaces'
-import { assertNoCallerOptimizationReceipt } from './optimization-receipt'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
 import {
   createProfileImprovementCostLedger,
@@ -105,8 +104,11 @@ export interface ProposeAuthoredAgentProfileImprovementResult {
 export async function proposeAuthoredAgentProfileImprovement(
   options: ProposeAuthoredAgentProfileImprovementOptions,
 ): Promise<ProposeAuthoredAgentProfileImprovementResult> {
-  assertNoCallerOptimizationReceipt(options.metadata)
   const source = agentImprovementSourceSchema.parse(options.source)
+  // Validate and seal caller metadata before allocating a cost ledger or
+  // invoking the product-owned executor. Reserved provenance fields and forged
+  // optimizer receipts must fail closed without spending measurement budget.
+  const metadata = profileImprovementMetadata(options.metadata, source)
   const inputLineage = options.candidateLineage as AgentCandidateLineage
   if (inputLineage.source === 'optimizer') {
     throw new Error('authored profile improvement refuses optimizer lineage; use improve()')
@@ -207,7 +209,7 @@ export async function proposeAuthoredAgentProfileImprovement(
       generationsExplored: 0,
       preparation,
       measurement: run.measurement,
-      metadata: profileImprovementMetadata(options.metadata, source),
+      metadata,
     }),
   )
   const proposal = createAgentImprovementProposal({
