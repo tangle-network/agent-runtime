@@ -1,6 +1,7 @@
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 import { ConfigError } from '../errors'
 import type { ImproveProfileComponents } from './improve-types'
+import type { ReadonlyAgentProfile } from './profile-types'
 
 /** Stable component-name prefix used for `profile.prompt.instructions`. */
 export const PROMPT_INSTRUCTION_COMPONENT_PREFIX = 'prompt.instruction:'
@@ -57,7 +58,7 @@ function orderedInstructionValues(components: Readonly<Record<string, string>>):
  * sentinel instruction that could accidentally ship.
  */
 export const promptInstructionsProfileComponents: ImproveProfileComponents = Object.freeze({
-  read(profile) {
+  read(profile: ReadonlyAgentProfile) {
     const instructions = profile.prompt?.instructions ?? []
     if (instructions.length === 0) {
       throw new ConfigError(
@@ -65,10 +66,16 @@ export const promptInstructionsProfileComponents: ImproveProfileComponents = Obj
       )
     }
     return Object.fromEntries(
-      instructions.map((instruction, index) => [componentName(index), instruction]),
+      instructions.map((instruction: string, index: number) => [
+        componentName(index),
+        instruction,
+      ]),
     )
   },
-  apply(profile, components) {
+  apply(
+    profile: ReadonlyAgentProfile,
+    components: Readonly<Record<string, string>>,
+  ): ReadonlyAgentProfile {
     const instructions = orderedInstructionValues(components)
     return agentProfileSchema.parse({
       ...profile,
