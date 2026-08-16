@@ -330,7 +330,7 @@ async function runShotLocal(task: BenchTask, attempt: number, cfg: ShotCfg, stee
     const turn = await collectAgentTurn(
       streamAgentTurn(
         { kind: 'executor', factory, profile: workerProfile(cfg, `commit0-local-${attempt}`) },
-        prompt,
+        { prompt },
         cfg.timeoutMs > 0 ? { timeoutMs: cfg.timeoutMs } : {},
       ),
     )

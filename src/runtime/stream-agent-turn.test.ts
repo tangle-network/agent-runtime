@@ -870,6 +870,26 @@ describe('streamAgentTurn: chat backend', () => {
     expect(final.metadata).not.toHaveProperty('costUsd')
   })
 
+  it('uses the final provider message as the normalized task intent', async () => {
+    const seen: RuntimeStreamEvent[] = []
+    for await (const event of streamObservedAgentTurn(
+      { kind: 'chat', backend: stubChatBackend() },
+      {
+        providerOptions: {
+          messages: [
+            { role: 'system', content: 'Keep the change small.' },
+            { role: 'user', content: 'Fix the failing release check.' },
+          ],
+        },
+      },
+    )) {
+      seen.push(event)
+    }
+
+    const delta = seen.find((event) => event.type === 'text_delta')
+    expect(delta?.task?.intent).toBe('Fix the failing release check.')
+  })
+
   it('abort mid-stream terminates with status aborted after partial deltas', async () => {
     const controller = new AbortController()
     const stream = streamObservedAgentTurn(

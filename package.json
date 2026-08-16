@@ -122,7 +122,8 @@
     "test:watch": "vitest",
     "lint": "biome check src tests examples",
     "lint:fix": "biome check --write src tests examples",
-    "typecheck": "tsc --noEmit && pnpm run typecheck:examples",
+    "typecheck": "tsc --noEmit && pnpm run typecheck:examples && pnpm run typecheck:bench",
+    "typecheck:bench": "tsc --noEmit -p bench/tsconfig.json",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
     "generate:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts",
     "check:testing-fixture": "tsx scripts/generate-agent-improvement-proposal-fixtures.ts --check",
@@ -170,7 +171,7 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.145.17 <0.146.0",
+    "@tangle-network/agent-eval": ">=0.145.19 <0.146.0",
     "@tangle-network/agent-interface": ">=0.56.0 <0.57.0",
     "@tangle-network/sandbox": ">=0.27.0 <0.28.0"
   },

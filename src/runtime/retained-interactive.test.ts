@@ -26,6 +26,7 @@ import {
   recoverRetainedInteractiveRun,
   startRetainedInteractiveRun,
 } from './retained-interactive'
+import { claimRetainedInteractiveControl } from './retained-interactive-control'
 import type { RetainedInteractiveAdmission } from './retained-run-types'
 
 const profile: AgentProfile = {
@@ -80,21 +81,19 @@ describe('retained interactive runs', () => {
     })
     expect(handle.ref.run.sessionId).toBe('retained-session:workspace-1:native-turn-1')
     expect((await handle.status()).state).toBe('running')
-    const claim = await handle.claimControl(controlClaimRequest(handle.ref))
-    expect(claim.status).toBe('accepted')
-    if (!claim.control) throw new Error('expected a provider control claim')
+    const control = await claimRetainedInteractiveControl({ handle, holderId: 'braid-ui' })
     const promptAcknowledgement = await handle.sendPrompt(
-      promptCommand(handle.ref, claim.control, 'Run tests.'),
+      promptCommand(handle.ref, control, 'Run tests.'),
     )
     expect(promptAcknowledgement).toMatchObject({
       status: 'accepted',
       operationId: `${handle.ref.run.runId}:prompt`,
     })
     expect(fixture.prompts).toEqual(['Run tests.'])
-    const terminal = await handle.attach({ control: claim.control })
+    const terminal = await handle.attach({ control })
     expect(terminal.ref.parentExecutionId).toBe(handle.ref.run.executionId)
-    expect(terminal.control).toEqual(claim.control)
-    const stopAcknowledgement = await handle.stop(stopCommand(handle.ref, claim.control))
+    expect(terminal.control).toEqual(control)
+    const stopAcknowledgement = await handle.stop(stopCommand(handle.ref, control))
     expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
   })
 
@@ -524,6 +523,75 @@ describe('retained interactive runs', () => {
     },
   )
 
+  it('destroys an environment that resolves after create cancellation', async () => {
+    const fixture = interactiveProvider()
+    const originalCreate = fixture.provider.create.bind(fixture.provider)
+    let releaseCreate: (() => void) | undefined
+    let createStarted = false
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve
+    })
+    fixture.provider.create = async (input) => {
+      createStarted = true
+      await createGate
+      return originalCreate(input)
+    }
+
+    const controller = new AbortController()
+    const pending = start(fixture.provider, controller.signal)
+    await waitFor(() => createStarted)
+    controller.abort('cancel late create')
+
+    await expect(pending).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'cancel late create',
+    })
+    releaseCreate?.()
+    await waitFor(() => fixture.destroyCalls === 1)
+
+    expect(fixture.environmentCreations).toBe(1)
+    expect(fixture.destroyCalls).toBe(1)
+  })
+
+  it('destroys the environment with fresh authority when start cancellation wins', async () => {
+    const fixture = interactiveProvider()
+    const originalCreate = fixture.provider.create.bind(fixture.provider)
+    let releaseStart: (() => void) | undefined
+    let startEntered = false
+    const startGate = new Promise<void>((resolve) => {
+      releaseStart = resolve
+    })
+    fixture.provider.create = async (input) => {
+      const environment = await originalCreate(input)
+      const originalStart = environment.startInteractive?.bind(environment)
+      if (!originalStart) throw new Error('fixture does not expose interactive start')
+      environment.startInteractive = async (request, options) => {
+        startEntered = true
+        await startGate
+        return originalStart(request, options)
+      }
+      return environment
+    }
+
+    const controller = new AbortController()
+    const pending = start(fixture.provider, controller.signal)
+    await waitFor(() => startEntered)
+    controller.abort('cancel late start')
+
+    await expect(pending).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'cancel late start',
+    })
+    await waitFor(() => fixture.destroyCalls === 1)
+    expect(fixture.destroySignal).toBeDefined()
+    expect(fixture.destroySignal).not.toBe(controller.signal)
+    expect(fixture.destroySignal?.aborted).toBe(false)
+
+    releaseStart?.()
+    await waitFor(() => fixture.processStarts === 1)
+    expect(fixture.destroyCalls).toBe(1)
+  })
+
   it.each(['claimControl', 'status', 'attach', 'sendPrompt', 'stop'] as const)(
     'cancels a hanging interactive %s call',
     async (hangAt) => {
@@ -636,6 +704,7 @@ interface ProviderFixture {
   readonly startCalls: number
   readonly processStarts: number
   readonly destroyCalls: number
+  readonly destroySignal?: AbortSignal
   readonly hangingCalls: number
   hangAt?: HangPoint
   statusRef?: AgentInteractiveSessionRef
@@ -670,12 +739,14 @@ function interactiveProvider(
     startCalls: 0,
     processStarts: 0,
     destroyCalls: 0,
+    destroySignal: undefined as AbortSignal | undefined,
     hangingCalls: 0,
     statusRef: undefined as AgentInteractiveSessionRef | undefined,
   }
   const environmentKeys = new Set<string>()
   let hangAt = options.hangAt
   let ref: AgentInteractiveSessionRef | undefined
+  let controlGeneration = 1
   let lost = false
   const terminal = (): Omit<AgentInteractiveTerminalSession, 'control'> => ({
     ref: {
@@ -707,7 +778,18 @@ function interactiveProvider(
         fixture.hangingCalls += 1
         return neverPending()
       }
-      const control = controlFor(ref!, request.holderId, request.expectedGeneration + 1)
+      if (request.expectedGeneration !== controlGeneration) {
+        return {
+          operationId: request.operationId,
+          requestDigest: request.requestDigest,
+          ref: ref!,
+          status: 'conflict' as const,
+          conflictReason: 'generation_mismatch' as const,
+          currentGeneration: controlGeneration,
+        }
+      }
+      controlGeneration += 1
+      const control = controlFor(ref!, request.holderId, controlGeneration)
       return {
         operationId: request.operationId,
         requestDigest: request.requestDigest,
@@ -831,8 +913,9 @@ function interactiveProvider(
       return ref
     },
     interactive: () => session(),
-    destroy: async () => {
+    destroy: async (destroyOptions) => {
       fixture.destroyCalls += 1
+      fixture.destroySignal = destroyOptions?.signal
     },
   }
   const provider: AgentEnvironmentProvider = {
@@ -873,6 +956,7 @@ function interactiveProvider(
       startCalls: { get: () => fixture.startCalls },
       processStarts: { get: () => fixture.processStarts },
       destroyCalls: { get: () => fixture.destroyCalls },
+      destroySignal: { get: () => fixture.destroySignal },
       hangingCalls: { get: () => fixture.hangingCalls },
       hangAt: {
         get: () => hangAt,
@@ -955,6 +1039,13 @@ async function waitForHangingCall(fixture: ProviderFixture, expected: number): P
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
   }
   expect(fixture.hangingCalls).toBeGreaterThanOrEqual(expected)
+}
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 40 && !predicate(); attempt += 1) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  }
+  expect(predicate()).toBe(true)
 }
 
 function interactiveCapabilities(complete: boolean): AgentEnvironmentCapabilities {

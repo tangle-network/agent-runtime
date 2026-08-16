@@ -99,7 +99,11 @@ import type {
   ProfileMaterializationReceipt,
   UsageEvent,
 } from './supervise/types'
-import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
+import {
+  promptFromAgentTurnInput,
+  promptOptionsFromAgentTurnInput,
+  providerMessageText,
+} from './turn-input'
 
 /**
  * The execution substrate one turn runs on — a closed discriminated union over
@@ -184,7 +188,7 @@ export interface StreamAgentTurnOptions {
 function turnIntent(input: AgentTurnInput): string {
   if (input.prompt !== undefined) return input.prompt
   if (input.parts !== undefined) return renderInputPartsAsText(input.parts)
-  return 'structured agent turn'
+  return providerMessageText(input.providerOptions) ?? 'structured agent turn'
 }
 
 function turnBackendInput(task: AgentTaskSpec, input: AgentTurnInput): AgentBackendInput {

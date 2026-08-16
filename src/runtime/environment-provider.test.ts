@@ -7,6 +7,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type {
   BackendType,
+  CreateRequestOptions,
   CreateSandboxOptions,
   SandboxEvent,
   SandboxInstance,
@@ -164,6 +165,7 @@ describe('environment provider adapters', () => {
 
   it('adapts a SandboxClient to a neutral provider with create/stream/workspace methods', async () => {
     let createOptions: CreateSandboxOptions | undefined
+    let createRequestOptions: CreateRequestOptions | undefined
     let streamedPrompt: unknown
     const box = {
       id: 'sbx-1',
@@ -193,8 +195,12 @@ describe('environment provider adapters', () => {
       async delete(): Promise<void> {},
     } as unknown as SandboxInstance
     const client: SandboxClient = {
-      async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
+      async create(
+        options?: CreateSandboxOptions,
+        requestOptions?: CreateRequestOptions,
+      ): Promise<SandboxInstance> {
         createOptions = options
+        createRequestOptions = requestOptions
         return box
       },
       describePlacement() {
@@ -203,6 +209,7 @@ describe('environment provider adapters', () => {
     }
 
     const provider = sandboxClientAsProvider(client)
+    const controller = new AbortController()
     const environment = await provider.create({
       profile: { name: 'worker' },
       backend: 'codex',
@@ -214,6 +221,7 @@ describe('environment provider adapters', () => {
       env: { A: '1' },
       secrets: ['SECRET_NAME'],
       idempotencyKey: 'create-2',
+      signal: controller.signal,
     })
     const events = await collect(environment.stream({ prompt: 'go' }))
 
@@ -225,6 +233,7 @@ describe('environment provider adapters', () => {
       secrets: ['SECRET_NAME'],
       idempotencyKey: 'create-2',
     })
+    expect(createRequestOptions?.signal).toBe(controller.signal)
     expect(streamedPrompt).toBe('go')
     expect(events[0]).toMatchObject({
       type: 'result',

@@ -22,6 +22,11 @@ import {
   createRetainedInteractiveRunHandle,
   freezeInteractiveRef,
 } from './retained-interactive-handle'
+import {
+  createInteractiveEnvironment,
+  destroyInteractiveEnvironment,
+  startInteractiveProcess,
+} from './retained-interactive-lifecycle'
 import type {
   ReconnectRetainedInteractiveRunOptions,
   RecoverRetainedInteractiveRunOptions,
@@ -80,8 +85,8 @@ export async function startRetainedInteractiveRun(
   )
   assertInteractiveCapabilities(options.provider.name, providerCapabilities)
 
-  const environment = await awaitAbortable(
-    Promise.resolve().then(() =>
+  const environment = await createInteractiveEnvironment(
+    () =>
       options.provider.create({
         ...options.environment,
         profile,
@@ -97,7 +102,6 @@ export async function startRetainedInteractiveRun(
           executionId: identity.executionId,
         },
       }),
-    ),
     options.signal,
   )
   let capabilities: AgentEnvironmentCapabilities
@@ -111,7 +115,7 @@ export async function startRetainedInteractiveRun(
     )
     assertInteractiveMethods(options.provider.name, environment)
   } catch (error) {
-    await destroyUnusedEnvironment(environment, error, options.signal)
+    await destroyUnusedEnvironment(environment, error)
     throw error
   }
 
@@ -133,12 +137,12 @@ export async function startRetainedInteractiveRun(
 
   const ref = exactStartedRef(
     request,
-    await awaitAbortable(
-      Promise.resolve().then(() =>
+    await startInteractiveProcess(
+      environment,
+      () =>
         environment.startInteractive!(request, {
           signal: options.signal,
         }),
-      ),
       options.signal,
     ),
   )
@@ -502,13 +506,9 @@ function assertInteractiveMethods(providerName: string, environment: AgentEnviro
 async function destroyUnusedEnvironment(
   environment: AgentEnvironment,
   cause: unknown,
-  signal?: AbortSignal,
 ): Promise<void> {
   try {
-    await awaitAbortable(
-      Promise.resolve().then(() => environment.destroy?.({ signal })),
-      signal,
-    )
+    await destroyInteractiveEnvironment(environment)
   } catch (cleanupError) {
     throw new AggregateError(
       [cause, cleanupError],

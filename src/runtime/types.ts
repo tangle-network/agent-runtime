@@ -14,7 +14,12 @@
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type {
+  CreateRequestOptions,
+  CreateSandboxOptions,
+  SandboxEvent,
+  SandboxInstance,
+} from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
 
@@ -336,7 +341,10 @@ export interface LoopResult<Task, Output, Decision> {
  * @stable
  */
 export interface SandboxClient {
-  create(options?: CreateSandboxOptions): Promise<SandboxInstance>
+  create(
+    options?: CreateSandboxOptions,
+    requestOptions?: CreateRequestOptions,
+  ): Promise<SandboxInstance>
   describePlacement?(box: SandboxInstance): LoopSandboxPlacement
   /**
    * Optional legacy CRIU capability probe. When present and it resolves

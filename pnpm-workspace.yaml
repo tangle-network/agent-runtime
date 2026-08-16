@@ -18,11 +18,11 @@ allowBuilds:
 catalog:
   '@arethetypeswrong/cli': 0.18.5
   '@modelcontextprotocol/sdk': 1.30.0
-  '@tangle-network/agent-core': 0.9.2
+  '@tangle-network/agent-core': 0.9.3
   '@types/node': 26.1.1
-  '@tangle-network/agent-eval': 0.145.17
+  '@tangle-network/agent-eval': 0.145.19
   '@tangle-network/agent-interface': 0.56.0
-  '@tangle-network/agent-knowledge': 8.0.2
+  '@tangle-network/agent-knowledge': 8.0.4
   '@tangle-network/agent-profile-materialize': 0.15.2
   '@tangle-network/agent-trace-contract': ^1.0.2
   '@tangle-network/sandbox': 0.27.0

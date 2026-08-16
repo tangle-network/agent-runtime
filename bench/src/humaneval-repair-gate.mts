@@ -89,7 +89,7 @@ async function repairAttempt(cfg: BenchRouterTarget, task: HumanEvalTask, k: num
     },
   })
   const r = await collectAgentTurn(
-    streamAgentTurn({ kind: 'executor', factory, profile }, basePrompt(task)),
+    streamAgentTurn({ kind: 'executor', factory, profile }, { prompt: basePrompt(task) }),
   )
   if (r.status !== 'completed') {
     throw new Error(r.error?.message ?? `repair turn ended with status ${r.status}`)

@@ -345,6 +345,8 @@ export {
   resolveSandboxClient,
 } from './resolve-sandbox-client'
 export {
+  type ClaimRetainedInteractiveControlOptions,
+  claimRetainedInteractiveControl,
   type NativeContextContinuationExecution,
   type NativeContextContinuationInput,
   type ReconnectRetainedInteractiveRunOptions,

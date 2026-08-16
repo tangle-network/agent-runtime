@@ -10,6 +10,10 @@ export {
   recoverRetainedInteractiveRun,
   startRetainedInteractiveRun,
 } from './retained-interactive'
+export {
+  type ClaimRetainedInteractiveControlOptions,
+  claimRetainedInteractiveControl,
+} from './retained-interactive-control'
 export type {
   ReconnectRetainedInteractiveRunOptions,
   RecoverRetainedInteractiveRunOptions,

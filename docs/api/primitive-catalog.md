@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.137.0` and `@tangle-network/agent-eval@0.145.17` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.137.0` and `@tangle-network/agent-eval@0.145.19` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -528,7 +528,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 806 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 808 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -557,6 +557,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 806 exports.
 | `captureWorkerTraceEvidence` | function | Collect and persist one executor's structured tool trace without changing its task outcome. |
 | `chatTransportExecutor` | function | Build one exact profile-driven chat executor through `createExecutor`. |
 | `chatWorkerSeam` | function | Session-owning worker factory for graph continuity. |
+| `claimRetainedInteractiveControl` | function | Acquire provider-issued write authority without reading authority from status. |
 | `claimsAuthority` | function | True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because |
 | `classifyDriverFailure` | function | Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
@@ -850,6 +851,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 806 exports.
 | `CheckRunner` | interface | Executes the frozen checks against one candidate. Implementations MUST fail loud |
 | `CheckSource` | interface | Produces the task's visible checks. MUST derive them from agent-visible information |
 | `CheckSourceCtx` | interface | What a CheckSource composes with. `consult` is the strategy family's raw analyst |
+| `ClaimRetainedInteractiveControlOptions` | interface | Input for acquiring write authority over one exact interactive process. |
 | `CliSeam` | interface | UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn. |
 | `CliWorktreeSeam` | interface | cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI |
 | `CollectedAgentTurn` | interface | A drained turn: the terminal summary plus every event the stream yielded. |

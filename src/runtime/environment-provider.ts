@@ -285,7 +285,10 @@ export function sandboxClientAsProvider(
           options.defaultBackend ?? 'opencode',
           options.resolveProfile,
         ))
-      const box = await client.create(createOptions)
+      const box = await client.create(
+        createOptions,
+        input.signal === undefined ? undefined : { signal: input.signal },
+      )
       return sandboxInstanceAsEnvironment(box, providerName, client)
     },
     ...(hasGet(client)
