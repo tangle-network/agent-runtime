@@ -66,10 +66,7 @@ export const promptInstructionsProfileComponents: ImproveProfileComponents = Obj
       )
     }
     return Object.fromEntries(
-      instructions.map((instruction: string, index: number) => [
-        componentName(index),
-        instruction,
-      ]),
+      instructions.map((instruction: string, index: number) => [componentName(index), instruction]),
     )
   },
   apply(
