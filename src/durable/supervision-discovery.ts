@@ -130,9 +130,7 @@ export async function discoverDurableSupervisionRun(
     runDir: canonicalRunDir,
     spawnJournalPath,
     coordinationLogPath,
-    roots: Object.freeze(
-      [...allRoots].filter((root) => !nestedRoots.has(root)).sort(compareText),
-    ),
+    roots: Object.freeze([...allRoots].filter((root) => !nestedRoots.has(root)).sort(compareText)),
     coordinationStreams: Object.freeze(coordinationStreams),
   })
 }
