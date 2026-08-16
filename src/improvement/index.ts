@@ -82,6 +82,12 @@ export {
   strategyAuthorMethod,
 } from './optimizer-prompt'
 export {
+  type CreateProfileImprovementHarnessOptions,
+  createProfileImprovementHarness,
+  type ProfileImprovementHarness,
+  type ProfileImprovementHarnessRunOptions,
+} from './profile-improvement-harness'
+export {
   PROMPT_INSTRUCTION_COMPONENT_PREFIX,
   promptInstructionsProfileComponents,
 } from './prompt-instructions-profile-components'
