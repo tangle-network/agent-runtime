@@ -93,6 +93,7 @@ export function createProfileImprovementHarness<
 
   const profile = immutableCandidateValue(parsed.data)
   const executionRef = options.executionRef
+  const agent = options.agent
   const defaultValidator = options.validateCandidate
 
   return Object.freeze({
@@ -103,7 +104,7 @@ export function createProfileImprovementHarness<
       return improve(profile, {
         ...runOptions,
         executionRef,
-        agent: options.agent,
+        agent,
         ...(runOptions.validateCandidate !== undefined
           ? { validateCandidate: runOptions.validateCandidate }
           : defaultValidator !== undefined
