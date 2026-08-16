@@ -1,10 +1,18 @@
 import {
   type AgentInteractiveSession,
+  type AgentInteractiveSessionControlClaim,
+  type AgentInteractiveSessionControlClaimRequest,
+  type AgentInteractiveSessionPromptCommand,
   type AgentInteractiveSessionRef,
   AgentInteractiveSessionRefSchema,
   type AgentInteractiveSessionStart,
+  type AgentInteractiveSessionStopCommand,
+  type AgentInteractiveTerminalSession,
   type AgentProfile,
-  type AgentTerminalSession,
+  agentInteractiveSessionControlClaimRequestDigest,
+  agentInteractiveSessionPromptRequestDigest,
+  agentInteractiveSessionStopRequestDigest,
+  canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -72,9 +80,22 @@ describe('retained interactive runs', () => {
     })
     expect(handle.ref.run.sessionId).toBe('retained-session:workspace-1:native-turn-1')
     expect((await handle.status()).state).toBe('running')
-    await handle.sendPrompt('Run tests.')
+    const claim = await handle.claimControl(controlClaimRequest(handle.ref))
+    expect(claim.status).toBe('accepted')
+    if (!claim.control) throw new Error('expected a provider control claim')
+    const promptAcknowledgement = await handle.sendPrompt(
+      promptCommand(handle.ref, claim.control, 'Run tests.'),
+    )
+    expect(promptAcknowledgement).toMatchObject({
+      status: 'accepted',
+      operationId: `${handle.ref.run.runId}:prompt`,
+    })
     expect(fixture.prompts).toEqual(['Run tests.'])
-    expect((await handle.attach()).ref.parentExecutionId).toBe(handle.ref.run.executionId)
+    const terminal = await handle.attach({ control: claim.control })
+    expect(terminal.ref.parentExecutionId).toBe(handle.ref.run.executionId)
+    expect(terminal.control).toEqual(claim.control)
+    const stopAcknowledgement = await handle.stop(stopCommand(handle.ref, claim.control))
+    expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
   })
 
   it('replays a persisted intent after a crash before environment create', async () => {
@@ -465,7 +486,7 @@ describe('retained interactive runs', () => {
 
     const wrongTerminal = interactiveProvider({ returnWrongTerminal: true })
     const handle = await start(wrongTerminal.provider)
-    await expect(handle.attach()).rejects.toThrow(
+    await expect(handle.attach({ control: controlFor(handle.ref) })).rejects.toThrow(
       'attached a terminal from another interactive run',
     )
   })
@@ -503,20 +524,27 @@ describe('retained interactive runs', () => {
     },
   )
 
-  it.each(['status', 'attach', 'sendPrompt', 'stop'] as const)(
+  it.each(['claimControl', 'status', 'attach', 'sendPrompt', 'stop'] as const)(
     'cancels a hanging interactive %s call',
     async (hangAt) => {
       const fixture = interactiveProvider({ hangAt })
       const handle = await start(fixture.provider)
       const controller = new AbortController()
+      const control = controlFor(handle.ref)
       const pending =
-        hangAt === 'status'
-          ? handle.status({ signal: controller.signal })
-          : hangAt === 'attach'
-            ? handle.attach(undefined, { signal: controller.signal })
-            : hangAt === 'sendPrompt'
-              ? handle.sendPrompt('continue', { signal: controller.signal })
-              : handle.stop({ signal: controller.signal })
+        hangAt === 'claimControl'
+          ? handle.claimControl(controlClaimRequest(handle.ref), {
+              signal: controller.signal,
+            })
+          : hangAt === 'status'
+            ? handle.status({ signal: controller.signal })
+            : hangAt === 'attach'
+              ? handle.attach({ control }, { signal: controller.signal })
+              : hangAt === 'sendPrompt'
+                ? handle.sendPrompt(promptCommand(handle.ref, control, 'continue'), {
+                    signal: controller.signal,
+                  })
+                : handle.stop(stopCommand(handle.ref, control), { signal: controller.signal })
       await waitForHangingCall(fixture, 1)
       controller.abort(`cancel ${hangAt}`)
 
@@ -618,6 +646,7 @@ type HangPoint =
   | 'create'
   | 'get'
   | 'start'
+  | 'claimControl'
   | 'status'
   | 'attach'
   | 'sendPrompt'
@@ -648,7 +677,7 @@ function interactiveProvider(
   let hangAt = options.hangAt
   let ref: AgentInteractiveSessionRef | undefined
   let lost = false
-  const terminal = (): AgentTerminalSession => ({
+  const terminal = (): Omit<AgentInteractiveTerminalSession, 'control'> => ({
     ref: {
       terminalSessionId: 'terminal-1',
       parentExecutionId: options.returnWrongTerminal ? 'another-execution' : ref!.run.executionId,
@@ -673,6 +702,20 @@ function interactiveProvider(
   })
   const session = (): AgentInteractiveSession => ({
     ref: ref!,
+    claimControl: async (request) => {
+      if (hangAt === 'claimControl') {
+        fixture.hangingCalls += 1
+        return neverPending()
+      }
+      const control = controlFor(ref!, request.holderId, request.expectedGeneration + 1)
+      return {
+        operationId: request.operationId,
+        requestDigest: request.requestDigest,
+        ref: ref!,
+        status: 'accepted' as const,
+        control,
+      }
+    },
     status: async () => {
       if (hangAt === 'status') {
         fixture.hangingCalls += 1
@@ -680,30 +723,39 @@ function interactiveProvider(
       }
       return { state: 'running' as const, ref: fixture.statusRef ?? ref! }
     },
-    attach: async () => {
+    attach: async (request) => {
       if (hangAt === 'attach') {
         fixture.hangingCalls += 1
         return neverPending()
       }
-      return terminal()
+      return { ...terminal(), control: request.control }
     },
-    sendPrompt: async (prompt: string) => {
+    sendPrompt: async (command) => {
       if (hangAt === 'sendPrompt') {
         fixture.hangingCalls += 1
         return neverPending()
       }
-      fixture.prompts.push(prompt)
+      fixture.prompts.push(command.prompt)
+      return {
+        operationId: command.operationId,
+        requestDigest: command.requestDigest,
+        ref: ref!,
+        control: command.control,
+        status: 'accepted' as const,
+      }
     },
-    stop: async () => {
+    stop: async (command) => {
       if (hangAt === 'stop') {
         fixture.hangingCalls += 1
         return neverPending()
       }
       return {
-        state: 'exited' as const,
-        ref: fixture.statusRef ?? ref!,
-        endedAt: '2026-08-16T01:00:00.000Z',
-        reason: 'stopped' as const,
+        operationId: command.operationId,
+        requestDigest: command.requestDigest,
+        ref: ref!,
+        control: command.control,
+        status: 'accepted' as const,
+        effect: 'stopped' as const,
       }
     },
   })
@@ -727,12 +779,47 @@ function interactiveProvider(
         const run = options.returnWrongRun
           ? { ...request.run, runId: `${request.run.runId}-other` }
           : request.run
+        const preparationReceipt = {
+          kind: 'agent-execution-preparation' as const,
+          schemaVersion: 1 as const,
+          preparationId: 'preparation-1',
+          requestDigest: request.run.requestDigest,
+          authoredProfileDigest: request.requestedProfileDigest,
+          effectiveProfileDigest: request.requestedProfileDigest,
+          backend: 'test-backend',
+          harness: request.profile.harness,
+          harnessVersion: 'test-harness-1',
+          resolvedModel: {
+            requested: request.profile.model?.default ?? 'test-model',
+            resolved: request.profile.model?.default ?? 'test-model',
+          },
+          workspace: {
+            leaseId: 'workspace-lease-1',
+            provider: 'test-provider',
+            identityDigest: digest('2'),
+            isolation: 'per-run' as const,
+            sourceSnapshotDigest: digest('3'),
+            sourceSnapshotPolicy: {
+              kind: 'provider-declared' as const,
+              name: 'test-snapshot',
+              version: 1,
+              digest: digest('4'),
+            },
+            preparedWorkspaceDigest: digest('5'),
+            profileActivationDigest: digest('6'),
+          },
+          axisResults: [],
+          executionPlanDigest: digest('7'),
+          materializer: { name: 'test-materializer', version: '1' },
+          expiresAtMs: 4102444800000,
+        }
         ref = AgentInteractiveSessionRefSchema.parse({
           run,
-          requestedProfileDigest: request.requestedProfileDigest,
-          admittedProfileDigest: request.requestedProfileDigest,
+          preparationReceipt: {
+            ...preparationReceipt,
+            digest: canonicalCandidateDigest(preparationReceipt),
+          },
           incarnationId: 'incarnation-1',
-          harness: request.profile.harness,
           startedAt: '2026-08-16T00:00:00.000Z',
         })
       }
@@ -807,6 +894,62 @@ function neverPending<T>(): Promise<T> {
   return new Promise<T>(() => {})
 }
 
+function digest(seed: string): `sha256:${string}` {
+  return `sha256:${seed.repeat(64).slice(0, 64)}`
+}
+
+function controlFor(
+  ref: AgentInteractiveSessionRef,
+  holderId = 'braid-ui',
+  generation = 1,
+): AgentInteractiveSessionControlClaim {
+  return {
+    refDigest: canonicalCandidateDigest(ref),
+    generation,
+    leaseId: 'interactive-lease-1',
+    holderId,
+    expiresAt: '2026-08-17T00:00:00.000Z',
+  }
+}
+
+function controlClaimRequest(
+  ref: AgentInteractiveSessionRef,
+): AgentInteractiveSessionControlClaimRequest {
+  const material = {
+    operationId: `${ref.run.runId}:claim`,
+    ref,
+    holderId: 'braid-ui',
+    expectedGeneration: 0,
+  }
+  return { ...material, requestDigest: agentInteractiveSessionControlClaimRequestDigest(material) }
+}
+
+function promptCommand(
+  ref: AgentInteractiveSessionRef,
+  control: AgentInteractiveSessionControlClaim,
+  prompt: string,
+): AgentInteractiveSessionPromptCommand {
+  const material = {
+    operationId: `${ref.run.runId}:prompt`,
+    ref,
+    control,
+    prompt,
+  }
+  return { ...material, requestDigest: agentInteractiveSessionPromptRequestDigest(material) }
+}
+
+function stopCommand(
+  ref: AgentInteractiveSessionRef,
+  control: AgentInteractiveSessionControlClaim,
+): AgentInteractiveSessionStopCommand {
+  const material = {
+    operationId: `${ref.run.runId}:stop`,
+    ref,
+    control,
+  }
+  return { ...material, requestDigest: agentInteractiveSessionStopRequestDigest(material) }
+}
+
 async function waitForHangingCall(fixture: ProviderFixture, expected: number): Promise<void> {
   for (let attempt = 0; attempt < 20 && fixture.hangingCalls < expected; attempt += 1) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -837,6 +980,7 @@ function interactiveCapabilities(complete: boolean): AgentEnvironmentCapabilitie
     confidential: false,
     interactiveAgent: {
       start: true,
+      control: true,
       status: true,
       attach: true,
       reattach: complete,

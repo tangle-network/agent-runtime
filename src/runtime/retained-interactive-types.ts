@@ -1,5 +1,7 @@
 import type {
   AgentInteractiveSession,
+  AgentInteractiveSessionPromptAcknowledgement,
+  AgentInteractiveSessionPromptCommand,
   AgentInteractiveSessionRef,
   AgentProfile,
 } from '@tangle-network/agent-interface'
@@ -67,5 +69,8 @@ export interface RecoverRetainedInteractiveRunOptions {
 /** Exact interactive process controls plus measured environment capabilities. @stable */
 export interface RetainedInteractiveRunHandle extends AgentInteractiveSession {
   readonly capabilities: AgentEnvironmentCapabilities
-  sendPrompt(prompt: string, options?: { signal?: AbortSignal }): Promise<void>
+  sendPrompt(
+    command: AgentInteractiveSessionPromptCommand,
+    options?: { signal?: AbortSignal },
+  ): Promise<AgentInteractiveSessionPromptAcknowledgement>
 }

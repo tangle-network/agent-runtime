@@ -6907,7 +6907,7 @@ created, against the same table that emits the argv.
 
 ##### reasoningEffort
 
-`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"`
+`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
 
 #### Returns
 

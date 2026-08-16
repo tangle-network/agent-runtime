@@ -1050,16 +1050,11 @@ default move, or the loop silently runs a topology nobody chose.
 
 **`Stable`**
 
-The caller's `onAdmission` durability hook rejected, so a retained run's
-admission record is not durable while provider work may already be live.
-Distinct from a provider failure: the provider call succeeded, and the
-environment is intentionally kept so `recoverRetainedRun` (or a provider
-metadata lookup) can rebuild or disprove the run. Carries `capture_integrity`
-because the durable record a later recovery requires was not written.
+The caller could not persist one detached-run recovery record.
 
 #### Extends
 
-- `AgentEvalError`
+- `RetainedAdmissionError`\<[`RetainedRunAdmission`](runtime.md#retainedrunadmission)\>
 
 #### Constructors
 
@@ -1083,9 +1078,9 @@ because the durable record a later recovery requires was not written.
 
 [`RetainedRunAdmissionError`](#retainedrunadmissionerror)
 
-###### Overrides
+###### Inherited from
 
-`AgentEvalError.constructor`
+`RetainedAdmissionError<RetainedRunAdmission>.constructor`
 
 #### Properties
 
@@ -1093,11 +1088,150 @@ because the durable record a later recovery requires was not written.
 
 > `readonly` **phase**: `"environment"` \| `"dispatched"`
 
+###### Inherited from
+
+`RetainedAdmissionError.phase`
+
 ##### admission
 
 > `readonly` **admission**: [`RetainedRunAdmission`](runtime.md#retainedrunadmission)
 
 The exact record the hook failed to persist, for direct recovery.
+
+###### Inherited from
+
+`RetainedAdmissionError.admission`
+
+***
+
+### RetainedInteractiveAdmissionError
+
+**`Stable`**
+
+The caller could not persist one exact interactive-process recovery record.
+
+#### Extends
+
+- `RetainedAdmissionError`\<[`RetainedInteractiveAdmission`](runtime.md#retainedinteractiveadmission)\>
+
+#### Constructors
+
+##### Constructor
+
+> **new RetainedInteractiveAdmissionError**(`admission`, `options?`): [`RetainedInteractiveAdmissionError`](#retainedinteractiveadmissionerror)
+
+###### Parameters
+
+###### admission
+
+[`RetainedInteractiveAdmission`](runtime.md#retainedinteractiveadmission)
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`RetainedInteractiveAdmissionError`](#retainedinteractiveadmissionerror)
+
+###### Inherited from
+
+`RetainedAdmissionError<RetainedInteractiveAdmission>.constructor`
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"interactive_intent"` \| `"interactive_environment"` \| `"interactive_started"`
+
+###### Inherited from
+
+`RetainedAdmissionError.phase`
+
+##### admission
+
+> `readonly` **admission**: [`RetainedInteractiveAdmission`](runtime.md#retainedinteractiveadmission)
+
+The exact record the hook failed to persist, for direct recovery.
+
+###### Inherited from
+
+`RetainedAdmissionError.admission`
+
+***
+
+### RetainedInteractiveBindingError
+
+**`Stable`**
+
+A provider returned a valid interactive reference that does not bind to the
+exact start request, or returned data that could not be parsed as one.
+
+The requested start and any valid provider reference are detached snapshots.
+Malformed provider data is never copied into the error, so the error remains
+safe to persist while the environment remains available for orphan cleanup.
+
+#### Extends
+
+- `AgentEvalError`
+
+#### Constructors
+
+##### Constructor
+
+> **new RetainedInteractiveBindingError**(`requested`, `returned`, `options?`): [`RetainedInteractiveBindingError`](#retainedinteractivebindingerror)
+
+###### Parameters
+
+###### requested
+
+###### returned
+
+###### ref?
+
+\{ \}
+
+###### status?
+
+\{ \} \| \{ \} \| \{ \}
+
+###### options?
+
+###### cause?
+
+`unknown`
+
+###### Returns
+
+[`RetainedInteractiveBindingError`](#retainedinteractivebindingerror)
+
+###### Overrides
+
+`AgentEvalError.constructor`
+
+#### Properties
+
+##### requested
+
+> `readonly` **requested**: `object`
+
+The exact native-process start request sent to the provider.
+
+##### returned
+
+> `readonly` **returned**: `object`
+
+The valid provider data, when the provider returned a parseable value.
+
+###### ref?
+
+> `readonly` `optional` **ref?**: `object`
+
+###### status?
+
+> `readonly` `optional` **status?**: \{ \} \| \{ \} \| \{ \}
 
 ***
 
@@ -1504,7 +1638,7 @@ Immutable signed identity stored for one execution attempt.
 
 ##### retryPolicy
 
-> `readonly` **retryPolicy**: `"pre-model-infrastructure-only"` \| `"none"`
+> `readonly` **retryPolicy**: `"none"` \| `"pre-model-infrastructure-only"`
 
 ##### bundleDigest
 
@@ -1963,7 +2097,7 @@ Provider-neutral model request resolved before any grant is reserved.
 
 ###### reasoningEffort
 
-> **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+> **reasoningEffort**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ##### reserve
 
@@ -2170,7 +2304,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -2476,7 +2610,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
 
 ###### Returns
 
@@ -4719,7 +4853,7 @@ Exact profile identity admitted before the shot.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"none"` \| `"minimal"` \| `"xhigh"` \| `"ultracode"` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `null`
 
 ##### promptSha256
 

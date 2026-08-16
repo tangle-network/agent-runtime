@@ -480,6 +480,7 @@ function assertInteractiveCapabilities(
   const interactive = capabilities.interactiveAgent
   if (
     !interactive?.start ||
+    !interactive.control ||
     !interactive.status ||
     !interactive.attach ||
     !interactive.reattach ||

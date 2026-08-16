@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.135.3` and `@tangle-network/agent-eval@0.145.15` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.135.3` and `@tangle-network/agent-eval@0.145.17` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 432 exports.
+Import from `@tangle-network/agent-runtime` — 434 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -157,7 +157,9 @@ Import from `@tangle-network/agent-runtime` — 432 exports.
 | `NotFoundError` | class | A named resource (run, span, rubric, scenario, dataset row, route) does not exist. |
 | `OfficialOptimizerUnavailableError` | class | Missing optional Python dependencies for an official optimizer. |
 | `PlannerError` | class | The dynamic-loop planner returned an unusable topology move — the LLM emitted |
-| `RetainedRunAdmissionError` | class | The caller's `onAdmission` durability hook rejected, so a retained run's |
+| `RetainedInteractiveAdmissionError` | class | The caller could not persist one exact interactive-process recovery record. |
+| `RetainedInteractiveBindingError` | class | A provider returned a valid interactive reference that does not bind to the |
+| `RetainedRunAdmissionError` | class | The caller could not persist one detached-run recovery record. |
 | `RetainedRunDispatchBindingError` | class | A retained dispatch answered with coordinates that do not bind to the |
 | `RuntimeRunStateError` | class | A runtime-run lifecycle method was called in an order the state machine does |
 | `SqlConversationJournal` | class | SQL-backed ConversationJournal. Two tables — runs (one row per runId, holds |
@@ -526,7 +528,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 786 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -676,7 +678,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
 | `readWorkerSteerRequests` | function | Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. |
 | `readWorkerTraceContext` | function | Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no |
+| `reconnectRetainedInteractiveRun` | function | Rebuild controls for one exact provider-owned coding-agent process. |
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
+| `recoverRetainedInteractiveRun` | function | Retry one exact start after its provider response may have been lost. |
 | `recoverRetainedRun` | function | Rebuild the exact run named by pre-dispatch admission coordinates, or |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
@@ -719,6 +723,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 | `settledToIteration` | function | The step-8 merge-boundary adapter (M4): rehydrate a `Settled.done` into the kernel's |
 | `settledWorkerOut` | function | What a settled worker exposes as its output artifact (the blob the brain's |
 | `spendFromUsageEvents` | function | Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate |
+| `startRetainedInteractiveRun` | function | Start one retry-safe native coding-agent TUI without dispatching a headless turn. |
 | `startRetainedRun` | function | Dispatch one detached, replayable run and return only after exact durable |
 | `startRetainedRunInEnvironment` | function | Dispatch a fresh retained session inside an existing provider environment. |
 | `stopSentinel` | function | A unique, attributable stop sentinel for a node (ralph-loop style). Deterministic from the |
@@ -942,7 +947,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
+| `ReconnectRetainedInteractiveRunOptions` | interface | Reconstruct one exact provider-owned native coding-agent process. |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
+| `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |
 | `RecoverRetainedRunOptions` | interface | Pre-dispatch admission coordinates for one recovery attempt. |
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
@@ -953,6 +960,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 | `ResultBlobStore` | interface | Content-addressed result blobs (the `outRef` → artifact map) backing the replay |
 | `ResumedKeyState` | interface | What the journal proves about one keyed assignment at resume time. |
 | `ResumedWork` | interface | The committed work a resumed run inherits from its journal. `settled` is the replayed |
+| `RetainedInteractiveEnvironmentAdmission` | interface | Exact interactive start request durable after environment creation. |
+| `RetainedInteractiveIntentAdmission` | interface | Sanitized intent durable before an interactive environment create begins. |
+| `RetainedInteractiveRunHandle` | interface | Exact interactive process controls plus measured environment capabilities. |
+| `RetainedInteractiveStartedAdmission` | interface | Provider-issued interactive process reference durable before start returns. |
+| `RetainedInteractiveStartMaterial` | interface | Material used to create and start one native coding-agent TUI. |
 | `RetainedRunCancellation` | interface | Durable acknowledgement state for one retained control operation. |
 | `RetainedRunCancelOptions` | interface | Options for an idempotent retained cancellation. |
 | `RetainedRunDispatchedAdmission` | interface | The verified exact reference, durable before the start promise resolves. |
@@ -999,6 +1011,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 | `SpawnJournal` | interface | The spawn-tree event source (mirrors `ConversationJournal`'s begin/append/load shape). |
 | `Spend` | interface | Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd |
 | `SpendGap` | interface | One journaled node whose usage accounting is incomplete — the named gap behind a `false` |
+| `StartRetainedInteractiveRunOptions` | interface | Start one retry-safe native coding-agent TUI in a new environment. |
 | `StartRetainedRunInEnvironmentOptions` | interface | A fresh retained session inside a provider environment that already exists. |
 | `StartRetainedRunOptions` | interface | A retained start is retry-safe only when environment and turn keys are explicit. |
 | `SteerableRootHandle` | interface | A Runtime-minted root handle that can deliver raw steering or answers to a live manager inbox. |
@@ -1105,7 +1118,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 772 exports.
 | `ResolveDriveHarness` | type | Resolve an external harness for one exact Runtime-owned manager identity. |
 | `ResolveSupervisorTools` | type | Product policy for the tools one exact supervisor node may call. Resolved once per node. |
 | `Restart` | type | OTP child-spec restart class. |
-| `RetainedRunAdmission` | type | One admission record the runtime persists through the caller before proceeding. |
+| `RetainedInteractiveAdmission` | type | Durable records for one exact native coding-agent process. |
+| `RetainedInteractiveAdmissionHook` | type | Persist each exact interactive record before the runtime proceeds. |
+| `RetainedInteractiveEnvironmentInput` | type | Environment and exact AgentProfile used to start one native coding-agent process. |
+| `RetainedRunAdmission` | type | One detached-run admission record the runtime persists before dispatch proceeds. |
 | `RetainedRunAdmissionHook` | type | Awaited durability hook for retained admission records. |
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |
