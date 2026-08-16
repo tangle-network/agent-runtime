@@ -108,10 +108,17 @@ Issue #874 carried the opposite reading of this record.
 It counted ten symbols on the published surface, called five of them "loop entries" and four of them rival graph runtimes, and ruled that consolidation should leave two.
 The audit measured the surface instead of the symbol names, and the ruling did not survive it.
 
-Two of the five named entries are not public at all.
-`runLoop` has never existed in this package: zero occurrences in `src/`, zero in the published `dist` types.
+Two of the five named entries were not public when the ledger listed them.
+
+`runLoop` had already been consolidated, which is the outcome the ledger asked for.
+It was a deprecated alias for `runAgentRounds`, renamed in #614 and deleted with the other superseded loop aliases in #720, which shipped in 0.127.0 on 2026-08-03.
+`runAgentRounds` is the surviving entry and is still public on `/kernel`.
+The 0.135.2 the ledger measured carries zero occurrences of `runLoop` in its `dist` types.
+
 `routerToolLoop` is a `src/runtime/router-client.ts` internal that no barrel exports; the three hits in `dist` are prose inside doc comments.
+
 Both counts came from grepping mentions in `.d.ts` text rather than reading the export lists.
+The ledger's own figures show it: the counts it published for `loopDispatch`, `loopCampaignDispatch`, and `routerToolLoop` match the mention totals for those names exactly, and a name with no mentions left carried no count at all.
 
 The remaining eight are four families with different reasons to exist:
 

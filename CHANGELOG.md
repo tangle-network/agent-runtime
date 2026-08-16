@@ -19,7 +19,9 @@ The test runs one two-node graph twice: the worker runs when the scripted brain 
 A pipeline stage cannot be skipped that way, so neither entry expresses the other.
 
 The audit behind this release is recorded in `docs/research/loop-facade-postmortem.md`.
-It found that two of the five entries an earlier ledger listed for consolidation were never public: `runLoop` does not exist in this package, and `routerToolLoop` is a router-client internal.
+Two of the five entries an earlier ledger listed for consolidation were not public when it listed them.
+`runLoop` had already been consolidated onto `runAgentRounds`: it was a deprecated alias, and 0.127.0 deleted it.
+`routerToolLoop` is a router-client internal that no barrel exports.
 The remaining entries are four families with distinct reasons to exist, and they stay.
 
 ## 0.137.0
