@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.137.0
+
+### Durable retained interactive sessions
+
+- Persist interactive intent before provider environment creation.
+- Replay exact intent material and environment idempotency without duplicate starts after a crash.
+- Bind retained claim, prompt, attach, status, and stop operations to Interface 0.56 acknowledgements.
+- Cancel provider calls that ignore `AbortSignal` through the runtime's abortable boundary.
+
 ## 0.136.0
 
 ### Peer mail: workers can reach a live sibling, bounded and audited
