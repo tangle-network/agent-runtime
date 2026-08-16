@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.138.0
+
+### `runTree` leaves the kernel surface; the composition families are now held by a test
+
+`runTree` merges a resumed run's committed nodes into the live tree view.
+The supervisor applies it before it returns, so `SupervisedResult.tree` already carries the merged tree and nothing outside this package needed to call it.
+Its `run*` name was the real cost: on a surface that also exports `runGraph`, it read as a second graph runtime.
+
+It is now a supervisor internal.
+No consumer imported it, verified across 23 first-party repositories and the only published dependent, so no migration is required.
+This is a minor release because a public export is removed.
+
+`tests/kernel/composition-families.test.ts` is new, and it holds open the boundary between the two ways this package composes agents.
+A combinator such as `pipeline` or `loopUntil` runs under `runPersonified`, which accepts no brain, no router, and no model configuration, so the order is a property of the program.
+`runGraph` always routes delegation through a model.
+The test runs one two-node graph twice: the worker runs when the scripted brain emits `spawn_agent`, and nothing runs when the same brain declines.
+A pipeline stage cannot be skipped that way, so neither entry expresses the other.
+
+The audit behind this release is recorded in `docs/research/loop-facade-postmortem.md`.
+Two of the five entries an earlier ledger listed for consolidation were not public when it listed them.
+`runLoop` had already been consolidated onto `runAgentRounds`: it was a deprecated alias, and 0.127.0 deleted it.
+`routerToolLoop` is a router-client internal that no barrel exports.
+The remaining entries are four families with distinct reasons to exist, and they stay.
+
 ## 0.137.0
 
 ### The agent-interface peer is a caret range

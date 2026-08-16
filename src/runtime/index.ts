@@ -644,6 +644,9 @@ export {
 // output with provenance (competing hypotheses, a Pareto set, a recorded evaluator split). Any
 // finalizer runs under the delivered-only invariant — an undelivered or invalid child's output is
 // unreachable, whatever the finalizer wants.
+// `runTree` is deliberately absent: it merges a resumed run's committed nodes into the live view,
+// and the supervisor applies it before returning, so `SupervisedResult.tree` already carries the
+// merged tree. Exporting it added a `run*` name that read as a second graph runtime.
 export {
   bestDelivered,
   collectDelivered,
@@ -652,7 +655,6 @@ export {
   type FinalizerSettled,
   pickBestDelivered,
   runFinalizer,
-  runTree,
   type SupervisorFinalizer,
 } from './supervise/finalizer'
 // Agent graphs: profiles as nodes, registry-backed prompt directives as typed edges, every
