@@ -13,25 +13,25 @@ catalogs:
       specifier: 1.30.0
       version: 1.30.0
     '@tangle-network/agent-core':
-      specifier: 0.9.4
+      specifier: '>=0.9.4 <0.10.0'
       version: 0.9.4
     '@tangle-network/agent-eval':
-      specifier: 0.145.21
+      specifier: '>=0.145.21 <0.146.0'
       version: 0.145.21
     '@tangle-network/agent-interface':
-      specifier: 1.0.0
+      specifier: ^1.0.0
       version: 1.0.0
     '@tangle-network/agent-knowledge':
-      specifier: 8.0.5
+      specifier: ^8.0.5
       version: 8.0.5
     '@tangle-network/agent-profile-materialize':
-      specifier: 0.16.0
+      specifier: '>=0.16.0 <0.17.0'
       version: 0.16.0
     '@tangle-network/agent-trace-contract':
       specifier: ^1.0.2
       version: 1.0.2
     '@tangle-network/sandbox':
-      specifier: 0.27.1
+      specifier: '>=0.27.1 <0.28.0'
       version: 0.27.1
     '@types/node':
       specifier: 26.1.1
@@ -136,7 +136,7 @@ importers:
         specifier: 'catalog:'
         version: 8.0.5(@tangle-network/agent-eval@0.145.21(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3)))(@tangle-network/agent-interface@1.0.0)
       '@tangle-network/agent-runtime':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:..
       '@tangle-network/sandbox':
         specifier: 'catalog:'
