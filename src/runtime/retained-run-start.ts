@@ -362,7 +362,11 @@ export async function admitDurably<
 function isInteractiveAdmission(
   admission: RetainedRunAdmission | RetainedInteractiveAdmission,
 ): admission is RetainedInteractiveAdmission {
-  return admission.phase === 'interactive_environment' || admission.phase === 'interactive_started'
+  return (
+    admission.phase === 'interactive_intent' ||
+    admission.phase === 'interactive_environment' ||
+    admission.phase === 'interactive_started'
+  )
 }
 
 /**

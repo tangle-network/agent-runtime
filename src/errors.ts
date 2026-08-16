@@ -155,11 +155,10 @@ export class AnalystError extends AgentEvalError {
 /**
  *
  * The caller's `onAdmission` durability hook rejected, so a retained run's
- * admission record is not durable while provider work may already be live.
- * Distinct from a provider failure: the provider call succeeded, and the
- * environment is intentionally kept so the matching recovery API or a
- * provider metadata lookup can rebuild or disprove the run. Carries
- * `capture_integrity` because the required recovery record was not written.
+ * admission record is not durable. For a pre-create intent, no provider work
+ * has started. For a later record, provider state may already be live and the
+ * environment remains available for recovery. Carries `capture_integrity`
+ * because the required recovery record was not written.
  *
  * @stable
  */
@@ -171,9 +170,13 @@ abstract class RetainedAdmissionError<
   readonly admission: TAdmission
 
   constructor(admission: TAdmission, options?: { cause?: unknown }) {
+    const recovery =
+      admission.phase === 'interactive_intent'
+        ? 'no provider work has started'
+        : 'the environment is kept for recovery'
     super(
       'capture_integrity',
-      `retained run admission (${admission.phase}) was not persisted; the environment is kept for recovery`,
+      `retained run admission (${admission.phase}) was not persisted; ${recovery}`,
       options,
     )
     this.phase = admission.phase

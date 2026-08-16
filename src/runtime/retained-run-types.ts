@@ -114,7 +114,26 @@ export interface RetainedRunDispatchedAdmission {
   readonly turnId: string
 }
 
-/** Exact interactive start request durable before provider work begins. @stable */
+/**
+ * Sanitized intent durable before an interactive environment create begins.
+ *
+ * The digest covers the exact start and create material without retaining that
+ * material. It never carries environment variables, secrets, or provider options.
+ * @stable
+ */
+export interface RetainedInteractiveIntentAdmission {
+  readonly phase: 'interactive_intent'
+  readonly provider: string
+  readonly idempotencyKey: string
+  readonly interactiveIdempotencyKey: string
+  readonly sessionId: string
+  readonly executionId: string
+  readonly runId: string
+  readonly requestedProfileDigest: Sha256Digest
+  readonly requestDigest: Sha256Digest
+}
+
+/** Exact interactive start request durable after environment creation. @stable */
 export interface RetainedInteractiveEnvironmentAdmission {
   readonly phase: 'interactive_environment'
   readonly provider: string
@@ -134,6 +153,7 @@ export interface RetainedInteractiveStartedAdmission {
 
 /** Durable records for one exact native coding-agent process. @stable */
 export type RetainedInteractiveAdmission =
+  | RetainedInteractiveIntentAdmission
   | RetainedInteractiveEnvironmentAdmission
   | RetainedInteractiveStartedAdmission
 
@@ -143,9 +163,10 @@ export type RetainedRunAdmission = RetainedRunEnvironmentAdmission | RetainedRun
 /**
  * Awaited durability hook for retained admission records.
  *
- * The runtime blocks after environment creation and after provider work until
- * the hook resolves. No retained run becomes caller-visible before its exact
- * recovery record is durable. A rejection keeps the environment for recovery.
+ * The runtime blocks after the pre-create intent, environment creation, and
+ * provider work until the hook resolves. No retained run becomes caller-visible
+ * before its exact recovery record is durable. A rejection keeps provider state
+ * for recovery when provider work has already started.
  *
  * @stable
  */

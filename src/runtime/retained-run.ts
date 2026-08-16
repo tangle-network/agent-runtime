@@ -16,6 +16,7 @@ export type {
   RetainedInteractiveAdmissionHook,
   RetainedInteractiveEnvironmentInput,
   RetainedInteractiveRunHandle,
+  RetainedInteractiveStartMaterial,
   StartRetainedInteractiveRunOptions,
 } from './retained-interactive-types'
 export {
@@ -32,6 +33,7 @@ export type {
   RecoverRetainedRunResult,
   RetainedInteractiveAdmission,
   RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveIntentAdmission,
   RetainedInteractiveStartedAdmission,
   RetainedRunAdmission,
   RetainedRunAdmissionHook,

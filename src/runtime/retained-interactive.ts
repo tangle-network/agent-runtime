@@ -1,6 +1,7 @@
 import type {
   AgentInteractiveSessionRef,
   AgentInteractiveSessionStart,
+  Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
   AgentEnvironmentCapabilitiesSchema,
@@ -9,6 +10,7 @@ import {
   agentInteractiveSessionRunRef,
   agentProfileSchema,
   canonicalAgentProfileDigest,
+  canonicalCandidateDigest,
   exactAgentInteractiveSessionStart,
 } from '@tangle-network/agent-interface'
 import type {
@@ -24,13 +26,23 @@ import type {
   ReconnectRetainedInteractiveRunOptions,
   RecoverRetainedInteractiveRunOptions,
   RetainedInteractiveRunHandle,
+  RetainedInteractiveStartMaterial,
   StartRetainedInteractiveRunOptions,
 } from './retained-interactive-types'
 import { assertStableText, awaitAbortable } from './retained-run-binding'
 import { admitDurably, mintRetainedIdentity } from './retained-run-start'
+import type {
+  RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveIntentAdmission,
+} from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
 
-/** Start one retry-safe native coding-agent TUI without dispatching a headless turn. @stable */
+/**
+ * Start one retry-safe native coding-agent TUI without dispatching a headless turn.
+ * The intent admission is durable before provider.create; the environment and
+ * process admissions follow only after their exact provider coordinates exist.
+ * @stable
+ */
 export async function startRetainedInteractiveRun(
   options: StartRetainedInteractiveRunOptions,
 ): Promise<RetainedInteractiveRunHandle> {
@@ -52,6 +64,14 @@ export async function startRetainedInteractiveRun(
     options.environment.idempotencyKey,
     options.interactiveIdempotencyKey,
   )
+  const intent = interactiveIntent(options, profile, identity)
+  if (options.intent === undefined) {
+    // This is the only admission that can be written before provider.create.
+    // A replay supplies the same record and therefore skips a duplicate write.
+    await admitDurably(options.onAdmission, intent)
+  } else {
+    assertExactInteractiveIntent(options.intent, intent)
+  }
   const providerCapabilities = AgentEnvironmentCapabilitiesSchema.parse(
     await awaitAbortable(
       Promise.resolve().then(() => options.provider.capabilities()),
@@ -71,6 +91,8 @@ export async function startRetainedInteractiveRun(
           retainedIdempotencyKey: options.environment.idempotencyKey,
           interactiveIdempotencyKey: options.interactiveIdempotencyKey,
           requestedProfileDigest,
+          interactiveIntentDigest: intent.requestDigest,
+          interactiveRunId: intent.runId,
           sessionId: identity.sessionId,
           executionId: identity.executionId,
         },
@@ -141,6 +163,20 @@ export async function recoverRetainedInteractiveRun(
   if (admission.provider !== options.provider.name) {
     throw new Error('interactive admission belongs to another provider')
   }
+  if (admission.phase === 'interactive_intent') {
+    if (options.replay === undefined) {
+      throw new Error(
+        'recoverRetainedInteractiveRun requires the original start material for an interactive intent',
+      )
+    }
+    return startRetainedInteractiveRun({
+      provider: options.provider,
+      ...options.replay,
+      intent: admission,
+      onAdmission: options.onAdmission,
+      signal: options.signal,
+    })
+  }
   const request = exactRecoveryRequest(admission)
   const { environment, capabilities } = await reconstructEnvironment(
     options.provider,
@@ -169,7 +205,7 @@ export async function recoverRetainedInteractiveRun(
 }
 
 function exactRecoveryRequest(
-  admission: RecoverRetainedInteractiveRunOptions['admission'],
+  admission: RetainedInteractiveEnvironmentAdmission,
 ): AgentInteractiveSessionStart {
   assertStableText(admission.environmentId, 'interactive environment id')
   assertStableText(admission.idempotencyKey, 'environment idempotency key')
@@ -234,6 +270,123 @@ function interactiveRequest(
     start,
   )
   return exactAgentInteractiveSessionStart({ run, ...start })
+}
+
+function interactiveIntent(
+  options: StartRetainedInteractiveRunOptions,
+  profile: StartRetainedInteractiveRunOptions['environment']['profile'],
+  identity: { readonly sessionId: string; readonly executionId: string },
+): RetainedInteractiveIntentAdmission {
+  const requestDigest = canonicalCandidateDigest({
+    kind: 'retained-interactive-intent.v1',
+    provider: options.provider.name,
+    idempotencyKey: options.environment.idempotencyKey,
+    interactiveIdempotencyKey: options.interactiveIdempotencyKey,
+    sessionId: identity.sessionId,
+    executionId: identity.executionId,
+    requestedProfileDigest: canonicalAgentProfileDigest(profile),
+    create: sanitizedCreateMaterial(options.environment),
+    start: sanitizedStartMaterial(options),
+  })
+  return {
+    phase: 'interactive_intent',
+    provider: options.provider.name,
+    idempotencyKey: options.environment.idempotencyKey,
+    interactiveIdempotencyKey: options.interactiveIdempotencyKey,
+    sessionId: identity.sessionId,
+    executionId: identity.executionId,
+    runId: `interactive-intent-run:${requestDigest.slice('sha256:'.length)}`,
+    requestedProfileDigest: canonicalAgentProfileDigest(profile),
+    requestDigest,
+  }
+}
+
+function sanitizedCreateMaterial(
+  environment: StartRetainedInteractiveRunOptions['environment'],
+): Record<string, unknown> {
+  return {
+    ...(environment.backend === undefined ? {} : { backend: environment.backend }),
+    ...(environment.workspace === undefined
+      ? {}
+      : { workspaceDigest: canonicalCandidateDigest(environment.workspace) }),
+    ...(environment.resources === undefined
+      ? {}
+      : { resourcesDigest: canonicalCandidateDigest(environment.resources) }),
+    ...(environment.name === undefined ? {} : { name: environment.name }),
+    ...(environment.env === undefined
+      ? {}
+      : { envDigest: canonicalCandidateDigest(environment.env) }),
+    ...(environment.secrets === undefined
+      ? {}
+      : { secretsDigest: canonicalCandidateDigest(environment.secrets) }),
+    ...(environment.metadata === undefined
+      ? {}
+      : { metadataDigest: canonicalCandidateDigest(environment.metadata) }),
+    ...(environment.providerOptions === undefined
+      ? {}
+      : { providerOptionsDigest: canonicalCandidateDigest(environment.providerOptions) }),
+  }
+}
+
+function sanitizedStartMaterial(
+  options: RetainedInteractiveStartMaterial,
+): Record<string, unknown> {
+  return {
+    ...(options.initialPrompt === undefined ? {} : { initialPrompt: options.initialPrompt }),
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.cols === undefined ? {} : { cols: options.cols }),
+    ...(options.rows === undefined ? {} : { rows: options.rows }),
+  }
+}
+
+function assertExactInteractiveIntent(
+  received: RetainedInteractiveIntentAdmission,
+  expected: RetainedInteractiveIntentAdmission,
+): void {
+  const stableReceived = parseInteractiveIntent(received)
+  if (canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(expected)) {
+    throw new Error('interactive intent conflicts with replay material')
+  }
+}
+
+function parseInteractiveIntent(value: unknown): RetainedInteractiveIntentAdmission {
+  const stable = detachedSnapshot(value, 'interactive intent')
+  if (stable === null || typeof stable !== 'object' || Array.isArray(stable)) {
+    throw new Error('interactive intent is malformed')
+  }
+  const record = stable as Record<string, unknown>
+  const allowed = new Set([
+    'phase',
+    'provider',
+    'idempotencyKey',
+    'interactiveIdempotencyKey',
+    'sessionId',
+    'executionId',
+    'runId',
+    'requestedProfileDigest',
+    'requestDigest',
+  ])
+  if (Object.keys(record).some((key) => !allowed.has(key))) {
+    throw new Error('interactive intent contains unsupported material')
+  }
+  if (record.phase !== 'interactive_intent') {
+    throw new Error('interactive intent has an invalid phase')
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'phase') continue
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new Error(`interactive intent field "${key}" is invalid`)
+    }
+  }
+  assertDigest(record.requestedProfileDigest, 'interactive intent profile digest')
+  assertDigest(record.requestDigest, 'interactive intent request digest')
+  return stable as RetainedInteractiveIntentAdmission
+}
+
+function assertDigest(value: unknown, label: string): asserts value is Sha256Digest {
+  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`${label} is invalid`)
+  }
 }
 
 async function reconstructEnvironment(

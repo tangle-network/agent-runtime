@@ -51,10 +51,22 @@ describe('retained interactive runs', () => {
     expect(fixture.dispatchCalls).toBe(0)
     expect(fixture.processStarts).toBe(1)
     expect(admissions.map((admission) => admission.phase)).toEqual([
+      'interactive_intent',
       'interactive_environment',
       'interactive_started',
     ])
     expect(admissions[0]).toMatchObject({
+      phase: 'interactive_intent',
+      provider: 'test-provider',
+      idempotencyKey: 'workspace-1',
+      interactiveIdempotencyKey: 'native-turn-1',
+      sessionId: 'retained-session:workspace-1:native-turn-1',
+      executionId: 'retained-execution:workspace-1:native-turn-1',
+      runId: expect.stringMatching(/^interactive-intent-run:/u),
+      requestedProfileDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+      requestDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+    })
+    expect(admissions[1]).toMatchObject({
       phase: 'interactive_environment',
       request: { initialPrompt: 'Inspect this workspace.', cols: 120, rows: 40 },
     })
@@ -63,6 +75,158 @@ describe('retained interactive runs', () => {
     await handle.sendPrompt('Run tests.')
     expect(fixture.prompts).toEqual(['Run tests.'])
     expect((await handle.attach()).ref.parentExecutionId).toBe(handle.ref.run.executionId)
+  })
+
+  it('replays a persisted intent after a crash before environment create', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+    let crash = true
+    const onAdmission = async (admission: RetainedInteractiveAdmission): Promise<void> => {
+      admissions.push(admission)
+      if (crash && admission.phase === 'interactive_intent') {
+        throw new Error('simulated crash after intent')
+      }
+    }
+
+    await expect(
+      startRetainedInteractiveRun({
+        provider: fixture.provider,
+        environment: {
+          profile,
+          idempotencyKey: 'workspace-intent-crash',
+          env: { API_TOKEN: 'secret-value' },
+          secrets: ['sandbox-secret'],
+          providerOptions: { credential: 'provider-secret' },
+        },
+        interactiveIdempotencyKey: 'native-intent-crash',
+        initialPrompt: 'Inspect this workspace.',
+        onAdmission,
+      }),
+    ).rejects.toMatchObject({ phase: 'interactive_intent' })
+
+    const intent = admissions.find((admission) => admission.phase === 'interactive_intent')
+    if (intent?.phase !== 'interactive_intent') {
+      throw new Error('expected interactive intent admission')
+    }
+    expect(fixture.createCalls).toBe(0)
+    expect(fixture.environmentCreations).toBe(0)
+    expect(fixture.processStarts).toBe(0)
+    expect(JSON.stringify(intent)).not.toContain('secret-value')
+    expect(JSON.stringify(intent)).not.toContain('sandbox-secret')
+    expect(JSON.stringify(intent)).not.toContain('provider-secret')
+
+    crash = false
+    const recovered = await recoverRetainedInteractiveRun({
+      provider: fixture.provider,
+      admission: intent,
+      replay: {
+        environment: {
+          profile,
+          idempotencyKey: 'workspace-intent-crash',
+          env: { API_TOKEN: 'secret-value' },
+          secrets: ['sandbox-secret'],
+          providerOptions: { credential: 'provider-secret' },
+        },
+        interactiveIdempotencyKey: 'native-intent-crash',
+        initialPrompt: 'Inspect this workspace.',
+      },
+      onAdmission,
+    })
+
+    expect(recovered?.ref.run.sessionId).toBe(
+      'retained-session:workspace-intent-crash:native-intent-crash',
+    )
+    expect(fixture.createCalls).toBe(1)
+    expect(fixture.environmentCreations).toBe(1)
+    expect(fixture.processStarts).toBe(1)
+    expect(admissions.map((admission) => admission.phase)).toEqual([
+      'interactive_intent',
+      'interactive_environment',
+      'interactive_started',
+    ])
+  })
+
+  it('reuses one environment after a crash after create but before environment admission', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+    let crash = true
+    const onAdmission = async (admission: RetainedInteractiveAdmission): Promise<void> => {
+      admissions.push(admission)
+      if (crash && admission.phase === 'interactive_environment') {
+        throw new Error('simulated crash after create')
+      }
+    }
+
+    await expect(
+      startRetainedInteractiveRun({
+        provider: fixture.provider,
+        environment: { profile, idempotencyKey: 'workspace-create-crash' },
+        interactiveIdempotencyKey: 'native-create-crash',
+        onAdmission,
+      }),
+    ).rejects.toMatchObject({ phase: 'interactive_environment' })
+
+    const intent = admissions.find((admission) => admission.phase === 'interactive_intent')
+    if (intent?.phase !== 'interactive_intent') {
+      throw new Error('expected interactive intent admission')
+    }
+    expect(fixture.createCalls).toBe(1)
+    expect(fixture.environmentCreations).toBe(1)
+    expect(fixture.processStarts).toBe(0)
+
+    crash = false
+    const recovered = await recoverRetainedInteractiveRun({
+      provider: fixture.provider,
+      admission: intent,
+      replay: {
+        environment: { profile, idempotencyKey: 'workspace-create-crash' },
+        interactiveIdempotencyKey: 'native-create-crash',
+      },
+      onAdmission,
+    })
+
+    expect(recovered).toBeDefined()
+    expect(fixture.createCalls).toBe(2)
+    expect(fixture.environmentCreations).toBe(1)
+    expect(fixture.processStarts).toBe(1)
+    expect(admissions.filter((admission) => admission.phase === 'interactive_intent')).toHaveLength(
+      1,
+    )
+  })
+
+  it('rejects changed replay material before provider create', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+    await startRetainedInteractiveRun({
+      provider: fixture.provider,
+      environment: { profile, idempotencyKey: 'workspace-replay-conflict' },
+      interactiveIdempotencyKey: 'native-replay-conflict',
+      initialPrompt: 'Original request.',
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+    })
+    const intent = admissions.find((admission) => admission.phase === 'interactive_intent')
+    if (intent?.phase !== 'interactive_intent') {
+      throw new Error('expected interactive intent admission')
+    }
+    const createCallsBeforeReplay = fixture.createCalls
+    const processStartsBeforeReplay = fixture.processStarts
+
+    await expect(
+      recoverRetainedInteractiveRun({
+        provider: fixture.provider,
+        admission: intent,
+        replay: {
+          environment: { profile, idempotencyKey: 'workspace-replay-conflict' },
+          interactiveIdempotencyKey: 'native-replay-conflict',
+          initialPrompt: 'Changed request.',
+        },
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('interactive intent conflicts with replay material')
+    expect(fixture.createCalls).toBe(createCallsBeforeReplay)
+    expect(fixture.processStarts).toBe(processStartsBeforeReplay)
   })
 
   it('recovers a lost start response by replaying the same process identity', async () => {
@@ -111,8 +275,10 @@ describe('retained interactive runs', () => {
         provider: fixture.provider,
         environment: { profile, idempotencyKey: 'workspace-environment-admission' },
         interactiveIdempotencyKey: 'native-environment-admission',
-        onAdmission: async () => {
-          throw new Error('journal unavailable')
+        onAdmission: async (admission) => {
+          if (admission.phase === 'interactive_environment') {
+            throw new Error('journal unavailable')
+          }
         },
       })
     } catch (error) {
@@ -437,6 +603,7 @@ interface ProviderFixture {
   readonly provider: AgentEnvironmentProvider
   readonly prompts: string[]
   readonly createCalls: number
+  readonly environmentCreations: number
   readonly dispatchCalls: number
   readonly startCalls: number
   readonly processStarts: number
@@ -469,6 +636,7 @@ function interactiveProvider(
   const fixture = {
     prompts: [] as string[],
     createCalls: 0,
+    environmentCreations: 0,
     dispatchCalls: 0,
     startCalls: 0,
     processStarts: 0,
@@ -476,6 +644,7 @@ function interactiveProvider(
     hangingCalls: 0,
     statusRef: undefined as AgentInteractiveSessionRef | undefined,
   }
+  const environmentKeys = new Set<string>()
   let hangAt = options.hangAt
   let ref: AgentInteractiveSessionRef | undefined
   let lost = false
@@ -588,12 +757,16 @@ function interactiveProvider(
       }
       return interactiveCapabilities(options.completeCapabilities !== false)
     },
-    create: async () => {
+    create: async (input) => {
       if (hangAt === 'create') {
         fixture.hangingCalls += 1
         return neverPending()
       }
       fixture.createCalls += 1
+      if (input.idempotencyKey !== undefined && !environmentKeys.has(input.idempotencyKey)) {
+        environmentKeys.add(input.idempotencyKey)
+        fixture.environmentCreations += 1
+      }
       return environment
     },
     get: async (id) => {
@@ -608,6 +781,7 @@ function interactiveProvider(
     { provider, prompts: fixture.prompts },
     {
       createCalls: { get: () => fixture.createCalls },
+      environmentCreations: { get: () => fixture.environmentCreations },
       dispatchCalls: { get: () => fixture.dispatchCalls },
       startCalls: { get: () => fixture.startCalls },
       processStarts: { get: () => fixture.processStarts },

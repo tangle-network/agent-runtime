@@ -11,6 +11,7 @@ import type {
 import type {
   RetainedInteractiveAdmission,
   RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveIntentAdmission,
 } from './retained-run-types'
 
 /** Environment and exact AgentProfile used to start one native coding-agent process. @stable */
@@ -22,15 +23,21 @@ export type RetainedInteractiveEnvironmentInput = Omit<
   readonly profile: AgentProfile
 }
 
-/** Start one retry-safe native coding-agent TUI in a new environment. @stable */
-export interface StartRetainedInteractiveRunOptions {
-  readonly provider: AgentEnvironmentProvider
+/** Material used to create and start one native coding-agent TUI. @stable */
+export interface RetainedInteractiveStartMaterial {
   readonly environment: RetainedInteractiveEnvironmentInput
   readonly interactiveIdempotencyKey: string
   readonly initialPrompt?: string
   readonly cwd?: string
   readonly cols?: number
   readonly rows?: number
+}
+
+/** Start one retry-safe native coding-agent TUI in a new environment. @stable */
+export interface StartRetainedInteractiveRunOptions extends RetainedInteractiveStartMaterial {
+  readonly provider: AgentEnvironmentProvider
+  /** A previously persisted intent used to replay the exact create operation. */
+  readonly intent?: RetainedInteractiveIntentAdmission
   readonly onAdmission: RetainedInteractiveAdmissionHook
   readonly signal?: AbortSignal
 }
@@ -47,10 +54,12 @@ export interface ReconnectRetainedInteractiveRunOptions {
   readonly signal?: AbortSignal
 }
 
-/** Recover a start whose provider response may have been lost. @stable */
+/** Recover a start after a pre-create crash or a lost provider response. @stable */
 export interface RecoverRetainedInteractiveRunOptions {
   readonly provider: AgentEnvironmentProvider
-  readonly admission: RetainedInteractiveEnvironmentAdmission
+  readonly admission: RetainedInteractiveIntentAdmission | RetainedInteractiveEnvironmentAdmission
+  /** Required when recovering from an intent before an environment existed. */
+  readonly replay?: RetainedInteractiveStartMaterial
   readonly onAdmission: RetainedInteractiveAdmissionHook
   readonly signal?: AbortSignal
 }
