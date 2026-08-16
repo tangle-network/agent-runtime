@@ -52,6 +52,7 @@ function recordedAdmissions(): {
 
 function assertDetachedAdmissionPhase(admission: RetainedRunAdmission): void {
   switch (admission.phase) {
+    case 'intent':
     case 'environment':
     case 'dispatched':
       return
@@ -75,6 +76,8 @@ async function runChild(
   phase:
     | 'start'
     | 'reconnect'
+    | 'start-kill-intent'
+    | 'recover-intent'
     | 'start-kill-dispatched'
     | 'recover-dispatched'
     | 'start-kill-environment'
@@ -135,8 +138,12 @@ describe('retained runtime run control', () => {
       executionId?: string
       controlRef?: { runId: string }
     }>
-    expect(admissions.map((admission) => admission.phase)).toEqual(['environment', 'dispatched'])
-    expect(admissions[1]?.controlRef).toEqual(started.controlRef)
+    expect(admissions.map((admission) => admission.phase)).toEqual([
+      'intent',
+      'environment',
+      'dispatched',
+    ])
+    expect(admissions[2]?.controlRef).toEqual(started.controlRef)
     // The child minted identity in its own process; re-mint here and compare.
     expect(admissions[0]).toMatchObject(mintRetainedIdentity('restart-proof', 'restart-proof'))
 
@@ -217,6 +224,137 @@ describe('retained runtime run control', () => {
     ).toEqual(['restart-native-operation'])
   })
 
+  it('persists headless intent before create and replays the exact material after a crash', async () => {
+    const identity = mintRetainedIdentity('headless-intent-environment', 'headless-intent-turn')
+    const controlRef = {
+      runId: 'headless-intent-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      ...identity,
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: identity.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'recovered', success: true, sessionId: identity.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        return { id: session.id, provider: 'test-provider', controlRef }
+      },
+      session: () => session,
+    })
+    const environment = {
+      profile: { name: 'worker' },
+      idempotencyKey: 'headless-intent-environment',
+      secrets: { TANGLE_TOKEN: 'headless-secret-value' },
+      providerOptions: { credential: 'headless-provider-secret' },
+    }
+    const turn = { prompt: 'replay this exact turn', turnId: 'headless-intent-turn' }
+    let creates = 0
+    let created: CreateAgentEnvironmentInput | undefined
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      creates += 1
+      created = input
+      return originalCreate(input)
+    }
+    const firstAdmissions: RetainedRunAdmission[] = []
+    const failed = await startRetainedRun({
+      provider,
+      environment,
+      turn,
+      onAdmission: async (admission) => {
+        firstAdmissions.push(admission)
+        if (admission.phase === 'intent') throw new Error('coordinator crashed')
+      },
+    }).catch((error: unknown) => error)
+
+    expect(failed).toBeInstanceOf(RetainedRunAdmissionError)
+    expect((failed as RetainedRunAdmissionError).phase).toBe('intent')
+    expect(creates).toBe(0)
+    const intent = firstAdmissions[0]
+    if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+    expect(JSON.stringify(intent)).not.toContain('headless-secret-value')
+    expect(JSON.stringify(intent)).not.toContain('headless-provider-secret')
+
+    await expect(
+      startRetainedRun({
+        provider,
+        environment,
+        turn: { ...turn, prompt: 'changed replay material' },
+        intent,
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('retained run intent conflicts with replay material')
+    expect(creates).toBe(0)
+
+    const recoveryAdmissions = recordedAdmissions()
+    const recovered = await recoverRetainedRun({
+      provider,
+      admission: intent,
+      replay: { environment, turn },
+      onAdmission: recoveryAdmissions.onAdmission,
+    })
+    expect(recovered.outcome).toBe('recovered')
+    expect(creates).toBe(1)
+    expect(created?.metadata).toMatchObject({
+      retainedIntentDigest: intent.requestDigest,
+      retainedRunId: intent.runId,
+    })
+    expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'headless-secret-value' })
+    expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })
+    expect(recoveryAdmissions.admissions.map((admission) => admission.phase)).toEqual([
+      'environment',
+      'dispatched',
+    ])
+  })
+
+  it('recovers a headless intent after a coordinator SIGKILL before provider.create', async () => {
+    const stateFile = join(directory, 'intent-crash-provider.json')
+    const referenceFile = join(directory, 'intent-crash-reference.json')
+
+    const killed = await runChild(stateFile, referenceFile, 'start-kill-intent')
+    expect(killed.code).toBeNull()
+    expect(killed.signal).toBe('SIGKILL')
+    expect(existsSync(stateFile)).toBe(false)
+    const intent = JSON.parse(await readFile(referenceFile, 'utf8')) as {
+      phase: string
+      sessionId: string
+      executionId: string
+      requestDigest: string
+    }
+    expect(intent).toMatchObject({
+      phase: 'intent',
+      sessionId: mintRetainedIdentity('kill-intent', 'kill-intent').sessionId,
+    })
+
+    const recovered = await runChild(stateFile, referenceFile, 'recover-intent')
+    expect(recovered.code, recovered.stderr).toBe(0)
+    expect(recovered.signal).toBeNull()
+    const output = JSON.parse(await readFile(`${referenceFile}.output`, 'utf8')) as {
+      controlRef: { environmentId: string; sessionId: string; executionId: string }
+    }
+    expect(output.controlRef).toMatchObject({
+      environmentId: 'environment-kill-intent',
+      sessionId: intent.sessionId,
+      executionId: intent.executionId,
+    })
+    const recoveryAdmissions = JSON.parse(
+      await readFile(`${referenceFile}.recovered-admissions`, 'utf8'),
+    ) as Array<{ phase: string }>
+    expect(recoveryAdmissions.map((admission) => admission.phase)).toEqual([
+      'environment',
+      'dispatched',
+    ])
+  })
+
   it('keeps an environment after dispatch becomes uncertain, but cleans an unused one', async () => {
     let destroys = 0
     const uncertain = providerWithEnvironment({
@@ -239,6 +377,7 @@ describe('retained runtime run control', () => {
     expect(destroys).toBe(0)
     // The environment admission was durable before the uncertain dispatch.
     expect(uncertainRecorder.admissions.map((admission) => admission.phase)).toEqual([
+      'intent',
       'environment',
     ])
 
@@ -259,8 +398,8 @@ describe('retained runtime run control', () => {
       }),
     ).rejects.toThrow('does not expose detached session control')
     expect(destroys).toBe(1)
-    // A destroyed unusable environment never leaves an admission record.
-    expect(unusableRecorder.admissions).toEqual([])
+    // The durable intent remains, but the unusable environment is destroyed.
+    expect(unusableRecorder.admissions.map((admission) => admission.phase)).toEqual(['intent'])
   })
 
   it('starts a fresh retained session inside an existing environment', async () => {
@@ -576,13 +715,28 @@ describe('retained runtime run control', () => {
       executionId: controlRef.executionId,
     })
     // Caller metadata is merged, never clobbered, with the recovery coordinates.
-    expect(created?.metadata).toEqual({
+    const intent = recorder.admissions[0]
+    if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+    expect(created?.metadata).toMatchObject({
       tenant: 'acme',
       retainedIdempotencyKey: controlRef.environmentId,
+      retainedIntentDigest: intent.requestDigest,
+      retainedRunId: intent.runId,
       sessionId: controlRef.sessionId,
       executionId: controlRef.executionId,
     })
-    expect(recorder.admissions).toEqual([
+    expect(recorder.admissions).toMatchObject([
+      {
+        phase: 'intent',
+        provider: controlRef.provider,
+        idempotencyKey: controlRef.environmentId,
+        turnId: 'owned-turn',
+        sessionId: controlRef.sessionId,
+        executionId: controlRef.executionId,
+        runId: expect.any(String),
+        requestedProfileDigest: expect.any(String),
+        requestDigest: expect.any(String),
+      },
       {
         phase: 'environment',
         provider: controlRef.provider,
@@ -1909,6 +2063,7 @@ describe('retained runtime run control', () => {
     log.push('resolved')
 
     expect(log).toEqual([
+      'admission:intent',
       'create',
       'admission:environment',
       'dispatch',
@@ -2226,8 +2381,8 @@ describe('retained runtime run control', () => {
 
     expect(dispatched).toMatchObject(minted)
     expect(created?.metadata).toMatchObject(minted)
-    expect(recorder.admissions[0]).toMatchObject({ phase: 'environment', ...minted })
-    expect(recorder.admissions[1]).toMatchObject({
+    expect(recorder.admissions[1]).toMatchObject({ phase: 'environment', ...minted })
+    expect(recorder.admissions[2]).toMatchObject({
       phase: 'dispatched',
       controlRef: { sessionId: minted.sessionId, executionId: minted.executionId },
     })
@@ -2274,8 +2429,11 @@ describe('retained runtime run control', () => {
     expect(binding.returned.controlRef).toMatchObject({ sessionId: 'rogue-session' })
     // The environment stays alive, and its admission is already durable.
     expect(destroys).toBe(0)
-    expect(recorder.admissions.map((admission) => admission.phase)).toEqual(['environment'])
-    expect(recorder.admissions[0]).toMatchObject({
+    expect(recorder.admissions.map((admission) => admission.phase)).toEqual([
+      'intent',
+      'environment',
+    ])
+    expect(recorder.admissions[1]).toMatchObject({
       sessionId: 'honest-session',
       executionId: 'honest-execution',
     })

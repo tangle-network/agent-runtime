@@ -528,7 +528,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 166 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 808 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 811 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -686,7 +686,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 808 exports.
 | `reconnectRetainedInteractiveRun` | function | Rebuild controls for one exact provider-owned coding-agent process. |
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
 | `recoverRetainedInteractiveRun` | function | Retry one exact start after its provider response may have been lost. |
-| `recoverRetainedRun` | function | Rebuild the exact run named by pre-dispatch admission coordinates, or |
+| `recoverRetainedRun` | function | Rebuild the exact run named by a persisted pre-create intent or pre-dispatch |
 | `registerShape` | function | Register a composed shape on the default `builtinShapes` registry — the one-call extension |
 | `registryScopeAnalyst` | function | A `ScopeAnalyst` backed by an `AnalystRegistry` — the panel-of-analysts seam. The registry merges |
 | `renderAnytimeTable` | function | One row per (strategy, satisficing target): the shareable time-to-satisfactory table. |
@@ -965,6 +965,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 808 exports.
 | `ReconnectRetainedInteractiveRunOptions` | interface | Reconstruct one exact provider-owned native coding-agent process. |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
 | `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |
+| `RecoverRetainedRunIntentOptions` | interface | Recover a headless start after its pre-create intent was persisted. |
 | `RecoverRetainedRunOptions` | interface | Pre-dispatch admission coordinates for one recovery attempt. |
 | `RegisteredPrompt` | interface | One registry entry: the handle plus the text it pins. |
 | `RegistryAnalyzeProjection` | interface | Project a `ScopeAnalyzeInput` into the `AnalystRegistry.run` arguments. The registry runs over a |
@@ -986,8 +987,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 808 exports.
 | `RetainedRunEnvironmentAdmission` | interface | Recovery coordinates durable after environment creation and before dispatch. |
 | `RetainedRunEventOptions` | interface | Options for replaying canonical events strictly after a saved point. |
 | `RetainedRunHandle` | interface | Reconstructable control of one provider-retained run. |
+| `RetainedRunIntentAdmission` | interface | Sanitized headless intent durable before environment creation. |
 | `RetainedRunReplayPoint` | interface | Cursor plus runtime sequence needed to continue one ordered replay. |
 | `RetainedRunSnapshot` | interface | Stable status snapshot for a retained run. |
+| `RetainedRunStartMaterial` | interface | Environment, turn, and optional identity needed to replay one retained start. |
 | `RootHandle` | interface | Live root handle — a chat/pi-viz client uses it to inspect and control one root run. |
 | `RouterSeam` | interface | Router/inline transport seam. The profile owns model, prompt, and generation behavior. |
 | `RouterToolsSeam` | interface | Router seam WITH tool use — the tool-using router backend. Same direct |
@@ -1138,7 +1141,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 808 exports.
 | `RetainedInteractiveAdmission` | type | Durable records for one exact native coding-agent process. |
 | `RetainedInteractiveAdmissionHook` | type | Persist each exact interactive record before the runtime proceeds. |
 | `RetainedInteractiveEnvironmentInput` | type | Environment and exact AgentProfile used to start one native coding-agent process. |
-| `RetainedRunAdmission` | type | One detached-run admission record the runtime persists before dispatch proceeds. |
+| `RetainedRunAdmission` | type | One detached-run admission record the runtime persists before creation or dispatch proceeds. |
 | `RetainedRunAdmissionHook` | type | Awaited durability hook for retained admission records. |
 | `RetainedRunEffect` | type | Effect recorded for one retained control operation. |
 | `RootMaterialization` | type | Trusted root composition evidence. Generic `Agent.act` roots omit this and remain unknown. |

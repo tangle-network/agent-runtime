@@ -13,12 +13,17 @@ import {
   recoverRetainedRun,
   startRetainedRun,
 } from '../../src/runtime/retained-run'
-import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
+import type {
+  RetainedRunAdmission,
+  RetainedRunIntentAdmission,
+} from '../../src/runtime/retained-run-types'
 import { durableRetainedProvider } from './durable-retained-provider'
 
 const phases = [
   'start',
   'reconnect',
+  'start-kill-intent',
+  'recover-intent',
   'start-kill-dispatched',
   'recover-dispatched',
   'start-kill-environment',
@@ -146,6 +151,42 @@ if (phase === 'start') {
     })}\n`,
     'utf8',
   )
+} else if (phase === 'start-kill-intent') {
+  await startRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-intent' },
+    turn: { prompt: 'start', turnId: 'kill-intent' },
+    onAdmission: async (admission) => {
+      if (admission.phase === 'intent') {
+        persistDurably(referenceFile, admission)
+        process.kill(process.pid, 'SIGKILL')
+      }
+    },
+  })
+  throw new Error('the intent admission must kill this process before provider.create')
+} else if (phase === 'recover-intent') {
+  const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as RetainedRunIntentAdmission
+  const admissions: RetainedRunAdmission[] = []
+  const result = await recoverRetainedRun({
+    provider: durableRetainedProvider(stateFile),
+    admission,
+    replay: {
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-intent' },
+      turn: { prompt: 'start', turnId: 'kill-intent' },
+    },
+    onAdmission: async (recoveredAdmission) => {
+      admissions.push(recoveredAdmission)
+      persistDurably(`${referenceFile}.recovered-admissions`, admissions)
+    },
+  })
+  if (result.outcome !== 'recovered') {
+    throw new Error(`expected the intent recovery to start a run, got ${result.outcome}`)
+  }
+  await writeFile(
+    `${referenceFile}.output`,
+    `${JSON.stringify({ controlRef: result.handle.controlRef })}\n`,
+    'utf8',
+  )
 } else if (phase === 'start-kill-dispatched') {
   // Die the way a real process dies: inside the dispatched hook, after the
   // record is durable, before the hook returns. The parent asserts SIGKILL
@@ -207,6 +248,7 @@ if (phase === 'start') {
       executionId: 'execution-kill-environment',
     },
     onAdmission: async (admission) => {
+      if (admission.phase === 'intent') return
       if (admission.phase === 'environment') {
         persistDurably(referenceFile, admission)
         process.kill(process.pid, 'SIGKILL')
@@ -223,6 +265,7 @@ if (phase === 'start') {
     environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-live' },
     turn: { prompt: 'start', turnId: 'kill-live' },
     onAdmission: async (admission) => {
+      if (admission.phase === 'intent') return
       if (admission.phase === 'environment') {
         persistDurably(referenceFile, admission)
         return

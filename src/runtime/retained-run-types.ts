@@ -93,6 +93,26 @@ export interface RetainedRunHandle {
   cancel(options: RetainedRunCancelOptions): Promise<RetainedRunCancellation>
 }
 
+/**
+ * Sanitized headless intent durable before environment creation.
+ *
+ * The request digest binds the exact create and turn material without retaining
+ * secrets or provider options. The original start material is required to
+ * replay this record after a process crash.
+ * @stable
+ */
+export interface RetainedRunIntentAdmission {
+  readonly phase: 'intent'
+  readonly provider: string
+  readonly idempotencyKey: string
+  readonly turnId: string
+  readonly sessionId: string
+  readonly executionId: string
+  readonly runId: string
+  readonly requestedProfileDigest: Sha256Digest
+  readonly requestDigest: Sha256Digest
+}
+
 /** Recovery coordinates durable after environment creation and before dispatch. @stable */
 export interface RetainedRunEnvironmentAdmission {
   readonly phase: 'environment'
@@ -157,8 +177,11 @@ export type RetainedInteractiveAdmission =
   | RetainedInteractiveEnvironmentAdmission
   | RetainedInteractiveStartedAdmission
 
-/** One detached-run admission record the runtime persists before dispatch proceeds. @stable */
-export type RetainedRunAdmission = RetainedRunEnvironmentAdmission | RetainedRunDispatchedAdmission
+/** One detached-run admission record the runtime persists before creation or dispatch proceeds. @stable */
+export type RetainedRunAdmission =
+  | RetainedRunIntentAdmission
+  | RetainedRunEnvironmentAdmission
+  | RetainedRunDispatchedAdmission
 
 /**
  * Awaited durability hook for retained admission records.
@@ -172,9 +195,8 @@ export type RetainedRunAdmission = RetainedRunEnvironmentAdmission | RetainedRun
  */
 export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Promise<void>
 
-/** A retained start is retry-safe only when environment and turn keys are explicit. @stable */
-export interface StartRetainedRunOptions {
-  readonly provider: AgentEnvironmentProvider
+/** Environment, turn, and optional identity needed to replay one retained start. @stable */
+export interface RetainedRunStartMaterial {
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   readonly turn: AgentTurnInput & { turnId: string }
   /**
@@ -186,6 +208,13 @@ export interface StartRetainedRunOptions {
     readonly sessionId: string
     readonly executionId: string
   }
+}
+
+/** A retained start is retry-safe only when environment and turn keys are explicit. @stable */
+export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
+  readonly provider: AgentEnvironmentProvider
+  /** A previously persisted intent used to replay the exact create operation. */
+  readonly intent?: RetainedRunIntentAdmission
   readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
 }
@@ -216,6 +245,16 @@ export interface StartRetainedRunInEnvironmentOptions {
 export interface ReconnectRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
+  readonly now?: () => number
+}
+
+/** Recover a headless start after its pre-create intent was persisted. @stable */
+export interface RecoverRetainedRunIntentOptions {
+  readonly provider: AgentEnvironmentProvider
+  readonly admission: RetainedRunIntentAdmission
+  /** The exact original environment, turn, and optional identity material. */
+  readonly replay: RetainedRunStartMaterial
+  readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
 }
 

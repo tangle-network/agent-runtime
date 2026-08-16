@@ -1,6 +1,8 @@
+import type { Sha256Digest } from '@tangle-network/agent-interface'
 import {
   AgentEnvironmentCapabilitiesSchema,
   AgentExactRunControlRefSchema,
+  canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -21,14 +23,17 @@ import {
   freezeControlRef,
 } from './retained-run-binding'
 import { createRetainedRunHandle } from './retained-run-handle'
+import { retainedCreateMaterial, retainedTurnMaterial } from './retained-run-intent'
 import type {
   ReconnectRetainedRunOptions,
+  RecoverRetainedRunIntentOptions,
   RecoverRetainedRunOptions,
   RecoverRetainedRunResult,
   RetainedInteractiveAdmission,
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunHandle,
+  RetainedRunIntentAdmission,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
@@ -61,11 +66,10 @@ export function mintRetainedIdentity(
  * Dispatch one detached, replayable run and return only after exact durable
  * coordinates are confirmed by the provider and persisted by the caller.
  *
- * The required `onAdmission` hook is awaited twice: with the recovery
- * coordinates after environment creation, and with the verified exact control
- * reference after dispatch. The returned promise resolves only after the
- * dispatched admission is durable, so no caller can observe a successful start
- * whose exact reference a crash would lose.
+ * The required `onAdmission` hook first records a digest-only intent before
+ * creation, then records recovery coordinates and the verified exact control
+ * reference. The returned promise resolves only after the dispatched admission
+ * is durable, so a crash cannot lose a successful start's exact reference.
  *
  * @stable
  */
@@ -84,16 +88,21 @@ export async function startRetainedRun(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
+  if (!options.provider.get) {
+    throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
+  }
+  const intent = retainedRunIntent(options, identity)
+  if (options.intent === undefined) {
+    await admitDurably(options.onAdmission, intent)
+  } else {
+    assertExactRetainedRunIntent(options.intent, intent)
+  }
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
   assertRequestedInteractionCapabilities(
     options.provider.name,
     options.turn.interactions,
     providerCapabilities,
   )
-  if (!options.provider.get) {
-    throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
-  }
-
   // Runtime-owned keys in metadata give operators provider-side visibility
   // into which retained coordinates created this environment. Caller metadata
   // is preserved; the runtime keys overwrite same-named caller keys.
@@ -102,6 +111,8 @@ export async function startRetainedRun(
     metadata: {
       ...options.environment.metadata,
       retainedIdempotencyKey: options.environment.idempotencyKey,
+      retainedIntentDigest: intent.requestDigest,
+      retainedRunId: intent.runId,
       sessionId: identity.sessionId,
       executionId: identity.executionId,
     },
@@ -370,8 +381,11 @@ function isInteractiveAdmission(
 }
 
 /**
- * Rebuild the exact run named by pre-dispatch admission coordinates, or
- * report why the provider cannot prove it.
+ * Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
+ * admission coordinates, or report why the provider cannot prove it.
+ *
+ * An intent recovery replays the exact original start material through
+ * `startRetainedRun`; a changed replay is rejected before provider creation.
  *
  * `not_found`: the provider no longer holds the environment, so nothing
  * remains to destroy. `recovered`: the provider self-identified the session
@@ -386,9 +400,28 @@ function isInteractiveAdmission(
  *
  * @stable
  */
-export async function recoverRetainedRun(
+export function recoverRetainedRun(
+  options: RecoverRetainedRunIntentOptions,
+): Promise<RecoverRetainedRunResult>
+export function recoverRetainedRun(
   options: RecoverRetainedRunOptions,
+): Promise<RecoverRetainedRunResult>
+export async function recoverRetainedRun(
+  options: RecoverRetainedRunIntentOptions | RecoverRetainedRunOptions,
 ): Promise<RecoverRetainedRunResult> {
+  if ('admission' in options) {
+    if (options.admission.provider !== options.provider.name) {
+      throw new Error('retained run intent belongs to another provider')
+    }
+    const handle = await startRetainedRun({
+      provider: options.provider,
+      ...options.replay,
+      intent: options.admission,
+      onAdmission: options.onAdmission,
+      now: options.now,
+    })
+    return { outcome: 'recovered', handle }
+  }
   assertStableText(options.environmentId, 'retained environment id')
   assertStableText(options.sessionId, 'retained session id')
   assertStableText(options.executionId, 'retained execution id')
@@ -434,6 +467,85 @@ export async function recoverRetainedRun(
       capabilities,
       options.now,
     ),
+  }
+}
+
+function retainedRunIntent(
+  options: StartRetainedRunOptions,
+  identity: { readonly sessionId: string; readonly executionId: string },
+): RetainedRunIntentAdmission {
+  const requestedProfileDigest = canonicalCandidateDigest(options.environment.profile)
+  const requestDigest = canonicalCandidateDigest({
+    kind: 'retained-run-intent.v1',
+    provider: options.provider.name,
+    idempotencyKey: options.environment.idempotencyKey,
+    turnId: options.turn.turnId,
+    sessionId: identity.sessionId,
+    executionId: identity.executionId,
+    requestedProfileDigest,
+    create: retainedCreateMaterial(options.environment),
+    turn: retainedTurnMaterial(options.turn),
+  })
+  return {
+    phase: 'intent',
+    provider: options.provider.name,
+    idempotencyKey: options.environment.idempotencyKey,
+    turnId: options.turn.turnId,
+    sessionId: identity.sessionId,
+    executionId: identity.executionId,
+    runId: `retained-intent-run:${requestDigest.slice('sha256:'.length)}`,
+    requestedProfileDigest,
+    requestDigest,
+  }
+}
+
+function assertExactRetainedRunIntent(
+  received: RetainedRunIntentAdmission,
+  expected: RetainedRunIntentAdmission,
+): void {
+  const stableReceived = parseRetainedRunIntent(received)
+  if (canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(expected)) {
+    throw new Error('retained run intent conflicts with replay material')
+  }
+}
+
+function parseRetainedRunIntent(value: unknown): RetainedRunIntentAdmission {
+  const stable = detachedSnapshot(value, 'retained run intent')
+  if (stable === null || typeof stable !== 'object' || Array.isArray(stable)) {
+    throw new Error('retained run intent is malformed')
+  }
+  const record = stable as Record<string, unknown>
+  const allowed = new Set([
+    'phase',
+    'provider',
+    'idempotencyKey',
+    'turnId',
+    'sessionId',
+    'executionId',
+    'runId',
+    'requestedProfileDigest',
+    'requestDigest',
+  ])
+  if (Object.keys(record).some((key) => !allowed.has(key))) {
+    throw new Error('retained run intent contains unsupported material')
+  }
+  if (record.phase !== 'intent') {
+    throw new Error('retained run intent has an invalid phase')
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'phase') continue
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new Error(`retained run intent field "${key}" is invalid`)
+    }
+  }
+  assertDigest(record.requestedProfileDigest, 'retained run intent profile digest')
+  assertDigest(record.requestDigest, 'retained run intent request digest')
+  return stable as RetainedRunIntentAdmission
+}
+
+function assertDigest(value: unknown, label: string): asserts value is Sha256Digest {
+  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`${label} is invalid`)
   }
 }
 

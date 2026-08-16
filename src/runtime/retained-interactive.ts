@@ -35,6 +35,7 @@ import type {
   StartRetainedInteractiveRunOptions,
 } from './retained-interactive-types'
 import { assertStableText, awaitAbortable } from './retained-run-binding'
+import { retainedCreateMaterial } from './retained-run-intent'
 import { admitDurably, mintRetainedIdentity } from './retained-run-start'
 import type {
   RetainedInteractiveEnvironmentAdmission,
@@ -281,6 +282,7 @@ function interactiveIntent(
   profile: StartRetainedInteractiveRunOptions['environment']['profile'],
   identity: { readonly sessionId: string; readonly executionId: string },
 ): RetainedInteractiveIntentAdmission {
+  const requestedProfileDigest = canonicalAgentProfileDigest(profile)
   const requestDigest = canonicalCandidateDigest({
     kind: 'retained-interactive-intent.v1',
     provider: options.provider.name,
@@ -288,8 +290,8 @@ function interactiveIntent(
     interactiveIdempotencyKey: options.interactiveIdempotencyKey,
     sessionId: identity.sessionId,
     executionId: identity.executionId,
-    requestedProfileDigest: canonicalAgentProfileDigest(profile),
-    create: sanitizedCreateMaterial(options.environment),
+    requestedProfileDigest,
+    create: retainedCreateMaterial(options.environment),
     start: sanitizedStartMaterial(options),
   })
   return {
@@ -300,35 +302,8 @@ function interactiveIntent(
     sessionId: identity.sessionId,
     executionId: identity.executionId,
     runId: `interactive-intent-run:${requestDigest.slice('sha256:'.length)}`,
-    requestedProfileDigest: canonicalAgentProfileDigest(profile),
+    requestedProfileDigest,
     requestDigest,
-  }
-}
-
-function sanitizedCreateMaterial(
-  environment: StartRetainedInteractiveRunOptions['environment'],
-): Record<string, unknown> {
-  return {
-    ...(environment.backend === undefined ? {} : { backend: environment.backend }),
-    ...(environment.workspace === undefined
-      ? {}
-      : { workspaceDigest: canonicalCandidateDigest(environment.workspace) }),
-    ...(environment.resources === undefined
-      ? {}
-      : { resourcesDigest: canonicalCandidateDigest(environment.resources) }),
-    ...(environment.name === undefined ? {} : { name: environment.name }),
-    ...(environment.env === undefined
-      ? {}
-      : { envDigest: canonicalCandidateDigest(environment.env) }),
-    ...(environment.secrets === undefined
-      ? {}
-      : { secretsDigest: canonicalCandidateDigest(environment.secrets) }),
-    ...(environment.metadata === undefined
-      ? {}
-      : { metadataDigest: canonicalCandidateDigest(environment.metadata) }),
-    ...(environment.providerOptions === undefined
-      ? {}
-      : { providerOptionsDigest: canonicalCandidateDigest(environment.providerOptions) }),
   }
 }
 

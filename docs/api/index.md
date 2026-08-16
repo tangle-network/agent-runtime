@@ -1086,7 +1086,7 @@ The caller could not persist one detached-run recovery record.
 
 ##### phase
 
-> `readonly` **phase**: `"environment"` \| `"dispatched"`
+> `readonly` **phase**: `"intent"` \| `"environment"` \| `"dispatched"`
 
 ###### Inherited from
 
@@ -8699,7 +8699,7 @@ One tree-wide view of simultaneous spawned work. Every nested scope reads the sa
 
 ##### spawn()
 
-> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<`C`\>; `prior?`: [`SpawnPrior`](runtime.md#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](runtime.md#spawnrejection); \}
+> **spawn**\<`C`\>(`agent`, `task`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](runtime.md#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](runtime.md#spawnrejection); \}
 
 Spawn a child. For a fresh key or an unkeyed spawn, tree-wide worker admission happens before a
 lazy factory is called, so a full worker allocation creates no worker, executor, or reservation.
@@ -8733,7 +8733,7 @@ work: it returns the committed result on `prior` (see `SpawnOpts.key`).
 
 ###### Returns
 
-\{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<`C`\>; `prior?`: [`SpawnPrior`](runtime.md#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](runtime.md#spawnrejection); \}
+\{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-3)\<`C`\>; `prior?`: [`SpawnPrior`](runtime.md#spawnprior)\<`C`\>; \} \| \{ `ok`: `false`; `reason`: [`SpawnRejection`](runtime.md#spawnrejection); \}
 
 ##### next()
 
@@ -8786,7 +8786,7 @@ is a direct call; the sandbox/Agent-Bus transports surface the SAME verb as an M
 
 ##### wait()
 
-> **wait**(`spec`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<[`WaitOutcome`](runtime.md#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](runtime.md#waitrejection); \}
+> **wait**(`spec`, `opts`): \{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-3)\<[`WaitOutcome`](runtime.md#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](runtime.md#waitrejection); \}
 
 Arm a WAIT-STATE node: a first-class tree node that waits on wall-clock time (`timer`) or on
 a named external predicate (`poll`) and settles through THIS scope's `next()` cursor like any
@@ -8818,7 +8818,7 @@ and nothing about it survives a restart. See `supervise/wait.ts`.
 
 ###### Returns
 
-\{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-2)\<[`WaitOutcome`](runtime.md#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](runtime.md#waitrejection); \}
+\{ `ok`: `true`; `handle`: [`Handle`](runtime.md#handle-3)\<[`WaitOutcome`](runtime.md#waitoutcome)\>; \} \| \{ `ok`: `false`; `reason`: [`WaitRejection`](runtime.md#waitrejection); \}
 
 ##### progress()
 
@@ -11822,7 +11822,7 @@ Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -11838,7 +11838,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ##### Type Literal
 
-\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -11846,7 +11846,7 @@ in `seq` order. `outRef` rehydrates `out` from the `ResultBlobStore` on replay.
 
 ###### handle
 
-> **handle**: [`Handle`](runtime.md#handle-2)\<`Out`\>
+> **handle**: [`Handle`](runtime.md#handle-3)\<`Out`\>
 
 ###### out
 
@@ -11890,7 +11890,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-2)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -11898,7 +11898,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ###### handle
 
-> **handle**: [`Handle`](runtime.md#handle-2)\<`Out`\>
+> **handle**: [`Handle`](runtime.md#handle-3)\<`Out`\>
 
 ###### reason
 

@@ -33,6 +33,7 @@ export type {
   NativeContextContinuationExecution,
   NativeContextContinuationInput,
   ReconnectRetainedRunOptions,
+  RecoverRetainedRunIntentOptions,
   RecoverRetainedRunOptions,
   RecoverRetainedRunResult,
   RetainedInteractiveAdmission,
@@ -48,8 +49,10 @@ export type {
   RetainedRunEnvironmentAdmission,
   RetainedRunEventOptions,
   RetainedRunHandle,
+  RetainedRunIntentAdmission,
   RetainedRunReplayPoint,
   RetainedRunSnapshot,
+  RetainedRunStartMaterial,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'

@@ -430,7 +430,7 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-12)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-13)
 
 ##### perWorker?
 
@@ -485,7 +485,7 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`signal`](runtime.md#signal-18)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`signal`](runtime.md#signal-19)
 
 ##### now?
 
@@ -497,7 +497,7 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 
 ###### Inherited from
 
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-8)
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-9)
 
 ##### otel?
 
@@ -586,7 +586,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-20)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-21)
 
 ##### execution?
 
@@ -1223,7 +1223,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-16)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-17)
 
 ##### now?
 
@@ -1235,7 +1235,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-15)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
 
 ##### allowedModels?
 

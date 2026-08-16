@@ -84,11 +84,14 @@ export function providerMessageText(
 ): string | undefined {
   const messages = providerOptions?.messages
   if (!Array.isArray(messages)) return undefined
-  const last = messages.at(-1)
-  if (!last || typeof last !== 'object' || Array.isArray(last)) return undefined
-  if (!('content' in last)) return undefined
-  const content = last.content
-  return typeof content === 'string' ? content : undefined
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (!message || typeof message !== 'object' || Array.isArray(message)) continue
+    if (!('role' in message) || message.role !== 'user') continue
+    if (!('content' in message)) continue
+    if (typeof message.content === 'string') return message.content
+  }
+  return undefined
 }
 
 function promptPartFromInputPart(part: InputPart): PromptInputPart {

@@ -171,7 +171,7 @@ abstract class RetainedAdmissionError<
 
   constructor(admission: TAdmission, options?: { cause?: unknown }) {
     const recovery =
-      admission.phase === 'interactive_intent'
+      admission.phase === 'intent' || admission.phase === 'interactive_intent'
         ? 'no provider work has started'
         : 'the environment is kept for recovery'
     super(
