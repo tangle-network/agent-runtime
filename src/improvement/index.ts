@@ -87,11 +87,11 @@ export {
   type ProfileImprovementHarness,
   type ProfileImprovementHarnessRunOptions,
 } from './profile-improvement-harness'
+export type { DeepReadonly, ReadonlyAgentProfile } from './profile-types'
 export {
   PROMPT_INSTRUCTION_COMPONENT_PREFIX,
   promptInstructionsProfileComponents,
 } from './prompt-instructions-profile-components'
-export type { DeepReadonly, ReadonlyAgentProfile } from './profile-types'
 export {
   type RawTraceDistillerOptions,
   rawTraceDistiller,
