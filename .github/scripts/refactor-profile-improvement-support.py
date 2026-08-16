@@ -34,18 +34,15 @@ def remove_import_symbols(
     return header + body
 
 
-def remove_function(text: str, signature: str) -> str:
-    count = text.count(signature)
-    if count != 1:
-        raise SystemExit(f"{signature}: expected one function, found {count}")
-    start = text.index(signature)
-    brace = text.index("{", start)
+def matching_delimiter(text: str, start: int, opening: str, closing: str) -> int:
+    if start >= len(text) or text[start] != opening:
+        raise SystemExit(f"expected {opening!r} at offset {start}")
     depth = 0
     quote: str | None = None
     escaped = False
     line_comment = False
     block_comment = False
-    index = brace
+    index = start
     while index < len(text):
         char = text[index]
         next_char = text[index + 1] if index + 1 < len(text) else ""
@@ -82,17 +79,51 @@ def remove_function(text: str, signature: str) -> str:
             quote = char
             index += 1
             continue
-        if char == "{":
+        if char == opening:
             depth += 1
-        elif char == "}":
+        elif char == closing:
             depth -= 1
             if depth == 0:
-                end = index + 1
-                while end < len(text) and text[end] == "\n":
-                    end += 1
-                return text[:start] + text[end:]
+                return index + 1
         index += 1
-    raise SystemExit(f"{signature}: unbalanced function")
+    raise SystemExit(f"unbalanced {opening}{closing} delimiter at offset {start}")
+
+
+def skip_whitespace(text: str, start: int) -> int:
+    index = start
+    while index < len(text) and text[index].isspace():
+        index += 1
+    return index
+
+
+def function_body_open(text: str, start: int) -> int:
+    parameter_open = text.index("(", start)
+    parameter_end = matching_delimiter(text, parameter_open, "(", ")")
+    cursor = skip_whitespace(text, parameter_end)
+    if cursor < len(text) and text[cursor] == ":":
+        cursor = skip_whitespace(text, cursor + 1)
+        if cursor < len(text) and text[cursor] == "{":
+            cursor = skip_whitespace(text, matching_delimiter(text, cursor, "{", "}"))
+        else:
+            body = text.find("{", cursor)
+            if body < 0:
+                raise SystemExit("function body not found after return type")
+            return body
+    if cursor >= len(text) or text[cursor] != "{":
+        raise SystemExit(f"function body not found at offset {cursor}")
+    return cursor
+
+
+def remove_function(text: str, signature: str) -> str:
+    count = text.count(signature)
+    if count != 1:
+        raise SystemExit(f"{signature}: expected one function, found {count}")
+    start = text.index(signature)
+    body_open = function_body_open(text, start)
+    end = matching_delimiter(text, body_open, "{", "}")
+    while end < len(text) and text[end] == "\n":
+        end += 1
+    return text[:start] + text[end:]
 
 
 SUPPORT = """import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
