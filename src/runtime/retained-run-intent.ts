@@ -7,9 +7,10 @@ import type {
 /**
  * Project environment creation input into public digest material.
  *
- * Values from the `secrets` channel never enter the material or its digest.
- * Secret names remain public binding data, so changing which credentials are
- * requested still conflicts before provider effects begin.
+ * Opaque values never enter the material or its digest. Public scalar fields
+ * remain bound directly, while opaque records retain only their key names.
+ * Secret names remain public binding data, so changing requested credentials
+ * still conflicts before provider effects begin.
  */
 export function retainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
@@ -18,24 +19,61 @@ export function retainedCreateMaterial(
     ...(environment.backend === undefined ? {} : { backend: environment.backend }),
     ...(environment.workspace === undefined
       ? {}
-      : { workspaceDigest: canonicalCandidateDigest(environment.workspace) }),
+      : {
+          workspaceDigest: canonicalCandidateDigest(publicWorkspaceMaterial(environment.workspace)),
+        }),
     ...(environment.resources === undefined
       ? {}
-      : { resourcesDigest: canonicalCandidateDigest(environment.resources) }),
+      : {
+          resourcesDigest: canonicalCandidateDigest(publicResourceMaterial(environment.resources)),
+        }),
     ...(environment.name === undefined ? {} : { name: environment.name }),
     ...(environment.env === undefined
       ? {}
-      : { envDigest: canonicalCandidateDigest(environment.env) }),
+      : { environmentVariableNames: retainedObjectNames(environment.env) }),
     ...(environment.secrets === undefined
       ? {}
       : { secretNames: retainedSecretNames(environment.secrets) }),
     ...(environment.metadata === undefined
       ? {}
-      : { metadataDigest: canonicalCandidateDigest(environment.metadata) }),
+      : { metadataKeys: retainedObjectNames(environment.metadata) }),
     ...(environment.providerOptions === undefined
       ? {}
-      : { providerOptionsDigest: canonicalCandidateDigest(environment.providerOptions) }),
+      : { providerOptionNames: retainedObjectNames(environment.providerOptions) }),
   }
+}
+
+function publicWorkspaceMaterial(
+  workspace: NonNullable<CreateAgentEnvironmentInput['workspace']>,
+): Record<string, unknown> {
+  return {
+    ...(workspace.environment === undefined ? {} : { environment: workspace.environment }),
+    ...(workspace.image === undefined ? {} : { image: workspace.image }),
+    ...(workspace.repoUrl === undefined ? {} : { repoUrl: workspace.repoUrl }),
+    ...(workspace.gitRef === undefined ? {} : { gitRef: workspace.gitRef }),
+    ...(workspace.cwd === undefined ? {} : { cwd: workspace.cwd }),
+    ...(workspace.providerOptions === undefined
+      ? {}
+      : { providerOptionNames: retainedObjectNames(workspace.providerOptions) }),
+  }
+}
+
+function publicResourceMaterial(
+  resources: NonNullable<CreateAgentEnvironmentInput['resources']>,
+): Record<string, unknown> {
+  return {
+    ...(resources.cpu === undefined ? {} : { cpu: resources.cpu }),
+    ...(resources.memoryMb === undefined ? {} : { memoryMb: resources.memoryMb }),
+    ...(resources.diskMb === undefined ? {} : { diskMb: resources.diskMb }),
+    ...(resources.gpu === undefined ? {} : { gpu: resources.gpu }),
+    ...(resources.providerOptions === undefined
+      ? {}
+      : { providerOptionNames: retainedObjectNames(resources.providerOptions) }),
+  }
+}
+
+function retainedObjectNames(value: Record<string, unknown>): string[] {
+  return Object.keys(value).sort()
 }
 
 function retainedSecretNames(

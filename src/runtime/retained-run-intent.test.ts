@@ -34,6 +34,43 @@ describe('retained create admission material', () => {
     expect(JSON.stringify(first)).not.toContain(secondSecret)
   })
 
+  it('keeps opaque environment values out of the public material', () => {
+    const first = retainedCreateMaterial({
+      profile: { name: 'worker' },
+      env: { PUBLIC_OR_SECRET: 'guessable-a' },
+      secrets: { API_TOKEN: 'guessable-a' },
+      metadata: { note: 'guessable-a' },
+      providerOptions: { credential: 'guessable-a' },
+      workspace: {
+        repoUrl: 'https://example.com/repo.git',
+        providerOptions: { credential: 'guessable-a' },
+      },
+      resources: { cpu: 2, providerOptions: { credential: 'guessable-a' } },
+    })
+    const second = retainedCreateMaterial({
+      profile: { name: 'worker' },
+      env: { PUBLIC_OR_SECRET: 'guessable-b' },
+      secrets: { API_TOKEN: 'guessable-b' },
+      metadata: { note: 'guessable-b' },
+      providerOptions: { credential: 'guessable-b' },
+      workspace: {
+        repoUrl: 'https://example.com/repo.git',
+        providerOptions: { credential: 'guessable-b' },
+      },
+      resources: { cpu: 2, providerOptions: { credential: 'guessable-b' } },
+    })
+
+    expect(second).toEqual(first)
+    expect(canonicalCandidateDigest(second)).toBe(canonicalCandidateDigest(first))
+    expect(JSON.stringify(first)).not.toContain('guessable-a')
+    expect(JSON.stringify(first)).not.toContain('guessable-b')
+    expect(first).toMatchObject({
+      environmentVariableNames: ['PUBLIC_OR_SECRET'],
+      metadataKeys: ['note'],
+      providerOptionNames: ['credential'],
+    })
+  })
+
   it('changes the public admission digest when secret names change', () => {
     expect(digestForSecrets({ API_TOKEN: 'guessable-a' })).not.toBe(
       digestForSecrets({ OTHER_TOKEN: 'guessable-a' }),
