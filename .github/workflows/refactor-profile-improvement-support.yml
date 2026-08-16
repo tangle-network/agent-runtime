@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Keep the generic optimization receipt import
+        run: sed -i '/"attachOptimizationActivationReceipt",/d' .github/scripts/refactor-profile-improvement-support.py
+
       - name: Extract canonical profile experiment support
         run: python .github/scripts/refactor-profile-improvement-support.py
 
