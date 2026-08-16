@@ -91,7 +91,7 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
     profile,
     profileDigest: canonicalAgentProfileDigest(profile),
     executionRef,
-    run(runOptions) {
+    run(runOptions: ProfileImprovementHarnessRunOptions<TScenario, TArtifact>) {
       return improve(profile, {
         ...runOptions,
         executionRef,
