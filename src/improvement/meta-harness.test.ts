@@ -1,4 +1,7 @@
-import { inMemoryCampaignStorage, type OptimizationMethod } from '@tangle-network/agent-eval/campaign'
+import {
+  inMemoryCampaignStorage,
+  type OptimizationMethod,
+} from '@tangle-network/agent-eval/campaign'
 import type {
   DispatchContext,
   JudgeConfig,
@@ -8,8 +11,8 @@ import type {
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
-import type { ReadonlyAgentProfile } from './profile-types'
 import { createProfileImprovementHarness } from './profile-improvement-harness'
+import type { ReadonlyAgentProfile } from './profile-types'
 import {
   PROMPT_INSTRUCTION_COMPONENT_PREFIX,
   promptInstructionsProfileComponents,
@@ -71,7 +74,9 @@ async function paidProfile(
   return paid.value
 }
 
-function fixedMethod(winnerSurface: MutableSurface): OptimizationMethod<FixtureScenario, FixtureArtifact> {
+function fixedMethod(
+  winnerSurface: MutableSurface,
+): OptimizationMethod<FixtureScenario, FixtureArtifact> {
   return {
     name: 'meta-harness-fixed-method',
     async optimize() {
