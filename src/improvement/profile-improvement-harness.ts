@@ -81,6 +81,11 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
   if (typeof options.agent !== 'function') {
     throw new ConfigError('createProfileImprovementHarness: agent must be a function')
   }
+  if (options.validateCandidate !== undefined && typeof options.validateCandidate !== 'function') {
+    throw new ConfigError(
+      'createProfileImprovementHarness: validateCandidate must be a function when present',
+    )
+  }
 
   const profile = immutableCandidateValue(parsed.data)
   const executionRef = options.executionRef
@@ -92,15 +97,20 @@ export function createProfileImprovementHarness<TScenario extends Scenario, TArt
     profileDigest: canonicalAgentProfileDigest(profile),
     executionRef,
     run(runOptions: ProfileImprovementHarnessRunOptions<TScenario, TArtifact>) {
+      if (
+        runOptions.validateCandidate !== undefined &&
+        typeof runOptions.validateCandidate !== 'function'
+      ) {
+        throw new ConfigError(
+          'ProfileImprovementHarness.run: validateCandidate must be a function when present',
+        )
+      }
+      const validateCandidate = runOptions.validateCandidate ?? defaultValidator
       return improve(profile, {
         ...runOptions,
         executionRef,
         agent,
-        ...(runOptions.validateCandidate !== undefined
-          ? { validateCandidate: runOptions.validateCandidate }
-          : defaultValidator !== undefined
-            ? { validateCandidate: defaultValidator }
-            : {}),
+        ...(validateCandidate === undefined ? {} : { validateCandidate }),
       })
     },
   })
