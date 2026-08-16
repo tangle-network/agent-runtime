@@ -21,7 +21,9 @@
 
 import { createServer, type Server } from 'node:http'
 import { ConfigError } from '../../errors'
+import type { JsonRpcMessage } from '../../mcp/protocol'
 import { createMcpServer, type McpToolDescriptor } from '../../mcp/server'
+import { createStdioToolServer, type StdioToolServer } from '../../mcp/tool-server'
 import {
   type AnalystRegistry,
   type AnalyzeOnSettleRoute,
@@ -39,6 +41,7 @@ import {
 } from '../../mcp/tools/coordination'
 import type { DeliverableSpec } from './completion-gate'
 import type { BusRecord } from './event-bus'
+import type { PeerMailEvent, PeerMailLimits } from './peer-mail'
 import type { Budget, ResultBlobStore, Scope } from './types'
 
 export interface CoordinationMcpHandle {
@@ -59,6 +62,11 @@ export interface CoordinationMcpHandle {
   stats: CoordinationTools['stats']
   /** Raise a `finding` on the bus from an online detector watching a worker's live pipe. */
   raiseFinding: CoordinationTools['raiseFinding']
+  /** Every peer-mail attempt in order, delivered and refused alike. Empty when peer mail is off. */
+  mailHistory(): ReadonlyArray<PeerMailEvent>
+  /** End one peer exchange: every further mail on the thread is refused `thread-stopped`. Returns
+   *  false when peer mail is off or the thread was already stopped. */
+  stopMailThread(threadId: string): boolean
   close(): Promise<void>
 }
 
@@ -124,6 +132,22 @@ export async function serveCoordinationMcp(opts: {
   /** Product-selected tools already bound to this exact supervisor node. They share this server
    *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
   nodeTools?: ReadonlyArray<McpToolDescriptor>
+  /**
+   * OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
+   * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
+   * `WorkerSpawnContext.peerMailUrl`.
+   *
+   * It is a SEPARATE listener on its own port, not another tool on this server, and that is the
+   * whole point: this server mounts spawn_agent / steer_agent / stop with no authentication, so a
+   * worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
+   * channel's authority marking would mean nothing. The mail listener serves `send_mail` and
+   * `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
+   *
+   * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
+   * that can read another worker's environment or process memory still holds that worker's
+   * capability. Loopback plus an unguessable path is what this layer can honestly enforce.
+   */
+  peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
 }): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
   // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
@@ -161,6 +185,14 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.replaySettlements ? { replaySettlements: true } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
+    ...(opts.peerMail
+      ? {
+          peerMail:
+            typeof opts.peerMail === 'object' && opts.peerMail.limits
+              ? { limits: opts.peerMail.limits }
+              : {},
+        }
+      : {}),
   })
   await coord.ready()
   const mcp = createMcpServer({
@@ -212,6 +244,9 @@ export async function serveCoordinationMcp(opts: {
     })
   })
 
+  const mailbox = coord.peerMail
+  const mailListener = mailbox === undefined ? undefined : await servePeerMail(mailbox, host)
+
   return {
     url: `http://${host}:${port}/mcp`,
     port,
@@ -222,9 +257,95 @@ export async function serveCoordinationMcp(opts: {
     history: () => coord.history(),
     stats: () => coord.stats(),
     raiseFinding: (finding) => coord.raiseFinding(finding),
+    mailHistory: () => mailbox?.history() ?? [],
+    stopMailThread: (threadId) => mailbox?.stopThread(threadId) ?? false,
+    close: async () => {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve())
+      })
+      await mailListener?.close()
+    },
+  }
+}
+
+/**
+ * Stand up the peer-mail capability listener: one HTTP server, one secret path per worker, and on
+ * each path a tool server carrying ONLY `send_mail` / `read_mail` with that worker's identity
+ * closed over. An unknown path is a flat 404 — the path is the credential, so a request that does
+ * not present a minted one is not a client to reason with.
+ *
+ * The host is the coordination host, which the caller has already had to justify: the loopback gate
+ * above governs both listeners, and there is deliberately no way to bind mail somewhere else.
+ */
+async function servePeerMail(
+  mailbox: NonNullable<CoordinationTools['peerMail']>,
+  host: string,
+): Promise<{ close(): Promise<void> }> {
+  const servers = new Map<string, StdioToolServer>()
+  const forCapability = (capabilityId: string): StdioToolServer => {
+    const existing = servers.get(capabilityId)
+    if (existing) return existing
+    const created = createStdioToolServer({
+      serverName: 'peer-mail',
+      serverVersion: '1',
+      tools: mailbox.tools(capabilityId),
+    })
+    servers.set(capabilityId, created)
+    return created
+  }
+
+  const listener: Server = createServer((req, res) => {
+    const capabilityId = /^\/mail\/([0-9a-f]{32})$/.exec(req.url ?? '')?.[1]
+    if (
+      req.method !== 'POST' ||
+      capabilityId === undefined ||
+      !mailbox.hasCapability(capabilityId)
+    ) {
+      res.writeHead(404).end()
+      return
+    }
+    let body = ''
+    req.on('data', (chunk) => {
+      body += chunk
+    })
+    req.on('end', () => {
+      void (async () => {
+        try {
+          const message = JSON.parse(body) as JsonRpcMessage
+          const response = await forCapability(capabilityId).handle(message)
+          if (response === null) {
+            res.writeHead(202).end() // a notification — no body
+            return
+          }
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(response))
+        } catch (e) {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              id: null,
+              error: { code: -32700, message: e instanceof Error ? e.message : 'parse error' },
+            }),
+          )
+        }
+      })()
+    })
+  })
+
+  const port = await new Promise<number>((resolve, reject) => {
+    listener.once('error', reject)
+    listener.listen(0, host, () => {
+      const addr = listener.address()
+      resolve(typeof addr === 'object' && addr ? addr.port : 0)
+    })
+  })
+  // Only now is a capability URL a reachable address, so only now may one be minted.
+  mailbox.setEndpoint(`http://${host}:${port}/mail`)
+  return {
     close: () =>
       new Promise<void>((resolve) => {
-        server.close(() => resolve())
+        listener.close(() => resolve())
       }),
   }
 }

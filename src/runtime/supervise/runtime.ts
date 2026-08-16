@@ -2343,7 +2343,8 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         observation.activity.push({
           at: Date.now(),
           kind: 'note',
-          label: m.interrupt ? 'steer' : 'follow-up',
+          // A peer message must not read as a supervisor steer in `observe_agent`'s activity.
+          label: m.kind === 'mail' ? 'peer-mail' : m.interrupt ? 'steer' : 'follow-up',
           detail: m.text.length > 80 ? `${m.text.slice(0, 77)}...` : m.text,
         })
       }
@@ -2645,7 +2646,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     // Before settling, drain once more — the worker can't finish while a steer it
     // never read is pending (the sandbox/router settle contract). A pending steer
     // becomes the next resume turn; otherwise the session is truly done.
-    if (inbox.pending() === 0) break
+    // AUTHORITY messages only: a sibling that kept sending mail could otherwise hold a finished
+    // worker open indefinitely, which is denial of settlement, not a delivery guarantee.
+    if (inbox.pendingAuthority() === 0) break
   }
 
   observation.note = 'settled'

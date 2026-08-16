@@ -34,6 +34,12 @@ import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
+import {
+  createPeerMailbox,
+  type PeerMailbox,
+  type PeerMailEvent,
+  type PeerMailLimits,
+} from '../../runtime/supervise/peer-mail'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
 import {
   parseWorkerToolTraceArtifact,
@@ -279,7 +285,9 @@ export type AuthorizeDownMessage = (input: DownMessageAuthorizationInput) => Aut
 /** Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  *  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
  *  as evidence. DOWN (parent→child): steer / answer — record-only (history + subscribers), routed
- *  to the child inbox. Receipts are never auto-delivered on restart. New kinds are additive. */
+ *  to the child inbox. SIDEWAYS (child→sibling): mail — also record-only, and deliberately NOT
+ *  queued, so peer traffic audits through the parent without flooding the inbox it pulls from.
+ *  Receipts are never auto-delivered on restart. New kinds are additive. */
 export type CoordinationEvent =
   | { readonly type: 'question'; readonly question: QuestionRecord }
   | { readonly type: 'settled'; readonly worker: SettledWorker }
@@ -294,6 +302,7 @@ export type CoordinationEvent =
   | { readonly type: 'answer'; readonly down: DownMessageEvent; readonly questionId: string }
   | { readonly type: 'instruction'; readonly instruction: ContinuationInstruction }
   | { readonly type: 'delivery-attempt'; readonly attempt: DownMessageDeliveryAttempt }
+  | { readonly type: 'mail'; readonly mail: PeerMailEvent }
 
 /** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
  * complete worker profile is prepared for one spawn. */
@@ -326,6 +335,18 @@ export interface WorkerSpawnContext {
   readonly continuity?: ContinuityMode
   /** Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches with. */
   readonly resume?: WorkerResumeContext
+  /**
+   * The PEER MAIL capability endpoint minted for this exact spawn, when the run enabled peer mail
+   * ({@link CoordinationToolsOptions.peerMail}). It serves `send_mail` / `read_mail` and nothing
+   * else, and it speaks as this worker: the sender is bound to the capability, never passed as an
+   * argument. Mount it on the worker the way `coordinationMcpUrl` is mounted on a driver.
+   *
+   * It arrives HERE, out of band, rather than being merged into the worker's `AgentProfile.mcp`,
+   * for the same reason the driver's coordination URL does: the URL carries fresh random bytes per
+   * process, so writing it into the profile would change the canonical profile digest every run and
+   * a keyed re-spawn would then fail its identity check against the journal.
+   */
+  readonly peerMailUrl?: string
 }
 
 export type MakeWorkerAgent = (
@@ -425,6 +446,14 @@ export interface CoordinationToolsOptions {
    * process of a durable run are not resume targets.
    */
   readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
+  /**
+   * OPT-IN: give this manager's workers a bounded SIBLING channel (`../../runtime/supervise/
+   * peer-mail`). Each spawn is minted a capability endpoint handed out on
+   * {@link WorkerSpawnContext.peerMailUrl}; every attempt, delivered or refused, publishes a
+   * `mail` event so the parent audits a channel it no longer relays. Omit = no peer channel and no
+   * capability is minted (the status quo: a worker is reachable only by its parent).
+   */
+  readonly peerMail?: { readonly limits?: Partial<PeerMailLimits> }
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
@@ -464,6 +493,10 @@ export interface CoordinationTools {
   history(): ReadonlyArray<BusRecord<CoordinationEvent>>
   /** Bus throughput counters (published / pulled / by-kind) for live dashboards. */
   stats(): BusStats
+  /** The run's peer-mail post office, present only when `peerMail` was enabled. The transport
+   *  layer stands the capability endpoint up over it; the parent reads `history()` for the audit
+   *  trail and calls `stopThread` to end a peer exchange. */
+  readonly peerMail?: PeerMailbox
   /** Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE detector
    *  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
    *  moment it happens, instead of only at settle. Queued for `await_event` + pass-through. */
@@ -1505,10 +1538,27 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (ev.type === 'answer') return { type: 'answer', ...ev.down, questionId: ev.questionId }
     if (ev.type === 'instruction') return { type: 'instruction', ...ev.instruction }
     if (ev.type === 'delivery-attempt') return { type: 'delivery-attempt', ...ev.attempt }
+    // Peer mail is sideways and record-only, so the driver never pulls it either. Projected
+    // explicitly rather than through the `down` fallback below: a member with no `down` property
+    // spread through that fallback would yield a bare `{ type }` and drop the whole payload.
+    if (ev.type === 'mail') return { type: 'mail', ...ev.mail }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
   }
+
+  // The sibling channel, when this run enabled it. Publishing is record-only (`queue: false`) for
+  // the same reason a steer is: the parent audits and can stop a thread, but peer traffic must not
+  // enter the queue the driver pulls from — a busy channel would otherwise starve `await_event` of
+  // the settlements and questions it exists to deliver.
+  const peerMail: PeerMailbox | undefined = opts.peerMail
+    ? createPeerMailbox({
+        scope: opts.scope,
+        publish: (mail) =>
+          bus.publish({ type: 'mail', mail }, { queue: false }).then(() => undefined),
+        ...(opts.peerMail.limits ? { limits: opts.peerMail.limits } : {}),
+      })
+    : undefined
 
   const nextQuestionId = (from: string): string => {
     for (;;) {
@@ -1865,6 +1915,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         )
         const assignmentId =
           key !== undefined ? `key:${key}` : `ordinal:${unkeyedAssignmentOrdinal++}`
+        // Minted BEFORE the worker exists, because the agent factory runs inside `scope.spawn` and
+        // the node id is not known until after it. The capability is bound to the concrete worker
+        // below, and sends nothing until then.
+        const peerMailUrl = peerMail?.mintCapability(assignmentId)
         const context: WorkerSpawnContext = Object.freeze({
           assignmentId,
           parentNodeId: opts.scope.view.root,
@@ -1874,6 +1928,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           ...(key !== undefined ? { key } : {}),
           continuity: continuity.continuity,
           ...(continuity.continuity === 'resume' ? { resume: continuity.resume } : {}),
+          ...(peerMailUrl !== undefined ? { peerMailUrl } : {}),
         })
         const res = opts.scope.spawn(() => opts.makeWorkerAgent(profile, context), task, {
           budget,
@@ -1900,6 +1955,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         if (res.ok) {
           watchWorker(res.handle.id)
           liveHandles.set(res.handle.id, res.handle)
+          // The capability becomes a sender only now, when there is a concrete worker to speak as.
+          peerMail?.bindCapability(assignmentId, res.handle.id)
           // Bind the new worker to its key so its settlement can mark the key complete.
           if (key !== undefined) keyByWorker.set(res.handle.id, key)
           if (typeof profile.name === 'string' && profile.name.length > 0) {
@@ -2385,6 +2442,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     questions: () => questions,
     drainResolved,
     abortWorker,
+    ...(peerMail ? { peerMail } : {}),
   }
 }
 

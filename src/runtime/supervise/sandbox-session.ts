@@ -173,11 +173,16 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         if (pending.length > 0) {
           const folded = args.inbox.fold(pending)
           nextPrompt = turn === 0 && nextPrompt ? `${nextPrompt}\n\n${folded}` : folded
+          const peerCount = pending.filter((m) => m.kind === 'mail').length
           activity.push({
             at: now(),
             kind: 'note',
-            label: 'steer-folded',
-            detail: `${pending.length} message(s)`,
+            // Split the label by authority class: peer mail folded into a turn is not a steer.
+            label: peerCount === pending.length ? 'peer-mail-folded' : 'steer-folded',
+            detail:
+              peerCount === 0
+                ? `${pending.length} message(s)`
+                : `${pending.length} message(s), ${peerCount} peer`,
           })
         }
         if (nextPrompt === undefined) break
@@ -268,7 +273,9 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
         // A worker may NOT settle while a delivered steer is unread — that is the whole
         // contract `steer_agent` reports back to the driver. Loop instead of breaking.
-        if (args.inbox.pending() === 0) break
+        // Peer mail is excluded: a sibling must not be able to deny a finished worker its
+        // settlement simply by keeping mail in flight.
+        if (args.inbox.pendingAuthority() === 0) break
       }
     } finally {
       state.note = 'settled'

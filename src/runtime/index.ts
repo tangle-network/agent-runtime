@@ -687,7 +687,13 @@ export {
 } from './supervise/graph'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
-export { createInbox, type Inbox, type InboxMessage } from './supervise/inbox'
+export {
+  type AuthorityInboxMessage,
+  createInbox,
+  type Inbox,
+  type InboxMessage,
+  type PeerInboxMessage,
+} from './supervise/inbox'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
 export { assertModelAllowed, assertProfileModelsAllowed } from './supervise/model-policy'
 // OPT-IN OTLP tracing for a supervised tree: a pure `RuntimeHooks` observer that turns the
@@ -706,6 +712,29 @@ export {
 // The mechanical patch gate as a generic DeliverableSpec over the worktree-CLI patch artifact:
 // no-op / always-on secret-path floor / forbidden-path / diff-size + required test/typecheck pass.
 export { type PatchDeliverableOptions, patchDelivered } from './supervise/patch-deliverable'
+// PEER MAIL: the bounded, audited sibling channel. A worker reaches a live sibling through the
+// parent's post office — typed envelopes, per-sender and per-receiver caps, a reply-depth ceiling,
+// and an authority marking that keeps a peer's message from reading as the supervisor's.
+export {
+  AUTHORITY_MARKERS,
+  claimsAuthority,
+  createPeerMailbox,
+  DEFAULT_PEER_MAIL_LIMITS,
+  isPeerMailEnvelope,
+  PEER_MAIL_WIRE_KEY,
+  type PeerMailbox,
+  type PeerMailboxOptions,
+  type PeerMailEnvelope,
+  type PeerMailEvent,
+  type PeerMailKind,
+  type PeerMailLimits,
+  type PeerMailOutcome,
+  type PeerMailReadout,
+  type PeerMailRefusal,
+  type PeerMailSendInput,
+  peerMailTools,
+  peerMailVerbNames,
+} from './supervise/peer-mail'
 // The LIVE read-model of a RUNNING worker — last activity, idle time, derived stall, turns,
 // tokens so far, recent tool/file activity, unread steers. What `observe_agent` now returns
 // mid-flight, and the evidence a supervisor steers FROM.
