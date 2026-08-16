@@ -2013,7 +2013,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-13)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-16)
 
 ##### sandboxId?
 
@@ -3988,6 +3988,20 @@ either direction. Omit = every spawn is `'fresh'` (status quo). Resume lineage i
 PROCESS-LOCAL (the same boundary as the analyst-run marker): workers settled by a prior
 process of a durable run are not resume targets.
 
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: `object`
+
+OPT-IN: give this manager's workers a bounded SIBLING channel (`../../runtime/supervise/
+peer-mail`). Each spawn is minted a capability endpoint handed out on
+[WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl); every attempt, delivered or refused, publishes a
+`mail` event so the parent audits a channel it no longer relays. Omit = no peer channel and no
+capability is minted (the status quo: a worker is reachable only by its parent).
+
+###### limits?
+
+> `readonly` `optional` **limits?**: `Partial`\<[`PeerMailLimits`](runtime.md#peermaillimits)\>
+
 ***
 
 ### CoordinationTools
@@ -4003,6 +4017,14 @@ choice, steerable counterpart to the one-shot own-sandbox delegation MCP.
 ##### tools
 
 > `readonly` **tools**: [`McpToolDescriptor`](#mcptooldescriptor)[]
+
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: [`PeerMailbox`](runtime.md#peermailbox)
+
+The run's peer-mail post office, present only when `peerMail` was enabled. The transport
+ layer stands the capability endpoint up over it; the parent reads `history()` for the audit
+ trail and calls `stopThread` to end a peer exchange.
 
 #### Methods
 

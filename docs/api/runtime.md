@@ -1416,6 +1416,20 @@ The EFFECTIVE continuity mode of this spawn — the spawn tool's per-call argume
 
 Present iff `continuity === 'resume'`: the lineage the executor seam re-attaches with.
 
+##### peerMailUrl?
+
+> `readonly` `optional` **peerMailUrl?**: `string`
+
+The PEER MAIL capability endpoint minted for this exact spawn, when the run enabled peer mail
+([CoordinationToolsOptions.peerMail](mcp.md#peermail)). It serves `send_mail` / `read_mail` and nothing
+else, and it speaks as this worker: the sender is bound to the capability, never passed as an
+argument. Mount it on the worker the way `coordinationMcpUrl` is mounted on a driver.
+
+It arrives HERE, out of band, rather than being merged into the worker's `AgentProfile.mcp`,
+for the same reason the driver's coordination URL does: the URL carries fresh random bytes per
+process, so writing it into the profile would change the canonical profile digest every run and
+a keyed re-spawn would then fail its identity check against the journal.
+
 ***
 
 ### WorkerWatchOptions
@@ -10518,6 +10532,13 @@ worker automatically.
 
 Delivery intent and result records in commit order, linked to receipts by `receiptId`.
 
+##### mail
+
+> `readonly` **mail**: readonly [`PeerMailEvent`](#peermailevent)[]
+
+Every peer-mail attempt the prior process made, delivered and refused alike, in commit order.
+Evidence of what siblings told each other; never replayed into a new worker's inbox.
+
 ##### records
 
 > `readonly` **records**: readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
@@ -10681,6 +10702,33 @@ readonly [`SettledWorker`](mcp.md#settledworker)[]
 ##### isStopped()
 
 > **isStopped**(): `boolean`
+
+###### Returns
+
+`boolean`
+
+##### mailHistory()
+
+> **mailHistory**(): readonly [`PeerMailEvent`](#peermailevent)[]
+
+Every peer-mail attempt in order, delivered and refused alike. Empty when peer mail is off.
+
+###### Returns
+
+readonly [`PeerMailEvent`](#peermailevent)[]
+
+##### stopMailThread()
+
+> **stopMailThread**(`threadId`): `boolean`
+
+End one peer exchange: every further mail on the thread is refused `thread-stopped`. Returns
+ false when peer mail is off or the thread was already stopped.
+
+###### Parameters
+
+###### threadId
+
+`string`
 
 ###### Returns
 
@@ -11627,23 +11675,9 @@ Edge ids whose traversal cap was hit — analyzes exhaustion included (observabl
 
 ***
 
-### InboxMessage
+### AuthorityInboxMessage
 
-**`Experimental`**
-
-The worker-side receive end of the down-leg: a per-worker inbox an executor exposes as
-`Executor.deliver`. The driver's `steer_agent` / `answer_question` land here,
-and the worker's agent loop drains them at two points (Drew's two delivery modes):
-
-  - QUEUED (default): the message accumulates and is FLUSHED at the next step boundary — folded
-    into the conversation before the next think. A worker is also forced to flush BEFORE it may
-    settle, so it can never finish while a steer/answer it never read is still pending.
-  - FORCEFUL (`interrupt: true`): trips `freshInterrupt()`'s signal so the loop can abort its
-    in-flight turn immediately, then re-plan with the message folded in — breaking the worker out
-    of a wrong path mid-task instead of waiting for it to finish the step.
-
-`deliver` never throws — a malformed message is ignored and returns `false`, so no caller can
-report delivery for bytes this inbox discarded.
+A message from the run's AUTHORITY — the parent driver. These two kinds carry instruction.
 
 #### Properties
 
@@ -11651,19 +11685,13 @@ report delivery for bytes this inbox discarded.
 
 > `readonly` **kind**: `"steer"` \| `"answer"`
 
-**`Experimental`**
-
 ##### text
 
 > `readonly` **text**: `string`
 
-**`Experimental`**
-
 ##### interrupt
 
 > `readonly` **interrupt**: `boolean`
-
-**`Experimental`**
 
 Forceful messages abort the in-flight turn; queued ones wait for the boundary flush.
 
@@ -11671,9 +11699,34 @@ Forceful messages abort the in-flight turn; queued ones wait for the boundary fl
 
 > `readonly` `optional` **questionId?**: `string`
 
-**`Experimental`**
-
 Present for an `answer` — the question id it resolves.
+
+***
+
+### PeerInboxMessage
+
+A message from a SIBLING worker. Information, never instruction — the parent stays the only
+ authority over this worker's task.
+
+#### Properties
+
+##### kind
+
+> `readonly` **kind**: `"mail"`
+
+##### text
+
+> `readonly` **text**: `string`
+
+##### interrupt
+
+> `readonly` **interrupt**: `false`
+
+Always false. Peer mail is queued by construction; see this file's header.
+
+##### envelope
+
+> `readonly` **envelope**: [`PeerMailEnvelope`](#peermailenvelope)
 
 ***
 
@@ -11711,6 +11764,18 @@ Remove and return all pending messages (the flush).
 ##### pending()
 
 > **pending**(): `number`
+
+###### Returns
+
+`number`
+
+##### pendingAuthority()
+
+> **pendingAuthority**(): `number`
+
+Pending messages from the run's AUTHORITY only. This is what the pre-settle fence counts:
+ a worker may not finish while a steer or answer it never read is queued, but peer mail must
+ never be able to hold a finished worker open.
 
 ###### Returns
 
@@ -11929,6 +11994,406 @@ Which verification signals the gate REQUIRES to be present-and-passing. A requir
 that the artifact never derived (the command was not configured on the executor) fails the
 gate closed. Unlisted signals default to passed-when-absent (the executor simply didn't run
 that command). Default `[]` — gate on no-op / secret / forbidden / diff-size only.
+
+***
+
+### PeerMailEnvelope
+
+One admitted peer message. `threadId` is the root mail's id; `depth` is 0 for a root mail and
+ one more than its parent for a reply, which is what the reply-depth cap counts.
+
+#### Properties
+
+##### mailId
+
+> `readonly` **mailId**: `string`
+
+##### threadId
+
+> `readonly` **threadId**: `string`
+
+##### depth
+
+> `readonly` **depth**: `number`
+
+##### from
+
+> `readonly` **from**: `string`
+
+The bound sender — resolved from the capability, never from a tool argument.
+
+##### to
+
+> `readonly` **to**: `string`
+
+##### kind
+
+> `readonly` **kind**: [`PeerMailKind`](#peermailkind)
+
+##### subject
+
+> `readonly` **subject**: `string`
+
+##### body
+
+> `readonly` **body**: `string`
+
+##### evidenceRefs
+
+> `readonly` **evidenceRefs**: readonly `string`[]
+
+Evidence the receiver can re-check for itself. Required for `tell` and `challenge`.
+
+##### replyTo?
+
+> `readonly` `optional` **replyTo?**: `string`
+
+The mail id this replies to. Never a coordination question id — a peer cannot address the
+ parent's answer channel.
+
+##### at
+
+> `readonly` **at**: `number`
+
+***
+
+### PeerMailEvent
+
+The audit record for one attempt — published whether it delivered or was refused, because a
+ refused attempt is exactly what a parent auditing a channel needs to see.
+
+#### Properties
+
+##### envelope
+
+> `readonly` **envelope**: [`PeerMailEnvelope`](#peermailenvelope)
+
+##### delivered
+
+> `readonly` **delivered**: `boolean`
+
+##### outcome
+
+> `readonly` **outcome**: [`PeerMailOutcome`](#peermailoutcome)
+
+##### bodyDigest
+
+> `readonly` **bodyDigest**: `string`
+
+Canonical digest of the exact admitted body, so a later claim can name the bytes it read.
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+***
+
+### PeerMailLimits
+
+Hard bounds. Every one fails closed with a refusal the sender can read.
+
+#### Properties
+
+##### maxSentPerWorker
+
+> `readonly` **maxSentPerWorker**: `number`
+
+Mail one worker may attempt to send for the whole run.
+
+##### maxInboxPerWorker
+
+> `readonly` **maxInboxPerWorker**: `number`
+
+Mail one worker may receive for the whole run.
+
+##### maxInboxBytesPerWorker
+
+> `readonly` **maxInboxBytesPerWorker**: `number`
+
+Total admitted body bytes one worker may receive for the whole run.
+
+##### maxThreadDepth
+
+> `readonly` **maxThreadDepth**: `number`
+
+Maximum reply depth; a root mail is depth 0, so `2` allows ask → answer → answer.
+
+##### maxBodyBytes
+
+> `readonly` **maxBodyBytes**: `number`
+
+##### maxSubjectBytes
+
+> `readonly` **maxSubjectBytes**: `number`
+
+***
+
+### PeerMailReadout
+
+What a worker sees when it reads its own mailbox.
+
+#### Properties
+
+##### you
+
+> `readonly` **you**: `string`
+
+The reading worker's own id, so a worker can address a reply correctly.
+
+##### inbox
+
+> `readonly` **inbox**: readonly [`PeerMailEnvelope`](#peermailenvelope)[]
+
+Every envelope admitted to this worker so far, oldest first.
+
+##### peers
+
+> `readonly` **peers**: readonly `object`[]
+
+Live siblings this worker may write to (itself excluded). Without this a worker knows no
+ peer's id and the channel is unusable.
+
+##### sent
+
+> `readonly` **sent**: `number`
+
+##### sendQuotaLeft
+
+> `readonly` **sendQuotaLeft**: `number` \| `null`
+
+Sends still allowed, or `null` when this run set no send quota.
+
+##### limits
+
+> `readonly` **limits**: [`PeerMailLimits`](#peermaillimits)
+
+***
+
+### PeerMailSendInput
+
+#### Properties
+
+##### to
+
+> `readonly` **to**: `unknown`
+
+##### kind
+
+> `readonly` **kind**: `unknown`
+
+##### subject
+
+> `readonly` **subject**: `unknown`
+
+##### body
+
+> `readonly` **body**: `unknown`
+
+##### evidenceRefs?
+
+> `readonly` `optional` **evidenceRefs?**: `unknown`
+
+##### replyTo?
+
+> `readonly` `optional` **replyTo?**: `unknown`
+
+***
+
+### PeerMailbox
+
+#### Properties
+
+##### limits
+
+> `readonly` **limits**: [`PeerMailLimits`](#peermaillimits)
+
+#### Methods
+
+##### setEndpoint()
+
+> **setEndpoint**(`baseUrl`): `void`
+
+Publish the base URL of the capability listener once it has a port. Until it is set no spawn
+receives a mail endpoint: a capability nobody can reach is not worth handing out, and a URL
+built from an unassigned port would be a lie.
+
+###### Parameters
+
+###### baseUrl
+
+`string`
+
+###### Returns
+
+`void`
+
+##### mintCapability()
+
+> **mintCapability**(`assignmentId`): `string` \| `undefined`
+
+Mint (idempotently, per assignment) the capability URL for one spawn. Undefined before the
+ listener has published its endpoint.
+
+###### Parameters
+
+###### assignmentId
+
+`string`
+
+###### Returns
+
+`string` \| `undefined`
+
+##### bindCapability()
+
+> **bindCapability**(`assignmentId`, `workerId`): `void`
+
+Bind a minted capability to the concrete worker the spawn produced. Until this runs the
+ capability can send nothing.
+
+###### Parameters
+
+###### assignmentId
+
+`string`
+
+###### workerId
+
+`string`
+
+###### Returns
+
+`void`
+
+##### hasCapability()
+
+> **hasCapability**(`capabilityId`): `boolean`
+
+Resolve the capability path segment carried in a request URL.
+
+###### Parameters
+
+###### capabilityId
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### tools()
+
+> **tools**(`capabilityId`): [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
+
+The two tools a single capability serves, with the sender closed over.
+
+###### Parameters
+
+###### capabilityId
+
+`string`
+
+###### Returns
+
+[`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
+
+##### send()
+
+> **send**(`capabilityId`, `input`): `Promise`\<[`PeerMailEvent`](#peermailevent)\>
+
+###### Parameters
+
+###### capabilityId
+
+`string`
+
+###### input
+
+[`PeerMailSendInput`](#peermailsendinput)
+
+###### Returns
+
+`Promise`\<[`PeerMailEvent`](#peermailevent)\>
+
+##### read()
+
+> **read**(`capabilityId`): [`PeerMailReadout`](#peermailreadout)
+
+###### Parameters
+
+###### capabilityId
+
+`string`
+
+###### Returns
+
+[`PeerMailReadout`](#peermailreadout)
+
+##### stopThread()
+
+> **stopThread**(`threadId`): `boolean`
+
+The parent's control: refuse every further mail on one thread. Returns false when the thread
+ was already stopped. Mail already delivered is not recalled — this stops the next reply.
+
+###### Parameters
+
+###### threadId
+
+`string`
+
+###### Returns
+
+`boolean`
+
+##### history()
+
+> **history**(): readonly [`PeerMailEvent`](#peermailevent)[]
+
+Every attempt in order — delivered and refused alike.
+
+###### Returns
+
+readonly [`PeerMailEvent`](#peermailevent)[]
+
+***
+
+### PeerMailboxOptions
+
+#### Properties
+
+##### scope
+
+> `readonly` **scope**: [`Scope`](index.md#scope)\<`unknown`\>
+
+##### publish
+
+> `readonly` **publish**: (`event`) => `Promise`\<`void`\>
+
+Publish one attempt as a coordination event. Awaited, so a durable subscriber commits the
+ record before the sender learns the outcome.
+
+###### Parameters
+
+###### event
+
+[`PeerMailEvent`](#peermailevent)
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### limits?
+
+> `readonly` `optional` **limits?**: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
 
 ***
 
@@ -14704,7 +15169,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-2)
+[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-3)
 
 ##### identity
 
@@ -19992,12 +20457,45 @@ How one ledgered hop CONTINUED: a spawn traversal stamps its effective spawn mod
 
 ***
 
+### InboxMessage
+
+> **InboxMessage** = [`AuthorityInboxMessage`](#authorityinboxmessage) \| [`PeerInboxMessage`](#peerinboxmessage)
+
+***
+
 ### SupervisorSpanAttributes
 
 > **SupervisorSpanAttributes** = `Record`\<`string`, `string` \| `number` \| `boolean`\>
 
 OTLP span attribute values. Exported because `SupervisorSpanOptions.attributes` is public and
  a consumer cannot name the type it is asked to supply otherwise.
+
+***
+
+### PeerMailKind
+
+> **PeerMailKind** = `"ask"` \| `"tell"` \| `"challenge"` \| `"answer"`
+
+What one envelope IS, typed so a reader can act on it without parsing prose.
+
+ - `ask` — request a fact the sender lacks; expects an `answer`.
+ - `tell` — share a result; MUST carry evidence refs.
+ - `challenge` — dispute a peer's claim; MUST cite the refs of the claim it disputes.
+ - `answer` — reply to an `ask` or a `challenge`.
+
+***
+
+### PeerMailRefusal
+
+> **PeerMailRefusal** = `"sender-unbound"` \| `"self-addressed"` \| `"send-quota-exhausted"` \| `"mailbox-full"` \| `"thread-depth-exceeded"` \| `"thread-stopped"` \| `"unknown-reply-target"` \| `"evidence-required"` \| `"subject-too-large"` \| `"body-too-large"` \| `"forged-authority"` \| `"unknown-worker"` \| `"already-settled"` \| `"worker-has-no-inbox"` \| `"scope-stopped"` \| `"runtime-error"`
+
+Why an attempt did not reach a sibling. Each value is a fact the sender can read and act on.
+
+***
+
+### PeerMailOutcome
+
+> **PeerMailOutcome** = `"delivered"` \| [`PeerMailRefusal`](#peermailrefusal)
 
 ***
 
@@ -21327,6 +21825,46 @@ an empty collection is a no-winner, not a winner wrapping `[]`.
 > `const` **defaultEdgeTraversalCap**: `32` = `32`
 
 Default per-edge traversal cap — the cyclic-graph backstop when an edge names none.
+
+***
+
+### DEFAULT\_PEER\_MAIL\_LIMITS
+
+> `const` **DEFAULT\_PEER\_MAIL\_LIMITS**: [`PeerMailLimits`](#peermaillimits)
+
+Bounds chosen so a peer channel cannot become the dominant cost of a run: eight sends and
+ sixteen receives per worker, 32 KiB of received body, and a reply chain that terminates.
+
+***
+
+### AUTHORITY\_MARKERS
+
+> `const` **AUTHORITY\_MARKERS**: `ReadonlyArray`\<`string`\>
+
+Phrases that mark the run's AUTHORITY in a folded prompt. A peer that writes one of these is
+trying to speak as the supervisor, so intake refuses the envelope outright.
+
+The render-time fence in the inbox is the second half of this defence and neither half is
+sufficient alone: a fence loses to a body that closes it, and an intake filter loses to a body
+that invents a new authority phrase. Together they make forgery mechanically detectable and give
+the standing prompt one concrete boundary to bind to. Neither makes a model OBEY a boundary.
+
+***
+
+### PEER\_MAIL\_WIRE\_KEY
+
+> `const` **PEER\_MAIL\_WIRE\_KEY**: `"mail"` = `'mail'`
+
+The wire property carrying an envelope to a worker inbox. Deliberately its OWN discriminant:
+ reusing `steer`/`answer` would let a peer mint a message on the parent's channels.
+
+***
+
+### peerMailVerbNames
+
+> `const` **peerMailVerbNames**: readonly \[`"send_mail"`, `"read_mail"`\]
+
+The tool names a mail capability endpoint serves. It serves NOTHING else.
 
 ***
 
@@ -24820,6 +25358,24 @@ readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
 Product-selected tools already bound to this exact supervisor node. They share this server
  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
 
+###### peerMail?
+
+`boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>; \}
+
+OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
+(`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
+`WorkerSpawnContext.peerMailUrl`.
+
+It is a SEPARATE listener on its own port, not another tool on this server, and that is the
+whole point: this server mounts spawn_agent / steer_agent / stop with no authentication, so a
+worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
+channel's authority marking would mean nothing. The mail listener serves `send_mail` and
+`read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
+
+The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
+that can read another worker's environment or process memory still holds that worker's
+capability. Loopback plus an unguessable path is what this layer can honestly enforce.
+
 #### Returns
 
 `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
@@ -25184,7 +25740,7 @@ traversal is ledgered and journaled.
 
 > **createInbox**(): [`Inbox`](#inbox)
 
-Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages queue here and the worker's loop drains them at step boundaries and before settle.
+Create the worker-side inbox for the down-leg: the driver's `steer_agent` / `answer_question` messages and a sibling's peer mail queue here, and the worker's loop drains them at step boundaries and before settle.
 
 #### Returns
 
@@ -25279,6 +25835,86 @@ whether the patch is DELIVERED (the `valid` conjunction).
 #### Returns
 
 [`DeliverableSpec`](#deliverablespec)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+
+***
+
+### claimsAuthority()
+
+> **claimsAuthority**(`text`): `boolean`
+
+True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because
+ the render is read by a model and case is not what distinguishes an instruction.
+
+#### Parameters
+
+##### text
+
+`string`
+
+#### Returns
+
+`boolean`
+
+***
+
+### isPeerMailEnvelope()
+
+> **isPeerMailEnvelope**(`value`): `value is PeerMailEnvelope`
+
+True when `value` is an envelope this runtime produced. The worker inbox parses with this, so a
+ malformed or partial wire object is discarded rather than rendered as a peer message.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+#### Returns
+
+`value is PeerMailEnvelope`
+
+***
+
+### createPeerMailbox()
+
+> **createPeerMailbox**(`opts`): [`PeerMailbox`](#peermailbox)
+
+Create the run's post office. One per manager scope; the manager's siblings are its addresses.
+
+#### Parameters
+
+##### opts
+
+[`PeerMailboxOptions`](#peermailboxoptions)
+
+#### Returns
+
+[`PeerMailbox`](#peermailbox)
+
+***
+
+### peerMailTools()
+
+> **peerMailTools**(`mailbox`, `capabilityId`): [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
+
+The two tools ONE capability serves. `capabilityId` is closed over and `from` is not a parameter,
+so the endpoint a worker holds can only ever speak as that worker. The descriptions carry the
+authority rule, because the receiving model reads them as part of the channel's contract.
+
+#### Parameters
+
+##### mailbox
+
+[`PeerMailbox`](#peermailbox)
+
+##### capabilityId
+
+`string`
+
+#### Returns
+
+[`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
 
 ***
 
