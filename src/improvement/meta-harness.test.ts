@@ -86,7 +86,7 @@ describe('createProfileImprovementHarness', () => {
         executionRef: canonicalCandidateDigest({ fixture: 'valid' }),
         agent: async () => 'unused',
       }),
-    ).toBeInstanceOf(ConfigError)
+    ).toThrow(ConfigError)
 
     expect(() =>
       createProfileImprovementHarness<FixtureScenario, string>({
@@ -94,6 +94,6 @@ describe('createProfileImprovementHarness', () => {
         executionRef: 'not-a-digest' as never,
         agent: async () => 'unused',
       }),
-    ).toBeInstanceOf(ConfigError)
+    ).toThrow(ConfigError)
   })
 })
