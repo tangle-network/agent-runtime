@@ -1,5 +1,5 @@
 import type { Scenario } from '@tangle-network/agent-eval/contract'
-import { canonicalCandidateDigest, type AgentProfile } from '@tangle-network/agent-interface'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
 import { createProfileImprovementHarness } from './profile-improvement-harness'
@@ -48,9 +48,9 @@ describe('promptInstructionsProfileComponents', () => {
   })
 
   it('refuses missing instructions and component-key drift', () => {
-    expect(() =>
-      promptInstructionsProfileComponents.read({ name: 'empty-instructions' }),
-    ).toThrow(/must contain at least one instruction/)
+    expect(() => promptInstructionsProfileComponents.read({ name: 'empty-instructions' })).toThrow(
+      /must contain at least one instruction/,
+    )
 
     expect(() =>
       promptInstructionsProfileComponents.apply(baselineProfile(), {
