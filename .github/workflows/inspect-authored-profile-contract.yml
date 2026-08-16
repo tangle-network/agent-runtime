@@ -19,27 +19,21 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Print current profile improvement seams
+      - name: Print authored profile fixtures
         shell: bash
         run: |
           set -euo pipefail
-          file=src/intelligence/improvement-cycle.ts
-          grep -n "ProposeAgentProfileImprovementOptions\|proposeAgentProfileImprovement\|sealProfileImprovementBenchmark\|profileImprovementMetadata\|assertProfileReleaseWorkIsFresh\|createProfileImprovementCostLedger\|profilePolicyWithBudget\|profilePreparationAccounting" "$file"
-          for pattern in \
-            "export interface ProposeAgentProfileImprovementOptions" \
-            "export interface ProposeAgentProfileImprovementResult" \
-            "function createProfileImprovementCostLedger" \
-            "function sealProfileImprovementBenchmark" \
-            "function assertProfileReleaseWorkIsFresh" \
-            "function profileImprovementMetadata" \
-            "export async function proposeAgentProfileImprovement"; do
-            line=$(grep -n -m1 "$pattern" "$file" | cut -d: -f1)
-            start=$((line > 25 ? line - 25 : 1))
-            end=$((line + 180))
-            echo "--- $pattern ($start-$end) ---"
-            nl -ba "$file" | sed -n "${start},${end}p"
+          test_file=tests/improvement-cycle.test.ts
+          line=$(grep -n -m1 "measures and activates a directly authored complete profile without improve" "$test_file" | cut -d: -f1)
+          start=$((line > 100 ? line - 100 : 1))
+          end=$((line + 360))
+          echo "--- authored profile test ($start-$end) ---"
+          nl -ba "$test_file" | sed -n "${start},${end}p"
+          echo "--- helper declarations used by the test ---"
+          for pattern in "const baselineProfile" "const profileBenchmark" "function profile" "const profileSource" "stateDigest" "profileExecutionRef"; do
+            grep -n -m5 -C 8 "$pattern" "$test_file" || true
           done
-          echo "--- current intelligence exports ---"
-          grep -n -C 4 "ProposeAgentProfileImprovement\|proposeAgentProfileImprovement" src/intelligence/index.ts
-          echo "--- exact candidate lineage ---"
-          grep -R -n -C 10 "interface AgentCandidateLineage\|type AgentCandidateLineage\|agentCandidateLineageSchema" node_modules/@tangle-network/agent-interface/dist | head -n 500 || true
+          echo "--- profile schema lineage refinements ---"
+          nl -ba node_modules/@tangle-network/agent-interface/dist/agent-profile-improvement-schema.js | sed -n '160,245p'
+          echo "--- candidate lineage refinements ---"
+          nl -ba node_modules/@tangle-network/agent-interface/dist/agent-candidate-lineage-schema.js | sed -n '33,90p'
