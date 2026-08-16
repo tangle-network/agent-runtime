@@ -2,7 +2,7 @@
 
 ## 0.8.11
 
-- Consume Interface 0.53.0 and Profile Materialize 0.15.1 as one compatible dependency set.
+- Consume Interface 0.53.0, Eval 0.145.15, Knowledge 8.0.1, and Profile Materialize 0.15.1 as one compatible dependency set.
 
 ## 0.8.10
 
