@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.137.0
+
+### The agent-interface peer is a caret range
+
+The peer moves from `>=0.53.0 <0.54.0` to `^1.0.0`.
+
+Interface 1.0.0 publishes the surface of 0.56.0 unchanged and states a compatibility promise: a minor release is additive, a patch release is a fix, and only a major release removes or narrows.
+A caret range reads that promise, so a later additive minor no longer needs a release here.
+
+The one-generation window it replaces is why an app could not install this package beside `agent-knowledge` or `sandbox-ui`: those had moved past 0.53 and this had not, and the two ranges were disjoint.
+
+The catalog moves with it, so one interface copy resolves for the whole tree:
+
+| catalog entry | before | after |
+| --- | --- | --- |
+| `@tangle-network/agent-interface` | 0.53.0 | 1.0.0 |
+| `@tangle-network/agent-core` | 0.9.0 | 0.9.4 |
+| `@tangle-network/agent-eval` | 0.145.15 | 0.145.21 |
+| `@tangle-network/agent-knowledge` | 8.0.1 | 8.0.5 |
+| `@tangle-network/agent-profile-materialize` | 0.15.1 | 0.16.0 |
+| `@tangle-network/sandbox` | 0.27.0 | 0.27.1 |
+
+The `agent-eval` peer floor moves to `>=0.145.21 <0.146.0` with the catalog.
+The `sandbox` peer stays `>=0.27.0 <0.28.0`, which 0.27.1 satisfies.
+
+This is a minor release, not a patch: the interface range narrows, so a consumer still holding an interface below 1.0.0 stays on 0.136.0.
+
 ## 0.136.0
 
 ### Peer mail: workers can reach a live sibling, bounded and audited
