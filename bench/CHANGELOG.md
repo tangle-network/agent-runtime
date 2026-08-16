@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.11
+
+- Consume Runtime 0.135.3, Eval 0.145.15, Interface 0.53.0, Knowledge 8.0.1, and Sandbox 0.26.2 as one compatible set.
+
 ## 0.8.10
 
 - Consume Runtime 0.134.9 and Knowledge 8.0.0 as one compatible dependency set.

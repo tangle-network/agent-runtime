@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.135.3
+
+- Move the `@tangle-network/agent-interface` peer range to `>=0.53.0 <0.54.0`.
+`agent-knowledge` 8.x requires interface `>=0.53.0`, so the previous `>=0.52.0 <0.53.0` range made no published set installable for a consumer that carries both packages.
+Interface 0.53.0 is additive over 0.52.0 (strict per-turn interaction requests on Sandbox backend prompt options); typecheck and the test suite pass against 0.53.0.
+A consumer on interface 0.52.x must move to 0.53.x when it adopts this release.
+- Move the `@tangle-network/agent-eval` peer floor to 0.145.15, the release `agent-knowledge` 8.0.1 requires (`>=0.145.14`).
+The development catalog moves `agent-knowledge` to 8.0.1 for the same reason.
+- Move the `@tangle-network/agent-core` dependency to 0.9.0, the version `agent-eval` 0.145.15 depends on, so a consumer install holds one copy.
+- Move the Sandbox dependency and peer floor to 0.26.2.
+No runtime behavior changes.
+
 ## 0.135.2
 
 - Publish the 0.135.1 content.
