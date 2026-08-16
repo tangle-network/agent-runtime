@@ -67,6 +67,7 @@ import type {
   RuntimeSession,
   RuntimeStreamEvent,
 } from '../types'
+import { awaitAbortable } from './retained-run-binding'
 import {
   canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
@@ -587,11 +588,15 @@ async function* streamAgentTurnInternal(
         'executor-did-not-report',
       )
     }
-    session = await startTurnSession(backend, task, input, deadline.signal, label)
+    const startedSession = await awaitAbortable(
+      Promise.resolve().then(() => startTurnSession(backend, task, input, deadline.signal, label)),
+      deadline.signal,
+    )
+    session = startedSession
     yield {
       type: 'backend_start',
       task,
-      session,
+      session: startedSession,
       backend: executor?.runtime ?? label,
       metadata: {
         ...(profileDigest
@@ -613,12 +618,12 @@ async function* streamAgentTurnInternal(
 
     const inner =
       backend.kind === 'chat'
-        ? driveChatTurn(backend.backend, task, session, input, deadline.signal, acc)
+        ? driveChatTurn(backend.backend, task, startedSession, input, deadline.signal, acc)
         : backend.kind === 'executor'
           ? driveExecutorTurn(
               executor!,
               task,
-              session,
+              startedSession,
               input,
               deadline.signal,
               acc,
@@ -636,7 +641,7 @@ async function* streamAgentTurnInternal(
                 ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
               },
             )
-    for await (const event of inner) {
+    for await (const event of abortableValues(inner, deadline.signal)) {
       yield event
       throwIfAborted(deadline.signal)
     }
@@ -720,7 +725,12 @@ async function* streamAgentTurnInternal(
       ),
     )
   } finally {
-    await executor?.teardown('brutalKill').catch(() => undefined)
+    if (executor) {
+      await awaitAbortable(
+        Promise.resolve().then(() => executor!.teardown('brutalKill')),
+        deadline.signal,
+      ).catch(() => undefined)
+    }
     deadline.dispose()
   }
 }
@@ -862,8 +872,13 @@ async function* driveBoxTurn(
     signal,
   })
   const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
-  for await (const event of stream) {
-    if (cfg.onRawEvent) await cfg.onRawEvent(event)
+  for await (const event of abortableValues(stream, signal)) {
+    if (cfg.onRawEvent) {
+      await awaitAbortable(
+        Promise.resolve().then(() => cfg.onRawEvent!(event)),
+        signal,
+      )
+    }
     const terminalText = terminalTextFromSandboxEvent(event)
     if (terminalText !== undefined) acc.terminalText = terminalText
     const canonical = canonicalStreamEventFromSandboxEvent(event)
@@ -903,7 +918,7 @@ async function* driveChatTurn(
 ): AsyncGenerator<RuntimeStreamEvent> {
   const backendInput = turnBackendInput(task, input)
   const context = { task, knowledge: emptyReadiness(task), session, signal }
-  for await (const raw of backend.stream(backendInput, context)) {
+  for await (const raw of abortableValues(backend.stream(backendInput, context), signal)) {
     const event = normalizeBackendStreamEvent(raw, task, session)
     foldEvent(event, acc)
     yield event
@@ -923,12 +938,12 @@ async function* driveExecutorTurn(
   const run = executor.execute(taskValue, signal)
   let result: ExecutorResult<unknown>
   if (isAsyncIterable(run)) {
-    for await (const _usage of run) {
+    for await (const _usage of abortableValues(run, signal)) {
       throwIfAborted(signal)
     }
     result = executor.resultArtifact()
   } else {
-    result = await run
+    result = await awaitAbortable(run, signal)
   }
   acc.result = result
   acc.terminalText = executorResultText(result.out)
@@ -1007,6 +1022,42 @@ function executorTaskValue(input: AgentTurnInput): unknown {
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
   return typeof value === 'object' && value !== null && Symbol.asyncIterator in value
+}
+
+/**
+ * Pull one provider iterator under Runtime's deadline.
+ *
+ * Providers still receive the signal for native cancellation, but correctness
+ * does not depend on them observing it. A losing iterator is asked to close;
+ * its late rejection is observed and cannot delay the terminal Runtime event.
+ */
+async function* abortableValues<T>(
+  source: AsyncIterable<T>,
+  signal: AbortSignal,
+): AsyncGenerator<T> {
+  const iterator = source[Symbol.asyncIterator]()
+  let completed = false
+  try {
+    for (;;) {
+      const next = await awaitAbortable(
+        Promise.resolve().then(() => iterator.next()),
+        signal,
+      )
+      if (next.done) {
+        completed = true
+        return
+      }
+      yield next.value
+    }
+  } finally {
+    if (!completed) {
+      try {
+        void Promise.resolve(iterator.return?.()).catch(() => undefined)
+      } catch {
+        // The Runtime deadline already owns the observable terminal result.
+      }
+    }
+  }
 }
 
 function executorResultText(value: unknown): string {

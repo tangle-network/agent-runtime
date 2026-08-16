@@ -499,8 +499,6 @@ describe('retained runtime run control', () => {
 
     expect(recorded).toEqual({
       prompt: 'fresh prompt',
-      controlRef: { ...controlRef, runId: 'old-run' },
-      nativeContinuation: { stale: true },
       turnId: 'fresh-turn',
       detach: true,
       sessionId: controlRef.sessionId,
@@ -965,38 +963,88 @@ describe('retained runtime run control', () => {
     expect(creates).toBe(0)
   })
 
-  it.each([true, false])(
-    'rejects an unsupported declared interaction before create or dispatch (%s)',
-    async (enabled) => {
-      let creates = 0
-      let dispatches = 0
-      const provider = providerWithEnvironment({
-        async dispatch() {
-          dispatches += 1
-          throw new Error('dispatch must not run')
-        },
-      })
-      const create = provider.create
-      provider.create = async (input) => {
-        creates += 1
-        return create(input)
-      }
+  it('rejects an unsupported enabled interaction before create or dispatch', async () => {
+    let creates = 0
+    let dispatches = 0
+    const provider = providerWithEnvironment({
+      async dispatch() {
+        dispatches += 1
+        throw new Error('dispatch must not run')
+      },
+    })
+    const create = provider.create
+    provider.create = async (input) => {
+      creates += 1
+      return create(input)
+    }
 
-      await expect(
-        startRetainedRun({
-          provider,
-          environment: { profile: { name: 'worker' }, idempotencyKey: `unsupported-${enabled}` },
-          turn: {
-            prompt: 'go',
-            turnId: `unsupported-turn-${enabled}`,
-            interactions: { question: enabled },
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'unsupported-true' },
+        turn: {
+          prompt: 'go',
+          turnId: 'unsupported-turn-true',
+          interactions: { question: true },
+        },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).rejects.toThrow('does not support requested interactions: question')
+    expect({ creates, dispatches }).toEqual({ creates: 0, dispatches: 0 })
+  })
+
+  it('treats a false interaction posture as explicitly disabled', async () => {
+    let dispatches = 0
+    let dispatchedControlRef: AgentSession['controlRef']
+    const provider = providerWithEnvironment({
+      async dispatch(input) {
+        dispatches += 1
+        const sessionId = input.sessionId ?? 'missing-session'
+        const executionId = input.executionId ?? 'missing-execution'
+        dispatchedControlRef = {
+          runId: executionId,
+          provider: 'test-provider',
+          environmentId: 'environment-1',
+          sessionId,
+          executionId,
+          requestDigest: retainedRequestDigest,
+        }
+        return {
+          id: sessionId,
+          provider: 'test-provider',
+          controlRef: dispatchedControlRef,
+        }
+      },
+      session(id) {
+        if (!dispatchedControlRef) throw new Error('dispatch did not bind a control reference')
+        return {
+          id,
+          controlRef: dispatchedControlRef,
+          status: async () => 'running',
+          async *events() {
+            yield* []
           },
-          onAdmission: recordedAdmissions().onAdmission,
-        }),
-      ).rejects.toThrow('does not support requested interactions: question')
-      expect({ creates, dispatches }).toEqual({ creates: 0, dispatches: 0 })
-    },
-  )
+          result: async () => ({ text: 'done', success: true }),
+          prompt: async () => ({ text: 'continued', success: true }),
+          cancel: async () => {},
+        }
+      },
+    })
+
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'disabled-question' },
+        turn: {
+          prompt: 'go',
+          turnId: 'disabled-question-turn',
+          interactions: { question: false },
+        },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).resolves.toBeDefined()
+    expect(dispatches).toBe(1)
+  })
 
   it.each([
     ['replay', { replay: false, responseIdempotency: true }],

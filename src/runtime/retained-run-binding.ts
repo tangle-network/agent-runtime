@@ -326,7 +326,9 @@ export function assertStableText(value: string, label: string): void {
 }
 
 export function abortError(reason: unknown): Error {
-  const error = new Error(reason === undefined ? 'aborted' : String(reason))
+  const error = new Error(
+    reason instanceof Error ? reason.message : reason === undefined ? 'aborted' : String(reason),
+  )
   error.name = 'AbortError'
   return error
 }

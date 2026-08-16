@@ -7,7 +7,7 @@
  * paths. No network, no credentials.
  */
 
-import type { SandboxEvent } from '@tangle-network/sandbox'
+import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
 import { inProcessSandboxClient } from './in-process-sandbox-client'
@@ -169,6 +169,33 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
+  })
+
+  it('enforces its deadline when a Sandbox iterator ignores cancellation', async () => {
+    let returnCalls = 0
+    const events: AsyncIterable<SandboxEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => await new Promise<IteratorResult<SandboxEvent>>(() => {}),
+          return: async () => {
+            returnCalls += 1
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    }
+    const box = {
+      streamPrompt: () => events,
+    } as unknown as SandboxInstance
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'hang' }, { timeoutMs: 25 }),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+    await Promise.resolve()
+    expect(returnCalls).toBe(1)
   })
 
   it('does not classify a silent iterator close after caller abort as completed', async () => {
@@ -745,6 +772,52 @@ describe('streamAgentTurn: executor backend', () => {
     expect(turn.error?.message).toBe('caller cancelled')
     expect(toreDown).toBe(1)
   })
+
+  it('enforces its deadline when an executor promise ignores cancellation', async () => {
+    let toreDown = 0
+    const factory: ExecutorFactory<unknown> = (spec, ctx) => {
+      const attemptId = ctx.node?.attemptId ?? 'uncooperative-attempt'
+      return attestRuntimeOwnedExecutor(
+        {
+          runtime: 'uncooperative',
+          execute: async () => await new Promise<ExecutorResult<unknown>>(() => {}),
+          async teardown() {
+            toreDown += 1
+            return { destroyed: true }
+          },
+          resultArtifact() {
+            throw new Error('uncooperative executor has no result')
+          },
+        },
+        {
+          effectiveProfile: spec.profile,
+          backend: 'inline-test',
+          model: { status: 'known', id: 'offline-test-model' },
+          execution: { kind: 'request', id: attemptId },
+          materializer: 'offline-test-executor',
+          plan: { kind: 'offline-test' },
+        },
+        {
+          attemptId,
+          binding: { kind: 'offline-test', attemptId },
+          descriptor: { kind: 'offline-test', transport: 'in-process' },
+        },
+      )
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory, profile: TEST_PROFILE },
+        { prompt: 'hang' },
+        { timeoutMs: 25 },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+    await Promise.resolve()
+    expect(toreDown).toBe(1)
+  })
 })
 
 describe('streamAgentTurn: chat backend', () => {
@@ -833,6 +906,60 @@ describe('streamAgentTurn: chat backend', () => {
     )
     expect(turn.status).toBe('failed')
     expect(turn.error?.message).toContain('timed out after 25ms')
+  })
+
+  it('enforces its deadline when chat startup ignores cancellation', async () => {
+    const backend: AgentExecutionBackend = {
+      kind: 'uncooperative-start',
+      start: async () => await new Promise(() => {}),
+      async *stream() {
+        yield* []
+      },
+    }
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn(
+        { kind: 'chat', backend },
+        { prompt: 'hang before start' },
+        { timeoutMs: 25 },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+    expect(turn.events.map((event) => event.type)).toEqual(['backend_error', 'final'])
+  })
+
+  it('closes a chat iterator that ignores cancellation', async () => {
+    let returnCalls = 0
+    const events: AsyncIterable<RuntimeStreamEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => await new Promise<IteratorResult<RuntimeStreamEvent>>(() => {}),
+          return: async () => {
+            returnCalls += 1
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    }
+    const backend: AgentExecutionBackend = {
+      kind: 'uncooperative-stream',
+      stream: () => events,
+    }
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn(
+        { kind: 'chat', backend },
+        { prompt: 'hang after start' },
+        { timeoutMs: 25 },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('timed out after 25ms')
+    await Promise.resolve()
+    expect(returnCalls).toBe(1)
   })
 })
 

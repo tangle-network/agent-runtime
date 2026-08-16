@@ -13,7 +13,9 @@ export function assertRequestedInteractionCapabilities(
   requested: RequestedInteractions | undefined,
   capabilities: AgentEnvironmentCapabilities,
 ): void {
-  const requestedKinds = Object.entries(requested ?? {}).map(([kind]) => kind)
+  const requestedKinds = Object.entries(requested ?? {})
+    .filter(([, enabled]) => enabled === true)
+    .map(([kind]) => kind)
   if (requestedKinds.length === 0) return
 
   const interactions = capabilities.interactions
