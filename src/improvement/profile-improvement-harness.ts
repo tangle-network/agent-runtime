@@ -16,10 +16,7 @@ import type {
 } from './improve-types'
 import type { ReadonlyAgentProfile } from './profile-types'
 
-export interface CreateProfileImprovementHarnessOptions<
-  TScenario extends Scenario,
-  TArtifact,
-> {
+export interface CreateProfileImprovementHarnessOptions<TScenario extends Scenario, TArtifact> {
   /** Exact baseline profile. It is parsed, detached, and frozen at construction. */
   profile: AgentProfile
   /**
@@ -33,10 +30,7 @@ export interface CreateProfileImprovementHarnessOptions<
   validateCandidate?: ImproveCandidateValidator
 }
 
-export type ProfileImprovementHarnessRunOptions<
-  TScenario extends Scenario,
-  TArtifact,
-> = Omit<
+export type ProfileImprovementHarnessRunOptions<TScenario extends Scenario, TArtifact> = Omit<
   ImproveMethodOptions<TScenario, TArtifact>,
   'executionRef' | 'agent' | 'validateCandidate'
 > & {
@@ -70,10 +64,7 @@ export interface ProfileImprovementHarness<TScenario extends Scenario, TArtifact
  * harness. The returned `run` method remains generic over every existing
  * profile surface, optimization method, split, gate, and budget option.
  */
-export function createProfileImprovementHarness<
-  TScenario extends Scenario,
-  TArtifact,
->(
+export function createProfileImprovementHarness<TScenario extends Scenario, TArtifact>(
   options: CreateProfileImprovementHarnessOptions<TScenario, TArtifact>,
 ): ProfileImprovementHarness<TScenario, TArtifact> {
   const parsed = agentProfileSchema.safeParse(options.profile)
