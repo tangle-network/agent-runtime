@@ -66,9 +66,7 @@ export async function discoverDurableSupervisionRun(
     )) {
       if (record.kind !== 'begin') continue
       if (typeof record.root !== 'string' || record.root.length === 0) {
-        throw new Error(
-          `${spawnJournalPath}: begin record has no non-empty string root identity`,
-        )
+        throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
       }
       roots.add(record.root as NodeId)
     }
@@ -84,9 +82,7 @@ export async function discoverDurableSupervisionRun(
       coordinationLogPath,
     )) {
       if (typeof record.runId !== 'string' || record.runId.length === 0) {
-        throw new Error(
-          `${coordinationLogPath}: record has no non-empty string runId identity`,
-        )
+        throw new Error(`${coordinationLogPath}: record has no non-empty string runId identity`)
       }
       const stream = streams.get(record.runId) ?? {
         owners: new Set<string>(),
@@ -99,9 +95,7 @@ export async function discoverDurableSupervisionRun(
       } else if (typeof record.ownerId === 'string' && record.ownerId.length > 0) {
         stream.owners.add(record.ownerId)
       } else {
-        throw new Error(
-          `${coordinationLogPath}: ownerId must be a non-empty string when present`,
-        )
+        throw new Error(`${coordinationLogPath}: ownerId must be a non-empty string when present`)
       }
       streams.set(record.runId, stream)
     }
