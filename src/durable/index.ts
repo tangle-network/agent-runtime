@@ -10,6 +10,8 @@
  *     hook ordering.
  *   - `deriveExecutionId`: convention helper for the stable id products
  *     persist and pass as both execution and turn identity on dispatch.
+ *   - `discoverDurableSupervisionRun`: inspect a durable supervision directory
+ *     without already knowing the root/run identities written inside it.
  */
 
 export type {
@@ -22,3 +24,8 @@ export type {
 } from './chat-engine'
 export { handleChatTurn } from './chat-engine'
 export { deriveExecutionId } from './execution-handle'
+export {
+  type DurableCoordinationStreamIdentity,
+  type DurableSupervisionDiscovery,
+  discoverDurableSupervisionRun,
+} from './supervision-discovery'
