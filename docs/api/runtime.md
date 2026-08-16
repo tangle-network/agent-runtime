@@ -6430,9 +6430,9 @@ Capabilities measured from the exact environment that owns this run.
 
 Sanitized headless intent durable before environment creation.
 
-The request digest binds the exact create and turn material without retaining
-secrets or provider options. The original start material is required to
-replay this record after a process crash.
+The request digest binds the public create and turn material without
+retaining secret values. The original start material is required to replay
+this record after a process crash.
 
 #### Properties
 
@@ -6548,8 +6548,9 @@ The verified exact reference, durable before the start promise resolves.
 
 Sanitized intent durable before an interactive environment create begins.
 
-The digest covers the exact start and create material without retaining that
-material. It never carries environment variables, secrets, or provider options.
+The digest covers the public start and create material without retaining that
+material. It never carries environment variables, secret values, or provider
+options. The replay input supplies private values after this check.
 
 #### Properties
 
