@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.135.4
+
+- Widen the `@tangle-network/agent-interface` peer range to `>=0.53.0 <0.55.0`.
+Interface 0.54.0 took the npm `latest` tag on `2026-08-16T04:30:11Z`, 88 seconds after 0.135.3 merged with a `<0.54.0` cap, and `agent-knowledge` 8.0.2 then moved its own peer to `>=0.54.0 <0.55.0`.
+The two ranges were disjoint, so `npm install @tangle-network/agent-runtime@latest @tangle-network/agent-knowledge@latest` could not resolve at all.
+Interface 0.54.0 is additive over 0.53.0: it adds `isCredentialBearingProfileConfigName` and `isRuntimeProcessControlEnvironmentName`, widens `RequestedInteractions` from a three-key strict object to a string-keyed boolean record, and removes no symbol.
+Typecheck and the test suite pass against 0.54.0.
+- The range holds BOTH generations rather than moving to `>=0.54.0`.
+A consumer that still carries a package capped below 0.54 resolves against interface 0.53, and one that carries `agent-knowledge` 8.0.2 resolves against 0.54.
+A single-generation window makes every adoption wave atomic, which is the condition that produced this break.
+A consumer needs no change to adopt this release.
+- Move the `@tangle-network/agent-eval` peer floor to 0.145.16, the release `agent-knowledge` 8.0.2 requires (`>=0.145.16`), and the release that depends on interface 0.54.0.
+The development catalog moves `agent-knowledge` to 8.0.2, `agent-core` to 0.9.1, and `agent-profile-materialize` to 0.15.2 for the same reason.
+No runtime behavior changes.
+
 ## 0.135.3
 
 - Move the `@tangle-network/agent-interface` peer range to `>=0.53.0 <0.54.0`.
