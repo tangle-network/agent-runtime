@@ -8,6 +8,7 @@ Interface 0.53.0 is additive over 0.52.0 (strict per-turn interaction requests o
 A consumer on interface 0.52.x must move to 0.53.x when it adopts this release.
 - Move the `@tangle-network/agent-eval` peer floor to 0.145.15, the release `agent-knowledge` 8.0.1 requires (`>=0.145.14`).
 The development catalog moves `agent-knowledge` to 8.0.1 for the same reason.
+- Move the `@tangle-network/agent-core` dependency to 0.9.0, the version `agent-eval` 0.145.15 depends on, so a consumer install holds one copy.
 No runtime behavior changes.
 
 ## 0.135.2

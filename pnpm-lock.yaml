@@ -13,8 +13,8 @@ catalogs:
       specifier: 1.30.0
       version: 1.30.0
     '@tangle-network/agent-core':
-      specifier: 0.8.0
-      version: 0.8.0
+      specifier: 0.9.0
+      version: 0.9.0
     '@tangle-network/agent-eval':
       specifier: 0.145.15
       version: 0.145.15
@@ -55,7 +55,7 @@ importers:
     dependencies:
       '@tangle-network/agent-core':
         specifier: 'catalog:'
-        version: 0.8.0
+        version: 0.9.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3))
       '@tangle-network/agent-knowledge':
         specifier: 'catalog:'
         version: 8.0.1(@tangle-network/agent-eval@0.145.15(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.4.3)))(@tangle-network/agent-interface@0.53.0)
