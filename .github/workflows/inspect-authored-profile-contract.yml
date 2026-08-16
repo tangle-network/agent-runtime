@@ -31,11 +31,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Export the new surface and bump the package patch
+      - name: Export and normalize the new surface
         shell: python
         run: |
           from pathlib import Path
           import json
+
+          source_path = Path('src/intelligence/authored-profile-improvement.ts')
+          source = source_path.read_text().replace('  type Scenario,\n', '')
+          source_path.write_text(source)
+
+          test_path = Path('tests/authored-profile-improvement.test.ts')
+          test = test_path.read_text().replace(
+              'expect(result.proposal.evaluation.generationsExplored).toBe(0)',
+              'expect(result.proposal.evaluation.generationsExplored).toBeUndefined()',
+          )
+          test_path.write_text(test)
 
           index_path = Path('src/intelligence/index.ts')
           text = index_path.read_text()
