@@ -1,6 +1,9 @@
 import { minimumPairsForPairedDeltaTest, type ProposalFinding } from '@tangle-network/agent-eval'
 import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
+  type AgentProfile,
+} from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 
 import { canonicalCandidateDigest } from '../src/candidate-execution/digest'
@@ -130,6 +133,7 @@ function setup() {
 describe('authored profile improvement', { timeout: 30_000 }, () => {
   it('measures a human-authored complete profile through the canonical proposal path', async () => {
     const fixture = setup()
+    const inputLineage = structuredClone(fixture.options.candidateLineage)
 
     const result = await proposeAuthoredAgentProfileImprovement(fixture.options)
 
@@ -160,7 +164,23 @@ describe('authored profile improvement', { timeout: 30_000 }, () => {
       parentDigests: [fixture.baselineStateDigest],
       runIds: ['reflection-1'],
     })
-    expect(result.candidateLineage.profileDiffIds?.length).toBeGreaterThan(0)
+    expect(result.candidateLineage.profileDiffIds).toEqual([
+      'human-reflection-1:agent-profile:reset',
+      'human-reflection-1:agent-profile:set',
+    ])
+    expect(result.experiment.change.map((step) => step.id)).toEqual(
+      result.candidateLineage.profileDiffIds,
+    )
+    expect(
+      result.experiment.change.every(
+        (step) =>
+          step.source?.kind === 'frontier-author' &&
+          step.metadata?.sourceIdentity === fixture.options.source.sourceIdentity &&
+          step.metadata?.sourceRevision === fixture.options.source.sourceRevision,
+      ),
+    ).toBe(true)
+    expect(fixture.options.candidateLineage).toEqual(inputLineage)
+    expect(Object.hasOwn(fixture.options.candidateLineage, 'profileDiffIds')).toBe(false)
     expect(result.experiment.candidateLineage).toEqual(result.candidateLineage)
     expect(result.proposal.evaluation.decision.outcome).toBe('ship')
     expect(result.proposal.changedSurfaces).toEqual([
@@ -213,6 +233,37 @@ describe('authored profile improvement', { timeout: 30_000 }, () => {
     await expect(proposeAuthoredAgentProfileImprovement(suppliedIds.options)).rejects.toThrow(
       /derives candidateLineage\.profileDiffIds/,
     )
+  })
+
+  it('refuses forged metadata and invalid or mismatched budgets before execution', async () => {
+    const forgedMetadata = setup()
+    forgedMetadata.options.metadata = {
+      [AGENT_IMPROVEMENT_SOURCE_METADATA_KEY]: 'caller-controlled-source',
+    }
+    await expect(proposeAuthoredAgentProfileImprovement(forgedMetadata.options)).rejects.toThrow(
+      /reserves/,
+    )
+    expect(forgedMetadata.observed).toHaveLength(0)
+
+    const invalidBudget = setup()
+    invalidBudget.options.budgetUsd = Number.NaN
+    await expect(proposeAuthoredAgentProfileImprovement(invalidBudget.options)).rejects.toThrow(
+      /non-negative finite number/,
+    )
+    expect(invalidBudget.observed).toHaveLength(0)
+
+    const mismatchedBudget = setup()
+    mismatchedBudget.options.benchmark = {
+      ...mismatchedBudget.options.benchmark,
+      policy: {
+        ...mismatchedBudget.options.benchmark.policy,
+        budgetUsd: mismatchedBudget.options.budgetUsd + 1,
+      },
+    }
+    await expect(proposeAuthoredAgentProfileImprovement(mismatchedBudget.options)).rejects.toThrow(
+      /policy budgetUsd must equal/,
+    )
+    expect(mismatchedBudget.observed).toHaveLength(0)
   })
 
   it('refuses unchanged candidates, source drift, and reused held-out scenarios', async () => {
