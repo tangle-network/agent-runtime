@@ -1,0 +1,55 @@
+name: Regenerate authored profile testing fixtures
+
+on:
+  push:
+    branches:
+      - feat/authored-profile-candidate
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: feat/authored-profile-candidate
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate canonical proposal fixtures
+        run: |
+          pnpm run generate:testing-fixture
+          pnpm run check:testing-fixture
+
+      - name: Validate affected behavior
+        run: pnpm exec vitest run tests/testing-fixture.test.ts tests/authored-profile-improvement.test.ts
+
+      - name: Commit regenerated fixtures
+        shell: bash
+        run: |
+          rm .github/workflows/regenerate-authored-profile-fixtures.yml
+          git add \
+            src/testing/fixtures/agent-improvement-proposal.json \
+            src/testing/fixtures/agent-profile-improvement-proposal.json \
+            src/testing/fixtures/agent-profile-improvement-state.json \
+            .github/workflows/regenerate-authored-profile-fixtures.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --cached --quiet && { echo "No fixture changes to commit"; exit 1; }
+          git commit -m "test: regenerate proposal fixtures for Runtime 0.137.1"
+          git push origin HEAD:feat/authored-profile-candidate
