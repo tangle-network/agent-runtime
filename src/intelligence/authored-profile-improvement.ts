@@ -1,16 +1,10 @@
-import { CostLedger } from '@tangle-network/agent-eval'
 import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
-import {
-  type CampaignScenarioIdentity,
-  campaignSplitDigestFromIdentities,
-} from '@tangle-network/agent-eval/campaign'
+import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   type AgentProfileImprovementExperimentExecutionInput,
   measuredComparisonFromAgentProfileImprovementExperiment,
   runAgentProfileImprovementExperiment,
   sealAgentProfileImprovementExperiment,
-  sealAgentProfileImprovementSuite,
-  sealAgentProfileImprovementTask,
   verifyAgentProfileImprovementExperimentComparison,
 } from '@tangle-network/agent-eval/contract'
 import type {
@@ -24,16 +18,9 @@ import type {
   AgentProfileImprovementMeasurement,
   AgentProfileImprovementRunReceipt,
   AgentProfileImprovementSuiteInputs,
-  AgentProfileImprovementTask,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
-import {
-  AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
-  agentImprovementSourceMetadata,
-  agentImprovementSourceSchema,
-  agentProfileImprovementArmSchema,
-  numbersApproximatelyEqual,
-} from '@tangle-network/agent-interface'
+import { agentImprovementSourceSchema } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest, immutableCandidateValue } from '../candidate-execution/digest'
 import { parseExactAgentProfile } from '../candidate-execution/profile'
 import {
@@ -43,6 +30,15 @@ import {
 import { agentImprovementProfileDiffs } from './improvement-surfaces'
 import { assertNoCallerOptimizationReceipt } from './optimization-receipt'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
+import {
+  createProfileImprovementCostLedger,
+  profileImprovementMetadata,
+  profilePolicyWithBudget,
+  profilePreparationAccounting,
+  profileStateDigest,
+  profileTaskScenarioIdentity,
+  sealProfileImprovementBenchmark,
+} from './profile-improvement-experiment'
 
 /** Lineage accepted by the direct candidate path. Optimizer lineage belongs to `improve()`. */
 export type AuthoredAgentProfileCandidateLineage = Omit<
@@ -121,7 +117,10 @@ export async function proposeAuthoredAgentProfileImprovement(
   const findings = immutableCandidateValue([
     ...assertProposalFindings(options.findings ?? [], 'authored profile improvement findings'),
   ])
-  const costLedger = createMeasurementCostLedger(options.budgetUsd)
+  const costLedger = createProfileImprovementCostLedger(
+    options.budgetUsd,
+    'authored profile improvement',
+  )
   const preparationStartedAt = performance.now()
   const baselineProfile = parseExactAgentProfile(options.profile, 'authored profile baseline')
   const candidateProfile = parseExactAgentProfile(
@@ -162,7 +161,11 @@ export async function proposeAuthoredAgentProfileImprovement(
     ...inputLineage,
     profileDiffIds,
   })
-  const policy = profilePolicyWithBudget(options.benchmark.policy, options.budgetUsd)
+  const policy = profilePolicyWithBudget(
+    options.benchmark.policy,
+    options.budgetUsd,
+    'authored profile',
+  )
   const benchmark = sealProfileImprovementBenchmark({ ...options.benchmark, policy })
   assertDirectCandidateReleaseWorkIsFresh(benchmark, candidateLineage, options.developmentScenarios)
   const experiment = sealAgentProfileImprovementExperiment({
@@ -181,10 +184,7 @@ export async function proposeAuthoredAgentProfileImprovement(
     [baselineStateDigest, baselineProfile],
     [candidateStateDigest, candidateProfile],
   ])
-  const preparation = {
-    wallDurationMs: Math.max(0, performance.now() - preparationStartedAt),
-    cost: { usd: 0, provenance: 'observed' as const },
-  }
+  const preparation = profilePreparationAccounting(costLedger, preparationStartedAt)
   const run = await runAgentProfileImprovementExperiment({
     experiment,
     ...(options.maxConcurrency === undefined ? {} : { maxConcurrency: options.maxConcurrency }),
@@ -207,7 +207,7 @@ export async function proposeAuthoredAgentProfileImprovement(
       generationsExplored: 0,
       preparation,
       measurement: run.measurement,
-      metadata: directProfileImprovementMetadata(options.metadata, source),
+      metadata: profileImprovementMetadata(options.metadata, source),
     }),
   )
   const proposal = createAgentImprovementProposal({
@@ -222,59 +222,6 @@ export async function proposeAuthoredAgentProfileImprovement(
     experiment,
     measurements: run.measurements,
     proposal,
-  }
-}
-
-function createMeasurementCostLedger(budgetUsd: number): CostLedger {
-  if (!Number.isFinite(budgetUsd) || budgetUsd < 0) {
-    throw new Error('authored profile improvement budgetUsd must be a non-negative finite number')
-  }
-  return new CostLedger({ costCeilingUsd: budgetUsd })
-}
-
-function profilePolicyWithBudget(
-  policy: AgentProfileImprovementBenchmark['policy'],
-  budgetUsd: number,
-): AgentProfileImprovementBenchmark['policy'] {
-  if (policy.budgetUsd !== undefined && !numbersApproximatelyEqual(policy.budgetUsd, budgetUsd)) {
-    throw new Error('authored profile policy budgetUsd must equal the run budgetUsd')
-  }
-  return { ...policy, budgetUsd }
-}
-
-function profileStateDigest(
-  stateDigest: AgentImprovementProfileStateDigest,
-  identity: string,
-  profile: AgentProfile,
-): Sha256Digest {
-  return agentProfileImprovementArmSchema.parse({
-    stateDigest: stateDigest({ identity, profile }),
-  }).stateDigest
-}
-
-function sealProfileImprovementBenchmark(
-  input: AgentProfileImprovementBenchmark,
-): AgentProfileImprovementSuiteInputs {
-  const tasks = input.tasks.map((task) => sealAgentProfileImprovementTask(task)) as [
-    AgentProfileImprovementTask,
-    ...AgentProfileImprovementTask[],
-  ]
-  return sealAgentProfileImprovementSuite({
-    splitDigest: campaignSplitDigestFromIdentities(
-      tasks.map(profileTaskScenarioIdentity),
-      input.reps,
-    ),
-    tasks,
-    reps: input.reps,
-    seeds: input.seeds,
-  })
-}
-
-function profileTaskScenarioIdentity(task: AgentProfileImprovementTask): CampaignScenarioIdentity {
-  return {
-    id: task.scenario.id,
-    kind: task.scenario.kind,
-    scenarioDigest: task.scenario.digest,
   }
 }
 
@@ -297,20 +244,4 @@ function assertDirectCandidateReleaseWorkIsFresh(
       `authored profile release reuses development scenario(s): [${reused.join(', ')}]`,
     )
   }
-}
-
-function directProfileImprovementMetadata(
-  metadata: AgentProfileImprovementMeasuredComparison['metadata'],
-  source: AgentImprovementSource,
-): NonNullable<AgentProfileImprovementMeasuredComparison['metadata']> {
-  assertNoCallerOptimizationReceipt(metadata)
-  if (metadata && Object.hasOwn(metadata, AGENT_IMPROVEMENT_SOURCE_METADATA_KEY)) {
-    throw new Error(
-      `candidate metadata reserves '${AGENT_IMPROVEMENT_SOURCE_METADATA_KEY}' for Runtime`,
-    )
-  }
-  return immutableCandidateValue({
-    ...(metadata ?? {}),
-    ...agentImprovementSourceMetadata(source),
-  })
 }
