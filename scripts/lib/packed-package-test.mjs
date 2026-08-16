@@ -40,9 +40,34 @@ export function currentMinorPeerRange(version) {
   return `>=${version} <${match[1]}.${Number(match[2]) + 1}.0`
 }
 
+/**
+ * The peer range shape a dependency earns from its own versioning.
+ *
+ * From 1.0.0 a package states that a minor is additive and only a major removes
+ * or narrows, so a caret range holds one installed copy across later minors. A
+ * pre-1.0 package states no such promise, so its range still stops at the next
+ * minor.
+ */
+export function expectedPeerRange(version) {
+  const match = /^(\d+)\.\d+\.\d+(?:-.+)?$/.exec(version)
+  if (!match) throw new Error(`cannot derive peer range from version ${version}`)
+  return Number(match[1]) >= 1 ? `^${version}` : currentMinorPeerRange(version)
+}
+
+/** A caret range admits a version when the major matches and the floor is at or below it. */
+export function caretAdmits(range, version) {
+  const floor = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range)
+  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  if (floor === null || found === null) return false
+  const [floorMajor, floorMinor, floorPatch] = floor.slice(1).map(Number)
+  const [major, minor, patch] = found.slice(1).map(Number)
+  if (floorMajor < 1 || major !== floorMajor) return false
+  return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
+}
+
 export function assertPeerMatchesDevelopmentDependency(packageJson, name) {
   const version = requiredPackedDevelopmentDependency(packageJson, name)
-  const expected = currentMinorPeerRange(version)
+  const expected = expectedPeerRange(version)
   const actual = packageJson.peerDependencies?.[name]
   if (actual !== expected) {
     const packageName =

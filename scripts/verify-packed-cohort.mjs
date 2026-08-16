@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import {
   assertPeerMatchesDevelopmentDependency,
+  caretAdmits,
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
   requiredPackedDevelopmentDependency,
@@ -598,12 +599,15 @@ function assertCohortPackageContracts({
 }
 
 function assertExactDependency(owner, dependency) {
+  // A dependency that states a compatibility promise from 1.0.0 is declared as
+  // a caret range, so the check is admission rather than equality. The packed
+  // install below still proves the tree resolves one physical copy.
   const declared = owner.packageJson.dependencies?.[dependency.name]
-  if (declared !== dependency.version) {
-    throw new Error(
-      `${owner.name} requires ${dependency.name}@${declared}, packed ${dependency.version}`,
-    )
-  }
+  if (declared === dependency.version) return
+  if (caretAdmits(declared, dependency.version)) return
+  throw new Error(
+    `${owner.name} requires ${dependency.name}@${declared}, packed ${dependency.version}`,
+  )
 }
 
 function assertRequiredPeer(owner, dependency) {
