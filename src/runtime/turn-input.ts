@@ -44,7 +44,7 @@ export function freshTurnInput(
 /** Project canonical turn parts onto the Sandbox prompt vocabulary once. */
 export function promptFromAgentTurnInput(input: AgentTurnInput): string | PromptInputPart[] {
   if (input.parts !== undefined) return input.parts.map(promptPartFromInputPart)
-  return input.prompt ?? ''
+  return input.prompt ?? providerMessageText(input.providerOptions) ?? ''
 }
 
 /** Project canonical turn controls onto the Sandbox prompt options once. */

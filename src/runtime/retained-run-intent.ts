@@ -5,10 +5,11 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 
 /**
- * Project environment creation input into digest-only material.
+ * Project environment creation input into public digest material.
  *
- * Secret values and provider options never enter an admission record. Their
- * digests still bind a replay to the exact request without retaining them.
+ * Values from the `secrets` channel never enter the material or its digest.
+ * Secret names remain public binding data, so changing which credentials are
+ * requested still conflicts before provider effects begin.
  */
 export function retainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
@@ -27,7 +28,7 @@ export function retainedCreateMaterial(
       : { envDigest: canonicalCandidateDigest(environment.env) }),
     ...(environment.secrets === undefined
       ? {}
-      : { secretsDigest: canonicalCandidateDigest(environment.secrets) }),
+      : { secretNames: retainedSecretNames(environment.secrets) }),
     ...(environment.metadata === undefined
       ? {}
       : { metadataDigest: canonicalCandidateDigest(environment.metadata) }),
@@ -35,6 +36,12 @@ export function retainedCreateMaterial(
       ? {}
       : { providerOptionsDigest: canonicalCandidateDigest(environment.providerOptions) }),
   }
+}
+
+function retainedSecretNames(
+  secrets: NonNullable<CreateAgentEnvironmentInput['secrets']>,
+): string[] {
+  return Array.isArray(secrets) ? [...secrets].sort() : Object.keys(secrets).sort()
 }
 
 /** Project one headless turn into the material that `freshTurnInput` forwards. */

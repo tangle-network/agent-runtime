@@ -104,6 +104,32 @@ describe('streamAgentTurn: box backend', () => {
     expect(types).toContain('backend_error')
     expect(types.at(-1)).toBe('final')
   })
+
+  it('uses the latest user message when a box turn has provider messages only', async () => {
+    const prompts: string[] = []
+    const box = await inProcessSandboxClient({
+      onPrompt: (prompt): SandboxEvent[] => {
+        prompts.push(prompt)
+        return [{ type: 'done', data: { finalText: 'answer' } }]
+      },
+    }).create()
+
+    await collectAgentTurn(
+      streamObservedAgentTurn(
+        { kind: 'box', box },
+        {
+          providerOptions: {
+            messages: [
+              { role: 'user', content: 'latest request' },
+              { role: 'assistant', content: 'previous response' },
+            ],
+          },
+        },
+      ),
+    )
+
+    expect(prompts).toEqual(['latest request'])
+  })
 })
 
 describe('streamAgentTurn: current Sandbox prompt options', () => {

@@ -224,7 +224,7 @@ describe('retained runtime run control', () => {
     ).toEqual(['restart-native-operation'])
   })
 
-  it('persists headless intent before create and replays the exact material after a crash', async () => {
+  it('persists public headless intent before create and replays private values after a crash', async () => {
     const identity = mintRetainedIdentity('headless-intent-environment', 'headless-intent-turn')
     const controlRef = {
       runId: 'headless-intent-run',
@@ -295,11 +295,31 @@ describe('retained runtime run control', () => {
     ).rejects.toThrow('retained run intent conflicts with replay material')
     expect(creates).toBe(0)
 
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: {
+          ...environment,
+          secrets: { OTHER_TOKEN: 'headless-secret-value' },
+        },
+        turn,
+        intent,
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('retained run intent conflicts with replay material')
+    expect(creates).toBe(0)
+
     const recoveryAdmissions = recordedAdmissions()
     const recovered = await recoverRetainedRun({
       provider,
       admission: intent,
-      replay: { environment, turn },
+      replay: {
+        environment: {
+          ...environment,
+          secrets: { TANGLE_TOKEN: 'changed-low-entropy' },
+        },
+        turn,
+      },
       onAdmission: recoveryAdmissions.onAdmission,
     })
     expect(recovered.outcome).toBe('recovered')
@@ -308,7 +328,7 @@ describe('retained runtime run control', () => {
       retainedIntentDigest: intent.requestDigest,
       retainedRunId: intent.runId,
     })
-    expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'headless-secret-value' })
+    expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
     expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })
     expect(recoveryAdmissions.admissions.map((admission) => admission.phase)).toEqual([
       'environment',

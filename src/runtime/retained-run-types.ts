@@ -96,9 +96,9 @@ export interface RetainedRunHandle {
 /**
  * Sanitized headless intent durable before environment creation.
  *
- * The request digest binds the exact create and turn material without retaining
- * secrets or provider options. The original start material is required to
- * replay this record after a process crash.
+ * The request digest binds the public create and turn material without
+ * retaining secret values. The original start material is required to replay
+ * this record after a process crash.
  * @stable
  */
 export interface RetainedRunIntentAdmission {
@@ -137,8 +137,9 @@ export interface RetainedRunDispatchedAdmission {
 /**
  * Sanitized intent durable before an interactive environment create begins.
  *
- * The digest covers the exact start and create material without retaining that
- * material. It never carries environment variables, secrets, or provider options.
+ * The digest covers the public start and create material without retaining that
+ * material. It never carries environment variables, secret values, or provider
+ * options. The replay input supplies private values after this check.
  * @stable
  */
 export interface RetainedInteractiveIntentAdmission {
