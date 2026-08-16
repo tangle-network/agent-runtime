@@ -19,10 +19,27 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Print candidate-lineage declarations
+      - name: Print current profile improvement seams
         shell: bash
         run: |
           set -euo pipefail
-          grep -R -n -C 8 "AgentCandidateLineage\|agentCandidateLineageSchema" node_modules/@tangle-network/agent-interface/dist | head -n 400 || true
-          echo "--- source enum literals ---"
-          grep -R -n -C 4 "source.*optimizer\|optimizer.*source" node_modules/@tangle-network/agent-interface/dist | head -n 400 || true
+          file=src/intelligence/improvement-cycle.ts
+          grep -n "ProposeAgentProfileImprovementOptions\|proposeAgentProfileImprovement\|sealProfileImprovementBenchmark\|profileImprovementMetadata\|assertProfileReleaseWorkIsFresh\|createProfileImprovementCostLedger\|profilePolicyWithBudget\|profilePreparationAccounting" "$file"
+          for pattern in \
+            "export interface ProposeAgentProfileImprovementOptions" \
+            "export interface ProposeAgentProfileImprovementResult" \
+            "function createProfileImprovementCostLedger" \
+            "function sealProfileImprovementBenchmark" \
+            "function assertProfileReleaseWorkIsFresh" \
+            "function profileImprovementMetadata" \
+            "export async function proposeAgentProfileImprovement"; do
+            line=$(grep -n -m1 "$pattern" "$file" | cut -d: -f1)
+            start=$((line > 25 ? line - 25 : 1))
+            end=$((line + 180))
+            echo "--- $pattern ($start-$end) ---"
+            nl -ba "$file" | sed -n "${start},${end}p"
+          done
+          echo "--- current intelligence exports ---"
+          grep -n -C 4 "ProposeAgentProfileImprovement\|proposeAgentProfileImprovement" src/intelligence/index.ts
+          echo "--- exact candidate lineage ---"
+          grep -R -n -C 10 "interface AgentCandidateLineage\|type AgentCandidateLineage\|agentCandidateLineageSchema" node_modules/@tangle-network/agent-interface/dist | head -n 500 || true
