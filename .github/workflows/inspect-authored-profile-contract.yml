@@ -1,0 +1,28 @@
+name: Inspect authored profile contract
+
+on:
+  push:
+    branches:
+      - feat/authored-profile-candidate
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Print candidate-lineage declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -n -C 8 "AgentCandidateLineage\|agentCandidateLineageSchema" node_modules/@tangle-network/agent-interface/dist | head -n 400 || true
+          echo "--- source enum literals ---"
+          grep -R -n -C 4 "source.*optimizer\|optimizer.*source" node_modules/@tangle-network/agent-interface/dist | head -n 400 || true
