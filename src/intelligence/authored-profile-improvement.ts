@@ -8,7 +8,6 @@ import {
   type AgentProfileImprovementExperimentExecutionInput,
   measuredComparisonFromAgentProfileImprovementExperiment,
   runAgentProfileImprovementExperiment,
-  type Scenario,
   sealAgentProfileImprovementExperiment,
   sealAgentProfileImprovementSuite,
   sealAgentProfileImprovementTask,
@@ -165,11 +164,7 @@ export async function proposeAuthoredAgentProfileImprovement(
   })
   const policy = profilePolicyWithBudget(options.benchmark.policy, options.budgetUsd)
   const benchmark = sealProfileImprovementBenchmark({ ...options.benchmark, policy })
-  assertDirectCandidateReleaseWorkIsFresh(
-    benchmark,
-    candidateLineage,
-    options.developmentScenarios,
-  )
+  assertDirectCandidateReleaseWorkIsFresh(benchmark, candidateLineage, options.developmentScenarios)
   const experiment = sealAgentProfileImprovementExperiment({
     kind: 'agent-profile-improvement-experiment',
     digestAlgorithm: 'rfc8785-sha256',
@@ -298,7 +293,9 @@ function assertDirectCandidateReleaseWorkIsFresh(
     .filter((scenario) => development.has(canonicalCandidateDigest(scenario)))
     .map((scenario) => scenario.id)
   if (reused.length > 0) {
-    throw new Error(`authored profile release reuses development scenario(s): [${reused.join(', ')}]`)
+    throw new Error(
+      `authored profile release reuses development scenario(s): [${reused.join(', ')}]`,
+    )
   }
 }
 

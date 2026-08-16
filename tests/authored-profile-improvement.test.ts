@@ -1,7 +1,4 @@
-import {
-  minimumPairsForPairedDeltaTest,
-  type ProposalFinding,
-} from '@tangle-network/agent-eval'
+import { minimumPairsForPairedDeltaTest, type ProposalFinding } from '@tangle-network/agent-eval'
 import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
@@ -137,15 +134,27 @@ describe('authored profile improvement', { timeout: 30_000 }, () => {
     const result = await proposeAuthoredAgentProfileImprovement(fixture.options)
 
     expect(fixture.observed).toHaveLength(minimumPairedRuns * 2)
-    expect(fixture.observed.filter((entry) => entry.arm === 'baseline').every(
-      (entry) => entry.profile === fixture.baselineProfile,
-    )).toBe(false)
-    expect(fixture.observed.filter((entry) => entry.arm === 'baseline').every(
-      (entry) => entry.profile.prompt?.systemPrompt === fixture.baselineProfile.prompt?.systemPrompt,
-    )).toBe(true)
-    expect(fixture.observed.filter((entry) => entry.arm === 'candidate').every(
-      (entry) => entry.profile.prompt?.systemPrompt === fixture.candidateProfile.prompt?.systemPrompt,
-    )).toBe(true)
+    expect(
+      fixture.observed
+        .filter((entry) => entry.arm === 'baseline')
+        .every((entry) => entry.profile === fixture.baselineProfile),
+    ).toBe(false)
+    expect(
+      fixture.observed
+        .filter((entry) => entry.arm === 'baseline')
+        .every(
+          (entry) =>
+            entry.profile.prompt?.systemPrompt === fixture.baselineProfile.prompt?.systemPrompt,
+        ),
+    ).toBe(true)
+    expect(
+      fixture.observed
+        .filter((entry) => entry.arm === 'candidate')
+        .every(
+          (entry) =>
+            entry.profile.prompt?.systemPrompt === fixture.candidateProfile.prompt?.systemPrompt,
+        ),
+    ).toBe(true)
     expect(result.candidateLineage).toMatchObject({
       source: 'human',
       parentDigests: [fixture.baselineStateDigest],
@@ -162,7 +171,7 @@ describe('authored profile improvement', { timeout: 30_000 }, () => {
       'agent-profile',
     ])
     expect(result.proposal.findings).toEqual([productionFinding])
-    expect(result.proposal.evaluation.generationsExplored).toBe(0)
+    expect(result.proposal.evaluation.generationsExplored).toBeUndefined()
     expect(optimizationActivationReceiptFromMetadata(result.proposal.evaluation.metadata)).toBe(
       undefined,
     )

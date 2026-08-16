@@ -394,6 +394,151 @@ The product owns the private state lookup and atomic write.
 
 ***
 
+### AgentProfileCandidateMeasurementExecutor
+
+Product-owned executor for exact baseline/candidate profile measurement.
+
+#### Properties
+
+##### executionRef
+
+> **executionRef**: `AgentProfileImprovementExecutionRef`
+
+#### Methods
+
+##### measure()
+
+> **measure**(`input`): `Promise`\<`AgentProfileImprovementRunReceipt`\>
+
+###### Parameters
+
+###### input
+
+`AgentProfileImprovementExperimentExecutionInput` & `object`
+
+###### Returns
+
+`Promise`\<`AgentProfileImprovementRunReceipt`\>
+
+***
+
+### ProposeAuthoredAgentProfileImprovementOptions
+
+Measure a complete human-authored, imported, or compound profile candidate.
+No optimizer runs and no optimizer receipt is fabricated.
+
+#### Properties
+
+##### runId
+
+> **runId**: `string`
+
+##### source
+
+> **source**: `object`
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+##### stateDigest
+
+> **stateDigest**: [`AgentImprovementProfileStateDigest`](#agentimprovementprofilestatedigest)
+
+##### candidateProfile
+
+> **candidateProfile**: `AgentProfile`
+
+##### candidateLineage
+
+> **candidateLineage**: [`AuthoredAgentProfileCandidateLineage`](#authoredagentprofilecandidatelineage)
+
+##### diff?
+
+> `optional` **diff?**: [`AgentImprovementTargetProfileDiffOptions`](#agentimprovementtargetprofilediffoptions)
+
+Optional source/artifact metadata used on Runtime-derived profile diff steps.
+
+##### findings?
+
+> `optional` **findings?**: readonly `ProposalFinding`[]
+
+##### benchmark
+
+> **benchmark**: [`AgentProfileImprovementBenchmark`](#agentprofileimprovementbenchmark)
+
+##### executor
+
+> **executor**: [`AgentProfileCandidateMeasurementExecutor`](#agentprofilecandidatemeasurementexecutor)
+
+##### budgetUsd
+
+> **budgetUsd**: `number`
+
+One customer-approved maximum for the held-out paired measurement.
+
+##### developmentScenarios?
+
+> `optional` **developmentScenarios?**: readonly `CampaignScenarioIdentity`[]
+
+Optional identities used to prove authored/imported development work is held out.
+
+##### maxConcurrency?
+
+> `optional` **maxConcurrency?**: `number`
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+##### candidate?
+
+> `optional` **candidate?**: `object`
+
+##### metadata?
+
+> `optional` **metadata?**: `object`
+
+###### Index Signature
+
+\[`key`: `string`\]: `AgentCandidateJsonValue`
+
+##### now?
+
+> `optional` **now?**: () => `Date`
+
+###### Returns
+
+`Date`
+
+***
+
+### ProposeAuthoredAgentProfileImprovementResult
+
+#### Properties
+
+##### candidateProfile
+
+> **candidateProfile**: `AgentProfile`
+
+##### candidateLineage
+
+> **candidateLineage**: `AgentCandidateLineage`
+
+##### experiment
+
+> **experiment**: `AgentProfileImprovementExperiment`
+
+##### measurements
+
+> **measurements**: `AgentProfileImprovementMeasurement`[]
+
+##### proposal
+
+> **proposal**: `AgentImprovementProposal`
+
+***
+
 ### CredentialRef
 
 A named secret a binding requires — declared, never carried.
@@ -1507,7 +1652,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ###### Inherited from
 
-[`ExactProcessCandidateExperimentExecutor`](#exactprocesscandidateexperimentexecutor).[`executor`](#executor)
+[`ExactProcessCandidateExperimentExecutor`](#exactprocesscandidateexperimentexecutor).[`executor`](#executor-1)
 
 ##### recoveryPorts
 
@@ -3503,7 +3648,7 @@ Full canonical profile used for this agent. Exported redacted with a stable hash
 
 ###### Inherited from
 
-[`IntelligenceConfig`](#intelligenceconfig).[`profile`](#profile-4)
+[`IntelligenceConfig`](#intelligenceconfig).[`profile`](#profile-5)
 
 ##### commitSha?
 
@@ -3666,6 +3811,34 @@ Return undefined only when no target write can have committed.
 #### Returns
 
 `Promise`\<`unknown` \| `undefined`\>
+
+***
+
+### AuthoredAgentProfileCandidateLineage
+
+> **AuthoredAgentProfileCandidateLineage** = `Omit`\<`AgentCandidateLineage`, `"source"` \| `"profileDiffIds"`\> & `object`
+
+Lineage accepted by the direct candidate path. Optimizer lineage belongs to `improve()`.
+
+#### Type Declaration
+
+##### source
+
+> **source**: `Exclude`\<`AgentCandidateLineage`\[`"source"`\], `"optimizer"`\>
+
+##### profileDiffIds?
+
+> `optional` **profileDiffIds?**: `never`
+
+Runtime derives these from the exact profile change it seals.
+
+***
+
+### AuthoredAgentProfileDiffOptions
+
+> **AuthoredAgentProfileDiffOptions** = `NonNullable`\<`Parameters`\<*typeof* [`agentImprovementProfileDiffs`](#agentimprovementprofilediffs)\>\[`2`\]\>
+
+Provenance attached while Runtime derives the exact profile diff.
 
 ***
 
@@ -4194,6 +4367,25 @@ Validate and execute one product-owned activation transition.
 #### Returns
 
 `Promise`\<`AgentImprovementActivationResult`\>
+
+***
+
+### proposeAuthoredAgentProfileImprovement()
+
+> **proposeAuthoredAgentProfileImprovement**(`options`): `Promise`\<[`ProposeAuthoredAgentProfileImprovementResult`](#proposeauthoredagentprofileimprovementresult)\>
+
+Put a complete authored/imported profile through the canonical profile
+experiment and proposal path without invoking `improve()`.
+
+#### Parameters
+
+##### options
+
+[`ProposeAuthoredAgentProfileImprovementOptions`](#proposeauthoredagentprofileimprovementoptions)
+
+#### Returns
+
+`Promise`\<[`ProposeAuthoredAgentProfileImprovementResult`](#proposeauthoredagentprofileimprovementresult)\>
 
 ***
 
