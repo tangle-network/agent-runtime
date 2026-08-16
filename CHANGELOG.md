@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.136.0
+
+### Peer mail: workers can reach a live sibling, bounded and audited
+
+Until now a worker could only be reached by its parent.
+The inbox understood two kinds, `steer` and `answer`, both parent-authored, and the only worker-to-worker path fired at settle time through an analyst lens.
+Two live workers could not compare results, one could not challenge another's claim, and a blocked worker could not ask the peer that already had the fact.
+
+`CoordinationToolsOptions.peerMail` (and `serveCoordinationMcp({ peerMail })`) turns on a sibling channel.
+Each spawn is minted a capability endpoint delivered on `WorkerSpawnContext.peerMailUrl`.
+The endpoint serves exactly two tools, `send_mail` and `read_mail`, and speaks as one worker: the sender is bound to the capability and is never a tool argument.
+Mount it on a worker the way `coordinationMcpUrl` is mounted on a driver.
+
+- Envelopes are typed, not chat: `ask`, `tell`, `challenge`, `answer`. `tell` and `challenge` must cite evidence refs the receiver can re-check. Mail confers no verification.
+- The parent audits but does not relay. Every attempt, delivered or refused, publishes a `mail` `CoordinationEvent` and persists to the coordination side-log as `PriorCoordination.mail`. `stopMailThread` ends one exchange.
+- Bounds fail closed with a refusal the sender reads: a per-sender send quota, a per-RECEIVER inbox cap in count and bytes, a reply-depth ceiling, and hard caps on subject and body. Every attempt past the quota check spends one unit, refusals included.
+
+### Authority separation in the worker inbox
+
+- Peer mail renders in its own block, fenced with a per-fold nonce and attributed to its sender. A mixed drain now produces at most two blocks, so a peer message can no longer ride under the `[SUPERVISOR]` batch header.
+- A body or subject that speaks as the supervisor is refused at intake (`forged-authority`).
+- Peer mail can never be forceful: `interrupt` is written as `false` and the wire field is ignored, so a sibling cannot abort a sibling's in-flight turn.
+- Peer mail never blocks a settle. The pre-settle fence now counts `Inbox.pendingAuthority()`, so a sibling cannot hold a finished worker open by keeping mail in flight.
+- A supervisor answer now renders as `Answer from your supervisor to your question (id): …`. Every folded line names its sender, so "unattributed" is not a renderable state.
+  A consumer asserting on the previous `Answer to your question (id):` wording must update it.
+
+The mail listener is a separate port from the coordination MCP by design.
+That server mounts `spawn_agent` / `steer_agent` / `stop` unauthenticated on loopback, so a worker handed its URL could send a real supervisor instruction to a sibling and the peer marking would mean nothing.
+The boundary is between agents, not between processes: a worker that can read another worker's environment still holds that worker's capability.
+
 ## 0.135.3
 
 - Move the `@tangle-network/agent-interface` peer range to `>=0.53.0 <0.54.0`.

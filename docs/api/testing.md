@@ -1235,7 +1235,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (router 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-14)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-15)
 
 ##### allowedModels?
 

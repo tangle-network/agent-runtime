@@ -28,6 +28,7 @@ import type {
   QuestionRecord,
 } from '../../mcp/tools/coordination'
 import type { BusRecord } from './event-bus'
+import type { PeerMailEvent } from './peer-mail'
 
 /** Stable identity of the supervisor that owns one coordination stream. High-level supervision
  * derives it from the exact root/child execution identity plus its parent assignment. */
@@ -53,6 +54,9 @@ export interface PriorCoordination {
   readonly continuations: ReadonlyArray<ContinuationInstruction>
   /** Delivery intent and result records in commit order, linked to receipts by `receiptId`. */
   readonly deliveryEvidence: ReadonlyArray<CoordinationDeliveryEvidence>
+  /** Every peer-mail attempt the prior process made, delivered and refused alike, in commit order.
+   * Evidence of what siblings told each other; never replayed into a new worker's inbox. */
+  readonly mail: ReadonlyArray<PeerMailEvent>
   /** Exact source-bus stamps in durable append order. Bus `seq` restarts with each process; append
    * order remains the cross-process replay order. */
   readonly records: ReadonlyArray<BusRecord<CoordinationEvent>>
@@ -144,6 +148,7 @@ export class FileCoordinationLog implements CoordinationLog {
     const findings: AnalystFindingEvent[] = []
     const continuations: ContinuationInstruction[] = []
     const deliveryEvidence: CoordinationDeliveryEvidence[] = []
+    const mail: PeerMailEvent[] = []
     const records: BusRecord<CoordinationEvent>[] = []
     let legacySeq = 0
     for (const stored of parseCommittedJsonLines<
@@ -190,6 +195,8 @@ export class FileCoordinationLog implements CoordinationLog {
         }
       } else if (ev.type === 'instruction') {
         continuations.push(ev.instruction)
+      } else if (ev.type === 'mail') {
+        mail.push(ev.mail)
       }
     }
     return {
@@ -198,6 +205,7 @@ export class FileCoordinationLog implements CoordinationLog {
       findings,
       continuations,
       deliveryEvidence,
+      mail,
       records,
     }
   }
@@ -210,6 +218,7 @@ function emptyPriorCoordination(ownerId?: CoordinationOwnerId): PriorCoordinatio
     findings: [],
     continuations: [],
     deliveryEvidence: [],
+    mail: [],
     records: [],
   }
 }

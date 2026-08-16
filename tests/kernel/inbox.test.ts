@@ -25,7 +25,9 @@ describe('worker inbox (down-leg receive end)', () => {
     const folded = inbox.fold(inbox.drain())
     expect(folded).toContain('[SUPERVISOR]')
     expect(folded).toContain('New instruction from your supervisor: switch to recursion')
-    expect(folded).toContain('Answer to your question (q7): v2')
+    // Every line names its sender, the supervisor's own answer included: once peer mail can also
+    // reach this inbox, "unattributed" must not be a renderable state.
+    expect(folded).toContain('Answer from your supervisor to your question (q7): v2')
   })
 
   it('a forceful message aborts the live turn signal; a queued one does not', () => {
