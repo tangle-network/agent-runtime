@@ -102,6 +102,8 @@ export {
   JudgeError,
   NotFoundError,
   PlannerError,
+  RetainedInteractiveAdmissionError,
+  RetainedInteractiveBindingError,
   RetainedRunAdmissionError,
   RetainedRunDispatchBindingError,
   RuntimeRunStateError,

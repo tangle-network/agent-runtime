@@ -22,7 +22,15 @@
  */
 
 import { AgentEvalError } from '@tangle-network/agent-eval'
-import type { RetainedRunAdmission } from './runtime/retained-run-types'
+import type {
+  AgentInteractiveSessionRef,
+  AgentInteractiveSessionStart,
+  AgentInteractiveSessionStatus,
+} from '@tangle-network/agent-interface'
+import type {
+  RetainedInteractiveAdmission,
+  RetainedRunAdmission,
+} from './runtime/retained-run-types'
 
 export {
   AgentEvalError,
@@ -149,18 +157,20 @@ export class AnalystError extends AgentEvalError {
  * The caller's `onAdmission` durability hook rejected, so a retained run's
  * admission record is not durable while provider work may already be live.
  * Distinct from a provider failure: the provider call succeeded, and the
- * environment is intentionally kept so `recoverRetainedRun` (or a provider
- * metadata lookup) can rebuild or disprove the run. Carries `capture_integrity`
- * because the durable record a later recovery requires was not written.
+ * environment is intentionally kept so the matching recovery API or a
+ * provider metadata lookup can rebuild or disprove the run. Carries
+ * `capture_integrity` because the required recovery record was not written.
  *
  * @stable
  */
-export class RetainedRunAdmissionError extends AgentEvalError {
-  readonly phase: RetainedRunAdmission['phase']
+abstract class RetainedAdmissionError<
+  TAdmission extends RetainedRunAdmission | RetainedInteractiveAdmission,
+> extends AgentEvalError {
+  readonly phase: TAdmission['phase']
   /** The exact record the hook failed to persist, for direct recovery. */
-  readonly admission: RetainedRunAdmission
+  readonly admission: TAdmission
 
-  constructor(admission: RetainedRunAdmission, options?: { cause?: unknown }) {
+  constructor(admission: TAdmission, options?: { cause?: unknown }) {
     super(
       'capture_integrity',
       `retained run admission (${admission.phase}) was not persisted; the environment is kept for recovery`,
@@ -168,6 +178,46 @@ export class RetainedRunAdmissionError extends AgentEvalError {
     )
     this.phase = admission.phase
     this.admission = admission
+  }
+}
+
+/** The caller could not persist one detached-run recovery record. @stable */
+export class RetainedRunAdmissionError extends RetainedAdmissionError<RetainedRunAdmission> {}
+
+/** The caller could not persist one exact interactive-process recovery record. @stable */
+export class RetainedInteractiveAdmissionError extends RetainedAdmissionError<RetainedInteractiveAdmission> {}
+
+/**
+ * A provider returned a valid interactive reference that does not bind to the
+ * exact start request, or returned data that could not be parsed as one.
+ *
+ * The requested start and any valid provider reference are detached snapshots.
+ * Malformed provider data is never copied into the error, so the error remains
+ * safe to persist while the environment remains available for orphan cleanup.
+ *
+ * @stable
+ */
+export class RetainedInteractiveBindingError extends AgentEvalError {
+  /** The exact native-process start request sent to the provider. */
+  readonly requested: AgentInteractiveSessionStart
+  /** The valid provider data, when the provider returned a parseable value. */
+  readonly returned: {
+    readonly ref?: AgentInteractiveSessionRef
+    readonly status?: AgentInteractiveSessionStatus
+  }
+
+  constructor(
+    requested: AgentInteractiveSessionStart,
+    returned: RetainedInteractiveBindingError['returned'],
+    options?: { cause?: unknown },
+  ) {
+    super(
+      'backend_integrity',
+      'provider returned interactive data that does not bind to the requested start; the environment is kept for diagnosis and cleanup',
+      options,
+    )
+    this.requested = Object.freeze(requested)
+    this.returned = Object.freeze(returned)
   }
 }
 

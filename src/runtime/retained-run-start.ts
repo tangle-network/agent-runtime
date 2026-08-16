@@ -8,7 +8,11 @@ import type {
   AgentEnvironmentProvider,
   AgentSession,
 } from '@tangle-network/agent-interface/environment-provider'
-import { RetainedRunAdmissionError, RetainedRunDispatchBindingError } from '../errors'
+import {
+  RetainedInteractiveAdmissionError,
+  RetainedRunAdmissionError,
+  RetainedRunDispatchBindingError,
+} from '../errors'
 import { assertRequestedInteractionCapabilities } from './interaction-capabilities'
 import {
   assertStableText,
@@ -21,12 +25,14 @@ import type {
   ReconnectRetainedRunOptions,
   RecoverRetainedRunOptions,
   RecoverRetainedRunResult,
+  RetainedInteractiveAdmission,
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunHandle,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
+import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
 /**
@@ -339,15 +345,24 @@ async function dispatchRetainedRun(
  * record is the recovery path — and surfaces as `RetainedRunAdmissionError` so
  * callers can distinguish a persistence failure from a provider failure.
  */
-async function admitDurably(
-  onAdmission: RetainedRunAdmissionHook,
-  admission: RetainedRunAdmission,
-): Promise<void> {
+export async function admitDurably<
+  TAdmission extends RetainedRunAdmission | RetainedInteractiveAdmission,
+>(onAdmission: (admission: TAdmission) => Promise<void>, admission: TAdmission): Promise<void> {
+  const stableAdmission = detachedSnapshot(admission, 'retained run admission')
   try {
-    await onAdmission(Object.freeze(admission))
+    await onAdmission(stableAdmission)
   } catch (error) {
-    throw new RetainedRunAdmissionError(admission, { cause: error })
+    if (isInteractiveAdmission(stableAdmission)) {
+      throw new RetainedInteractiveAdmissionError(stableAdmission, { cause: error })
+    }
+    throw new RetainedRunAdmissionError(stableAdmission, { cause: error })
   }
+}
+
+function isInteractiveAdmission(
+  admission: RetainedRunAdmission | RetainedInteractiveAdmission,
+): admission is RetainedInteractiveAdmission {
+  return admission.phase === 'interactive_environment' || admission.phase === 'interactive_started'
 }
 
 /**
@@ -464,7 +479,7 @@ export async function assertRetainedCapabilities(
  * the provider document because that provider claims the same guarantee for
  * every environment it creates.
  */
-function retainedCapabilitiesForEnvironment(
+export function retainedCapabilitiesForEnvironment(
   providerName: string,
   providerCapabilities: AgentEnvironmentCapabilities,
   environment: AgentEnvironment,

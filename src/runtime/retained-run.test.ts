@@ -44,8 +44,21 @@ function recordedAdmissions(): {
   return {
     admissions,
     onAdmission: async (admission) => {
+      assertDetachedAdmissionPhase(admission)
       admissions.push(admission)
     },
+  }
+}
+
+function assertDetachedAdmissionPhase(admission: RetainedRunAdmission): void {
+  switch (admission.phase) {
+    case 'environment':
+    case 'dispatched':
+      return
+    default: {
+      const exhaustive: never = admission
+      throw new Error(`unexpected detached admission: ${JSON.stringify(exhaustive)}`)
+    }
   }
 }
 

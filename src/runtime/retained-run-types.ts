@@ -1,5 +1,7 @@
 import type {
   AgentExactRunControlRef,
+  AgentInteractiveSessionRef,
+  AgentInteractiveSessionStart,
   AgentNativeContextContinuationOptions,
   AgentNativeContextContinuationResult,
   AgentSessionStatus,
@@ -112,16 +114,38 @@ export interface RetainedRunDispatchedAdmission {
   readonly turnId: string
 }
 
-/** One admission record the runtime persists through the caller before proceeding. @stable */
+/** Exact interactive start request durable before provider work begins. @stable */
+export interface RetainedInteractiveEnvironmentAdmission {
+  readonly phase: 'interactive_environment'
+  readonly provider: string
+  readonly environmentId: string
+  readonly idempotencyKey: string
+  readonly interactiveIdempotencyKey: string
+  readonly request: AgentInteractiveSessionStart
+}
+
+/** Provider-issued interactive process reference durable before start returns. @stable */
+export interface RetainedInteractiveStartedAdmission {
+  readonly phase: 'interactive_started'
+  readonly idempotencyKey: string
+  readonly interactiveIdempotencyKey: string
+  readonly ref: AgentInteractiveSessionRef
+}
+
+/** Durable records for one exact native coding-agent process. @stable */
+export type RetainedInteractiveAdmission =
+  | RetainedInteractiveEnvironmentAdmission
+  | RetainedInteractiveStartedAdmission
+
+/** One detached-run admission record the runtime persists before dispatch proceeds. @stable */
 export type RetainedRunAdmission = RetainedRunEnvironmentAdmission | RetainedRunDispatchedAdmission
 
 /**
  * Awaited durability hook for retained admission records.
  *
- * The runtime blocks after environment creation and again after dispatch until
- * the hook resolves, so no retained run becomes caller-visible before its
- * recovery record is durable. A rejection fails the start without destroying
- * the environment; the persisted record or provider state is the recovery path.
+ * The runtime blocks after environment creation and after provider work until
+ * the hook resolves. No retained run becomes caller-visible before its exact
+ * recovery record is durable. A rejection keeps the environment for recovery.
  *
  * @stable
  */

@@ -6,6 +6,19 @@
  */
 
 export {
+  reconnectRetainedInteractiveRun,
+  recoverRetainedInteractiveRun,
+  startRetainedInteractiveRun,
+} from './retained-interactive'
+export type {
+  ReconnectRetainedInteractiveRunOptions,
+  RecoverRetainedInteractiveRunOptions,
+  RetainedInteractiveAdmissionHook,
+  RetainedInteractiveEnvironmentInput,
+  RetainedInteractiveRunHandle,
+  StartRetainedInteractiveRunOptions,
+} from './retained-interactive-types'
+export {
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
@@ -17,6 +30,9 @@ export type {
   ReconnectRetainedRunOptions,
   RecoverRetainedRunOptions,
   RecoverRetainedRunResult,
+  RetainedInteractiveAdmission,
+  RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveStartedAdmission,
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunCancellation,
