@@ -26,6 +26,7 @@ export interface DurableSupervisionDiscovery {
 type SpawnJournalIdentityRecord = {
   readonly kind?: unknown
   readonly root?: unknown
+  readonly event?: unknown
 }
 
 type CoordinationIdentityRecord = {
@@ -58,17 +59,30 @@ export async function discoverDurableSupervisionRun(
     readOptionalText(coordinationLogPath),
   ])
 
-  const roots = new Set<NodeId>()
+  const allRoots = new Set<NodeId>()
+  const nestedRoots = new Set<NodeId>()
   if (spawnText !== undefined) {
     for (const record of parseCommittedJsonLines<SpawnJournalIdentityRecord>(
       spawnText,
       spawnJournalPath,
     )) {
-      if (record.kind !== 'begin') continue
-      if (typeof record.root !== 'string' || record.root.length === 0) {
-        throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
+      if (record.kind === 'begin') {
+        if (typeof record.root !== 'string' || record.root.length === 0) {
+          throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
+        }
+        allRoots.add(record.root as NodeId)
+        continue
       }
-      roots.add(record.root as NodeId)
+      if (record.kind !== 'event') continue
+      const event = record.event
+      if (!isRecord(event) || event.kind !== 'spawned') continue
+      if (!Object.hasOwn(event, 'ownedTreeRoot')) continue
+      if (typeof event.ownedTreeRoot !== 'string' || event.ownedTreeRoot.length === 0) {
+        throw new Error(
+          `${spawnJournalPath}: spawned event ownedTreeRoot must be a non-empty string when present`,
+        )
+      }
+      nestedRoots.add(event.ownedTreeRoot as NodeId)
     }
   }
 
@@ -102,11 +116,11 @@ export async function discoverDurableSupervisionRun(
   }
 
   const coordinationStreams = [...streams.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareText(left, right))
     .map(([runId, stream]) =>
       Object.freeze({
         runId,
-        ownerIds: Object.freeze([...stream.owners].sort()),
+        ownerIds: Object.freeze([...stream.owners].sort(compareText)),
         unscopedRecords: stream.unscopedRecords,
         recordCount: stream.recordCount,
       }),
@@ -116,7 +130,9 @@ export async function discoverDurableSupervisionRun(
     runDir: canonicalRunDir,
     spawnJournalPath,
     coordinationLogPath,
-    roots: Object.freeze([...roots].sort()),
+    roots: Object.freeze(
+      [...allRoots].filter((root) => !nestedRoots.has(root)).sort(compareText),
+    ),
     coordinationStreams: Object.freeze(coordinationStreams),
   })
 }
@@ -129,6 +145,14 @@ async function readOptionalText(path: string): Promise<string | undefined> {
     if (isNoEntError(error)) return undefined
     throw error
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function isNoEntError(error: unknown): boolean {
