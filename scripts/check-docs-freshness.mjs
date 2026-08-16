@@ -202,7 +202,10 @@ for (const { name, range } of peerChecks) {
   // excluded backticks between the name and its pin (`[^\n\`]*`), so a peer whose name
   // is itself backticked (`@tangle-network/agent-interface`) or that has backticked
   // tokens before its floor never matched — its pin was silently never asserted.
-  const re = new RegExp(`${name}[^\\n]*?>=(\\d+\\.\\d+\\.\\d+)`, 'g')
+  // A peer whose package states a compatibility promise is declared as a caret
+  // range, so the doc may assert either `^x.y.z` or `>=x.y.z`. Both name the same
+  // floor, which is the value this check compares.
+  const re = new RegExp(`${name}[^\\n]*?(?:>=|\\^)(\\d+\\.\\d+\\.\\d+)`, 'g')
   let matched = 0
   for (let i = 0; i < docLines.length; i++) {
     for (const m of docLines[i].matchAll(re)) {
@@ -211,7 +214,7 @@ for (const { name, range } of peerChecks) {
         report(
           'SUBSTRATE',
           i + 1,
-          `doc pins ${name} >=${m[1]}, package.json peerDependencies floor is >=${floor}`,
+          `doc pins ${name} ${m[1]}, package.json peerDependencies floor is ${floor}`,
         )
       }
     }

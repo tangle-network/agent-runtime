@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.12
+
+### Changed
+
+- The first-party cohort this benchmark resolves through the workspace catalog moves with the runtime: `agent-interface` 0.53.0 to 1.0.0, `agent-eval` 0.145.15 to 0.145.21, `agent-knowledge` 8.0.1 to 8.0.5, and `sandbox` 0.27.0 to 0.27.1. Interface 1.0.0 publishes the surface of 0.56.0 unchanged and states a compatibility promise, so one interface copy resolves for the whole tree.
+
 ## 0.8.11
 
 - Consume Runtime 0.135.3, Eval 0.145.15, Interface 0.53.0, Knowledge 8.0.1, and Sandbox 0.26.2 as one compatible set.

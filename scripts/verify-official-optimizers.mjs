@@ -13,7 +13,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   assertPeerMatchesDevelopmentDependency,
-  currentMinorPeerRange,
+  expectedPeerRange,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
 } from './lib/packed-package-test.mjs'
@@ -44,17 +44,17 @@ const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
 assertVersion(
   packageJson.peerDependencies?.['@tangle-network/agent-eval'],
-  currentMinorPeerRange(agentEvalVersion),
+  expectedPeerRange(agentEvalVersion),
   '@tangle-network/agent-eval peer dependency',
 )
 assertVersion(
   packageJson.peerDependencies?.['@tangle-network/agent-interface'],
-  currentMinorPeerRange(workspaceAgentInterfaceVersion),
+  expectedPeerRange(workspaceAgentInterfaceVersion),
   '@tangle-network/agent-interface peer dependency',
 )
 assertVersion(
   packageJson.peerDependencies?.['@tangle-network/sandbox'],
-  currentMinorPeerRange(workspaceSandboxVersion),
+  expectedPeerRange(workspaceSandboxVersion),
   '@tangle-network/sandbox peer dependency',
 )
 
