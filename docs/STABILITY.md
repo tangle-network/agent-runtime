@@ -38,3 +38,19 @@ Promotion is a normal PR: flip the tags (per-symbol and module-level), add the C
 
 A `@stable` symbol is demoted back to `@experimental`, or removed, only through a deprecation cycle: the release that announces it adds `@deprecated` (naming the replacement or the reason) while the symbol keeps working, the CHANGELOG entry names the symbol and the migration path, and removal lands no earlier than the next minor release after the announcement.
 An `@experimental` symbol needs none of that — it can be reshaped or removed in any release with a CHANGELOG line — which is exactly why the default is experimental and the stable set is enumerated, not implied.
+
+## What this package declares about its first-party dependencies
+
+Every `@tangle-network/*` specifier this package publishes is a **range**, never one exact version.
+An exact pin is not a compatibility statement.
+It names one version and refuses every other, so a consumer that already holds a later cohort member installs a **second physical copy** of the pinned package.
+Two copies of `@tangle-network/agent-interface` in one tree means two class identities and `instanceof` answering false across the seam.
+
+The range shape follows the depended-on package's own versioning, the same rule a peer range follows:
+
+- **From 1.0.0** — a caret, such as `^1.0.0`. A minor is additive there, so one copy holds across later minors.
+- **Below 1.0.0** — the narrower window `>=X.Y.Z <X.Y+1.0`. A pre-1.0 minor may remove, so the range stops at the next minor.
+
+The range is stated once, in the `catalog:` block of [`pnpm-workspace.yaml`](../pnpm-workspace.yaml).
+A `catalog:` specifier and a `workspace:*` specifier are both replaced by an exact version when the package is packed, so a source manifest can look clean while only the packed manifest carries the defect.
+`pnpm run check:published-ranges` therefore packs each publishable workspace package and reads the archive, and fails when a packed first-party specifier names one version instead of a range.

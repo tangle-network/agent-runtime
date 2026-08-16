@@ -1,0 +1,97 @@
+import { describe, expect, it } from 'vitest'
+import {
+  assertFirstPartyRangeSpecs,
+  cohortRange,
+  isExactVersionSpec,
+  rangeAdmits,
+} from './packed-package-test.mjs'
+
+describe('isExactVersionSpec', () => {
+  it('reads a bare version as exact', () => {
+    expect(isExactVersionSpec('1.0.0')).toBe(true)
+    expect(isExactVersionSpec('0.145.21')).toBe(true)
+    expect(isExactVersionSpec('1.0.0-rc.1')).toBe(true)
+  })
+
+  it('reads every range shape as not exact', () => {
+    expect(isExactVersionSpec('^1.0.0')).toBe(false)
+    expect(isExactVersionSpec('>=0.27.1 <0.28.0')).toBe(false)
+    expect(isExactVersionSpec('~1.0.0')).toBe(false)
+    expect(isExactVersionSpec('catalog:')).toBe(false)
+    expect(isExactVersionSpec('workspace:^')).toBe(false)
+  })
+})
+
+describe('cohortRange', () => {
+  it('returns a range unchanged', () => {
+    expect(cohortRange('^1.0.0')).toBe('^1.0.0')
+    expect(cohortRange('>=0.27.1 <0.28.0')).toBe('>=0.27.1 <0.28.0')
+  })
+
+  it('derives the range an exact version earns', () => {
+    expect(cohortRange('1.2.3')).toBe('^1.2.3')
+    expect(cohortRange('0.27.1')).toBe('>=0.27.1 <0.28.0')
+  })
+})
+
+describe('rangeAdmits', () => {
+  it('admits inside a caret range and refuses the next major', () => {
+    expect(rangeAdmits('^1.0.0', '1.4.2')).toBe(true)
+    expect(rangeAdmits('^1.2.0', '1.1.9')).toBe(false)
+    expect(rangeAdmits('^1.0.0', '2.0.0')).toBe(false)
+  })
+
+  it('admits inside a minor window and refuses the next minor', () => {
+    expect(rangeAdmits('>=0.145.21 <0.146.0', '0.145.22')).toBe(true)
+    expect(rangeAdmits('>=0.145.21 <0.146.0', '0.145.20')).toBe(false)
+    expect(rangeAdmits('>=0.145.21 <0.146.0', '0.146.0')).toBe(false)
+  })
+
+  it('refuses an exact specifier, which states no range', () => {
+    expect(rangeAdmits('0.145.21', '0.145.21')).toBe(false)
+  })
+})
+
+describe('assertFirstPartyRangeSpecs', () => {
+  it('accepts a manifest whose first-party specifiers are all ranges', () => {
+    expect(() =>
+      assertFirstPartyRangeSpecs({
+        name: '@tangle-network/agent-bench',
+        dependencies: {
+          '@tangle-network/agent-interface': '^1.0.0',
+          '@tangle-network/agent-eval': '>=0.145.21 <0.146.0',
+          'tar-stream': '3.2.0',
+        },
+        peerDependencies: { '@tangle-network/sandbox': '>=0.27.1 <0.28.0' },
+      }),
+    ).not.toThrow()
+  })
+
+  it('names every exact first-party pin it refuses', () => {
+    let message = ''
+    try {
+      assertFirstPartyRangeSpecs({
+        name: '@tangle-network/agent-bench',
+        dependencies: {
+          '@tangle-network/agent-interface': '1.0.0',
+          '@tangle-network/agent-runtime': '0.137.0',
+        },
+        peerDependencies: { '@tangle-network/sandbox': '^0.27.1' },
+      })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+    expect(message).toContain('dependencies.@tangle-network/agent-interface = 1.0.0')
+    expect(message).toContain('dependencies.@tangle-network/agent-runtime = 0.137.0')
+    expect(message).not.toContain('sandbox')
+  })
+
+  it('ignores a third-party exact pin, which duplicates nothing first-party', () => {
+    expect(() =>
+      assertFirstPartyRangeSpecs({
+        name: '@tangle-network/agent-runtime',
+        dependencies: { 'tar-stream': '3.2.0' },
+      }),
+    ).not.toThrow()
+  })
+})
