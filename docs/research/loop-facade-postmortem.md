@@ -101,3 +101,63 @@ before building. The prevention rule is sound; its DISCOVERABILITY was the gap.
 Loop/orchestration primitives are governed by the `canonical-api.md` §2 decision
 table — that table now points here, and any "new loop primitive" idea must clear
 this record's executable-proof-with-real-agents bar before a line is written.
+
+## Audit 20260816: the entries are four families, not one duplicated grammar
+
+Issue #874 carried the opposite reading of this record.
+It counted ten symbols on the published surface, called five of them "loop entries" and four of them rival graph runtimes, and ruled that consolidation should leave two.
+The audit measured the surface instead of the symbol names, and the ruling did not survive it.
+
+Two of the five named entries were not public when the ledger listed them.
+
+`runLoop` had already been consolidated, which is the outcome the ledger asked for.
+It was a deprecated alias for `runAgentRounds`, renamed in #614 and deleted with the other superseded loop aliases in #720, which shipped in 0.127.0 on 2026-08-03.
+`runAgentRounds` is the surviving entry and is still public on `/kernel`.
+The 0.135.2 the ledger measured carries zero occurrences of `runLoop` in its `dist` types.
+
+`routerToolLoop` is a `src/runtime/router-client.ts` internal that no barrel exports; the three hits in `dist` are prose inside doc comments.
+
+Both counts came from grepping mentions in `.d.ts` text rather than reading the export lists.
+The ledger's own figures show it: the counts it published for `loopDispatch`, `loopCampaignDispatch`, and `routerToolLoop` match the mention totals for those names exactly, and a name with no mentions left carried no count at all.
+
+The remaining eight are four families with different reasons to exist:
+
+| Entry | Family | What it is |
+|---|---|---|
+| `loopUntil` | combinator | one step child per round until the stop gate passes |
+| `pipeline` | combinator | ordered stages, each stage fed the previous deliverable |
+| `worktreeFanout` | combinator preset | returns `fanout(...)` over worktree-CLI leaves |
+| `loopDispatch` | eval adapter | returns a `ProfileDispatchFn` for `runProfileMatrix` |
+| `loopCampaignDispatch` | eval adapter | returns a `DispatchFn` for `runCampaign` |
+| `runGraph` | graph runtime | a model-decided topology over `supervise()` |
+| `replaySpawnTree` | durable replay | re-feeds a journaled tree as `Settled[]` |
+| `runTree` | view merge | folds a resumed run's committed nodes into the live view |
+
+No combinator is subsumed by `runGraph`, and the reason is behavioural rather than stylistic.
+`runPersonified` accepts no brain, no router, and no model configuration, so a combinator's order is a property of the program.
+`runGraph` always routes delegation through a model, whether the caller supplies a `brain`, places a `driverBackend` harness, or falls through to the root profile's router brain.
+`tests/kernel/composition-families.test.ts` holds the distinction: one two-node graph runs its worker when the scripted brain emits `spawn_agent` and runs nothing when the same brain declines.
+A `pipeline` stage cannot be skipped that way, so the two entries do not express the same behaviour.
+
+The dispatch pair already shares one core, `runLoopWithCampaignContext`.
+The two public faces exist because agent-eval has two entry points with different signatures, and both remain live.
+They stay.
+
+`replaySpawnTree` is not subsumed either, and its signature settles it.
+It takes a journal, a blob store, and a root id, and it returns the settlements already recorded.
+There is no executor, no profile, and no brain in that call, so it runs no agent at all.
+`runGraph` cannot return a past run's settlements without executing the run again.
+
+`runTree` was the one genuine removal, and it was never a runtime.
+It is nine lines that merge a resumed run's prior nodes into the live view, the supervisor applies it before returning, and `SupervisedResult.tree` therefore already carries the merged tree.
+No consumer imported it: verified across 23 first-party repositories and the only published dependent.
+It left the `/kernel` barrel in 0.138.0 and stayed as a supervisor internal.
+
+Scan both forms when checking for consumers.
+The first pass here read `import ... from` only and undercounted, because agent-dev-container reaches `loopUntil` through an `export ... from` re-export in `packages/workflow-script-runtime/src/loops.ts`.
+Counting both forms raised the statement total from 255 to 328 and left `runTree` at zero.
+
+**Why this recurred:** the ledger reasoned from names.
+A `run*` prefix on a pure view merge, and two `loop*` prefixes on eval adapters, read as duplicated runtimes to a reader counting symbols.
+Before proposing that two entries consolidate, read both implementations and name the behaviour that separates them.
+If no behaviour separates them, a test must be able to tell the surviving entry from the deleted one.
