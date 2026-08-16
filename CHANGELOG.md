@@ -23,7 +23,7 @@ The catalog moves with it, so one interface copy resolves for the whole tree:
 | `@tangle-network/sandbox` | 0.27.0 | 0.27.1 |
 
 The `agent-eval` peer floor moves to `>=0.145.21 <0.146.0` with the catalog.
-The `sandbox` peer stays `>=0.27.0 <0.28.0`, which 0.27.1 satisfies.
+The `sandbox` peer floor moves to `>=0.27.1 <0.28.0` with the catalog. A consumer holding sandbox 0.27.0 must move to 0.27.1, which is the release that declares the interface caret range.
 
 This is a minor release, not a patch: the interface range narrows, so a consumer still holding an interface below 1.0.0 stays on 0.136.0.
 
