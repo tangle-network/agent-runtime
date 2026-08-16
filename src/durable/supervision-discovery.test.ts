@@ -148,9 +148,7 @@ describe('discoverDurableSupervisionRun', () => {
         '',
       ].join('\n'),
     )
-    await expect(discoverDurableSupervisionRun(malformedOwnedRoot)).rejects.toThrow(
-      /ownedTreeRoot/,
-    )
+    await expect(discoverDurableSupervisionRun(malformedOwnedRoot)).rejects.toThrow(/ownedTreeRoot/)
   })
 
   it('refuses malformed committed coordination identities', async () => {
