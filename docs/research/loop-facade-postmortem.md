@@ -143,10 +143,19 @@ The dispatch pair already shares one core, `runLoopWithCampaignContext`.
 The two public faces exist because agent-eval has two entry points with different signatures, and both remain live.
 They stay.
 
+`replaySpawnTree` is not subsumed either, and its signature settles it.
+It takes a journal, a blob store, and a root id, and it returns the settlements already recorded.
+There is no executor, no profile, and no brain in that call, so it runs no agent at all.
+`runGraph` cannot return a past run's settlements without executing the run again.
+
 `runTree` was the one genuine removal, and it was never a runtime.
 It is nine lines that merge a resumed run's prior nodes into the live view, the supervisor applies it before returning, and `SupervisedResult.tree` therefore already carries the merged tree.
 No consumer imported it: verified across 23 first-party repositories and the only published dependent.
 It left the `/kernel` barrel in 0.138.0 and stayed as a supervisor internal.
+
+Scan both forms when checking for consumers.
+The first pass here read `import ... from` only and undercounted, because agent-dev-container reaches `loopUntil` through an `export ... from` re-export in `packages/workflow-script-runtime/src/loops.ts`.
+Counting both forms raised the statement total from 255 to 328 and left `runTree` at zero.
 
 **Why this recurred:** the ledger reasoned from names.
 A `run*` prefix on a pure view merge, and two `loop*` prefixes on eval adapters, read as duplicated runtimes to a reader counting symbols.
