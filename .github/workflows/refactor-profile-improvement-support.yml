@@ -12,7 +12,7 @@ jobs:
   refactor:
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - name: Check out branch
         uses: actions/checkout@v7
@@ -33,329 +33,32 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Extract canonical profile experiment support
-        shell: python
-        run: |
-          from pathlib import Path
-
-          support = r'''import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
-          import {
-            type CampaignScenarioIdentity,
-            campaignSplitDigestFromIdentities,
-          } from '@tangle-network/agent-eval/campaign'
-          import {
-            sealAgentProfileImprovementSuite,
-            sealAgentProfileImprovementTask,
-          } from '@tangle-network/agent-eval/contract'
-          import type {
-            AgentCandidateEvaluationPolicy,
-            AgentImprovementCost,
-            AgentImprovementSource,
-            AgentProfile,
-            AgentProfileImprovementMeasuredComparison,
-            AgentProfileImprovementSuiteInputs,
-            AgentProfileImprovementTask,
-            AgentProfileImprovementTaskMaterial,
-            Sha256Digest,
-          } from '@tangle-network/agent-interface'
-          import {
-            AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
-            agentImprovementSourceMetadata,
-            agentProfileImprovementArmSchema,
-            numbersApproximatelyEqual,
-          } from '@tangle-network/agent-interface'
-          import { immutableCandidateValue } from '../candidate-execution/digest'
-          import {
-            assertNoCallerOptimizationReceipt,
-            attachOptimizationActivationReceipt,
-            createOptimizationActivationReceipt,
-          } from './optimization-receipt'
-          import type { AgentImprovementProfileStateDigest } from './profile-activation'
-
-          export interface ProfileImprovementBenchmarkInput {
-            tasks: [AgentProfileImprovementTaskMaterial, ...AgentProfileImprovementTaskMaterial[]]
-            reps: number
-            seeds: [number, ...number[]]
-            policy: AgentCandidateEvaluationPolicy
-          }
-
-          export function createProfileImprovementCostLedger(
-            budgetUsd: number,
-            context = 'profile improvement',
-          ): CostLedger {
-            if (!Number.isFinite(budgetUsd) || budgetUsd < 0) {
-              throw new Error(`${context} budgetUsd must be a non-negative finite number`)
-            }
-            return new CostLedger({ costCeilingUsd: budgetUsd })
-          }
-
-          export function profilePolicyWithBudget(
-            policy: AgentCandidateEvaluationPolicy,
-            budgetUsd: number,
-            context = 'profile improvement',
-          ): AgentCandidateEvaluationPolicy {
-            if (
-              policy.budgetUsd !== undefined &&
-              !numbersApproximatelyEqual(policy.budgetUsd, budgetUsd)
-            ) {
-              throw new Error(`${context} policy budgetUsd must equal the run budgetUsd`)
-            }
-            return { ...policy, budgetUsd }
-          }
-
-          export function profilePreparationAccounting(
-            costLedger: CostLedgerHandle,
-            startedAt: number,
-          ): { wallDurationMs: number; cost: AgentImprovementCost } {
-            const summary = costLedger.summary()
-            if (!summary.accountingComplete || summary.costProvenance.kind === 'uncaptured') {
-              throw new Error('profile improvement preparation cost is incomplete')
-            }
-            return {
-              wallDurationMs: Math.max(0, performance.now() - startedAt),
-              cost: {
-                usd: summary.costProvenance.usd,
-                provenance: summary.costProvenance.kind,
-              },
-            }
-          }
-
-          export function profileStateDigest(
-            stateDigest: AgentImprovementProfileStateDigest,
-            identity: string,
-            profile: AgentProfile,
-          ): Sha256Digest {
-            return agentProfileImprovementArmSchema.parse({
-              stateDigest: stateDigest({ identity, profile }),
-            }).stateDigest
-          }
-
-          export function sealProfileImprovementBenchmark(
-            input: ProfileImprovementBenchmarkInput,
-          ): AgentProfileImprovementSuiteInputs {
-            const tasks = input.tasks.map((task) => sealAgentProfileImprovementTask(task)) as [
-              AgentProfileImprovementTask,
-              ...AgentProfileImprovementTask[],
-            ]
-            return sealAgentProfileImprovementSuite({
-              splitDigest: campaignSplitDigestFromIdentities(
-                tasks.map(profileTaskScenarioIdentity),
-                input.reps,
-              ),
-              tasks,
-              reps: input.reps,
-              seeds: input.seeds,
-            })
-          }
-
-          export function profileTaskScenarioIdentity(
-            task: AgentProfileImprovementTask,
-          ): CampaignScenarioIdentity {
-            return {
-              id: task.scenario.id,
-              kind: task.scenario.kind,
-              scenarioDigest: task.scenario.digest,
-            }
-          }
-
-          export function profileImprovementMetadata(
-            metadata: AgentProfileImprovementMeasuredComparison['metadata'],
-            source: AgentImprovementSource,
-            optimizationReceipt?: ReturnType<typeof createOptimizationActivationReceipt>,
-          ): NonNullable<AgentProfileImprovementMeasuredComparison['metadata']> {
-            assertNoCallerOptimizationReceipt(metadata)
-            if (metadata && Object.hasOwn(metadata, AGENT_IMPROVEMENT_SOURCE_METADATA_KEY)) {
-              throw new Error(
-                `candidate metadata reserves '${AGENT_IMPROVEMENT_SOURCE_METADATA_KEY}' for Runtime`,
-              )
-            }
-            const merged = { ...(metadata ?? {}), ...agentImprovementSourceMetadata(source) }
-            return optimizationReceipt
-              ? attachOptimizationActivationReceipt(merged, optimizationReceipt)
-              : immutableCandidateValue(merged)
-          }
-          '''
-          support = '\n'.join(line[10:] if line.startswith('          ') else line for line in support.splitlines()) + '\n'
-          Path('src/intelligence/profile-improvement-experiment.ts').write_text(support)
-
-          def replace_once(text: str, old: str, new: str, label: str) -> str:
-              if text.count(old) != 1:
-                  raise SystemExit(f'{label}: expected one match, found {text.count(old)}')
-              return text.replace(old, new, 1)
-
-          def remove_function(text: str, signature: str) -> str:
-              if text.count(signature) != 1:
-                  raise SystemExit(f'{signature}: expected one function')
-              start = text.index(signature)
-              brace = text.index('{', start)
-              depth = 0
-              end = None
-              for index in range(brace, len(text)):
-                  char = text[index]
-                  if char == '{':
-                      depth += 1
-                  elif char == '}':
-                      depth -= 1
-                      if depth == 0:
-                          end = index + 1
-                          break
-              if end is None:
-                  raise SystemExit(f'{signature}: unbalanced function')
-              while end < len(text) and text[end] == '\n':
-                  end += 1
-              return text[:start] + text[end:]
-
-          cycle_path = Path('src/intelligence/improvement-cycle.ts')
-          cycle = cycle_path.read_text()
-          cycle = replace_once(
-              cycle,
-              "import {\n  type CampaignScenarioIdentity,\n  campaignSplitDigestFromIdentities,\n} from '@tangle-network/agent-eval/campaign'",
-              "import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'",
-              'campaign import',
-          )
-          for line in (
-              '  sealAgentProfileImprovementSuite,\n',
-              '  sealAgentProfileImprovementTask,\n',
-              '  AgentImprovementCost,\n',
-              '  AgentProfileImprovementTask,\n',
-              '  AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,\n',
-              '  agentImprovementSourceMetadata,\n',
-              '  agentProfileImprovementArmSchema,\n',
-              '  attachOptimizationActivationReceipt,\n',
-          ):
-              cycle = replace_once(cycle, line, '', f'remove {line.strip()}')
-          optimization_anchor = "import {\n  assertNoCallerOptimizationReceipt,\n  createOptimizationActivationReceipt,\n  optimizationActivationReceiptFromMetadata,\n} from './optimization-receipt'\n"
-          shared_import = """import {
-            createProfileImprovementCostLedger,
-            profileImprovementMetadata,
-            profilePolicyWithBudget,
-            profilePreparationAccounting,
-            profileStateDigest,
-            profileTaskScenarioIdentity,
-            sealProfileImprovementBenchmark,
-          } from './profile-improvement-experiment'
-          """
-          shared_import = '\n'.join(line[10:] if line.startswith('          ') else line for line in shared_import.splitlines()) + '\n'
-          cycle = replace_once(
-              cycle,
-              optimization_anchor,
-              optimization_anchor + shared_import,
-              'shared support import',
-          )
-          for signature in (
-              'function createProfileImprovementCostLedger(',
-              'function profilePolicyWithBudget(',
-              'function profilePreparationAccounting(',
-              'function profileStateDigest(',
-              'function sealProfileImprovementBenchmark(',
-              'function profileTaskScenarioIdentity(',
-              'function profileImprovementMetadata(',
-          ):
-              cycle = remove_function(cycle, signature)
-          cycle_path.write_text(cycle)
-
-          authored_path = Path('src/intelligence/authored-profile-improvement.ts')
-          authored = authored_path.read_text()
-          authored = replace_once(
-              authored,
-              "import { CostLedger } from '@tangle-network/agent-eval'\n",
-              '',
-              'authored CostLedger import',
-          )
-          authored = replace_once(
-              authored,
-              "import {\n  type CampaignScenarioIdentity,\n  campaignSplitDigestFromIdentities,\n} from '@tangle-network/agent-eval/campaign'",
-              "import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'",
-              'authored campaign import',
-          )
-          for line in (
-              '  sealAgentProfileImprovementSuite,\n',
-              '  sealAgentProfileImprovementTask,\n',
-              '  AgentProfileImprovementTask,\n',
-              '  AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,\n',
-              '  agentImprovementSourceMetadata,\n',
-              '  agentProfileImprovementArmSchema,\n',
-              '  numbersApproximatelyEqual,\n',
-          ):
-              authored = replace_once(authored, line, '', f'authored remove {line.strip()}')
-          authored_anchor = "import { assertNoCallerOptimizationReceipt } from './optimization-receipt'\n"
-          authored_import = """import {
-            createProfileImprovementCostLedger,
-            profileImprovementMetadata,
-            profilePolicyWithBudget,
-            profilePreparationAccounting,
-            profileStateDigest,
-            profileTaskScenarioIdentity,
-            sealProfileImprovementBenchmark,
-          } from './profile-improvement-experiment'
-          """
-          authored_import = '\n'.join(line[10:] if line.startswith('          ') else line for line in authored_import.splitlines()) + '\n'
-          authored = replace_once(
-              authored,
-              authored_anchor,
-              authored_anchor + authored_import,
-              'authored shared support import',
-          )
-          authored = replace_once(
-              authored,
-              'const costLedger = createMeasurementCostLedger(options.budgetUsd)',
-              "const costLedger = createProfileImprovementCostLedger(\n    options.budgetUsd,\n    'authored profile improvement',\n  )",
-              'authored cost ledger call',
-          )
-          authored = replace_once(
-              authored,
-              'const policy = profilePolicyWithBudget(options.benchmark.policy, options.budgetUsd)',
-              "const policy = profilePolicyWithBudget(\n    options.benchmark.policy,\n    options.budgetUsd,\n    'authored profile',\n  )",
-              'authored policy call',
-          )
-          old_preparation = """const preparation = {
-            wallDurationMs: Math.max(0, performance.now() - preparationStartedAt),
-            cost: { usd: 0, provenance: 'observed' as const },
-          }"""
-          old_preparation = '\n'.join(line[10:] if line.startswith('          ') else line for line in old_preparation.splitlines())
-          authored = replace_once(
-              authored,
-              old_preparation,
-              'const preparation = profilePreparationAccounting(costLedger, preparationStartedAt)',
-              'authored preparation accounting',
-          )
-          authored = replace_once(
-              authored,
-              'metadata: directProfileImprovementMetadata(options.metadata, source),',
-              'metadata: profileImprovementMetadata(options.metadata, source),',
-              'authored metadata call',
-          )
-          for signature in (
-              'function createMeasurementCostLedger(',
-              'function profilePolicyWithBudget(',
-              'function profileStateDigest(',
-              'function sealProfileImprovementBenchmark(',
-              'function profileTaskScenarioIdentity(',
-              'function directProfileImprovementMetadata(',
-          ):
-              authored = remove_function(authored, signature)
-          authored_path.write_text(authored)
+        run: python .github/scripts/refactor-profile-improvement-support.py
 
       - name: Format changed source
         run: pnpm exec biome check --write src/intelligence/profile-improvement-experiment.ts src/intelligence/improvement-cycle.ts src/intelligence/authored-profile-improvement.ts
 
-      - name: Validate source, fixtures, and behavior
+      - name: Validate source, fixtures, behavior, and docs
         run: |
           pnpm run lint
           pnpm run typecheck
           pnpm run check:testing-fixture
           pnpm test
           pnpm run docs:api
+          pnpm run docs:freshness
 
       - name: Commit validated refactor
         shell: bash
         run: |
           rm .github/workflows/refactor-profile-improvement-support.yml
+          rm .github/scripts/refactor-profile-improvement-support.py
           git add \
             src/intelligence/profile-improvement-experiment.ts \
             src/intelligence/improvement-cycle.ts \
             src/intelligence/authored-profile-improvement.ts \
             docs/api \
-            .github/workflows/refactor-profile-improvement-support.yml
+            .github/workflows/refactor-profile-improvement-support.yml \
+            .github/scripts/refactor-profile-improvement-support.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git diff --cached --quiet && { echo "No refactor changes to commit"; exit 1; }
