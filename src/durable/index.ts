@@ -13,11 +13,11 @@
  *   - `discoverDurableSupervisionRun`: inspect a durable supervision directory
  *     without already knowing the root/run identities written inside it.
  *   - `FileObserverJournal`: tamper-evident, append-only third-person history
- *     for a pursuit, fed by Runtime's existing hook stream.
+ *     for one concrete Runtime execution.
  *   - `projectPursuit`: a rebuildable operator read model over that history;
  *     it owns no execution or coordination semantics.
- *   - `supervisePursuit`: one-call adapter over the canonical `supervise()`
- *     executor that makes a stable pursuit durably observable.
+ *   - `supervisePursuit`: one-call adapter over canonical `supervise()` that
+ *     gives each isolated run a stable cross-run pursuit identity.
  */
 
 export type {
@@ -44,12 +44,14 @@ export {
   type PursuitNodeStatus,
   type PursuitProjection,
   type PursuitRunProjection,
+  type PursuitRunStatus,
   projectPursuit,
 } from './observer-projection'
 export {
-  supervisePursuit,
   type SupervisedPursuitResult,
+  SupervisePursuitError,
   type SupervisePursuitOptions,
+  supervisePursuit,
 } from './supervise-pursuit'
 export {
   type DurableCoordinationStreamIdentity,
