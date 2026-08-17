@@ -17,7 +17,7 @@ function event(id: string, pursuitId = 'pursuit:test') {
 }
 
 describe('FileObserverJournal', () => {
-  it('persists one pursuit across multiple run events with a verified chain', async () => {
+  it('persists one execution journal with a verified chain', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'runtime-observer-'))
     const path = join(dir, 'observer.jsonl')
     const journal = new FileObserverJournal(path, 'pursuit:test')
@@ -80,5 +80,15 @@ describe('FileObserverJournal', () => {
     await expect(new FileObserverJournal(path, 'pursuit:one').read()).rejects.toThrow(
       /digest mismatch/,
     )
+  })
+
+  it('never returns a trusted projection after a durable append failure', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'runtime-observer-write-failure-'))
+    const blocker = join(dir, 'not-a-directory')
+    await writeFile(blocker, 'block', 'utf8')
+    const journal = new FileObserverJournal(join(blocker, 'observer.jsonl'), 'pursuit:one')
+
+    await expect(journal.appendEvent(event('cannot-write', 'pursuit:one'))).rejects.toThrow()
+    await expect(journal.read()).rejects.toThrow(/completeness is unknown/)
   })
 })
