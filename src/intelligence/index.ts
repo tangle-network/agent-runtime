@@ -79,6 +79,14 @@ export {
   verifyAgentImprovementActivationResult,
 } from './activation'
 export type {
+  AgentProfileCandidateMeasurementExecutor,
+  AuthoredAgentProfileCandidateLineage,
+  AuthoredAgentProfileDiffOptions,
+  ProposeAuthoredAgentProfileImprovementOptions,
+  ProposeAuthoredAgentProfileImprovementResult,
+} from './authored-profile-improvement'
+export { proposeAuthoredAgentProfileImprovement } from './authored-profile-improvement'
+export type {
   CapabilityAuth,
   CapabilityInterface,
   CapabilityManifest,
