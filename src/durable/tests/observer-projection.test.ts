@@ -19,28 +19,43 @@ function record(
 }
 
 describe('projectPursuit', () => {
-  it('keeps recursive topology and terminal truth isolated per concrete Runtime run', () => {
+  it('keeps run lifecycle and recursive terminal truth isolated per Runtime run', () => {
     const first = record(1, {
       kind: 'event',
       event: {
-        id: 'spawn-a',
+        id: 'run-a-before',
         pursuitId: 'pursuit:test',
         runId: 'run:1',
-        target: 'agent.spawn',
-        phase: 'after',
+        target: 'agent.run',
+        phase: 'before',
         timestamp: 1,
-        parentId: 'root',
-        payload: {
-          childId: 'root:s0',
-          label: 'researcher',
-          runtime: 'sandbox',
-          depth: 0,
-          identity: { candidateDigest: 'sha256:a' },
-        },
       },
     })
     const second = record(
       2,
+      {
+        kind: 'event',
+        event: {
+          id: 'spawn-a',
+          pursuitId: 'pursuit:test',
+          runId: 'run:1',
+          target: 'agent.spawn',
+          phase: 'after',
+          timestamp: 2,
+          parentId: 'root',
+          payload: {
+            childId: 'root:s0',
+            label: 'researcher',
+            runtime: 'sandbox',
+            depth: 0,
+            identity: { candidateDigest: 'sha256:a' },
+          },
+        },
+      },
+      first.digest,
+    )
+    const third = record(
+      3,
       {
         kind: 'decision',
         decision: {
@@ -53,11 +68,26 @@ describe('projectPursuit', () => {
           evidence: [],
         },
       },
-      first.digest,
+      second.digest,
+    )
+    const fourth = record(
+      4,
+      {
+        kind: 'event',
+        event: {
+          id: 'run-b-before',
+          pursuitId: 'pursuit:test',
+          runId: 'run:2',
+          target: 'agent.run',
+          phase: 'before',
+          timestamp: 4,
+        },
+      },
+      third.digest,
     )
     // A different top-level Runtime run may legitimately mint the same local node id.
-    const third = record(
-      3,
+    const fifth = record(
+      5,
       {
         kind: 'event',
         event: {
@@ -66,7 +96,7 @@ describe('projectPursuit', () => {
           runId: 'run:2',
           target: 'agent.spawn',
           phase: 'after',
-          timestamp: 3,
+          timestamp: 5,
           parentId: 'root',
           payload: {
             childId: 'root:s0',
@@ -76,10 +106,10 @@ describe('projectPursuit', () => {
           },
         },
       },
-      second.digest,
+      fourth.digest,
     )
-    const fourth = record(
-      4,
+    const sixth = record(
+      6,
       {
         kind: 'event',
         event: {
@@ -88,7 +118,7 @@ describe('projectPursuit', () => {
           runId: 'run:2',
           target: 'agent.child',
           phase: 'after',
-          timestamp: 4,
+          timestamp: 6,
           parentId: 'root',
           payload: {
             childId: 'root:s0',
@@ -100,15 +130,35 @@ describe('projectPursuit', () => {
           },
         },
       },
-      third.digest,
+      fifth.digest,
+    )
+    const seventh = record(
+      7,
+      {
+        kind: 'event',
+        event: {
+          id: 'run-b-after',
+          pursuitId: 'pursuit:test',
+          runId: 'run:2',
+          target: 'agent.run',
+          phase: 'after',
+          timestamp: 7,
+          payload: { status: 'done' },
+        },
+      },
+      sixth.digest,
     )
 
-    const view = projectPursuit([first, second, third, fourth])
+    const view = projectPursuit([first, second, third, fourth, fifth, sixth, seventh])
     expect(view.pursuitId).toBe('pursuit:test')
-    expect(view.sequence).toBe(4)
-    expect(view.chainTip).toBe(fourth.digest)
-    expect(view.runs.map((run) => run.runId)).toEqual(['run:1', 'run:2'])
+    expect(view.sequence).toBe(7)
+    expect(view.chainTip).toBe(seventh.digest)
+    expect(view.runs.map((run) => [run.runId, run.status])).toEqual([
+      ['run:1', 'running'],
+      ['run:2', 'done'],
+    ])
     expect(view.runs[0]?.decisions.continue).toBe(1)
+    expect(view.runs[1]?.settledAt).toBe(70)
     expect(view.nodes.map((node) => [node.runId, node.id, node.parentId])).toEqual([
       ['run:1', 'root:s0', 'root'],
       ['run:2', 'root:s0', 'root'],
@@ -116,11 +166,48 @@ describe('projectPursuit', () => {
     expect(view.nodes[0]?.status).toBe('running')
     expect(view.nodes[1]).toMatchObject({
       status: 'done',
-      settledAt: 40,
+      settledAt: 60,
       outRef: 'sha256:out',
       score: 0.9,
       valid: true,
       spent: { tokens: 123 },
+    })
+  })
+
+  it('projects an authoritative root failure without treating a child as the pursuit verdict', () => {
+    const first = record(1, {
+      kind: 'event',
+      event: {
+        id: 'before',
+        pursuitId: 'pursuit:test',
+        runId: 'run:failed',
+        target: 'agent.run',
+        phase: 'before',
+        timestamp: 1,
+      },
+    })
+    const second = record(
+      2,
+      {
+        kind: 'event',
+        event: {
+          id: 'error',
+          pursuitId: 'pursuit:test',
+          runId: 'run:failed',
+          target: 'agent.run',
+          phase: 'error',
+          timestamp: 2,
+          payload: { status: 'failed', error: 'driver crashed' },
+        },
+      },
+      first.digest,
+    )
+
+    expect(projectPursuit([first, second]).runs[0]).toMatchObject({
+      runId: 'run:failed',
+      status: 'failed',
+      settledAt: 20,
+      error: 'driver crashed',
     })
   })
 
@@ -160,7 +247,7 @@ describe('projectPursuit', () => {
 
     const tampered: ObserverRecord = {
       ...first,
-      event: first.event ? { ...first.event, runId: 'run:forged' } : undefined,
+      event: { ...first.event!, runId: 'run:forged' },
     }
     expect(() => projectPursuit([tampered])).toThrow(/digest mismatch/)
   })
