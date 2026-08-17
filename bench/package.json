@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.8.13",
+  "version": "0.8.14",
   "type": "module",
   "description": "Benchmark adapters and execution for agent-runtime across coding, tool-use, RAG, memory, browser, and terminal tasks.",
   "repository": {
@@ -37,7 +37,7 @@
     "typecheck:public": "tsc -p tsconfig.public.json",
     "verify:package": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs",
     "verify:package:local-runtime": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs --local-runtime",
-    "verify:package:static": "pnpm run build && publint && attw --pack --profile esm-only .",
+    "verify:package:static": "pnpm run build && publint && attw --pack --profile esm-only . && node ../scripts/check-published-ranges.mjs bench",
     "wait:published-dependencies": "node scripts/wait-for-published-dependencies.mjs",
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
@@ -45,7 +45,7 @@
     "@tangle-network/agent-eval": "catalog:",
     "@tangle-network/agent-interface": "catalog:",
     "@tangle-network/agent-knowledge": "catalog:",
-    "@tangle-network/agent-runtime": "workspace:*",
+    "@tangle-network/agent-runtime": "workspace:^",
     "@tangle-network/sandbox": "catalog:"
   },
   "devDependencies": {

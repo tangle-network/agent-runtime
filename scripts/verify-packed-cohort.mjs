@@ -19,10 +19,11 @@ import { basename, delimiter, dirname, join, relative, resolve, sep } from 'node
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import {
+  assertFirstPartyRangeSpecs,
   assertPeerMatchesDevelopmentDependency,
-  caretAdmits,
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
+  rangeAdmits,
   requiredPackedDevelopmentDependency,
 } from './lib/packed-package-test.mjs'
 
@@ -299,6 +300,7 @@ function buildAndPack({
     )
   }
   assertPublishableDependencySpecs(packedPackageJson)
+  assertFirstPartyRangeSpecs(packedPackageJson)
 
   return {
     name: packageName,
@@ -599,12 +601,12 @@ function assertCohortPackageContracts({
 }
 
 function assertExactDependency(owner, dependency) {
-  // A dependency that states a compatibility promise from 1.0.0 is declared as
-  // a caret range, so the check is admission rather than equality. The packed
-  // install below still proves the tree resolves one physical copy.
+  // A first-party dependency is declared as a range, so the check is admission
+  // rather than equality. The packed install below still proves the tree
+  // resolves one physical copy.
   const declared = owner.packageJson.dependencies?.[dependency.name]
   if (declared === dependency.version) return
-  if (caretAdmits(declared, dependency.version)) return
+  if (rangeAdmits(declared, dependency.version)) return
   throw new Error(
     `${owner.name} requires ${dependency.name}@${declared}, packed ${dependency.version}`,
   )

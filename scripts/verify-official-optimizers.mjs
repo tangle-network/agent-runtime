@@ -11,9 +11,11 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 import {
   assertPeerMatchesDevelopmentDependency,
-  expectedPeerRange,
+  cohortRange,
+  rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
 } from './lib/packed-package-test.mjs'
@@ -33,6 +35,8 @@ const workspaceAgentKnowledgeVersion = installedPackageVersion(
   '@tangle-network/agent-knowledge',
 )
 const workspaceSandboxVersion = installedPackageVersion(repoRoot, '@tangle-network/sandbox')
+const workspaceCatalog =
+  parseYaml(readFileSync(join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'))?.catalog ?? {}
 const agentEvalVersion = workspaceAgentEvalVersion
 const officialOptimizerEnv = {
   AGENT_EVAL_EXPECTED_BRIDGE_VERSION: agentEvalVersion,
@@ -42,21 +46,12 @@ const officialOptimizerEnv = {
 }
 const tempRoot = mkdtempSync(join(tmpdir(), 'agent-runtime-official-'))
 
-assertVersion(
-  packageJson.peerDependencies?.['@tangle-network/agent-eval'],
-  expectedPeerRange(agentEvalVersion),
-  '@tangle-network/agent-eval peer dependency',
-)
-assertVersion(
-  packageJson.peerDependencies?.['@tangle-network/agent-interface'],
-  expectedPeerRange(workspaceAgentInterfaceVersion),
-  '@tangle-network/agent-interface peer dependency',
-)
-assertVersion(
-  packageJson.peerDependencies?.['@tangle-network/sandbox'],
-  expectedPeerRange(workspaceSandboxVersion),
-  '@tangle-network/sandbox peer dependency',
-)
+// The catalog states the cohort range once. A peer range repeats it, and the
+// installed version must be one the range admits.
+assertCohortRange('@tangle-network/agent-eval', agentEvalVersion)
+assertCohortRange('@tangle-network/agent-interface', workspaceAgentInterfaceVersion)
+assertCohortRange('@tangle-network/sandbox', workspaceSandboxVersion)
+assertCatalogAdmits('@tangle-network/agent-knowledge', workspaceAgentKnowledgeVersion)
 
 try {
   run('pnpm', ['build'], repoRoot)
@@ -106,22 +101,22 @@ try {
   )
   assertVersion(
     packedAgentEvalVersion,
-    workspaceAgentEvalVersion,
+    catalogRange('@tangle-network/agent-eval'),
     'packed @tangle-network/agent-eval development dependency',
   )
   assertVersion(
     packedAgentInterfaceVersion,
-    workspaceAgentInterfaceVersion,
+    catalogRange('@tangle-network/agent-interface'),
     'packed @tangle-network/agent-interface development dependency',
   )
   assertVersion(
     packedSandboxVersion,
-    workspaceSandboxVersion,
+    catalogRange('@tangle-network/sandbox'),
     'packed @tangle-network/sandbox development dependency',
   )
   assertVersion(
     requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
-    workspaceAgentKnowledgeVersion,
+    catalogRange('@tangle-network/agent-knowledge'),
     'packed @tangle-network/agent-knowledge dependency',
   )
   writeFileSync(
@@ -163,10 +158,18 @@ try {
   )
 
   assertInstalledVersion(appDir, '@tangle-network/agent-runtime', packageJson.version)
-  assertInstalledVersion(appDir, '@tangle-network/agent-eval', packedAgentEvalVersion)
-  assertInstalledVersion(appDir, '@tangle-network/agent-interface', packedAgentInterfaceVersion)
-  assertInstalledVersion(appDir, '@tangle-network/sandbox', packedSandboxVersion)
-  assertInstalledVersion(appDir, '@tangle-network/agent-knowledge', workspaceAgentKnowledgeVersion)
+  assertInstalledAdmitted(appDir, '@tangle-network/agent-eval', packedAgentEvalVersion)
+  assertInstalledAdmitted(
+    appDir,
+    '@tangle-network/agent-interface',
+    packedAgentInterfaceVersion,
+  )
+  assertInstalledAdmitted(appDir, '@tangle-network/sandbox', packedSandboxVersion)
+  assertInstalledAdmitted(
+    appDir,
+    '@tangle-network/agent-knowledge',
+    catalogRange('@tangle-network/agent-knowledge'),
+  )
   const installedKnowledge = readJson(
     join(appDir, 'node_modules', '@tangle-network', 'agent-knowledge', 'package.json'),
   )
@@ -296,6 +299,39 @@ print(json.dumps({
 function assertInstalledVersion(appDir, packageName, expected) {
   const actual = installedPackageVersion(appDir, packageName)
   assertVersion(actual, expected, `installed ${packageName}`)
+}
+
+function assertInstalledAdmitted(appDir, packageName, range) {
+  const actual = installedPackageVersion(appDir, packageName)
+  if (!rangeAdmits(range, actual)) {
+    throw new Error(`installed ${packageName}@${actual} is outside its declared range ${range}`)
+  }
+}
+
+function catalogRange(packageName) {
+  const spec = workspaceCatalog[packageName]
+  if (typeof spec !== 'string' || spec.length === 0) {
+    throw new Error(`pnpm-workspace.yaml has no catalog entry for ${packageName}`)
+  }
+  return cohortRange(spec)
+}
+
+function assertCohortRange(packageName, installedVersion) {
+  assertVersion(
+    packageJson.peerDependencies?.[packageName],
+    catalogRange(packageName),
+    `${packageName} peer dependency range`,
+  )
+  assertCatalogAdmits(packageName, installedVersion)
+}
+
+function assertCatalogAdmits(packageName, installedVersion) {
+  const range = catalogRange(packageName)
+  if (!rangeAdmits(range, installedVersion)) {
+    throw new Error(
+      `installed ${packageName}@${installedVersion} is outside the catalog range ${range}`,
+    )
+  }
 }
 
 function installedPackageVersion(root, packageName) {

@@ -65,9 +65,72 @@ export function caretAdmits(range, version) {
   return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
 }
 
+const exactVersion = /^\d+\.\d+\.\d+(?:[-+].*)?$/
+
+/** True when a specifier names one version and admits no other. */
+export function isExactVersionSpec(spec) {
+  return typeof spec === 'string' && exactVersion.test(spec.trim())
+}
+
+/**
+ * The cohort range a specifier states.
+ *
+ * A range states itself. An exact version states no range at all, so it is read
+ * as the range its own versioning earns — the shape `expectedPeerRange` returns.
+ */
+export function cohortRange(spec) {
+  if (typeof spec !== 'string' || spec.length === 0) {
+    throw new Error(`cannot read a cohort range from ${String(spec)}`)
+  }
+  return isExactVersionSpec(spec) ? expectedPeerRange(spec.trim()) : spec
+}
+
+/** A `>=floor <ceiling` window admits a version at or above the floor and below the ceiling. */
+export function windowAdmits(range, version) {
+  const window = /^>=(\d+)\.(\d+)\.(\d+)\s+<(\d+)\.(\d+)\.(\d+)$/.exec(range)
+  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  if (window === null || found === null) return false
+  const parts = window.slice(1).map(Number)
+  const order = ([major, minor, patch]) =>
+    major * 1_000_000_000_000 + minor * 1_000_000 + patch
+  const target = order(found.slice(1).map(Number))
+  return target >= order(parts.slice(0, 3)) && target < order(parts.slice(3))
+}
+
+/** A range admits a version through either supported cohort shape. */
+export function rangeAdmits(range, version) {
+  return caretAdmits(range, version) || windowAdmits(range, version)
+}
+
+/**
+ * The published first-party specifiers a consumer resolves against.
+ *
+ * An exact version here forces a second physical copy of the named package for
+ * every consumer that already holds a later one, so every first-party
+ * specifier a consumer can read must be a range.
+ */
+export function assertFirstPartyRangeSpecs(packageJson, scope = '@tangle-network/') {
+  const packageName =
+    typeof packageJson.name === 'string' ? packageJson.name : 'packed package'
+  const exact = []
+  for (const section of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
+    for (const [name, spec] of Object.entries(packageJson[section] ?? {})) {
+      if (!name.startsWith(scope)) continue
+      if (isExactVersionSpec(spec)) exact.push(`${section}.${name} = ${spec}`)
+    }
+  }
+  if (exact.length > 0) {
+    throw new Error(
+      `${packageName} publishes exact first-party version pins, which duplicate the package for every consumer already holding a later one:\n${exact
+        .map((entry) => `  ${entry}`)
+        .join('\n')}\nDeclare a range instead: a caret from 1.0.0, or ">=X.Y.Z <X.Y+1.0" below it.`,
+    )
+  }
+}
+
 export function assertPeerMatchesDevelopmentDependency(packageJson, name) {
   const version = requiredPackedDevelopmentDependency(packageJson, name)
-  const expected = expectedPeerRange(version)
+  const expected = cohortRange(version)
   const actual = packageJson.peerDependencies?.[name]
   if (actual !== expected) {
     const packageName =

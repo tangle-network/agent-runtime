@@ -15,6 +15,8 @@ import {
   assertPeerMatchesDevelopmentDependency,
   assertPublishableDependencySpecs,
   createStrictNodeConsumerTsconfig,
+  isExactVersionSpec,
+  rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
 } from './lib/packed-package-test.mjs'
@@ -822,10 +824,13 @@ function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expectedVer
   if (installations.length === 0) {
     throw new Error(`packed consumer did not install ${packageName}`)
   }
-  if (
-    installations.length !== 1 ||
-    installations[0].packageJson.version !== expectedVersion
-  ) {
+  // A packed catalog specifier is a range below 1.0, so the installed copy is
+  // proven by admission; only an exact specifier names one version to match.
+  const installedVersion = installations[0].packageJson.version
+  const admits = isExactVersionSpec(expectedVersion)
+    ? installedVersion === expectedVersion
+    : rangeAdmits(expectedVersion, installedVersion)
+  if (installations.length !== 1 || !admits) {
     throw new Error(
       [
         `packed consumer must load exactly one ${packageName}@${expectedVersion}; found ${installations.length} installed path(s)`,
