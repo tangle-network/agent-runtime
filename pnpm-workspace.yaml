@@ -20,7 +20,7 @@ catalog:
   '@modelcontextprotocol/sdk': 1.30.0
   '@tangle-network/agent-core': 0.9.4
   '@types/node': 26.1.1
-  '@tangle-network/agent-eval': 0.146.0
+  '@tangle-network/agent-eval': 0.147.0
   '@tangle-network/agent-interface': 1.0.0
   '@tangle-network/agent-knowledge': 8.0.6
   '@tangle-network/agent-profile-materialize': 0.16.0
