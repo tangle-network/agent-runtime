@@ -19,7 +19,7 @@ function record(
 }
 
 describe('projectPursuit', () => {
-  it('builds a multi-run recursive topology and terminal truth from substrate facts', () => {
+  it('keeps recursive topology and terminal truth isolated per concrete Runtime run', () => {
     const first = record(1, {
       kind: 'event',
       event: {
@@ -55,6 +55,7 @@ describe('projectPursuit', () => {
       },
       first.digest,
     )
+    // A different top-level Runtime run may legitimately mint the same local node id.
     const third = record(
       3,
       {
@@ -66,12 +67,12 @@ describe('projectPursuit', () => {
           target: 'agent.spawn',
           phase: 'after',
           timestamp: 3,
-          parentId: 'root:s0',
+          parentId: 'root',
           payload: {
-            childId: 'root:s0:s0',
+            childId: 'root:s0',
             label: 'critic',
             runtime: 'bridge',
-            depth: 1,
+            depth: 0,
           },
         },
       },
@@ -88,9 +89,9 @@ describe('projectPursuit', () => {
           target: 'agent.child',
           phase: 'after',
           timestamp: 4,
-          parentId: 'root:s0',
+          parentId: 'root',
           payload: {
-            childId: 'root:s0:s0',
+            childId: 'root:s0',
             status: 'done',
             outRef: 'sha256:out',
             score: 0.9,
@@ -108,10 +109,11 @@ describe('projectPursuit', () => {
     expect(view.chainTip).toBe(fourth.digest)
     expect(view.runs.map((run) => run.runId)).toEqual(['run:1', 'run:2'])
     expect(view.runs[0]?.decisions.continue).toBe(1)
-    expect(view.nodes.map((node) => [node.id, node.parentId])).toEqual([
-      ['root:s0', 'root'],
-      ['root:s0:s0', 'root:s0'],
+    expect(view.nodes.map((node) => [node.runId, node.id, node.parentId])).toEqual([
+      ['run:1', 'root:s0', 'root'],
+      ['run:2', 'root:s0', 'root'],
     ])
+    expect(view.nodes[0]?.status).toBe('running')
     expect(view.nodes[1]).toMatchObject({
       status: 'done',
       settledAt: 40,
