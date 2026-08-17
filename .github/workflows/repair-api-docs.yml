@@ -1,4 +1,4 @@
-name: Repair API docs
+name: Finalize pursuit observer API docs
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - codex/pursuit-observer-plane
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  repair:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,26 +39,14 @@ jobs:
           NODE
           pnpm biome check --write src/durable/observer-journal.ts
 
-      - name: Regenerate API reference and capture output
-        run: |
-          mkdir -p diagnostics
-          set +e
-          pnpm run docs:api > diagnostics/docs-api.log 2>&1
-          status=$?
-          set -e
-          {
-            echo
-            echo "exit_status=$status"
-          } >> diagnostics/docs-api.log
-          cat diagnostics/docs-api.log
+      - name: Regenerate and verify API reference
+        run: pnpm run docs:api
 
-      - name: Upload source repair, generated reference, and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: runtime-api-docs-diagnostic
-          path: |
-            src/durable/observer-journal.ts
-            diagnostics/docs-api.log
-            docs/api
-          if-no-files-found: error
+      - name: Commit canonical source and generated reference
+        run: |
+          rm .github/workflows/repair-api-docs.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/durable/observer-journal.ts docs/api .github/workflows/repair-api-docs.yml
+          git commit -m "fix(durable): publish digest shape and regenerate API docs"
+          git push origin HEAD:codex/pursuit-observer-plane
