@@ -760,7 +760,7 @@ function interactiveProvider(
       rows: 40,
       createdAt: '2026-08-16T00:00:00.000Z',
       lastActivityAt: '2026-08-16T00:00:00.000Z',
-      expiresAt: '2026-08-17T00:00:00.000Z',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       isRunning: true,
       attachCount: 1,
     },
@@ -992,7 +992,7 @@ function controlFor(
     generation,
     leaseId: 'interactive-lease-1',
     holderId,
-    expiresAt: '2026-08-17T00:00:00.000Z',
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   }
 }
 
