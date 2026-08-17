@@ -2,8 +2,8 @@ import { resolve } from 'node:path'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
 import {
-  composeRuntimeHooks,
   type RuntimeHookEvent,
+  composeRuntimeHooks,
   withPursuitContext,
 } from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
@@ -108,9 +108,10 @@ export async function supervisePursuit(
       observerError = failure
     }
     if (observerError !== undefined || pursuit === undefined) {
+      const causes = observerError === undefined ? [error] : [error, observerError]
       throw new Error(
         'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
-        { cause: new AggregateError([error, observerError]) },
+        { cause: new AggregateError(causes) },
       )
     }
     throw new SupervisePursuitError(error, pursuit, observerPath)
