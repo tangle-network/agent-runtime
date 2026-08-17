@@ -294,7 +294,11 @@ function completionsTransport(
     const turn = await collectAgentTurn(
       streamAgentTurn(
         { kind: 'executor', factory, profile },
-        { messages: req.messages as Array<Record<string, unknown>> },
+        {
+          providerOptions: {
+            messages: req.messages as Array<Record<string, unknown>>,
+          },
+        },
         req.signal ? { signal: req.signal } : {},
       ),
     )

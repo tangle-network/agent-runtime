@@ -12,8 +12,37 @@
  * Both live here so the empirically-observed `type` vocabulary has one home.
  */
 
+import type { StreamEvent } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
+import { parseCanonicalTransportEvent } from './sandbox-transport-events'
+
+const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'message.part.updated',
+  'tool-heartbeat',
+  'tool-slow',
+  'model-processing',
+  'status',
+  'warning',
+  'raw',
+  'session.updated',
+  'interaction',
+  'interaction.cancel',
+  'plan.submitted',
+])
+
+/** Decode one known Agent Interface event from a Sandbox event. */
+export function canonicalStreamEventFromSandboxEvent(event: SandboxEvent): StreamEvent | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+  const normalized = data.normalized
+  if (normalized === undefined && !CANONICAL_STREAM_EVENT_TYPES.has(type)) return undefined
+  return parseCanonicalTransportEvent(type, data, normalized, 'sandbox')
+}
 
 /**
  * Forward a sandbox event to an optional observer without letting observer

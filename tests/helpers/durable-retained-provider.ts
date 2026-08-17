@@ -158,7 +158,10 @@ function sessionFor(
       return sessionState(stateFile, environmentId, initial.id).status
     },
     async *events(options): AsyncIterable<AgentEnvironmentEvent> {
-      const events = sessionState(stateFile, environmentId, initial.id).events
+      const current = sessionState(stateFile, environmentId, initial.id)
+      const latestControlRef =
+        Object.values(current.nativeOperations).at(-1)?.result.controlRef ?? current.controlRef
+      const events = rebindInteractionEvents(current.events, latestControlRef)
       const start =
         options?.since === undefined
           ? 0
@@ -478,6 +481,38 @@ function retainedEvents(controlRef: AgentExactRunControlRef): AgentEnvironmentEv
       normalized: { type: 'session.updated', sessionId: controlRef.sessionId },
     },
   ]
+}
+
+function rebindInteractionEvents(
+  events: readonly AgentEnvironmentEvent[],
+  controlRef: AgentExactRunControlRef,
+): AgentEnvironmentEvent[] {
+  return events.map((event) => {
+    if (event.normalized?.type !== 'interaction') return structuredClone(event)
+    const { requestDigest: _requestDigest, ...requestMaterial } = event.normalized.request
+    const material = {
+      ...requestMaterial,
+      binding: {
+        ...event.normalized.request.binding,
+        runId: controlRef.runId,
+        provider: controlRef.provider,
+        environmentId: controlRef.environmentId,
+        sessionId: controlRef.sessionId,
+        executionId: controlRef.executionId,
+        interactionId: event.normalized.request.id,
+      },
+    }
+    return {
+      ...structuredClone(event),
+      normalized: {
+        type: 'interaction',
+        request: {
+          ...material,
+          requestDigest: interactionRequestDigest(material),
+        },
+      },
+    }
+  })
 }
 
 function serializableTurn(input: AgentTurnInput): Record<string, unknown> {

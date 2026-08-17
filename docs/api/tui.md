@@ -464,7 +464,7 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 ##### status
 
-> `readonly` **status**: `"done"` \| `"down"` \| `"running"` \| `"cancelled"`
+> `readonly` **status**: `"running"` \| `"done"` \| `"down"` \| `"cancelled"`
 
 **`Experimental`**
 

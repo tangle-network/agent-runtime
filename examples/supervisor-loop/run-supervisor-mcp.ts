@@ -106,7 +106,7 @@ async function supervisorBridgeChat(opts: {
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', factory, profile, agentRunName: profile.name },
-      supervisorTask,
+      { prompt: supervisorTask },
       timeoutMs === undefined ? {} : { timeoutMs },
     ),
   )

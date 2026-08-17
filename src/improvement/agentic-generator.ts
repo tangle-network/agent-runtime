@@ -243,11 +243,15 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
             callId?: string,
           ): Promise<CollectedAgentTurn> => {
             turn = await collectAgentTurn(
-              streamAgentTurn({ kind: 'executor', profile, factory }, taskPrompt, {
-                signal: executionSignal,
-                ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-                ...(callId ? { callId } : {}),
-              }),
+              streamAgentTurn(
+                { kind: 'executor', profile, factory },
+                { prompt: taskPrompt },
+                {
+                  signal: executionSignal,
+                  ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+                  ...(callId ? { callId } : {}),
+                },
+              ),
             )
             const failure = shotFailure(turn)
             if (failure) throw failure

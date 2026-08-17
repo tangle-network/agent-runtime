@@ -226,7 +226,7 @@ export async function callAuthor(
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', factory, profile, agentRunName: profile.name ?? 'agent-graphs-author' },
-      prompt,
+      { prompt },
       timeoutMs === undefined ? {} : { timeoutMs },
     ),
   )

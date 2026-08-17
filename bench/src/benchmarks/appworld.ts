@@ -440,7 +440,7 @@ export function appworldToolLoopClient(cfg: {
             const loop = await collectAgentTurn(
               streamAgentTurn(
                 { kind: 'executor', factory, profile },
-                `Task: ${instruction}`,
+                { prompt: `Task: ${instruction}` },
                 { signal },
               ),
             )

@@ -33,11 +33,13 @@ import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   type AgentProfileResourceRef,
+  AgentTurnInputSchema,
   agentProfileSchema,
   canonicalAgentProfileDigest,
   profileMaterializationAxes,
   REASONING_EFFORTS,
   type ReasoningEffort,
+  renderInputPartsAsText,
 } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import {
@@ -4763,6 +4765,10 @@ export function taskToPrompt(task: unknown): string {
     const obj = task as Record<string, unknown>
     for (const k of ['prompt', 'content', 'task', 'message']) {
       if (typeof obj[k] === 'string') return obj[k] as string
+    }
+    if (Array.isArray(obj.parts)) {
+      const parsed = AgentTurnInputSchema.safeParse({ parts: obj.parts })
+      if (parsed.success && parsed.data.parts) return renderInputPartsAsText(parsed.data.parts)
     }
   }
   return JSON.stringify(task)

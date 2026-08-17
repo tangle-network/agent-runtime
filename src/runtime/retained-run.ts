@@ -6,6 +6,24 @@
  */
 
 export {
+  reconnectRetainedInteractiveRun,
+  recoverRetainedInteractiveRun,
+  startRetainedInteractiveRun,
+} from './retained-interactive'
+export {
+  type ClaimRetainedInteractiveControlOptions,
+  claimRetainedInteractiveControl,
+} from './retained-interactive-control'
+export type {
+  ReconnectRetainedInteractiveRunOptions,
+  RecoverRetainedInteractiveRunOptions,
+  RetainedInteractiveAdmissionHook,
+  RetainedInteractiveEnvironmentInput,
+  RetainedInteractiveRunHandle,
+  RetainedInteractiveStartMaterial,
+  StartRetainedInteractiveRunOptions,
+} from './retained-interactive-types'
+export {
   reconnectRetainedRun,
   recoverRetainedRun,
   startRetainedRun,
@@ -15,8 +33,13 @@ export type {
   NativeContextContinuationExecution,
   NativeContextContinuationInput,
   ReconnectRetainedRunOptions,
+  RecoverRetainedRunIntentOptions,
   RecoverRetainedRunOptions,
   RecoverRetainedRunResult,
+  RetainedInteractiveAdmission,
+  RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveIntentAdmission,
+  RetainedInteractiveStartedAdmission,
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunCancellation,
@@ -26,8 +49,10 @@ export type {
   RetainedRunEnvironmentAdmission,
   RetainedRunEventOptions,
   RetainedRunHandle,
+  RetainedRunIntentAdmission,
   RetainedRunReplayPoint,
   RetainedRunSnapshot,
+  RetainedRunStartMaterial,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'

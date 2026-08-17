@@ -525,7 +525,7 @@ export async function runSoloArm(spec: SoloArmSpec, ctx: ArmRunContext): Promise
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', factory, profile: spec.profile },
-      prompt,
+      { prompt },
       { timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) },
     ),
   )

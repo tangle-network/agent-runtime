@@ -10,6 +10,7 @@ import type {
 } from '@tangle-network/agent-interface/environment-provider'
 import {
   abortError,
+  assertCanonicalEventBinding,
   assertEventBinding,
   assertSequence,
   assertStableText,
@@ -54,6 +55,7 @@ export async function* retainedRunEvents(
       if (sourceCursor === after?.cursor) continue
       const event = canonicalEvent(source)
       if (!event) continue
+      assertCanonicalEventBinding(controlRef, event)
       if (firstAfterEvent && after !== undefined) {
         if (identity.sequence !== undefined && identity.sequence <= after.sequence) {
           throw new Error(

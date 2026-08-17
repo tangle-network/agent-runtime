@@ -1,9 +1,6 @@
 import { CostLedger, type CostLedgerHandle } from '@tangle-network/agent-eval'
 import { assertProposalFindings, type ProposalFinding } from '@tangle-network/agent-eval/analyst'
-import {
-  type CampaignScenarioIdentity,
-  campaignSplitDigestFromIdentities,
-} from '@tangle-network/agent-eval/campaign'
+import type { CampaignScenarioIdentity } from '@tangle-network/agent-eval/campaign'
 import {
   type AgentProfileImprovementExperimentExecutionInput,
   type CandidateExperimentExecutionInput,
@@ -14,8 +11,6 @@ import {
   runCandidateExperiment,
   type Scenario,
   sealAgentProfileImprovementExperiment,
-  sealAgentProfileImprovementSuite,
-  sealAgentProfileImprovementTask,
   sealCandidateExperiment,
   verifyAgentProfileImprovementExperimentComparison,
   verifyCandidateExperiment,
@@ -32,7 +27,6 @@ import type {
   AgentCandidateRunCell,
   AgentImprovementActivation,
   AgentImprovementActivationIntent,
-  AgentImprovementCost,
   AgentImprovementEvaluation,
   AgentImprovementMeasuredComparison,
   AgentImprovementProposal,
@@ -46,21 +40,17 @@ import type {
   AgentProfileImprovementMeasurement,
   AgentProfileImprovementRunReceipt,
   AgentProfileImprovementSuiteInputs,
-  AgentProfileImprovementTask,
   AgentProfileImprovementTaskMaterial,
   CandidateExecutionEvidence,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import {
-  AGENT_IMPROVEMENT_SOURCE_METADATA_KEY,
   agentCandidateMaterializationReceiptSchema,
   agentCandidateRunReceiptSchema,
   agentImprovementActivationSchema,
   agentImprovementProposalSchema,
   agentImprovementReviewSchema,
-  agentImprovementSourceMetadata,
   agentImprovementSourceSchema,
-  agentProfileImprovementArmSchema,
   agentProfileImprovementExecutionRefSchema,
   candidateExecutionEvidenceSchema,
   numbersApproximatelyEqual,
@@ -125,6 +115,15 @@ import {
   optimizationActivationReceiptFromMetadata,
 } from './optimization-receipt'
 import type { AgentImprovementProfileStateDigest } from './profile-activation'
+import {
+  createProfileImprovementCostLedger,
+  profileImprovementMetadata,
+  profilePolicyWithBudget,
+  profilePreparationAccounting,
+  profileStateDigest,
+  profileTaskScenarioIdentity,
+  sealProfileImprovementBenchmark,
+} from './profile-improvement-experiment'
 
 export type {
   AgentImprovementActivation,
@@ -569,40 +568,6 @@ function assertAnalysisCostRecorded(
   }
 }
 
-function createProfileImprovementCostLedger(budgetUsd: number): CostLedger {
-  if (!Number.isFinite(budgetUsd) || budgetUsd < 0) {
-    throw new Error('profile improvement budgetUsd must be a non-negative finite number')
-  }
-  return new CostLedger({ costCeilingUsd: budgetUsd })
-}
-
-function profilePolicyWithBudget(
-  policy: AgentCandidateEvaluationPolicy,
-  budgetUsd: number,
-): AgentCandidateEvaluationPolicy {
-  if (policy.budgetUsd !== undefined && !numbersApproximatelyEqual(policy.budgetUsd, budgetUsd)) {
-    throw new Error('profile improvement policy budgetUsd must equal the run budgetUsd')
-  }
-  return { ...policy, budgetUsd }
-}
-
-function profilePreparationAccounting(
-  costLedger: CostLedgerHandle,
-  startedAt: number,
-): { wallDurationMs: number; cost: AgentImprovementCost } {
-  const summary = costLedger.summary()
-  if (!summary.accountingComplete || summary.costProvenance.kind === 'uncaptured') {
-    throw new Error('profile improvement preparation cost is incomplete')
-  }
-  return {
-    wallDurationMs: Math.max(0, performance.now() - startedAt),
-    cost: {
-      usd: summary.costProvenance.usd,
-      provenance: summary.costProvenance.kind,
-    },
-  }
-}
-
 function completeImprovementSearchAccounting(
   analysis: ImprovementSearchAccounting,
   improvement: {
@@ -628,42 +593,6 @@ function completeImprovementSearchAccounting(
   return {
     searchCostUsd: analysis.costUsd + improvement.cost.totalCostUsd,
     searchDurationMs: analysis.durationMs + improvement.durationMs,
-  }
-}
-
-function profileStateDigest(
-  stateDigest: AgentImprovementProfileStateDigest,
-  identity: string,
-  profile: AgentProfile,
-): Sha256Digest {
-  return agentProfileImprovementArmSchema.parse({
-    stateDigest: stateDigest({ identity, profile }),
-  }).stateDigest
-}
-
-function sealProfileImprovementBenchmark(
-  input: AgentProfileImprovementBenchmark,
-): AgentProfileImprovementSuiteInputs {
-  const tasks = input.tasks.map((task) => sealAgentProfileImprovementTask(task)) as [
-    AgentProfileImprovementTask,
-    ...AgentProfileImprovementTask[],
-  ]
-  return sealAgentProfileImprovementSuite({
-    splitDigest: campaignSplitDigestFromIdentities(
-      tasks.map(profileTaskScenarioIdentity),
-      input.reps,
-    ),
-    tasks,
-    reps: input.reps,
-    seeds: input.seeds,
-  })
-}
-
-function profileTaskScenarioIdentity(task: AgentProfileImprovementTask): CampaignScenarioIdentity {
-  return {
-    id: task.scenario.id,
-    kind: task.scenario.kind,
-    scenarioDigest: task.scenario.digest,
   }
 }
 
@@ -731,24 +660,6 @@ function assertProfileReleaseWorkIsFresh(
 ): void {
   assertReleaseSplitIsFresh(benchmark.suite.splitDigest, improvement)
   assertReleaseScenariosAreFresh(improvement, benchmark.tasks.map(profileTaskScenarioIdentity))
-}
-
-function profileImprovementMetadata(
-  metadata: AgentProfileImprovementMeasuredComparison['metadata'],
-  source: AgentImprovementSource,
-  optimizationReceipt: ReturnType<typeof createOptimizationActivationReceipt>,
-): NonNullable<AgentProfileImprovementMeasuredComparison['metadata']> {
-  assertNoCallerOptimizationReceipt(metadata)
-  if (metadata && Object.hasOwn(metadata, AGENT_IMPROVEMENT_SOURCE_METADATA_KEY)) {
-    throw new Error(
-      `candidate metadata reserves '${AGENT_IMPROVEMENT_SOURCE_METADATA_KEY}' for Runtime`,
-    )
-  }
-  const sourceMetadata = agentImprovementSourceMetadata(source)
-  const merged = { ...(metadata ?? {}), ...sourceMetadata }
-  return optimizationReceipt
-    ? attachOptimizationActivationReceipt(merged, optimizationReceipt)
-    : immutableCandidateValue(merged)
 }
 
 /**

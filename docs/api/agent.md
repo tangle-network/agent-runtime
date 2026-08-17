@@ -591,7 +591,7 @@ substantive prompt rewrites, etc.) via this callback.
 
 ##### allowCreateForKinds?
 
-> `optional` **allowCreateForKinds?**: readonly (`"code"` \| `"mcp"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"skill"` \| `"tool-doc"` \| `"new-tool"` \| `"hook"` \| `"subagent"` \| `"workflow"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
+> `optional` **allowCreateForKinds?**: readonly (`"mcp"` \| `"code"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"` \| `"knowledge.wiki"` \| `"knowledge.claim"` \| `"knowledge.raw"` \| `"knowledge.stale"` \| `"system-prompt"` \| `"skill"` \| `"tool-doc"` \| `"new-tool"` \| `"hook"` \| `"subagent"` \| `"workflow"` \| `"rag"` \| `"scaffolding"` \| `"output-schema"` \| `"websearch.outdated"` \| `"prior-run-summary"` \| `"cluster"`)[]
 
 When the resolved target doesn't exist, allow the substrate to
 CREATE the file (for `knowledge.wiki`, `new-tool` subjects). Default
