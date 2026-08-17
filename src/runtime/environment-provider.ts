@@ -1,8 +1,15 @@
 import {
+  type AgentExactRunControlRef,
+  AgentExactRunControlRefSchema,
   type AgentProfile,
   type AgentProfileValidationResult,
+  type AgentRunCancellationAcknowledgement,
+  type AgentRunCancellationRequest,
+  AgentRunCancellationRequestSchema,
+  type AgentRunControlRef,
   harnessSystemPromptIntents,
-  type InputPart,
+  type InteractionAcknowledgement,
+  type InteractionResponseCommand,
   type TokenUsage,
 } from '@tangle-network/agent-interface'
 import type {
@@ -38,6 +45,8 @@ import type {
   ExecResult as SandboxExecResult,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
+import { canonicalStreamEventFromSandboxEvent } from './sandbox-events'
 import type {
   Executor,
   ExecutorContext,
@@ -47,6 +56,7 @@ import type {
   Spend,
   UsageEvent,
 } from './supervise/types'
+import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
 import type { LoopSandboxPlacement, SandboxClient } from './types'
 import { zeroTokenUsage } from './util'
 
@@ -275,7 +285,10 @@ export function sandboxClientAsProvider(
           options.defaultBackend ?? 'opencode',
           options.resolveProfile,
         ))
-      const box = await client.create(createOptions)
+      const box = await client.create(
+        createOptions,
+        input.signal === undefined ? undefined : { signal: input.signal },
+      )
       return sandboxInstanceAsEnvironment(box, providerName, client)
     },
     ...(hasGet(client)
@@ -570,13 +583,15 @@ function environmentAsSandboxInstance(
         if (cancellationStarted || !input.sessionId || !environment.session) return
         cancellationStarted = true
         try {
-          cancellation = environment
-            .session(input.sessionId)
-            .cancel()
-            .catch((error: unknown) => {
-              cancellationFailed = true
-              cancellationError = error
-            })
+          const session = environment.session(input.sessionId, {
+            ...(input.controlRef === undefined ? {} : { controlRef: input.controlRef }),
+            ...(input.signal === undefined ? {} : { signal: input.signal }),
+          })
+          assertScopedSessionForInput(session, input)
+          cancellation = session.cancel().catch((error: unknown) => {
+            cancellationFailed = true
+            cancellationError = error
+          })
         } catch (error) {
           cancellationFailed = true
           cancellationError = error
@@ -668,8 +683,11 @@ function environmentAsSandboxInstance(
       : {}),
     ...(environment.session
       ? {
-          session(id: string) {
-            return sandboxSessionFromAgentSession(environment.session?.(id))
+          session(id: string, sessionOptions?: { controlRef?: AgentRunControlRef }) {
+            return sandboxSessionFromAgentSession(
+              environment.session?.(id, sessionOptions),
+              sessionOptions?.controlRef,
+            )
           },
         }
       : {}),
@@ -714,14 +732,15 @@ function sandboxInstanceAsEnvironment(
     id: String(box.id),
     provider: providerName,
     ...(typeof box.name === 'string' ? { name: box.name } : {}),
+    ...(readBoxMetadata(box) ? { metadata: readBoxMetadata(box) } : {}),
     async status(): Promise<AgentEnvironmentStatus> {
       await maybeRefresh(box)
       return statusFromUnknown(readBoxStatus(box))
     },
     async *stream(input: AgentTurnInput): AsyncIterable<AgentEnvironmentEvent> {
       for await (const event of box.streamPrompt(
-        promptFromTurnInput(input),
-        promptOptionsFromTurnInput(input),
+        promptFromAgentTurnInput(input),
+        promptOptionsFromAgentTurnInput(input),
       )) {
         yield environmentEventFromSandboxEvent(event)
       }
@@ -730,8 +749,8 @@ function sandboxInstanceAsEnvironment(
       ? {
           async dispatch(input: AgentTurnInput): Promise<AgentSessionRef> {
             const dispatched = await box.dispatchPrompt(
-              promptFromTurnInput(input),
-              promptOptionsFromTurnInput(input),
+              promptFromAgentTurnInput(input),
+              promptOptionsFromAgentTurnInput(input),
             )
             return sessionRefFromSandboxDispatch(dispatched, providerName)
           },
@@ -739,8 +758,17 @@ function sandboxInstanceAsEnvironment(
       : {}),
     ...(hasSession(box)
       ? {
-          session(id: string): AgentSession {
-            return sandboxSessionAsAgentSession(box.session(id))
+          session(id: string, sessionOptions?: { controlRef?: AgentRunControlRef }): AgentSession {
+            return sandboxSessionAsAgentSession(box.session(id), sessionOptions?.controlRef)
+          },
+          async respondToInteraction(
+            command: InteractionResponseCommand,
+            options?: { signal?: AbortSignal },
+          ): Promise<InteractionAcknowledgement> {
+            const response = await box
+              .session(command.binding.sessionId)
+              .respondToInteraction(command, options)
+            return response.acknowledgement
           },
         }
       : {}),
@@ -785,39 +813,104 @@ function sandboxInstanceAsEnvironment(
   return environment
 }
 
-function sandboxSessionAsAgentSession(session: SandboxSessionLike): AgentSession {
+function sandboxSessionAsAgentSession(
+  session: SandboxSessionLike,
+  expectedControlRef?: AgentRunControlRef,
+): AgentSession {
+  // SandboxSession has no synchronous controlRef property. The exact ref
+  // returned by dispatch is therefore the wrapper's persisted binding, while
+  // any ref later exposed by status is still validated below.
+  const controlRef = resolveSessionControlRef(session.controlRef, expectedControlRef, {
+    allowExpectedWhenActualAbsent: true,
+  })
   return {
     id: session.id,
+    ...(controlRef === undefined ? {} : { controlRef }),
     async status(): Promise<AgentSessionStatus | null> {
       const status = await session.status()
       if (!status) return null
+      assertSandboxStatusBinding(status, controlRef)
       return sessionStatusFromUnknown((status as { status?: unknown }).status)
     },
     async *events(options?: {
       since?: string
+      executionId?: string
       signal?: AbortSignal
     }): AsyncIterable<AgentEnvironmentEvent> {
-      for await (const event of session.events(options))
+      const executionId = scopedExecutionId(controlRef, options?.executionId)
+      for await (const event of session.events({
+        ...(options?.since === undefined ? {} : { since: options.since }),
+        ...(executionId === undefined ? {} : { executionId }),
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+      }))
         yield environmentEventFromSandboxEvent(event)
     },
-    async result(): Promise<AgentTurnResult> {
-      return agentTurnResultFromPromptResult(await session.result())
+    async result(options?: { signal?: AbortSignal }): Promise<AgentTurnResult> {
+      return agentTurnResultFromPromptResult(
+        await awaitAbortable(
+          Promise.resolve().then(() =>
+            session.result({
+              ...(controlRef?.executionId === undefined
+                ? {}
+                : { executionId: controlRef.executionId }),
+            }),
+          ),
+          options?.signal,
+        ),
+      )
     },
     async prompt(input: AgentTurnInput): Promise<AgentTurnResult> {
       return agentTurnResultFromPromptResult(
-        await session.prompt(promptFromTurnInput(input), promptOptionsFromTurnInput(input)),
+        await session.prompt(
+          promptFromAgentTurnInput(input),
+          promptOptionsFromAgentTurnInput(input),
+        ),
       )
     },
+    ...(session.respondToInteraction
+      ? {
+          async respondToInteraction(
+            command: InteractionResponseCommand,
+            options?: { signal?: AbortSignal },
+          ): Promise<InteractionAcknowledgement> {
+            assertInteractionCommandScope(command, controlRef)
+            const response = await session.respondToInteraction!(command, options)
+            return response.acknowledgement
+          },
+        }
+      : {}),
+    ...(session.cancelRun
+      ? {
+          async cancelRun(
+            request: AgentRunCancellationRequest,
+            options?: { signal?: AbortSignal },
+          ): Promise<AgentRunCancellationAcknowledgement> {
+            assertCancellationScope(request, controlRef)
+            return session.cancelRun!(request, options)
+          },
+        }
+      : {}),
     cancel(): Promise<void> {
-      return session.interrupt().then(() => undefined)
+      return session
+        .interrupt(
+          controlRef?.executionId === undefined
+            ? undefined
+            : { executionId: controlRef.executionId },
+        )
+        .then(() => undefined)
     },
   }
 }
 
-function sandboxSessionFromAgentSession(session: AgentSession | undefined): SandboxSessionLike {
+function sandboxSessionFromAgentSession(
+  session: AgentSession | undefined,
+  expectedControlRef?: AgentRunControlRef,
+): SandboxSessionLike {
   if (!session) throw new ValidationError('providerAsSandboxClient: session is unavailable')
+  const controlRef = resolveSessionControlRef(session.controlRef, expectedControlRef)
   return {
     id: session.id,
+    ...(controlRef === undefined ? {} : { controlRef }),
     async status() {
       const status = await session.status()
       if (!status) return null
@@ -828,12 +921,19 @@ function sandboxSessionFromAgentSession(session: AgentSession | undefined): Sand
     },
     async *events(options?: {
       since?: string
+      executionId?: string
       signal?: AbortSignal
     }): AsyncGenerator<SandboxEvent> {
-      for await (const event of session.events(options))
+      const executionId = scopedExecutionId(controlRef, options?.executionId)
+      for await (const event of session.events({
+        ...(options?.since === undefined ? {} : { since: options.since }),
+        ...(executionId === undefined ? {} : { executionId }),
+        ...(options?.signal === undefined ? {} : { signal: options.signal }),
+      }))
         yield sandboxEventFromEnvironmentEvent(event)
     },
-    async result(): Promise<PromptResult> {
+    async result(options?: { executionId?: string }): Promise<PromptResult> {
+      scopedExecutionId(controlRef, options?.executionId)
       return promptResultFromAgentTurnResult(await session.result())
     },
     async prompt(
@@ -844,7 +944,32 @@ function sandboxSessionFromAgentSession(session: AgentSession | undefined): Sand
         await session.prompt(turnInputFromPrompt(message, options)),
       )
     },
-    async interrupt() {
+    ...(session.respondToInteraction
+      ? {
+          async respondToInteraction(
+            command: InteractionResponseCommand,
+            options?: { signal?: AbortSignal },
+          ) {
+            assertInteractionCommandScope(command, controlRef)
+            return {
+              acknowledgement: await session.respondToInteraction!(command, options),
+            }
+          },
+        }
+      : {}),
+    ...(session.cancelRun
+      ? {
+          async cancelRun(
+            request: AgentRunCancellationRequest,
+            options?: { signal?: AbortSignal },
+          ): Promise<AgentRunCancellationAcknowledgement> {
+            assertCancellationScope(request, controlRef)
+            return session.cancelRun!(request, options)
+          },
+        }
+      : {}),
+    async interrupt(options?: { executionId?: string }) {
+      scopedExecutionId(controlRef, options?.executionId)
       await session.cancel()
       return { cancelled: true }
     },
@@ -897,10 +1022,12 @@ function environmentEventFromSandboxEvent(event: SandboxEvent): AgentEnvironment
     event.data && typeof event.data === 'object'
       ? (event.data as Record<string, unknown>)
       : ({} as Record<string, unknown>)
+  const normalized = canonicalStreamEventFromSandboxEvent(event)
   return {
     type: String(event.type),
     data,
     ...(event.id ? { id: event.id } : {}),
+    ...(normalized ? { normalized } : {}),
     usage: tokenUsageFromData(data),
     providerEvent: event,
   }
@@ -998,45 +1125,120 @@ function turnInputFromPrompt(
     ...(options?.turnId ? { turnId: options.turnId } : {}),
     ...(options?.detach !== undefined ? { detach: options.detach } : {}),
     ...(options?.context ? { context: options.context } : {}),
+    ...(options?.runControlRef ? { controlRef: options.runControlRef } : {}),
+    ...(options?.backend?.interactions ? { interactions: options.backend.interactions } : {}),
     ...(options?.signal ? { signal: options.signal } : {}),
     ...(options?.backend ? { providerOptions: { backend: options.backend } } : {}),
   }
 }
 
-function promptFromTurnInput(input: AgentTurnInput): string | PromptInputPart[] {
-  if (input.parts) return input.parts.map(promptPartFromInputPart)
-  return input.prompt ?? ''
+function resolveSessionControlRef(
+  actual: AgentRunControlRef | undefined,
+  expected: AgentRunControlRef | undefined,
+  options: { allowExpectedWhenActualAbsent?: boolean } = {},
+): AgentExactRunControlRef | undefined {
+  if (expected === undefined) {
+    if (actual === undefined) return undefined
+    return AgentExactRunControlRefSchema.parse(actual)
+  }
+  const expectedExact = AgentExactRunControlRefSchema.parse(expected)
+  if (actual === undefined) {
+    if (options.allowExpectedWhenActualAbsent === true) return expectedExact
+    throw new ValidationError('provider session omitted the required exact run control reference')
+  }
+  const actualExact = AgentExactRunControlRefSchema.safeParse(actual)
+  if (!actualExact.success) {
+    throw new ValidationError('provider session returned an invalid exact run control reference')
+  }
+  if (!sameControlCoordinates(actualExact.data, expectedExact)) {
+    throw new ValidationError('provider session returned a different exact run control reference')
+  }
+  return actualExact.data
 }
 
-function promptPartFromInputPart(part: InputPart): PromptInputPart {
-  if (part.type === 'text' || part.type === 'image') return part
-  if (part.content !== undefined || part.path !== undefined) {
+function assertSandboxStatusBinding(
+  status: unknown,
+  controlRef: AgentExactRunControlRef | undefined,
+): void {
+  if (!status || typeof status !== 'object' || controlRef === undefined) return
+  const record = status as Record<string, unknown>
+  if (record.runControlRef !== undefined) {
+    const statusControlRef = AgentExactRunControlRefSchema.parse(record.runControlRef)
+    if (!sameControlCoordinates(statusControlRef, controlRef)) {
+      throw new ValidationError('sandbox status returned a different exact run control reference')
+    }
+  }
+  for (const key of ['activeExecutionId', 'latestExecutionId']) {
+    const executionId = record[key]
+    if (executionId !== undefined && executionId !== controlRef.executionId) {
+      throw new ValidationError('sandbox status returned a different execution')
+    }
+  }
+}
+
+function assertInteractionCommandScope(
+  command: InteractionResponseCommand,
+  controlRef: AgentRunControlRef | undefined,
+): void {
+  if (controlRef === undefined) return
+  if (
+    command.binding.runId !== controlRef.runId ||
+    command.binding.provider !== controlRef.provider ||
+    command.binding.environmentId !== controlRef.environmentId ||
+    command.binding.sessionId !== controlRef.sessionId ||
+    command.binding.executionId !== controlRef.executionId
+  ) {
+    throw new ValidationError('interaction response targeted a different execution')
+  }
+}
+
+function assertCancellationScope(
+  request: AgentRunCancellationRequest,
+  controlRef: AgentExactRunControlRef | undefined,
+): void {
+  if (controlRef === undefined) {
     throw new ValidationError(
-      'Tangle Sandbox file prompt parts require a URL; inline content and local paths are not representable',
+      'durable cancellation requires an exact wrapper run control reference',
     )
   }
-  if (!part.filename || !part.url) {
-    throw new ValidationError('Tangle Sandbox file prompt parts require both filename and URL')
-  }
-  return {
-    type: 'file',
-    filename: part.filename,
-    ...(part.mediaType ? { mediaType: part.mediaType } : {}),
-    url: part.url,
+  const exactRequest = AgentRunCancellationRequestSchema.parse(request)
+  if (!sameControlCoordinates(exactRequest.run, controlRef)) {
+    throw new ValidationError('cancellation targeted a different execution')
   }
 }
 
-function promptOptionsFromTurnInput(input: AgentTurnInput): PromptOptions {
-  return {
-    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
-    ...(input.model ? { model: input.model } : {}),
-    ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
-    ...(input.context ? { context: input.context } : {}),
-    ...(input.signal ? { signal: input.signal } : {}),
-    ...(input.executionId ? { executionId: input.executionId } : {}),
-    ...(input.lastEventId ? { lastEventId: input.lastEventId } : {}),
-    ...(input.turnId ? { turnId: input.turnId } : {}),
-    ...(input.detach !== undefined ? { detach: input.detach } : {}),
+function scopedExecutionId(
+  controlRef: AgentRunControlRef | undefined,
+  requested: string | undefined,
+): string | undefined {
+  if (
+    controlRef?.executionId !== undefined &&
+    requested !== undefined &&
+    controlRef.executionId !== requested
+  ) {
+    throw new ValidationError('session operation targeted a different execution')
+  }
+  return controlRef?.executionId ?? requested
+}
+
+function assertScopedSessionForInput(session: AgentSession, input: AgentTurnInput): void {
+  if (input.executionId === undefined && input.controlRef === undefined) return
+  const sessionControlRef = AgentExactRunControlRefSchema.safeParse(session.controlRef)
+  if (!sessionControlRef.success) {
+    throw new ValidationError(
+      'provider session did not expose an exact run control reference for scoped cancellation',
+    )
+  }
+  const expectedControlRef =
+    input.controlRef === undefined
+      ? undefined
+      : AgentExactRunControlRefSchema.parse(input.controlRef)
+  if (
+    (input.executionId !== undefined && sessionControlRef.data.executionId !== input.executionId) ||
+    (expectedControlRef !== undefined &&
+      !sameControlCoordinates(sessionControlRef.data, expectedControlRef))
+  ) {
+    throw new ValidationError('provider session returned a different exact run control reference')
   }
 }
 
@@ -1233,12 +1435,40 @@ function agentTurnResultFromPromptResult(result: PromptResult): AgentTurnResult 
 }
 
 function sandboxDispatchResultFromSessionRef(session: AgentSessionRef): Record<string, unknown> {
+  const controlRef =
+    session.controlRef === undefined
+      ? undefined
+      : AgentExactRunControlRefSchema.parse(session.controlRef)
+  const metadataExecutionId = optionalDispatchIdentity(session.metadata?.executionId, 'executionId')
+  if (controlRef !== undefined) {
+    if (controlRef.sessionId !== session.id) {
+      throw new ValidationError(
+        'provider dispatch returned a control reference for another session',
+      )
+    }
+    if (session.provider !== undefined && controlRef.provider !== session.provider) {
+      throw new ValidationError(
+        'provider dispatch returned a control reference for another provider',
+      )
+    }
+    if (metadataExecutionId !== undefined && metadataExecutionId !== controlRef.executionId) {
+      throw new ValidationError('provider dispatch returned conflicting execution identities')
+    }
+  }
   const hasStatus = session.metadata && Object.hasOwn(session.metadata, 'status')
   const status = hasStatus ? sessionStatusFromUnknown(session.metadata?.status) : 'running'
   return {
     sessionId: session.id,
     status,
     alreadyExisted: session.metadata?.alreadyExisted === true,
+    ...(session.metadata?.dispatched === undefined
+      ? {}
+      : { dispatched: session.metadata.dispatched === true }),
+    ...(controlRef === undefined
+      ? metadataExecutionId === undefined
+        ? {}
+        : { executionId: metadataExecutionId }
+      : { executionId: controlRef.executionId, runControlRef: controlRef }),
   }
 }
 
@@ -1254,14 +1484,57 @@ function sessionRefFromSandboxDispatch(dispatched: unknown, providerName: string
   if (!record) {
     throw new ValidationError('sandboxClientAsProvider: dispatch returned no session record')
   }
+  const executionId = optionalDispatchIdentity(record.executionId, 'executionId')
+  const controlRef =
+    record.runControlRef === undefined
+      ? undefined
+      : AgentExactRunControlRefSchema.parse(record.runControlRef)
+  if (controlRef !== undefined) {
+    if (controlRef.sessionId !== id || controlRef.provider !== providerName) {
+      throw new ValidationError('sandbox dispatch returned a control reference for another session')
+    }
+    if (executionId !== undefined && controlRef.executionId !== executionId) {
+      throw new ValidationError('sandbox dispatch returned conflicting execution identities')
+    }
+  }
+  if (record.alreadyExisted !== undefined && typeof record.alreadyExisted !== 'boolean') {
+    throw new ValidationError('sandbox dispatch returned an invalid alreadyExisted flag')
+  }
+  if (record.dispatched !== undefined && typeof record.dispatched !== 'boolean') {
+    throw new ValidationError('sandbox dispatch returned an invalid dispatched flag')
+  }
+  if (record.status !== undefined && !isSandboxSessionStatus(record.status)) {
+    throw new ValidationError('sandbox dispatch returned an invalid session status')
+  }
   return {
     id,
     provider: providerName,
+    ...(controlRef === undefined ? {} : { controlRef }),
     metadata: {
       ...(record.status ? { status: record.status } : {}),
+      ...(executionId === undefined ? {} : { executionId }),
       ...(record.alreadyExisted !== undefined ? { alreadyExisted: record.alreadyExisted } : {}),
+      ...(record.dispatched !== undefined ? { dispatched: record.dispatched } : {}),
     },
   }
+}
+
+function optionalDispatchIdentity(value: unknown, label: string): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ValidationError(`sandbox dispatch returned an invalid ${label}`)
+  }
+  return value
+}
+
+function isSandboxSessionStatus(value: unknown): boolean {
+  return (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'cancelled'
+  )
 }
 
 function execResultFromSandboxExecResult(result: SandboxExecResult): ExecResult {
@@ -1440,9 +1713,22 @@ function hasExec(box: SandboxInstance): box is SandboxInstance & {
 
 interface SandboxSessionLike {
   readonly id: string
+  readonly controlRef?: AgentRunControlRef
   status(): Promise<unknown | null>
-  events(options?: { since?: string; signal?: AbortSignal }): AsyncIterable<SandboxEvent>
-  result(): Promise<PromptResult>
+  events(options?: {
+    since?: string
+    executionId?: string
+    signal?: AbortSignal
+  }): AsyncIterable<SandboxEvent>
+  result(options?: { executionId?: string }): Promise<PromptResult>
   prompt(message: string | PromptInputPart[], options?: PromptOptions): Promise<PromptResult>
-  interrupt(): Promise<unknown>
+  respondToInteraction?(
+    command: InteractionResponseCommand,
+    options?: { signal?: AbortSignal },
+  ): Promise<{ acknowledgement: InteractionAcknowledgement }>
+  cancelRun?(
+    request: AgentRunCancellationRequest,
+    options?: { signal?: AbortSignal },
+  ): Promise<AgentRunCancellationAcknowledgement>
+  interrupt(options?: { executionId?: string }): Promise<unknown>
 }

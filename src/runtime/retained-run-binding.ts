@@ -10,6 +10,7 @@ import {
   canonicalCandidateDigest,
   type InteractionResponseCommand,
   type NativeContextBoundaryProof,
+  type StreamEvent,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -295,6 +296,25 @@ export function assertEventBinding(
   }
 }
 
+/** Validate the nested coordinates carried by a canonical interaction request. */
+export function assertCanonicalEventBinding(
+  controlRef: AgentExactRunControlRef,
+  event: StreamEvent,
+): void {
+  if (event.type !== 'interaction') return
+  const binding = event.request.binding
+  if (
+    binding.runId !== controlRef.runId ||
+    binding.provider !== controlRef.provider ||
+    binding.environmentId !== controlRef.environmentId ||
+    binding.sessionId !== controlRef.sessionId ||
+    binding.executionId !== controlRef.executionId ||
+    binding.interactionId !== event.request.id
+  ) {
+    throw new Error('provider returned an interaction for another retained execution')
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -306,7 +326,9 @@ export function assertStableText(value: string, label: string): void {
 }
 
 export function abortError(reason: unknown): Error {
-  const error = new Error(reason === undefined ? 'aborted' : String(reason))
+  const error = new Error(
+    reason instanceof Error ? reason.message : reason === undefined ? 'aborted' : String(reason),
+  )
   error.name = 'AbortError'
   return error
 }

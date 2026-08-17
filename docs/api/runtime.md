@@ -920,7 +920,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-8)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-9)
 
 ##### materialization?
 
@@ -5146,7 +5146,7 @@ A lineage the gate may widen toward — the settled child that looked promising 
 
 ###### handle
 
-> **handle**: [`Handle`](#handle-2)\<[`Outcome`](#outcome-2)\<`D`\>\>
+> **handle**: [`Handle`](#handle-3)\<[`Outcome`](#outcome-2)\<`D`\>\>
 
 ###### out
 
@@ -5916,6 +5916,250 @@ Per-turn deadline (ms).
 
 ***
 
+### ClaimRetainedInteractiveControlOptions
+
+**`Stable`**
+
+Input for acquiring write authority over one exact interactive process.
+
+#### Properties
+
+##### handle
+
+> `readonly` **handle**: [`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle)
+
+##### holderId
+
+> `readonly` **holderId**: `string`
+
+##### expectedGeneration?
+
+> `readonly` `optional` **expectedGeneration?**: `number`
+
+Last known provider generation. Zero discovers the current generation safely.
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedInteractiveStartMaterial
+
+**`Stable`**
+
+Material used to create and start one native coding-agent TUI.
+
+#### Extended by
+
+- [`StartRetainedInteractiveRunOptions`](#startretainedinteractiverunoptions)
+
+#### Properties
+
+##### environment
+
+> `readonly` **environment**: [`RetainedInteractiveEnvironmentInput`](#retainedinteractiveenvironmentinput)
+
+##### interactiveIdempotencyKey
+
+> `readonly` **interactiveIdempotencyKey**: `string`
+
+##### initialPrompt?
+
+> `readonly` `optional` **initialPrompt?**: `string`
+
+##### cwd?
+
+> `readonly` `optional` **cwd?**: `string`
+
+##### cols?
+
+> `readonly` `optional` **cols?**: `number`
+
+##### rows?
+
+> `readonly` `optional` **rows?**: `number`
+
+***
+
+### StartRetainedInteractiveRunOptions
+
+**`Stable`**
+
+Start one retry-safe native coding-agent TUI in a new environment.
+
+#### Extends
+
+- [`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial)
+
+#### Properties
+
+##### environment
+
+> `readonly` **environment**: [`RetainedInteractiveEnvironmentInput`](#retainedinteractiveenvironmentinput)
+
+###### Inherited from
+
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`environment`](#environment)
+
+##### interactiveIdempotencyKey
+
+> `readonly` **interactiveIdempotencyKey**: `string`
+
+###### Inherited from
+
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`interactiveIdempotencyKey`](#interactiveidempotencykey)
+
+##### initialPrompt?
+
+> `readonly` `optional` **initialPrompt?**: `string`
+
+###### Inherited from
+
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`initialPrompt`](#initialprompt)
+
+##### cwd?
+
+> `readonly` `optional` **cwd?**: `string`
+
+###### Inherited from
+
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`cwd`](#cwd)
+
+##### cols?
+
+> `readonly` `optional` **cols?**: `number`
+
+###### Inherited from
+
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`cols`](#cols)
+
+##### rows?
+
+> `readonly` `optional` **rows?**: `number`
+
+###### Inherited from
+
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`rows`](#rows)
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### intent?
+
+> `readonly` `optional` **intent?**: [`RetainedInteractiveIntentAdmission`](#retainedinteractiveintentadmission)
+
+A previously persisted intent used to replay the exact create operation.
+
+##### onAdmission
+
+> `readonly` **onAdmission**: [`RetainedInteractiveAdmissionHook`](#retainedinteractiveadmissionhook)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### ReconnectRetainedInteractiveRunOptions
+
+**`Stable`**
+
+Reconstruct one exact provider-owned native coding-agent process.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### ref
+
+> `readonly` **ref**: `object`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RecoverRetainedInteractiveRunOptions
+
+**`Stable`**
+
+Recover a start after a pre-create crash or a lost provider response.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### admission
+
+> `readonly` **admission**: [`RetainedInteractiveIntentAdmission`](#retainedinteractiveintentadmission) \| [`RetainedInteractiveEnvironmentAdmission`](#retainedinteractiveenvironmentadmission)
+
+##### replay?
+
+> `readonly` `optional` **replay?**: [`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial)
+
+Required when recovering from an intent before an environment existed.
+
+##### onAdmission
+
+> `readonly` **onAdmission**: [`RetainedInteractiveAdmissionHook`](#retainedinteractiveadmissionhook)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+***
+
+### RetainedInteractiveRunHandle
+
+**`Stable`**
+
+Exact interactive process controls plus measured environment capabilities.
+
+#### Extends
+
+- `AgentInteractiveSession`
+
+#### Properties
+
+##### capabilities
+
+> `readonly` **capabilities**: `AgentEnvironmentCapabilities`
+
+#### Methods
+
+##### sendPrompt()
+
+> **sendPrompt**(`command`, `options?`): `Promise`\<`AgentInteractiveSessionPromptAcknowledgement`\>
+
+###### Parameters
+
+###### command
+
+`AgentInteractiveSessionPromptCommand`
+
+###### options?
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<`AgentInteractiveSessionPromptAcknowledgement`\>
+
+###### Overrides
+
+`AgentInteractiveSession.sendPrompt`
+
+***
+
 ### RetainedRunReplayPoint
 
 **`Stable`**
@@ -6062,6 +6306,12 @@ Reconstructable control of one provider-retained run.
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
 
+##### capabilities
+
+> `readonly` **capabilities**: `AgentEnvironmentCapabilities`
+
+Capabilities measured from the exact environment that owns this run.
+
 #### Methods
 
 ##### status()
@@ -6174,6 +6424,56 @@ Reconstructable control of one provider-retained run.
 
 ***
 
+### RetainedRunIntentAdmission
+
+**`Stable`**
+
+Sanitized headless intent durable before environment creation.
+
+The request digest binds the public create and turn material without
+retaining secret values. The original start material is required to replay
+this record after a process crash.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"intent"`
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### turnId
+
+> `readonly` **turnId**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### requestedProfileDigest
+
+> `readonly` **requestedProfileDigest**: `` `sha256:${string}` ``
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+***
+
 ### RetainedRunEnvironmentAdmission
 
 **`Stable`**
@@ -6242,17 +6542,127 @@ The verified exact reference, durable before the start promise resolves.
 
 ***
 
-### StartRetainedRunOptions
+### RetainedInteractiveIntentAdmission
 
 **`Stable`**
 
-A retained start is retry-safe only when environment and turn keys are explicit.
+Sanitized intent durable before an interactive environment create begins.
+
+The digest covers the public start and create material without retaining that
+material. It never carries environment variables, secret values, or provider
+options. The replay input supplies private values after this check.
 
 #### Properties
 
+##### phase
+
+> `readonly` **phase**: `"interactive_intent"`
+
 ##### provider
 
-> `readonly` **provider**: `AgentEnvironmentProvider`
+> `readonly` **provider**: `string`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### interactiveIdempotencyKey
+
+> `readonly` **interactiveIdempotencyKey**: `string`
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+##### executionId
+
+> `readonly` **executionId**: `string`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### requestedProfileDigest
+
+> `readonly` **requestedProfileDigest**: `` `sha256:${string}` ``
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+***
+
+### RetainedInteractiveEnvironmentAdmission
+
+**`Stable`**
+
+Exact interactive start request durable after environment creation.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"interactive_environment"`
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### interactiveIdempotencyKey
+
+> `readonly` **interactiveIdempotencyKey**: `string`
+
+##### request
+
+> `readonly` **request**: `object`
+
+***
+
+### RetainedInteractiveStartedAdmission
+
+**`Stable`**
+
+Provider-issued interactive process reference durable before start returns.
+
+#### Properties
+
+##### phase
+
+> `readonly` **phase**: `"interactive_started"`
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### interactiveIdempotencyKey
+
+> `readonly` **interactiveIdempotencyKey**: `string`
+
+##### ref
+
+> `readonly` **ref**: `object`
+
+***
+
+### RetainedRunStartMaterial
+
+**`Stable`**
+
+Environment, turn, and optional identity needed to replay one retained start.
+
+#### Extended by
+
+- [`StartRetainedRunOptions`](#startretainedrunoptions)
+
+#### Properties
 
 ##### environment
 
@@ -6289,6 +6699,78 @@ so every process derives the same values.
 ###### executionId
 
 > `readonly` **executionId**: `string`
+
+***
+
+### StartRetainedRunOptions
+
+**`Stable`**
+
+A retained start is retry-safe only when environment and turn keys are explicit.
+
+#### Extends
+
+- [`RetainedRunStartMaterial`](#retainedrunstartmaterial)
+
+#### Properties
+
+##### environment
+
+> `readonly` **environment**: `CreateAgentEnvironmentInput` & `object`
+
+###### Type Declaration
+
+###### idempotencyKey
+
+> **idempotencyKey**: `string`
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`environment`](#environment-2)
+
+##### turn
+
+> `readonly` **turn**: `AgentTurnInput` & `object`
+
+###### Type Declaration
+
+###### turnId
+
+> **turnId**: `string`
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`turn`](#turn)
+
+##### identity?
+
+> `readonly` `optional` **identity?**: `object`
+
+Explicit dispatch coordinates. When omitted, the runtime mints
+deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
+so every process derives the same values.
+
+###### sessionId
+
+> `readonly` **sessionId**: `string`
+
+###### executionId
+
+> `readonly` **executionId**: `string`
+
+###### Inherited from
+
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`identity`](#identity-1)
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### intent?
+
+> `readonly` `optional` **intent?**: [`RetainedRunIntentAdmission`](#retainedrunintentadmission)
+
+A previously persisted intent used to replay the exact create operation.
 
 ##### onAdmission
 
@@ -6386,6 +6868,42 @@ Inputs sufficient to rebuild a control client in a new process.
 ##### controlRef
 
 > `readonly` **controlRef**: `AgentExactRunControlRef`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+***
+
+### RecoverRetainedRunIntentOptions
+
+**`Stable`**
+
+Recover a headless start after its pre-create intent was persisted.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `AgentEnvironmentProvider`
+
+##### admission
+
+> `readonly` **admission**: [`RetainedRunIntentAdmission`](#retainedrunintentadmission)
+
+##### replay
+
+> `readonly` **replay**: [`RetainedRunStartMaterial`](#retainedrunstartmaterial)
+
+The exact original environment, turn, and optional identity material.
+
+##### onAdmission
+
+> `readonly` **onAdmission**: [`RetainedRunAdmissionHook`](#retainedrunadmissionhook)
 
 ##### now?
 
@@ -15131,7 +15649,7 @@ breaker, or a recursive parent.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-16)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-18)
 
 ##### runNamespace
 
@@ -15177,7 +15695,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-3)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-4)
 
 ##### assignmentId?
 
@@ -16913,7 +17431,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-1).[`signal`](#signal-21)
+[`RootHandle`](#roothandle-1).[`signal`](#signal-25)
 
 ##### abort()
 
@@ -18488,13 +19006,17 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 ##### create()
 
-> **create**(`options?`): `Promise`\<`SandboxInstance`\>
+> **create**(`options?`, `requestOptions?`): `Promise`\<`SandboxInstance`\>
 
 ###### Parameters
 
 ###### options?
 
 `CreateSandboxOptions`
+
+###### requestOptions?
+
+`CreateRequestOptions`
 
 ###### Returns
 
@@ -19157,7 +19679,7 @@ The spawn label (`shot:0`, `analyst:1`, a nested agent's label) — the row name
 
 ##### status
 
-> **status**: `"done"` \| `"down"` \| `"running"`
+> **status**: `"running"` \| `"done"` \| `"down"`
 
 ##### usd
 
@@ -20046,6 +20568,46 @@ judge/verdict/score scheme is rejected. Fail loud — a tainted finding aborts. 
 
 ***
 
+### RetainedInteractiveEnvironmentInput
+
+> **RetainedInteractiveEnvironmentInput** = `Omit`\<`CreateAgentEnvironmentInput`, `"idempotencyKey"` \| `"profile"` \| `"signal"`\> & `object`
+
+**`Stable`**
+
+Environment and exact AgentProfile used to start one native coding-agent process.
+
+#### Type Declaration
+
+##### idempotencyKey
+
+> `readonly` **idempotencyKey**: `string`
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+***
+
+### RetainedInteractiveAdmissionHook
+
+> **RetainedInteractiveAdmissionHook** = (`admission`) => `Promise`\<`void`\>
+
+**`Stable`**
+
+Persist each exact interactive record before the runtime proceeds.
+
+#### Parameters
+
+##### admission
+
+[`RetainedInteractiveAdmission`](#retainedinteractiveadmission)
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
 ### RetainedRunEffect
 
 > **RetainedRunEffect** = `"cancel_requested"` \| `"cancelled"` \| `"not_live"` \| `"unknown"`
@@ -20076,13 +20638,23 @@ Result of one verified same-session continuation.
 
 ***
 
-### RetainedRunAdmission
+### RetainedInteractiveAdmission
 
-> **RetainedRunAdmission** = [`RetainedRunEnvironmentAdmission`](#retainedrunenvironmentadmission) \| [`RetainedRunDispatchedAdmission`](#retainedrundispatchedadmission)
+> **RetainedInteractiveAdmission** = [`RetainedInteractiveIntentAdmission`](#retainedinteractiveintentadmission) \| [`RetainedInteractiveEnvironmentAdmission`](#retainedinteractiveenvironmentadmission) \| [`RetainedInteractiveStartedAdmission`](#retainedinteractivestartedadmission)
 
 **`Stable`**
 
-One admission record the runtime persists through the caller before proceeding.
+Durable records for one exact native coding-agent process.
+
+***
+
+### RetainedRunAdmission
+
+> **RetainedRunAdmission** = [`RetainedRunIntentAdmission`](#retainedrunintentadmission) \| [`RetainedRunEnvironmentAdmission`](#retainedrunenvironmentadmission) \| [`RetainedRunDispatchedAdmission`](#retainedrundispatchedadmission)
+
+**`Stable`**
+
+One detached-run admission record the runtime persists before creation or dispatch proceeds.
 
 ***
 
@@ -20094,10 +20666,10 @@ One admission record the runtime persists through the caller before proceeding.
 
 Awaited durability hook for retained admission records.
 
-The runtime blocks after environment creation and again after dispatch until
-the hook resolves, so no retained run becomes caller-visible before its
-recovery record is durable. A rejection fails the start without destroying
-the environment; the persisted record or provider state is the recovery path.
+The runtime blocks after the pre-create intent, environment creation, and
+provider work until the hook resolves. No retained run becomes caller-visible
+before its exact recovery record is durable. A rejection keeps provider state
+for recovery when provider work has already started.
 
 #### Parameters
 
@@ -20227,14 +20799,6 @@ Exact canonical identity materialized by the executor.
 > `optional` **agentRunName?**: `string`
 
 Model label stamped on cost-only `llm_call` events. Default `'agent'`.
-
-***
-
-### AgentTurnInput
-
-> **AgentTurnInput** = `string` \| \{ `messages`: `ReadonlyArray`\<`Readonly`\<`Record`\<`string`, `unknown`\>\>\>; \}
-
-One prompt or an exact OpenAI-compatible conversation carried as the turn input.
 
 ***
 
@@ -23681,6 +24245,93 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 
 ***
 
+### claimRetainedInteractiveControl()
+
+> **claimRetainedInteractiveControl**(`options`): `Promise`\<\{ \}\>
+
+**`Stable`**
+
+Acquire provider-issued write authority without reading authority from status.
+
+A new coordinator starts at generation zero. If another claim already exists,
+the provider returns its public generation and this helper retries one new
+compare-and-swap operation. Every generation has a deterministic operation
+identifier, so retrying after an ambiguous response cannot create two claims.
+
+#### Parameters
+
+##### options
+
+[`ClaimRetainedInteractiveControlOptions`](#claimretainedinteractivecontroloptions)
+
+#### Returns
+
+`Promise`\<\{ \}\>
+
+***
+
+### startRetainedInteractiveRun()
+
+> **startRetainedInteractiveRun**(`options`): `Promise`\<[`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle)\>
+
+**`Stable`**
+
+Start one retry-safe native coding-agent TUI without dispatching a headless turn.
+The intent admission is durable before provider.create; the environment and
+process admissions follow only after their exact provider coordinates exist.
+
+#### Parameters
+
+##### options
+
+[`StartRetainedInteractiveRunOptions`](#startretainedinteractiverunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle)\>
+
+***
+
+### recoverRetainedInteractiveRun()
+
+> **recoverRetainedInteractiveRun**(`options`): `Promise`\<[`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle) \| `null`\>
+
+**`Stable`**
+
+Retry one exact start after its provider response may have been lost.
+
+#### Parameters
+
+##### options
+
+[`RecoverRetainedInteractiveRunOptions`](#recoverretainedinteractiverunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle) \| `null`\>
+
+***
+
+### reconnectRetainedInteractiveRun()
+
+> **reconnectRetainedInteractiveRun**(`options`): `Promise`\<[`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle) \| `null`\>
+
+**`Stable`**
+
+Rebuild controls for one exact provider-owned coding-agent process.
+
+#### Parameters
+
+##### options
+
+[`ReconnectRetainedInteractiveRunOptions`](#reconnectretainedinteractiverunoptions)
+
+#### Returns
+
+`Promise`\<[`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle) \| `null`\>
+
+***
+
 ### startRetainedRun()
 
 > **startRetainedRun**(`options`): `Promise`\<[`RetainedRunHandle`](#retainedrunhandle)\>
@@ -23690,11 +24341,10 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 Dispatch one detached, replayable run and return only after exact durable
 coordinates are confirmed by the provider and persisted by the caller.
 
-The required `onAdmission` hook is awaited twice: with the recovery
-coordinates after environment creation, and with the verified exact control
-reference after dispatch. The returned promise resolves only after the
-dispatched admission is durable, so no caller can observe a successful start
-whose exact reference a crash would lose.
+The required `onAdmission` hook first records a digest-only intent before
+creation, then records recovery coordinates and the verified exact control
+reference. The returned promise resolves only after the dispatched admission
+is durable, so a crash cannot lose a successful start's exact reference.
 
 #### Parameters
 
@@ -23734,12 +24384,17 @@ must use `RetainedRunHandle.continueNative` for a verified same-chat turn.
 
 ### recoverRetainedRun()
 
+#### Call Signature
+
 > **recoverRetainedRun**(`options`): `Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
 
 **`Stable`**
 
-Rebuild the exact run named by pre-dispatch admission coordinates, or
-report why the provider cannot prove it.
+Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
+admission coordinates, or report why the provider cannot prove it.
+
+An intent recovery replays the exact original start material through
+`startRetainedRun`; a changed replay is rejected before provider creation.
 
 `not_found`: the provider no longer holds the environment, so nothing
 remains to destroy. `recovered`: the provider self-identified the session
@@ -23752,13 +24407,46 @@ outcome is never destroy-safe: keep the environment, retry
 environment with provider-native tools. A session that self-identifies
 with different coordinates throws: something live is not the recorded run.
 
-#### Parameters
+##### Parameters
 
-##### options
+###### options
+
+[`RecoverRetainedRunIntentOptions`](#recoverretainedrunintentoptions)
+
+##### Returns
+
+`Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
+
+#### Call Signature
+
+> **recoverRetainedRun**(`options`): `Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
+
+**`Stable`**
+
+Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
+admission coordinates, or report why the provider cannot prove it.
+
+An intent recovery replays the exact original start material through
+`startRetainedRun`; a changed replay is rejected before provider creation.
+
+`not_found`: the provider no longer holds the environment, so nothing
+remains to destroy. `recovered`: the provider self-identified the session
+with a strict exact reference matching the recorded coordinates.
+`unverifiable`: the environment exists but the provider cannot
+self-identify the session — no session accessor, an accessor that throws,
+a lazy accessor with no stored reference, or a loose reference. That
+outcome is never destroy-safe: keep the environment, retry
+`reconnectRetainedRun` with a dispatched admission record, or inspect the
+environment with provider-native tools. A session that self-identifies
+with different coordinates throws: something live is not the recorded run.
+
+##### Parameters
+
+###### options
 
 [`RecoverRetainedRunOptions`](#recoverretainedrunoptions)
 
-#### Returns
+##### Returns
 
 `Promise`\<[`RecoverRetainedRunResult`](#recoverretainedrunresult)\>
 
@@ -24569,7 +25257,7 @@ timeout alike. The generator never throws; failures surface in-band as
 
 ##### input
 
-[`AgentTurnInput`](#agentturninput)
+`AgentTurnInput`
 
 ##### opts?
 
@@ -27525,7 +28213,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-23), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-27), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

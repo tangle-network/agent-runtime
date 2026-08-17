@@ -1,6 +1,8 @@
+import type { Sha256Digest } from '@tangle-network/agent-interface'
 import {
   AgentEnvironmentCapabilitiesSchema,
   AgentExactRunControlRefSchema,
+  canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -8,7 +10,12 @@ import type {
   AgentEnvironmentProvider,
   AgentSession,
 } from '@tangle-network/agent-interface/environment-provider'
-import { RetainedRunAdmissionError, RetainedRunDispatchBindingError } from '../errors'
+import {
+  RetainedInteractiveAdmissionError,
+  RetainedRunAdmissionError,
+  RetainedRunDispatchBindingError,
+} from '../errors'
+import { assertRequestedInteractionCapabilities } from './interaction-capabilities'
 import {
   assertStableText,
   exactControlRef,
@@ -16,16 +23,21 @@ import {
   freezeControlRef,
 } from './retained-run-binding'
 import { createRetainedRunHandle } from './retained-run-handle'
+import { retainedCreateMaterial, retainedTurnMaterial } from './retained-run-intent'
 import type {
   ReconnectRetainedRunOptions,
+  RecoverRetainedRunIntentOptions,
   RecoverRetainedRunOptions,
   RecoverRetainedRunResult,
+  RetainedInteractiveAdmission,
   RetainedRunAdmission,
   RetainedRunAdmissionHook,
   RetainedRunHandle,
+  RetainedRunIntentAdmission,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
+import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
 /**
@@ -54,11 +66,10 @@ export function mintRetainedIdentity(
  * Dispatch one detached, replayable run and return only after exact durable
  * coordinates are confirmed by the provider and persisted by the caller.
  *
- * The required `onAdmission` hook is awaited twice: with the recovery
- * coordinates after environment creation, and with the verified exact control
- * reference after dispatch. The returned promise resolves only after the
- * dispatched admission is durable, so no caller can observe a successful start
- * whose exact reference a crash would lose.
+ * The required `onAdmission` hook first records a digest-only intent before
+ * creation, then records recovery coordinates and the verified exact control
+ * reference. The returned promise resolves only after the dispatched admission
+ * is durable, so a crash cannot lose a successful start's exact reference.
  *
  * @stable
  */
@@ -77,11 +88,21 @@ export async function startRetainedRun(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
-  const capabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-
+  const intent = retainedRunIntent(options, identity)
+  if (options.intent === undefined) {
+    await admitDurably(options.onAdmission, intent)
+  } else {
+    assertExactRetainedRunIntent(options.intent, intent)
+  }
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
+  assertRequestedInteractionCapabilities(
+    options.provider.name,
+    options.turn.interactions,
+    providerCapabilities,
+  )
   // Runtime-owned keys in metadata give operators provider-side visibility
   // into which retained coordinates created this environment. Caller metadata
   // is preserved; the runtime keys overwrite same-named caller keys.
@@ -90,10 +111,35 @@ export async function startRetainedRun(
     metadata: {
       ...options.environment.metadata,
       retainedIdempotencyKey: options.environment.idempotencyKey,
+      retainedIntentDigest: intent.requestDigest,
+      retainedRunId: intent.runId,
       sessionId: identity.sessionId,
       executionId: identity.executionId,
     },
   })
+  let capabilities: AgentEnvironmentCapabilities
+  try {
+    capabilities = retainedCapabilitiesForEnvironment(
+      options.provider.name,
+      providerCapabilities,
+      environment,
+    )
+    assertRequestedInteractionCapabilities(
+      options.provider.name,
+      options.turn.interactions,
+      capabilities,
+    )
+  } catch (error) {
+    try {
+      await environment.destroy?.()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [error, cleanupError],
+        'retained run environment published invalid capabilities and could not be destroyed',
+      )
+    }
+    throw error
+  }
   if (!environment.dispatch || !environment.session) {
     try {
       await environment.destroy?.()
@@ -146,7 +192,7 @@ export async function startRetainedRunInEnvironment(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
@@ -159,6 +205,16 @@ export async function startRetainedRunInEnvironment(
   if (environment.id !== options.environment.id || environment.provider !== options.provider.name) {
     throw new Error('provider reconstructed a different retained environment')
   }
+  const capabilities = retainedCapabilitiesForEnvironment(
+    options.provider.name,
+    providerCapabilities,
+    environment,
+  )
+  assertRequestedInteractionCapabilities(
+    options.provider.name,
+    options.turn.interactions,
+    capabilities,
+  )
   if (!environment.dispatch || !environment.session) {
     throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
@@ -218,6 +274,11 @@ async function dispatchRetainedRun(
   options: DispatchRetainedRunOptions,
 ): Promise<RetainedRunHandle> {
   const { environment, identity } = options
+  assertRequestedInteractionCapabilities(
+    options.provider.name,
+    options.turn.interactions,
+    options.capabilities,
+  )
   // The environment admission fires only for a dispatch-capable environment.
   await admitDurably(options.onAdmission, {
     phase: 'environment',
@@ -295,20 +356,36 @@ async function dispatchRetainedRun(
  * record is the recovery path — and surfaces as `RetainedRunAdmissionError` so
  * callers can distinguish a persistence failure from a provider failure.
  */
-async function admitDurably(
-  onAdmission: RetainedRunAdmissionHook,
-  admission: RetainedRunAdmission,
-): Promise<void> {
+export async function admitDurably<
+  TAdmission extends RetainedRunAdmission | RetainedInteractiveAdmission,
+>(onAdmission: (admission: TAdmission) => Promise<void>, admission: TAdmission): Promise<void> {
+  const stableAdmission = detachedSnapshot(admission, 'retained run admission')
   try {
-    await onAdmission(Object.freeze(admission))
+    await onAdmission(stableAdmission)
   } catch (error) {
-    throw new RetainedRunAdmissionError(admission, { cause: error })
+    if (isInteractiveAdmission(stableAdmission)) {
+      throw new RetainedInteractiveAdmissionError(stableAdmission, { cause: error })
+    }
+    throw new RetainedRunAdmissionError(stableAdmission, { cause: error })
   }
 }
 
+function isInteractiveAdmission(
+  admission: RetainedRunAdmission | RetainedInteractiveAdmission,
+): admission is RetainedInteractiveAdmission {
+  return (
+    admission.phase === 'interactive_intent' ||
+    admission.phase === 'interactive_environment' ||
+    admission.phase === 'interactive_started'
+  )
+}
+
 /**
- * Rebuild the exact run named by pre-dispatch admission coordinates, or
- * report why the provider cannot prove it.
+ * Rebuild the exact run named by a persisted pre-create intent or pre-dispatch
+ * admission coordinates, or report why the provider cannot prove it.
+ *
+ * An intent recovery replays the exact original start material through
+ * `startRetainedRun`; a changed replay is rejected before provider creation.
  *
  * `not_found`: the provider no longer holds the environment, so nothing
  * remains to destroy. `recovered`: the provider self-identified the session
@@ -323,18 +400,42 @@ async function admitDurably(
  *
  * @stable
  */
-export async function recoverRetainedRun(
+export function recoverRetainedRun(
+  options: RecoverRetainedRunIntentOptions,
+): Promise<RecoverRetainedRunResult>
+export function recoverRetainedRun(
   options: RecoverRetainedRunOptions,
+): Promise<RecoverRetainedRunResult>
+export async function recoverRetainedRun(
+  options: RecoverRetainedRunIntentOptions | RecoverRetainedRunOptions,
 ): Promise<RecoverRetainedRunResult> {
+  if ('admission' in options) {
+    if (options.admission.provider !== options.provider.name) {
+      throw new Error('retained run intent belongs to another provider')
+    }
+    const handle = await startRetainedRun({
+      provider: options.provider,
+      ...options.replay,
+      intent: options.admission,
+      onAdmission: options.onAdmission,
+      now: options.now,
+    })
+    return { outcome: 'recovered', handle }
+  }
   assertStableText(options.environmentId, 'retained environment id')
   assertStableText(options.sessionId, 'retained session id')
   assertStableText(options.executionId, 'retained execution id')
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
   const environment = await options.provider.get(options.environmentId)
   if (!environment) return { outcome: 'not_found' }
+  const capabilities = retainedCapabilitiesForEnvironment(
+    options.provider.name,
+    providerCapabilities,
+    environment,
+  )
   if (!environment.session) return { outcome: 'unverifiable', environment }
   let session: AgentSession
   try {
@@ -369,6 +470,85 @@ export async function recoverRetainedRun(
   }
 }
 
+function retainedRunIntent(
+  options: StartRetainedRunOptions,
+  identity: { readonly sessionId: string; readonly executionId: string },
+): RetainedRunIntentAdmission {
+  const requestedProfileDigest = canonicalCandidateDigest(options.environment.profile)
+  const requestDigest = canonicalCandidateDigest({
+    kind: 'retained-run-intent.v1',
+    provider: options.provider.name,
+    idempotencyKey: options.environment.idempotencyKey,
+    turnId: options.turn.turnId,
+    sessionId: identity.sessionId,
+    executionId: identity.executionId,
+    requestedProfileDigest,
+    create: retainedCreateMaterial(options.environment),
+    turn: retainedTurnMaterial(options.turn),
+  })
+  return {
+    phase: 'intent',
+    provider: options.provider.name,
+    idempotencyKey: options.environment.idempotencyKey,
+    turnId: options.turn.turnId,
+    sessionId: identity.sessionId,
+    executionId: identity.executionId,
+    runId: `retained-intent-run:${requestDigest.slice('sha256:'.length)}`,
+    requestedProfileDigest,
+    requestDigest,
+  }
+}
+
+function assertExactRetainedRunIntent(
+  received: RetainedRunIntentAdmission,
+  expected: RetainedRunIntentAdmission,
+): void {
+  const stableReceived = parseRetainedRunIntent(received)
+  if (canonicalCandidateDigest(stableReceived) !== canonicalCandidateDigest(expected)) {
+    throw new Error('retained run intent conflicts with replay material')
+  }
+}
+
+function parseRetainedRunIntent(value: unknown): RetainedRunIntentAdmission {
+  const stable = detachedSnapshot(value, 'retained run intent')
+  if (stable === null || typeof stable !== 'object' || Array.isArray(stable)) {
+    throw new Error('retained run intent is malformed')
+  }
+  const record = stable as Record<string, unknown>
+  const allowed = new Set([
+    'phase',
+    'provider',
+    'idempotencyKey',
+    'turnId',
+    'sessionId',
+    'executionId',
+    'runId',
+    'requestedProfileDigest',
+    'requestDigest',
+  ])
+  if (Object.keys(record).some((key) => !allowed.has(key))) {
+    throw new Error('retained run intent contains unsupported material')
+  }
+  if (record.phase !== 'intent') {
+    throw new Error('retained run intent has an invalid phase')
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (key === 'phase') continue
+    if (typeof value !== 'string' || value.length === 0) {
+      throw new Error(`retained run intent field "${key}" is invalid`)
+    }
+  }
+  assertDigest(record.requestedProfileDigest, 'retained run intent profile digest')
+  assertDigest(record.requestDigest, 'retained run intent request digest')
+  return stable as RetainedRunIntentAdmission
+}
+
+function assertDigest(value: unknown, label: string): asserts value is Sha256Digest {
+  if (typeof value !== 'string' || !/^sha256:[a-f0-9]{64}$/u.test(value)) {
+    throw new Error(`${label} is invalid`)
+  }
+}
+
 /** Rebuild a retained-run client without retaining any object from the starter. @stable */
 export async function reconnectRetainedRun(
   options: ReconnectRetainedRunOptions,
@@ -379,12 +559,17 @@ export async function reconnectRetainedRun(
       `run provider "${controlRef.provider}" does not match "${options.provider.name}"`,
     )
   }
-  const capabilities = await assertRetainedCapabilities(options.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
   const environment = await options.provider.get(controlRef.environmentId)
   if (!environment) return null
+  const capabilities = retainedCapabilitiesForEnvironment(
+    options.provider.name,
+    providerCapabilities,
+    environment,
+  )
   const exact = exactSession(environment, controlRef)
   return createRetainedRunHandle(
     environment,
@@ -399,6 +584,32 @@ export async function assertRetainedCapabilities(
   provider: AgentEnvironmentProvider,
 ): Promise<AgentEnvironmentCapabilities> {
   const capabilities = AgentEnvironmentCapabilitiesSchema.parse(await provider.capabilities())
+  assertRetainedCapabilityRequirements(provider.name, capabilities)
+  return capabilities
+}
+
+/**
+ * Select the capability document for one concrete environment.
+ *
+ * A measured environment document is authoritative. An absent document uses
+ * the provider document because that provider claims the same guarantee for
+ * every environment it creates.
+ */
+export function retainedCapabilitiesForEnvironment(
+  providerName: string,
+  providerCapabilities: AgentEnvironmentCapabilities,
+  environment: AgentEnvironment,
+): AgentEnvironmentCapabilities {
+  if (environment.capabilities === undefined) return providerCapabilities
+  const measured = AgentEnvironmentCapabilitiesSchema.parse(environment.capabilities)
+  assertRetainedCapabilityRequirements(providerName, measured)
+  return measured
+}
+
+function assertRetainedCapabilityRequirements(
+  providerName: string,
+  capabilities: AgentEnvironmentCapabilities,
+): void {
   const retained = capabilities.retainedControl
   if (
     retained?.exactRunIdentity !== true ||
@@ -409,7 +620,6 @@ export async function assertRetainedCapabilities(
     !capabilities.streaming.replay ||
     !capabilities.streaming.turnIdempotency
   ) {
-    throw new Error(`provider "${provider.name}" cannot control a retry-safe retained run`)
+    throw new Error(`provider "${providerName}" cannot control a retry-safe retained run`)
   }
-  return capabilities
 }

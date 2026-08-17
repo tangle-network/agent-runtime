@@ -249,7 +249,7 @@ async function profileShot(opts: {
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', factory, profile: opts.profile },
-      opts.prompt,
+      { prompt: opts.prompt },
       { timeoutMs: opts.timeoutMs },
     ),
   )

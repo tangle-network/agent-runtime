@@ -1,4 +1,5 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
 import { BackendTransportError, ValidationError } from '../errors'
 import type {
   AgentBackendContext,
@@ -37,9 +38,13 @@ export function createProfileExecutionBackend(options: {
           ...executorContext,
           ...(propagatedHeaders === undefined ? {} : { propagatedHeaders }),
         })
-      const turnInput = input.messages
-        ? { messages: input.messages.map((message) => ({ ...message })) }
-        : (input.message ?? context.task.intent)
+      const providerMessages = input.providerOptions?.messages
+      const turnInput: AgentTurnInput =
+        input.messages !== undefined
+          ? { providerOptions: { messages: input.messages.map((message) => ({ ...message })) } }
+          : Array.isArray(providerMessages)
+            ? { providerOptions: { messages: structuredClone(providerMessages) } }
+            : { prompt: input.message ?? context.task.intent }
       let terminal = false
       let emittedText = false
 

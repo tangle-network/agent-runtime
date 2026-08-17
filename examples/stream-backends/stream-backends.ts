@@ -170,7 +170,7 @@ async function main() {
         routerKey: apiKey,
       }),
     },
-    'Say hello.',
+    { prompt: 'Say hello.' },
   )) {
     process.stdout.write(runtimeStreamServerSentEvent(event))
   }

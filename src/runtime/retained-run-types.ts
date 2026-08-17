@@ -1,5 +1,7 @@
 import type {
   AgentExactRunControlRef,
+  AgentInteractiveSessionRef,
+  AgentInteractiveSessionStart,
   AgentNativeContextContinuationOptions,
   AgentNativeContextContinuationResult,
   AgentSessionStatus,
@@ -13,6 +15,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
+  AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
   AgentTurnInput,
   AgentTurnResult,
@@ -73,6 +76,8 @@ export type NativeContextContinuationExecution = AgentNativeContextContinuationR
 /** Reconstructable control of one provider-retained run. @stable */
 export interface RetainedRunHandle {
   readonly controlRef: AgentExactRunControlRef
+  /** Capabilities measured from the exact environment that owns this run. */
+  readonly capabilities: AgentEnvironmentCapabilities
   status(options?: { waitMs?: number; signal?: AbortSignal }): Promise<RetainedRunSnapshot>
   events(options?: RetainedRunEventOptions): AsyncIterable<RuntimeEventEnvelope>
   result(): Promise<AgentTurnResult>
@@ -86,6 +91,26 @@ export interface RetainedRunHandle {
     turn: NativeContextContinuationInput,
   ): Promise<NativeContextContinuationExecution>
   cancel(options: RetainedRunCancelOptions): Promise<RetainedRunCancellation>
+}
+
+/**
+ * Sanitized headless intent durable before environment creation.
+ *
+ * The request digest binds the public create and turn material without
+ * retaining secret values. The original start material is required to replay
+ * this record after a process crash.
+ * @stable
+ */
+export interface RetainedRunIntentAdmission {
+  readonly phase: 'intent'
+  readonly provider: string
+  readonly idempotencyKey: string
+  readonly turnId: string
+  readonly sessionId: string
+  readonly executionId: string
+  readonly runId: string
+  readonly requestedProfileDigest: Sha256Digest
+  readonly requestDigest: Sha256Digest
 }
 
 /** Recovery coordinates durable after environment creation and before dispatch. @stable */
@@ -109,24 +134,70 @@ export interface RetainedRunDispatchedAdmission {
   readonly turnId: string
 }
 
-/** One admission record the runtime persists through the caller before proceeding. @stable */
-export type RetainedRunAdmission = RetainedRunEnvironmentAdmission | RetainedRunDispatchedAdmission
+/**
+ * Sanitized intent durable before an interactive environment create begins.
+ *
+ * The digest covers the public start and create material without retaining that
+ * material. It never carries environment variables, secret values, or provider
+ * options. The replay input supplies private values after this check.
+ * @stable
+ */
+export interface RetainedInteractiveIntentAdmission {
+  readonly phase: 'interactive_intent'
+  readonly provider: string
+  readonly idempotencyKey: string
+  readonly interactiveIdempotencyKey: string
+  readonly sessionId: string
+  readonly executionId: string
+  readonly runId: string
+  readonly requestedProfileDigest: Sha256Digest
+  readonly requestDigest: Sha256Digest
+}
+
+/** Exact interactive start request durable after environment creation. @stable */
+export interface RetainedInteractiveEnvironmentAdmission {
+  readonly phase: 'interactive_environment'
+  readonly provider: string
+  readonly environmentId: string
+  readonly idempotencyKey: string
+  readonly interactiveIdempotencyKey: string
+  readonly request: AgentInteractiveSessionStart
+}
+
+/** Provider-issued interactive process reference durable before start returns. @stable */
+export interface RetainedInteractiveStartedAdmission {
+  readonly phase: 'interactive_started'
+  readonly idempotencyKey: string
+  readonly interactiveIdempotencyKey: string
+  readonly ref: AgentInteractiveSessionRef
+}
+
+/** Durable records for one exact native coding-agent process. @stable */
+export type RetainedInteractiveAdmission =
+  | RetainedInteractiveIntentAdmission
+  | RetainedInteractiveEnvironmentAdmission
+  | RetainedInteractiveStartedAdmission
+
+/** One detached-run admission record the runtime persists before creation or dispatch proceeds. @stable */
+export type RetainedRunAdmission =
+  | RetainedRunIntentAdmission
+  | RetainedRunEnvironmentAdmission
+  | RetainedRunDispatchedAdmission
 
 /**
  * Awaited durability hook for retained admission records.
  *
- * The runtime blocks after environment creation and again after dispatch until
- * the hook resolves, so no retained run becomes caller-visible before its
- * recovery record is durable. A rejection fails the start without destroying
- * the environment; the persisted record or provider state is the recovery path.
+ * The runtime blocks after the pre-create intent, environment creation, and
+ * provider work until the hook resolves. No retained run becomes caller-visible
+ * before its exact recovery record is durable. A rejection keeps provider state
+ * for recovery when provider work has already started.
  *
  * @stable
  */
 export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Promise<void>
 
-/** A retained start is retry-safe only when environment and turn keys are explicit. @stable */
-export interface StartRetainedRunOptions {
-  readonly provider: AgentEnvironmentProvider
+/** Environment, turn, and optional identity needed to replay one retained start. @stable */
+export interface RetainedRunStartMaterial {
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
   readonly turn: AgentTurnInput & { turnId: string }
   /**
@@ -138,6 +209,13 @@ export interface StartRetainedRunOptions {
     readonly sessionId: string
     readonly executionId: string
   }
+}
+
+/** A retained start is retry-safe only when environment and turn keys are explicit. @stable */
+export interface StartRetainedRunOptions extends RetainedRunStartMaterial {
+  readonly provider: AgentEnvironmentProvider
+  /** A previously persisted intent used to replay the exact create operation. */
+  readonly intent?: RetainedRunIntentAdmission
   readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
 }
@@ -168,6 +246,16 @@ export interface StartRetainedRunInEnvironmentOptions {
 export interface ReconnectRetainedRunOptions {
   readonly provider: AgentEnvironmentProvider
   readonly controlRef: AgentExactRunControlRef
+  readonly now?: () => number
+}
+
+/** Recover a headless start after its pre-create intent was persisted. @stable */
+export interface RecoverRetainedRunIntentOptions {
+  readonly provider: AgentEnvironmentProvider
+  readonly admission: RetainedRunIntentAdmission
+  /** The exact original environment, turn, and optional identity material. */
+  readonly replay: RetainedRunStartMaterial
+  readonly onAdmission: RetainedRunAdmissionHook
   readonly now?: () => number
 }
 

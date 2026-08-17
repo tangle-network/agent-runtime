@@ -174,7 +174,11 @@ export async function runBoundProfileChat(
         profile: turnProfile,
         factory: createExecutor(binding.executor),
       },
-      { messages: req.messages as Array<{ role: string; content: unknown }> },
+      {
+        providerOptions: {
+          messages: req.messages,
+        },
+      },
       {
         ...(req.timeoutMs !== undefined ? { timeoutMs: req.timeoutMs } : {}),
         ...(callOpts?.signal ? { signal: callOpts.signal } : {}),

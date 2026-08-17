@@ -103,7 +103,7 @@ async function bridgeChat(opts: {
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', factory, profile },
-      opts.messages.map((message) => message.content).join('\n\n'),
+      { prompt: opts.messages.map((message) => message.content).join('\n\n') },
     ),
   )
   if (turn.status !== 'completed') {

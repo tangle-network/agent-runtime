@@ -7,6 +7,7 @@ import {
   collectAgentTurn,
   createExecutor,
   streamAgentTurn,
+  type AgentTurnInput,
   type CollectedAgentTurn,
   type ToolSpec,
 } from '@tangle-network/agent-runtime/kernel'
@@ -118,10 +119,18 @@ export async function runBenchRouterTurn(
     routerKey: config.routerKey,
     ...(config.tools ? { tools: config.tools } : {}),
   })
+  const turnInput: AgentTurnInput =
+    typeof input === 'string'
+      ? { prompt: input }
+      : {
+          providerOptions: {
+            messages: input.messages.map((message) => ({ ...message })),
+          },
+        }
   const turn = await collectAgentTurn(
     streamAgentTurn(
       { kind: 'executor', factory, profile: config.profile },
-      input,
+      turnInput,
       {
         ...(config.timeoutMs === undefined ? {} : { timeoutMs: config.timeoutMs }),
         ...(config.signal ? { signal: config.signal } : {}),

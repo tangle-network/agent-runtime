@@ -4761,7 +4761,7 @@ readonly [`AgentImprovementActivationTargetIdentity`](#agentimprovementactivatio
 
 ### isAgentImprovementProfileSurface()
 
-> **isAgentImprovementProfileSurface**(`surface`): surface is "mcp" \| "subagents" \| "hooks" \| "prompt" \| "tools" \| "skills"
+> **isAgentImprovementProfileSurface**(`surface`): surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills"
 
 Return whether a measured surface can be delivered through an agent profile.
 
@@ -4773,13 +4773,13 @@ Return whether a measured surface can be delivered through an agent profile.
 
 #### Returns
 
-surface is "mcp" \| "subagents" \| "hooks" \| "prompt" \| "tools" \| "skills"
+surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills"
 
 ***
 
 ### isAgentProfileMeasuredSurface()
 
-> **isAgentProfileMeasuredSurface**(`surface`): surface is "mcp" \| "subagents" \| "hooks" \| "prompt" \| "tools" \| "skills" \| "agent-profile"
+> **isAgentProfileMeasuredSurface**(`surface`): surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills" \| "agent-profile"
 
 Return whether a surface is eligible for shared profile measurement.
 
@@ -4791,7 +4791,7 @@ Return whether a surface is eligible for shared profile measurement.
 
 #### Returns
 
-surface is "mcp" \| "subagents" \| "hooks" \| "prompt" \| "tools" \| "skills" \| "agent-profile"
+surface is "prompt" \| "tools" \| "mcp" \| "subagents" \| "hooks" \| "skills" \| "agent-profile"
 
 ***
 
@@ -4812,7 +4812,7 @@ same profile inside a candidate bundle.
 
 ##### surface
 
-`"mcp"` \| `"subagents"` \| `"hooks"` \| `"prompt"` \| `"tools"` \| `"skills"`
+`"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"`
 
 #### Returns
 
@@ -4834,7 +4834,7 @@ Return the `Sha256Digest` of one profile surface using Runtime's canonical candi
 
 ##### surface
 
-`"mcp"` \| `"subagents"` \| `"hooks"` \| `"prompt"` \| `"tools"` \| `"skills"`
+`"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"`
 
 #### Returns
 
@@ -4856,7 +4856,7 @@ so exact replacement requires a reset record followed by a set record.
 
 ###### surface
 
-`"mcp"` \| `"subagents"` \| `"hooks"` \| `"prompt"` \| `"tools"` \| `"skills"`
+`"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"`
 
 ###### desiredInput
 
