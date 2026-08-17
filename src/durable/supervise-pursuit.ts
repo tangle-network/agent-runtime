@@ -1,18 +1,23 @@
 import { resolve } from 'node:path'
+import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import { supervise, type SuperviseOptions } from '../runtime/supervise/supervise'
-import { composeRuntimeHooks, type RuntimeHookEvent } from '../runtime-hooks'
+import {
+  composeRuntimeHooks,
+  type RuntimeHookEvent,
+  withPursuitContext,
+} from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
-import { projectPursuit, type PursuitProjection } from './observer-projection'
+import { type PursuitProjection, projectPursuit } from './observer-projection'
 
 export interface SupervisePursuitOptions extends SuperviseOptions {
   /** Stable objective identity spanning concrete Runtime runs. */
   readonly pursuitId: string
   /**
-   * Shared durable observer file. Defaults under `runDir`. Supply an explicit
-   * path when one pursuit intentionally spans multiple run directories.
+   * One concrete Runtime execution owns one durable directory and observer journal.
+   * A pursuit spanning several runs reuses `pursuitId` across distinct `runDir`s;
+   * Intelligence joins those isolated projections without a shared write head.
    */
-  readonly observerPath?: string
+  readonly runDir: string
 }
 
 export interface SupervisedPursuitResult<Result> {
@@ -21,16 +26,30 @@ export interface SupervisedPursuitResult<Result> {
   readonly observerPath: string
 }
 
+/** A failed Runtime execution whose complete third-person projection was retained. */
+export class SupervisePursuitError extends Error {
+  readonly pursuit: PursuitProjection
+  readonly observerPath: string
+
+  constructor(cause: unknown, pursuit: PursuitProjection, observerPath: string) {
+    super(`supervisePursuit: ${errorMessage(cause)}`, { cause })
+    this.name = 'SupervisePursuitError'
+    this.pursuit = pursuit
+    this.observerPath = observerPath
+  }
+}
+
 /**
  * One-call durable pursuit execution over the canonical `supervise()` kernel.
  *
  * This is an adapter, not a second executor: it composes a durable third-person
  * observer into Runtime's existing recursive hook stream and then rebuilds the
- * operator projection after the same `supervise()` call settles. The agents never
+ * operator projection after the same `supervise()` call settles. Agents never
  * receive the observer path or projection and their behavior does not depend on it.
  *
- * A pursuit must have durable observer storage. `runDir` is the normal path; an
- * explicit `observerPath` supports a pursuit that spans several concrete run dirs.
+ * Every concrete execution writes only inside its own `runDir`. Cross-run pursuit
+ * aggregation is therefore lock-free at the observer layer: reuse `pursuitId` across
+ * run directories and let Intelligence join the independently verified projections.
  */
 export async function supervisePursuit(
   profile: SupervisorProfile,
@@ -41,8 +60,13 @@ export async function supervisePursuit(
   if (pursuitId.length === 0) {
     throw new TypeError('supervisePursuit: pursuitId must be non-empty')
   }
-  const observerPath = resolveObserverPath(opts)
-  const { pursuitId: _pursuitId, observerPath: _observerPath, hooks, ...superviseOptions } = opts
+  const runDir = opts.runDir.trim()
+  if (runDir.length === 0) {
+    throw new TypeError('supervisePursuit: runDir must be non-empty')
+  }
+
+  const observerPath = resolve(runDir, 'observer.jsonl')
+  const { pursuitId: _pursuitId, hooks, ...superviseOptions } = opts
   const observer = createFileObserverHooks(observerPath, pursuitId)
   const runId = superviseOptions.runId ?? 'supervise'
   const now = superviseOptions.now ?? Date.now
@@ -51,43 +75,46 @@ export async function supervisePursuit(
   // narrate about itself. This also makes a zero-spawn/single-agent run observable.
   await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
 
-  let result: Awaited<ReturnType<typeof supervise>>
   try {
-    result = await supervise(profile, task, {
+    const result = await supervise(profile, task, {
       ...superviseOptions,
-      hooks: composeRuntimeHooks(hooks, observer.hooks),
+      // The observer runs first so a caller hook that throws cannot prevent the
+      // canonical lifecycle fact from entering the durable journal.
+      hooks: withPursuitContext(
+        pursuitId,
+        composeRuntimeHooks(observer.hooks, hooks),
+      ),
     })
     await observer.journal.appendEvent(
       rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
     )
+    return Object.freeze({
+      result,
+      pursuit: projectPursuit(await observer.journal.read()),
+      observerPath,
+    })
   } catch (error) {
-    // Best effort to preserve the failure fact. If the durable observer itself
-    // cannot record it, surface that observer failure as cause rather than hiding
-    // an integrity break behind the original execution error.
+    let pursuit: PursuitProjection | undefined
+    let observerError: unknown
     try {
       await observer.journal.appendEvent(
         rootEvent(pursuitId, runId, 'error', now(), {
           status: 'failed',
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         }),
       )
-    } catch (observerError) {
-      throw new Error('supervisePursuit: execution failed and observer could not record failure', {
-        cause: observerError,
-      })
+      pursuit = projectPursuit(await observer.journal.read())
+    } catch (failure) {
+      observerError = failure
     }
-    throw error
+    if (observerError !== undefined || pursuit === undefined) {
+      throw new Error(
+        'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
+        { cause: new AggregateError([error, observerError]) },
+      )
+    }
+    throw new SupervisePursuitError(error, pursuit, observerPath)
   }
-
-  // Runtime hook notifications are deliberately non-blocking for execution. `read()`
-  // joins the journal's serialized append tail here, so the returned projection covers
-  // every observer append that was scheduled by this execution before settlement.
-  const records = await observer.journal.read()
-  return Object.freeze({
-    result,
-    pursuit: projectPursuit(records),
-    observerPath,
-  })
 }
 
 function rootEvent(
@@ -108,16 +135,6 @@ function rootEvent(
   })
 }
 
-function resolveObserverPath(opts: SupervisePursuitOptions): string {
-  if (opts.observerPath !== undefined) {
-    const path = opts.observerPath.trim()
-    if (path.length === 0) throw new TypeError('supervisePursuit: observerPath must be non-empty')
-    return resolve(path)
-  }
-  if (opts.runDir === undefined) {
-    throw new TypeError(
-      'supervisePursuit: provide runDir or observerPath; pursuit observation must be durable',
-    )
-  }
-  return resolve(opts.runDir, 'observer.jsonl')
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
