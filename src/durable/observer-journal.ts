@@ -12,7 +12,7 @@ import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './js
 export type ObserverRecordKind = 'event' | 'decision'
 
 /**
- * One immutable record in the observer plane. `sequence` is observer order, not
+ * One immutable record in the observer plane. `sequence` is journal order, not
  * execution order; causal/runtime order remains available on the underlying event.
  * `previousDigest` + `digest` make deletion, reordering, or mutation detectable.
  */
@@ -38,12 +38,14 @@ export interface ObserverJournal {
 type UnsignedObserverRecord = Omit<ObserverRecord, 'digest'>
 
 /**
- * Durable, append-only third-person history for one pursuit. It consumes Runtime's
- * existing hook stream and does not participate in execution decisions. A broken
- * observer therefore cannot change what an agent is allowed to do.
+ * Durable, append-only third-person history for one concrete Runtime execution.
+ * It consumes Runtime's existing hook stream and does not participate in execution
+ * decisions. A broken observer therefore cannot change what an agent is allowed to do.
  *
  * The write discipline deliberately matches `FileSpawnJournal`: serialized appends,
- * torn-tail recovery, short-write handling, and fsync before acknowledgement.
+ * torn-tail recovery, short-write handling, and fsync before acknowledgement. One
+ * execution owns one journal file; higher-level pursuit aggregation joins isolated
+ * journals by `pursuitId` instead of making independent processes share a write head.
  */
 export class FileObserverJournal implements ObserverJournal {
   readonly path: string
@@ -52,10 +54,12 @@ export class FileObserverJournal implements ObserverJournal {
   private initialized = false
   private sequence = 0
   private previousDigest: string | undefined
+  private appendFailure: Error | undefined
 
   constructor(path: string, pursuitId: string) {
     const stableId = pursuitId.trim()
-    if (stableId.length === 0) throw new TypeError('FileObserverJournal: pursuitId must be non-empty')
+    if (stableId.length === 0)
+      throw new TypeError('FileObserverJournal: pursuitId must be non-empty')
     this.path = resolve(path)
     this.pursuitId = stableId
   }
@@ -77,6 +81,7 @@ export class FileObserverJournal implements ObserverJournal {
 
   async read(): Promise<readonly ObserverRecord[]> {
     await this.tail
+    this.assertComplete()
     let text: string
     try {
       text = await readFile(this.path, 'utf8')
@@ -94,13 +99,22 @@ export class FileObserverJournal implements ObserverJournal {
     kind: ObserverRecordKind,
     value: RuntimeHookEvent | RuntimeDecisionPoint,
   ): Promise<ObserverRecord> {
+    if (value.pursuitId !== this.pursuitId) {
+      return Promise.reject(
+        new Error(
+          `FileObserverJournal: ${kind} pursuitId ${String(value.pursuitId)} does not match ${this.pursuitId}`,
+        ),
+      )
+    }
+
     let result: ObserverRecord | undefined
     const operation = this.tail.then(async () => {
-      await this.initialize()
-      if (value.pursuitId !== this.pursuitId) {
-        throw new Error(
-          `FileObserverJournal: ${kind} pursuitId ${String(value.pursuitId)} does not match ${this.pursuitId}`,
-        )
+      this.assertComplete()
+      try {
+        await this.initialize()
+      } catch (error) {
+        this.appendFailure ??= toError(error)
+        throw error
       }
 
       const unsigned: UnsignedObserverRecord = {
@@ -118,12 +132,20 @@ export class FileObserverJournal implements ObserverJournal {
         ...unsigned,
         digest: observerRecordDigest(unsigned),
       })
-      await this.writeRecord(record)
+      try {
+        await this.writeRecord(record)
+      } catch (error) {
+        this.appendFailure ??= toError(error)
+        throw error
+      }
       this.sequence = record.sequence
       this.previousDigest = record.digest
       result = record
     })
-    this.tail = operation.catch(() => undefined)
+    this.tail = operation.then(
+      () => undefined,
+      () => undefined,
+    )
     return operation.then(() => {
       if (!result) throw new Error('FileObserverJournal: append completed without a record')
       return result
@@ -166,6 +188,14 @@ export class FileObserverJournal implements ObserverJournal {
       await handle.close()
     }
   }
+
+  private assertComplete(): void {
+    if (!this.appendFailure) return
+    throw new Error(
+      'FileObserverJournal: a prior durable append failed; observer completeness is unknown',
+      { cause: this.appendFailure },
+    )
+  }
 }
 
 /** Verify identity, monotonic sequence, payload shape, and the complete digest chain. */
@@ -195,14 +225,19 @@ export function verifyObserverRecords(
       throw new Error(`observer journal: invalid decision payload at sequence ${record.sequence}`)
     }
     if (record.event !== undefined && record.event.pursuitId !== record.pursuitId) {
-      throw new Error(`observer journal: nested event pursuit mismatch at sequence ${record.sequence}`)
+      throw new Error(
+        `observer journal: nested event pursuit mismatch at sequence ${record.sequence}`,
+      )
     }
     if (record.decision !== undefined && record.decision.pursuitId !== record.pursuitId) {
-      throw new Error(`observer journal: nested decision pursuit mismatch at sequence ${record.sequence}`)
+      throw new Error(
+        `observer journal: nested decision pursuit mismatch at sequence ${record.sequence}`,
+      )
     }
     const { digest, ...unsigned } = record
     const expected = observerRecordDigest(unsigned)
-    if (digest !== expected) throw new Error(`observer journal: digest mismatch at sequence ${record.sequence}`)
+    if (digest !== expected)
+      throw new Error(`observer journal: digest mismatch at sequence ${record.sequence}`)
     previousDigest = digest
     expectedSequence += 1
   }
@@ -214,7 +249,10 @@ export function observerRecordDigest(record: UnsignedObserverRecord): string {
 }
 
 /** Build the canonical durable observer hook in one call. */
-export function createFileObserverHooks(path: string, pursuitId: string): {
+export function createFileObserverHooks(
+  path: string,
+  pursuitId: string,
+): {
   readonly journal: FileObserverJournal
   readonly hooks: RuntimeHooks
 } {
@@ -229,4 +267,8 @@ function isNoEnt(error: unknown): boolean {
     'code' in error &&
     (error as { code?: unknown }).code === 'ENOENT'
   )
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error))
 }
