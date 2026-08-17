@@ -15,26 +15,17 @@ allowBuilds:
   esbuild: true
   workerd: true
 
-# A `catalog:` specifier is replaced by the entry below when the package is
-# packed, so every first-party entry states a RANGE. An exact version here is
-# published as an exact pin, and a consumer that already holds a later cohort
-# member then installs a second physical copy of it.
-#
-# The shape follows the depended-on package's own versioning, the same rule
-# `expectedPeerRange` applies to a peer range: a caret from 1.0.0, where a minor
-# is additive; the narrower `>=X.Y.Z <X.Y+1.0` window below 1.0, where a minor
-# may remove.
 catalog:
   '@arethetypeswrong/cli': 0.18.5
   '@modelcontextprotocol/sdk': 1.30.0
-  '@tangle-network/agent-core': '>=0.9.4 <0.10.0'
+  '@tangle-network/agent-core': 0.9.4
   '@types/node': 26.1.1
-  '@tangle-network/agent-eval': '>=0.145.21 <0.146.0'
-  '@tangle-network/agent-interface': ^1.0.0
-  '@tangle-network/agent-knowledge': ^8.0.5
-  '@tangle-network/agent-profile-materialize': '>=0.16.0 <0.17.0'
+  '@tangle-network/agent-eval': 0.146.0
+  '@tangle-network/agent-interface': 1.0.0
+  '@tangle-network/agent-knowledge': 8.0.6
+  '@tangle-network/agent-profile-materialize': 0.16.0
   '@tangle-network/agent-trace-contract': ^1.0.2
-  '@tangle-network/sandbox': '>=0.27.1 <0.28.0'
+  '@tangle-network/sandbox': 0.27.1
   publint: 0.3.22
   tsdown: 0.22.14
   tsx: 4.23.1
