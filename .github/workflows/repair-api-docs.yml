@@ -24,14 +24,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Make exported digest parameter self-describing
+      - name: Publish a documented digest parameter shape
         run: |
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from 'node:fs/promises'
           const path = 'src/durable/observer-journal.ts'
           const source = await readFile(path, 'utf8')
           const before = 'export function observerRecordDigest(record: UnsignedObserverRecord): string {'
-          const after = "export function observerRecordDigest(record: Omit<ObserverRecord, 'digest'>): string {"
+          const after = `/** Compute the canonical SHA-256 digest for an unsigned observer record. */
+          export function observerRecordDigest(record: Omit<ObserverRecord, 'digest'>): string {`
           if (!source.includes(before)) throw new Error('expected digest signature was not found')
           await writeFile(path, source.replace(before, after))
           NODE
