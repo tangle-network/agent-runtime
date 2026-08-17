@@ -175,7 +175,11 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
   })
 }
 
-function getRun(runs: Map<string, MutableRun>, runId: string, record: ObserverRecord): MutableRun {
+function getRun(
+  runs: Map<string, MutableRun>,
+  runId: string,
+  record: ObserverRecord,
+): MutableRun {
   const existing = runs.get(runId)
   if (existing) return existing
   const created: MutableRun = {
