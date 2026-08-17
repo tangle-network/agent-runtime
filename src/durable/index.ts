@@ -48,8 +48,8 @@ export {
   projectPursuit,
 } from './observer-projection'
 export {
-  type SupervisedPursuitResult,
   SupervisePursuitError,
+  type SupervisedPursuitResult,
   type SupervisePursuitOptions,
   supervisePursuit,
 } from './supervise-pursuit'
