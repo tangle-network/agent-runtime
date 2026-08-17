@@ -16,6 +16,8 @@
  *     for a pursuit, fed by Runtime's existing hook stream.
  *   - `projectPursuit`: a rebuildable operator read model over that history;
  *     it owns no execution or coordination semantics.
+ *   - `supervisePursuit`: one-call adapter over the canonical `supervise()`
+ *     executor that makes a stable pursuit durably observable.
  */
 
 export type {
@@ -39,10 +41,16 @@ export {
 } from './observer-journal'
 export {
   type PursuitNodeProjection,
+  type PursuitNodeStatus,
   type PursuitProjection,
   type PursuitRunProjection,
   projectPursuit,
 } from './observer-projection'
+export {
+  supervisePursuit,
+  type SupervisedPursuitResult,
+  type SupervisePursuitOptions,
+} from './supervise-pursuit'
 export {
   type DurableCoordinationStreamIdentity,
   type DurableSupervisionDiscovery,
