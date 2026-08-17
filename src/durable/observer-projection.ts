@@ -1,8 +1,13 @@
 import type { RuntimeDecisionKind, RuntimeHookTarget } from '../runtime-hooks'
 import { type ObserverRecord, verifyObserverRecords } from './observer-journal'
 
+export type PursuitRunStatus = 'running' | 'done' | 'failed'
+
 export interface PursuitRunProjection {
   readonly runId: string
+  readonly status: PursuitRunStatus
+  readonly settledAt?: number
+  readonly error?: string
   readonly firstSequence: number
   readonly lastSequence: number
   readonly firstObservedAt: number
@@ -44,10 +49,12 @@ export interface PursuitNodeProjection {
 
 export interface PursuitProjection {
   readonly pursuitId: string
+  /** Number of records in this concrete execution journal. */
   readonly sequence: number
-  readonly chainTip?: string
-  readonly firstObservedAt?: number
-  readonly lastObservedAt?: number
+  /** Digest-chain tip for this concrete execution journal. */
+  readonly chainTip: string
+  readonly firstObservedAt: number
+  readonly lastObservedAt: number
   readonly runs: readonly PursuitRunProjection[]
   readonly nodes: readonly PursuitNodeProjection[]
   readonly eventCount: number
@@ -56,6 +63,9 @@ export interface PursuitProjection {
 
 type MutableRun = {
   runId: string
+  status: PursuitRunStatus
+  settledAt?: number
+  error?: string
   firstSequence: number
   lastSequence: number
   firstObservedAt: number
@@ -93,17 +103,17 @@ type MutableNode = {
 }
 
 /**
- * Fold the append-only observer history into a deterministic operator projection.
+ * Fold one append-only execution journal into a deterministic operator projection.
  *
  * This is intentionally a READ model, not another state machine: it does not own
  * execution, cannot steer agents, and can be rebuilt from the journal at any time.
  * Projection verifies the complete hash chain first, so an operator view can never
  * silently render a mutated or reordered observer history as trustworthy state.
  *
- * Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal state
- * comes only from Runtime's canonical `agent.child` facts. Node identity is scoped
- * to the concrete Runtime run so two independent trees may both contain `root:s0`
- * without aliasing in a long-lived pursuit.
+ * Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal node
+ * state comes only from `agent.child`; concrete run state comes only from the root
+ * `agent.run` lifecycle emitted by `supervisePursuit`. Node identity is scoped to the
+ * concrete Runtime run so independent trees may both contain `root:s0` without aliasing.
  */
 export function projectPursuit(records: readonly ObserverRecord[]): PursuitProjection {
   if (records.length === 0) {
@@ -127,6 +137,7 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
       eventCount += 1
       run.eventCount += 1
       increment(run.targets, record.event.target)
+      projectRunActivity(run, record)
       projectSpawnNode(nodes, record)
       projectNodeActivity(nodes, record)
     } else if (record.decision) {
@@ -164,15 +175,12 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
   })
 }
 
-function getRun(
-  runs: Map<string, MutableRun>,
-  runId: string,
-  record: ObserverRecord,
-): MutableRun {
+function getRun(runs: Map<string, MutableRun>, runId: string, record: ObserverRecord): MutableRun {
   const existing = runs.get(runId)
   if (existing) return existing
   const created: MutableRun = {
     runId,
+    status: 'running',
     firstSequence: record.sequence,
     lastSequence: record.sequence,
     firstObservedAt: record.observedAt,
@@ -186,13 +194,30 @@ function getRun(
   return created
 }
 
+function projectRunActivity(run: MutableRun, record: ObserverRecord): void {
+  const event = record.event
+  if (event?.target !== 'agent.run') return
+  const payload = objectRecord(event.payload)
+  const status = stringField(payload, 'status')
+  if (event.phase === 'after' || status === 'done') {
+    run.status = 'done'
+    run.settledAt = record.observedAt
+    return
+  }
+  if (event.phase !== 'error' && status !== 'failed') return
+  run.status = 'failed'
+  run.settledAt = record.observedAt
+  const error = stringField(payload, 'error')
+  if (error) run.error = error
+}
+
 function nodeKey(runId: string, nodeId: string): string {
   return `${runId}\u0000${nodeId}`
 }
 
 function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecord): void {
   const event = record.event
-  if (!event || event.target !== 'agent.spawn') return
+  if (event?.target !== 'agent.spawn') return
   const payload = objectRecord(event.payload)
   const childId = stringField(payload, 'childId')
   if (!childId) return
@@ -229,7 +254,8 @@ function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecor
 
 function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRecord): void {
   const event = record.event
-  if (!event || event.target === 'agent.spawn') return
+  if (event === undefined) return
+  if (event.target === 'agent.spawn') return
   const payload = objectRecord(event.payload)
   const nodeId =
     stringField(payload, 'childId') ??
@@ -296,7 +322,10 @@ function numberField(value: Record<string, unknown> | undefined, key: string): n
   return typeof field === 'number' && Number.isFinite(field) ? field : undefined
 }
 
-function booleanField(value: Record<string, unknown> | undefined, key: string): boolean | undefined {
+function booleanField(
+  value: Record<string, unknown> | undefined,
+  key: string,
+): boolean | undefined {
   const field = value?.[key]
   return typeof field === 'boolean' ? field : undefined
 }
