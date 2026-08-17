@@ -1,11 +1,7 @@
 import { resolve } from 'node:path'
 import { type SuperviseOptions, supervise } from '../runtime/supervise/supervise'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import {
-  type RuntimeHookEvent,
-  composeRuntimeHooks,
-  withPursuitContext,
-} from '../runtime-hooks'
+import { composeRuntimeHooks, type RuntimeHookEvent, withPursuitContext } from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
 import { type PursuitProjection, projectPursuit } from './observer-projection'
 
@@ -80,10 +76,7 @@ export async function supervisePursuit(
       ...superviseOptions,
       // The observer runs first so a caller hook that throws cannot prevent the
       // canonical lifecycle fact from entering the durable journal.
-      hooks: withPursuitContext(
-        pursuitId,
-        composeRuntimeHooks(observer.hooks, hooks),
-      ),
+      hooks: withPursuitContext(pursuitId, composeRuntimeHooks(observer.hooks, hooks)),
     })
     await observer.journal.appendEvent(
       rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
