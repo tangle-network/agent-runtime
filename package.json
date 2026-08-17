@@ -170,9 +170,9 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.147.0 <0.148.0",
+    "@tangle-network/agent-eval": "^0.147.0",
     "@tangle-network/agent-interface": "^1.0.0",
-    "@tangle-network/sandbox": ">=0.27.1 <0.28.0"
+    "@tangle-network/sandbox": "^0.27.1"
   },
   "peerDependenciesMeta": {
     "@tangle-network/sandbox": {
