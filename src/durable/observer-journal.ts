@@ -58,8 +58,9 @@ export class FileObserverJournal implements ObserverJournal {
 
   constructor(path: string, pursuitId: string) {
     const stableId = pursuitId.trim()
-    if (stableId.length === 0)
+    if (stableId.length === 0) {
       throw new TypeError('FileObserverJournal: pursuitId must be non-empty')
+    }
     this.path = resolve(path)
     this.pursuitId = stableId
   }
@@ -236,8 +237,9 @@ export function verifyObserverRecords(
     }
     const { digest, ...unsigned } = record
     const expected = observerRecordDigest(unsigned)
-    if (digest !== expected)
+    if (digest !== expected) {
       throw new Error(`observer journal: digest mismatch at sequence ${record.sequence}`)
+    }
     previousDigest = digest
     expectedSequence += 1
   }
