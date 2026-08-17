@@ -26309,30 +26309,6 @@ Create the child→parent coordination bus: one typed pipe for settled outputs, 
 
 ***
 
-### runTree()
-
-> **runTree**(`scope`): [`TreeView`](#treeview)
-
-The tree that describes the WHOLE run: this process's live nodes plus, on a resumed run, the
-committed nodes of the prior process(es). Node ids are assigned by the journal and unique across
-processes, so the union needs no reconciliation. `inFlight`/`waiting` stay the LIVE counts — a
-prior process's in-flight node died with it and is not in flight now.
-
-Without this, a resumed run reports spend for work whose nodes are missing from its own tree.
-On a run that never resumed there is nothing to merge and the live view is returned unchanged.
-
-#### Parameters
-
-##### scope
-
-`Pick`\<[`Scope`](index.md#scope)\<`unknown`\>, `"view"` \| `"resume"`\>
-
-#### Returns
-
-[`TreeView`](#treeview)
-
-***
-
 ### pickBestDelivered()
 
 > **pickBestDelivered**\<`T`\>(`delivered`): `T` \| `undefined`

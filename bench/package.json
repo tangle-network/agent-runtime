@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-bench",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "type": "module",
   "description": "Benchmark adapters and execution for agent-runtime across coding, tool-use, RAG, memory, browser, and terminal tasks.",
   "repository": {
@@ -34,7 +34,6 @@
     "gate-report": "tsx src/corpus-report.mts corpus/finsearch.jsonl",
     "terminal-compare": "tsx src/terminal-compare.ts",
     "test": "node scripts/run-package-tests.mjs && node --test scripts/run-package-tests.test.mjs scripts/wait-for-published-dependencies.test.mjs",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
     "typecheck:public": "tsc -p tsconfig.public.json",
     "verify:package": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs",
     "verify:package:local-runtime": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs --local-runtime",

@@ -1,13 +1,69 @@
 # Changelog
 
+## 0.138.1
+
+### Eval moves to 0.146.0, so the peer window moves with it
+
+The Eval peer range becomes `>=0.146.0 <0.147.0`, and the catalog requires Eval `0.146.0` and Knowledge `8.0.6`.
+
+The window is derived, not chosen. `assertPeerMatchesDevelopmentDependency` holds the peer range to the shape the dependency's own versioning earns: a pre-1.0 dependency stops at its next minor, because npm locks a 0.x caret to its minor. Requiring Eval `0.145.21` therefore produced `>=0.145.21 <0.146.0` on its own.
+
+Eval 0.146.0 adds the `multishot/golden` subpath and removes nothing. Diffing the two published type surfaces through the TypeScript checker, across every entry point in the `exports` map, 0.145.21 to 0.146.0 removes no entry point, no top-level export and no interface member, and adds 51 exports. The 20 signature changes are type-precision improvements on values that were `any`.
+
+Knowledge is a dependency of this package, so its own Eval peer had to admit 0.146.0 first; that is Knowledge 8.0.6.
+
+No API changes.
+
+## 0.138.0
+
+### `runTree` leaves the kernel surface; the composition families are now held by a test
+
+`runTree` merges a resumed run's committed nodes into the live tree view.
+The supervisor applies it before it returns, so `SupervisedResult.tree` already carries the merged tree and nothing outside this package needed to call it.
+Its `run*` name was the real cost: on a surface that also exports `runGraph`, it read as a second graph runtime.
+
+It is now a supervisor internal.
+No consumer imported it, verified across 23 first-party repositories and the only published dependent, so no migration is required.
+This is a minor release because a public export is removed.
+
+`tests/kernel/composition-families.test.ts` is new, and it holds open the boundary between the two ways this package composes agents.
+A combinator such as `pipeline` or `loopUntil` runs under `runPersonified`, which accepts no brain, no router, and no model configuration, so the order is a property of the program.
+`runGraph` always routes delegation through a model.
+The test runs one two-node graph twice: the worker runs when the scripted brain emits `spawn_agent`, and nothing runs when the same brain declines.
+A pipeline stage cannot be skipped that way, so neither entry expresses the other.
+
+The audit behind this release is recorded in `docs/research/loop-facade-postmortem.md`.
+Two of the five entries an earlier ledger listed for consolidation were not public when it listed them.
+`runLoop` had already been consolidated onto `runAgentRounds`: it was a deprecated alias, and 0.127.0 deleted it.
+`routerToolLoop` is a router-client internal that no barrel exports.
+The remaining entries are four families with distinct reasons to exist, and they stay.
+
 ## 0.137.0
 
-### Durable retained interactive sessions
+### The agent-interface peer is a caret range
 
-- Persist interactive intent before provider environment creation.
-- Replay exact intent material and environment idempotency without duplicate starts after a crash.
-- Bind retained claim, prompt, attach, status, and stop operations to Interface 0.56 acknowledgements.
-- Cancel provider calls that ignore `AbortSignal` through the runtime's abortable boundary.
+The peer moves from `>=0.53.0 <0.54.0` to `^1.0.0`.
+
+Interface 1.0.0 publishes the surface of 0.56.0 unchanged and states a compatibility promise: a minor release is additive, a patch release is a fix, and only a major release removes or narrows.
+A caret range reads that promise, so a later additive minor no longer needs a release here.
+
+The one-generation window it replaces is why an app could not install this package beside `agent-knowledge` or `sandbox-ui`: those had moved past 0.53 and this had not, and the two ranges were disjoint.
+
+The catalog moves with it, so one interface copy resolves for the whole tree:
+
+| catalog entry | before | after |
+| --- | --- | --- |
+| `@tangle-network/agent-interface` | 0.53.0 | 1.0.0 |
+| `@tangle-network/agent-core` | 0.9.0 | 0.9.4 |
+| `@tangle-network/agent-eval` | 0.145.15 | 0.145.21 |
+| `@tangle-network/agent-knowledge` | 8.0.1 | 8.0.5 |
+| `@tangle-network/agent-profile-materialize` | 0.15.1 | 0.16.0 |
+| `@tangle-network/sandbox` | 0.27.0 | 0.27.1 |
+
+The `agent-eval` peer floor moves to `>=0.145.21 <0.146.0` with the catalog.
+The `sandbox` peer floor moves to `>=0.27.1 <0.28.0` with the catalog. A consumer holding sandbox 0.27.0 must move to 0.27.1, which is the release that declares the interface caret range.
+
+This is a minor release, not a patch: the interface range narrows, so a consumer still holding an interface below 1.0.0 stays on 0.136.0.
 
 ## 0.136.0
 

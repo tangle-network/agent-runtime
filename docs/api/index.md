@@ -6278,6 +6278,105 @@ Exact materialized profile presented for validation before any candidate run.
 
 ***
 
+### CreateProfileImprovementHarnessOptions
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+Exact baseline profile. It is parsed, detached, and frozen at construction.
+
+##### executionRef
+
+> **executionRef**: `` `sha256:${string}` ``
+
+Immutable identity of the bound executor, models, tools, component mapping,
+and every closure or external setting that can change measured behavior.
+
+##### agent
+
+> **agent**: [`ImproveProfileAgent`](#improveprofileagent)\<`TScenario`, `TArtifact`\>
+
+Execute one exact materialized profile on one scenario.
+
+##### validateCandidate?
+
+> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
+
+Optional validator shared by every run from this harness.
+
+***
+
+### ProfileImprovementHarness
+
+A small, reusable front door over `improve(profile, options)`.
+
+The harness freezes the baseline and binds execution identity once, which
+removes the two easiest sources of accidental experiment drift when a
+developer runs several methods, surfaces, or held-out suites against the
+same agent. It does not replace or narrow `improve`; callers retain every
+method option and may still use the lower-level API directly.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Properties
+
+##### profile
+
+> `readonly` **profile**: `object`
+
+Detached immutable baseline actually used by every run.
+
+##### profileDigest
+
+> `readonly` **profileDigest**: `` `sha256:${string}` ``
+
+Canonical digest of the bound baseline profile.
+
+##### executionRef
+
+> `readonly` **executionRef**: `` `sha256:${string}` ``
+
+Exact execution identity bound at construction.
+
+#### Methods
+
+##### run()
+
+> **run**(`options`): `Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
+
+###### Parameters
+
+###### options
+
+[`ProfileImprovementHarnessRunOptions`](#profileimprovementharnessrunoptions)\<`TScenario`, `TArtifact`\>
+
+###### Returns
+
+`Promise`\<[`ImproveMethodResult`](#improvemethodresult)\>
+
+***
+
 ### RawTraceDistillerOptions
 
 #### Properties
@@ -11510,6 +11609,30 @@ Official SkillOpt configuration plus bounded Runtime findings context.
 
 ***
 
+### ProfileImprovementHarnessRunOptions
+
+> **ProfileImprovementHarnessRunOptions**\<`TScenario`, `TArtifact`\> = `Omit`\<[`ImproveMethodOptions`](#improvemethodoptions)\<`TScenario`, `TArtifact`\>, `"executionRef"` \| `"agent"` \| `"validateCandidate"`\> & `object`
+
+#### Type Declaration
+
+##### validateCandidate?
+
+> `optional` **validateCandidate?**: [`ImproveCandidateValidator`](#improvecandidatevalidator)
+
+Override the harness-level validator for this run.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+***
+
 ### DeepReadonly
 
 > **DeepReadonly**\<`T`\> = `T` *extends* (...`args`) => `unknown` ? `T` : `T` *extends* readonly infer TItem[] ? readonly [`DeepReadonly`](#deepreadonly)\<`TItem`\>[] : `T` *extends* `object` ? `{ readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }` : `T`
@@ -12789,6 +12912,41 @@ is the process itself.
 
 The senior authoring process for `authorStrategy` — the same method, shaped
 to the strategy contract (author-blind, conserved budget, one module out).
+
+***
+
+### PROMPT\_INSTRUCTION\_COMPONENT\_PREFIX
+
+> `const` **PROMPT\_INSTRUCTION\_COMPONENT\_PREFIX**: `"prompt.instruction:"` = `'prompt.instruction:'`
+
+Stable component-name prefix used for `profile.prompt.instructions`.
+
+***
+
+### promptInstructionsProfileComponents
+
+> `const` **promptInstructionsProfileComponents**: [`ImproveProfileComponents`](#improveprofilecomponents)
+
+Canonical `ImproveProfileComponents` mapping for the ordered
+`AgentProfile.prompt.instructions` list.
+
+Use it with `surface: 'agent-profile'` when an optimizer should rewrite the
+exact instruction texts without being allowed to change their count, order,
+labels, or any unrelated profile field:
+
+```ts
+await improve(profile, {
+  surface: 'agent-profile',
+  profileComponents: promptInstructionsProfileComponents,
+  // method, scenarios, judge, executionRef, agent, ...
+})
+```
+
+Component names are zero-padded and stable. Runtime's existing component
+materializer requires every candidate to preserve the exact key set and
+verifies that `apply(read(profile))` reproduces the baseline profile. A
+profile with no prompt instructions is refused rather than inventing a
+sentinel instruction that could accidentally ship.
 
 ***
 
@@ -14123,6 +14281,36 @@ Build a complete method backed by Microsoft's official SkillOpt trainer.
 #### Returns
 
 [`ImproveMethodFactory`](#improvemethodfactory)\<`TScenario`, `TArtifact`\>
+
+***
+
+### createProfileImprovementHarness()
+
+> **createProfileImprovementHarness**\<`TScenario`, `TArtifact`\>(`options`): [`ProfileImprovementHarness`](#profileimprovementharness)\<`TScenario`, `TArtifact`\>
+
+Bind one exact profile and executor into a repeatable self-improvement
+harness. The returned `run` method remains generic over every existing
+profile surface, optimization method, split, gate, and budget option.
+
+#### Type Parameters
+
+##### TScenario
+
+`TScenario` *extends* `Scenario`
+
+##### TArtifact
+
+`TArtifact`
+
+#### Parameters
+
+##### options
+
+[`CreateProfileImprovementHarnessOptions`](#createprofileimprovementharnessoptions)\<`TScenario`, `TArtifact`\>
+
+#### Returns
+
+[`ProfileImprovementHarness`](#profileimprovementharness)\<`TScenario`, `TArtifact`\>
 
 ***
 

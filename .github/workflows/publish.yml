@@ -135,7 +135,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-sdk
-          ref: 8de51fe11e9eb568cc96302791feb65683a420c1 # @tangle-network/agent-interface@0.56.0
+          ref: 88955821f32e6ab7d644529ec3724a69e1e91acf # @tangle-network/agent-interface@1.0.0
           path: .cohort/agent-sdk
           persist-credentials: false
 
@@ -143,7 +143,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: 70e88485ad8a1b46a736c66b6d635a882637e1c6 # @tangle-network/agent-eval@0.145.19
+          ref: 76969e551d54c7898f11253175e0da9652e0c4a8 # @tangle-network/agent-eval@0.146.0
           path: .cohort/agent-eval
           persist-credentials: false
 
@@ -151,7 +151,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: 8ee086c416941a063c78990b973c3a9b76d34667 # @tangle-network/agent-knowledge@8.0.4
+          ref: 9a1079dd2727f5cfbf8d36a0c4e4a2e4efd21bed # @tangle-network/agent-knowledge@8.0.6
           path: .cohort/agent-knowledge
           persist-credentials: false
 
