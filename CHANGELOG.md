@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.138.1
+
+### Eval moves to 0.146.0, so the peer window moves with it
+
+The Eval peer range becomes `>=0.146.0 <0.147.0`, and the catalog requires Eval `0.146.0` and Knowledge `8.0.6`.
+
+The window is derived, not chosen. `assertPeerMatchesDevelopmentDependency` holds the peer range to the shape the dependency's own versioning earns: a pre-1.0 dependency stops at its next minor, because npm locks a 0.x caret to its minor. Requiring Eval `0.145.21` therefore produced `>=0.145.21 <0.146.0` on its own.
+
+Eval 0.146.0 adds the `multishot/golden` subpath and removes nothing. Diffing the two published type surfaces through the TypeScript checker, across every entry point in the `exports` map, 0.145.21 to 0.146.0 removes no entry point, no top-level export and no interface member, and adds 51 exports. The 20 signature changes are type-precision improvements on values that were `any`.
+
+Knowledge is a dependency of this package, so its own Eval peer had to admit 0.146.0 first; that is Knowledge 8.0.6.
+
+No API changes.
+
 ## 0.138.0
 
 ### `runTree` leaves the kernel surface; the composition families are now held by a test
