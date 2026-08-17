@@ -14,6 +14,8 @@
  *     without already knowing the root/run identities written inside it.
  *   - `FileObserverJournal`: tamper-evident, append-only third-person history
  *     for a pursuit, fed by Runtime's existing hook stream.
+ *   - `projectPursuit`: a rebuildable operator read model over that history;
+ *     it owns no execution or coordination semantics.
  */
 
 export type {
@@ -35,6 +37,12 @@ export {
   observerRecordDigest,
   verifyObserverRecords,
 } from './observer-journal'
+export {
+  type PursuitNodeProjection,
+  type PursuitProjection,
+  type PursuitRunProjection,
+  projectPursuit,
+} from './observer-projection'
 export {
   type DurableCoordinationStreamIdentity,
   type DurableSupervisionDiscovery,
