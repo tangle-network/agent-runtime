@@ -16,10 +16,10 @@ catalogs:
       specifier: ^0.9.4
       version: 0.9.4
     '@tangle-network/agent-eval':
-      specifier: 0.147.0
+      specifier: ^0.147.0
       version: 0.147.0
     '@tangle-network/agent-interface':
-      specifier: 1.0.0
+      specifier: ^1.0.0
       version: 1.0.0
     '@tangle-network/agent-knowledge':
       specifier: ^8.0.6
@@ -31,7 +31,7 @@ catalogs:
       specifier: ^1.0.2
       version: 1.0.2
     '@tangle-network/sandbox':
-      specifier: 0.27.1
+      specifier: ^0.27.1
       version: 0.27.1
     '@types/node':
       specifier: 26.1.1
