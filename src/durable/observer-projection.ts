@@ -18,6 +18,7 @@ export type PursuitNodeStatus = 'running' | 'done' | 'down'
 export interface PursuitNodeProjection {
   readonly id: string
   readonly parentId?: string
+  /** Node ids are scoped to this concrete Runtime tree; `(runId,id)` is identity. */
   readonly runId: string
   readonly label?: string
   readonly runtime?: string
@@ -100,8 +101,9 @@ type MutableNode = {
  * silently render a mutated or reordered observer history as trustworthy state.
  *
  * Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal state
- * comes only from Runtime's canonical `agent.child` facts. New event kinds remain
- * visible through per-run counters without teaching this layer intellectual policy.
+ * comes only from Runtime's canonical `agent.child` facts. Node identity is scoped
+ * to the concrete Runtime run so two independent trees may both contain `root:s0`
+ * without aliasing in a long-lived pursuit.
  */
 export function projectPursuit(records: readonly ObserverRecord[]): PursuitProjection {
   if (records.length === 0) {
@@ -149,7 +151,12 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
     ),
     nodes: Object.freeze(
       [...nodes.values()]
-        .sort((a, b) => a.firstSequence - b.firstSequence || a.id.localeCompare(b.id))
+        .sort(
+          (a, b) =>
+            a.firstSequence - b.firstSequence ||
+            a.runId.localeCompare(b.runId) ||
+            a.id.localeCompare(b.id),
+        )
         .map(freezeNode),
     ),
     eventCount,
@@ -179,13 +186,18 @@ function getRun(
   return created
 }
 
+function nodeKey(runId: string, nodeId: string): string {
+  return `${runId}\u0000${nodeId}`
+}
+
 function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecord): void {
   const event = record.event
   if (!event || event.target !== 'agent.spawn') return
   const payload = objectRecord(event.payload)
   const childId = stringField(payload, 'childId')
   if (!childId) return
-  const existing = nodes.get(childId)
+  const key = nodeKey(event.runId, childId)
+  const existing = nodes.get(key)
   if (existing) {
     existing.lastSequence = record.sequence
     existing.lastObservedAt = record.observedAt
@@ -196,7 +208,7 @@ function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecor
   const runtime = stringField(payload, 'runtime')
   const depth = numberField(payload, 'depth')
   const assignmentId = stringField(payload, 'assignmentId')
-  nodes.set(childId, {
+  nodes.set(key, {
     id: childId,
     ...(event.parentId ? { parentId: event.parentId } : {}),
     runId: event.runId,
@@ -224,7 +236,7 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
     stringField(payload, 'nodeId') ??
     stringField(payload, 'workerId')
   if (!nodeId) return
-  const node = nodes.get(nodeId)
+  const node = nodes.get(nodeKey(event.runId, nodeId))
   if (!node) return
   node.lastSequence = record.sequence
   node.lastObservedAt = record.observedAt
