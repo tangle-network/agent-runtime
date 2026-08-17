@@ -14905,6 +14905,7 @@ caller that owns the code registers it here once and names it from data thereaft
 
 #### Extended by
 
+- [`SupervisePursuitOptions`](durable.md#supervisepursuitoptions)
 - [`SuperviseTestOptions`](testing.md#supervisetestoptions)
 
 #### Properties

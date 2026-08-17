@@ -246,7 +246,8 @@ export function verifyObserverRecords(
   return Object.freeze([...records])
 }
 
-export function observerRecordDigest(record: UnsignedObserverRecord): string {
+/** Compute the canonical SHA-256 digest for an unsigned observer record. */
+export function observerRecordDigest(record: Omit<ObserverRecord, 'digest'>): string {
   return createHash('sha256').update(JSON.stringify(record)).digest('hex')
 }
 
