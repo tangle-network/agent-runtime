@@ -1,10 +1,7 @@
 import { resolve } from 'node:path'
 import type { SupervisorProfile } from '../runtime/supervise/supervisor-agent'
-import {
-  supervise,
-  type SuperviseOptions,
-} from '../runtime/supervise/supervise'
-import { composeRuntimeHooks } from '../runtime-hooks'
+import { supervise, type SuperviseOptions } from '../runtime/supervise/supervise'
+import { composeRuntimeHooks, type RuntimeHookEvent } from '../runtime-hooks'
 import { createFileObserverHooks } from './observer-journal'
 import { projectPursuit, type PursuitProjection } from './observer-projection'
 
@@ -47,23 +44,67 @@ export async function supervisePursuit(
   const observerPath = resolveObserverPath(opts)
   const { pursuitId: _pursuitId, observerPath: _observerPath, hooks, ...superviseOptions } = opts
   const observer = createFileObserverHooks(observerPath, pursuitId)
+  const runId = superviseOptions.runId ?? 'supervise'
+  const now = superviseOptions.now ?? Date.now
 
-  const result = await supervise(profile, task, {
-    ...superviseOptions,
-    hooks: composeRuntimeHooks(hooks, observer.hooks),
-  })
+  // Root lifecycle is an observer-plane fact, not something the manager has to
+  // narrate about itself. This also makes a zero-spawn/single-agent run observable.
+  await observer.journal.appendEvent(rootEvent(pursuitId, runId, 'before', now()))
+
+  let result: Awaited<ReturnType<typeof supervise>>
+  try {
+    result = await supervise(profile, task, {
+      ...superviseOptions,
+      hooks: composeRuntimeHooks(hooks, observer.hooks),
+    })
+    await observer.journal.appendEvent(
+      rootEvent(pursuitId, runId, 'after', now(), { status: 'done' }),
+    )
+  } catch (error) {
+    // Best effort to preserve the failure fact. If the durable observer itself
+    // cannot record it, surface that observer failure as cause rather than hiding
+    // an integrity break behind the original execution error.
+    try {
+      await observer.journal.appendEvent(
+        rootEvent(pursuitId, runId, 'error', now(), {
+          status: 'failed',
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    } catch (observerError) {
+      throw new Error('supervisePursuit: execution failed and observer could not record failure', {
+        cause: observerError,
+      })
+    }
+    throw error
+  }
 
   // Runtime hook notifications are deliberately non-blocking for execution. `read()`
   // joins the journal's serialized append tail here, so the returned projection covers
   // every observer append that was scheduled by this execution before settlement.
   const records = await observer.journal.read()
-  if (records.length === 0) {
-    throw new Error('supervisePursuit: execution produced no observer records')
-  }
   return Object.freeze({
     result,
     pursuit: projectPursuit(records),
     observerPath,
+  })
+}
+
+function rootEvent(
+  pursuitId: string,
+  runId: string,
+  phase: 'before' | 'after' | 'error',
+  timestamp: number,
+  payload?: Record<string, unknown>,
+): RuntimeHookEvent {
+  return Object.freeze({
+    id: `${runId}:pursuit:${phase}:${timestamp}`,
+    pursuitId,
+    runId,
+    target: 'agent.run',
+    phase,
+    timestamp,
+    ...(payload ? { payload: Object.freeze({ ...payload }) } : {}),
   })
 }
 
