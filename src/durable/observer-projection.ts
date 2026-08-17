@@ -1,5 +1,5 @@
 import type { RuntimeDecisionKind, RuntimeHookTarget } from '../runtime-hooks'
-import type { ObserverRecord } from './observer-journal'
+import { type ObserverRecord, verifyObserverRecords } from './observer-journal'
 
 export interface PursuitRunProjection {
   readonly runId: string
@@ -13,6 +13,8 @@ export interface PursuitRunProjection {
   readonly decisions: Readonly<Record<string, number>>
 }
 
+export type PursuitNodeStatus = 'running' | 'done' | 'down'
+
 export interface PursuitNodeProjection {
   readonly id: string
   readonly parentId?: string
@@ -23,6 +25,15 @@ export interface PursuitNodeProjection {
   readonly assignmentId?: string
   readonly identity?: unknown
   readonly budget?: unknown
+  readonly status: PursuitNodeStatus
+  readonly settledAt?: number
+  readonly spent?: unknown
+  readonly outRef?: string
+  readonly score?: number
+  readonly valid?: boolean
+  readonly reason?: string
+  readonly infra?: boolean
+  readonly wait?: unknown
   readonly firstSequence: number
   readonly lastSequence: number
   readonly firstObservedAt: number
@@ -64,6 +75,15 @@ type MutableNode = {
   assignmentId?: string
   identity?: unknown
   budget?: unknown
+  status: PursuitNodeStatus
+  settledAt?: number
+  spent?: unknown
+  outRef?: string
+  score?: number
+  valid?: boolean
+  reason?: string
+  infra?: boolean
+  wait?: unknown
   firstSequence: number
   lastSequence: number
   firstObservedAt: number
@@ -76,26 +96,25 @@ type MutableNode = {
  *
  * This is intentionally a READ model, not another state machine: it does not own
  * execution, cannot steer agents, and can be rebuilt from the journal at any time.
- * The only topology fact it special-cases is Runtime's canonical `agent.spawn`
- * payload (`childId` + `parentId`); every other event remains visible through the
- * per-run target/decision counters even when a future Runtime adds new event kinds.
+ * Projection verifies the complete hash chain first, so an operator view can never
+ * silently render a mutated or reordered observer history as trustworthy state.
+ *
+ * Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal state
+ * comes only from Runtime's canonical `agent.child` facts. New event kinds remain
+ * visible through per-run counters without teaching this layer intellectual policy.
  */
 export function projectPursuit(records: readonly ObserverRecord[]): PursuitProjection {
   if (records.length === 0) {
     throw new TypeError('projectPursuit: at least one observer record is required')
   }
   const pursuitId = records[0]!.pursuitId
+  const verified = verifyObserverRecords(records, pursuitId)
   const runs = new Map<string, MutableRun>()
   const nodes = new Map<string, MutableNode>()
   let eventCount = 0
   let decisionCount = 0
 
-  for (const record of records) {
-    if (record.pursuitId !== pursuitId) {
-      throw new Error(
-        `projectPursuit: mixed pursuit journals (${record.pursuitId} !== ${pursuitId})`,
-      )
-    }
+  for (const record of verified) {
     const observed = record.event ?? record.decision
     if (!observed) throw new Error(`projectPursuit: record ${record.sequence} has no observation`)
     const run = getRun(runs, observed.runId, record)
@@ -115,8 +134,8 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
     }
   }
 
-  const first = records[0]!
-  const last = records.at(-1)!
+  const first = verified[0]!
+  const last = verified.at(-1)!
   return Object.freeze({
     pursuitId,
     sequence: last.sequence,
@@ -173,18 +192,21 @@ function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecor
     existing.eventCount += 1
     return
   }
+  const label = stringField(payload, 'label')
+  const runtime = stringField(payload, 'runtime')
+  const depth = numberField(payload, 'depth')
+  const assignmentId = stringField(payload, 'assignmentId')
   nodes.set(childId, {
     id: childId,
     ...(event.parentId ? { parentId: event.parentId } : {}),
     runId: event.runId,
-    ...(stringField(payload, 'label') ? { label: stringField(payload, 'label') } : {}),
-    ...(stringField(payload, 'runtime') ? { runtime: stringField(payload, 'runtime') } : {}),
-    ...(numberField(payload, 'depth') !== undefined ? { depth: numberField(payload, 'depth') } : {}),
-    ...(stringField(payload, 'assignmentId')
-      ? { assignmentId: stringField(payload, 'assignmentId') }
-      : {}),
+    ...(label ? { label } : {}),
+    ...(runtime ? { runtime } : {}),
+    ...(depth !== undefined ? { depth } : {}),
+    ...(assignmentId ? { assignmentId } : {}),
     ...(payload && Object.hasOwn(payload, 'identity') ? { identity: payload.identity } : {}),
     ...(payload && Object.hasOwn(payload, 'budget') ? { budget: payload.budget } : {}),
+    status: 'running',
     firstSequence: record.sequence,
     lastSequence: record.sequence,
     firstObservedAt: record.observedAt,
@@ -207,6 +229,24 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   node.lastSequence = record.sequence
   node.lastObservedAt = record.observedAt
   node.eventCount += 1
+
+  if (event.target !== 'agent.child') return
+  const status = stringField(payload, 'status')
+  if (status !== 'done' && status !== 'down') return
+  node.status = status
+  node.settledAt = record.observedAt
+  if (payload && Object.hasOwn(payload, 'spent')) node.spent = payload.spent
+  const outRef = stringField(payload, 'outRef')
+  if (outRef) node.outRef = outRef
+  const score = numberField(payload, 'score')
+  if (score !== undefined) node.score = score
+  const valid = booleanField(payload, 'valid')
+  if (valid !== undefined) node.valid = valid
+  const reason = stringField(payload, 'reason')
+  if (reason) node.reason = reason
+  const infra = booleanField(payload, 'infra')
+  if (infra !== undefined) node.infra = infra
+  if (payload && Object.hasOwn(payload, 'wait')) node.wait = payload.wait
 }
 
 function freezeRun(run: MutableRun): PursuitRunProjection {
@@ -242,4 +282,9 @@ function stringField(value: Record<string, unknown> | undefined, key: string): s
 function numberField(value: Record<string, unknown> | undefined, key: string): number | undefined {
   const field = value?.[key]
   return typeof field === 'number' && Number.isFinite(field) ? field : undefined
+}
+
+function booleanField(value: Record<string, unknown> | undefined, key: string): boolean | undefined {
+  const field = value?.[key]
+  return typeof field === 'boolean' ? field : undefined
 }
