@@ -269,6 +269,61 @@ NDJSON body to return as the platform `Response` body.
 
 Content type for the response.
 
+***
+
+### DurableCoordinationStreamIdentity
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### ownerIds
+
+> `readonly` **ownerIds**: readonly `string`[]
+
+Exact owner ids present in the side-log, sorted for deterministic display.
+
+##### unscopedRecords
+
+> `readonly` **unscopedRecords**: `number`
+
+Records written before owner-scoped coordination identities were introduced.
+
+##### recordCount
+
+> `readonly` **recordCount**: `number`
+
+***
+
+### DurableSupervisionDiscovery
+
+Identities discoverable from one `supervise({ runDir })` directory without
+already knowing the root node or coordination run id stored inside it.
+
+#### Properties
+
+##### runDir
+
+> `readonly` **runDir**: `string`
+
+##### spawnJournalPath
+
+> `readonly` **spawnJournalPath**: `string`
+
+##### coordinationLogPath
+
+> `readonly` **coordinationLogPath**: `string`
+
+##### roots
+
+> `readonly` **roots**: readonly `string`[]
+
+##### coordinationStreams
+
+> `readonly` **coordinationStreams**: readonly [`DurableCoordinationStreamIdentity`](#durablecoordinationstreamidentity)[]
+
 ## Functions
 
 ### handleChatTurn()
@@ -342,3 +397,28 @@ Wire integration:
 #### Throws
 
 `RangeError` when `turnIndex` is invalid or the result exceeds 256 bytes.
+
+***
+
+### discoverDurableSupervisionRun()
+
+> **discoverDurableSupervisionRun**(`runDir`): `Promise`\<[`DurableSupervisionDiscovery`](#durablesupervisiondiscovery)\>
+
+Discover the stable identities recorded by Runtime's durable supervision
+files. This is the developer-facing first step before calling
+`FileSpawnJournal.loadTree(root)`, `loadSpawnForest(journal, root)`, or
+`FileCoordinationLog.load(runId, ownerId)`.
+
+Missing files produce empty collections. A malformed committed JSONL record
+still fails loud through the same parser used by the runtime; a torn final
+append is ignored because it was never acknowledged as committed.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`DurableSupervisionDiscovery`](#durablesupervisiondiscovery)\>
