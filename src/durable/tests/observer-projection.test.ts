@@ -19,7 +19,7 @@ function record(
 }
 
 describe('projectPursuit', () => {
-  it('builds a multi-run recursive topology from substrate spawn facts', () => {
+  it('builds a multi-run recursive topology and terminal truth from substrate facts', () => {
     const first = record(1, {
       kind: 'event',
       event: {
@@ -77,20 +77,52 @@ describe('projectPursuit', () => {
       },
       second.digest,
     )
+    const fourth = record(
+      4,
+      {
+        kind: 'event',
+        event: {
+          id: 'settle-b',
+          pursuitId: 'pursuit:test',
+          runId: 'run:2',
+          target: 'agent.child',
+          phase: 'after',
+          timestamp: 4,
+          parentId: 'root:s0',
+          payload: {
+            childId: 'root:s0:s0',
+            status: 'done',
+            outRef: 'sha256:out',
+            score: 0.9,
+            valid: true,
+            spent: { tokens: 123 },
+          },
+        },
+      },
+      third.digest,
+    )
 
-    const view = projectPursuit([first, second, third])
+    const view = projectPursuit([first, second, third, fourth])
     expect(view.pursuitId).toBe('pursuit:test')
-    expect(view.sequence).toBe(3)
-    expect(view.chainTip).toBe(third.digest)
+    expect(view.sequence).toBe(4)
+    expect(view.chainTip).toBe(fourth.digest)
     expect(view.runs.map((run) => run.runId)).toEqual(['run:1', 'run:2'])
     expect(view.runs[0]?.decisions.continue).toBe(1)
     expect(view.nodes.map((node) => [node.id, node.parentId])).toEqual([
       ['root:s0', 'root'],
       ['root:s0:s0', 'root:s0'],
     ])
+    expect(view.nodes[1]).toMatchObject({
+      status: 'done',
+      settledAt: 40,
+      outRef: 'sha256:out',
+      score: 0.9,
+      valid: true,
+      spent: { tokens: 123 },
+    })
   })
 
-  it('refuses records from different pursuits', () => {
+  it('refuses mixed or tampered observer history before projecting it', () => {
     const first = record(1, {
       kind: 'event',
       event: {
@@ -122,6 +154,12 @@ describe('projectPursuit', () => {
       ...secondUnsigned,
       digest: observerRecordDigest(secondUnsigned),
     }
-    expect(() => projectPursuit([first, second])).toThrow(/mixed pursuit journals/)
+    expect(() => projectPursuit([first, second])).toThrow(/pursuit/i)
+
+    const tampered: ObserverRecord = {
+      ...first,
+      event: first.event ? { ...first.event, runId: 'run:forged' } : undefined,
+    }
+    expect(() => projectPursuit([tampered])).toThrow(/digest mismatch/)
   })
 })
