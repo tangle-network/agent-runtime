@@ -25,6 +25,8 @@ const dynamicNonModelFetchOwners = new Set([
   'bench/src/benchmarks/finsearchcomp.ts',
   'bench/src/benchmarks/humaneval.ts',
   'bench/src/benchmarks/programbench.ts',
+  // Hugging Face datasets-server rows for SWE-bench-Live — benchmark data, not inference.
+  'examples/hillclimb-benchmark/swe-live-env.ts',
 ])
 
 const providerSdkModules = new Set([
@@ -90,6 +92,14 @@ const ownedModelFetchAllowances = new Map([
   [
     'src/runtime/router-client.ts',
     new Map([['fetchRouterResponse', 1]]),
+  ],
+  // The hillclimb example's metered transport: one fetch inside its `complete`
+  // implementation of `RouterTransportConfig.complete`, wrapping the same router
+  // request the adapter would make so every leg is metered under one dollar
+  // ceiling. A second fetch site in the file fails this check.
+  [
+    'examples/hillclimb-benchmark/hillclimb.ts',
+    new Map([['complete', 1]]),
   ],
 ])
 
