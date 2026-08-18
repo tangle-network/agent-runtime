@@ -420,11 +420,16 @@ export {
   type SandboxCapabilities,
 } from './sandbox-capabilities'
 export {
+  assertSandboxEventSucceeded,
+  assertSandboxServedModel,
   createSandboxToolPartState,
   extractLlmCallEvent,
   mapSandboxEvent,
   mapSandboxToolEvent,
+  type SandboxServedBackend,
   type SandboxToolPartState,
+  sandboxEventFailure,
+  sandboxEventServedBackend,
   sumSandboxUsage,
 } from './sandbox-events'
 export {

@@ -185,13 +185,17 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     ...(timeoutMs ? { timeoutMs } : {}),
   })
   const harness = cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
-  const profile: AgentProfile =
-    cell.profile ?? {
-      name: cell.label,
-      harness: harness as AgentProfile['harness'],
-      model: { provider: 'tangle-router', default: cell.model },
-      metadata: { backendType: harness },
-    }
+  // The cell's harness and model are the identity the box must run, so they override whatever a
+  // supplied profile declared rather than being dropped when one is supplied. `buildBackendOptions`
+  // now sends this provider/model pair on the create request and refuses a conflicting override,
+  // so the two must be derived from the same profile.
+  const profileProvider = cell.profile?.model?.provider ?? 'tangle-router'
+  const profile: AgentProfile = {
+    ...(cell.profile ?? { name: cell.label }),
+    harness: harness as AgentProfile['harness'],
+    model: { ...cell.profile?.model, provider: profileProvider, default: cell.model },
+    metadata: { ...cell.profile?.metadata, backendType: harness },
+  }
   // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the box
   // name and runId must not collide.
   const uniq = Math.random().toString(36).slice(2, 8)
@@ -202,7 +206,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     sandboxOverrides: {
       name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
-      backend: { type: harness as never, model: { provider: 'openai', model: cell.model, baseUrl: routerBaseUrl } },
+      backend: { type: harness as never, model: { provider: profileProvider, model: cell.model, baseUrl: routerBaseUrl } },
     },
   }
   const deliverable: Deliverable<string> = {

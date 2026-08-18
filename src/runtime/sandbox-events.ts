@@ -93,10 +93,181 @@ function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown
   return copy
 }
 
+/** Event types that settle one sandbox execution. A status or `success` flag is read as a
+ *  verdict on the whole execution only here; on any other event it describes that event. */
+const TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set(['done', 'result', 'final'])
+
+/**
+ * Return the terminal failure carried by one Sandbox event.
+ *
+ * Sandbox transports report execution failure in-band: commonly an `error`
+ * event followed by a synthetic `done`. Treating the iterable as successfully
+ * drained therefore turns a provider/configuration failure into a completed
+ * empty artifact.
+ *
+ * The decoder reads a failure from exactly two places, so that a mid-stream
+ * event describing its OWN failure cannot fail the execution: an `error`-typed
+ * event, and a terminal event (`done`/`result`/`final`) whose `success` is
+ * `false` or whose status is a failed one. A failing tool part therefore stays
+ * a tool result, which is what {@link mapSandboxToolEvent} already projects it
+ * to.
+ */
+export function sandboxEventFailure(event: SandboxEvent): string | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+
+  const outcome = plainRecord(data.outcome)
+  const status = firstString(
+    data.status,
+    outcome?.type,
+    outcome?.status,
+    plainRecord(data.result)?.status,
+  )
+  const terminal = TERMINAL_EVENT_TYPES.has(type)
+  const terminalFailure =
+    terminal && (data.success === false || (status !== undefined && TERMINAL_FAILURE.test(status)))
+  if (type !== 'error' && !terminalFailure) return undefined
+
+  return (
+    describeSandboxError(data.error) ??
+    describeSandboxError(outcome?.error) ??
+    describeSandboxError(plainRecord(data.result)?.error) ??
+    (typeof data.message === 'string' && data.message.length > 0 ? data.message : undefined) ??
+    (status !== undefined
+      ? `sandbox execution ended with status ${status}`
+      : 'sandbox execution failed')
+  )
+}
+
+/** Fail the live execution instead of allowing an in-band failure to become an empty success. */
+export function assertSandboxEventSucceeded(event: SandboxEvent): void {
+  const failure = sandboxEventFailure(event)
+  if (failure !== undefined) throw new Error(`sandbox execution failed: ${failure}`)
+}
+
+/** The provider/model the platform reports it actually bound to a turn, when it reports one.
+ *  `source` is the platform's own account of where that choice came from — `environment` means
+ *  the platform chose, not the request. */
+export interface SandboxServedBackend {
+  readonly provider?: string
+  readonly model?: string
+  readonly source?: string
+}
+
+/**
+ * Read the served execution identity off one Sandbox event.
+ *
+ * The platform reports `effectiveBackend` on `execution.started` and again on the terminal
+ * event (`@tangle-network/sandbox` 0.27.1, `EffectiveBackend`). Absence returns `undefined`
+ * and must stay unknown — a request is not a receipt, so nothing here may be inferred from
+ * what was asked for.
+ */
+export function sandboxEventServedBackend(event: SandboxEvent): SandboxServedBackend | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const data = plainRecord(event.data)
+  const served = plainRecord(data?.effectiveBackend)
+  if (!served) return undefined
+  const provider = firstString(served.provider)
+  const model = firstString(served.model)
+  const source = firstString(served.source)
+  if (provider === undefined && model === undefined) return undefined
+  return {
+    ...(provider !== undefined ? { provider } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(source !== undefined ? { source } : {}),
+  }
+}
+
+/**
+ * Fail the execution when the platform reports serving a model other than the exact one asked for.
+ *
+ * Measured motive (agent-runtime#892, live infrastructure 2026-08-17): 6 of 6 boxes whose profile
+ * declared `zai-coding-plan/glm-5.2` reported
+ * `{"provider":"openai-compat","model":"deepseek/deepseek-v4-flash","source":"environment"}`,
+ * while the materialization receipt recorded the declared model as `status: "known"`. Sending
+ * `backend.model` makes that substitution unlikely; only reading the report back makes it
+ * detectable. A run that cannot say which model produced its evidence must not settle as one
+ * that can.
+ *
+ * Silent when the platform reports no served model: unobserved stays unobserved.
+ */
+export function assertSandboxServedModel(
+  event: SandboxEvent,
+  expected: { readonly provider?: string; readonly model?: string } | undefined,
+): void {
+  const wanted = expected?.model?.trim()
+  if (!wanted) return
+  const served = sandboxEventServedBackend(event)
+  if (served?.model === undefined) return
+  if (sameModelId(served.model, wanted, [served.provider, expected?.provider])) return
+  const attribution = [
+    served.provider !== undefined ? `provider ${JSON.stringify(served.provider)}` : undefined,
+    served.source !== undefined ? `source ${JSON.stringify(served.source)}` : undefined,
+  ].filter((part): part is string => part !== undefined)
+  const detail = attribution.length > 0 ? ` (${attribution.join(', ')})` : ''
+  throw new Error(
+    `sandbox served model ${JSON.stringify(served.model)}${detail} instead of the exact profile model ${JSON.stringify(wanted)}`,
+  )
+}
+
+/**
+ * Do two model ids name the same model, allowing for routing prefixes?
+ *
+ * Either side may spell the model bare (`glm-5.2`), provider-qualified
+ * (`zai-coding-plan/glm-5.2`), or route-qualified, and the platform reports the provider in its
+ * own field rather than always in the id. So the comparison drops any known provider prefix and
+ * then accepts a `/`-boundary suffix match: a longer route to the SAME leaf model is a routing
+ * difference, not a substitution.
+ *
+ * What it deliberately does NOT absorb is a different leaf: `glm-5.2` against `glm-5.3` stays a
+ * mismatch, which is the substitution measured directly against the provider API (a request for
+ * `glm-5.2` was served `glm-5.3`). A version suffix is the whole difference between two
+ * instruments, so nothing here may treat it as noise.
+ */
+function sameModelId(
+  served: string,
+  wanted: string,
+  providers: readonly (string | undefined)[],
+): boolean {
+  const a = stripProviderPrefix(served, providers)
+  const b = stripProviderPrefix(wanted, providers)
+  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`)
+}
+
+function stripProviderPrefix(id: string, providers: readonly (string | undefined)[]): string {
+  let out = id.trim().toLowerCase()
+  for (const provider of providers) {
+    const prefix = provider?.trim().toLowerCase()
+    if (prefix && out.startsWith(`${prefix}/`)) out = out.slice(prefix.length + 1)
+  }
+  return out
+}
+
+function describeSandboxError(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const error = value as Record<string, unknown>
+  return firstString(error.message, error.error, error.reason, error.code)
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === 'string' && value.length > 0)
+}
+
 /**
  * Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
  * the event carries usage/cost data. Returns `undefined` for non-cost events
  * so the kernel can iterate the full stream without branching.
+ *
+ * Pure by contract: it never throws on a failed run. The terminal truth
+ * boundary is {@link assertSandboxEventSucceeded}, applied by the two paths
+ * that SETTLE an execution. Post-hoc readers — {@link sumSandboxUsage}, the
+ * analyst trace store, the chat projection — must stay able to read a failed
+ * turn's events, which is when reading them matters most.
  *
  * Canonical cost-carrying types observed in the wild:
  *   - `llm_call` — `data: { model, tokensIn, tokensOut, costUsd, ... }`
@@ -432,9 +603,9 @@ export function createSandboxToolPartState(): SandboxToolPartState {
   return { statusByCall: new Map(), seq: 0 }
 }
 
-/** Terminal tool statuses that are failures (everything here settles the call). */
-const TERMINAL_TOOL_FAILURE =
-  /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i
+/** Statuses that settle a tool call, or a whole execution, as a failure. One vocabulary for
+ *  both so a status never counts as failed in one projection and settled-fine in the other. */
+const TERMINAL_FAILURE = /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i
 
 /**
  * Project one `SandboxEvent` onto the `tool_call` / `tool_result` variants of
@@ -521,7 +692,7 @@ function projectToolPart(
 
   const previous = state.statusByCall.get(callId)
   const settled =
-    previous === 'completed' || (previous !== undefined && TERMINAL_TOOL_FAILURE.test(previous))
+    previous === 'completed' || (previous !== undefined && TERMINAL_FAILURE.test(previous))
   if (settled) return []
 
   const out: (RuntimeStreamEvent & { type: 'tool_call' | 'tool_result' })[] = []
@@ -542,7 +713,7 @@ function projectToolPart(
       toolCallId: callId,
       result: toolState.output ?? metadata.output ?? '',
     })
-  } else if (TERMINAL_TOOL_FAILURE.test(status)) {
+  } else if (TERMINAL_FAILURE.test(status)) {
     const message =
       pickString(toolState, ['error', 'message']) ??
       pickString(metadata, ['error', 'message']) ??

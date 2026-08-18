@@ -549,7 +549,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 172 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 810 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 815 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -564,6 +564,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 810 exports.
 | `assertCoordinationBinding` | function | Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_agent / |
 | `assertModelAllowed` | function | Throw a `ConfigError` when `allowed` is set, `model` is defined, and `model` is not a |
 | `assertProfileModelsAllowed` | function | Check every canonical model-bearing field in a complete profile, including the models a |
+| `assertSandboxEventSucceeded` | function | Fail the live execution instead of allowing an in-band failure to become an empty success. |
+| `assertSandboxServedModel` | function | Fail the execution when the platform reports serving a model other than the exact one asked for. |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
 | `assessAuthoredProfile` | function | OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task |
 | `auditIntent` | function | The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention. |
@@ -737,6 +739,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 810 exports.
 | `sampleFromSettled` | function | Build a `ProgressSample` from a scope settlement. The objective is the verdict score and |
 | `sandboxCheckRunner` | function | Default CheckRunner backend: pipes the check program into `python3` over the sandbox |
 | `sandboxClientAsProvider` | function | Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract. |
+| `sandboxEventFailure` | function | Return the terminal failure carried by one Sandbox event. |
+| `sandboxEventServedBackend` | function | Read the served execution identity off one Sandbox event. |
 | `sandboxSessionTraceSource` | function | The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool |
 | `sanitizeMcpToolSchema` | function | Coerce an MCP inputSchema to an OpenAI-tool-valid top-level object schema. |
 | `secretEnvOfMcpServer` | function | Read (and validate) a server entry's declared secret-env map, if any. |
@@ -1025,6 +1029,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 810 exports.
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |
 | `SandboxSeam` | interface | Sandbox executor seam. The `sandboxClient` the composed `runAgentRounds` creates |
+| `SandboxServedBackend` | interface | The provider/model the platform reports it actually bound to a turn, when it reports one. |
 | `SandboxSteeringOptions` | interface | Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the |
 | `SandboxToolPartState` | interface | Cross-event state for {@link mapSandboxToolEvent}. Sandbox backends emit a |
 | `Scope` | interface | The budget-conserving reactive scope an `Agent.act` runs inside. `spawn` reserves |

@@ -33,11 +33,16 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType, PromptOptions, SandboxEvent } from '@tangle-network/sandbox'
 import { ValidationError } from '../../errors'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
-import { extractLlmCallEvent } from '../sandbox-events'
+import {
+  assertSandboxEventSucceeded,
+  assertSandboxServedModel,
+  extractLlmCallEvent,
+} from '../sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
 import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import type { Inbox } from './inbox'
+import { concreteProfileModel } from './model-policy'
 import {
   type ActivityLog,
   type ActivityNote,
@@ -156,6 +161,14 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       },
     }
     const promptOptions = readPromptOptions(args.loopCtx)
+    // The exact instrument every turn of this session asks the box for (agent-runtime#892).
+    const requestedModel = concreteProfileModel(args.profile)
+    const requested = {
+      ...(args.profile.model?.provider !== undefined
+        ? { provider: args.profile.model.provider }
+        : {}),
+      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
+    }
 
     const started = now()
     const tokens = zeroTokenUsage()
@@ -221,6 +234,11 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           }
           for await (const event of events) {
             recordEvent(event)
+            // The same terminal truth boundary the single-shot leaf applies, after the event is
+            // recorded: an in-band SDK failure, or a box serving a model other than the one the
+            // exact profile asked for, ends the turn instead of settling it as an empty success.
+            assertSandboxEventSucceeded(event)
+            assertSandboxServedModel(event, requested)
             const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
             if (!call) continue
             sawLlmCall = true

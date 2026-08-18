@@ -74,7 +74,10 @@ function resolveBackendType(
 
 /**
  * Build `CreateSandboxOptions` for `profile`, merging `overrides` and setting
- * `backend.profile`. `model`/`server` from an override backend pass through.
+ * `backend.profile`. The exact provider and model always ride the create
+ * request as separate canonical fields; omitting either lets the sandbox select
+ * an ambient default while Runtime records a different executed instrument.
+ * Other model/server override fields pass through after identity validation.
  */
 export function buildBackendOptions(
   profile: AgentProfile,
@@ -83,18 +86,32 @@ export function buildBackendOptions(
   assertExecutableAgentProfile(profile, 'buildBackendOptions')
   const base = overrides ?? {}
   const overrideBackend = base.backend
+  const overrideProvider = overrideBackend?.model?.provider
   const overrideModel = overrideBackend?.model?.model
+  const profileProvider = profile.model?.provider?.trim()
   const profileModel = concreteProfileModel(profile)
+
+  if (overrideProvider !== undefined && overrideProvider !== profileProvider) {
+    throw new Error(
+      `buildBackendOptions: backend provider ${JSON.stringify(overrideProvider)} conflicts with AgentProfile provider ${JSON.stringify(profileProvider)}`,
+    )
+  }
   if (overrideModel !== undefined && overrideModel !== profileModel) {
     throw new Error(
       `buildBackendOptions: backend model ${JSON.stringify(overrideModel)} conflicts with AgentProfile model ${JSON.stringify(profileModel)}`,
     )
   }
+
   return {
     ...base,
     backend: {
       type: resolveBackendType(profile, overrideBackend),
       profile,
+      model: {
+        ...overrideBackend?.model,
+        provider: profileProvider,
+        model: profileModel,
+      },
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },
   }
