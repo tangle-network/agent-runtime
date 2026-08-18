@@ -1,8 +1,11 @@
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
+  assertSandboxServedModel,
   extractLlmCallEvent,
   mapSandboxEvent,
+  sandboxEventFailure,
+  sandboxEventServedBackend,
   sumSandboxUsage,
 } from '../../src/runtime/sandbox-events'
 
@@ -189,5 +192,163 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
 
   it('returns undefined for a `done` event with no tokenUsage (no phantom cost)', () => {
     expect(extractLlmCallEvent({ type: 'done', data: { requestId: 'x' } }, 'agent')).toBeUndefined()
+  })
+})
+
+describe('the event decoders stay pure so a failed run can still be read', () => {
+  // A failed turn is exactly the turn whose events matter most: the analyst trace store
+  // (`iterations-to-trace-store`), `sumSandboxUsage` inside a `receipt:` callback, and the chat
+  // projection all walk stored events AFTER the run settled. If reading an error event threw,
+  // every one of those readers would lose the failure it exists to report.
+  const failedTurn: SandboxEvent[] = [
+    { type: 'llm_call', data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 } } as SandboxEvent,
+    {
+      type: 'error',
+      data: { success: false, error: { message: 'No API key found for anthropic' } },
+    } as SandboxEvent,
+    { type: 'done', data: { status: 'failed' } } as SandboxEvent,
+  ]
+
+  it('extractLlmCallEvent returns undefined for an error event instead of throwing', () => {
+    expect(extractLlmCallEvent(failedTurn[1]!, 'agent')).toBeUndefined()
+  })
+
+  it('mapSandboxEvent returns undefined for an error event instead of throwing', () => {
+    expect(mapSandboxEvent(failedTurn[1]!)).toBeUndefined()
+  })
+
+  it('sumSandboxUsage still meters the spend of a turn that ended in failure', () => {
+    expect(sumSandboxUsage(failedTurn)).toEqual({ input: 100, output: 40, costUsd: 0.01 })
+  })
+})
+
+describe('sandboxEventFailure — only the execution settles the execution', () => {
+  it('reads the SDK error event', () => {
+    expect(
+      sandboxEventFailure({
+        type: 'error',
+        data: { error: { message: 'No API key found for anthropic' } },
+      } as SandboxEvent),
+    ).toBe('No API key found for anthropic')
+  })
+
+  it('reads a terminal event that reports a failed status', () => {
+    expect(sandboxEventFailure({ type: 'done', data: { status: 'failed' } } as SandboxEvent)).toBe(
+      'sandbox execution ended with status failed',
+    )
+  })
+
+  it('reads a terminal event that reports success:false', () => {
+    expect(
+      sandboxEventFailure({
+        type: 'result',
+        data: { success: false, message: 'provider rejected the request' },
+      } as SandboxEvent),
+    ).toBe('provider rejected the request')
+  })
+
+  it('does not read a failing tool event as an execution failure', () => {
+    expect(
+      sandboxEventFailure({
+        type: 'tool.result',
+        data: { status: 'error', success: false, name: 'bash' },
+      } as SandboxEvent),
+    ).toBeUndefined()
+  })
+})
+
+describe('sandboxEventServedBackend — a request is not a receipt', () => {
+  it('decodes the platform report', () => {
+    expect(
+      sandboxEventServedBackend({
+        type: 'execution.started',
+        data: {
+          effectiveBackend: {
+            provider: 'openai-compat',
+            model: 'deepseek/deepseek-v4-flash',
+            source: 'environment',
+          },
+        },
+      } as SandboxEvent),
+    ).toEqual({
+      provider: 'openai-compat',
+      model: 'deepseek/deepseek-v4-flash',
+      source: 'environment',
+    })
+  })
+
+  it('returns undefined when the platform reported no identity', () => {
+    expect(
+      sandboxEventServedBackend({ type: 'execution.started', data: {} } as SandboxEvent),
+    ).toBeUndefined()
+  })
+
+  it('assertSandboxServedModel makes no claim when nothing was served', () => {
+    expect(() =>
+      assertSandboxServedModel({ type: 'done', data: {} } as SandboxEvent, {
+        provider: 'zai-coding-plan',
+        model: 'glm-5.2',
+      }),
+    ).not.toThrow()
+  })
+
+  it('assertSandboxServedModel makes no claim when nothing was requested', () => {
+    // Nothing to compare against is not permission to accept: it is the caller's own unknown,
+    // and this decoder must not convert one unknown into a verdict about the other.
+    expect(() =>
+      assertSandboxServedModel(
+        {
+          type: 'done',
+          data: { effectiveBackend: { model: 'deepseek/deepseek-v4-flash' } },
+        } as SandboxEvent,
+        undefined,
+      ),
+    ).not.toThrow()
+  })
+
+  it('accepts a route-qualified spelling of the same leaf model', () => {
+    // The platform may report the model bare, provider-qualified, or route-qualified, and it
+    // reports the provider in its own field. A longer route to the SAME leaf is a routing
+    // difference; failing on it would ground every run over a spelling.
+    for (const model of ['glm-5.2', 'zai-coding-plan/glm-5.2', 'openai-compat/zai/glm-5.2']) {
+      expect(() =>
+        assertSandboxServedModel(
+          { type: 'done', data: { effectiveBackend: { model } } } as SandboxEvent,
+          { provider: 'zai-coding-plan', model: 'glm-5.2' },
+        ),
+      ).not.toThrow()
+    }
+  })
+
+  it('refuses a different version of the same model family', () => {
+    // Measured directly against the provider API: a request for glm-5.2 was served glm-5.3. A
+    // version suffix is the whole difference between two instruments, never noise to absorb.
+    expect(() =>
+      assertSandboxServedModel(
+        {
+          type: 'done',
+          data: { effectiveBackend: { model: 'zai-coding-plan/glm-5.3' } },
+        } as SandboxEvent,
+        { provider: 'zai-coding-plan', model: 'glm-5.2' },
+      ),
+    ).toThrow(/sandbox served model "zai-coding-plan\/glm-5.3"/)
+  })
+
+  it('assertSandboxServedModel refuses the measured substitution', () => {
+    expect(() =>
+      assertSandboxServedModel(
+        {
+          type: 'execution.started',
+          data: {
+            effectiveBackend: {
+              provider: 'openai-compat',
+              model: 'deepseek/deepseek-v4-flash',
+              source: 'environment',
+            },
+          },
+        } as SandboxEvent,
+        { provider: 'zai-coding-plan', model: 'glm-5.2' },
+      ),
+    ).toThrow(/sandbox served model "deepseek\/deepseek-v4-flash"/)
   })
 })

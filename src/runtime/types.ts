@@ -220,7 +220,8 @@ export interface Iteration<Task, Output> {
   output?: Output
   verdict?: DefaultVerdict
   error?: Error
-  /** Raw sandbox event stream collected for this iteration. */
+  /** Raw sandbox event stream collected for this iteration. Present on a failed iteration too,
+   *  holding the events received before the failure — including the one that reported it. */
   events: SandboxEvent[]
   startedAt: number
   endedAt: number

@@ -30,14 +30,19 @@ import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
-import { extractLlmCallEvent, notifySandboxEventObserver } from './sandbox-events'
+import {
+  assertSandboxEventSucceeded,
+  assertSandboxServedModel,
+  extractLlmCallEvent,
+  notifySandboxEventObserver,
+} from './sandbox-events'
 import {
   createSandboxLineage,
   promptEvents,
   type SandboxLineage,
   type SandboxLineageHandle,
 } from './sandbox-lineage'
-import { assertExecutableAgentProfile } from './supervise/model-policy'
+import { assertExecutableAgentProfile, concreteProfileModel } from './supervise/model-policy'
 import type {
   AgentRunSpec,
   Driver,
@@ -728,6 +733,19 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       },
     })
     const events: SandboxEvent[] = []
+    // Published before the drain, not after it: a run that fails mid-stream keeps the events it
+    // did receive, so the failure can be read from evidence rather than reconstructed.
+    slot.events = events
+    // The exact instrument this iteration asked the box for. The platform reports what it
+    // actually bound; a mismatch fails the iteration instead of attributing its evidence to a
+    // model that did not run (agent-runtime#892).
+    const requestedModel = concreteProfileModel(spec.profile)
+    const requested = {
+      ...(spec.profile.model?.provider !== undefined
+        ? { provider: spec.profile.model.provider }
+        : {}),
+      ...(requestedModel !== undefined ? { model: requestedModel } : {}),
+    }
     let sawLlmCall = false
     for await (const event of stream) {
       events.push(event)
@@ -740,6 +758,11 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         iterationIndex: args.item.index,
         agentRunName: slot.agentRunName,
       })
+      // One terminal truth boundary for the single-shot leaf, applied after the event is kept
+      // and observed: an in-band SDK failure, or a box serving a different model, ends the
+      // iteration instead of settling as an empty success.
+      assertSandboxEventSucceeded(event)
+      assertSandboxServedModel(event, requested)
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         sawLlmCall = true
@@ -768,7 +791,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       slot.tokenUsage.tokensKnown = false
       slot.costUsdKnown = false
     }
-    slot.events = events
     slot.output = args.output.parse(events)
     if (args.validator) {
       slot.verdict = await args.validator.validate(slot.output, {

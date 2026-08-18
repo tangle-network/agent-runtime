@@ -7556,6 +7556,28 @@ read without importing sandbox-backend specifics.
 
 ***
 
+### SandboxServedBackend
+
+The provider/model the platform reports it actually bound to a turn, when it reports one.
+ `source` is the platform's own account of where that choice came from — `environment` means
+ the platform chose, not the request.
+
+#### Properties
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `string`
+
+##### model?
+
+> `readonly` `optional` **model?**: `string`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+***
+
 ### SandboxToolPartState
 
 **`Experimental`**
@@ -18880,7 +18902,8 @@ Stable name of the `AgentRunSpec` that produced this iteration.
 
 > **events**: `SandboxEvent`[]
 
-Raw sandbox event stream collected for this iteration.
+Raw sandbox event stream collected for this iteration. Present on a failed iteration too,
+ holding the events received before the failure — including the one that reported it.
 
 ##### startedAt
 
@@ -24656,15 +24679,122 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 ***
 
+### sandboxEventFailure()
+
+> **sandboxEventFailure**(`event`): `string` \| `undefined`
+
+Return the terminal failure carried by one Sandbox event.
+
+Sandbox transports report execution failure in-band: commonly an `error`
+event followed by a synthetic `done`. Treating the iterable as successfully
+drained therefore turns a provider/configuration failure into a completed
+empty artifact.
+
+The decoder reads a failure from exactly two places, so that a mid-stream
+event describing its OWN failure cannot fail the execution: an `error`-typed
+event, and a terminal event (`done`/`result`/`final`) whose `success` is
+`false` or whose status is a failed one. A failing tool part therefore stays
+a tool result, which is what [mapSandboxToolEvent](#mapsandboxtoolevent) already projects it
+to.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+#### Returns
+
+`string` \| `undefined`
+
+***
+
+### assertSandboxEventSucceeded()
+
+> **assertSandboxEventSucceeded**(`event`): `void`
+
+Fail the live execution instead of allowing an in-band failure to become an empty success.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+#### Returns
+
+`void`
+
+***
+
+### sandboxEventServedBackend()
+
+> **sandboxEventServedBackend**(`event`): [`SandboxServedBackend`](#sandboxservedbackend) \| `undefined`
+
+Read the served execution identity off one Sandbox event.
+
+The platform reports `effectiveBackend` on `execution.started` and again on the terminal
+event (`@tangle-network/sandbox` 0.27.1, `EffectiveBackend`). Absence returns `undefined`
+and must stay unknown — a request is not a receipt, so nothing here may be inferred from
+what was asked for.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+#### Returns
+
+[`SandboxServedBackend`](#sandboxservedbackend) \| `undefined`
+
+***
+
+### assertSandboxServedModel()
+
+> **assertSandboxServedModel**(`event`, `expected`): `void`
+
+Fail the execution when the platform reports serving a model other than the exact one asked for.
+
+Measured motive (agent-runtime#892, live infrastructure 2026-08-17): 6 of 6 boxes whose profile
+declared `zai-coding-plan/glm-5.2` reported
+`{"provider":"openai-compat","model":"deepseek/deepseek-v4-flash","source":"environment"}`,
+while the materialization receipt recorded the declared model as `status: "known"`. Sending
+`backend.model` makes that substitution unlikely; only reading the report back makes it
+detectable. A run that cannot say which model produced its evidence must not settle as one
+that can.
+
+Silent when the platform reports no served model: unobserved stays unobserved.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+##### expected
+
+\{ `provider?`: `string`; `model?`: `string`; \} \| `undefined`
+
+#### Returns
+
+`void`
+
+***
+
 ### extractLlmCallEvent()
 
 > **extractLlmCallEvent**(`event`, `agentRunName`): RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
 the event carries usage/cost data. Returns `undefined` for non-cost events
-so the kernel can iterate the full stream without branching. A top-level
-Sandbox failure throws before extraction so every caller shares one terminal
-truth boundary instead of inventing empty-output heuristics.
+so the kernel can iterate the full stream without branching.
+
+Pure by contract: it never throws on a failed run. The terminal truth
+boundary is [assertSandboxEventSucceeded](#assertsandboxeventsucceeded), applied by the two paths
+that SETTLE an execution. Post-hoc readers — [sumSandboxUsage](#sumsandboxusage), the
+analyst trace store, the chat projection — must stay able to read a failed
+turn's events, which is when reading them matters most.
 
 Canonical cost-carrying types observed in the wild:
   - `llm_call` — `data: { model, tokensIn, tokensOut, costUsd, ... }`
