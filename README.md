@@ -72,7 +72,7 @@ Five words appear everywhere:
 | **driver** | Your code. It runs a worker, reads the output, and writes the next prompt. |
 | **decision** | What `decide` returns. The four keywords in `TERMINAL_DECISIONS` (`stop`, `pick-winner`, `fail`, `done`) end the loop; every other value is your own vocabulary and continues it. |
 | **verdict** | What a validator returns: valid or not, with a score. |
-| **harness** | What drives an agent. `cli-base` is the router-backed mode with no coding agent behind it; `claude-code`, `codex`, and `opencode` each run a real coding CLI. |
+| **harness** | What drives an agent. `cli-base` is the router-backed mode with no coding agent behind it; `claude-code`, `codex`, and `opencode` each run a real coding CLI; `prime` (PrimeIntellect's prime-agent) drives an RLM IPython-kernel agent in a sandbox. The full list is `HarnessType` in `@tangle-network/agent-interface`. |
 
 ## Which front door
 
@@ -103,6 +103,8 @@ Pick by what died.
 ## Also in the box
 
 - **Benchmarks and leaderboards** — compare strategies with significance stats (`runBenchmark`), or stand up a harness×model board (`defineLeaderboard`): [`examples/coding-benchmark`](./examples/coding-benchmark), [`examples/webcode-matrix`](./examples/webcode-matrix).
+- **Hillclimb a benchmark** — baseline → strategy evolution (`runStrategyEvolution`) → held-out promotion gate → durable experiment record, on SWE-bench-Live under a dollar ceiling: [`examples/hillclimb-benchmark`](./examples/hillclimb-benchmark); the toy-domain version is [`examples/strategy-evolution`](./examples/strategy-evolution).
+- **Durable pursuit observer** (`/durable`) — an append-only, hash-chained record of a supervised pursuit's events and decisions, projected back into the run's node topology (`supervisePursuit`, `projectPursuit`): [`docs/api/durable.md`](./docs/api/durable.md).
 - **Agent graphs** — fixed topologies authored as data and run through `runGraph`: [`examples/graphs`](./examples/graphs).
 - **Improve a knowledge base** — a measured candidate copy of a KB, wiki, or RAG corpus: [`docs/improve.md`](./docs/improve.md).
 - **PrimeIntellect** — package the same runtime program as a Verifiers environment: [`docs/primeintellect.md`](./docs/primeintellect.md).
@@ -111,7 +113,7 @@ Pick by what died.
 - **Live run view** (`/tui`) — `agent-runtime-top` shows every supervisor run in a workspace, with steer and cancel.
 - **Telemetry** — every loop emits `loop.*` trace events, exported as OpenTelemetry GenAI spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
 
-All 33 examples live in [`examples/`](./examples).
+All 34 examples live in [`examples/`](./examples).
 
 ## How it works (the short version)
 

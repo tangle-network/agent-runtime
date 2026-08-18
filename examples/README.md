@@ -99,7 +99,8 @@ repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 
 | # | Example | What it shows |
 |---|---|---|
-| 16 | [`strategy-evolution/`](./strategy-evolution/) | Full policy search with a safety gate: write new tactics from past losses, promote a champion only if a statistical test says the win isn't luck. Needs `TANGLE_API_KEY`. |
+| 16 | [`hillclimb-benchmark/`](./hillclimb-benchmark/) | **The complete loop on a modern benchmark**: SWE-bench-Live as an `Environment`, baseline tournament, strategy evolution, held-out promotion gate, durable experiment record — under one hard dollar ceiling. Needs `TANGLE_API_KEY`, `MAX_USD`, and your model's token prices. |
+| 16b | [`strategy-evolution/`](./strategy-evolution/) | The same search on a toy domain: write new tactics from past losses, promote a champion only if a statistical test says the win isn't luck. Needs `TANGLE_API_KEY`. |
 | 17 | [`improve/`](./improve/) | Run a complete optimization method on explicit train, selection, and final-test partitions. Offline. |
 | 17b | [`self-improving-coder/`](./self-improving-coder/) | The flywheel on a contamination-proof coding task: an agent writes strategies from its training losses, graded by real pytest, promoted only if a fresh holdout confirms the gain. `CALIBRATE=1` is a $0 no-key check. |
 | 18 | [`self-improving-loop/`](./self-improving-loop/) | #17 unrolled step by step: v0 → judge → analyst → mutation → v1 → gate, showing which part owns each phase. Offline. |
@@ -121,9 +122,9 @@ repeat. A failing validator prunes a bad candidate so the loop can't keep it.
 - Everything runs from this repo's `tsx`, so edits to the runtime are picked up immediately — no
   example creates its own throwaway `package.json`.
 - Examples are synthetic and offline unless a row above says otherwise. The ones that need a key:
-  `supervise`, `delegate`, `strategy-evolution`, `product-eval` (`TANGLE_API_KEY`); `stream-backends`'
-  OpenAI path (`OPENAI_API_KEY`). `mcp-delegation` needs `pnpm build` first; `researcher-loop` needs
-  the optional `@tangle-network/agent-knowledge` peer.
+  `supervise`, `delegate`, `strategy-evolution`, `hillclimb-benchmark`, `product-eval`
+  (`TANGLE_API_KEY`); `stream-backends`' OpenAI path (`OPENAI_API_KEY`). `mcp-delegation` needs
+  `pnpm build` first; `researcher-loop` needs the optional `@tangle-network/agent-knowledge` peer.
 - Where a domain type is yours to provide (a sandbox box, an evidence store), the example defines a
   stub inline and comments mark which parts are *yours* vs the runtime's.
 
@@ -163,6 +164,8 @@ pnpm tsx examples/mcp-delegation/mcp-delegation.ts
 pnpm tsx examples/fleet-delegation/fleet-delegation.ts
 
 # Self-improvement
+TANGLE_API_KEY=... MAX_USD=5 PRICE_IN_PER_M=... PRICE_OUT_PER_M=... \
+  pnpm tsx examples/hillclimb-benchmark/hillclimb.ts                         # the flagship: SWE-bench-Live
 TANGLE_API_KEY=... pnpm tsx examples/strategy-evolution/strategy-evolution.ts
 pnpm tsx examples/improve/improve.ts
 CALIBRATE=1 pnpm tsx examples/self-improving-coder/self-improving-coder.ts   # $0 no-key check

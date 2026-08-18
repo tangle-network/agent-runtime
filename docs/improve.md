@@ -258,6 +258,10 @@ Runtime owns candidate identity, measurement, review binding, expiry, retry iden
 Official optimizer proposals carry the observed package versions, the optimizer model, evaluation and token usage, separate optimization and final-test costs, and the resumed-run identity.
 `createOptimizationActivationReceipt(result)` exposes the same detached record for a caller that must inspect an `improve()` result before it builds a proposal.
 
+A candidate does not need optimizer lineage.
+When a person or a supervisor authors a complete profile by hand, `proposeAuthoredAgentProfileImprovement` admits it to the same path: the authored profile is measured against the frozen baseline on the sealed experiment, and the proposal, review, and activation steps are identical.
+There is no separate trust track for hand-authored changes — authored and optimizer-produced candidates face the same gate.
+
 ## Improve a knowledge base
 
 `runKnowledgeImprovementJob` runs KB, wiki, memory-backed, and RAG improvement jobs.

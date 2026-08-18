@@ -175,6 +175,7 @@ the gate + measurement tools:
   gate-cli.mts  the recursive diverse-vs-blind gate through `runGate` (Supervisor)
   run-benchmarks-cli.mts  runBenchmarks: any subset of the ADAPTERS registry × model/harness cells, one combined ranked report (#420)
   commit0-env-run.mts  the HARD domain through `runBenchmark` (the optimization suite)
+  swe-self-improve.mts  `runStrategyEvolution` over the SWE-bench `Environment` (train→freeze→holdout; run `CALIBRATE=1` first — the cost gate). The published-surface counterpart, on SWE-bench-Live with a dollar ceiling, is `examples/hillclimb-benchmark/`.
   terminal-compare.ts  Terminal-Bench compare (own main)
   pnpm verify:pier  zero-model failure/pass Pier controls through a separate verifier
   swe-arena/run-report.mts  deterministic per-cell run report (steers, waves, idle, cost by role) + round rollup
