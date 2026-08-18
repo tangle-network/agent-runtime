@@ -60,13 +60,18 @@ const declarationKind = (node) => {
 }
 
 const declaredNames = (node) => {
+  const named = (identifier, context) => {
+    // A destructuring pattern carries no single name. It cannot appear in a
+    // declaration file, so reaching here means the parse is not what this
+    // reader assumes — record nothing rather than a key of `undefined`.
+    if (identifier?.type === 'Identifier') return identifier.name
+    if (identifier?.type === 'Literal') return identifier.value
+    throw new Error(`cannot read the exported name of a ${context} (${identifier?.type})`)
+  }
   if (node.type === 'VariableDeclaration') {
-    return node.declarations.map((declarator) => declarator.id.name)
+    return node.declarations.map((declarator) => named(declarator.id, 'variable declarator'))
   }
-  if (node.type === 'TSModuleDeclaration') {
-    return [node.id.type === 'Identifier' ? node.id.name : node.id.value]
-  }
-  return [node.id.name]
+  return [named(node.id, node.type)]
 }
 
 /**
@@ -91,10 +96,18 @@ const resolveRelativeDeclaration = (fromFile, specifier) => {
  * Every symbol `file` exports, name to kind. Follows `export * from` into the
  * chunk files the build splits declarations across, because those re-exports
  * are what a consumer's entry point actually resolves through.
+ *
+ * `resolved` memoizes a finished file and `visiting` breaks a cycle. Keeping the
+ * two apart means a chunk reached by several paths is parsed once and still
+ * answers with its symbols on every path, instead of answering empty on all but
+ * the first. The entry point's total is the same either way, because every path
+ * merges upward into it; the cost and the per-file answer are not.
  */
-const exportsOfFile = (file, seen = new Set()) => {
-  if (seen.has(file)) return {}
-  seen.add(file)
+const exportsOfFile = (file, resolved = new Map(), visiting = new Set()) => {
+  const memoized = resolved.get(file)
+  if (memoized !== undefined) return memoized
+  if (visiting.has(file)) return {}
+  visiting.add(file)
   const source = readFileSync(file, 'utf8')
   const parsed = parseSync(file, source, { lang: 'dts' })
   if (parsed.errors.length > 0) {
@@ -134,7 +147,7 @@ const exportsOfFile = (file, seen = new Set()) => {
           names[name] = 'value'
           break
         }
-        for (const [name, kind] of Object.entries(exportsOfFile(target, seen))) {
+        for (const [name, kind] of Object.entries(exportsOfFile(target, resolved, visiting))) {
           names[name] = node.exportKind === 'type' ? 'type' : kind
         }
         break
@@ -146,6 +159,8 @@ const exportsOfFile = (file, seen = new Set()) => {
         throw new Error(`${file} uses unhandled export form ${node.type}`)
     }
   }
+  visiting.delete(file)
+  resolved.set(file, names)
   return names
 }
 
