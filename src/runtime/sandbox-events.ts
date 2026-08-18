@@ -94,9 +94,66 @@ function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown
 }
 
 /**
+ * Return the terminal failure carried by one Sandbox event.
+ *
+ * Sandbox transports report execution failure in-band: commonly an `error`
+ * event followed by a synthetic `done`. Treating the iterable as successfully
+ * drained therefore turns a provider/configuration failure into a completed
+ * empty artifact. This decoder is deliberately conservative: tool-part errors
+ * remain tool results, while top-level error events, explicit `success:false`,
+ * and failed terminal states make the execution fail.
+ */
+export function sandboxEventFailure(event: SandboxEvent): string | undefined {
+  if (!event || typeof event !== 'object') return undefined
+  const type = String(event.type ?? '')
+  const data =
+    event.data && typeof event.data === 'object'
+      ? (event.data as Record<string, unknown>)
+      : ({} as Record<string, unknown>)
+
+  const outcome = plainRecord(data.outcome)
+  const status = firstString(
+    data.status,
+    outcome?.type,
+    outcome?.status,
+    plainRecord(data.result)?.status,
+  )
+  const terminalFailure =
+    status !== undefined && /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i.test(status)
+  if (type !== 'error' && data.success !== false && !terminalFailure) return undefined
+
+  return (
+    describeSandboxError(data.error) ??
+    describeSandboxError(outcome?.error) ??
+    describeSandboxError(plainRecord(data.result)?.error) ??
+    (typeof data.message === 'string' && data.message.length > 0 ? data.message : undefined) ??
+    (status !== undefined ? `sandbox execution ended with status ${status}` : 'sandbox execution failed')
+  )
+}
+
+/** Fail the live execution instead of allowing an in-band failure to become an empty success. */
+export function assertSandboxEventSucceeded(event: SandboxEvent): void {
+  const failure = sandboxEventFailure(event)
+  if (failure !== undefined) throw new Error(`sandbox execution failed: ${failure}`)
+}
+
+function describeSandboxError(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const error = value as Record<string, unknown>
+  return firstString(error.message, error.error, error.reason, error.code)
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  return values.find((value): value is string => typeof value === 'string' && value.length > 0)
+}
+
+/**
  * Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
  * the event carries usage/cost data. Returns `undefined` for non-cost events
- * so the kernel can iterate the full stream without branching.
+ * so the kernel can iterate the full stream without branching. A top-level
+ * Sandbox failure throws before extraction so every caller shares one terminal
+ * truth boundary instead of inventing empty-output heuristics.
  *
  * Canonical cost-carrying types observed in the wild:
  *   - `llm_call` — `data: { model, tokensIn, tokensOut, costUsd, ... }`
@@ -112,6 +169,7 @@ export function extractLlmCallEvent(
   agentRunName: string,
 ): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined {
   if (!event || typeof event !== 'object') return undefined
+  assertSandboxEventSucceeded(event)
   const type = String(event.type ?? '')
   const data =
     event.data && typeof event.data === 'object'
