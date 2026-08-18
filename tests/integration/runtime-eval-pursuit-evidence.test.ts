@@ -74,6 +74,7 @@ describe('Runtime pursuit -> Eval evidence', () => {
         arguments: {
           profile: testAgentProfile('evidence-worker'),
           task: 'produce the measured artifact',
+          label: 'evidence-worker',
         },
       })
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
