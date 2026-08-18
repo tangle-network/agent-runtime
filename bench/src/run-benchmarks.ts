@@ -173,7 +173,19 @@ function finalText(events: readonly SandboxEvent[]): string {
 
 /** The default real-agent shot: one `openSandboxRun` over the cell's harness+model, deliverable
  *  extracted by the adapter's parser (or final text), abortable on `timeoutMs`. */
-const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, resolveClient }) => {
+const openSandboxShot: BenchShot = async ({
+  adapter,
+  task,
+  cell,
+  prompt,
+  routerBaseUrl,
+  routerKey,
+  bridgeUrl,
+  bridgeBearer,
+  sandboxBaseUrl,
+  timeoutMs,
+  resolveClient,
+}) => {
   const client = (resolveClient ?? resolveBenchClient)({
     backend: cell.backend ?? 'router',
     routerBaseUrl,
@@ -184,14 +196,22 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     ...(cell.searchProvider ? { searchProvider: cell.searchProvider } : {}),
     ...(timeoutMs ? { timeoutMs } : {}),
   })
-  const harness = cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
-  const profile: AgentProfile =
-    cell.profile ?? {
-      name: cell.label,
-      harness: harness as AgentProfile['harness'],
-      model: { provider: 'tangle-router', default: cell.model },
-      metadata: { backendType: harness },
-    }
+  const harness =
+    cell.harness ?? (cell.profile?.metadata?.backendType as string | undefined) ?? 'opencode'
+  const profileProvider = cell.profile?.model?.provider ?? 'tangle-router'
+  const profile: AgentProfile = {
+    ...(cell.profile ?? { name: cell.label }),
+    harness: harness as AgentProfile['harness'],
+    model: {
+      ...cell.profile?.model,
+      provider: profileProvider,
+      default: cell.model,
+    },
+    metadata: {
+      ...cell.profile?.metadata,
+      backendType: harness,
+    },
+  }
   // Unique per shot: the same (adapter, task) runs concurrently across cells and reps, so the box
   // name and runId must not collide.
   const uniq = Math.random().toString(36).slice(2, 8)
@@ -200,9 +220,14 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     name: cell.label,
     taskToPrompt: () => '',
     sandboxOverrides: {
-      name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
+      name: `bench-${adapter.name}-${task.id}-${uniq}`
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .slice(0, 60),
       environment: 'universal',
-      backend: { type: harness as never, model: { provider: 'openai', model: cell.model, baseUrl: routerBaseUrl } },
+      backend: {
+        type: harness as never,
+        model: { provider: profileProvider, model: cell.model, baseUrl: routerBaseUrl },
+      },
     },
   }
   const deliverable: Deliverable<string> = {
@@ -261,7 +286,10 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
         if (process.env.BENCH_ARTIFACT_DIR) {
           try {
             mkdirSync(process.env.BENCH_ARTIFACT_DIR, { recursive: true })
-            const safe = `${adapter.name}_${task.id}_${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_')
+            const safe = `${adapter.name}_${task.id}_${uniq}`.replace(
+              /[^a-zA-Z0-9_.-]/g,
+              '_',
+            )
             const map = await run.box
               .exec(
                 'echo "PWD:"; pwd; echo "LS:"; ls -la; echo "GITROOTS:"; find / -maxdepth 5 -type d -name .git 2>/dev/null; echo "SETTINGS:"; find / -maxdepth 8 -name global_settings.py -path "*conf*" 2>/dev/null',
@@ -271,7 +299,11 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
             writeFileSync(
               `${process.env.BENCH_ARTIFACT_DIR}/${safe}.exec.json`,
               JSON.stringify(
-                { sessionId: run.sessionId, extract: res, map: { exitCode: map.exitCode, stdout: map.stdout, stderr: map.stderr } },
+                {
+                  sessionId: run.sessionId,
+                  extract: res,
+                  map: { exitCode: map.exitCode, stdout: map.stdout, stderr: map.stderr },
+                },
                 null,
                 2,
               ),
@@ -342,10 +374,16 @@ function safeFeedback(score: BenchScore): Record<string, unknown> {
 }
 
 function truncate(value: string, max = 4_000): string {
-  return value.length <= max ? value : `${value.slice(0, max)}\n...[truncated ${value.length - max} chars]`
+  return value.length <= max
+    ? value
+    : `${value.slice(0, max)}\n...[truncated ${value.length - max} chars]`
 }
 
-function retryPrompt(task: BenchTask, history: ReadonlyArray<{ round: number; artifact: string }>, scores: ReadonlyMap<number, BenchScore>): string {
+function retryPrompt(
+  task: BenchTask,
+  history: ReadonlyArray<{ round: number; artifact: string }>,
+  scores: ReadonlyMap<number, BenchScore>,
+): string {
   const attempts = history
     .map((h) => {
       const score = scores.get(h.round)
@@ -380,7 +418,8 @@ async function loopedShot(
   const scores = new Map<number, BenchScore>()
   const result = await runRefineLoop<string>({
     rounds: attempts,
-    prompt: (round, history) => (round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores)),
+    prompt: (round, history) =>
+      round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores),
     runShot: async (prompt, round) => {
       const out = await shot({ ...input, prompt, attempt: round })
       return { artifact: out.artifact, note: out.detail }
@@ -421,7 +460,10 @@ async function loopedShot(
   }
 }
 
-function combineDetails(runDetail: string | undefined, scoreDetail: string | undefined): string | undefined {
+function combineDetails(
+  runDetail: string | undefined,
+  scoreDetail: string | undefined,
+): string | undefined {
   if (runDetail && scoreDetail) {
     return JSON.stringify({ run: parseMaybeJson(runDetail), score: parseMaybeJson(scoreDetail) })
   }
@@ -442,7 +484,10 @@ async function prepareBenchmarks(
   benchmarks: readonly string[],
   resolve: (key: string) => BenchmarkAdapter,
   opts: Pick<RunBenchmarksOptions, 'n' | 'ids' | 'split' | 'verifyJudge'>,
-): Promise<{ ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }>; unavailable: Array<{ benchmark: string; reason: string }> }> {
+): Promise<{
+  ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }>
+  unavailable: Array<{ benchmark: string; reason: string }>
+}> {
   const ready: Array<{ benchmark: string; adapter: BenchmarkAdapter; tasks: BenchTask[] }> = []
   const unavailable: Array<{ benchmark: string; reason: string }> = []
   for (const benchmark of benchmarks) {
@@ -463,7 +508,10 @@ async function prepareBenchmarks(
         if (gold !== undefined) {
           const verdict = await adapter.judge(tasks[0]!, gold)
           if (!verdict.resolved) {
-            unavailable.push({ benchmark, reason: `judge rejected its own gold on ${tasks[0]!.id} — judge is miscalibrated` })
+            unavailable.push({
+              benchmark,
+              reason: `judge rejected its own gold on ${tasks[0]!.id} — judge is miscalibrated`,
+            })
             continue
           }
         }
@@ -483,11 +531,18 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
   const loopAttempts = Math.max(1, opts.loopAttempts ?? 1)
   const shot = opts.runShot ?? openSandboxShot
 
-  const { ready, unavailable } = await prepareBenchmarks(opts.benchmarks, opts.resolveAdapter ?? resolveAdapter, opts)
+  const { ready, unavailable } = await prepareBenchmarks(
+    opts.benchmarks,
+    opts.resolveAdapter ?? resolveAdapter,
+    opts,
+  )
 
   const jobs: Job[] = []
   for (const { benchmark, adapter, tasks } of ready)
-    for (const cell of opts.cells) for (const task of tasks) for (let rep = 0; rep < reps; rep += 1) jobs.push({ benchmark, adapter, cell, task, rep })
+    for (const cell of opts.cells)
+      for (const task of tasks)
+        for (let rep = 0; rep < reps; rep += 1)
+          jobs.push({ benchmark, adapter, cell, task, rep })
 
   const perTask: BenchCellTaskResult[] = []
   await runPool(jobs, Math.max(1, opts.concurrency ?? 4), async (job, index) => {
@@ -506,7 +561,10 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts.resolveClient ? { resolveClient: opts.resolveClient } : {}),
       }
-      const out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
+      const out =
+        loopAttempts > 1
+          ? await loopedShot(shotInput, shot, loopAttempts)
+          : await shot(shotInput)
       const score: BenchScore = await job.adapter.judge(job.task, out.artifact)
       result = {
         benchmark: job.benchmark,
@@ -516,7 +574,9 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         resolved: out.ok && score.resolved,
         score: out.ok ? score.score : 0,
         ok: out.ok,
-        ...(out.detail ?? score.detail ? { detail: combineDetails(out.detail, score.detail) } : {}),
+        ...(out.detail ?? score.detail
+          ? { detail: combineDetails(out.detail, score.detail) }
+          : {}),
         wallMs: Date.now() - startedAt,
       }
     } catch (err) {
@@ -551,10 +611,27 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
 }
 
 function aggregate(perTask: readonly BenchCellTaskResult[]): BenchLeaderboardRow[] {
-  const byKey = new Map<string, { benchmark: string; cell: string; n: number; resolved: number; errored: number; scoreSum: number }>()
+  const byKey = new Map<
+    string,
+    {
+      benchmark: string
+      cell: string
+      n: number
+      resolved: number
+      errored: number
+      scoreSum: number
+    }
+  >()
   for (const r of perTask) {
     const key = `${r.benchmark}\u0000${r.cell}`
-    const e = byKey.get(key) ?? { benchmark: r.benchmark, cell: r.cell, n: 0, resolved: 0, errored: 0, scoreSum: 0 }
+    const e = byKey.get(key) ?? {
+      benchmark: r.benchmark,
+      cell: r.cell,
+      n: 0,
+      resolved: 0,
+      errored: 0,
+      scoreSum: 0,
+    }
     e.n += 1
     if (!r.ok) e.errored += 1
     else {
@@ -575,7 +652,13 @@ function aggregate(perTask: readonly BenchCellTaskResult[]): BenchLeaderboardRow
       meanScore: e.scoreSum / denom,
     }
   })
-  rows.sort((a, b) => (a.benchmark === b.benchmark ? b.resolveRate - a.resolveRate : a.benchmark < b.benchmark ? -1 : 1))
+  rows.sort((a, b) =>
+    a.benchmark === b.benchmark
+      ? b.resolveRate - a.resolveRate
+      : a.benchmark < b.benchmark
+        ? -1
+        : 1,
+  )
   return rows
 }
 
