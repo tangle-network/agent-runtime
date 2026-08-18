@@ -119,7 +119,8 @@ export function sandboxEventFailure(event: SandboxEvent): string | undefined {
     plainRecord(data.result)?.status,
   )
   const terminalFailure =
-    status !== undefined && /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i.test(status)
+    status !== undefined &&
+    /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i.test(status)
   if (type !== 'error' && data.success !== false && !terminalFailure) return undefined
 
   return (
@@ -127,7 +128,9 @@ export function sandboxEventFailure(event: SandboxEvent): string | undefined {
     describeSandboxError(outcome?.error) ??
     describeSandboxError(plainRecord(data.result)?.error) ??
     (typeof data.message === 'string' && data.message.length > 0 ? data.message : undefined) ??
-    (status !== undefined ? `sandbox execution ended with status ${status}` : 'sandbox execution failed')
+    (status !== undefined
+      ? `sandbox execution ended with status ${status}`
+      : 'sandbox execution failed')
   )
 }
 
