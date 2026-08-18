@@ -88,7 +88,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: e07a6a4772424107e9831bd9e05512e52134e33b # @tangle-network/agent-eval@0.147.0
+          ref: 99ed9b8a02003be743d8d28f01acbcd3c44db3ad # @tangle-network/agent-eval@0.148.0
           path: .cohort/agent-eval
           persist-credentials: false
 
