@@ -8,9 +8,11 @@ The Eval peer range becomes `>=0.148.0 <0.149.0`, and the catalog requires Eval 
 Eval 0.148.0 publishes `createEvidenceReceipt`, `verifyEvidenceReceipt`, and `isIndependentEvidence` on the `/experiment` subpath.
 A new integration test binds one real recursive pursuit to an Eval evidence receipt through that surface.
 
-This release also carries the Sandbox truth fixes already on main (#896): sandbox workers receive the exact profile model, and an in-band sandbox execution failure fails the stream instead of settling clean.
+Knowledge is a dependency of this package, so its own Eval peer had to admit 0.148.0 first; that is Knowledge 8.0.9, and the catalog floor moves to `^8.0.9`.
 
-No API changes. Bench moves to 0.8.15 because its catalog dependency window moves with the release.
+This release also carries the Sandbox truth fixes already on main (#896): sandbox workers receive the exact profile model, and an in-band sandbox execution failure fails the stream instead of settling clean. Their five exports (`SandboxServedBackend`, `assertSandboxEventSucceeded`, `assertSandboxServedModel`, `sandboxEventFailure`, `sandboxEventServedBackend`) ship for the first time in this version.
+
+Bench moves to 0.8.15 because its catalog dependency window moves with the release.
 
 ## 0.138.1
 
