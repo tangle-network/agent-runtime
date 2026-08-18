@@ -37,7 +37,8 @@
     "typecheck:public": "tsc -p tsconfig.public.json",
     "verify:package": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs",
     "verify:package:local-runtime": "pnpm run verify:package:static && node scripts/verify-packed-consumer.mjs --local-runtime",
-    "verify:package:static": "pnpm run build && publint && attw --pack --profile esm-only . && node ../scripts/check-published-ranges.mjs bench",
+    "verify:package:static": "pnpm run build && publint && attw --pack --profile esm-only . && node ../scripts/check-published-ranges.mjs bench && node ../scripts/check-api-surface.mjs bench",
+    "api:surface": "node ../scripts/check-api-surface.mjs --write bench",
     "wait:published-dependencies": "node scripts/wait-for-published-dependencies.mjs",
     "verify:pier": "tsx scripts/verify-pier-pair.mts"
   },
