@@ -45,6 +45,7 @@ import {
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { addTokenUsage, cloneTokenUsage, usdEstimatedOf, zeroTokenUsage } from '../util'
+import { runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
 import { runTree } from './finalizer'
@@ -708,7 +709,11 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // stopped them because the driver died".
       let downCountAtSettle = 0
       try {
-        const out = await runAbortable(() => rootAct(task, scope), controller.signal)
+        const out = await runAbortable(
+          () => rootAct(task, scope),
+          controller.signal,
+          'supervisor aborted',
+        )
         actOutcome = { ok: true, out }
       } catch (error) {
         // act()'s rejection is the PRIMARY error; capture it before the join barrier so a
@@ -1098,56 +1103,6 @@ async function drainCursor(scope: Scope<unknown>): Promise<void> {
     const settled = await scope.next()
     if (settled === null) return
   }
-}
-
-/** Race root policy execution against the same signal that stops every child. The losing promise
- * remains observed, so a late rejection cannot surface as an unhandled process error. */
-async function runAbortable<T>(act: () => Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) throw supervisorAbortError(signal)
-  return await new Promise<T>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => signal.removeEventListener('abort', onAbort)
-    const onAbort = () => {
-      queueMicrotask(() => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(supervisorAbortError(signal))
-      })
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    let work: Promise<T>
-    try {
-      work = Promise.resolve(act())
-    } catch (error) {
-      cleanup()
-      reject(error)
-      return
-    }
-    work.then(
-      (value) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve(value)
-      },
-      (error) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      },
-    )
-  })
-}
-
-function supervisorAbortError(signal: AbortSignal): Error {
-  const reason = signal.reason
-  const error = new Error(
-    typeof reason === 'string' && reason.length > 0 ? reason : 'supervisor aborted',
-  )
-  error.name = 'AbortError'
-  return error
 }
 
 /**

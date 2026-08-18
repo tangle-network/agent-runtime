@@ -39,6 +39,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import { runAbortable } from './abortable'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
   attestRuntimeOwnedDeferredExecutor,
@@ -203,7 +204,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
       try {
         // Run the driver. Its `act` spawns children into the nested scope and reacts via
         // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
-        const out = await driverActAbortable(() => driver.act(task, nestedScope), controller.signal)
+        const out = await runAbortable(
+          () => driver.act(task, nestedScope),
+          controller.signal,
+          'driver aborted',
+        )
         await finalizeScopeOwnerMaterialization(nestedScope)
 
         // A driver may choose its answer while descendants still run. Its allocation is not
@@ -321,54 +326,6 @@ async function closeNestedScope(
       `driverExecutor: nested cleanup left ${view.inFlight} running and ${view.waiting} waiting nodes`,
     )
   }
-}
-
-async function driverActAbortable<T>(act: () => Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) throw driverAbortError(signal)
-  return await new Promise<T>((resolve, reject) => {
-    let settled = false
-    const cleanup = () => signal.removeEventListener('abort', onAbort)
-    const onAbort = () => {
-      queueMicrotask(() => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(driverAbortError(signal))
-      })
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    let work: Promise<T>
-    try {
-      work = Promise.resolve(act())
-    } catch (error) {
-      cleanup()
-      reject(error)
-      return
-    }
-    work.then(
-      (value) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        resolve(value)
-      },
-      (error) => {
-        if (settled) return
-        settled = true
-        cleanup()
-        reject(error)
-      },
-    )
-  })
-}
-
-function driverAbortError(signal: AbortSignal): Error {
-  const reason = signal.reason
-  const error = new Error(
-    typeof reason === 'string' && reason.length > 0 ? reason : 'driver aborted',
-  )
-  error.name = 'AbortError'
-  return error
 }
 
 /** The nested tree's full event list — the one evidence the spend, verdict, AND driver-inference
