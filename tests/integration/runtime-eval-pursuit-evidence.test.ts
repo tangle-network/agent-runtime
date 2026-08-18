@@ -106,9 +106,7 @@ describe('Runtime pursuit -> Eval evidence', () => {
 
       expect(executed.result.kind).toBe('winner')
       expect(executed.pursuit).toMatchObject({ pursuitId })
-      expect(executed.pursuit.runs).toEqual([
-        expect.objectContaining({ runId, status: 'done' }),
-      ])
+      expect(executed.pursuit.runs).toEqual([expect.objectContaining({ runId, status: 'done' })])
       expect(executed.pursuit.nodes).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
