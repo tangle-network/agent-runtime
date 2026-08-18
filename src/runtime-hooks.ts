@@ -4,6 +4,11 @@
  * `AgentProfile`: profiles stay portable agent recipes; hooks attach to the
  * loop or product harness that is running the profile.
  *
+ * A `pursuitId` is deliberately orthogonal to `runId`: a pursuit can span many
+ * resumed/retried/forked runs while every event remains attributable to the
+ * durable objective that caused it. The observer plane is outside the agent
+ * environment and must never be required for agent correctness.
+ *
  * @experimental
  */
 
@@ -35,6 +40,8 @@ export type RuntimeDecisionKind =
 
 export interface RuntimeHookEvent<Payload = unknown> {
   id: string
+  /** Stable identity for the long-lived objective. One pursuit may contain many runs. */
+  pursuitId?: string
   runId: string
   scenarioId?: string
   target: RuntimeHookTarget
@@ -59,6 +66,8 @@ export interface RuntimeDecisionEvidenceRef {
 
 export interface RuntimeDecisionPoint {
   id: string
+  /** Stable identity for the long-lived objective. One pursuit may contain many runs. */
+  pursuitId?: string
   runId: string
   scenarioId?: string
   stepIndex: number
@@ -106,6 +115,40 @@ export interface RuntimeHooks {
 /** Identity helper that types a {@link RuntimeHooks} literal so the fields are inferred. */
 export function defineRuntimeHooks(hooks: RuntimeHooks): RuntimeHooks {
   return hooks
+}
+
+/**
+ * Attach a stable pursuit identity to the entire observer stream without changing
+ * agent code or teaching individual runtimes about pursuits. Because recursive Scope
+ * execution already inherits one RuntimeHooks instance, this wrapper automatically
+ * covers descendants, nested drivers, and resumed execution that reuses the wrapper.
+ *
+ * Existing matching pursuit ids are preserved. A conflicting id fails closed: silently
+ * rewriting attribution would make the meta-observer untrustworthy.
+ */
+export function withPursuitContext(pursuitId: string, hooks: RuntimeHooks): RuntimeHooks {
+  const stableId = pursuitId.trim()
+  if (stableId.length === 0) throw new TypeError('withPursuitContext: pursuitId must be non-empty')
+
+  const assertAndStamp = <T extends RuntimeHookEvent | RuntimeDecisionPoint>(value: T): T => {
+    if (value.pursuitId !== undefined && value.pursuitId !== stableId) {
+      throw new Error(
+        `withPursuitContext: observer identity conflict (${value.pursuitId} !== ${stableId})`,
+      )
+    }
+    if (value.pursuitId === stableId) return value
+    return { ...value, pursuitId: stableId }
+  }
+
+  return {
+    onEvent: hooks.onEvent
+      ? (event, context) => hooks.onEvent?.(assertAndStamp(event), context)
+      : undefined,
+    onDecisionPoint: hooks.onDecisionPoint
+      ? (point, context) => hooks.onDecisionPoint?.(assertAndStamp(point), context)
+      : undefined,
+    onHookError: hooks.onHookError,
+  }
 }
 
 /**

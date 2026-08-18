@@ -7782,6 +7782,12 @@ Idempotency-Key header (e.g. the runId) — safe retries + upsert.
 
 > **id**: `string`
 
+##### pursuitId?
+
+> `optional` **pursuitId?**: `string`
+
+Stable identity for the long-lived objective. One pursuit may contain many runs.
+
 ##### runId
 
 > **runId**: `string`
@@ -7859,6 +7865,12 @@ Idempotency-Key header (e.g. the runId) — safe retries + upsert.
 ##### id
 
 > **id**: `string`
+
+##### pursuitId?
+
+> `optional` **pursuitId?**: `string`
+
+Stable identity for the long-lived objective. One pursuit may contain many runs.
 
 ##### runId
 
@@ -11860,6 +11872,11 @@ The single shell-command-in-worktree runner seam (replaces the per-executor copi
 Runtime hook contracts. Hooks are execution-scoped observers, not part of an
 `AgentProfile`: profiles stay portable agent recipes; hooks attach to the
 loop or product harness that is running the profile.
+
+A `pursuitId` is deliberately orthogonal to `runId`: a pursuit can span many
+resumed/retried/forked runs while every event remains attributable to the
+durable objective that caused it. The observer plane is outside the agent
+environment and must never be required for agent correctness.
 
 ***
 

@@ -12,6 +12,12 @@
  *     persist and pass as both execution and turn identity on dispatch.
  *   - `discoverDurableSupervisionRun`: inspect a durable supervision directory
  *     without already knowing the root/run identities written inside it.
+ *   - `FileObserverJournal`: tamper-evident, append-only third-person history
+ *     for one concrete Runtime execution.
+ *   - `projectPursuit`: a rebuildable operator read model over that history;
+ *     it owns no execution or coordination semantics.
+ *   - `supervisePursuit`: one-call adapter over canonical `supervise()` that
+ *     gives each isolated run a stable cross-run pursuit identity.
  */
 
 export type {
@@ -24,6 +30,29 @@ export type {
 } from './chat-engine'
 export { handleChatTurn } from './chat-engine'
 export { deriveExecutionId } from './execution-handle'
+export {
+  createFileObserverHooks,
+  FileObserverJournal,
+  type ObserverJournal,
+  type ObserverRecord,
+  type ObserverRecordKind,
+  observerRecordDigest,
+  verifyObserverRecords,
+} from './observer-journal'
+export {
+  type PursuitNodeProjection,
+  type PursuitNodeStatus,
+  type PursuitProjection,
+  type PursuitRunProjection,
+  type PursuitRunStatus,
+  projectPursuit,
+} from './observer-projection'
+export {
+  type SupervisedPursuitResult,
+  SupervisePursuitError,
+  type SupervisePursuitOptions,
+  supervisePursuit,
+} from './supervise-pursuit'
 export {
   type DurableCoordinationStreamIdentity,
   type DurableSupervisionDiscovery,

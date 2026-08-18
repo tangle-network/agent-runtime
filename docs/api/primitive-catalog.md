@@ -370,22 +370,30 @@ Import from `@tangle-network/agent-runtime/conversation` — 54 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 11 exports.
+Import from `@tangle-network/agent-runtime/durable` — 28 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
+| `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
+| `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
+| `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
+| `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
+| `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
+| `SupervisePursuitError` | class | A failed Runtime execution whose complete third-person projection was retained. |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
 | `ChatTurnHooks` | interface | Product callbacks invoked while one chat turn runs. |
 | `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
 | `ChatTurnProducer` | interface | The live side of a turn returned by the product's `produce` hook. |
 | `ChatTurnResult` | interface | HTTP response values returned for one chat turn. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
+| `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `PursuitRunProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `ObserverRecordKind`, `PursuitNodeStatus`, `PursuitRunStatus`.
 
 ### Bounded tool calls for browser and edge runtimes
 
