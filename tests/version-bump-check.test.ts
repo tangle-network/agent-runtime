@@ -127,8 +127,8 @@ async function check(root: string, base: string) {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      AGENT_RUNTIME_VERSION_BUMP_ROOT: root,
-      AGENT_RUNTIME_VERSION_BUMP_BASE: base,
+      PACKAGE_VERSION_BUMP_ROOT: root,
+      PACKAGE_VERSION_BUMP_BASE: base,
     },
   })
 }
@@ -251,8 +251,8 @@ describe('consumer-visible change requires a version bump', () => {
         cwd: process.cwd(),
         env: {
           ...process.env,
-          AGENT_RUNTIME_VERSION_BUMP_ROOT: root,
-          AGENT_RUNTIME_VERSION_BUMP_BASE: '',
+          PACKAGE_VERSION_BUMP_ROOT: root,
+          PACKAGE_VERSION_BUMP_BASE: '',
           GITHUB_BASE_REF: '',
           GITHUB_ACTIONS: 'true',
           GITHUB_EVENT_NAME: 'merge_group',
