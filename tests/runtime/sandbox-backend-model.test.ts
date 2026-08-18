@@ -12,12 +12,15 @@ const profile = {
 } as const satisfies AgentProfile
 
 describe('sandbox backend model truth', () => {
-  it('sends the exact profile model instead of permitting an environmental default', () => {
+  it('sends the exact provider/model tuple instead of permitting an environmental default', () => {
     const options = buildBackendOptions(profile, undefined)
 
     expect(options.backend?.type).toBe('opencode')
     expect(options.backend?.profile).toBe(profile)
-    expect(options.backend?.model?.model).toBe('zai-coding-plan/glm-5.2')
+    expect(options.backend?.model).toMatchObject({
+      provider: 'zai-coding-plan',
+      model: 'glm-5.2',
+    })
   })
 
   it('preserves compatible model transport settings while pinning the model identity', () => {
@@ -25,24 +28,40 @@ describe('sandbox backend model truth', () => {
       backend: {
         type: 'opencode',
         model: {
-          model: 'zai-coding-plan/glm-5.2',
+          provider: 'zai-coding-plan',
+          model: 'glm-5.2',
           baseUrl: 'https://router.example.test/v1',
         },
       },
     })
 
     expect(options.backend?.model).toEqual({
-      model: 'zai-coding-plan/glm-5.2',
+      provider: 'zai-coding-plan',
+      model: 'glm-5.2',
       baseUrl: 'https://router.example.test/v1',
     })
   })
 
-  it('refuses a conflicting override before creating a sandbox', () => {
+  it('refuses a conflicting provider override before creating a sandbox', () => {
     expect(() =>
       buildBackendOptions(profile, {
         backend: {
           type: 'opencode',
-          model: { model: 'openai-compat/deepseek/deepseek-v4-flash' },
+          model: { provider: 'openai-compat', model: 'glm-5.2' },
+        },
+      }),
+    ).toThrow(/conflicts with AgentProfile provider/)
+  })
+
+  it('refuses a conflicting model override before creating a sandbox', () => {
+    expect(() =>
+      buildBackendOptions(profile, {
+        backend: {
+          type: 'opencode',
+          model: {
+            provider: 'zai-coding-plan',
+            model: 'deepseek/deepseek-v4-flash',
+          },
         },
       }),
     ).toThrow(/conflicts with AgentProfile model/)
