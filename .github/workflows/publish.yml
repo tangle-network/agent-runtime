@@ -135,7 +135,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-sdk
-          ref: 88955821f32e6ab7d644529ec3724a69e1e91acf # @tangle-network/agent-interface@1.0.0
+          ref: 7864c1803eb299d136682bcc782f4718c7e69bc6 # @tangle-network/agent-interface@1.1.0
           path: .cohort/agent-sdk
           persist-credentials: false
 
