@@ -1105,9 +1105,6 @@ async function drainCursor(scope: Scope<unknown>): Promise<void> {
   }
 }
 
-/** Race root policy execution against the same signal that stops every child. The losing promise
- * remains observed, so a late rejection cannot surface as an unhandled process error. */
-
 /**
  * The lifecycle cause of a no-winner, or `undefined` when the supervisor's own state proves
  * nothing. Returning `undefined` rather than falling through to `all-children-down` is what lets

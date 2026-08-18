@@ -21,6 +21,8 @@ export function abortError(signal: AbortSignal, fallback: string): Error {
 /**
  * Settle `act()` against `signal`. The first outcome wins and the listener is always
  * removed, so neither a late resolution nor a late abort can settle the promise twice.
+ * The losing promise stays observed, so a late rejection cannot surface as an unhandled
+ * process error.
  *
  * The abort rejection is deferred one microtask so a result the action had ALREADY
  * produced still wins. It does not hand the race to a listener the action registers
