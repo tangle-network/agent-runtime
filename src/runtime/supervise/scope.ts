@@ -36,6 +36,7 @@ import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
 import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import { abortError } from './abortable'
 import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
 import {
   armDeadlineTimer,
@@ -1944,7 +1945,7 @@ async function runChild<C>(
     // begin. A failed append or invalid executor declaration produces a typed-down child and
     // refunds its reservation; the executor observes zero calls.
     await executionReady
-    if (childAbort.signal.aborted) throw abortError(childAbort.signal)
+    if (childAbort.signal.aborted) throw abortError(childAbort.signal, 'execution aborted')
     // A budgetExempt WORKER (e.g. the raw `cli` printer) reports zero spend by contract; its
     // reconcile refunds the whole reservation, keeping it out of the conserved Σk by construction.
     // Only the DRIVER path refuses budget-exempt runtimes (`driveHarnessFromBackend`), because a
@@ -2343,7 +2344,7 @@ async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise
     // returning the already-winning cancellation so a fast abort cannot become an unhandled
     // provider rejection.
     void work.catch(() => undefined)
-    throw abortError(signal)
+    throw abortError(signal, 'execution aborted')
   }
   return await new Promise<T>((resolve, reject) => {
     let settled = false
@@ -2355,7 +2356,7 @@ async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise
         if (settled) return
         settled = true
         cleanup()
-        reject(abortError(signal))
+        reject(abortError(signal, 'execution aborted'))
       })
     }
     const cleanup = () => signal.removeEventListener('abort', onAbort)
@@ -2375,15 +2376,6 @@ async function awaitAbortable<T>(work: Promise<T>, signal: AbortSignal): Promise
       },
     )
   })
-}
-
-function abortError(signal: AbortSignal): Error {
-  const reason = signal.reason
-  const error = new Error(
-    typeof reason === 'string' && reason.length > 0 ? reason : 'execution aborted',
-  )
-  error.name = 'AbortError'
-  return error
 }
 
 function downRecord(
