@@ -24662,7 +24662,9 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
 the event carries usage/cost data. Returns `undefined` for non-cost events
-so the kernel can iterate the full stream without branching.
+so the kernel can iterate the full stream without branching. A top-level
+Sandbox failure throws before extraction so every caller shares one terminal
+truth boundary instead of inventing empty-output heuristics.
 
 Canonical cost-carrying types observed in the wild:
   - `llm_call` — `data: { model, tokensIn, tokensOut, costUsd, ... }`
