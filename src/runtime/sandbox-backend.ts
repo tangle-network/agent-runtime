@@ -74,7 +74,10 @@ function resolveBackendType(
 
 /**
  * Build `CreateSandboxOptions` for `profile`, merging `overrides` and setting
- * `backend.profile`. `model`/`server` from an override backend pass through.
+ * `backend.profile`. The exact profile model always rides the create request;
+ * an omitted model would let the sandbox silently select an environmental
+ * default while Runtime recorded the profile model as the executed instrument.
+ * Other model/server override fields pass through after exact-model validation.
  */
 export function buildBackendOptions(
   profile: AgentProfile,
@@ -95,6 +98,10 @@ export function buildBackendOptions(
     backend: {
       type: resolveBackendType(profile, overrideBackend),
       profile,
+      model: {
+        ...overrideBackend?.model,
+        model: profileModel,
+      },
       ...(overrideBackend?.server ? { server: overrideBackend.server } : {}),
     },
   }
