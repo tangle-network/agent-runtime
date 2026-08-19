@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.142.2
+
+### Sandbox moves to 0.30.0
+
+The Sandbox peer range becomes `>=0.30.0 <0.31.0`.
+The development catalog uses the same range and resolves Sandbox 0.30.0.
+Bench moves to 0.8.17 with the same dependency cohort.
+
 ## 0.142.1
 
 ### Retained turns no longer change environment creation identity
