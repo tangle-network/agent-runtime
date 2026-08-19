@@ -18,6 +18,8 @@ import {
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
 } from './lib/packed-package-test.mjs'
 
 const gepaVersion = '0.1.4'
@@ -85,7 +87,13 @@ try {
     '@tangle-network/agent-interface',
     '@tangle-network/sandbox',
   ]) {
-    assertPeerMatchesDevelopmentDependency(packedPackageJson, name)
+    assertPeerMatchesDevelopmentDependency(
+      packedPackageJson,
+      name,
+      name === '@tangle-network/sandbox'
+        ? { expectedRange: sandboxPeerRange, admittedVersions: sandboxCompatibilityVersions }
+        : undefined,
+    )
   }
   const packedAgentEvalVersion = requiredPackedDevelopmentDependency(
     packedPackageJson,
@@ -323,6 +331,16 @@ function assertCohortRange(packageName, installedVersion) {
     `${packageName} peer dependency range`,
   )
   assertCatalogAdmits(packageName, installedVersion)
+  if (packageName === '@tangle-network/sandbox') {
+    for (const version of sandboxCompatibilityVersions) {
+      assertCatalogAdmits(packageName, version)
+      if (!rangeAdmits(packageJson.peerDependencies?.[packageName], version)) {
+        throw new Error(
+          `${packageJson.name} peer dependency range does not admit ${packageName}@${version}`,
+        )
+      }
+    }
+  }
 }
 
 function assertCatalogAdmits(packageName, installedVersion) {

@@ -25,6 +25,8 @@ import {
   createStrictNodeConsumerTsconfig,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
 } from './lib/packed-package-test.mjs'
 
 const PACKAGES = {
@@ -323,7 +325,24 @@ function findPnpmWorkspaceRoot(startDirectory, sourceRoot) {
 }
 
 function verifyConsumer(artifacts) {
-  const appDir = join(tempRoot, 'consumer')
+  const consumers = sandboxCompatibilityVersions.map((sandboxVersion) =>
+    verifyConsumerForSandbox(artifacts, sandboxVersion),
+  )
+  return {
+    install: 'pnpm install --frozen-lockfile',
+    packageCount: artifacts.length,
+    sandboxVersions: consumers.map(({ sandboxVersion }) => sandboxVersion),
+    exactArchiveResolution: consumers.every(({ exactArchiveResolution }) => exactArchiveResolution),
+    publicImportCount: consumers.reduce(
+      (total, { publicImportCount }) => total + publicImportCount,
+      0,
+    ),
+    proposals: consumers.map(({ sandboxVersion, proposal }) => ({ sandboxVersion, proposal })),
+  }
+}
+
+function verifyConsumerForSandbox(artifacts, sandboxVersion) {
+  const appDir = join(tempRoot, `consumer-sandbox-${sandboxVersion.replaceAll('.', '-')}`)
   mkdirSync(appDir, { recursive: true })
   const byName = new Map(artifacts.map((artifact) => [artifact.name, artifact]))
   const runtime = byName.get('@tangle-network/agent-runtime')
@@ -334,7 +353,7 @@ function verifyConsumer(artifacts) {
   )
   const runtimePeers = Object.fromEntries(
     Object.entries(runtime.packageJson.peerDependencies ?? {}).filter(
-      ([name]) => !byName.has(name),
+      ([name]) => !byName.has(name) && name !== '@tangle-network/sandbox',
     ),
   )
   const typescriptVersion = requiredPackedDevelopmentDependency(
@@ -356,6 +375,7 @@ function verifyConsumer(artifacts) {
         dependencies: {
           ...fileSpecs,
           ...runtimePeers,
+          '@tangle-network/sandbox': sandboxVersion,
         },
         devDependencies: {
           '@types/node': nodeTypesVersion,
@@ -437,6 +457,18 @@ function verifyConsumer(artifacts) {
     }
   }
 
+  const installedSandbox = JSON.parse(
+    readFileSync(
+      join(appDir, 'node_modules', '@tangle-network', 'sandbox', 'package.json'),
+      'utf8',
+    ),
+  )
+  if (installedSandbox.version !== sandboxVersion) {
+    throw new Error(
+      `consumer resolved @tangle-network/sandbox@${installedSandbox.version}, expected ${sandboxVersion}`,
+    )
+  }
+
   const publicImportCount = verifyPublicImports(appDir, artifacts)
   captured(
     'corepack',
@@ -454,6 +486,7 @@ function verifyConsumer(artifacts) {
   }
   const proposal = JSON.parse(proposalReport.slice('PACKED_COHORT_PROPOSAL='.length))
   return {
+    sandboxVersion,
     install: 'pnpm install --frozen-lockfile',
     packageCount: artifacts.length,
     publicImportCount,
@@ -597,6 +630,7 @@ function assertCohortPackageContracts({
   assertPeerMatchesDevelopmentDependency(
     agentRuntime.packageJson,
     '@tangle-network/sandbox',
+    { expectedRange: sandboxPeerRange, admittedVersions: sandboxCompatibilityVersions },
   )
 }
 

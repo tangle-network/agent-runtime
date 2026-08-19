@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.142.3
+
+### Sandbox 0.29 and 0.30 compatibility
+
+The Sandbox peer range becomes `>=0.29.0 <0.31.0` because Sandbox 0.30 is additive.
+The development catalog keeps Sandbox 0.30.0 while strict packed installs cover 0.29.0 and 0.30.0.
+Bench moves to 0.8.18 with the same dependency cohort.
+
 ## 0.142.2
 
 ### Sandbox moves to 0.30.0
