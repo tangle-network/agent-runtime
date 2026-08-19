@@ -15,7 +15,7 @@ describe('isExactVersionSpec', () => {
 
   it('reads every range shape as not exact', () => {
     expect(isExactVersionSpec('^1.0.0')).toBe(false)
-    expect(isExactVersionSpec('>=0.27.1 <0.28.0')).toBe(false)
+    expect(isExactVersionSpec('>=0.29.0 <0.30.0')).toBe(false)
     expect(isExactVersionSpec('~1.0.0')).toBe(false)
     expect(isExactVersionSpec('catalog:')).toBe(false)
     expect(isExactVersionSpec('workspace:^')).toBe(false)
@@ -25,12 +25,12 @@ describe('isExactVersionSpec', () => {
 describe('cohortRange', () => {
   it('returns a range unchanged', () => {
     expect(cohortRange('^1.0.0')).toBe('^1.0.0')
-    expect(cohortRange('>=0.27.1 <0.28.0')).toBe('>=0.27.1 <0.28.0')
+    expect(cohortRange('>=0.29.0 <0.30.0')).toBe('>=0.29.0 <0.30.0')
   })
 
   it('derives the range an exact version earns', () => {
     expect(cohortRange('1.2.3')).toBe('^1.2.3')
-    expect(cohortRange('0.27.1')).toBe('>=0.27.1 <0.28.0')
+    expect(cohortRange('0.29.0')).toBe('>=0.29.0 <0.30.0')
   })
 })
 
@@ -47,6 +47,13 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.145.21 <0.146.0', '0.146.0')).toBe(false)
   })
 
+  it('admits the published Eval and Sandbox cohorts', () => {
+    expect(rangeAdmits('>=0.149.0 <0.150.0', '0.149.0')).toBe(true)
+    expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
+    expect(rangeAdmits('>=0.29.0 <0.30.0', '0.29.0')).toBe(true)
+    expect(rangeAdmits('>=0.29.0 <0.30.0', '0.30.0')).toBe(false)
+  })
+
   it('refuses an exact specifier, which states no range', () => {
     expect(rangeAdmits('0.145.21', '0.145.21')).toBe(false)
   })
@@ -59,10 +66,10 @@ describe('assertFirstPartyRangeSpecs', () => {
         name: '@tangle-network/agent-bench',
         dependencies: {
           '@tangle-network/agent-interface': '^1.0.0',
-          '@tangle-network/agent-eval': '>=0.145.21 <0.146.0',
+          '@tangle-network/agent-eval': '>=0.149.0 <0.150.0',
           'tar-stream': '3.2.0',
         },
-        peerDependencies: { '@tangle-network/sandbox': '>=0.27.1 <0.28.0' },
+        peerDependencies: { '@tangle-network/sandbox': '>=0.29.0 <0.30.0' },
       }),
     ).not.toThrow()
   })
@@ -76,7 +83,7 @@ describe('assertFirstPartyRangeSpecs', () => {
           '@tangle-network/agent-interface': '1.0.0',
           '@tangle-network/agent-runtime': '0.137.0',
         },
-        peerDependencies: { '@tangle-network/sandbox': '^0.27.1' },
+        peerDependencies: { '@tangle-network/sandbox': '^0.29.0' },
       })
     } catch (error) {
       message = error instanceof Error ? error.message : String(error)

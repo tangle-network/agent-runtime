@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.16
+
+- Align the Bench package with Runtime 0.142.0, Eval 0.149.0, Knowledge 8.0.10, and Sandbox 0.29.0.
+
 ## 0.8.12
 
 ### Changed
