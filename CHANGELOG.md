@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.142.0
+
+### Eval moves to 0.149.0, Sandbox moves to 0.29.0, and Knowledge moves to 8.0.10
+
+The Eval peer range becomes `>=0.149.0 <0.150.0`, and the catalog requires Eval `0.149.0`.
+The Sandbox peer range becomes `>=0.29.0 <0.30.0`, and the catalog requires Sandbox `0.29.0`.
+Knowledge moves to `8.0.10`, whose Eval peer range admits Eval `0.149.0`.
+Bench moves to `0.8.16` with the same dependency cohort.
+
 ## 0.141.1
 
 ### Eval moves to 0.148.0, so the peer window moves with it
