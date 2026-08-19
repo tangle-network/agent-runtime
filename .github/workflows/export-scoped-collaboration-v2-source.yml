@@ -1,0 +1,27 @@
+name: Export scoped collaboration v2 source
+
+on:
+  push:
+    branches: [tooling/export-scoped-collaboration-v2]
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/scoped-collaboration-v2
+          fetch-depth: 0
+
+      - name: Create source archive
+        run: tar --exclude=.git -czf /tmp/agent-runtime-scoped-collaboration-v2.tar.gz .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-runtime-scoped-collaboration-v2-source
+          path: /tmp/agent-runtime-scoped-collaboration-v2.tar.gz
+          if-no-files-found: error
+          retention-days: 1
