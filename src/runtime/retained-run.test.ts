@@ -324,9 +324,8 @@ describe('retained runtime run control', () => {
     })
     expect(recovered.outcome).toBe('recovered')
     expect(creates).toBe(1)
-    expect(created?.metadata).toMatchObject({
-      retainedIntentDigest: intent.requestDigest,
-      retainedRunId: intent.runId,
+    expect(created?.metadata).toEqual({
+      retainedIdempotencyKey: environment.idempotencyKey,
     })
     expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
     expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })
@@ -734,16 +733,12 @@ describe('retained runtime run control', () => {
       sessionId: controlRef.sessionId,
       executionId: controlRef.executionId,
     })
-    // Caller metadata is merged, never clobbered, with the recovery coordinates.
+    // Caller metadata is preserved, while the Runtime ownership marker is canonical.
     const intent = recorder.admissions[0]
     if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
-    expect(created?.metadata).toMatchObject({
+    expect(created?.metadata).toEqual({
       tenant: 'acme',
       retainedIdempotencyKey: controlRef.environmentId,
-      retainedIntentDigest: intent.requestDigest,
-      retainedRunId: intent.runId,
-      sessionId: controlRef.sessionId,
-      executionId: controlRef.executionId,
     })
     expect(recorder.admissions).toMatchObject([
       {
@@ -2097,6 +2092,99 @@ describe('retained runtime run control', () => {
     await expect(collectRetainedEvents(run.events())).rejects.toThrow('another retained run')
   })
 
+  it('keeps environment creation stable while retained dispatch identity changes', async () => {
+    const createInputs: CreateAgentEnvironmentInput[] = []
+    const dispatches: AgentTurnInput[] = []
+    let currentSession: AgentSession | undefined
+    const provider = providerWithEnvironment({
+      id: 'environment-stable',
+      async dispatch(input) {
+        if (input.sessionId === undefined || input.executionId === undefined) {
+          throw new Error('retained dispatch identity is missing')
+        }
+        dispatches.push(input)
+        const controlRef = {
+          runId: `run-${input.turnId}`,
+          provider: 'test-provider',
+          environmentId: 'environment-stable',
+          sessionId: input.sessionId,
+          executionId: input.executionId,
+          requestDigest: retainedRequestDigest,
+        }
+        currentSession = {
+          id: input.sessionId,
+          controlRef,
+          status: async () => 'running',
+          async *events() {
+            yield* []
+          },
+          result: async () => ({
+            text: input.prompt ?? '',
+            success: true,
+            sessionId: input.sessionId,
+          }),
+          prompt: async () => ({ text: 'continued', success: true }),
+          cancel: async () => {},
+        }
+        return { id: input.sessionId, provider: 'test-provider', controlRef }
+      },
+      session() {
+        if (currentSession === undefined) throw new Error('retained session is missing')
+        return currentSession
+      },
+    })
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      createInputs.push(input)
+      return originalCreate(input)
+    }
+    const environment = {
+      profile: { name: 'worker' },
+      idempotencyKey: 'environment-stable',
+      metadata: { tenant: 'acme', retainedIdempotencyKey: 'caller-value' },
+    }
+
+    const first = await startRetainedRun({
+      provider,
+      environment,
+      turn: { prompt: 'first turn', turnId: 'turn-first' },
+      onAdmission: async () => {},
+    })
+    const second = await startRetainedRun({
+      provider,
+      environment,
+      turn: { prompt: 'second turn', turnId: 'turn-second' },
+      onAdmission: async () => {},
+    })
+
+    expect(createInputs).toHaveLength(2)
+    expect(createInputs[1]).toEqual(createInputs[0])
+    expect(createInputs[0]?.metadata).toEqual({
+      tenant: 'acme',
+      retainedIdempotencyKey: 'environment-stable',
+    })
+    expect(
+      dispatches.map(({ turnId, sessionId, executionId }) => ({
+        turnId,
+        sessionId,
+        executionId,
+      })),
+    ).toEqual([
+      {
+        turnId: 'turn-first',
+        sessionId: mintRetainedIdentity('environment-stable', 'turn-first').sessionId,
+        executionId: mintRetainedIdentity('environment-stable', 'turn-first').executionId,
+      },
+      {
+        turnId: 'turn-second',
+        sessionId: mintRetainedIdentity('environment-stable', 'turn-second').sessionId,
+        executionId: mintRetainedIdentity('environment-stable', 'turn-second').executionId,
+      },
+    ])
+    expect(first.controlRef.sessionId).not.toBe(second.controlRef.sessionId)
+    expect(first.controlRef.executionId).not.toBe(second.controlRef.executionId)
+  })
+
   it('rejects a start with no admission hook before any provider call', async () => {
     let creates = 0
     const provider = providerWithEnvironment({})
@@ -2481,7 +2569,9 @@ describe('retained runtime run control', () => {
     })
 
     expect(dispatched).toMatchObject(minted)
-    expect(created?.metadata).toMatchObject(minted)
+    expect(created?.metadata).toEqual({
+      retainedIdempotencyKey: 'mint-environment',
+    })
     expect(recorder.admissions[1]).toMatchObject({ phase: 'environment', ...minted })
     expect(recorder.admissions[2]).toMatchObject({
       phase: 'dispatched',

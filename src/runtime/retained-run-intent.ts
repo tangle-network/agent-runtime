@@ -43,6 +43,17 @@ export function retainedCreateMaterial(
   }
 }
 
+/** Add the retained ownership marker without attaching turn identity. */
+export function retainedEnvironmentMetadata(
+  metadata: Record<string, unknown> | undefined,
+  idempotencyKey: string,
+): Record<string, unknown> {
+  return {
+    ...metadata,
+    retainedIdempotencyKey: idempotencyKey,
+  }
+}
+
 function publicWorkspaceMaterial(
   workspace: NonNullable<CreateAgentEnvironmentInput['workspace']>,
 ): Record<string, unknown> {
