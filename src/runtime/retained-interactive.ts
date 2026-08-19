@@ -35,7 +35,7 @@ import type {
   StartRetainedInteractiveRunOptions,
 } from './retained-interactive-types'
 import { assertStableText, awaitAbortable } from './retained-run-binding'
-import { retainedCreateMaterial } from './retained-run-intent'
+import { retainedCreateMaterial, retainedEnvironmentMetadata } from './retained-run-intent'
 import { admitDurably, mintRetainedIdentity } from './retained-run-start'
 import type {
   RetainedInteractiveEnvironmentAdmission,
@@ -92,16 +92,10 @@ export async function startRetainedInteractiveRun(
         ...options.environment,
         profile,
         signal: options.signal,
-        metadata: {
-          ...options.environment.metadata,
-          retainedIdempotencyKey: options.environment.idempotencyKey,
-          interactiveIdempotencyKey: options.interactiveIdempotencyKey,
-          requestedProfileDigest,
-          interactiveIntentDigest: intent.requestDigest,
-          interactiveRunId: intent.runId,
-          sessionId: identity.sessionId,
-          executionId: identity.executionId,
-        },
+        metadata: retainedEnvironmentMetadata(
+          options.environment.metadata,
+          options.environment.idempotencyKey,
+        ),
       }),
     options.signal,
   )

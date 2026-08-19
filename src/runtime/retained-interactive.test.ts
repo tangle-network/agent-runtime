@@ -18,6 +18,7 @@ import type {
   AgentEnvironment,
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
+  CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import { RetainedInteractiveAdmissionError, RetainedInteractiveBindingError } from '../errors'
@@ -95,6 +96,42 @@ describe('retained interactive runs', () => {
     expect(terminal.control).toEqual(control)
     const stopAcknowledgement = await handle.stop(stopCommand(handle.ref, control))
     expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
+  })
+
+  it('keeps environment creation stable while native process identity stays distinct', async () => {
+    const firstFixture = interactiveProvider()
+    const secondFixture = interactiveProvider()
+    const environment = {
+      profile,
+      idempotencyKey: 'workspace-stable',
+      metadata: { tenant: 'acme', retainedIdempotencyKey: 'caller-value' },
+    }
+
+    const first = await startRetainedInteractiveRun({
+      provider: firstFixture.provider,
+      environment,
+      interactiveIdempotencyKey: 'native-first',
+      initialPrompt: 'First prompt.',
+      onAdmission: async () => {},
+    })
+    const second = await startRetainedInteractiveRun({
+      provider: secondFixture.provider,
+      environment,
+      interactiveIdempotencyKey: 'native-second',
+      initialPrompt: 'Second prompt.',
+      onAdmission: async () => {},
+    })
+
+    expect(firstFixture.createInputs).toHaveLength(1)
+    expect(secondFixture.createInputs).toHaveLength(1)
+    expect(secondFixture.createInputs[0]).toEqual(firstFixture.createInputs[0])
+    expect(firstFixture.createInputs[0]?.metadata).toEqual({
+      tenant: 'acme',
+      retainedIdempotencyKey: 'workspace-stable',
+    })
+    expect(first.ref.run.sessionId).not.toBe(second.ref.run.sessionId)
+    expect(first.ref.run.executionId).not.toBe(second.ref.run.executionId)
+    expect(first.ref.run.requestDigest).not.toBe(second.ref.run.requestDigest)
   })
 
   it('replays a persisted intent after a crash before environment create', async () => {
@@ -698,6 +735,7 @@ async function start(provider: AgentEnvironmentProvider, signal?: AbortSignal) {
 interface ProviderFixture {
   readonly provider: AgentEnvironmentProvider
   readonly prompts: string[]
+  readonly createInputs: CreateAgentEnvironmentInput[]
   readonly createCalls: number
   readonly environmentCreations: number
   readonly dispatchCalls: number
@@ -733,6 +771,7 @@ function interactiveProvider(
 ): ProviderFixture {
   const fixture = {
     prompts: [] as string[],
+    createInputs: [] as CreateAgentEnvironmentInput[],
     createCalls: 0,
     environmentCreations: 0,
     dispatchCalls: 0,
@@ -933,6 +972,7 @@ function interactiveProvider(
         return neverPending()
       }
       fixture.createCalls += 1
+      fixture.createInputs.push(input)
       if (input.idempotencyKey !== undefined && !environmentKeys.has(input.idempotencyKey)) {
         environmentKeys.add(input.idempotencyKey)
         fixture.environmentCreations += 1
@@ -948,7 +988,7 @@ function interactiveProvider(
     },
   }
   return Object.defineProperties(
-    { provider, prompts: fixture.prompts },
+    { provider, prompts: fixture.prompts, createInputs: fixture.createInputs },
     {
       createCalls: { get: () => fixture.createCalls },
       environmentCreations: { get: () => fixture.environmentCreations },

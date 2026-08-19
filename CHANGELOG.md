@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.142.1
+
+### Retained turns no longer change environment creation identity
+
+Headless and interactive retained runs now add only `retainedIdempotencyKey` to provider environment metadata.
+Turn, session, execution, profile, and request identity remain in the durable admission records and dispatch requests that own them.
+Providers can therefore reuse one environment across later turns without treating each turn as a conflicting create request.
+
 ## 0.142.0
 
 ### Eval moves to 0.149.0, Sandbox moves to 0.29.0, and Knowledge moves to 8.0.10

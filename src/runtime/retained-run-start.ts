@@ -23,7 +23,11 @@ import {
   freezeControlRef,
 } from './retained-run-binding'
 import { createRetainedRunHandle } from './retained-run-handle'
-import { retainedCreateMaterial, retainedTurnMaterial } from './retained-run-intent'
+import {
+  retainedCreateMaterial,
+  retainedEnvironmentMetadata,
+  retainedTurnMaterial,
+} from './retained-run-intent'
 import type {
   ReconnectRetainedRunOptions,
   RecoverRetainedRunIntentOptions,
@@ -103,19 +107,12 @@ export async function startRetainedRun(
     options.turn.interactions,
     providerCapabilities,
   )
-  // Runtime-owned keys in metadata give operators provider-side visibility
-  // into which retained coordinates created this environment. Caller metadata
-  // is preserved; the runtime keys overwrite same-named caller keys.
   const environment = await options.provider.create({
     ...options.environment,
-    metadata: {
-      ...options.environment.metadata,
-      retainedIdempotencyKey: options.environment.idempotencyKey,
-      retainedIntentDigest: intent.requestDigest,
-      retainedRunId: intent.runId,
-      sessionId: identity.sessionId,
-      executionId: identity.executionId,
-    },
+    metadata: retainedEnvironmentMetadata(
+      options.environment.metadata,
+      options.environment.idempotencyKey,
+    ),
   })
   let capabilities: AgentEnvironmentCapabilities
   try {
