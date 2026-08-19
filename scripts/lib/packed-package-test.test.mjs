@@ -50,8 +50,8 @@ describe('rangeAdmits', () => {
   it('admits the published Eval and Sandbox cohorts', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.149.0')).toBe(true)
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
-    expect(rangeAdmits('>=0.29.0 <0.30.0', '0.29.0')).toBe(true)
-    expect(rangeAdmits('>=0.29.0 <0.30.0', '0.30.0')).toBe(false)
+    expect(rangeAdmits('>=0.30.0 <0.31.0', '0.30.0')).toBe(true)
+    expect(rangeAdmits('>=0.30.0 <0.31.0', '0.31.0')).toBe(false)
   })
 
   it('refuses an exact specifier, which states no range', () => {
@@ -69,7 +69,7 @@ describe('assertFirstPartyRangeSpecs', () => {
           '@tangle-network/agent-eval': '>=0.149.0 <0.150.0',
           'tar-stream': '3.2.0',
         },
-        peerDependencies: { '@tangle-network/sandbox': '>=0.29.0 <0.30.0' },
+        peerDependencies: { '@tangle-network/sandbox': '>=0.30.0 <0.31.0' },
       }),
     ).not.toThrow()
   })

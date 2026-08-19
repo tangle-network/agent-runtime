@@ -162,7 +162,7 @@ export interface SandboxServedBackend {
  * Read the served execution identity off one Sandbox event.
  *
  * The platform reports `effectiveBackend` on `execution.started` and again on the terminal
- * event (`@tangle-network/sandbox` 0.29.0, `EffectiveBackend`). Absence returns `undefined`
+ * event (`@tangle-network/sandbox`, `EffectiveBackend`). Absence returns `undefined`
  * and must stay unknown — a request is not a receipt, so nothing here may be inferred from
  * what was asked for.
  */
