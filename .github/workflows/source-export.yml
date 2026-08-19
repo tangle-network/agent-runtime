@@ -1,8 +1,8 @@
 name: Source export
 
 on:
-  push:
-    branches: [tooling/source-export-20260819]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
