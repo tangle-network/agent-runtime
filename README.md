@@ -1,20 +1,35 @@
 # @tangle-network/agent-runtime
 
-A TypeScript runtime for chat agents, one-shot tasks, and agent teams.
-It records each run so you can measure changes against real pass/fail checks and improve the agent without changing your product integration.
+The execution substrate for exact, measurable agent runs.
 
-Domain behavior (models, tools, knowledge) plugs in as adapters; the scoring statistics and the ship decision come from [`@tangle-network/agent-eval`](https://www.npmjs.com/package/@tangle-network/agent-eval); sandboxed execution from [`@tangle-network/sandbox`](https://www.npmjs.com/package/@tangle-network/sandbox).
+Runtime turns an `AgentProfile` into a real execution, coordinates one or many agents under conserved budgets, records what actually happened, and keeps candidate promotion separate from live activation. It does not own benchmark claims or a research archive.
 
 ```bash
 pnpm add @tangle-network/agent-runtime @tangle-network/agent-eval @tangle-network/sandbox
 ```
 
-New here? Read [`docs/concepts.md`](./docs/concepts.md) for the mental model in plain terms, then pick a front door below.
+## What belongs here
 
-## Quickstart (offline, no API keys)
+- **Exact execution** — one declared harness, provider, model, tool surface, and profile must be the execution that actually runs.
+- **Agent control** — turns, tool loops, retries, supervision trees, graph traversals, steering, cancellation, and durable resume.
+- **Truthful accounting** — outputs, failures, tokens, dollars, timing, traces, materialization receipts, and provider identity remain observed facts; unknown never becomes zero or success.
+- **Independent completion checks** — a worker is delivered because a check passed, not because the worker said it finished.
+- **A narrow improvement boundary** — Runtime can hand a frozen profile surface to a complete optimization method, then independently re-measure the selected candidate on a final-test partition. Search and activation remain detached.
 
-One agent attempt, run by a loop you control.
-This is [`examples/quickstart/minimal.ts`](./examples/quickstart/minimal.ts) in full: it compiles and runs as pasted, with no credentials.
+`@tangle-network/agent-eval` owns scoring, statistical comparison, analyst contracts, and optimization-method interfaces. `@tangle-network/sandbox` owns isolated execution. These packages release independently; compatibility is proven through packed-consumer tests rather than by pretending they are one package.
+
+## What does not belong here
+
+- paid benchmark campaigns, result archives, or claims that a method improves a real benchmark;
+- benchmark-specific proxy rewards presented as task success;
+- successive generations of research scripts or one-off experiment dashboards;
+- a second optimizer, evaluator, agent loop, or sandbox implementation hidden in an example.
+
+Runtime keeps compact integration fixtures. Research questions and preregistrations belong in Discovery; reproducibility campaigns and long-horizon value evidence belong in Discovery Lab.
+
+## Quickstart: one exact offline run
+
+This is [`examples/quickstart/minimal.ts`](./examples/quickstart/minimal.ts). It runs without credentials.
 
 ```ts
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -31,7 +46,6 @@ const profile = {
   model: { provider: 'scripted', default: 'scripted/note-writer' },
 } satisfies AgentProfile
 
-// A scripted worker. Swap in a sandbox, CLI-harness, or router backend later.
 const worker = inProcessSandboxClient({
   onPrompt: (): SandboxEvent[] => [
     { type: 'result', data: { result: { note: 'Shipped one-click restore.' } } },
@@ -41,12 +55,10 @@ const worker = inProcessSandboxClient({
 const result = await runAgentRounds({
   task: 'Write a one-line release note for one-click restore.',
   driver: {
-    // plan returns the tasks to run this iteration; [] means no more work.
     plan: async (task, history) => (history.length === 0 ? [task] : []),
-    // 'done' is one of the four kernel keywords in TERMINAL_DECISIONS.
     decide: (): TerminalDecision => 'done',
   },
-  agentRun: { profile, taskToPrompt: (t) => t },
+  agentRun: { profile, taskToPrompt: (task) => task },
   output: { parse: (events) => events },
   ctx: { sandboxClient: worker },
 })
@@ -54,80 +66,82 @@ const result = await runAgentRounds({
 console.log(`decision: ${result.decision} — ${result.iterations.length} iteration(s)`)
 ```
 
-Run it from a clone of this repo and you get exactly this:
-
 ```bash
-$ pnpm i && pnpm build
-$ pnpm tsx examples/quickstart/minimal.ts
-decision: done — 1 iteration(s)
+pnpm i && pnpm build
+pnpm tsx examples/quickstart/minimal.ts
 ```
 
-[`examples/quickstart`](./examples/quickstart) grows the same call into a loop that reads each output and writes the next prompt from it.
+## The core vocabulary
 
-Five words appear everywhere:
-
-| Word | What it means |
+| Word | Meaning |
 |---|---|
-| **worker** | An agent that produces an answer. Here it is a `SandboxClient`. |
-| **driver** | Your code. It runs a worker, reads the output, and writes the next prompt. |
-| **decision** | What `decide` returns. The four keywords in `TERMINAL_DECISIONS` (`stop`, `pick-winner`, `fail`, `done`) end the loop; every other value is your own vocabulary and continues it. |
-| **verdict** | What a validator returns: valid or not, with a score. |
-| **harness** | What drives an agent. `cli-base` is the router-backed mode with no coding agent behind it; `claude-code`, `codex`, and `opencode` each run a real coding CLI. |
+| **profile** | The complete behavioral declaration: harness, provider/model, prompt, tools, MCP, permissions, resources, hooks, and subagents. |
+| **worker** | An agent that performs one assigned unit of work. |
+| **driver / supervisor** | An agent or deterministic policy that observes work and decides what happens next. |
+| **verdict** | An independently produced validity/score record. |
+| **harness** | What drives the profile. `cli-base` is direct model execution; `claude-code`, `codex`, `opencode`, and `prime` run agent harnesses. The complete vocabulary is `HarnessType` in `@tangle-network/agent-interface`. |
+| **delivery** | A settled result that passed the caller's completion check. Settlement alone is not delivery. |
 
-## Which front door
+## Choose a front door
 
-One row per entry point, ordered by how often real products use it.
-Each row links to a runnable example.
+| Front door | Use it for | Runnable example |
+|---|---|---|
+| `runAgentTaskStream` | one agent turn and a normalized event stream | [`stream-a-turn`](./examples/stream-a-turn) |
+| `handleChatTurn` | one streamed HTTP chat turn plus persistence | [`chat-handler`](./examples/chat-handler) |
+| `runToolLoop` | a model calling tools until it answers or stops | [`tool-loop`](./examples/tool-loop) |
+| `startRuntimeRun` | one durable run record and cost ledger | [`runtime-run`](./examples/runtime-run) |
+| `runAgentRounds` | caller-authored plan/decide loops | [`quickstart`](./examples/quickstart) |
+| `supervise` | a manager agent driving workers under one budget | [`supervise`](./examples/supervise) |
+| `runGraph` | a fixed topology expressed as data | [`graphs`](./examples/graphs) |
+| `startRetainedRun` | work that must outlive the initiating process | [`retained-run`](./examples/retained-run) |
+| `improve` | a detached candidate plus an independent final-test comparison | [`improve`](./examples/improve) |
 
-| Front door | When to call it | What you give it | What you get back |
-|---|---|---|---|
-| **`runAgentTaskStream`** · [example](./examples/stream-a-turn) | You run one agent turn and read its events yourself. | a task, a backend, a message | an async stream of `RuntimeStreamEvent` |
-| **`handleChatTurn`** (`/durable`) · [example](./examples/chat-handler) | A web route must stream one turn to a browser and save the reply. | how to produce tokens, how to persist | an HTTP body plus a persist call after the last token |
-| **`AgentExecutionBackend`** · [example](./examples/stream-backends) | You choose where the tokens come from: your loop, a sandbox, or an exact profile. | `kind` plus a `stream()` generator | the same event union from any source |
-| **`runToolLoop`** (`/tool-loop`) · [example](./examples/tool-loop) | The model must call your tools and answer in the same turn. | one model turn, your executors | final text, every tool outcome, a stop reason |
-| **`startRuntimeRun`** · [example](./examples/runtime-run) | You must record what a run cost and whether it succeeded. | run identity, a store adapter | a live cost tally and one persisted row |
-| **`runAgentRounds`** (`/kernel`) · [example](./examples/quickstart) | One prompt is not enough, and your code owns the stop rule. | `plan`, `decide`, an output adapter, a sandbox client | every attempt, the verdicts, and a winner |
-| **`supervise`** (`/kernel`) · [example](./examples/supervise) | A model must decide the plan and drive other agents. | a supervisor profile, a goal, a budget | the delivered result, or a typed reason and the spend |
-| **`startRetainedRun`** (`/kernel`) · [example](./examples/retained-run) | The job must outlive the process that started it. | a provider, keys, a durable admission hook | a claim ticket any process can reattach to |
-| **`improve`** · [example](./examples/improve) | You must change one part of an agent and prove the gain. | a profile field, three case sets, a judge | a detached candidate, a lift interval, ship or hold |
+Five mechanisms continue interrupted work; choose by what died:
 
-Five mechanisms continue interrupted work.
-Pick by what died.
+- HTTP connection: reconnect with the same execution identity.
+- Same live box, next turn: continue the sandbox session.
+- Coordinator process: `supervise({ runDir })`.
+- User conversation: the `/conversation` store adapters.
+- Initiating process: a retained run owned by the provider.
 
-- The HTTP connection — call `streamPrompt` again with the same `executionId`.
-- Nothing, but you want the same box for the next turn — `openSandboxRun`.
-- The coordinator process, mid-orchestration — `supervise({ runDir })`.
-- The user's chat session — the `/conversation` store adapters.
-- Everything except the provider — [retained runs](./examples/retained-run).
+## Truthfulness before value
 
-## Also in the box
+Runtime's release gates prove that the declared profile reaches the selected backend, provider identity is read back when available, in-band failures cannot settle as empty success, budgets reconcile, resume identity is stable, and packed consumers can install the supported package cohort.
 
-- **Benchmarks and leaderboards** — compare strategies with significance stats (`runBenchmark`), or stand up a harness×model board (`defineLeaderboard`): [`examples/coding-benchmark`](./examples/coding-benchmark), [`examples/webcode-matrix`](./examples/webcode-matrix).
-- **Agent graphs** — fixed topologies authored as data and run through `runGraph`: [`examples/graphs`](./examples/graphs).
-- **Improve a knowledge base** — a measured candidate copy of a KB, wiki, or RAG corpus: [`docs/improve.md`](./docs/improve.md).
-- **PrimeIntellect** — package the same runtime program as a Verifiers environment: [`docs/primeintellect.md`](./docs/primeintellect.md).
-- **Conversations** (`/conversation`) — multi-turn two-agent sessions with SQL-backed resume.
-- **MCP servers** (`/mcp`) — give any agent a `delegate` tool plus live coordination tools.
-- **Live run view** (`/tui`) — `agent-runtime-top` shows every supervisor run in a workspace, with steer and cancel.
-- **Telemetry** — every loop emits `loop.*` trace events, exported as OpenTelemetry GenAI spans when `OTEL_EXPORTER_OTLP_ENDPOINT` is set.
+Those are **integration proofs**, not benchmark-value proofs.
 
-All 33 examples live in [`examples/`](./examples).
+`pnpm verify:official-optimizers` verifies the official GEPA/Optimize Anything bridge, recipe identities, resume behavior, accounting, and package provenance on a controlled fixture. It does not claim to reproduce GEPA, Omni, AutoResearch, or Meta-Harness benchmark lift. Full benchmark reproduction belongs in Discovery Lab, using the benchmark's own evaluator, matched budgets, frozen partitions, and immutable receipts.
 
-## How it works (the short version)
+The same boundary applies to trace analysts, Prime Agent RLM, and DSPy RLM: Runtime may expose the execution seam, but analyst quality and benchmark lift must be established outside this repository.
 
-- **Roles are configuration.** Driver, worker, and coordinator describe what an agent does in a run. They are not separate agent types.
-- **Runs are recorded.** A run can report tokens, dollars, time, outputs, and scores.
-- **Candidates face fresh tasks.** The optimizer uses train and selection tasks. Promotion uses a separate final set.
-- **Scores come from executed attempts.** Runtime recomputes results from the recorded cells and rejects incomplete cost or source evidence.
+## Other supported surfaces
 
-## Where to go next
+- **Durable pursuit observer** — append-only third-person supervision records and projections: [`docs/api/durable.md`](./docs/api/durable.md).
+- **Knowledge improvement jobs** — candidate copies and measured activation boundaries: [`docs/improve.md`](./docs/improve.md).
+- **PrimeIntellect packaging** — expose a Runtime program as a Verifiers environment: [`docs/primeintellect.md`](./docs/primeintellect.md).
+- **MCP** — delegation and live coordination tools under `/mcp`.
+- **Telemetry** — Runtime hooks and OpenTelemetry GenAI spans.
+- **Live operations** — `agent-runtime-top` for observe, steer, and cancel.
+- **Intelligence integration** — the `/intelligence` adapter remains available, but it is not on Runtime's critical release path.
 
-- [`docs/concepts.md`](./docs/concepts.md), the mental model in plain terms.
-- [`docs/canonical-api.md`](./docs/canonical-api.md), find the primitive: "I want to ___ → use ___".
-- [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md), every export in one generated, never-stale list with its import path. Check it before building anything new.
-- [`docs/improve.md`](./docs/improve.md), the improvement reference: optimizers, surfaces, redaction, proposal, review, activation.
-- [`docs/STABILITY.md`](./docs/STABILITY.md), what `@stable` and `@experimental` promise you, and how a symbol graduates.
-- [`docs/design.md`](./docs/design.md), the design philosophy and the research behind it: background reading, not required to use the package.
-- [`bench/HARNESS.md`](./bench/HARNESS.md), the experiment harness and how to run a benchmark.
+## Repository map
 
-**Contributing:** `pnpm i && pnpm build && pnpm test` gets you running; the full local gate is the [`package.json`](./package.json) scripts (`lint`, `typecheck`, `docs:check`).
+- [`examples/README.md`](./examples/README.md) — the compact learning path. Examples prove APIs, not benchmark superiority.
+- [`docs/canonical-api.md`](./docs/canonical-api.md) — “I want to X → use Y.”
+- [`docs/api/primitive-catalog.md`](./docs/api/primitive-catalog.md) — generated public surface.
+- [`docs/improve.md`](./docs/improve.md) — exact improvement, proposal, review, and activation contracts.
+- [`bench/HARNESS.md`](./bench/HARNESS.md) — supported integration and benchmark entry points, plus the evidence-level rules.
+- [`docs/STABILITY.md`](./docs/STABILITY.md) — stability promises.
+
+## Contributing
+
+```bash
+pnpm i
+pnpm build
+pnpm test
+pnpm lint
+pnpm typecheck
+pnpm docs:check
+```
+
+A new example must demonstrate a public entry point that no existing example already teaches. A new benchmark script must either be a reusable adapter/integration fixture or live in Discovery Lab with a preregistration and result receipt.

@@ -1,181 +1,91 @@
 # agent-runtime examples
 
-Runnable, single-file demos of what this library does: build agents, run several of them under one
-budget, score them against a real check, and let them improve from their own runs. Every example
-imports from the published package (`@tangle-network/agent-runtime`) exactly as your code would, and
-most run **offline with no API key** so you can see the machinery before spending anything.
+Examples in this directory teach **public Runtime entry points**. They are intentionally small, mostly offline, and compile against the same package surface a consumer installs.
 
-## The front doors
+They are not the benchmark archive. A toy score in an example proves wiring; it does not establish that a method improves a real task distribution. Real reproduction campaigns belong in Discovery Lab.
 
-One directory per entry point, ordered by how often real products use it. Each carries a README with
-three sections: when to use it, how to use it, and why it exists.
+## Canonical learning path
 
-| Front door | Call | Runs offline |
-|---|---|---|
-| [`stream-a-turn/`](./stream-a-turn/) | `runAgentTaskStream` — one turn, and you read the events | yes |
-| [`chat-handler/`](./chat-handler/) | `handleChatTurn` — stream one turn over HTTP and save the reply | yes |
-| [`stream-backends/`](./stream-backends/) | `AgentExecutionBackend` — choose where the tokens come from | first two sections |
-| [`tool-loop/`](./tool-loop/) | `runToolLoop` — the model calls your tools, then answers | yes |
-| [`runtime-run/`](./runtime-run/) | `startRuntimeRun` — the cost tally and one persisted row | yes |
-| [`quickstart/`](./quickstart/) | `runAgentRounds` — several attempts under your own stop rule | yes |
-| [`supervise/`](./supervise/) | `supervise` — a model decides the plan and drives other agents | needs `TANGLE_API_KEY` |
-| [`retained-run/`](./retained-run/) | `startRetainedRun` — a job that outlives your process | compile-checked only |
-| [`improve/`](./improve/) | `improve` — change one profile field and prove the gain | yes |
-
-New here? Run these three, in order (all cost $0):
+Run these in order:
 
 ```bash
-pnpm tsx examples/stream-a-turn/stream-a-turn.ts   # 1. the smallest real path: one turn, its events
-pnpm tsx examples/driver-loop/driver-loop.ts       # 2. one agent steering another — see the fold
-pnpm tsx examples/improve/improve.ts               # 3. an agent that rewrites its own prompt, safely
+pnpm tsx examples/stream-a-turn/stream-a-turn.ts
+pnpm tsx examples/tool-loop/tool-loop.ts
+pnpm tsx examples/runtime-run/runtime-run.ts
+pnpm tsx examples/quickstart/minimal.ts
+pnpm tsx examples/driver-loop/driver-loop.ts
+pnpm tsx examples/improve/improve.ts
 ```
 
-[`quickstart/`](./quickstart/) holds the root README's `minimal.ts` plus the same loop grown into a
-refine loop; [`driver-loop/`](./driver-loop/) is that loop with every seam annotated.
+| Step | Example | What it teaches | Offline |
+|---|---|---|---|
+| 1 | [`stream-a-turn`](./stream-a-turn/) | one exact turn and the normalized event stream | yes |
+| 2 | [`tool-loop`](./tool-loop/) | tool calls fold back into the same turn until stop | yes |
+| 3 | [`runtime-run`](./runtime-run/) | one run record, cost ledger, and persisted outcome | yes |
+| 4 | [`quickstart`](./quickstart/) | `runAgentRounds`: plan, execute, validate, decide | yes |
+| 5 | [`driver-loop`](./driver-loop/) | the reactive fold from prior output into the next instruction | yes |
+| 6 | [`supervise`](./supervise/) | a manager profile driving workers under one conserved budget | key required |
+| 7 | [`graphs`](./graphs/) | fixed agent topology as data, with a traversal ledger | yes |
+| 8 | [`improve`](./improve/) | one detached candidate, frozen partitions, independent final-test remeasurement | yes |
 
-## A few words that appear everywhere
+`improve` is the only canonical self-improvement example. Full-fidelity benchmark campaigns do not live under `examples/`.
 
-- **worker** — an agent that produces an answer.
-- **driver** (or **supervisor**) — an agent that launches workers, reads their output, and decides
-  what to do next.
-- **the fold** — the key trick: a driver reads the last worker's output and writes the *next*
-  instruction from it, so the loop actually reacts instead of retrying blind.
-- **shot** — one worker attempt. **sample** = make N attempts and keep the best (breadth). **refine**
-  = attempt, let a critic read what went wrong, steer the next attempt (depth).
-- **check** — a function that scores an answer pass/fail. It is the ground truth every loop optimizes
-  against.
+## Product integration references
 
----
-
-## Start here — three self-contained demos
-
-| # | Example | What it shows |
-|---|---|---|
-| 1 | [`chat-handler/`](./chat-handler/) | The full lifecycle of one product chat turn — the entry point every product wires. Offline. |
-| 2 | [`strategy-suite/`](./strategy-suite/) | Compare ways of spending a compute budget (sample vs refine vs your own) against your own pass/fail check. Offline via an in-process fake model; `TANGLE_API_KEY` swaps in the real one. |
-| 3 | [`recursive-supervisor/`](./recursive-supervisor/) | One agent spawns child agents on a single shared budget that refuses to overspend — shown by hand, then as a one-line helper. Offline. |
-
-## The supervisor — one agent that runs other agents
-
-| # | Example | What it shows |
-|---|---|---|
-| 4 | [`driver-loop/`](./driver-loop/) | **See the fold**: a driver reads the last worker's output and composes the next prompt from it (plan → run → decide → re-plan). Offline. |
-| 5 | [`supervise/`](./supervise/) | The one-call headline: `supervise(profile, goal)` runs a full supervisor with everything defaulted. Needs `TANGLE_API_KEY`. |
-| 6 | [`supervisor-loop/`](./supervisor-loop/) | The same supervisor over a real worker backend — cloud sandbox, local coding-CLI, or an MCP server — with the backend as the only knob you change. |
-| 7 | [`delegate/`](./delegate/) | `delegate(intent)`: the supervisor writes and spawns a worker that does real work on disk, and the run only settles once the file it was asked to create actually exists. Needs `TANGLE_API_KEY`. |
-| 7b | [`graphs/`](./graphs/) | **Agent graphs**: four topologies (peer review loop, best-of-N, watchdog steer, shot loop) each authored as ≤25 lines of plain data and run through `runGraph`, printing the edge ledger — every traversal, delivered or not — as the proof. Offline. |
-
-## Benchmarking — score agents against a check
-
-A round-based runner: plan tasks, run each in its own sandbox, parse and validate the output, decide,
-repeat. A failing validator prunes a bad candidate so the loop can't keep it.
-
-| # | Example | What it shows |
-|---|---|---|
-| 8 | [`researcher-loop/`](./researcher-loop/) | A research agent whose validator hard-fails if one tenant's data leaks into another's namespace, so the leak is pruned automatically. Needs the optional `@tangle-network/agent-knowledge` peer installed. |
-| 9b | [`coding-benchmark/`](./coding-benchmark/) | Rank coding agents (Claude Code, opencode, Codex, a bare CLI) on real tasks with an **anti-cheat**: each agent is graded on hidden tests it never saw, so it can't hardcode the answer. Includes a secondary quality judge and real significance stats. Offline by default; `--live` uses real agent boxes. |
-| 9c | [`webcode-matrix/`](./webcode-matrix/) | The real WebCode benchmark (Exa's 33-task dataset, graded by its own hidden tests) across a harness × model grid, rendered as a publishable leaderboard with charts, confidence bands, and pairwise significance. |
-
-## Production plumbing — cost, streaming, telemetry
-
-| # | Example | What it shows |
-|---|---|---|
-| 9d | [`stream-a-turn/`](./stream-a-turn/) | One turn end to end: write an `AgentExecutionBackend`, run it through `runAgentTaskStream`, and read the `RuntimeStreamEvent` union back. Offline. |
-| 9e | [`tool-loop/`](./tool-loop/) | One chat turn where the model calls your tools, each result folds back, and the turn re-runs until it stops. Offline. |
-| 9f | [`retained-run/`](./retained-run/) | A job the provider owns: persist the claim ticket, then rebuild control in a fresh process. Compile-checked; needs your own provider to run. |
-| 10 | [`knowledge-gating/`](./knowledge-gating/) | Stop an agent before it acts on facts it isn't confident about: the loop blocks when a required-knowledge confidence is below threshold. |
-| 11 | [`runtime-run/`](./runtime-run/) | The run-record + cost-ledger you persist for dashboards — one row per run, any database. |
-| 12 | [`stream-backends/`](./stream-backends/) | Pick where an agent's streaming output comes from (in-process iterator, cloud sandbox, or an OpenAI-compatible endpoint) behind one wire format. The OpenAI path needs `OPENAI_API_KEY`; the rest is offline. |
-| 13 | [`sanitized-telemetry-streaming/`](./sanitized-telemetry-streaming/) | Log an agent's activity with user data redacted by default (and the one field that leaks PII if you opt out). |
-
-## Hand work to another agent over MCP
-
-| # | Example | What it shows |
-|---|---|---|
-| 14 | [`mcp-delegation/`](./mcp-delegation/) | Give any agent a "delegate this" button by mounting the agent-runtime MCP server: a `delegate` verb plus always-on status/history/feedback tools. Run `pnpm build` first so the local server binary exists. |
-| 15 | [`fleet-delegation/`](./fleet-delegation/) | Set `TANGLE_FLEET_ID` to flip delegation from spawning a sibling sandbox to sharing one fleet workspace. Offline. |
-
-## Self-improvement — agents that get better from their own runs
-
-| # | Example | What it shows |
-|---|---|---|
-| 16 | [`strategy-evolution/`](./strategy-evolution/) | Full policy search with a safety gate: write new tactics from past losses, promote a champion only if a statistical test says the win isn't luck. Needs `TANGLE_API_KEY`. |
-| 17 | [`improve/`](./improve/) | Run a complete optimization method on explicit train, selection, and final-test partitions. Offline. |
-| 17b | [`self-improving-coder/`](./self-improving-coder/) | The flywheel on a contamination-proof coding task: an agent writes strategies from its training losses, graded by real pytest, promoted only if a fresh holdout confirms the gain. `CALIBRATE=1` is a $0 no-key check. |
-| 18 | [`self-improving-loop/`](./self-improving-loop/) | #17 unrolled step by step: v0 → judge → analyst → mutation → v1 → gate, showing which part owns each phase. Offline. |
-| 19 | [`intelligence-recommend/`](./intelligence-recommend/) | Read a run trace, derive findings, pass them to a complete method, and final-test its candidate. |
-| 20 | [`intelligence-drop-in/`](./intelligence-drop-in/) | Wrap any agent with `withIntelligence` to send one RunRecord per call — best-effort, and a proof that "off" is a zero-cost passthrough. |
-| 20b | [`intelligence-webcode/`](./intelligence-webcode/) | The full observability SDK (billing boundary, effort tiers, per-tool cost breakdown, OTLP export) instrumented over every cell of the WebCode benchmark. Needs a sandbox key. |
-| 21 | [`agents-of-all-shapes/`](./agents-of-all-shapes/) | Proof that any framework's traces converge on one open telemetry contract and produce one insight report. CI-tested. Offline. |
-| 22 | [`product-eval/`](./product-eval/) | Test an agent against a simulated user: a persona holds a multi-round conversation, then the transcript is scored. Needs `TANGLE_API_KEY`. |
-| 23 | [`agentic-data-creation/`](./agentic-data-creation/) | An agent manufactures **hard** training examples from a document and keeps only the ones that separate a strong solver from a weak one. Offline. |
-
-## Research harnesses (not on the learning path)
-
-| Example | What it shows |
+| Example | Use it when |
 |---|---|
-| [`ablation-suite/`](./ablation-suite/) | The head-to-head behind the "supervisor beats raw compute by +20.8 points" result: three coordination styles compared cost-for-cost with a paired-bootstrap delta. Needs `TANGLE_API_KEY`; run `ARMS=cal` first (its README explains why). |
+| [`chat-handler`](./chat-handler/) | an HTTP route must stream a chat turn and persist it |
+| [`stream-backends`](./stream-backends/) | one event contract must cover in-process, sandbox, and OpenAI-compatible transports |
+| [`retained-run`](./retained-run/) | the job must outlive the process that launched it |
+| [`recursive-supervisor`](./recursive-supervisor/) | you need an offline view of nested agents sharing one budget |
+| [`supervisor-loop`](./supervisor-loop/) | the same supervisor must switch between bridge and sandbox workers |
+| [`delegate`](./delegate/) | a delegated task must settle only after a real deliverable exists |
+| [`mcp-delegation`](./mcp-delegation/) | another agent needs Runtime's delegation tools over MCP |
+| [`fleet-delegation`](./fleet-delegation/) | delegated workers must share a fleet workspace |
+| [`knowledge-gating`](./knowledge-gating/) | execution must stop when required knowledge is below threshold |
+| [`researcher-loop`](./researcher-loop/) | a domain uses the optional `agent-knowledge` peer and a hard isolation check |
+| [`sanitized-telemetry-streaming`](./sanitized-telemetry-streaming/) | runtime telemetry must be useful without leaking user content |
+
+## Specialized examples
+
+These are valid API demonstrations but are not part of the newcomer path:
+
+| Example | Scope |
+|---|---|
+| [`strategy-suite`](./strategy-suite/) | compare budget-allocation strategies against a deterministic check |
+| [`product-eval`](./product-eval/) | evaluate an agent in a multi-turn simulated-user conversation |
+| [`agentic-data-creation`](./agentic-data-creation/) | generate candidate training cases and keep only discriminating ones |
+| [`intelligence-drop-in`](./intelligence-drop-in/) | the optional `/intelligence` wrapper and its zero-intelligence-cost off tier |
+| [`intelligence-recommend`](./intelligence-recommend/) | trace findings entering the detached improvement path |
+| [`agents-of-all-shapes`](./agents-of-all-shapes/) | heterogeneous framework traces converging on one telemetry contract |
+
+The `/intelligence` examples remain available for that optional integration surface, but they are not Runtime release gates.
+
+## Why the old benchmark examples are gone
+
+Historical ablation rigs, WebCode dashboards, synthetic coding benchmarks, and successive self-improvement walkthroughs accumulated here over time. They mixed three jobs:
+
+1. teaching a public API;
+2. developing a benchmark adapter;
+3. preserving a research result.
+
+Only the first belongs in `examples/`. Reusable adapters and package-consumer checks live in `bench/`; preregistered campaigns, upstream reproductions, and result archives live in Discovery Lab.
+
+## Example admission rule
+
+A new directory is admitted only when all of the following are true:
+
+- it demonstrates a public entry point that no existing example already teaches;
+- the smallest useful form can be understood without reading a research diary;
+- any score is clearly labeled as a wiring fixture unless it comes from the benchmark's own evaluator;
+- it does not create a second router client, optimizer, evaluator, sandbox loop, or statistics implementation;
+- it is compile-checked, and offline whenever the mechanism permits.
 
 ## Conventions
 
-- Everything runs from this repo's `tsx`, so edits to the runtime are picked up immediately — no
-  example creates its own throwaway `package.json`.
-- Examples are synthetic and offline unless a row above says otherwise. The ones that need a key:
-  `supervise`, `delegate`, `strategy-evolution`, `product-eval` (`TANGLE_API_KEY`); `stream-backends`'
-  OpenAI path (`OPENAI_API_KEY`). `mcp-delegation` needs `pnpm build` first; `researcher-loop` needs
-  the optional `@tangle-network/agent-knowledge` peer.
-- Where a domain type is yours to provide (a sandbox box, an evidence store), the example defines a
-  stub inline and comments mark which parts are *yours* vs the runtime's.
+- Run from the repository root with the repository's `tsx`; examples do not carry their own package manifests.
+- An absent measurement remains absent. Examples must never turn unknown usage into zero or an in-band failure into success.
+- Domain checks belong to the caller. Runtime owns execution and evidence flow, not the meaning of correctness.
+- `TANGLE_API_KEY` is needed only by examples that explicitly use a live Router or sandbox.
 
-## Run everything, in learning order
-
-From the repo root:
-
-```bash
-# Start here
-pnpm tsx examples/stream-a-turn/stream-a-turn.ts
-pnpm tsx examples/tool-loop/tool-loop.ts
-pnpm tsx examples/chat-handler/chat-handler.ts
-pnpm tsx examples/strategy-suite/strategy-suite.ts                 # offline; TANGLE_API_KEY swaps in the real model
-pnpm tsx examples/recursive-supervisor/recursive-supervisor.ts
-
-# The supervisor
-pnpm tsx examples/driver-loop/driver-loop.ts                       # SEE THE FOLD (offline)
-TANGLE_API_KEY=... pnpm tsx examples/supervise/supervise.ts
-WORKER_BACKEND=bridge WORKER_MODEL=opencode/anthropic/claude-sonnet-4-5 \
-  pnpm tsx examples/supervisor-loop/run.ts                         # one knob: bridge | sandbox
-TANGLE_API_KEY=... pnpm tsx examples/delegate/delegate.ts
-
-# Benchmarking
-pnpm tsx examples/researcher-loop/researcher-loop.ts               # needs the agent-knowledge peer
-pnpm tsx examples/coding-benchmark/benchmark.ts                    # offline
-pnpm tsx examples/coding-benchmark/benchmark.ts --ensemble --reps 5
-
-# Production plumbing
-pnpm tsx examples/knowledge-gating/knowledge-gating.ts
-pnpm tsx examples/runtime-run/runtime-run.ts
-pnpm tsx examples/stream-backends/stream-backends.ts
-pnpm tsx examples/sanitized-telemetry-streaming/sanitized-telemetry-streaming.ts
-
-# Delegation over MCP
-pnpm build  # mcp-delegation needs dist/mcp/bin.js
-pnpm tsx examples/mcp-delegation/mcp-delegation.ts
-pnpm tsx examples/fleet-delegation/fleet-delegation.ts
-
-# Self-improvement
-TANGLE_API_KEY=... pnpm tsx examples/strategy-evolution/strategy-evolution.ts
-pnpm tsx examples/improve/improve.ts
-CALIBRATE=1 pnpm tsx examples/self-improving-coder/self-improving-coder.ts   # $0 no-key check
-pnpm tsx examples/self-improving-loop/self-improving-loop.ts
-pnpm tsx examples/intelligence-recommend/intelligence-recommend.ts
-pnpm tsx examples/intelligence-drop-in/intelligence-drop-in.ts
-pnpm tsx examples/agents-of-all-shapes/run.ts
-TANGLE_API_KEY=... pnpm tsx examples/product-eval/product-eval.ts
-pnpm tsx examples/agentic-data-creation/run.ts
-```
-
-## Tracing
-
-Every loop emits `loop.*` trace events. Set `OTEL_EXPORTER_OTLP_ENDPOINT` and they export as standard
-OpenTelemetry GenAI spans — the same open format any observability backend reads. Example #21
-(`agents-of-all-shapes`) shows the traces-to-insights pipe end to end.
+For benchmark integration and evidence levels, see [`bench/HARNESS.md`](../bench/HARNESS.md). For production improvement, see [`docs/improve.md`](../docs/improve.md).
