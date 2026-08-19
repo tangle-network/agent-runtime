@@ -64,14 +64,7 @@ export function extractTransportEventIdentity(event: unknown): TransportEventIde
   const data = isRecord(record.data) ? record.data : {}
   const providerEvent = isRecord(record.providerEvent) ? record.providerEvent : {}
   const providerData = isRecord(providerEvent.data) ? providerEvent.data : {}
-  const eventId = stableString(
-    record.id ??
-      record.eventId ??
-      data.eventId ??
-      providerEvent.id ??
-      providerEvent.eventId ??
-      providerData.eventId,
-  )
+  const eventId = canonicalEventId(record, data, providerEvent, providerData)
   const cursor = stableString(
     record.cursor ?? data.cursor ?? providerEvent.cursor ?? providerData.cursor,
   )
@@ -87,6 +80,34 @@ export function extractTransportEventIdentity(event: unknown): TransportEventIde
     ...(sequence === undefined ? {} : { sequence }),
     ...(occurredAt === undefined ? {} : { occurredAt }),
   }
+}
+
+function canonicalEventId(
+  record: Record<string, unknown>,
+  data: Record<string, unknown>,
+  providerEvent: Record<string, unknown>,
+  providerData: Record<string, unknown>,
+): string | undefined {
+  const candidates = [
+    ['data.eventId', data.eventId],
+    ['providerEvent.eventId', providerEvent.eventId],
+    ['providerData.eventId', providerData.eventId],
+    ['record.eventId', record.eventId],
+  ] as const
+  const present = candidates.filter(([, value]) => value !== undefined)
+  // `record.id` may be the provider's replay cursor, so use it only without a canonical field.
+  if (present.length === 0) return stableString(record.id ?? providerEvent.id)
+
+  const normalized = present.map(([source, value]) => {
+    const eventId = stableString(value)
+    if (eventId === undefined) throw new Error(`transport event ${source} must be a stable string`)
+    return { source, eventId }
+  })
+  const first = normalized[0]!
+  if (normalized.some((candidate) => candidate.eventId !== first.eventId)) {
+    throw new Error('transport event canonical identities disagree')
+  }
+  return first.eventId
 }
 
 function stableString(value: unknown): string | undefined {

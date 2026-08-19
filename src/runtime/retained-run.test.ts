@@ -1661,6 +1661,87 @@ describe('retained runtime run control', () => {
     })
   })
 
+  it('preserves the CLI Bridge cursor while emitting its canonical event identity', async () => {
+    const controlRef = {
+      runId: 'run-1',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      requestDigest: retainedRequestDigest,
+    }
+    const source: AgentEnvironmentEvent[] = [
+      {
+        id: '1',
+        type: 'status',
+        data: {
+          status: 'started',
+          runId: controlRef.runId,
+          sessionId: controlRef.sessionId,
+          executionId: controlRef.executionId,
+          cursor: '1',
+          eventId: 'run-1:1',
+          sequence: 1,
+        },
+        normalized: { type: 'status', status: 'started' },
+        providerEvent: { eventId: 'run-1:1' },
+      },
+      {
+        id: '2',
+        type: 'status',
+        data: {
+          status: 'completed',
+          runId: controlRef.runId,
+          sessionId: controlRef.sessionId,
+          executionId: controlRef.executionId,
+          cursor: '2',
+          eventId: 'run-1:2',
+          sequence: 2,
+        },
+        normalized: { type: 'status', status: 'completed' },
+        providerEvent: { eventId: 'run-1:2' },
+      },
+    ]
+    const replayCursors: Array<string | null> = []
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'completed',
+      async *events(options) {
+        replayCursors.push(options?.since ?? null)
+        yield* source.slice(options?.since === '1' ? 1 : 0)
+      },
+      result: async () => ({ text: 'done', success: true }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'cli-bridge-identity' },
+      turn: { prompt: 'go', turnId: 'cli-bridge-identity-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    const fresh: RuntimeEventEnvelope[] = []
+    for await (const event of run.events()) fresh.push(event)
+    expect(fresh.map(({ eventId, cursor, sequence }) => ({ eventId, cursor, sequence }))).toEqual([
+      { eventId: 'run-1:1', cursor: '1', sequence: 1 },
+      { eventId: 'run-1:2', cursor: '2', sequence: 2 },
+    ])
+
+    const replayed: RuntimeEventEnvelope[] = []
+    for await (const event of run.events({ after: { cursor: '1', sequence: 1 } })) {
+      replayed.push(event)
+    }
+    expect(replayCursors).toEqual([null, '1'])
+    expect(replayed).toMatchObject([{ eventId: 'run-1:2', cursor: '2', sequence: 2 }])
+  })
+
   it('assigns contiguous positive sequences when a replayable provider omits them', async () => {
     const controlRef = {
       runId: 'generated-sequence-run',
