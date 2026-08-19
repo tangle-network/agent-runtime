@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertFirstPartyRangeSpecs,
+  assertPeerMatchesDevelopmentDependency,
   cohortRange,
   isExactVersionSpec,
   rangeAdmits,
+  sandboxCompatibilityVersions,
+  sandboxPeerRange,
 } from './packed-package-test.mjs'
 
 describe('isExactVersionSpec', () => {
@@ -15,7 +18,7 @@ describe('isExactVersionSpec', () => {
 
   it('reads every range shape as not exact', () => {
     expect(isExactVersionSpec('^1.0.0')).toBe(false)
-    expect(isExactVersionSpec('>=0.29.0 <0.30.0')).toBe(false)
+    expect(isExactVersionSpec(sandboxPeerRange)).toBe(false)
     expect(isExactVersionSpec('~1.0.0')).toBe(false)
     expect(isExactVersionSpec('catalog:')).toBe(false)
     expect(isExactVersionSpec('workspace:^')).toBe(false)
@@ -25,7 +28,7 @@ describe('isExactVersionSpec', () => {
 describe('cohortRange', () => {
   it('returns a range unchanged', () => {
     expect(cohortRange('^1.0.0')).toBe('^1.0.0')
-    expect(cohortRange('>=0.29.0 <0.30.0')).toBe('>=0.29.0 <0.30.0')
+    expect(cohortRange(sandboxPeerRange)).toBe(sandboxPeerRange)
   })
 
   it('derives the range an exact version earns', () => {
@@ -50,8 +53,9 @@ describe('rangeAdmits', () => {
   it('admits the published Eval and Sandbox cohorts', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.149.0')).toBe(true)
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
-    expect(rangeAdmits('>=0.30.0 <0.31.0', '0.30.0')).toBe(true)
-    expect(rangeAdmits('>=0.30.0 <0.31.0', '0.31.0')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.29.0')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.30.0')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.31.0')).toBe(false)
   })
 
   it('refuses an exact specifier, which states no range', () => {
@@ -69,7 +73,7 @@ describe('assertFirstPartyRangeSpecs', () => {
           '@tangle-network/agent-eval': '>=0.149.0 <0.150.0',
           'tar-stream': '3.2.0',
         },
-        peerDependencies: { '@tangle-network/sandbox': '>=0.30.0 <0.31.0' },
+        peerDependencies: { '@tangle-network/sandbox': sandboxPeerRange },
       }),
     ).not.toThrow()
   })
@@ -100,5 +104,41 @@ describe('assertFirstPartyRangeSpecs', () => {
         dependencies: { 'tar-stream': '3.2.0' },
       }),
     ).not.toThrow()
+  })
+})
+
+describe('compatibility peer ranges', () => {
+  it('accepts Sandbox 0.29 and 0.30 with a 0.30 development pin', () => {
+    expect(() =>
+      assertPeerMatchesDevelopmentDependency(
+        {
+          name: '@tangle-network/agent-runtime',
+          devDependencies: { '@tangle-network/sandbox': '0.30.0' },
+          peerDependencies: { '@tangle-network/sandbox': sandboxPeerRange },
+        },
+        '@tangle-network/sandbox',
+        {
+          expectedRange: sandboxPeerRange,
+          admittedVersions: sandboxCompatibilityVersions,
+        },
+      ),
+    ).not.toThrow()
+  })
+
+  it('rejects a compatibility range that drops Sandbox 0.29', () => {
+    expect(() =>
+      assertPeerMatchesDevelopmentDependency(
+        {
+          name: '@tangle-network/agent-runtime',
+          devDependencies: { '@tangle-network/sandbox': '0.30.0' },
+          peerDependencies: { '@tangle-network/sandbox': '>=0.30.0 <0.31.0' },
+        },
+        '@tangle-network/sandbox',
+        {
+          expectedRange: '>=0.30.0 <0.31.0',
+          admittedVersions: sandboxCompatibilityVersions,
+        },
+      ),
+    ).toThrow(/does not admit 0\.29\.0/)
   })
 })

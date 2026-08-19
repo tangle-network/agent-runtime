@@ -1,5 +1,8 @@
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
 
+export const sandboxPeerRange = '>=0.29.0 <0.31.0'
+export const sandboxCompatibilityVersions = Object.freeze(['0.29.0', '0.30.0'])
+
 export function assertPublishableDependencySpecs(packageJson) {
   const packageName =
     typeof packageJson.name === 'string' ? packageJson.name : 'packed package'
@@ -128,15 +131,29 @@ export function assertFirstPartyRangeSpecs(packageJson, scope = '@tangle-network
   }
 }
 
-export function assertPeerMatchesDevelopmentDependency(packageJson, name) {
+export function assertPeerMatchesDevelopmentDependency(packageJson, name, options = {}) {
   const version = requiredPackedDevelopmentDependency(packageJson, name)
-  const expected = cohortRange(version)
+  const expected = options.expectedRange ?? cohortRange(version)
   const actual = packageJson.peerDependencies?.[name]
   if (actual !== expected) {
     const packageName =
       typeof packageJson.name === 'string' ? packageJson.name : 'packed package'
     throw new Error(
       `${packageName} peerDependencies.${name} must match its resolved development dependency: expected ${expected}, found ${String(actual)}`,
+    )
+  }
+  const admittedVersions = [
+    ...(isExactVersionSpec(version) ? [version] : []),
+    ...(options.admittedVersions ?? []),
+  ]
+  const rejectedVersions = [...new Set(admittedVersions)].filter(
+    (candidate) => !rangeAdmits(actual, candidate),
+  )
+  if (rejectedVersions.length > 0) {
+    const packageName =
+      typeof packageJson.name === 'string' ? packageJson.name : 'packed package'
+    throw new Error(
+      `${packageName} peerDependencies.${name} does not admit ${rejectedVersions.join(', ')}`,
     )
   }
 }

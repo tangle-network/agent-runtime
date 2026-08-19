@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.18
+
+- Align the Bench package with Runtime 0.142.3 and the Sandbox 0.29.0–0.30.0 compatibility range.
+
 ## 0.8.17
 
 - Align the Bench package with Runtime 0.142.2 and Sandbox 0.30.0.
