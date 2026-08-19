@@ -1,0 +1,72 @@
+name: Build scoped collaboration core
+
+on:
+  push:
+    branches: [feat/scoped-collaboration]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/scoped-collaboration
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Repair the collaboration core boundary
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs')
+          const path = 'src/runtime/supervise/collaboration.ts'
+          let source = fs.readFileSync(path, 'utf8')
+
+          source = source.replace(
+            '  hasCapability(capabilityId: string): boolean\n  tools(capabilityId: string): McpToolDescriptor[]',
+            '  hasCapability(capabilityId: string): boolean\n  actorForCapability(capabilityId: string): string | undefined\n  tools(capabilityId: string): McpToolDescriptor[]',
+          )
+          source = source.replace(
+            '    hasCapability: (capabilityId) => actorByCapability.has(capabilityId),\n    tools: (capabilityId)',
+            '    hasCapability: (capabilityId) => actorByCapability.has(capabilityId),\n    actorForCapability: (capabilityId) => actorByCapability.get(capabilityId),\n    tools: (capabilityId)',
+          )
+          source = source.replace(
+            /function actorIdForCapability\([\s\S]*?\n}\n\nfunction normalizeLimits/,
+            `function actorIdForCapability(hub: CollaborationHub, capabilityId: string): string {\n  const actorId = hub.actorForCapability(capabilityId)\n  if (!actorId) throw new Error('collaboration: this capability is not bound to an actor yet')\n  return actorId\n}\n\nfunction normalizeLimits`,
+          )
+          source = source.replace(
+            '  readonly groupId: string\n',
+            '  readonly groupId?: string\n',
+          )
+          source = source.replace(
+            "    typeof message.groupId === 'string' &&\n",
+            "    (message.groupId === undefined || typeof message.groupId === 'string') &&\n",
+          )
+          source = source.replace(
+            /export function createPeerMailbox\(options: \{[\s\S]*?\n}\): CollaborationMailbox \{\n  const runtime: CollaborationRuntime = Object\.freeze\(\{\n    hub: createCollaborationHub\(\{ limits: options\.limits, now: options\.now }\),/,
+            `export function createPeerMailbox(options: {\n  readonly scope: Scope<unknown>\n  readonly publish: (event: CollaborationEvent) => void | Promise<void>\n  readonly limits?: Partial<PeerMailLimits>\n  readonly now?: () => number\n}): CollaborationMailbox {\n  const peerLimits = options.limits\n  const runtime: CollaborationRuntime = Object.freeze({\n    hub: createCollaborationHub({\n      limits:\n        peerLimits === undefined\n          ? undefined\n          : {\n              maxSentPerActor: peerLimits.maxSentPerWorker,\n              maxInboxPerActor: peerLimits.maxInboxPerWorker,\n              maxInboxBytesPerActor: peerLimits.maxInboxBytesPerWorker,\n              maxThreadDepth: peerLimits.maxThreadDepth,\n              maxBodyBytes: peerLimits.maxBodyBytes,\n              maxSubjectBytes: peerLimits.maxSubjectBytes,\n            },\n      now: options.now,\n    }),`,
+          )
+          source = source.replace(
+            'export const peerMailTools = collaborationTools\n',
+            `export function peerMailTools(\n  mailbox: PeerMailbox,\n  capabilityId: string,\n): McpToolDescriptor[] {\n  return mailbox.tools(capabilityId)\n}\n`,
+          )
+
+          fs.writeFileSync(path, source)
+          NODE
+          pnpm biome check --write src/runtime/supervise/collaboration.ts
+      - name: Validate the core type surface
+        run: pnpm typecheck
+      - name: Commit the validated core
+        run: |
+          rm .github/workflows/build-scoped-collaboration.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat(collaboration): validate the scoped hub core"
+          git push
