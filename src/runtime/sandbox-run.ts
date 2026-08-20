@@ -32,6 +32,7 @@
  */
 
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { boxReadErrorMessage, readBoxPathWithRetry } from './box-read-retry'
@@ -64,6 +65,8 @@ export type Deliverable<Out> =
 export interface TurnResult<Out> {
   out: Out
   events: SandboxEvent[]
+  /** Outcome settled by the public Sandbox tracker after the stream drained. */
+  outcome: AgentRunOutcome
   readError?: string
 }
 
@@ -251,11 +254,13 @@ export async function openSandboxRun<Out>(
     turnKind: 'start' | 'resume',
   ): Promise<TurnResult<Out>> {
     const collected: SandboxEvent[] = []
+    const outcomeTracker = createAgentRunOutcomeTracker()
     // The stream itself can throw an AbortError when the run is cancelled mid-drain;
     // re-throw it carrying the events drained so far so the partial trace is not lost.
     try {
       for await (const ev of events) {
         collected.push(ev)
+        outcomeTracker.observe(ev)
         notifySandboxEventObserver(ev, options.onSandboxEvent, {
           turnIndex,
           turnKind,
@@ -266,8 +271,9 @@ export async function openSandboxRun<Out>(
       if (isAbortError(err)) throw new SandboxRunAbortError(collected)
       throw err
     }
+    const outcome = outcomeTracker.finish()
     if (deliverable.kind === 'events') {
-      return { out: deliverable.fromEvents(collected), events: collected }
+      return { out: deliverable.fromEvents(collected), events: collected, outcome }
     }
     if (options.signal.aborted) throw new SandboxRunAbortError(collected)
     // The data plane can transiently 404 a just-written artifact (write not yet
@@ -288,6 +294,7 @@ export async function openSandboxRun<Out>(
     return {
       out: deliverable.fromArtifact(raw, collected),
       events: collected,
+      outcome,
       ...(readError !== undefined ? { readError } : {}),
     }
   }

@@ -42,6 +42,7 @@ import {
   renderInputPartsAsText,
 } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
+import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import {
   assertProfileMaterialization,
   defineProfileMaterializationContract,
@@ -1455,6 +1456,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
  *  `SandboxSeam.validator` receives as its `output` argument. */
 export interface SandboxLeafOut {
   events: SandboxEvent[]
+  outcome?: AgentRunOutcome
 }
 
 interface StreamSandboxArgs {
@@ -1524,12 +1526,23 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     // provision) rather than an artifact it never produced.
     const failure = failedRound(result)
     if (failure) throw failure
-    const out = result.winner?.output ?? { events: [] }
-    const verdict = result.winner?.verdict ?? leafVerdict(result)
+    const winningIteration = result.winner
+      ? result.iterations.find((iteration) => iteration.index === result.winner?.iterationIndex)
+      : result.iterations.at(-1)
+    const out = winningIteration?.output ?? { events: [] }
+    const sandboxOutcome = winningIteration?.sandboxOutcome
+    const outWithOutcome: SandboxLeafOut = {
+      ...out,
+      ...(sandboxOutcome ? { outcome: sandboxOutcome } : {}),
+    }
+    const verdict =
+      sandboxOutcome && !sandboxOutcome.success
+        ? { valid: false, score: 0 }
+        : (result.winner?.verdict ?? leafVerdict(result))
     const tokensKnown = result.tokenUsage.tokensKnown !== false
     const usdKnown = result.costUsdKnown !== false
     const outWithUsage = {
-      ...out,
+      ...outWithOutcome,
       ...(result.estimatedCostUsd !== undefined
         ? { estimatedCostUsd: result.estimatedCostUsd }
         : {}),

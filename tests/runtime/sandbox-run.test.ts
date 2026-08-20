@@ -30,6 +30,10 @@ interface StreamCall {
   signal?: AbortSignal
 }
 
+function doneEvent(data: Record<string, unknown> = {}): SandboxEvent {
+  return { type: 'done', data: { outcome: { type: 'completed' }, ...data } }
+}
+
 /**
  * A fake sandbox client whose box additionally exposes `fs.read` (the artifact
  * seam `openSandboxRun` adds over the pure events path) and a live `session`
@@ -165,6 +169,37 @@ describe('openSandboxRun — events deliverable', () => {
     expect(run.box.id).toBe('box-0')
     expect(run.sessionId).toBe(streamCalls[0]!.sessionId)
     expect(run.sessionId).toBeDefined()
+  })
+
+  it.each([
+    {
+      name: 'done is a live terminal',
+      events: [
+        { type: 'result', data: { text: 'complete' } } as SandboxEvent,
+        doneEvent({ text: 'complete' }),
+      ],
+      outcome: { success: true, status: 'success' },
+    },
+    {
+      name: 'result alone is not a terminal',
+      events: [{ type: 'result', data: { text: 'partial' } } as SandboxEvent],
+      outcome: {
+        success: false,
+        status: 'failed',
+        error: 'Agent stream ended without a terminal event',
+      },
+    },
+  ])('$name', async ({ events, outcome }) => {
+    const { client } = createFakeClient({ events })
+    const run = await openSandboxRun(
+      client,
+      { agentRun: spec(), signal: new AbortController().signal },
+      eventsDeliverable,
+    )
+
+    const turn = await run.start('settle the outcome')
+
+    expect(turn.outcome).toMatchObject(outcome)
   })
 })
 

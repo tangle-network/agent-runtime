@@ -93,62 +93,6 @@ function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown
   return copy
 }
 
-/** Event types that settle one sandbox execution. A status or `success` flag is read as a
- *  verdict on the whole execution only here; on any other event it describes that event. */
-const TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set(['done', 'result', 'final'])
-
-/**
- * Return the terminal failure carried by one Sandbox event.
- *
- * Sandbox transports report execution failure in-band: commonly an `error`
- * event followed by a synthetic `done`. Treating the iterable as successfully
- * drained therefore turns a provider/configuration failure into a completed
- * empty artifact.
- *
- * The decoder reads a failure from exactly two places, so that a mid-stream
- * event describing its OWN failure cannot fail the execution: an `error`-typed
- * event, and a terminal event (`done`/`result`/`final`) whose `success` is
- * `false` or whose status is a failed one. A failing tool part therefore stays
- * a tool result, which is what {@link mapSandboxToolEvent} already projects it
- * to.
- */
-export function sandboxEventFailure(event: SandboxEvent): string | undefined {
-  if (!event || typeof event !== 'object') return undefined
-  const type = String(event.type ?? '')
-  const data =
-    event.data && typeof event.data === 'object'
-      ? (event.data as Record<string, unknown>)
-      : ({} as Record<string, unknown>)
-
-  const outcome = plainRecord(data.outcome)
-  const status = firstString(
-    data.status,
-    outcome?.type,
-    outcome?.status,
-    plainRecord(data.result)?.status,
-  )
-  const terminal = TERMINAL_EVENT_TYPES.has(type)
-  const terminalFailure =
-    terminal && (data.success === false || (status !== undefined && TERMINAL_FAILURE.test(status)))
-  if (type !== 'error' && !terminalFailure) return undefined
-
-  return (
-    describeSandboxError(data.error) ??
-    describeSandboxError(outcome?.error) ??
-    describeSandboxError(plainRecord(data.result)?.error) ??
-    (typeof data.message === 'string' && data.message.length > 0 ? data.message : undefined) ??
-    (status !== undefined
-      ? `sandbox execution ended with status ${status}`
-      : 'sandbox execution failed')
-  )
-}
-
-/** Fail the live execution instead of allowing an in-band failure to become an empty success. */
-export function assertSandboxEventSucceeded(event: SandboxEvent): void {
-  const failure = sandboxEventFailure(event)
-  if (failure !== undefined) throw new Error(`sandbox execution failed: ${failure}`)
-}
-
 /** The provider/model the platform reports it actually bound to a turn, when it reports one.
  *  `source` is the platform's own account of where that choice came from — `environment` means
  *  the platform chose, not the request. */
@@ -247,13 +191,6 @@ function stripProviderPrefix(id: string, providers: readonly (string | undefined
   return out
 }
 
-function describeSandboxError(value: unknown): string | undefined {
-  if (typeof value === 'string' && value.length > 0) return value
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const error = value as Record<string, unknown>
-  return firstString(error.message, error.error, error.reason, error.code)
-}
-
 function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === 'string' && value.length > 0)
 }
@@ -264,8 +201,8 @@ function firstString(...values: unknown[]): string | undefined {
  * so the kernel can iterate the full stream without branching.
  *
  * Pure by contract: it never throws on a failed run. The terminal truth
- * boundary is {@link assertSandboxEventSucceeded}, applied by the two paths
- * that SETTLE an execution. Post-hoc readers — {@link sumSandboxUsage}, the
+ * boundary is the public Sandbox outcome tracker, applied after the complete
+ * stream. Post-hoc readers — {@link sumSandboxUsage}, the
  * analyst trace store, the chat projection — must stay able to read a failed
  * turn's events, which is when reading them matters most.
  *

@@ -33,6 +33,7 @@ function fakeBackend() {
       return [
         { type: 'llm_call', data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 } },
         { type: 'result', data: { finalText: `final answer=${answer}` } },
+        { type: 'done', data: { outcome: { type: 'completed' } } },
       ]
     },
   })
@@ -152,6 +153,7 @@ describe('defineLeaderboard', () => {
         return [
           { type: 'llm_call', data: { tokensIn: 12, tokensOut: 6, costUsd: 0.002 } },
           { type: 'result', data: { finalText: `final answer=${answer}` } },
+          { type: 'done', data: { outcome: { type: 'completed' } } },
         ]
       },
     })

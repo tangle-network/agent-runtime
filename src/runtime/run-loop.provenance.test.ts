@@ -11,13 +11,15 @@ function makeBox(id: string, finalText: string): SandboxInstance {
     status: 'running',
     async *streamPrompt(_prompt: string): AsyncIterable<SandboxEvent> {
       yield { type: 'result', data: { finalText } } as SandboxEvent
+      yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
     },
   } as SandboxInstance
 }
 
 const output: OutputAdapter<string> = {
   parse(events) {
-    return String(events.at(-1)?.data?.finalText ?? '')
+    const result = [...events].reverse().find((event) => event.type === 'result')
+    return String(result?.data?.finalText ?? '')
   },
 }
 

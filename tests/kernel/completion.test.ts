@@ -41,6 +41,7 @@ function echoClient() {
       return {
         async *streamPrompt(message: string) {
           yield { type: 'result', data: { answer: message } } satisfies SandboxEvent
+          yield { type: 'done', data: { outcome: { type: 'completed' } } } satisfies SandboxEvent
         },
       } as unknown as SandboxInstance
     },

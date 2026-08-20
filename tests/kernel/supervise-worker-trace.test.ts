@@ -408,6 +408,7 @@ function fakeSandboxClient() {
         id,
         async *streamPrompt(): AsyncGenerator<SandboxEvent> {
           yield { type: 'result', data: { ok: true, text: 'done' } } as SandboxEvent
+          yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
         },
         async delete() {},
       } as unknown as SandboxInstance

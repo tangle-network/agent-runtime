@@ -31,14 +31,12 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType, PromptOptions, SandboxEvent } from '@tangle-network/sandbox'
+import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../../errors'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
-import {
-  assertSandboxEventSucceeded,
-  assertSandboxServedModel,
-  extractLlmCallEvent,
-} from '../sandbox-events'
+import { assertSandboxServedModel, extractLlmCallEvent } from '../sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
+import { projectSandboxOutcome } from '../sandbox-outcome'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
 import { addTokenUsage, promptCacheTokenClasses, zeroTokenUsage } from '../util'
 import type { Inbox } from './inbox'
@@ -51,7 +49,7 @@ import {
   type ExecutorProgress,
 } from './progress'
 import { createPushTraceSource, decodeToolPart, type TraceSource } from './trace-source'
-import type { Spend, UsageEvent } from './types'
+import type { DefaultVerdict, Spend, UsageEvent } from './types'
 
 /** Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
  *  this bounds how many times a supervisor may redirect ONE worker before it must respawn. */
@@ -74,7 +72,7 @@ export interface SteerableSandboxSession {
   stream(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent>
   progress(): ExecutorProgress
   traceSource(): TraceSource
-  artifact(): { outRef: string; out: unknown; spent: Spend } | undefined
+  artifact(): { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend } | undefined
   teardown(): Promise<void>
 }
 
@@ -113,7 +111,10 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     turns: 0,
     lastText: '',
     seenToolCalls: new Set<string>(),
-    artifact: undefined as { outRef: string; out: unknown; spent: Spend } | undefined,
+    artifact: undefined as
+      | { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend }
+      | undefined,
+    latestOutcome: undefined as AgentRunOutcome | undefined,
     teardown: undefined as (() => Promise<void>) | undefined,
     note: 'starting',
   }
@@ -224,6 +225,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
         let events: AsyncIterable<SandboxEvent>
         let sawLlmCall = false
+        const outcomeTracker = createAgentRunOutcomeTracker()
         try {
           if (!handle) {
             const opened = await lineage.start(spec, prompt, turnController.signal, promptOptions)
@@ -233,41 +235,40 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
             events = await lineage.continue(handle, prompt, turnController.signal, promptOptions)
           }
           for await (const event of events) {
+            outcomeTracker.observe(event)
             recordEvent(event)
-            // The same terminal truth boundary the single-shot leaf applies, after the event is
-            // recorded: an in-band SDK failure, or a box serving a model other than the one the
-            // exact profile asked for, ends the turn instead of settling it as an empty success.
-            assertSandboxEventSucceeded(event)
-            assertSandboxServedModel(event, requested)
             const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
-            if (!call) continue
-            sawLlmCall = true
-            const callTokensKnown =
-              call.tokensKnown !== false &&
-              typeof call.tokensIn === 'number' &&
-              typeof call.tokensOut === 'number'
-            if (!callTokensKnown) tokensKnown = false
-            const input = call.tokensIn ?? 0
-            const output = call.tokensOut ?? 0
-            if (input || output || !callTokensKnown) {
-              const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
-                kind: 'tokens',
-                input,
-                output,
-                ...(callTokensKnown ? {} : { tokensKnown: false }),
-                // Classify against THIS call's own prompt total, so the classes partition the
-                // number they belong to rather than a running sum from other calls.
-                ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
+            if (call) {
+              sawLlmCall = true
+              const callTokensKnown =
+                call.tokensKnown !== false &&
+                typeof call.tokensIn === 'number' &&
+                typeof call.tokensOut === 'number'
+              if (!callTokensKnown) tokensKnown = false
+              const input = call.tokensIn ?? 0
+              const output = call.tokensOut ?? 0
+              if (input || output || !callTokensKnown) {
+                const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
+                  kind: 'tokens',
+                  input,
+                  output,
+                  ...(callTokensKnown ? {} : { tokensKnown: false }),
+                  // Classify against THIS call's own prompt total, so the classes partition the
+                  // number they belong to rather than a running sum from other calls.
+                  ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
+                }
+                addTokenUsage(tokens, usage)
+                yield usage
               }
-              addTokenUsage(tokens, usage)
-              yield usage
+              if (typeof call.costUsd === 'number' && call.costUsd > 0) {
+                usd += call.costUsd
+                // Numeric sandbox cost has no billing-provenance/completeness receipt.
+                yield { kind: 'cost', usd: call.costUsd, usdKnown: false }
+              }
             }
-            if (typeof call.costUsd === 'number' && call.costUsd > 0) {
-              usd += call.costUsd
-              // Numeric sandbox cost has no billing-provenance/completeness receipt.
-              yield { kind: 'cost', usd: call.costUsd, usdKnown: false }
-            }
+            assertSandboxServedModel(event, requested)
           }
+          state.latestOutcome = outcomeTracker.finish()
         } catch (e) {
           cleanup()
           // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
@@ -319,10 +320,15 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         .read()
         .filter((n) => n.kind === 'tool')
         .map((n) => n.label),
+      ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
     }
+    const verdict = state.latestOutcome
+      ? projectSandboxOutcome(state.latestOutcome).verdict
+      : undefined
     state.artifact = {
       outRef: args.contentRef('sandbox-steerable', { harness: args.harness, out }),
       out,
+      ...(verdict ? { verdict } : {}),
       spent,
     }
   }

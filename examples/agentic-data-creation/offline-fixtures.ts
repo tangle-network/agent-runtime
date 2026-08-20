@@ -121,6 +121,7 @@ export function challengerClient(): SandboxClient {
           data: { model: 'offline-challenger', tokensIn: 320, tokensOut: 90, costUsd: 0.0006 },
         },
         { type: 'result', data: { result: example } },
+        { type: 'done', data: { outcome: { type: 'completed' } } },
       ]
     },
   })
@@ -152,6 +153,7 @@ export function solverClient(strength: 'weak' | 'strong'): SandboxClient {
           },
         },
         { type: 'result', data: { result: { answer } } },
+        { type: 'done', data: { outcome: { type: 'completed' } } },
       ]
     },
   })

@@ -75,6 +75,7 @@ function sandboxClient(answer: string): { client: { create: () => Promise<Sandbo
           async *streamPrompt(): AsyncGenerator<SandboxEvent> {
             files.set('/work/answer.txt', answer)
             yield { type: 'result', data: { ok: true, text: 'wrote the answer' } } as SandboxEvent
+            yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
           },
           exec(command: string): Promise<ExecResult> {
             // A destroyed container cannot answer. Throwing here is what makes "the validator saw

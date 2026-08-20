@@ -36,6 +36,7 @@ function sandboxClient(over: { createFails?: string } = {}) {
         id: 'box-0',
         async *streamPrompt(): AsyncGenerator<SandboxEvent> {
           yield { type: 'result', data: { ok: true, text: 'delivered' } } as SandboxEvent
+          yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
         },
         async delete() {},
       } as unknown as SandboxInstance

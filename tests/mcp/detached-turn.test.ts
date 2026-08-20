@@ -672,6 +672,7 @@ describe('detachedSessionDelegate detached path', () => {
           },
         },
       }
+      yield { type: 'done', data: { outcome: { type: 'completed' } } }
     })
     const box = { ...fake.box, streamPrompt }
     const executor = createSiblingSandboxExecutor({ client: fakeClient(box) })
