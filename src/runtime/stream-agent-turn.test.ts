@@ -870,6 +870,57 @@ describe('streamAgentTurn: executor backend', () => {
     expect(toreDown).toBe(1)
   })
 
+  it('projects one Sandbox executor result without a consumer wrapper', async () => {
+    const client = inProcessSandboxClient({
+      onPrompt: () =>
+        [
+          {
+            type: 'message.part.updated',
+            data: {
+              part: {
+                type: 'tool',
+                callID: 'call-1',
+                tool: 'read',
+                state: { status: 'completed', input: { path: 'README.md' }, output: 'ok' },
+              },
+            },
+          },
+          {
+            type: 'message.part.updated',
+            data: { part: { id: 'answer-1', type: 'text', text: 'cloud answer' } },
+          },
+          { type: 'result', data: { finalText: 'tool noise\ncloud answer' } },
+          doneEvent({ tokenUsage: { inputTokens: 9, outputTokens: 3 } }),
+        ] as SandboxEvent[],
+    })
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'sandbox', sandboxClient: client }),
+          profile: { ...TEST_PROFILE, harness: 'opencode' },
+        },
+        { prompt: 'read the file' },
+        { preserveToolParts: true },
+      ),
+    )
+
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('cloud answer')
+    expect(turn.sandboxOutcome).toEqual({ success: true, status: 'success' })
+    expect(turn.events).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_call',
+        toolCallId: 'call-1',
+        toolName: 'read',
+        args: '{"path":"README.md"}',
+      }),
+    )
+    expect(finalOf(turn.events).metadata).toMatchObject({
+      sandboxOutcome: { success: true, status: 'success' },
+    })
+  })
+
   it('uses one detached profile snapshot even when the caller mutates nested input mid-turn', async () => {
     const providerOptions = { mode: 'before' }
     const profile = {

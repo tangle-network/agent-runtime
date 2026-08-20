@@ -35,7 +35,22 @@ function sandboxClient(over: { createFails?: string } = {}) {
       return {
         id: 'box-0',
         async *streamPrompt(): AsyncGenerator<SandboxEvent> {
-          yield { type: 'result', data: { ok: true, text: 'delivered' } } as SandboxEvent
+          yield {
+            type: 'message.part.updated',
+            data: {
+              part: {
+                type: 'tool',
+                callID: 'call-1',
+                tool: 'read',
+                state: { status: 'completed', input: { path: 'README.md' }, output: 'ok' },
+              },
+            },
+          } as SandboxEvent
+          yield {
+            type: 'message.part.updated',
+            data: { part: { id: 'answer-1', type: 'text', text: 'delivered' } },
+          } as SandboxEvent
+          yield { type: 'result', data: { finalText: 'tool noise\ndelivered' } } as SandboxEvent
           yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
         },
         async delete() {},
@@ -59,6 +74,10 @@ describe('sandbox leaf — the settle contract', () => {
     await drain(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
     const artifact = executor.resultArtifact()
     expect(artifact.verdict?.valid).toBe(true)
+    expect(artifact.out).toMatchObject({
+      content: 'delivered',
+      toolCalls: [{ id: 'call-1', name: 'read', arguments: { path: 'README.md' } }],
+    })
     expect((artifact.out as { events: SandboxEvent[] }).events.length).toBeGreaterThan(0)
   })
 

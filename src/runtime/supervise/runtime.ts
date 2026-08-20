@@ -42,7 +42,6 @@ import {
   renderInputPartsAsText,
 } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
-import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import {
   assertProfileMaterialization,
   defineProfileMaterializationContract,
@@ -89,6 +88,7 @@ import {
 } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
+import { type SandboxLeafOut, sandboxLeafOutputFromEvents } from '../sandbox-executor-output'
 import type {
   AgentRunSpec,
   Driver,
@@ -244,6 +244,8 @@ export interface SandboxSeam {
    */
   steering?: SandboxSteeringOptions
 }
+
+export type { SandboxLeafOut } from '../sandbox-executor-output'
 
 /**
  * UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn.
@@ -1403,11 +1405,11 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     )
   }
 
-  // The leaf runs an opaque, self-parallelizing coding harness; the loop just
-  // refines once over it. Output is the raw event stream parsed to its tail text.
+  // The leaf runs an opaque, self-parallelizing coding harness. Runtime keeps
+  // its complete event archive and projects the visible answer and tool calls.
   const output: OutputAdapter<SandboxLeafOut> = {
     parse(events: SandboxEvent[]): SandboxLeafOut {
-      return { events }
+      return sandboxLeafOutputFromEvents(events)
     },
   }
   const driver = singleShotDriver<SandboxLeafOut>(maxIterations)
@@ -1450,13 +1452,6 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     sandboxMaterialization,
     sandboxBinding,
   )
-}
-
-/** Parsed output of the sandbox leaf: the iteration's raw event stream. What a
- *  `SandboxSeam.validator` receives as its `output` argument. */
-export interface SandboxLeafOut {
-  events: SandboxEvent[]
-  outcome?: AgentRunOutcome
 }
 
 interface StreamSandboxArgs {
