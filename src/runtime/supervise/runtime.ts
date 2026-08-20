@@ -245,7 +245,7 @@ export interface SandboxSeam {
   steering?: SandboxSteeringOptions
 }
 
-export type { SandboxLeafOut } from '../sandbox-executor-output'
+export type { SandboxExecutorToolCall, SandboxLeafOut } from '../sandbox-executor-output'
 
 /**
  * UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn.

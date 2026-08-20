@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.142.3` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.143.0` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -549,7 +549,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 172 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 813 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 814 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1023,6 +1023,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 813 exports.
 | `SandboxClient` | interface | Minimal sandbox client surface the kernel calls. Satisfied structurally by |
 | `SandboxClientProviderOptions` | interface | Options for wrapping the current Tangle sandbox client as an environment provider. |
 | `SandboxEvent` | interface | SSE event from sandbox streaming. |
+| `SandboxExecutorToolCall` | interface | One tool call retained in a Sandbox executor artifact. |
 | `SandboxLeafOut` | interface | Parsed output of one Sandbox executor turn. |
 | `SandboxLineage` | interface | Owns box + session handles for one loop run and offers the three |
 | `SandboxLineageHandle` | interface | A live box plus the session that threads its iterations together. Handed back |

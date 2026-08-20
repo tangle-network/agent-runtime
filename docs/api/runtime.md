@@ -852,7 +852,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-18)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-19)
 
 ##### parent?
 
@@ -7610,6 +7610,50 @@ Sequence for synthesized call ids when an event carries none.
 
 ***
 
+### SandboxExecutorToolCall
+
+One tool call retained in a Sandbox executor artifact.
+
+#### Properties
+
+##### id?
+
+> `optional` **id?**: `string`
+
+##### name
+
+> **name**: `string`
+
+##### arguments
+
+> **arguments**: `unknown`
+
+***
+
+### SandboxLeafOut
+
+Parsed output of one Sandbox executor turn.
+
+#### Properties
+
+##### events
+
+> **events**: `SandboxEvent`[]
+
+##### content
+
+> **content**: `string`
+
+##### toolCalls?
+
+> `optional` **toolCalls?**: [`SandboxExecutorToolCall`](#sandboxexecutortoolcall)[]
+
+##### outcome?
+
+> `optional` **outcome?**: `AgentRunOutcome`
+
+***
+
 ### SandboxLineageHandle
 
 **`Experimental`**
@@ -7960,7 +8004,7 @@ nothing" from a transport/FS fault.
 
 **`Experimental`**
 
-Outcome settled by the public Sandbox tracker after the stream drains.
+Outcome settled by the public Sandbox tracker after the stream drained.
 
 ##### readError?
 
@@ -14184,23 +14228,6 @@ Online observer of each tool step — the seam a `DetectorMonitor` taps to watch
 
 ***
 
-### SandboxLeafOut
-
-Parsed output of the sandbox leaf: the iteration's raw event stream. What a
- `SandboxSeam.validator` receives as its `output` argument.
-
-#### Properties
-
-##### events
-
-> **events**: `SandboxEvent`[]
-
-##### outcome?
-
-> `optional` **outcome?**: `AgentRunOutcome`
-
-***
-
 ### SandboxSteeringOptions
 
 Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
@@ -14272,11 +14299,11 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 ##### artifact()
 
-> **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
+> **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
 
 ###### Returns
 
-\{ `outRef`: `string`; `out`: `unknown`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
+\{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
 
 ##### teardown()
 
@@ -24766,8 +24793,9 @@ Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
 the event carries usage/cost data. Returns `undefined` for non-cost events
 so the kernel can iterate the full stream without branching.
 
-Pure by contract: it never throws on a failed run. The public Sandbox outcome
-tracker settles terminal truth after the complete stream. Post-hoc readers — [sumSandboxUsage](#sumsandboxusage), the
+Pure by contract: it never throws on a failed run. The terminal truth
+boundary is the public Sandbox outcome tracker, applied after the complete
+stream. Post-hoc readers — [sumSandboxUsage](#sumsandboxusage), the
 analyst trace store, the chat projection — must stay able to read a failed
 turn's events, which is when reading them matters most.
 

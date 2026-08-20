@@ -1313,6 +1313,7 @@
       "SandboxClientProviderOptions": "type",
       "SandboxControlClient": "type",
       "SandboxEvent": "type",
+      "SandboxExecutorToolCall": "type",
       "SandboxInstance": "type",
       "SandboxLeafOut": "type",
       "SandboxLineage": "type",
