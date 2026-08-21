@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import type { NodeId } from '../runtime/supervise/types'
-import { parseCommittedJsonLines } from './jsonl-file'
+import { isNoEntError, parseCommittedJsonLines } from './jsonl-file'
 
 export interface DurableCoordinationStreamIdentity {
   readonly runId: string
@@ -151,13 +151,4 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
-}
-
-function isNoEntError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code: unknown }).code === 'ENOENT'
-  )
 }

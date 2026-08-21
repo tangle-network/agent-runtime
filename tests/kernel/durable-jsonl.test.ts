@@ -2,9 +2,11 @@ import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { FileConversationJournal } from '../../src/conversation/journal'
 import { writeAllBytes } from '../../src/durable/jsonl-file'
 import { FileSpawnJournal } from '../../src/durable/spawn-journal'
 import type { CoordinationEvent } from '../../src/mcp/tools/coordination'
+import { FileCorpus } from '../../src/runtime/personify/corpus'
 import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 
 describe('durable append-only JSONL', () => {
@@ -102,6 +104,73 @@ describe('durable append-only JSONL', () => {
 
       await writeFile(path, '{bad}\n{}\n')
       await expect(log.load('run', 'owner')).rejects.toThrow(/malformed JSONL record at line 1/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+  it('recovers only an invalid unterminated final conversation record', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'conversation-jsonl-tail-'))
+    try {
+      const path = join(dir, 'conversation.jsonl')
+      const journal = new FileConversationJournal(path)
+      await journal.beginRun('run', '2026-08-21T00:00:00.000Z')
+      await journal.appendTurn('run', {
+        turnId: 'run:0:agent',
+        index: 0,
+        speaker: 'agent',
+        content: 'hello',
+      })
+      await appendFile(path, '{"kind":"turn","runId":"run"')
+
+      // The uncommitted tail is skipped, not fatal: a crash mid-append must not make every later
+      // read of an acknowledged transcript throw.
+      await expect(journal.loadRun('run')).resolves.toMatchObject({
+        runId: 'run',
+        turns: [{ turnId: 'run:0:agent' }],
+      })
+      await journal.appendTurn('run', {
+        turnId: 'run:1:user',
+        index: 1,
+        speaker: 'user',
+        content: 'again',
+      })
+      const resumed = await journal.loadRun('run')
+      expect(resumed?.turns.map((turn) => turn.turnId)).toEqual(['run:0:agent', 'run:1:user'])
+
+      await writeFile(path, '{bad}\n')
+      await expect(journal.loadRun('run')).rejects.toThrow(/malformed JSONL record at line 1/)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('recovers only an invalid unterminated final corpus record', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'corpus-jsonl-tail-'))
+    try {
+      const path = join(dir, 'corpus.jsonl')
+      const corpus = new FileCorpus(path)
+      const fact = {
+        schemaVersion: '1.0.0' as const,
+        id: 'f0',
+        runId: 'run',
+        producedAt: '2026-08-21T00:00:00.000Z',
+        area: 'tooling',
+        claim: 'check state before acting',
+        tags: ['x'],
+        confidence: 0.9,
+      }
+      expect(await corpus.append(fact)).toEqual({ succeeded: true })
+      await appendFile(path, '{"id":"f1"')
+
+      await expect(corpus.query({})).resolves.toMatchObject([{ id: 'f0' }])
+      expect(await corpus.append({ ...fact, id: 'f1', claim: 'read the failure first' })).toEqual({
+        succeeded: true,
+      })
+      const stored = await corpus.query({})
+      expect(stored.map((record) => record.id).sort()).toEqual(['f0', 'f1'])
+
+      await writeFile(path, '{bad}\n')
+      await expect(corpus.query({})).rejects.toThrow(/malformed JSONL record at line 1/)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

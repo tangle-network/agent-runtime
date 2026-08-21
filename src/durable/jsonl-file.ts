@@ -61,7 +61,9 @@ export async function prepareJsonlAppend(path: string): Promise<boolean> {
   }
 }
 
-function isNoEntError(error: unknown): boolean {
+/** True for a filesystem error meaning "the file is not there yet" — the one condition an
+ *  append-only reader treats as an empty log rather than a fault. */
+export function isNoEntError(error: unknown): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&

@@ -17,6 +17,7 @@
  */
 
 import {
+  isNoEntError,
   parseCommittedJsonLines,
   prepareJsonlAppend,
   writeAllBytes,
@@ -221,13 +222,4 @@ function emptyPriorCoordination(ownerId?: CoordinationOwnerId): PriorCoordinatio
     mail: [],
     records: [],
   }
-}
-
-function isNoEntError(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code: unknown }).code === 'ENOENT'
-  )
 }

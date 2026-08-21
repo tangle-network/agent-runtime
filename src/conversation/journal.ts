@@ -15,6 +15,12 @@
  * @stable
  */
 
+import {
+  isNoEntError,
+  parseCommittedJsonLines,
+  prepareJsonlAppend,
+  writeAllBytes,
+} from '../durable/jsonl-file'
 import type { ConversationTurn, HaltReason } from './types'
 
 export interface ConversationJournalEntry {
@@ -118,8 +124,10 @@ export class InMemoryConversationJournal implements ConversationJournal {
  * (thousands of turns, not millions). For huge runs, plug in a real DB
  * adapter; the interface is small.
  *
- * Each `appendTurn` / `recordHalt` calls `fsync` after the write so a
- * process crash between writes never loses an acknowledged turn.
+ * Reads and appends over the shared append-only spine (`durable/jsonl-file`): each
+ * `appendTurn` / `recordHalt` finishes a short write and calls `fsync`, so a process
+ * crash between writes never loses an acknowledged turn, and a crash DURING one leaves
+ * an uncommitted final line that the next read skips and the next append truncates.
  */
 export class FileConversationJournal implements ConversationJournal {
   constructor(private readonly path: string) {}
@@ -133,10 +141,8 @@ export class FileConversationJournal implements ConversationJournal {
       if (isNoEntError(err)) return undefined
       throw err
     }
-    const lines = text.split('\n').filter((line) => line.length > 0)
     let entry: ConversationJournalEntry | undefined
-    for (const line of lines) {
-      const record = JSON.parse(line) as JournalRecord
+    for (const record of parseCommittedJsonLines<JournalRecord>(text, this.path)) {
       if (record.runId !== runId) continue
       if (record.kind === 'begin') {
         entry = { runId, startedAt: record.startedAt, turns: [] }
@@ -185,9 +191,10 @@ export class FileConversationJournal implements ConversationJournal {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     await fs.mkdir(path.dirname(this.path), { recursive: true })
+    const needsSeparator = await prepareJsonlAppend(this.path)
     const fh = await fs.open(this.path, 'a')
     try {
-      await fh.write(`${JSON.stringify(record)}\n`)
+      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
       await fh.sync()
     } finally {
       await fh.close()
@@ -199,12 +206,3 @@ type JournalRecord =
   | { kind: 'begin'; runId: string; startedAt: string }
   | { kind: 'turn'; runId: string; turn: ConversationTurn }
   | { kind: 'halt'; runId: string; halted: HaltReason; endedAt: string }
-
-function isNoEntError(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code: unknown }).code === 'ENOENT'
-  )
-}
