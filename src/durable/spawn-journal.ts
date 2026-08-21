@@ -39,7 +39,7 @@ import type {
   TreeView,
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
-import { addTokenUsage, cloneTokenUsage, usdEstimatedOf, zeroTokenUsage } from '../runtime/util'
+import { addSpend, cloneSpend, zeroSpend } from '../runtime/util'
 import { contentAddress } from './content-address'
 import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
 
@@ -915,7 +915,7 @@ export async function replaySpawnTree(
       out,
       outRef: ev.outRef,
       verdict: ev.verdict,
-      spent: cloneJournalSpend(ev.spent),
+      spent: cloneSpend(ev.spent),
       ...(ev.providerModel === undefined
         ? {}
         : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
@@ -1036,7 +1036,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     if (ev.kind === 'settled') {
       const node = requireNode(nodes, ev.id)
       node.status = ev.status === 'done' ? 'done' : 'failed'
-      node.spent = cloneJournalSpend(ev.spent)
+      node.spent = cloneSpend(ev.spent)
       node.providerModel = copyProviderModelEvidence(ev.providerModel)
       node.outRef = ev.outRef
       node.trace = traceEvidenceFor(ev)
@@ -1076,7 +1076,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
   for (const ev of events) {
     if (ev.kind !== 'metered') continue
     const node = requireNode(nodes, ev.id)
-    node.spent = addJournalSpend(node.spent, ev.spend)
+    node.spent = addSpend(node.spent, ev.spend)
   }
   const snapshots = [...nodes.values()].map(freezeSnapshot)
   return {
@@ -1128,23 +1128,6 @@ interface MutableSnapshot {
   settledAt?: number
 }
 
-function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
-}
-
-/** Copy a durable spend into a read model without dropping cache completeness. */
-function cloneJournalSpend(spend: Spend): Spend {
-  return {
-    iterations: spend.iterations,
-    tokens: cloneTokenUsage(spend.tokens),
-    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
-    usd: spend.usd,
-    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
-    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
-    ms: spend.ms,
-  }
-}
-
 /** Copy provider evidence at the journal boundary so replay never exposes mutable event state. */
 function copyProviderModelEvidence(
   evidence: NodeSnapshot['providerModel'],
@@ -1167,23 +1150,6 @@ function copyProviderModelEvidence(
       ? { status: 'unknown' as const, attempts, models, reason: evidence.reason }
       : { status: 'known' as const, attempts, models },
   )
-}
-
-/** Add a `metered` spend record onto a node's accumulated spend (per channel). */
-function addJournalSpend(a: Spend, b: Spend): Spend {
-  return {
-    iterations: a.iterations + b.iterations,
-    tokens: (() => {
-      const tokens = cloneTokenUsage(a.tokens)
-      addTokenUsage(tokens, b.tokens)
-      return tokens
-    })(),
-    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
-    usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ...usdEstimatedOf(a, b),
-    ms: a.ms + b.ms,
-  }
 }
 
 function requireNode(nodes: Map<NodeId, MutableSnapshot>, id: NodeId): MutableSnapshot {

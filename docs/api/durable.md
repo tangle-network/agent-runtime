@@ -524,6 +524,122 @@ execution order; causal/runtime order remains available on the underlying event.
 
 ***
 
+### PursuitNodeUsage
+
+One node's token usage by class. Cache and reasoning classes are absent when the provider did
+not report them — absence is not zero. `tokensKnown` is `false` when work happened whose token
+count no provider reported, which makes `input`/`output` a floor.
+
+#### Properties
+
+##### input
+
+> `readonly` **input**: `number`
+
+##### output
+
+> `readonly` **output**: `number`
+
+##### cacheRead?
+
+> `readonly` `optional` **cacheRead?**: `number`
+
+##### cacheWrite?
+
+> `readonly` `optional` **cacheWrite?**: `number`
+
+##### reasoning?
+
+> `readonly` `optional` **reasoning?**: `number`
+
+##### tokensKnown
+
+> `readonly` **tokensKnown**: `boolean`
+
+***
+
+### PursuitNodeCost
+
+One node's dollar cost with the provenance that decides whether it may be compared or summed.
+
+#### Properties
+
+##### usd
+
+> `readonly` **usd**: `number`
+
+##### usdKnown
+
+> `readonly` **usdKnown**: `boolean`
+
+##### usdEstimated?
+
+> `readonly` `optional` **usdEstimated?**: `number`
+
+The part of `usd` a model catalog priced because no provider receipt covered it.
+
+##### provenance
+
+> `readonly` **provenance**: [`PursuitCostProvenance`](#pursuitcostprovenance)
+
+***
+
+### PursuitNodeTiming
+
+One node's clock. `wallMs` is `settledAt - startedAt` and is deliberately distinct from the
+executor-reported `spent.ms` sums, which under-report and overlap across parallel children.
+`firstTokenAt` stays absent unless a provider reports that instant; it is never inferred from
+`firstOutputAt`, which is when the node first reported usage for a turn.
+
+#### Properties
+
+##### startedAt
+
+> `readonly` **startedAt**: `number`
+
+##### firstOutputAt?
+
+> `readonly` `optional` **firstOutputAt?**: `number`
+
+##### firstTokenAt?
+
+> `readonly` `optional` **firstTokenAt?**: `number`
+
+##### settledAt?
+
+> `readonly` `optional` **settledAt?**: `number`
+
+##### wallMs?
+
+> `readonly` `optional` **wallMs?**: `number`
+
+***
+
+### PursuitRunTotals
+
+One run's spend counted once, and each node's own share of it. `inclusive` and the entries of
+`exclusiveByNode` are the two views a client needs to show a tree without double counting.
+
+#### Properties
+
+##### inclusive
+
+> `readonly` **inclusive**: [`Spend`](index.md#spend)
+
+The whole run counted once. A node's settled `spent` already contains the child work its own
+nested tree reported, so summing only the run's top-level nodes plus every node's own
+inference counts each model call exactly once.
+
+##### exclusiveByNode
+
+> `readonly` **exclusiveByNode**: `Readonly`\<`Record`\<`string`, [`Spend`](index.md#spend)\>\>
+
+Each node's own share: its reported spend and own inference minus what its direct children
+reported. Keyed by node id, plus the run root when the root itself metered inference. The
+entries sum to `inclusive` by construction.
+
+***
+
 ### PursuitRunProjection
 
 #### Properties
@@ -576,6 +692,16 @@ execution order; causal/runtime order remains available on the underlying event.
 
 > `readonly` **decisions**: `Readonly`\<`Record`\<`string`, `number`\>\>
 
+##### totals
+
+> `readonly` **totals**: [`PursuitRunTotals`](#pursuitruntotals)
+
+##### spendGaps?
+
+> `readonly` `optional` **spendGaps?**: readonly [`SpendGap`](index.md#spendgap)[]
+
+The nodes whose accounting is incomplete. Present exactly when non-empty.
+
 ***
 
 ### PursuitNodeProjection
@@ -604,6 +730,8 @@ Node ids are scoped to this concrete Runtime tree; `(runId,id)` is identity.
 
 > `readonly` `optional` **runtime?**: `string`
 
+The runner that executed this node — the executor's own name, not a harness guess.
+
 ##### depth?
 
 > `readonly` `optional` **depth?**: `number`
@@ -630,7 +758,93 @@ Node ids are scoped to this concrete Runtime tree; `(runId,id)` is identity.
 
 ##### spent?
 
-> `readonly` `optional` **spent?**: `unknown`
+> `readonly` `optional` **spent?**: [`Spend`](index.md#spend)
+
+The child work this node reported at settlement. Absent until a terminal record lands.
+
+##### ownInference?
+
+> `readonly` `optional` **ownInference?**: [`Spend`](index.md#spend)
+
+This node's OWN inference, re-homed from its nested tree. Absent when it drove no turns.
+
+##### usage?
+
+> `readonly` `optional` **usage?**: [`PursuitNodeUsage`](#pursuitnodeusage)
+
+Absent until a spend record lands; the run's `spendGaps` then names the node.
+
+##### cost?
+
+> `readonly` `optional` **cost?**: [`PursuitNodeCost`](#pursuitnodecost)
+
+Absent until a spend record lands; the run's `spendGaps` then names the node.
+
+##### timing?
+
+> `readonly` `optional` **timing?**: [`PursuitNodeTiming`](#pursuitnodetiming)
+
+##### attemptId?
+
+> `readonly` `optional` **attemptId?**: `string`
+
+The kernel-minted attempt this node's execution binding is keyed on.
+
+##### execution?
+
+> `readonly` `optional` **execution?**: `object`
+
+The runner-native execution the node bound to: a request, session, run, process, or tree.
+
+###### kind
+
+> `readonly` **kind**: `string`
+
+###### id
+
+> `readonly` **id**: `string`
+
+##### model?
+
+> `readonly` `optional` **model?**: `string`
+
+The model the materialization receipt names, when the runner reported one.
+
+##### backend?
+
+> `readonly` `optional` **backend?**: `string`
+
+The concrete backend the profile materialized onto.
+
+##### placement?
+
+> `readonly` `optional` **placement?**: `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>\>
+
+##### modelCalls?
+
+> `readonly` `optional` **modelCalls?**: readonly `string`[]
+
+Model-call identifiers this node's own turns reported, in order, deduplicated.
+
+##### materialization?
+
+> `readonly` `optional` **materialization?**: [`ProfileMaterializationReceipt`](runtime.md#profilematerializationreceipt)
+
+##### executionBindings?
+
+> `readonly` `optional` **executionBindings?**: readonly [`ExecutionBindingReceipt`](runtime.md#executionbindingreceipt)[]
+
+##### providerModel?
+
+> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence)
+
+What the provider itself reported serving, and why it is unknown when it is.
+
+##### trace?
+
+> `readonly` `optional` **trace?**: [`WorkerTraceEvidence`](index.md#workertraceevidence)
+
+Content-addressed pointer to this node's persisted tool trace, or why there is none.
 
 ##### outRef?
 
@@ -651,6 +865,10 @@ Node ids are scoped to this concrete Runtime tree; `(runId,id)` is identity.
 ##### infra?
 
 > `readonly` `optional` **infra?**: `boolean`
+
+##### restartCount?
+
+> `readonly` `optional` **restartCount?**: `number`
 
 ##### wait?
 
@@ -675,6 +893,10 @@ Node ids are scoped to this concrete Runtime tree; `(runId,id)` is identity.
 ##### eventCount
 
 > `readonly` **eventCount**: `number`
+
+##### turnCount
+
+> `readonly` **turnCount**: `number`
 
 ***
 
@@ -1573,6 +1795,24 @@ already knowing the root node or coordination run id stored inside it.
 
 ***
 
+### PursuitCostProvenance
+
+> **PursuitCostProvenance** = `"reported"` \| `"estimated"` \| `"partial"` \| `"unknown"`
+
+Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` =
+a model catalog priced all of it; `partial` = a provider billed part and a catalog priced the
+rest; `unknown` = nothing priced it, so `usd` is a floor and never the cost.
+
+***
+
+### PursuitNodePlacement
+
+> **PursuitNodePlacement** = `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>\>
+
+Where and how a node's execution was placed, read off its execution-binding receipt.
+
+***
+
 ### PursuitNodeStatus
 
 > **PursuitNodeStatus** = `"running"` \| `"done"` \| `"down"`
@@ -1738,6 +1978,10 @@ Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal node
 state comes only from `agent.child`; concrete run state comes only from the root
 `agent.run` lifecycle emitted by `supervisePursuit`. Node identity is scoped to the
 concrete Runtime run so independent trees may both contain `root:s0` without aliasing.
+
+Usage, cost and timing are reported at the class the runtime measured them at. A missing
+class stays ABSENT and the run names the node in `spendGaps`; nothing here converts an
+unmeasured channel into a zero, because a fabricated zero is indistinguishable from free work.
 
 #### Parameters
 

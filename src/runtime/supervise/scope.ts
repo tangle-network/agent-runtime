@@ -35,7 +35,7 @@ import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
-import { cloneTokenUsage, zeroTokenUsage } from '../util'
+import { cloneTokenUsage, zeroSpend } from '../util'
 import { abortError } from './abortable'
 import {
   type BudgetPool,
@@ -942,6 +942,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             ...(identity ? { identity } : {}),
             budget: opts.budget,
             depth: args.depth,
+            attemptId,
+            startedAt,
           },
         },
         { signal: args.signal },
@@ -1736,6 +1738,8 @@ async function finalizeSettlement<Out>(
           reason: settlement.reason,
           infra: settlement.infra,
           spent: child.spent,
+          restartCount: settlement.restartCount,
+          ...settledNodeEvidence(child, settlement, settledAt),
         },
       },
       { signal: args.signal },
@@ -1799,6 +1803,7 @@ async function finalizeSettlement<Out>(
         score: settlement.verdict?.score,
         valid: settlement.verdict?.valid,
         spent: settlement.spent,
+        ...settledNodeEvidence(child, settlement, settledAt),
       },
     },
     { signal: args.signal },
@@ -1814,6 +1819,42 @@ async function finalizeSettlement<Out>(
     trace: settlement.trace,
     settledAt,
     seq,
+  }
+}
+
+/**
+ * The evidence a settled node carries beyond its status: the receipts that name what actually
+ * ran, the own-inference spend the parent tree re-homes as a `metered` event, and the wall-clock
+ * window. One builder feeds BOTH terminal paths, so an observer never sees a `down` node
+ * described in different terms from a `done` one. Every field is omitted when the fact is
+ * absent — an unreported receipt must not read as an empty one. Snapshots are detached because
+ * an observer may serialize them after the live child has moved on.
+ */
+function settledNodeEvidence(
+  child: LiveChild,
+  settlement: PreSeqSettled,
+  settledAt: number,
+): Record<string, unknown> {
+  return {
+    runtime: child.runtime,
+    startedAt: child.startedAt,
+    settledAt,
+    ...(settlement.metered ? { metered: detachedSnapshot(settlement.metered, 'metered') } : {}),
+    ...(child.providerModel
+      ? { providerModel: detachedSnapshot(child.providerModel, 'provider model evidence') }
+      : {}),
+    ...(child.materialization
+      ? { materialization: detachedSnapshot(child.materialization, 'materialization receipt') }
+      : {}),
+    ...(child.executionBindings.length > 0
+      ? {
+          executionBindings: detachedSnapshot(
+            [...child.executionBindings],
+            'execution binding receipts',
+          ),
+        }
+      : {}),
+    trace: detachedSnapshot(settlement.trace, 'worker trace evidence'),
   }
 }
 
@@ -2382,10 +2423,6 @@ function downRecord(
     ...(providerModel ? { providerModel } : {}),
     ...(metered ? { metered } : {}),
   }
-}
-
-function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.145.0` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.145.1` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -370,7 +370,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 54 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 28 exports.
+Import from `@tangle-network/agent-runtime/durable` — 34 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -391,7 +391,13 @@ Import from `@tangle-network/agent-runtime/durable` — 28 exports.
 | `ChatTurnResult` | interface | HTTP response values returned for one chat turn. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
+| `PursuitNodeCost` | interface | One node's dollar cost with the provenance that decides whether it may be compared or summed. |
+| `PursuitNodeTiming` | interface | One node's clock. `wallMs` is `settledAt - startedAt` and is deliberately distinct from the |
+| `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
+| `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
+| `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
+| `PursuitNodePlacement` | type | Where and how a node's execution was placed, read off its execution-binding receipt. |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `PursuitRunProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `ObserverRecordKind`, `PursuitNodeStatus`, `PursuitRunStatus`.
 

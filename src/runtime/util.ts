@@ -7,6 +7,7 @@
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'
+import type { Spend } from './supervise/types'
 import type { LoopTokenUsage } from './types'
 
 /**
@@ -155,6 +156,43 @@ export function usdEstimatedOf(...spends: ReadonlyArray<{ usdEstimated?: number 
     total += spend.usdEstimated
   }
   return priced ? { usdEstimated: total } : {}
+}
+
+/** A conserved spend with every channel at zero and no completeness claim on it. */
+export function zeroSpend(): Spend {
+  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+}
+
+/** Copy a conserved spend without dropping a completeness marker or the catalog-priced part. */
+export function cloneSpend(spend: Spend): Spend {
+  return {
+    iterations: spend.iterations,
+    tokens: cloneTokenUsage(spend.tokens),
+    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
+    usd: spend.usd,
+    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
+    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
+    ms: spend.ms,
+  }
+}
+
+/**
+ * Sum two conserved spends per channel. Tokens and dollars never fold into each other, an
+ * incomplete input keeps the sum incomplete on that channel, and the catalog-priced part of the
+ * dollar total is summed separately so `usd - usdEstimated` still names what a provider billed.
+ */
+export function addSpend(a: Spend, b: Spend): Spend {
+  const tokens = cloneTokenUsage(a.tokens)
+  addTokenUsage(tokens, b.tokens)
+  return {
+    iterations: a.iterations + b.iterations,
+    tokens,
+    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
+    usd: a.usd + b.usd,
+    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
+    ...usdEstimatedOf(a, b),
+    ms: a.ms + b.ms,
+  }
 }
 
 /** Copy a token subtotal without dropping optional provider cache telemetry. */

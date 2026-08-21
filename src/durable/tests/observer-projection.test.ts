@@ -18,6 +18,70 @@ function record(
   return { ...unsigned, digest: observerRecordDigest(unsigned) }
 }
 
+/** Chain a list of unsigned observations into one verifiable journal. */
+function chain(
+  inputs: ReadonlyArray<
+    Omit<ObserverRecord, 'schemaVersion' | 'pursuitId' | 'sequence' | 'observedAt' | 'digest'>
+  >,
+): ObserverRecord[] {
+  const out: ObserverRecord[] = []
+  for (const [index, input] of inputs.entries()) {
+    out.push(record(index + 1, input, out.at(-1)?.digest))
+  }
+  return out
+}
+
+function spawn(
+  runId: string,
+  childId: string,
+  parentId: string,
+  label: string,
+): Parameters<typeof chain>[0][number] {
+  return {
+    kind: 'event',
+    event: {
+      id: `spawn:${childId}`,
+      pursuitId: 'pursuit:test',
+      runId,
+      target: 'agent.spawn',
+      phase: 'after',
+      timestamp: 1,
+      parentId,
+      payload: { childId, label, runtime: 'sandbox' },
+    },
+  }
+}
+
+function settle(
+  runId: string,
+  childId: string,
+  parentId: string,
+  spent: Record<string, unknown>,
+): Parameters<typeof chain>[0][number] {
+  return {
+    kind: 'event',
+    event: {
+      id: `settle:${childId}`,
+      pursuitId: 'pursuit:test',
+      runId,
+      target: 'agent.child',
+      phase: 'after',
+      timestamp: 2,
+      parentId,
+      payload: { childId, status: 'done', spent },
+    },
+  }
+}
+
+function spend(
+  input: number,
+  output: number,
+  usd: number,
+  flags: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return { iterations: 1, tokens: { input, output }, usd, ms: 10, ...flags }
+}
+
 describe('projectPursuit', () => {
   it('keeps run lifecycle and recursive terminal truth isolated per Runtime run', () => {
     const first = record(1, {
@@ -126,7 +190,12 @@ describe('projectPursuit', () => {
             outRef: 'sha256:out',
             score: 0.9,
             valid: true,
-            spent: { tokens: 123 },
+            spent: {
+              iterations: 1,
+              tokens: { input: 100, output: 23 },
+              usd: 0.004,
+              ms: 900,
+            },
           },
         },
       },
@@ -170,7 +239,9 @@ describe('projectPursuit', () => {
       outRef: 'sha256:out',
       score: 0.9,
       valid: true,
-      spent: { tokens: 123 },
+      spent: { iterations: 1, tokens: { input: 100, output: 23 }, usd: 0.004, ms: 900 },
+      usage: { input: 100, output: 23, tokensKnown: true },
+      cost: { usd: 0.004, usdKnown: true, provenance: 'reported' },
     })
   })
 
@@ -250,5 +321,126 @@ describe('projectPursuit', () => {
       event: { ...first.event!, runId: 'run:forged' },
     }
     expect(() => projectPursuit([tampered])).toThrow(/digest mismatch/)
+  })
+
+  it('charges a parent only its own share and never invents a zero for an unaccounted node', () => {
+    // `worker` is a driver: its settlement already reports the child work `nested` did, so summing
+    // every node would bill that work twice. `stalled` never settles at all.
+    const view = projectPursuit(
+      chain([
+        spawn('run:tree', 'root:s0', 'run:tree', 'worker'),
+        spawn('run:tree', 'root:s0:s0', 'root:s0', 'nested'),
+        spawn('run:tree', 'root:s1', 'run:tree', 'stalled'),
+        settle('run:tree', 'root:s0:s0', 'root:s0', spend(40, 10, 0.002)),
+        settle('run:tree', 'root:s0', 'run:tree', spend(140, 60, 0.009)),
+      ]),
+    )
+
+    const run = view.runs[0]!
+    expect(run.totals.inclusive.tokens).toMatchObject({ input: 140, output: 60 })
+    expect(run.totals.inclusive.usd).toBeCloseTo(0.009, 10)
+    expect(run.totals.exclusiveByNode['root:s0']).toMatchObject({
+      tokens: { input: 100, output: 50 },
+    })
+    expect(run.totals.exclusiveByNode['root:s0:s0']).toMatchObject({
+      tokens: { input: 40, output: 10 },
+    })
+    const exclusive = Object.values(run.totals.exclusiveByNode)
+    expect(exclusive.reduce((sum, share) => sum + share.tokens.input, 0)).toBe(140)
+    expect(exclusive.reduce((sum, share) => sum + share.usd, 0)).toBeCloseTo(0.009, 10)
+
+    const stalled = view.nodes.find((node) => node.label === 'stalled')
+    expect(stalled?.usage).toBeUndefined()
+    expect(stalled?.cost).toBeUndefined()
+    expect(stalled).not.toHaveProperty('spent')
+    expect(run.totals.exclusiveByNode).not.toHaveProperty('root:s1')
+    expect(run.spendGaps).toEqual([
+      { id: 'root:s1', label: 'stalled', kind: 'never-settled', channels: ['tokens', 'usd'] },
+    ])
+  })
+
+  it('keeps a reported, estimated, partly-priced and unpriced cost distinguishable', () => {
+    const view = projectPursuit(
+      chain([
+        spawn('run:cost', 'root:s0', 'run:cost', 'billed'),
+        spawn('run:cost', 'root:s1', 'run:cost', 'priced'),
+        spawn('run:cost', 'run:cost:s2', 'run:cost', 'mixed'),
+        spawn('run:cost', 'root:s3', 'run:cost', 'silent'),
+        settle('run:cost', 'root:s0', 'run:cost', spend(10, 5, 0.004)),
+        settle(
+          'run:cost',
+          'root:s1',
+          'run:cost',
+          spend(10, 5, 0.004, { usdKnown: false, usdEstimated: 0.004 }),
+        ),
+        settle(
+          'run:cost',
+          'run:cost:s2',
+          'run:cost',
+          spend(10, 5, 0.01, { usdKnown: false, usdEstimated: 0.003 }),
+        ),
+        settle(
+          'run:cost',
+          'root:s3',
+          'run:cost',
+          spend(10, 5, 0, { usdKnown: false, tokensKnown: false }),
+        ),
+      ]),
+    )
+
+    expect(
+      view.nodes.map((node) => [node.label, node.cost?.provenance, node.usage?.tokensKnown]),
+    ).toEqual([
+      ['billed', 'reported', true],
+      ['priced', 'estimated', true],
+      ['mixed', 'partial', true],
+      ['silent', 'unknown', false],
+    ])
+    expect(view.runs[0]?.spendGaps).toEqual([
+      { id: 'root:s1', label: 'priced', kind: 'unreported', channels: ['usd'] },
+      { id: 'run:cost:s2', label: 'mixed', kind: 'unreported', channels: ['usd'] },
+      { id: 'root:s3', label: 'silent', kind: 'unreported', channels: ['tokens', 'usd'] },
+    ])
+  })
+
+  it('folds a metered turn onto the node that drove it, keeping reasoning tokens and call identity', () => {
+    const turn = (nodeId: string, callId: string, reasoning: number) => ({
+      kind: 'event' as const,
+      event: {
+        id: `turn:${callId}`,
+        pursuitId: 'pursuit:test',
+        runId: 'run:turn',
+        target: 'agent.turn' as const,
+        phase: 'after' as const,
+        timestamp: 3,
+        parentId: nodeId,
+        payload: {
+          spend: spend(30, 12, 0.005),
+          reasoningTokens: reasoning,
+          callId,
+          model: 'offline/reasoner',
+        },
+      },
+    })
+    const view = projectPursuit(
+      chain([
+        spawn('run:turn', 'root:s0', 'run:turn', 'driver'),
+        turn('root:s0', 'call-1', 90),
+        turn('root:s0', 'call-2', 60),
+        // A duplicate call id must not be counted twice.
+        turn('root:s0', 'call-2', 0),
+        settle('run:turn', 'root:s0', 'run:turn', spend(10, 4, 0.001)),
+      ]),
+    )
+
+    const driver = view.nodes[0]!
+    expect(driver.modelCalls).toEqual(['call-1', 'call-2'])
+    expect(driver.model).toBe('offline/reasoner')
+    expect(driver.turnCount).toBe(3)
+    expect(driver.usage).toMatchObject({ input: 100, output: 40, reasoning: 150 })
+    expect(driver.cost?.usd).toBeCloseTo(0.016, 10)
+    expect(driver.timing?.firstOutputAt).toBe(20)
+    expect(driver.timing?.firstTokenAt).toBeUndefined()
+    expect(view.runs[0]?.totals.inclusive.tokens).toMatchObject({ input: 100, output: 40 })
   })
 })

@@ -15,7 +15,12 @@
  *   - `FileObserverJournal`: tamper-evident, append-only third-person history
  *     for one concrete Runtime execution.
  *   - `projectPursuit`: a rebuildable operator read model over that history;
- *     it owns no execution or coordination semantics.
+ *     it owns no execution or coordination semantics. This is the stable execution
+ *     tree: every node carries its identifiers, usage by token class, cost with
+ *     provenance, timing, and materialization and execution-binding receipts, and
+ *     each run carries inclusive and exclusive totals. A client reads totals from
+ *     here, not from the experimental `TopSnapshot` in `/tui`, which is an operator
+ *     view over on-disk run state and carries no model-call identity.
  *   - `supervisePursuit`: one-call adapter over canonical `supervise()` that
  *     gives each isolated run a stable cross-run pursuit identity.
  */
@@ -40,11 +45,17 @@ export {
   verifyObserverRecords,
 } from './observer-journal'
 export {
+  type PursuitCostProvenance,
+  type PursuitNodeCost,
+  type PursuitNodePlacement,
   type PursuitNodeProjection,
   type PursuitNodeStatus,
+  type PursuitNodeTiming,
+  type PursuitNodeUsage,
   type PursuitProjection,
   type PursuitRunProjection,
   type PursuitRunStatus,
+  type PursuitRunTotals,
   projectPursuit,
 } from './observer-projection'
 export {

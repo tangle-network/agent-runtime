@@ -38,7 +38,7 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import { addSpend, addTokenUsage, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
@@ -347,7 +347,7 @@ function isSettled(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'settled' 
 /** Sum the conserved spend over the nested tree's settled events — the honest per-channel
  *  roll-up of the whole sub-tree's child WORK. */
 function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
-  const total: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  const total: Spend = zeroSpend()
   for (const ev of settled) {
     total.iterations += ev.spent.iterations
     addTokenUsage(total.tokens, ev.spent.tokens)
@@ -363,7 +363,7 @@ function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
  *  own turns + any sub-driver inference already re-homed into this tree). Re-homed up to the parent
  *  as one `metered` event; never reconciled (already pool-debited live via `observe`). */
 function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
-  const total: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  const total: Spend = zeroSpend()
   for (const ev of events) {
     if (ev.kind !== 'metered') continue
     total.iterations += ev.spend.iterations
@@ -374,25 +374,6 @@ function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
     total.ms += ev.spend.ms
   }
   return total
-}
-
-function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
-}
-
-function addSpend(a: Spend, b: Spend): Spend {
-  return {
-    iterations: a.iterations + b.iterations,
-    tokens: (() => {
-      const tokens = cloneTokenUsage(a.tokens)
-      addTokenUsage(tokens, b.tokens)
-      return tokens
-    })(),
-    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
-    usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ms: a.ms + b.ms,
-  }
 }
 
 /** An all-zero spend that carries an UNKNOWN marker counts as non-zero: a sub-driver whose turns
