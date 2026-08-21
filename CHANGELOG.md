@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.156.0
+
+### Two MCP tool vocabularies now match what the tools accept
+
+`delegation_history` filtered on `profile` and admitted `coder` and `researcher` in three copies — the agent-facing description, the JSON-Schema `enum`, and the runtime validator. The only tool in this package that submits a delegation record is `delegate_ui_audit`, and it submits `ui-auditor`. So an agent asking for its UI-audit history got a `TypeError`, and the two profiles it was allowed to ask for were written by nothing but tests.
+
+`delegationProfiles` is now the one list. The description, the schema and the validator all read it, so a profile added there cannot be one a tool refuses, and the validator's message names the accepted set. `DelegationProfile` derives from the same list and keeps the same three members.
+
+`QuestionDecision`'s escalate arm declared `to: 'parent' | 'user' | string`, which collapses to `string`, while `answer_question`'s schema and handler accepted exactly two targets. Any other value fell through to `answer_question: provide answer, deferReason, or escalateTo`, an error naming the wrong cause. The type narrows to the two the tool accepts, from the same list the schema reads, and a present-but-unaccepted `escalateTo` is refused with a message naming the value.
+
+`delegationProfiles`, `questionEscalationTargets` and `QuestionEscalationTarget` are exported from `./mcp`: a consumer building a profile filter or an escalation control reads the list rather than restating it.
+
 ## 0.155.0
 
 ### The tool-part decoder registry is keyed by the harness names that arrive

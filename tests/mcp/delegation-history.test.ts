@@ -6,6 +6,7 @@ import {
   createDelegationHistoryHandler,
   validateDelegationHistoryArgs,
 } from '../../src/mcp/tools/delegation-history'
+import { delegationProfiles } from '../../src/mcp/types'
 
 function settleTwice(): Promise<void> {
   return new Promise((resolve) => {
@@ -22,6 +23,13 @@ describe('validateDelegationHistoryArgs', () => {
   })
   it('rejects an unknown profile', () => {
     expect(() => validateDelegationHistoryArgs({ profile: 'judge' })).toThrow(TypeError)
+  })
+  it('accepts every profile a delegation record can carry', () => {
+    // `delegate_ui_audit` is the only tool in the product that submits to the queue, and it
+    // submits `ui-auditor`. A filter that refuses it cannot read the only history that exists.
+    for (const profile of delegationProfiles) {
+      expect(validateDelegationHistoryArgs({ profile })).toEqual({ profile })
+    }
   })
 })
 

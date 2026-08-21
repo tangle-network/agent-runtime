@@ -13,6 +13,7 @@ import type {
   DelegationProfile,
   DelegationTaskQueue,
 } from '../task-queue'
+import { delegationProfiles } from '../types'
 
 /** MCP tool name for the `delegation_history` read-past-delegations tool. @stable */
 export const DELEGATION_HISTORY_TOOL_NAME = 'delegation_history'
@@ -33,7 +34,9 @@ export const DELEGATION_HISTORY_DESCRIPTION = [
   'Each entry carries `hasTrace` — when true, the full loop-trace span tree',
   'is retrievable via delegation_status { taskId, includeTrace: true }.',
   '',
-  'Filters: `namespace` (multi-tenant scope), `profile` ("coder" | "researcher"),',
+  `Filters: \`namespace\` (multi-tenant scope), \`profile\` (${delegationProfiles
+    .map((profile) => `"${profile}"`)
+    .join(' | ')}),`,
   '`since` (ISO date — only delegations started at-or-after). `limit` defaults',
   'to 50, capped at 500.',
 ].join('\n')
@@ -43,7 +46,7 @@ export const DELEGATION_HISTORY_INPUT_SCHEMA = {
   type: 'object',
   properties: {
     namespace: { type: 'string' },
-    profile: { type: 'string', enum: ['coder', 'researcher'] },
+    profile: { type: 'string', enum: delegationProfiles },
     since: { type: 'string', description: 'ISO datetime — earliest startedAt to include.' },
     limit: { type: 'integer', minimum: 1, maximum: 500 },
   },
@@ -65,8 +68,10 @@ export function validateDelegationHistoryArgs(raw: unknown): DelegationHistoryAr
     out.namespace = value.namespace
   }
   if (value.profile !== undefined) {
-    if (value.profile !== 'coder' && value.profile !== 'researcher') {
-      throw new TypeError('delegation_history: `profile` must be "coder" or "researcher"')
+    if (!delegationProfiles.includes(value.profile as DelegationProfile)) {
+      throw new TypeError(
+        `delegation_history: \`profile\` must be one of ${delegationProfiles.join(', ')}`,
+      )
     }
     out.profile = value.profile as DelegationProfile
   }

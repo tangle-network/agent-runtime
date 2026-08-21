@@ -45,6 +45,12 @@
  *     optional field from a removed required one is a subtyping question, and
  *     the record states structure rather than subtyping. Guessing additive on a
  *     change that is actually a break is the failure this exists to stop.
+ *   - The digest reads the declaration a build EMITTED, so restating a type
+ *     without changing what it means still moves it: `'a' | 'b'` rewritten as
+ *     `(typeof names)[number]` is one type and two declarations. That asks for
+ *     a bump nobody strictly owed, which is the safe direction — deciding that
+ *     two differently-written declarations denote one type is the same
+ *     subtyping question as above.
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { join, posix, relative, resolve } from 'node:path'
