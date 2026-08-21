@@ -93,6 +93,33 @@ describe('streamAgentTurn: box backend', () => {
     })
   })
 
+  it('lifts the text AND credits the usage from a message.completed terminal frame', async () => {
+    // The two answers to "is this event terminal?" disagreed on exactly this type: usage was
+    // credited for `message.completed` while the text lift accepted only `result`/`done`/`final`.
+    // A backend whose terminal frame is `message.completed` was therefore billed for the turn and
+    // recorded no answer.
+    const box = await makeBox([
+      {
+        type: 'message.completed',
+        data: {
+          finalText: 'the answer',
+          model: 'kimi-k2',
+          usage: { inputTokens: 100, outputTokens: 40, costUsd: 0.02 },
+        },
+      },
+      doneEvent(),
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'answer' }),
+    )
+    expect(turn.finalText).toBe('the answer')
+    expect(finalOf(turn.events).metadata).toMatchObject({
+      tokenUsage: { input: 100, output: 40 },
+      model: 'kimi-k2',
+    })
+  })
+
   it('collectAgentTurn round-trips the terminal summary', async () => {
     const box = await makeBox([
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: '42' } },
