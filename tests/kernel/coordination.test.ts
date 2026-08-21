@@ -138,6 +138,71 @@ const tool = (tb: ReturnType<typeof createCoordinationTools>, name: string) => {
 }
 
 describe('coordination tools', () => {
+  it('a preflight refusal is a tool result that spawns nothing and is counted in stats', async () => {
+    const { scope, spawns } = mockScope()
+    const seen: Array<{ name: string | undefined; label: string }> = []
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      preflightSpawn: async (profile, context) => {
+        seen.push({ name: profile.name, label: context.label })
+        return profile.name === 'unrouted'
+          ? { cause: 'model-route', detail: 'bridge routes no backend for "pi/x/y"' }
+          : undefined
+      },
+    })
+    // Every cause is published from the first read, so a gate that has refused nothing is
+    // readable as a gate that has refused nothing.
+    expect(tb.stats().preflight).toEqual({
+      'model-route': 0,
+      'bridge-full': 0,
+      'unmountable-tool': 0,
+    })
+
+    const spawn = tool(tb, 'spawn_agent')
+    expect(
+      await spawn.handler({
+        profile: { name: 'unrouted', harness: 'pi', model: { provider: 'x', default: 'y' } },
+        task: 'go',
+        label: 'refused',
+      }),
+    ).toMatchObject({
+      error: 'preflight-refused',
+      cause: 'model-route',
+      detail: 'bridge routes no backend for "pi/x/y"',
+    })
+    // Nothing reserved: `Scope.spawn` is where the pool is charged, and it was never reached.
+    expect(spawns).toEqual([])
+    expect(tb.stats().preflight).toMatchObject({ 'model-route': 1 })
+
+    expect(
+      await spawn.handler({
+        profile: { name: 'routed', harness: 'pi', model: { provider: 'x', default: 'y' } },
+        task: 'go',
+        label: 'admitted',
+      }),
+    ).toMatchObject({ workerId: 'w0' })
+    expect(spawns).toHaveLength(1)
+    expect(tb.stats().preflight).toMatchObject({ 'model-route': 1 })
+    expect(seen).toEqual([
+      { name: 'unrouted', label: 'refused' },
+      { name: 'routed', label: 'admitted' },
+    ])
+  })
+
+  it('publishes no preflight ledger when no gate is installed', () => {
+    const { scope } = mockScope()
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+    })
+    expect(tb.stats().preflight).toBeUndefined()
+  })
+
   it('exposes direct submission only with an injected check and retains the first passing result', async () => {
     const { scope } = mockScope()
     const withoutCheck = createCoordinationTools({
@@ -517,16 +582,16 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 2, maxTokens: 100 },
     })
-    expect(() =>
+    await expect(
       tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go', budget: 'lots' }),
-    ).toThrow(/"budget" must be an object/)
-    expect(() =>
+    ).rejects.toThrow(/"budget" must be an object/)
+    await expect(
       tool(tb, 'spawn_agent').handler({
         profile: {},
         task: 'go',
         budget: { maxTokens: Number.POSITIVE_INFINITY },
       }),
-    ).toThrow(/"budget.maxTokens" must be a finite number/)
+    ).rejects.toThrow(/"budget.maxTokens" must be a finite number/)
   })
 
   it('observe_agent returns live status and settled output', async () => {

@@ -37,6 +37,7 @@ import {
   type QuestionPolicy,
   type QuestionRecord,
   type SettledWorker,
+  type SpawnPreflight,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { DeliverableSpec } from './completion-gate'
@@ -148,6 +149,10 @@ export async function serveCoordinationMcp(opts: {
    * capability. Loopback plus an unguessable path is what this layer can honestly enforce.
    */
   peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
+  /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
+   *  pre-journal point that may ask the backend a question. See
+   *  `CoordinationToolsOptions.preflightSpawn`. */
+  preflightSpawn?: SpawnPreflight
 }): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
   // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
@@ -185,6 +190,7 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.replaySettlements ? { replaySettlements: true } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
+    ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.peerMail
       ? {
           peerMail:
