@@ -1356,7 +1356,11 @@ full-profile contract.
 Resolve product-owned tools from the exact trusted manager context. The same descriptors and
 handlers are bound to router and external-harness managers; resolution happens once per node.
 Each handler receives that manager scope's live cancellation signal in its trusted invocation
-context, including recursive parent and root cascades.
+context, including recursive parent and root cascades, plus `context.verbs` — that manager's
+own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
+chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
+the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
+cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 

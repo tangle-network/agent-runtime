@@ -1036,6 +1036,7 @@
       "CoordinationMcpHandle": "type",
       "CoordinationOwnerId": "type",
       "CoordinationStats": "type",
+      "CoordinationVerbs": "type",
       "CopyOptions": "type",
       "Corpus": "type",
       "CorpusFilter": "type",

@@ -222,12 +222,86 @@ export interface SupervisorNodeContext {
 /** Context known before `Agent.act`; Runtime adds the concrete node, profile, and task. */
 export type SupervisorNodeContextSeed = Omit<SupervisorNodeContext, 'nodeId' | 'profile' | 'task'>
 
+/**
+ * The coordination verbs THIS manager serves, callable in code from a product tool handler.
+ *
+ * Each verb dispatches by name to the live coordination descriptor's own handler, so a spawn made
+ * here crosses the identical path the MCP verb crosses: `makeWorkerAgent` → `authorizeSpawn` /
+ * security / `allowedModels`, the conserved pool reservation, `maxLiveWorkers`, the journal, and
+ * the event bus. There is no second spawn path and no way to bypass a gate by calling in code.
+ *
+ * The set is deliberately the COORDINATION surface only. `submit_result`, `stop`, and `ask_parent`
+ * are the manager's own lifecycle verbs — a product tool that could settle the run or answer as
+ * the manager would be a second brain, not a composition surface.
+ *
+ * Arguments and results are the same JSON shapes the MCP tools take and return.
+ */
+export interface CoordinationVerbs {
+  spawnAgent(args: unknown): Promise<unknown>
+  awaitEvent(args: unknown): Promise<unknown>
+  steerAgent(args: unknown): Promise<unknown>
+  observeAgent(args: unknown): Promise<unknown>
+  listQuestions(args: unknown): Promise<unknown>
+  answerQuestion(args: unknown): Promise<unknown>
+  runAnalyst(args: unknown): Promise<unknown>
+}
+
 /** Trusted context for one product-tool invocation. The node identity remains the same detached,
- * immutable snapshot supplied to the resolver; `signal` is the one live control reference Runtime
- * adds. It aborts when this manager's scope is cancelled by the caller, RootHandle, deadline,
- * breaker, or a recursive parent. */
+ * immutable snapshot supplied to the resolver; `signal` and `verbs` are the live control
+ * references Runtime adds. `signal` aborts when this manager's scope is cancelled by the caller,
+ * RootHandle, deadline, breaker, or a recursive parent; `verbs` composes THIS manager's children
+ * in code (see {@link CoordinationVerbs}). */
 export interface SupervisorToolInvocationContext extends SupervisorNodeContext {
   readonly signal: AbortSignal
+  readonly verbs: CoordinationVerbs
+}
+
+/**
+ * The late binding behind `context.verbs`.
+ *
+ * Product tools are resolved and bound BEFORE the coordination tools exist on both arms (the
+ * external arm serves them from `serveCoordinationMcp`, the router arm builds them inside
+ * `driverAgent.act`). So the slot is created first, handed to the tool handlers, and filled the
+ * moment the coordination descriptors are built. A verb called before the fill throws instead of
+ * silently doing nothing.
+ */
+interface VerbSlot {
+  readonly verbs: CoordinationVerbs
+  bind(tools: ReadonlyArray<McpToolDescriptor>): void
+}
+
+function createVerbSlot(): VerbSlot {
+  let bound: ReadonlyArray<McpToolDescriptor> | undefined
+  const verb =
+    (name: string) =>
+    async (args: unknown): Promise<unknown> => {
+      if (bound === undefined) {
+        throw new ValidationError(
+          `supervisorAgent: coordination verb "${name}" was called before this manager's coordination tools were bound`,
+        )
+      }
+      const tool = bound.find((descriptor) => descriptor.name === name)
+      if (tool === undefined) {
+        throw new ValidationError(
+          `supervisorAgent: coordination verb "${name}" is not mounted on this manager`,
+        )
+      }
+      return tool.handler(args)
+    }
+  return {
+    verbs: Object.freeze({
+      spawnAgent: verb('spawn_agent'),
+      awaitEvent: verb('await_event'),
+      steerAgent: verb('steer_agent'),
+      observeAgent: verb('observe_agent'),
+      listQuestions: verb('list_questions'),
+      answerQuestion: verb('answer_question'),
+      runAnalyst: verb('run_analyst'),
+    }),
+    bind(tools): void {
+      bound = tools
+    },
+  }
 }
 
 /** One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies
@@ -548,6 +622,7 @@ function buildSupervisorAgent(
       priorCoordination?: PriorCoordination,
       nodeTools?: ReadonlyArray<McpToolDescriptor>,
       onEvent?: SupervisorAgentDeps['onEvent'],
+      slot?: VerbSlot,
     ) =>
       driverAgent({
         name,
@@ -584,6 +659,7 @@ function buildSupervisorAgent(
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(priorCoordination ? { priorCoordination } : {}),
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
+        ...(slot ? { onCoordinationTools: (tools) => slot.bind(tools) } : {}),
         ...(deps.controlDir === undefined ? {} : { controlDir: deps.controlDir }),
         ...(deps.controlScope === undefined ? {} : { controlScope: deps.controlScope }),
         ...(deps.abortRun ? { abortRun: deps.abortRun } : {}),
@@ -602,12 +678,15 @@ function buildSupervisorAgent(
           ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
           : undefined
         const priorCoordination = await deps.loadPriorCoordination?.()
+        // Filled by `driverAgent` the moment it builds this manager's coordination tools, which
+        // is after the product tools are bound — hence the slot rather than a value.
+        const slot = createVerbSlot()
         const nodeTools =
           resolveTools && context
-            ? await bindSupervisorTools(resolveTools, context, scope.signal)
+            ? await bindSupervisorTools(resolveTools, context, scope.signal, slot)
             : undefined
         const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
-        return build(priorCoordination, nodeTools, onEvent).act(task, scope)
+        return build(priorCoordination, nodeTools, onEvent, slot).act(task, scope)
       },
     }
   }
@@ -636,9 +715,12 @@ function buildSupervisorAgent(
       const priorCoordination = deps.loadPriorCoordination
         ? await deps.loadPriorCoordination()
         : deps.priorCoordination
+      // Filled by `serveCoordinationMcp` right after it builds this manager's coordination tools
+      // and before it listens, so a product tool can compose from its first invocation.
+      const slot = createVerbSlot()
       const nodeTools =
         resolveTools && context
-          ? await bindSupervisorTools(resolveTools, context, scope.signal)
+          ? await bindSupervisorTools(resolveTools, context, scope.signal, slot)
           : undefined
       const nodeObserver = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
       const stopController = new AbortController()
@@ -712,6 +794,7 @@ function buildSupervisorAgent(
           ? { priorQuestions: priorCoordination.questions }
           : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
+        onCoordinationTools: (tools) => slot.bind(tools),
       })
       ledger = mcp
       try {
@@ -796,6 +879,7 @@ async function bindSupervisorTools(
   resolveTools: ResolveSupervisorTools,
   context: SupervisorNodeContext,
   signal: AbortSignal,
+  slot: VerbSlot,
 ): Promise<ReadonlyArray<McpToolDescriptor>> {
   const resolved = await resolveTools(context)
   if (!Array.isArray(resolved)) {
@@ -804,7 +888,11 @@ async function bindSupervisorTools(
   // Keep the durable node snapshot free of live process objects. The invocation wrapper is frozen
   // shallowly so handlers cannot replace identity or signal, while the AbortSignal itself remains
   // live and follows the manager scope's existing root/parent cascade.
-  const invocationContext: SupervisorToolInvocationContext = Object.freeze({ ...context, signal })
+  const invocationContext: SupervisorToolInvocationContext = Object.freeze({
+    ...context,
+    signal,
+    verbs: slot.verbs,
+  })
   const names = new Set<string>(coordinationVerbNames)
   return Object.freeze(
     resolved.map((rawTool, index) => {

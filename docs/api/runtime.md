@@ -15465,7 +15465,11 @@ full-profile contract.
 Resolve product-owned tools from the exact trusted manager context. The same descriptors and
 handlers are bound to router and external-harness managers; resolution happens once per node.
 Each handler receives that manager scope's live cancellation signal in its trusted invocation
-context, including recursive parent and root cascades.
+context, including recursive parent and root cascades, plus `context.verbs` — that manager's
+own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
+chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
+the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
+cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ##### onCoordinationEvent?
 
@@ -15928,12 +15932,130 @@ Assignment identity within the parent manager; absent only for the root.
 
 ***
 
+### CoordinationVerbs
+
+The coordination verbs THIS manager serves, callable in code from a product tool handler.
+
+Each verb dispatches by name to the live coordination descriptor's own handler, so a spawn made
+here crosses the identical path the MCP verb crosses: `makeWorkerAgent` → `authorizeSpawn` /
+security / `allowedModels`, the conserved pool reservation, `maxLiveWorkers`, the journal, and
+the event bus. There is no second spawn path and no way to bypass a gate by calling in code.
+
+The set is deliberately the COORDINATION surface only. `submit_result`, `stop`, and `ask_parent`
+are the manager's own lifecycle verbs — a product tool that could settle the run or answer as
+the manager would be a second brain, not a composition surface.
+
+Arguments and results are the same JSON shapes the MCP tools take and return.
+
+#### Methods
+
+##### spawnAgent()
+
+> **spawnAgent**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### awaitEvent()
+
+> **awaitEvent**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### steerAgent()
+
+> **steerAgent**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### observeAgent()
+
+> **observeAgent**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### listQuestions()
+
+> **listQuestions**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### answerQuestion()
+
+> **answerQuestion**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### runAnalyst()
+
+> **runAnalyst**(`args`): `Promise`\<`unknown`\>
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+***
+
 ### SupervisorToolInvocationContext
 
 Trusted context for one product-tool invocation. The node identity remains the same detached,
-immutable snapshot supplied to the resolver; `signal` is the one live control reference Runtime
-adds. It aborts when this manager's scope is cancelled by the caller, RootHandle, deadline,
-breaker, or a recursive parent.
+immutable snapshot supplied to the resolver; `signal` and `verbs` are the live control
+references Runtime adds. `signal` aborts when this manager's scope is cancelled by the caller,
+RootHandle, deadline, breaker, or a recursive parent; `verbs` composes THIS manager's children
+in code (see [CoordinationVerbs](#coordinationverbs)).
 
 #### Extends
 
@@ -16024,6 +16146,10 @@ Assignment identity within the parent manager; absent only for the root.
 ##### signal
 
 > `readonly` **signal**: `AbortSignal`
+
+##### verbs
+
+> `readonly` **verbs**: [`CoordinationVerbs`](#coordinationverbs)
 
 ***
 
@@ -26903,6 +27029,14 @@ capability. Loopback plus an unguessable path is what this layer can honestly en
 OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
  pre-journal point that may ask the backend a question. See
  `CoordinationToolsOptions.preflightSpawn`.
+
+###### onCoordinationTools?
+
+(`tools`) => `void`
+
+Called with this server's coordination tool descriptors once they exist and BEFORE the
+ listener opens — the seam a caller uses to give an already-bound node tool a way to call the
+ same verbs in code (`SupervisorToolInvocationContext.verbs`).
 
 #### Returns
 

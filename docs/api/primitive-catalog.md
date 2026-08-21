@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.152.0` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.153.0` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 172 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 837 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -899,6 +899,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `CoordinationBinding` | interface | Where the coordination MCP binds. Omit = an ephemeral port on `127.0.0.1` (the local-harness |
 | `CoordinationLog` | interface | The durable coordination side-log seam. `append` records one bus event (kinds it does not |
 | `CoordinationStats` | interface | Bus throughput plus the pre-flight's own refusal ledger. |
+| `CoordinationVerbs` | interface | The coordination verbs THIS manager serves, callable in code from a product tool handler. |
 | `Corpus` | interface | The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal` |
 | `CorpusFilter` | interface | A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain. |
 | `CorpusRecord` | interface | One accreted fact in the cross-run corpus — the learning-flywheel's durable unit. DISTINCT from |
