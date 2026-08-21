@@ -50,6 +50,7 @@
  */
 
 import { ValidationError } from '../../errors'
+import type { LoopTokenUsage } from '../types'
 import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
 import type { Budget, Spend, UsageEvent } from './types'
 
@@ -252,64 +253,72 @@ export interface BudgetPool {
  *  channels; iterations come from `'iteration'` events. Pure; `ms` stays zero (the
  *  pool does not read wall-clock). */
 export function spendFromUsageEvents(events: UsageEvent[]): Spend {
-  const tokens = zeroTokenUsage()
-  let tokensKnown = true
-  let usd = 0
-  let usdEstimated = 0
-  let usdKnown = true
-  let iterations = 0
-  for (const ev of events) {
-    if (ev.kind === 'tokens') {
-      addTokenUsage(tokens, ev)
-      if (ev.tokensKnown === false) tokensKnown = false
-    } else if (ev.kind === 'cost') {
-      usd += ev.usd
-      usdEstimated += ev.usdEstimated ?? 0
-      if (ev.usdKnown === false) usdKnown = false
-    } else {
-      iterations += 1
-    }
-  }
+  const totals = newUsageTotals()
+  for (const ev of events) meterUsageEvent(totals, ev)
+  return spendFromUsageTotals(totals)
+}
+
+/** Running accounting totals folded from `UsageEvent`s. */
+export interface UsageTotals {
+  tokens: LoopTokenUsage
+  tokensKnown: boolean
+  usd: number
+  usdEstimated: number
+  usdKnown: boolean
+  iterations: number
+}
+
+/** Fresh zeroed {@link UsageTotals}. */
+export function newUsageTotals(): UsageTotals {
   return {
-    iterations,
-    tokens,
-    ...(tokensKnown ? {} : { tokensKnown: false }),
-    usd,
-    ...(usdKnown ? {} : { usdKnown: false }),
-    ...(usdEstimated > 0 ? { usdEstimated } : {}),
+    tokens: zeroTokenUsage(),
+    tokensKnown: true,
+    usd: 0,
+    usdEstimated: 0,
+    usdKnown: true,
+    iterations: 0,
+  }
+}
+
+/**
+ * Fold ONE usage event into running totals — the single place that decides which event kinds
+ * meter. `progress` carries observed output rather than accounting, so it meters nothing; only
+ * `iteration` advances the iteration count.
+ */
+export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
+  if (ev.kind === 'tokens') {
+    addTokenUsage(totals.tokens, ev)
+    if (ev.tokensKnown === false) totals.tokensKnown = false
+    return
+  }
+  if (ev.kind === 'cost') {
+    totals.usd += ev.usd
+    totals.usdEstimated += ev.usdEstimated ?? 0
+    if (ev.usdKnown === false) totals.usdKnown = false
+    return
+  }
+  if (ev.kind === 'iteration') totals.iterations += 1
+}
+
+/** Project folded totals onto the conserved-pool `Spend`. `ms` stays zero — the pool does not
+ *  read wall-clock. */
+export function spendFromUsageTotals(totals: UsageTotals): Spend {
+  return {
+    iterations: totals.iterations,
+    tokens: totals.tokens,
+    ...(totals.tokensKnown ? {} : { tokensKnown: false }),
+    usd: totals.usd,
+    ...(totals.usdKnown ? {} : { usdKnown: false }),
+    ...(totals.usdEstimated > 0 ? { usdEstimated: totals.usdEstimated } : {}),
     ms: 0,
   }
 }
 
 async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Promise<Spend> {
   if (Array.isArray(events)) return spendFromUsageEvents(events)
-  const tokens = zeroTokenUsage()
-  let tokensKnown = true
-  let usd = 0
-  let usdEstimated = 0
-  let usdKnown = true
-  let iterations = 0
-  for await (const ev of events) {
-    if (ev.kind === 'tokens') {
-      addTokenUsage(tokens, ev)
-      if (ev.tokensKnown === false) tokensKnown = false
-    } else if (ev.kind === 'cost') {
-      usd += ev.usd
-      usdEstimated += ev.usdEstimated ?? 0
-      if (ev.usdKnown === false) usdKnown = false
-    } else {
-      iterations += 1
-    }
-  }
-  return {
-    iterations,
-    tokens,
-    ...(tokensKnown ? {} : { tokensKnown: false }),
-    usd,
-    ...(usdKnown ? {} : { usdKnown: false }),
-    ...(usdEstimated > 0 ? { usdEstimated } : {}),
-    ms: 0,
-  }
+  const totals = newUsageTotals()
+  for await (const ev of events) meterUsageEvent(totals, ev)
+  return spendFromUsageTotals(totals)
 }
 
 /**

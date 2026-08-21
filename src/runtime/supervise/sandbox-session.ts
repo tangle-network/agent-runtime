@@ -34,7 +34,12 @@ import type { BackendType, PromptOptions, SandboxEvent } from '@tangle-network/s
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../../errors'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
-import { assertSandboxServedModel, extractLlmCallEvent } from '../sandbox-events'
+import {
+  assertSandboxServedModel,
+  createSandboxToolPartState,
+  extractLlmCallEvent,
+  sandboxProgressEvents,
+} from '../sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
 import { projectSandboxOutcome } from '../sandbox-outcome'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
@@ -49,7 +54,13 @@ import {
   type ExecutorProgress,
 } from './progress'
 import { createPushTraceSource, decodeToolPart, type TraceSource } from './trace-source'
-import type { DefaultVerdict, Spend, UsageEvent } from './types'
+import type {
+  DefaultVerdict,
+  ExecutorProgressEvent,
+  ExecutorToolCall,
+  Spend,
+  UsageEvent,
+} from './types'
 
 /** Ceiling on continuation turns. Turn 0 is the task; every later turn is a folded steer, so
  *  this bounds how many times a supervisor may redirect ONE worker before it must respawn. */
@@ -111,6 +122,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     turns: 0,
     lastText: '',
     seenToolCalls: new Set<string>(),
+    toolCalls: [] as ExecutorToolCall[],
     artifact: undefined as
       | { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend }
       | undefined,
@@ -119,7 +131,11 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     note: 'starting',
   }
 
-  const recordEvent = (event: SandboxEvent): void => {
+  const toolParts = createSandboxToolPartState()
+
+  /** Record one box event for the trace and the activity window, and return the live output it
+   *  carries so the caller can publish it to the turn stream. */
+  const recordEvent = (event: SandboxEvent): ExecutorProgressEvent[] => {
     const at = now()
     const data = (event as { data?: unknown }).data
     const part = data && typeof data === 'object' ? (data as { part?: unknown }).part : undefined
@@ -145,6 +161,16 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     }
     const text = readFinalText(event)
     if (text) state.lastText = text
+    const progress = sandboxProgressEvents(event, toolParts)
+    for (const item of progress) {
+      if (item.kind !== 'tool_call') continue
+      state.toolCalls.push({
+        ...(item.toolCallId === undefined ? {} : { id: item.toolCallId }),
+        name: item.toolName,
+        arguments: item.args ?? {},
+      })
+    }
+    return progress
   }
 
   async function* stream(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent> {
@@ -236,7 +262,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           }
           for await (const event of events) {
             outcomeTracker.observe(event)
-            recordEvent(event)
+            for (const progress of recordEvent(event)) yield { kind: 'progress', progress }
             const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
             if (call) {
               sawLlmCall = true
@@ -316,10 +342,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     const out = {
       content: state.lastText,
       turns: state.turns,
-      toolCalls: activity
-        .read()
-        .filter((n) => n.kind === 'tool')
-        .map((n) => n.label),
+      toolCalls: state.toolCalls,
       ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
     }
     const verdict = state.latestOutcome

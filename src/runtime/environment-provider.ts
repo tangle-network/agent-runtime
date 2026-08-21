@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -46,11 +47,23 @@ import type {
   SandboxInstance,
 } from '@tangle-network/sandbox'
 import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
-import { canonicalStreamEventFromSandboxEvent } from './sandbox-events'
+import {
+  canonicalStreamEventFromSandboxEvent,
+  createSandboxToolPartState,
+  sandboxProgressEvents,
+} from './sandbox-events'
+import {
+  attestRuntimeOwnedPendingExecutor,
+  finalizeRuntimeOwnedPendingExecutor,
+  newExecutionAttemptId,
+} from './supervise/materialization'
+import { concreteProfileModel } from './supervise/model-policy'
 import type {
   Executor,
   ExecutorContext,
+  ExecutorExecutionBinding,
   ExecutorFactory,
+  ExecutorMaterialization,
   ExecutorResult,
   Runtime,
   Spend,
@@ -355,18 +368,66 @@ function createProviderExecutor(
   let environment: AgentEnvironment | undefined
   let artifact: ExecutorResult<unknown> | undefined
 
-  return {
-    runtime: options.runtime ?? (provider.name as Runtime),
+  const runtime = options.runtime ?? (provider.name as Runtime)
+  // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
+  // them, so the declaration carries the overlaid profile and exact turn execution refuses the run
+  // rather than presenting the authored profile as what the provider received.
+  const createProfile = options.profileForCreate?.(profile) ?? profile
+  const executionId = ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
+  const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+  const providerModel = concreteProfileModel(createProfile)
+  // The environment identity is server-issued, so before `create` resolves this declaration is a
+  // planned authority check, never a receipt.
+  const plannedDeclaration: ExecutorMaterialization = {
+    effectiveProfile: createProfile,
+    backend: provider.name,
+    model: providerModel
+      ? { status: 'known', id: providerModel }
+      : { status: 'unknown', reason: 'provider environment selected its default model' },
+    execution: { kind: 'environment', id: executionId },
+    materializer: 'environment-provider-create',
+    plan: {
+      kind: 'agent-environment',
+      provider: provider.name,
+      destroyOnSettle: options.destroyOnSettle ?? true,
+      requireTerminalEvent: options.requireTerminalEvent ?? true,
+      environmentId: null,
+    },
+  }
+  const plannedBinding: ExecutorExecutionBinding = {
+    attemptId,
+    binding: {
+      provider: provider.name,
+      executionId,
+      model: providerModel ?? null,
+    },
+    descriptor: { kind: 'agent-environment', transport: 'provider', backend: provider.name },
+  }
+
+  let executor!: Executor<unknown>
+  executor = {
+    runtime,
     execute(task, signal): AsyncIterable<UsageEvent> {
       return streamProviderExecutor({
         provider,
         profile,
+        createProfile,
         task,
         signal,
         controller,
         options,
         onEnvironment: (env) => {
           environment = env
+          // `create` resolved, so the environment identity the provider issued is now evidence.
+          finalizeRuntimeOwnedPendingExecutor(
+            executor,
+            {
+              ...plannedDeclaration,
+              execution: { kind: 'environment', id: env.id },
+              plan: { ...(plannedDeclaration.plan as object), environmentId: env.id },
+            },
+            plannedBinding,
+          )
         },
         onArtifact: (next) => {
           artifact = next
@@ -387,11 +448,15 @@ function createProviderExecutor(
       return artifact
     },
   }
+  return attestRuntimeOwnedPendingExecutor(executor, runtime, plannedDeclaration, plannedBinding)
 }
 
 interface StreamProviderExecutorArgs {
   provider: AgentEnvironmentProvider
   profile: AgentProfile
+  /** The exact profile handed to `provider.create` — the authored profile unless the caller
+   *  installed a `profileForCreate` overlay. */
+  createProfile: AgentProfile
   task: unknown
   signal: AbortSignal
   controller: AbortController
@@ -405,10 +470,9 @@ async function* streamProviderExecutor(
 ): AsyncIterable<UsageEvent> {
   const started = Date.now()
   const linked = mergeAbortSignals(args.signal, args.controller.signal)
-  const createProfile = args.options.profileForCreate?.(args.profile) ?? args.profile
   const environment = await args.provider.create({
     ...(args.options.defaults ?? {}),
-    profile: createProfile,
+    profile: args.createProfile,
     signal: linked,
   })
   args.onEnvironment(environment)
@@ -421,9 +485,18 @@ async function* streamProviderExecutor(
   let text = ''
   let terminal = false
   try {
+    const toolParts = createSandboxToolPartState()
     for await (const event of environment.stream({ ...turn, signal: linked })) {
       events.push(event)
       text += textFromEnvironmentEvent(event)
+      // One projection for every sandbox-shaped stream: the provider event is adapted to the
+      // sandbox wire the mappers already read, so live output needs no provider-specific parser.
+      for (const progress of sandboxProgressEvents(
+        sandboxEventFromEnvironmentEvent(event),
+        toolParts,
+      )) {
+        yield { kind: 'progress', progress }
+      }
       const usage = usageFromEnvironmentEvent(event)
       if (usage.input || usage.output) {
         tokens.input += usage.input

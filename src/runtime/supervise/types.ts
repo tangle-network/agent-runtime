@@ -26,7 +26,11 @@
  */
 
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
-import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import type {
+  AgentProfile,
+  InteractionRequest,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { LoopTokenUsage } from '../types'
@@ -224,6 +228,41 @@ export interface ExecutorResult<Out> {
  * therefore remains unknown through live metering and terminal reconciliation instead of becoming
  * a fabricated zero.
  */
+/**
+ * One tool call retained in an executor artifact. Every Runtime-owned executor reports this exact
+ * shape, so `streamAgentTurn` projects terminal tool activity through one reader instead of a
+ * per-backend parser. `arguments` holds the captured argument value; an empty object means the
+ * source reported the call without its arguments.
+ */
+export interface ExecutorToolCall {
+  readonly id?: string
+  readonly name: string
+  readonly arguments: unknown
+}
+
+/**
+ * Live output observed while an executor runs, in Runtime's own vocabulary. It carries what the
+ * backend produced — text, reasoning, tool activity, an interaction request — and never carries
+ * accounting: tokens and dollars stay on the `tokens`/`cost` channels, so a progress event can
+ * never meter a budget.
+ */
+export type ExecutorProgressEvent =
+  | { readonly kind: 'text_delta'; readonly text: string }
+  | { readonly kind: 'reasoning_delta'; readonly text: string }
+  | {
+      readonly kind: 'tool_call'
+      readonly toolName: string
+      readonly toolCallId?: string
+      readonly args?: unknown
+    }
+  | {
+      readonly kind: 'tool_result'
+      readonly toolName: string
+      readonly toolCallId?: string
+      readonly result?: unknown
+    }
+  | { readonly kind: 'interaction'; readonly request: InteractionRequest }
+
 export type UsageEvent =
   | {
       kind: 'tokens'
@@ -259,6 +298,11 @@ export type UsageEvent =
        * is what says whether a dollar figure is measured.
        */
       usdEstimated?: number
+    }
+  | {
+      /** Observed output, not accounting. Meters ignore it; the turn projection publishes it. */
+      kind: 'progress'
+      progress: ExecutorProgressEvent
     }
   | { kind: 'iteration' }
 

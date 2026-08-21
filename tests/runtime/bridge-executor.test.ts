@@ -25,7 +25,13 @@ import {
 } from '../../src/runtime/supervise/runtime'
 import { createScope } from '../../src/runtime/supervise/scope'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
-import type { Agent, AgentSpec, Executor, UsageEvent } from '../../src/runtime/supervise/types'
+import type {
+  Agent,
+  AgentSpec,
+  Executor,
+  ExecutorToolCall,
+  UsageEvent,
+} from '../../src/runtime/supervise/types'
 import { runGraph } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
 import { testAgentProfile } from '../kernel/test-agent-profile'
@@ -1145,9 +1151,9 @@ describe('bridgeExecutor live observability', () => {
 
     const spans = await executor.traceSource?.()?.collect()
     expect(spans?.map((span) => span.toolName)).toEqual(['read', 'grep'])
-    expect((executor.resultArtifact().out as { toolCalls: string[] }).toolCalls).toEqual([
-      'read',
-      'grep',
+    expect((executor.resultArtifact().out as { toolCalls: ExecutorToolCall[] }).toolCalls).toEqual([
+      { id: 'a', name: 'read', arguments: { path: 'x' } },
+      { id: 'b', name: 'grep', arguments: { pattern: 'y' } },
     ])
   })
 
@@ -1182,7 +1188,9 @@ describe('bridgeExecutor live observability', () => {
 
     const spans = await executor.traceSource?.()?.collect()
     expect(spans?.map((span) => span.toolName)).toEqual(['grep'])
-    expect((executor.resultArtifact().out as { toolCalls: string[] }).toolCalls).toEqual(['grep'])
+    expect((executor.resultArtifact().out as { toolCalls: ExecutorToolCall[] }).toolCalls).toEqual([
+      { id: 'c1', name: 'grep', arguments: { pattern: 'z' } },
+    ])
   })
 
   it('marks a tool call whose arguments the wire omitted as uncaptured, not as empty', async () => {

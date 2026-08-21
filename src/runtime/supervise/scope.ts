@@ -35,9 +35,16 @@ import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { Iteration } from '../types'
-import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import { cloneTokenUsage, zeroTokenUsage } from '../util'
 import { abortError } from './abortable'
-import { type BudgetPool, createBudgetPool, type ReservationTicket } from './budget'
+import {
+  type BudgetPool,
+  createBudgetPool,
+  meterUsageEvent,
+  newUsageTotals,
+  type ReservationTicket,
+  spendFromUsageTotals,
+} from './budget'
 import {
   armDeadlineTimer,
   boundedChildDeadlineAt,
@@ -2263,11 +2270,7 @@ async function foldStream(
   onProgress?: (running: Spend) => void,
   signal?: AbortSignal,
 ): Promise<Spend> {
-  const tokens = zeroTokenUsage()
-  let tokensKnown = true
-  let usd = 0
-  let usdKnown = true
-  let iterations = 0
+  const totals = newUsageTotals()
   const iterator = stream[Symbol.asyncIterator]()
   try {
     for (;;) {
@@ -2276,21 +2279,13 @@ async function foldStream(
         : await iterator.next()
       if (next.done) break
       const ev = next.value
-      if (ev.kind === 'tokens') {
-        addTokenUsage(tokens, ev)
-        if (ev.tokensKnown === false) tokensKnown = false
-      } else if (ev.kind === 'cost') {
-        usd += ev.usd
-        if (ev.usdKnown === false) usdKnown = false
-      } else {
-        iterations += 1
-      }
+      meterUsageEvent(totals, ev)
       onProgress?.({
-        iterations,
-        tokens: cloneTokenUsage(tokens),
-        ...(tokensKnown ? {} : { tokensKnown: false }),
-        usd,
-        ...(usdKnown ? {} : { usdKnown: false }),
+        iterations: totals.iterations,
+        tokens: cloneTokenUsage(totals.tokens),
+        ...(totals.tokensKnown ? {} : { tokensKnown: false }),
+        usd: totals.usd,
+        ...(totals.usdKnown ? {} : { usdKnown: false }),
         ms: 0,
       })
     }
@@ -2300,14 +2295,7 @@ async function foldStream(
     void Promise.resolve(iterator.return?.()).catch(() => undefined)
     throw error
   }
-  return {
-    iterations,
-    tokens,
-    ...(tokensKnown ? {} : { tokensKnown: false }),
-    usd,
-    ...(usdKnown ? {} : { usdKnown: false }),
-    ms: 0,
-  }
+  return spendFromUsageTotals(totals)
 }
 
 /** Usage events carry measured increments; the terminal artifact carries whether a provider omitted

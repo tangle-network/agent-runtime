@@ -107,6 +107,7 @@ import {
   attestRuntimeOwnedExecutor,
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
+  inheritRuntimeOwnedExecutorAttestation,
   newExecutionAttemptId,
   recordRuntimeOwnedProviderAttemptStart,
   recordRuntimeOwnedProviderDispatchNotStarted,
@@ -144,6 +145,7 @@ import type {
   ExecutorFactory,
   ExecutorRegistry,
   ExecutorResult,
+  ExecutorToolCall,
   Runtime,
   Spend,
   UsageEvent,
@@ -246,7 +248,7 @@ export interface SandboxSeam {
   steering?: SandboxSteeringOptions
 }
 
-export type { SandboxExecutorToolCall, SandboxLeafOut } from '../sandbox-executor-output'
+export type { SandboxLeafOut } from '../sandbox-executor-output'
 
 /**
  * UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn.
@@ -975,6 +977,10 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         let reasoningKnown = true
         const promptCache: Record<string, number | string> = {}
         let lastText = ''
+        // Every call this loop decided to make, in order. The count of executed calls is
+        // `executedToolCalls.length`; the entries themselves keep the per-call detail the
+        // terminal artifact publishes.
+        const executedToolCalls: ExecutorToolCall[] = []
         // Fold any queued down-messages into the conversation as one operator turn (the boundary flush).
         const flush = () => {
           const pending = inbox.drain()
@@ -1110,6 +1116,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               const tc = toolCalls[i]
               const id = tc?.id ?? `call_${i}`
               const toolName = tc?.name ?? ''
+              executedToolCalls.push({ id, name: toolName, arguments: tc?.arguments ?? '' })
               if (!enabledToolNames.has(toolName)) {
                 messages.push({
                   role: 'tool',
@@ -1185,7 +1192,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
           ...(observedModel !== undefined ? { model: observedModel } : {}),
           messages,
           turns,
-          toolCalls: messages.filter((message) => message.role === 'tool').length,
+          toolCalls: executedToolCalls,
           transportAttempts,
           ...(estimatedUsd !== undefined ? { estimatedCostUsd: estimatedUsd } : {}),
           ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
@@ -2338,7 +2345,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let lastText = ''
   let observedModel: string | undefined
   let observedSystemFingerprint: string | undefined
-  const toolCalls: string[] = []
+  const toolCalls: ExecutorToolCall[] = []
   // Keyed by the `PromptCacheUsage` vocabulary, not the SSE parse shape. Every consumer of an
   // artifact's `promptCache` reads `readTokens` / `writeTokens` — `profile-chat-client.ts`,
   // `improvement/agentic-generator.ts`, and `readPromptCache` — so a private dialect here reaches
@@ -2506,9 +2513,14 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         }
         if (chunk.content) {
           turnText += chunk.content
+          yield { kind: 'progress', progress: { kind: 'text_delta', text: chunk.content } }
         }
         for (const step of chunk.toolCalls ?? []) {
-          toolCalls.push(step.toolName)
+          toolCalls.push({
+            ...(step.callId === undefined ? {} : { id: step.callId }),
+            name: step.toolName,
+            arguments: step.args,
+          })
           observation.activity.push({
             at: Date.now(),
             kind: 'tool',
@@ -2518,6 +2530,17 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
             ...(describeToolArgs(step.args) ? { detail: describeToolArgs(step.args) } : {}),
           })
           args.record(step)
+          // Published after the local mirrors are updated, so a consumer that reads `progress()`
+          // when this event arrives sees the same call in the activity window.
+          yield {
+            kind: 'progress',
+            progress: {
+              kind: 'tool_call',
+              toolName: step.toolName,
+              ...(step.callId === undefined ? {} : { toolCallId: step.callId }),
+              args: step.args,
+            },
+          }
         }
         if (chunk.usage) {
           sawTurnTokenUsage = true
@@ -4643,10 +4666,12 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             },
           }
           const executor = sandboxExecutor({ ...spec, harness }, providerCtx)
-          return {
+          // The copy renames the runtime only; it must keep the sandbox executor's materialization
+          // evidence, or exact turn execution would refuse the executor Runtime itself built.
+          return inheritRuntimeOwnedExecutorAttestation(executor, {
             ...executor,
             runtime: providerSeam.runtime ?? (provider.name as Runtime),
-          }
+          })
         }
         const profileForCreate = providerSeam.profileForCreate
         return providerAsExecutor(provider, {

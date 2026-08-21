@@ -16,6 +16,7 @@ import type { StreamEvent } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
 import { parseCanonicalTransportEvent } from './sandbox-transport-events'
+import type { ExecutorProgressEvent } from './supervise/types'
 
 const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
   'message.part.updated',
@@ -719,6 +720,49 @@ export function mapSandboxEvent(
   }
 
   return extractLlmCallEvent(event, opts.agentRunName ?? 'agent')
+}
+
+/**
+ * Project one `SandboxEvent` onto Runtime's executor progress vocabulary: incremental text and
+ * reasoning, tool calls and results, and an interaction request. It composes the existing
+ * projections ({@link mapSandboxEvent}, {@link mapSandboxToolEvent}, and the canonical Agent
+ * Interface decode) so every sandbox-shaped executor publishes live output through one reader.
+ * Usage-bearing events project to nothing here — accounting stays on the `tokens`/`cost`
+ * channels.
+ *
+ * Pass one {@link SandboxToolPartState} per turn so a multi-frame tool call yields one call and
+ * at most one result.
+ *
+ * @experimental
+ */
+export function sandboxProgressEvents(
+  event: SandboxEvent,
+  state: SandboxToolPartState,
+): ExecutorProgressEvent[] {
+  const canonical = canonicalStreamEventFromSandboxEvent(event)
+  if (canonical?.type === 'interaction') {
+    return [{ kind: 'interaction', request: canonical.request }]
+  }
+  const tools = mapSandboxToolEvent(event, state).map((projected) =>
+    projected.type === 'tool_call'
+      ? ({
+          kind: 'tool_call',
+          toolName: projected.toolName,
+          ...(projected.toolCallId === undefined ? {} : { toolCallId: projected.toolCallId }),
+          ...(projected.args === undefined ? {} : { args: projected.args }),
+        } as const)
+      : ({
+          kind: 'tool_result',
+          toolName: projected.toolName,
+          ...(projected.toolCallId === undefined ? {} : { toolCallId: projected.toolCallId }),
+          ...(projected.result === undefined ? {} : { result: projected.result }),
+        } as const),
+  )
+  if (tools.length > 0) return tools
+  const mapped = mapSandboxEvent(event)
+  if (mapped?.type === 'text_delta') return [{ kind: 'text_delta', text: mapped.text }]
+  if (mapped?.type === 'reasoning_delta') return [{ kind: 'reasoning_delta', text: mapped.text }]
+  return []
 }
 
 export {
