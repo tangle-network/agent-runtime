@@ -155,12 +155,6 @@ describe('supervisor top model', () => {
       workerControlLogFile(dir, 'w-0'),
       [
         JSON.stringify({
-          at: '2026-06-28T10:00:03.000Z',
-          label: 'w-0',
-          kind: 'started',
-          cwd: '/tmp/worktree',
-        }),
-        JSON.stringify({
           at: '2026-06-28T10:00:04.000Z',
           label: 'w-0',
           kind: 'message',
@@ -217,7 +211,6 @@ describe('supervisor top model', () => {
     expect(supervisor?.totals.down).toBe(1)
     expect(supervisor?.totals.workerLatency.n).toBe(2)
     const worker = supervisor?.workers.find((candidate) => candidate.label === 'w-0')
-    expect(worker?.cwd).toBe('/tmp/worktree')
     expect(worker?.eventFile).toBe(workerControlLogFile(dir, 'w-0'))
 
     const frame = renderTopFrame(snapshot, {
@@ -240,7 +233,6 @@ describe('supervisor top model', () => {
     expect(frame).toContain('w-0')
     expect(frame).toContain('w-1')
     expect(frame).toContain('valid')
-    expect(frame).toContain('cwd /tmp/worktree')
     expect(frame).toContain('events ')
     expect(frame).toContain('live events:')
     expect(frame).toContain('steer w-0 > please inspect the TUI input path_')

@@ -15,9 +15,7 @@
  * @experimental
  */
 
-import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
 import { cancelRun, cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
@@ -129,24 +127,6 @@ function stop(): void {
   process.exit(0)
 }
 
-function pauseUi(): void {
-  if (timer) {
-    clearInterval(timer)
-    timer = undefined
-  }
-  process.stdin.setRawMode(false)
-  process.stdin.pause()
-  process.stdout.write('\x1b[?1000l\x1b[?1006l\x1b[?25h\x1b[?1049l')
-}
-
-function resumeUi(): void {
-  process.stdout.write('\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h')
-  process.stdin.setRawMode(true)
-  process.stdin.resume()
-  draw()
-  timer = setInterval(draw, 1000)
-}
-
 function draw(): void {
   snapshot = loadTopSnapshot(state.root)
   clampSelection()
@@ -193,9 +173,6 @@ function onKey(str: string, key: { name?: string; ctrl?: boolean }): void {
     state.mode = 'log'
   } else if (key.name === 's') {
     startSteerInput()
-  } else if (key.name === 'a') {
-    state.mode = 'detail'
-    openWorkerShell()
   } else if (key.name === 'c') {
     requestCancel()
   }
@@ -361,33 +338,6 @@ function renderSteerInputState(): { active: boolean; value: string; workerLabel?
     value: state.steerInput.value,
     ...(worker?.label ? { workerLabel: worker.label } : {}),
   }
-}
-
-function openWorkerShell(): void {
-  const worker = selectedWorker()
-  if (!worker?.cwd) {
-    state.notice = 'no worker worktree recorded yet'
-    return
-  }
-  if (!existsSync(worker.cwd)) {
-    state.notice = `worker worktree is gone: ${worker.cwd}`
-    return
-  }
-  const shell = process.env.SHELL ?? '/bin/bash'
-  state.notice = `returned from ${worker.label}`
-  pauseUi()
-  spawnSync(shell, [], {
-    cwd: worker.cwd,
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      AGENT_SUPERVISOR_ROOT: state.root,
-      AGENT_SUPERVISOR_ID: state.selectedSupervisorId ?? '',
-      AGENT_WORKER_ID: worker.id,
-      AGENT_WORKER_LABEL: worker.label,
-    },
-  })
-  resumeUi()
 }
 
 function requestCancel(): void {
