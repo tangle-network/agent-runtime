@@ -41,7 +41,7 @@ async function writeSurface(
   root: string,
   directory: string,
   name: string,
-  entries: Record<string, Record<string, 'value' | 'type'>>,
+  entries: Record<string, Record<string, string>>,
 ): Promise<void> {
   await writeFile(
     join(root, directory, 'api-surface.json'),
@@ -615,6 +615,40 @@ describe('a change to the exported symbols requires a version bump', () => {
     })
     await writeSurface(root, 'bench', '@tangle-network/agent-bench', { '.': { runBench: 'value' } })
     await commit(root, 'record the surface for the first time')
+
+    await expect(check(root, base)).resolves.toMatchObject({
+      stdout: expect.stringContaining('consumer surface unchanged at 1.0.0'),
+    })
+  })
+
+  it('rejects a field removed from an exported type, which moves no name', async () => {
+    const root = await createRepo()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value 1f0a2b3c4d5e', AgentSpec: 'type 9a8b7c6d5e4f' },
+    })
+    await commit(root, 'state the shape behind each name')
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value 1f0a2b3c4d5e', AgentSpec: 'type 0011223344ff' },
+    })
+    await commit(root, 'remove a field from AgentSpec')
+
+    // The name set is byte-identical, which is why the manifest comparison and
+    // a name-only record both answer "consumer surface unchanged".
+    await expect(check(root, base)).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        'export shape changed: . AgentSpec: shape 9a8b7c6d5e4f -> 0011223344ff',
+      ),
+    })
+  })
+
+  it('does not compare a shape the base record does not state', async () => {
+    const root = await createRepo()
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value 1f0a2b3c4d5e', AgentSpec: 'type 9a8b7c6d5e4f' },
+    })
+    await commit(root, 'state the shapes for the first time')
 
     await expect(check(root, base)).resolves.toMatchObject({
       stdout: expect.stringContaining('consumer surface unchanged at 1.0.0'),

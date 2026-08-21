@@ -22,11 +22,29 @@
  * declaration files and fails when the two disagree, and it runs wherever a
  * build has already happened. Staleness is therefore loud, never a silent pass.
  *
- * Scope: names and their kind (`value` or `type`), never the shape behind a
- * name. Removing a field from an exported interface is a break this does not
- * see. Deeper comparison would need a full type checker on both sides and would
- * fail on every internal type edit; names and kinds are the granularity that
- * matches the defect — a name that resolves in no published version.
+ * Each name records its KIND and its SHAPE: `"type 4c1f…"`, where the digest
+ * covers the declaration a consumer compiles against. A name is only half of
+ * what a consumer resolves — removing a field from an exported interface, or
+ * adding a member to an exported union, moves no name at all, so a name-only
+ * record reports "surface unchanged" for a change every consumer can see.
+ *
+ * The digest is taken over the BUILT declaration, with comments removed,
+ * whitespace collapsed, the declaration's own local name blanked, and every
+ * type reference rewritten to a stable token — the referenced symbol's PUBLIC
+ * name when the package exports it, the `package:name` it came from when it is
+ * re-exported from a dependency, and the referenced declaration's own digest
+ * when the package declares it without exporting it. So an internal edit that
+ * reaches no exported declaration moves nothing, a doc-comment edit moves
+ * nothing, and a bundler's private renaming moves nothing.
+ *
+ * Two deliberate limits, so neither reads as an oversight:
+ *   - A change is reported where it HAPPENED, not everywhere it is reachable
+ *     from. `A { b: B }` references `B` by public name, so editing `B` moves
+ *     `B`'s digest and not `A`'s. Every affected symbol is still named, once.
+ *   - A shape change is classified BREAKING, not additive. Telling an added
+ *     optional field from a removed required one is a subtyping question, and
+ *     the record states structure rather than subtyping. Guessing additive on a
+ *     change that is actually a break is the failure this exists to stop.
  */
 import { existsSync, readdirSync } from 'node:fs'
 import { join, posix, relative, resolve } from 'node:path'
@@ -168,17 +186,33 @@ export const formatSurface = (surface) => {
 }
 
 /**
+ * One recorded name, split into what a comparison needs. A record that states
+ * only a kind carries no shape, and a shape that is not stated on BOTH sides
+ * has nothing to be compared against — the same rule a record appearing for the
+ * first time already follows.
+ */
+export const parseSurfaceEntry = (entry) => {
+  const [kind, shape] = String(entry).split(' ')
+  return { kind, shape }
+}
+
+/**
  * What moved between two surface records.
  *
  * `value -> type` is listed as a narrowing: the name still type-checks, and the
  * runtime binding a consumer imported is gone. That is a break the name set
  * alone would call unchanged.
+ *
+ * `changed` is a name whose kind held and whose SHAPE moved — a field, a
+ * parameter, a union member. It is reported alongside a kind move rather than
+ * instead of one, because the two are independent and either can be the break.
  */
 export const compareSurfaces = (before, after) => {
   const added = []
   const removed = []
   const narrowed = []
   const widened = []
+  const changed = []
   const subpaths = [
     ...new Set([...Object.keys(before.entries ?? {}), ...Object.keys(after.entries ?? {})]),
   ].sort()
@@ -197,10 +231,23 @@ export const compareSurfaces = (before, after) => {
       const from = left[name]
       const to = right[name]
       if (from === to) continue
-      if (from === undefined) added.push(`${subpath} ${name}`)
-      else if (to === undefined) removed.push(`${subpath} ${name}`)
-      else if (from === 'value' && to === 'type') narrowed.push(`${subpath} ${name}: value -> type`)
-      else widened.push(`${subpath} ${name}: ${from} -> ${to}`)
+      if (from === undefined) {
+        added.push(`${subpath} ${name}`)
+        continue
+      }
+      if (to === undefined) {
+        removed.push(`${subpath} ${name}`)
+        continue
+      }
+      const was = parseSurfaceEntry(from)
+      const is = parseSurfaceEntry(to)
+      if (was.kind !== is.kind) {
+        if (was.kind === 'value' && is.kind === 'type') narrowed.push(`${subpath} ${name}: value -> type`)
+        else widened.push(`${subpath} ${name}: ${was.kind} -> ${is.kind}`)
+      }
+      if (was.shape !== undefined && is.shape !== undefined && was.shape !== is.shape) {
+        changed.push(`${subpath} ${name}: shape ${was.shape} -> ${is.shape}`)
+      }
     }
   }
   // An entry point that stops carrying declarations is a removal of everything
@@ -217,11 +264,18 @@ export const compareSurfaces = (before, after) => {
       removed.push(`${subpath} (entry point, no declarations)`)
     }
   }
-  return { added, removed, narrowed, widened }
+  return { added, removed, narrowed, widened, changed }
 }
 
+/**
+ * A shape change counts as breaking. Whether it added an optional field or
+ * removed a required one is a subtyping question this record cannot answer, and
+ * calling a break additive is the outcome the record exists to prevent.
+ */
 export const surfaceSeverity = (changes) => {
-  if (changes.removed.length > 0 || changes.narrowed.length > 0) return 'breaking'
+  if (changes.removed.length > 0 || changes.narrowed.length > 0 || changes.changed.length > 0) {
+    return 'breaking'
+  }
   if (changes.added.length > 0 || changes.widened.length > 0) return 'additive'
   return 'none'
 }

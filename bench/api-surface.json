@@ -2,309 +2,309 @@
   "package": "@tangle-network/agent-bench",
   "entries": {
     ".": {
-      "ADAPTERS": "value",
-      "BenchCell": "type",
-      "BenchCellTaskResult": "type",
-      "BenchLeaderboardRow": "type",
-      "BenchScore": "type",
-      "BenchShot": "type",
-      "BenchTask": "type",
-      "BenchmarkAdapter": "type",
-      "ExecutePreparedPierCandidateOptions": "type",
-      "FINAL_ANSWER_SENTINEL": "value",
-      "FilePierCandidateTrialController": "value",
-      "FilePierCandidateTrialControllerOptions": "type",
-      "JudgeArtifactFileReceipt": "type",
-      "JudgeArtifactReceipt": "type",
-      "LoadOptions": "type",
-      "PierCandidateGraderPort": "type",
-      "PierCandidateOfficialResult": "type",
-      "PierCandidateProcessSpec": "type",
-      "PierCandidateTerminationAcknowledgement": "type",
-      "PierCandidateTrialController": "type",
-      "PierCandidateTrialHandle": "type",
-      "PierCandidateTrialIdentity": "type",
-      "PierCandidateTrialResult": "type",
-      "PierDockerConnection": "type",
-      "RagAnswerScore": "type",
-      "RagContext": "type",
-      "RunBenchmarksOptions": "type",
-      "RunBenchmarksReport": "type",
-      "StagedJudgeError": "value",
-      "StagedPierCandidateExecution": "type",
-      "StagedRunCaptureSpec": "type",
-      "StagedRunSpec": "type",
-      "SweBenchAdapterOptions": "type",
-      "SweBenchArtifactCaptureContext": "type",
-      "SweBenchCacheLevel": "type",
-      "answerScoreToBenchScore": "value",
-      "contextBlock": "value",
-      "contextsFrom": "value",
-      "createCragAdapter": "value",
-      "createNoMiraclAdapter": "value",
-      "createOpenRagBenchAdapter": "value",
-      "createPierCandidateRecoveryExecutor": "value",
-      "createPierResultGrader": "value",
-      "createRagBenchAdapter": "value",
-      "createSweBenchAdapter": "value",
-      "createT2RagBenchAdapter": "value",
-      "executePreparedPierCandidate": "value",
-      "normalizeAnswer": "value",
-      "parseCitations": "value",
-      "parseFinalAnswer": "value",
-      "printBenchmarksReport": "value",
-      "ragAnswerOutput": "value",
-      "resolveAdapter": "value",
-      "runBenchmarks": "value",
-      "runStagedJudge": "value",
-      "scoreAnswerArtifact": "value",
-      "scoreSweReport": "value",
-      "sweEvaluationArgv": "value",
-      "swePatchOutput": "value",
-      "tokenF1": "value"
+      "ADAPTERS": "value 373728f5643d",
+      "BenchCell": "type 743fc45d7bfb",
+      "BenchCellTaskResult": "type 92da4a3164de",
+      "BenchLeaderboardRow": "type 2edc04934a63",
+      "BenchScore": "type cf218b2b9327",
+      "BenchShot": "type 0922bb29af18",
+      "BenchTask": "type 025d9b2f2116",
+      "BenchmarkAdapter": "type a9f9f6645ec5",
+      "ExecutePreparedPierCandidateOptions": "type 5d80e2097d46",
+      "FINAL_ANSWER_SENTINEL": "value b0c5dfafb7f1",
+      "FilePierCandidateTrialController": "value 94e560f77bd9",
+      "FilePierCandidateTrialControllerOptions": "type c5d652bab8c5",
+      "JudgeArtifactFileReceipt": "type 67ada5ffc471",
+      "JudgeArtifactReceipt": "type ced5ee7ef823",
+      "LoadOptions": "type 1c4063b95847",
+      "PierCandidateGraderPort": "type c7f1a7c66ab6",
+      "PierCandidateOfficialResult": "type 9ffd6ccdf8f1",
+      "PierCandidateProcessSpec": "type a93ecdd9723a",
+      "PierCandidateTerminationAcknowledgement": "type 93cef5a52e48",
+      "PierCandidateTrialController": "type 1eb202f79539",
+      "PierCandidateTrialHandle": "type 97af51031212",
+      "PierCandidateTrialIdentity": "type 1f469e33c9d5",
+      "PierCandidateTrialResult": "type 5acfb8761941",
+      "PierDockerConnection": "type 44c845d83812",
+      "RagAnswerScore": "type dcc71dc5fdfd",
+      "RagContext": "type 3d965af96dc7",
+      "RunBenchmarksOptions": "type c748d8968136",
+      "RunBenchmarksReport": "type f3ac75211350",
+      "StagedJudgeError": "value e8a9a9f9b22a",
+      "StagedPierCandidateExecution": "type f68f8e15bf50",
+      "StagedRunCaptureSpec": "type 1067b4fdf836",
+      "StagedRunSpec": "type f9dc1384de8a",
+      "SweBenchAdapterOptions": "type f9f39f610b19",
+      "SweBenchArtifactCaptureContext": "type c9504477653f",
+      "SweBenchCacheLevel": "type 0a1a02002f02",
+      "answerScoreToBenchScore": "value ed51667ffaae",
+      "contextBlock": "value 824d8a4af2e9",
+      "contextsFrom": "value 35531fc38a65",
+      "createCragAdapter": "value cb4e742d9a39",
+      "createNoMiraclAdapter": "value cb4e742d9a39",
+      "createOpenRagBenchAdapter": "value cb4e742d9a39",
+      "createPierCandidateRecoveryExecutor": "value fa8d3a5eb8ce",
+      "createPierResultGrader": "value d2f04bcfd88f",
+      "createRagBenchAdapter": "value cb4e742d9a39",
+      "createSweBenchAdapter": "value bb707bd68479",
+      "createT2RagBenchAdapter": "value cb4e742d9a39",
+      "executePreparedPierCandidate": "value 93e16b00a7db",
+      "normalizeAnswer": "value 8b2ddb657a6c",
+      "parseCitations": "value e3d8ef3e402f",
+      "parseFinalAnswer": "value 083c8ae0aa78",
+      "printBenchmarksReport": "value c8dd9686ee0e",
+      "ragAnswerOutput": "value 373728f5643d",
+      "resolveAdapter": "value 8de37af4c953",
+      "runBenchmarks": "value 5306c0190fd2",
+      "runStagedJudge": "value fe6d6b4d0aec",
+      "scoreAnswerArtifact": "value 70f66d0d7881",
+      "scoreSweReport": "value 17ca3b647ae6",
+      "sweEvaluationArgv": "value 5dbd5ca7ba5d",
+      "swePatchOutput": "value 373728f5643d",
+      "tokenF1": "value e296535d0047"
     },
     "./adapters": {
-      "ADAPTERS": "value",
-      "resolveAdapter": "value"
+      "ADAPTERS": "value 373728f5643d",
+      "resolveAdapter": "value 8de37af4c953"
     },
     "./benchmarks/_harness": {
-      "StagedJudgeError": "value",
-      "StagedRunCaptureSpec": "value",
-      "StagedRunSpec": "value",
-      "benchRoot": "value",
-      "bigBuffer": "value",
-      "preflightVenvImports": "value",
-      "readJsonReport": "value",
-      "resolveBenchPython": "value",
-      "runStagedJudge": "value",
-      "runVenvPython": "value",
-      "runVenvScriptStdin": "value",
-      "safeRunId": "value",
-      "stageFile": "value",
-      "venvBin": "value",
-      "venvBinAt": "value",
-      "venvPython": "value",
-      "venvPythonAt": "value"
+      "StagedJudgeError": "value e8a9a9f9b22a",
+      "StagedRunCaptureSpec": "value 1067b4fdf836",
+      "StagedRunSpec": "value f9dc1384de8a",
+      "benchRoot": "value 373728f5643d",
+      "bigBuffer": "value 373728f5643d",
+      "preflightVenvImports": "value bde83e4adca2",
+      "readJsonReport": "value 38ee10cdc735",
+      "resolveBenchPython": "value 1527ad84730f",
+      "runStagedJudge": "value fe6d6b4d0aec",
+      "runVenvPython": "value 936f668f2120",
+      "runVenvScriptStdin": "value 4786fd9065d2",
+      "safeRunId": "value b2f79e57d13c",
+      "stageFile": "value 99392a0b5d6e",
+      "venvBin": "value 5b60d6579621",
+      "venvBinAt": "value 7faac4d7cec2",
+      "venvPython": "value 373728f5643d",
+      "venvPythonAt": "value 373728f5643d"
     },
     "./benchmarks/aec-bench": {
-      "createAecBenchAdapter": "value"
+      "createAecBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/agentbench": {
-      "agentbenchAnswerOutput": "value",
-      "createAgentBenchAdapter": "value"
+      "agentbenchAnswerOutput": "value 373728f5643d",
+      "createAgentBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/appworld": {
-      "ReactResult": "value",
-      "appworldReactResultWithUsage": "value",
-      "appworldReactUsageEvent": "value",
-      "appworldSolutionOutput": "value",
-      "appworldToolLoopClient": "value",
-      "createAppWorldAdapter": "value",
-      "createAppWorldReactAdapter": "value"
+      "ReactResult": "value 85f2675097bc",
+      "appworldReactResultWithUsage": "value c621486c98b6",
+      "appworldReactUsageEvent": "value 38a16b087288",
+      "appworldSolutionOutput": "value 373728f5643d",
+      "appworldToolLoopClient": "value 0d0d63cb330b",
+      "createAppWorldAdapter": "value cb4e742d9a39",
+      "createAppWorldReactAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/bfcl": {
-      "bfclOutput": "value",
-      "createBfclAdapter": "value"
+      "bfclOutput": "value 373728f5643d",
+      "createBfclAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/cad-design": {
-      "CadSpec": "value",
-      "createCadDesignAdapter": "value"
+      "CadSpec": "value 999d2be64bf9",
+      "createCadDesignAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/cadbench": {
-      "createCadBenchAdapter": "value"
+      "createCadBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/cadgenbench": {
-      "createCadGenBenchAdapter": "value"
+      "createCadGenBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/commit0": {
-      "commit0DiffOutput": "value",
-      "createCommit0Adapter": "value"
+      "commit0DiffOutput": "value 373728f5643d",
+      "createCommit0Adapter": "value cb4e742d9a39"
     },
     "./benchmarks/crag": {
-      "createCragAdapter": "value"
+      "createCragAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/dabstep": {
-      "createDabstepAdapter": "value",
-      "dabstepAnswerOutput": "value"
+      "createDabstepAdapter": "value cb4e742d9a39",
+      "dabstepAnswerOutput": "value 373728f5643d"
     },
     "./benchmarks/enterpriseops-gym": {
-      "createEnterpriseOpsGymAdapter": "value",
-      "enterpriseOpsTranscriptOutput": "value"
+      "createEnterpriseOpsGymAdapter": "value cb4e742d9a39",
+      "enterpriseOpsTranscriptOutput": "value 373728f5643d"
     },
     "./benchmarks/finresearchbench": {
-      "createFinResearchBenchAdapter": "value",
-      "scoreOfficialJudgeTurn": "value"
+      "createFinResearchBenchAdapter": "value cb4e742d9a39",
+      "scoreOfficialJudgeTurn": "value c5edeaa3cf4a"
     },
     "./benchmarks/finsearchcomp": {
-      "T1Seam": "value",
-      "createFinsearchcompAdapter": "value"
+      "T1Seam": "value 4b51454e4922",
+      "createFinsearchcompAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/frames": {
-      "ResearchAnswer": "value",
-      "ResearchTask": "value",
-      "createFramesAdapter": "value",
-      "normalizeAnswer": "value",
-      "parseCitations": "value",
-      "parseFinalAnswer": "value"
+      "ResearchAnswer": "value a099b3b1cabf",
+      "ResearchTask": "value 858d0ac430ee",
+      "createFramesAdapter": "value cb4e742d9a39",
+      "normalizeAnswer": "value 8b2ddb657a6c",
+      "parseCitations": "value e3d8ef3e402f",
+      "parseFinalAnswer": "value 083c8ae0aa78"
     },
     "./benchmarks/hotpotqa": {
-      "createHotpotqaAdapter": "value",
-      "exactMatch": "value",
-      "normalizeAnswer": "value",
-      "parseFinalAnswer": "value",
-      "tokenF1": "value"
+      "createHotpotqaAdapter": "value cb4e742d9a39",
+      "exactMatch": "value 88380c225175",
+      "normalizeAnswer": "value 8b2ddb657a6c",
+      "parseFinalAnswer": "value 083c8ae0aa78",
+      "tokenF1": "value 4ef56f0767f0"
     },
     "./benchmarks/humaneval": {
-      "CheckResult": "value",
-      "HumanEvalTask": "value",
-      "PythonProgramResult": "value",
-      "basePrompt": "value",
-      "createHumanEvalAdapter": "value",
-      "extractCode": "value",
-      "loadHumanEval": "value",
-      "runChecker": "value",
-      "runPythonProgram": "value"
+      "CheckResult": "value bd6e3b592363",
+      "HumanEvalTask": "value 048e24e97fb0",
+      "PythonProgramResult": "value 079d2aa6b6cd",
+      "basePrompt": "value 676e7f6671b3",
+      "createHumanEvalAdapter": "value cb4e742d9a39",
+      "extractCode": "value 2be00a4bf33b",
+      "loadHumanEval": "value bcdd6bf601ad",
+      "runChecker": "value d8d15324c655",
+      "runPythonProgram": "value 97a332ea8642"
     },
     "./benchmarks/mcad-bench": {
-      "McadCheck": "value",
-      "McadGeometry": "value",
-      "McadScoring": "value",
-      "McadTaskMeta": "value",
-      "Tri": "value",
-      "Vec3": "value",
-      "compileAndMeasure": "value",
-      "createMcadBenchAdapter": "value",
-      "measureMesh": "value",
-      "parseAsciiStl": "value",
-      "pointInSolid": "value",
-      "scoreAgainstSpec": "value",
-      "stripCodeFence": "value"
+      "McadCheck": "value 4059e092b69e",
+      "McadGeometry": "value 872a849ea822",
+      "McadScoring": "value a11f500e5e2d",
+      "McadTaskMeta": "value 8a15117f5b65",
+      "Tri": "value ab24409b1732",
+      "Vec3": "value 9b5d27dcd768",
+      "compileAndMeasure": "value 3ac702e8abe6",
+      "createMcadBenchAdapter": "value cb4e742d9a39",
+      "measureMesh": "value 398eaedb11ba",
+      "parseAsciiStl": "value d8a80c99cd1d",
+      "pointInSolid": "value a11d615c5d6c",
+      "scoreAgainstSpec": "value 4d9f82630a03",
+      "stripCodeFence": "value 083c8ae0aa78"
     },
     "./benchmarks/mcad-cq-bench": {
-      "CADQUERY_INSTALL_FIX": "value",
-      "CADQUERY_VENV": "value",
-      "MCAD_CQ_DELIVERABLE": "value",
-      "MCAD_CQ_DELIVERABLE_MULTIBODY": "value",
-      "MCAD_CQ_TIMEOUT_MS": "value",
-      "McadCqBuild": "value",
-      "STEP_MAGIC": "value",
-      "STEP_NAME": "value",
-      "STL_NAME": "value",
-      "asciiStlProblem": "value",
-      "cadqueryMissingError": "value",
-      "createMcadCqAdapter": "value",
-      "resolveCadqueryPython": "value",
-      "runAndMeasureCadQuery": "value",
-      "stepFileEmitted": "value",
-      "toCadQueryPrompt": "value",
-      "withStepCheck": "value"
+      "CADQUERY_INSTALL_FIX": "value 373728f5643d",
+      "CADQUERY_VENV": "value 3719b63802e6",
+      "MCAD_CQ_DELIVERABLE": "value 373728f5643d",
+      "MCAD_CQ_DELIVERABLE_MULTIBODY": "value 373728f5643d",
+      "MCAD_CQ_TIMEOUT_MS": "value aa0bcb4338e9",
+      "McadCqBuild": "value e7136ef98eb6",
+      "STEP_MAGIC": "value 0db2f8d60a26",
+      "STEP_NAME": "value 74450e62fed9",
+      "STL_NAME": "value 4a78334b17f3",
+      "asciiStlProblem": "value 5776fad8ccde",
+      "cadqueryMissingError": "value 53becdb85dd8",
+      "createMcadCqAdapter": "value cb4e742d9a39",
+      "resolveCadqueryPython": "value 051437218d2e",
+      "runAndMeasureCadQuery": "value a4052a37b95d",
+      "stepFileEmitted": "value 0e2e3180a393",
+      "toCadQueryPrompt": "value 247ff85f32ec",
+      "withStepCheck": "value cc92e6773cf3"
     },
     "./benchmarks/mcad-cq-golds": {
-      "MCAD_CQ_GOLDS": "value",
-      "MCAD_CQ_UNCALIBRATED": "value"
+      "MCAD_CQ_GOLDS": "value 373728f5643d",
+      "MCAD_CQ_UNCALIBRATED": "value 373728f5643d"
     },
     "./benchmarks/mcad-golds": {
-      "MCAD_GOLDS": "value"
+      "MCAD_GOLDS": "value 373728f5643d"
     },
     "./benchmarks/mcad-tasks": {
-      "MCAD_DELIVERABLE": "value",
-      "MCAD_DELIVERABLE_MULTIBODY": "value",
-      "MCAD_TASKS": "value",
-      "McadSpec": "value",
-      "McadTask": "value"
+      "MCAD_DELIVERABLE": "value 373728f5643d",
+      "MCAD_DELIVERABLE_MULTIBODY": "value 373728f5643d",
+      "MCAD_TASKS": "value 373728f5643d",
+      "McadSpec": "value ef42df6419b7",
+      "McadTask": "value b2992679ef2a"
     },
     "./benchmarks/mind2web": {
-      "createMind2WebAdapter": "value",
-      "parseAction": "value"
+      "createMind2WebAdapter": "value cb4e742d9a39",
+      "parseAction": "value c503a751485d"
     },
     "./benchmarks/nomiracl": {
-      "createNoMiraclAdapter": "value"
+      "createNoMiraclAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/open-rag-bench": {
-      "createOpenRagBenchAdapter": "value"
+      "createOpenRagBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/programbench": {
-      "createProgrambenchAdapter": "value",
-      "programbenchSubmissionOutput": "value"
+      "createProgrambenchAdapter": "value cb4e742d9a39",
+      "programbenchSubmissionOutput": "value 373728f5643d"
     },
     "./benchmarks/rag-shared": {
-      "FINAL_ANSWER_SENTINEL": "value",
-      "RagAnswerScore": "value",
-      "RagContext": "value",
-      "allStrings": "value",
-      "answerScoreToBenchScore": "value",
-      "contextBlock": "value",
-      "contextsFrom": "value",
-      "firstString": "value",
-      "isObject": "value",
-      "normalizeAnswer": "value",
-      "parseCitations": "value",
-      "parseFinalAnswer": "value",
-      "ragAnswerOutput": "value",
-      "readJsonRows": "value",
-      "scoreAnswerArtifact": "value",
-      "selectTasks": "value",
-      "stringArrayFrom": "value",
-      "stringFrom": "value",
-      "tokenF1": "value"
+      "FINAL_ANSWER_SENTINEL": "value b0c5dfafb7f1",
+      "RagAnswerScore": "value dcc71dc5fdfd",
+      "RagContext": "value 3d965af96dc7",
+      "allStrings": "value a53fb37fb9af",
+      "answerScoreToBenchScore": "value ed51667ffaae",
+      "contextBlock": "value 824d8a4af2e9",
+      "contextsFrom": "value 35531fc38a65",
+      "firstString": "value 15371b9bb05d",
+      "isObject": "value 53b7ffc82f05",
+      "normalizeAnswer": "value 8b2ddb657a6c",
+      "parseCitations": "value e3d8ef3e402f",
+      "parseFinalAnswer": "value 083c8ae0aa78",
+      "ragAnswerOutput": "value 373728f5643d",
+      "readJsonRows": "value 1b27bb970dd4",
+      "scoreAnswerArtifact": "value 70f66d0d7881",
+      "selectTasks": "value decac47ed738",
+      "stringArrayFrom": "value c46947e0ec8a",
+      "stringFrom": "value 0cd63baa2088",
+      "tokenF1": "value e296535d0047"
     },
     "./benchmarks/ragbench": {
-      "createRagBenchAdapter": "value"
+      "createRagBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/simpleqa": {
-      "ResearchAnswer": "value",
-      "ResearchTask": "value",
-      "createSimpleQaAdapter": "value",
-      "parseCitations": "value",
-      "parseFinalAnswer": "value"
+      "ResearchAnswer": "value a099b3b1cabf",
+      "ResearchTask": "value e39092793568",
+      "createSimpleQaAdapter": "value cb4e742d9a39",
+      "parseCitations": "value e3d8ef3e402f",
+      "parseFinalAnswer": "value 083c8ae0aa78"
     },
     "./benchmarks/swe-bench": {
-      "SweBenchAdapterOptions": "value",
-      "SweBenchArtifactCaptureContext": "value",
-      "SweBenchCacheLevel": "value",
-      "createSweBenchAdapter": "value",
-      "scoreSweReport": "value",
-      "sweEvaluationArgv": "value",
-      "swePatchOutput": "value"
+      "SweBenchAdapterOptions": "value f9f39f610b19",
+      "SweBenchArtifactCaptureContext": "value c9504477653f",
+      "SweBenchCacheLevel": "value 0a1a02002f02",
+      "createSweBenchAdapter": "value bb707bd68479",
+      "scoreSweReport": "value 17ca3b647ae6",
+      "sweEvaluationArgv": "value 5dbd5ca7ba5d",
+      "swePatchOutput": "value 373728f5643d"
     },
     "./benchmarks/t2-ragbench": {
-      "createT2RagBenchAdapter": "value"
+      "createT2RagBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/tau-bench-shared": {
-      "TauBenchConfig": "value",
-      "TauUpstreamPin": "value",
-      "assertTauUpstreamPinUnchanged": "value",
-      "createTauBenchAdapter": "value",
-      "tauResultsOutput": "value"
+      "TauBenchConfig": "value a3043cfaa2ee",
+      "TauUpstreamPin": "value 40ac24939a72",
+      "assertTauUpstreamPinUnchanged": "value a70de1a21068",
+      "createTauBenchAdapter": "value e54e717d5123",
+      "tauResultsOutput": "value 373728f5643d"
     },
     "./benchmarks/tau2-bench": {
-      "createTau2BenchAdapter": "value",
-      "tau2ResultsOutput": "value"
+      "createTau2BenchAdapter": "value cb4e742d9a39",
+      "tau2ResultsOutput": "value 373728f5643d"
     },
     "./benchmarks/tau3-banking": {
-      "createTau3BankingAdapter": "value"
+      "createTau3BankingAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/terminal-bench": {
-      "createTerminalBenchAdapter": "value"
+      "createTerminalBenchAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/toollm": {
-      "createToolLlmAdapter": "value",
-      "toollmOutput": "value"
+      "createToolLlmAdapter": "value cb4e742d9a39",
+      "toollmOutput": "value 373728f5643d"
     },
     "./benchmarks/trata-hedge": {
-      "createTrataHedgeAdapter": "value"
+      "createTrataHedgeAdapter": "value cb4e742d9a39"
     },
     "./benchmarks/types": {
-      "BenchScore": "value",
-      "BenchTask": "value",
-      "BenchmarkAdapter": "value",
-      "JudgeArtifactFileReceipt": "value",
-      "JudgeArtifactReceipt": "value",
-      "LoadOptions": "value"
+      "BenchScore": "value cf218b2b9327",
+      "BenchTask": "value 025d9b2f2116",
+      "BenchmarkAdapter": "value a9f9f6645ec5",
+      "JudgeArtifactFileReceipt": "value 67ada5ffc471",
+      "JudgeArtifactReceipt": "value ced5ee7ef823",
+      "LoadOptions": "value 1c4063b95847"
     },
     "./benchmarks/webarena-verified": {
-      "createWebArenaVerifiedAdapter": "value",
-      "webarenaOutputDirOutput": "value"
+      "createWebArenaVerifiedAdapter": "value cb4e742d9a39",
+      "webarenaOutputDirOutput": "value 373728f5643d"
     }
   },
   "assets": []
