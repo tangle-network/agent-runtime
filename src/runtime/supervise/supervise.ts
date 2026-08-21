@@ -20,6 +20,11 @@ import {
   type Sha256Digest,
   validateAgentProfileSecurity,
 } from '@tangle-network/agent-interface'
+import {
+  type HarnessId,
+  isMaterializerHarness,
+  type SkippableDimension,
+} from '@tangle-network/agent-profile-materialize'
 import type { BackendType } from '@tangle-network/sandbox'
 import {
   assertProfileMaterialization,
@@ -30,6 +35,8 @@ import {
   profileMaterializationAxes,
   promptControlProfileMaterialization,
   promptModelProfileMaterialization,
+  renderUnsupported,
+  unsupportedProfileDimensions,
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
 import { ConfigError, ValidationError } from '../../errors'
@@ -46,7 +53,7 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import { harnessRunsAgent } from '../harness-role'
+import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
@@ -170,6 +177,7 @@ export function workerFromBackend(
     }
     const profile = parsed.data
     assertBackendProfileMaterialization(profile, capturedBackend, 'workerFromBackend')
+    assertBridgeProfileMaterializes(profile, capturedBackend, 'workerFromBackend')
     // Resolved BEFORE any worker exists, so a resume this seam cannot honor fails the spawn
     // itself and the kernel never ledgers a `continuity: 'resume'` stamp for it.
     const resumeSessionId = bridgeResumeSessionId(
@@ -332,6 +340,60 @@ function assertBackendProfileMaterialization(
   context: string,
 ): void {
   assertProfileContract(profile, backendProfileMaterialization(backend), context)
+}
+
+/**
+ * The dimensions cli-bridge lowers through its OWN native controls rather than the workspace plan,
+ * per harness. The pre-spawn check must skip exactly these, or it refuses a profile the bridge
+ * would have executed. Mirrors `provisionProfileWorkspace` / `provisionPiProfile` in cli-bridge
+ * `src/backends/profile-support.ts`.
+ */
+function bridgeMaterializationSkip(harness: HarnessId): readonly SkippableDimension[] {
+  return harness === 'pi' ? ['mcp', 'extensions'] : ['mcp']
+}
+
+/**
+ * The two prompt intents, gated here because they are the ONLY profile dimensions cli-bridge
+ * refuses independently of whether a harness materializes a workspace at all
+ * (`assertProfilePromptIntentsSupported`, cli-bridge `src/backends/profile-support.ts`): a
+ * backend either owns a control that reaches the harness's system-prompt position or it does not.
+ * Every other dimension's verdict belongs to the workspace plan the executing backend builds, and
+ * the run's own materialization receipt already refuses those after the fact.
+ */
+const gatedPromptDimensions = ['systemPrompt', 'appendSystemPrompt'] as const
+
+/**
+ * Refuse a bridge-bound profile whose prompt intent the harness cannot execute, at the SYNCHRONOUS
+ * spawn seam — before the reservation commits, the `spawned` event is journaled, or a token is
+ * metered. The verdict is a pure function of the profile and the harness, but the bridge only
+ * reaches it while assembling the prompt, by which point the child is spawned, metered, and
+ * settled `down` to deliver an answer that was available before it started.
+ *
+ * Applies to the profiles the runtime SPAWNS — a worker and a nested driver child. A root manager
+ * profile is the caller's own input and is not a spawn: the bridge answers it on the manager's
+ * first turn without a child ever existing.
+ *
+ * Silent for every other backend: `cli-worktree` runs the full plan check on its own local plan
+ * (`runWorktreeHarness`), and no other backend hands the profile to a harness materializer.
+ */
+function assertBridgeProfileMaterializes(
+  profile: AgentProfile,
+  backend: ExecutorConfig,
+  context: string,
+): void {
+  if (backend.backend !== 'bridge') return
+  const harness = agentHarness(profile.harness)
+  if (harness === undefined || !isMaterializerHarness(harness)) return
+  const unsupported = unsupportedProfileDimensions(
+    profile,
+    harness,
+    gatedPromptDimensions,
+    bridgeMaterializationSkip(harness),
+  )
+  if (unsupported.length === 0) return
+  throw new ValidationError(
+    `${context}: ${harness} cannot materialize the profile: ${renderUnsupported(unsupported)}`,
+  )
 }
 
 /**
@@ -1844,6 +1906,13 @@ function superviseInternal(
             : promptModelProfileMaterialization,
           `supervise driver ${JSON.stringify(spawnContext.label)}`,
         )
+        if (managerBackend) {
+          assertBridgeProfileMaterializes(
+            authorized,
+            managerBackend,
+            `supervise driver ${JSON.stringify(spawnContext.label)}`,
+          )
+        }
 
         const childFactory = makeRecursiveWorkerFor(
           authorized,

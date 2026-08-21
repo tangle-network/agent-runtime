@@ -14,6 +14,7 @@ import { RuntimeRunStateError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
+import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 
 type BridgeRequest = {
@@ -26,6 +27,19 @@ type BridgeRequest = {
 }
 
 const TEST_RUN_DIGEST = `sha256:${'c'.repeat(64)}`
+
+/** An in-memory journal that also exposes every appended event in append order. */
+function recordingJournal(into: SpawnEvent[]): SpawnJournal {
+  const journal = new InMemorySpawnJournal()
+  return {
+    loadTree: (root: NodeId) => journal.loadTree(root),
+    beginTree: (root: NodeId, at: string) => journal.beginTree(root, at),
+    appendEvent: async (root: NodeId, event: SpawnEvent) => {
+      into.push(event)
+      await journal.appendEvent(root, event)
+    },
+  }
+}
 
 function codexTestProfile(name: string, systemPrompt?: string): AgentProfile {
   return {
@@ -579,6 +593,137 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       expect(context.task).toMatchObject({ expected: expect.any(String) })
       expect(context.key).toBe(context.name)
     }
+  })
+
+  it('refuses an opencode child that replaces the system prompt before spawn, naming dimension and reason', async () => {
+    const requests: BridgeRequest[] = []
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      requests.push(body)
+      respondWithBridgeStream(res, body, successStream('never reached'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    const toolResults: string[] = []
+    let turn = 0
+    const result = await supervise(
+      routerTestProfile('root', 'Delegate the work.'),
+      'Delegate the work.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 8, maxTokens: 8_000 },
+        perWorker: { maxIterations: 2, maxTokens: 1_000 },
+        journal,
+        runId: 'opencode-prompt-refusal',
+        brain: async (messages) => {
+          turn += 1
+          if (turn === 1) {
+            return {
+              toolCalls: [
+                {
+                  id: 'spawn',
+                  name: 'spawn_agent',
+                  arguments: JSON.stringify({
+                    profile: {
+                      name: 'oc-worker',
+                      harness: 'opencode',
+                      model: { provider: 'zai-coding-plan', default: 'glm-5.2' },
+                      prompt: { systemPrompt: 'You are the worker. Ignore your own prompt.' },
+                    },
+                    task: 'do the work',
+                    key: 'oc-worker',
+                  }),
+                },
+              ],
+            }
+          }
+          for (const message of messages) {
+            if (typeof message.content === 'string') toolResults.push(message.content)
+          }
+          return { content: 'done', toolCalls: [] }
+        },
+      },
+    )
+
+    expect(result.kind).toBe('no-winner')
+    // The verdict is a pure function of the child profile plus the harness, so it lands before the
+    // spawn is journaled and before the bridge is asked to run anything.
+    expect(events.filter((event) => event.kind === 'spawned' && event.key === 'oc-worker')).toEqual(
+      [],
+    )
+    expect(requests).toEqual([])
+    const refusal = toolResults.find((text) => text.includes('cannot materialize the profile'))
+    expect(refusal).toBeDefined()
+    expect(refusal).toContain('opencode')
+    expect(refusal).toContain('systemPrompt')
+    expect(refusal).toContain('agent.<name>.prompt')
+  })
+
+  it('admits the same replaced system prompt on a harness that has the control', async () => {
+    const requests: BridgeRequest[] = []
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      requests.push(body)
+      respondWithBridgeStream(res, body, successStream('WORK=42'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    let turn = 0
+    await supervise(routerTestProfile('root', 'Delegate the work.'), 'Delegate the work.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 8, maxTokens: 8_000 },
+      perWorker: { maxIterations: 2, maxTokens: 1_000 },
+      journal,
+      runId: 'pi-prompt-admitted',
+      brain: async () => {
+        turn += 1
+        if (turn === 1) {
+          return {
+            toolCalls: [
+              {
+                id: 'spawn',
+                name: 'spawn_agent',
+                arguments: JSON.stringify({
+                  profile: {
+                    name: 'pi-worker',
+                    harness: 'pi',
+                    model: { provider: 'tangle-router', default: 'glm-5.2' },
+                    prompt: { systemPrompt: 'You are the worker. Ignore your own prompt.' },
+                  },
+                  task: 'do the work',
+                  key: 'pi-worker',
+                }),
+              },
+            ],
+          }
+        }
+        if (turn === 2) {
+          return {
+            toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
+          }
+        }
+        return { content: 'done', toolCalls: [] }
+      },
+    })
+
+    // Same replacement intent, a harness whose launcher owns `--system-prompt`: it spawns and the
+    // bridge is asked to run it.
+    expect(
+      events.filter((event) => event.kind === 'spawned' && event.key === 'pi-worker'),
+    ).toHaveLength(1)
+    expect(requests.map((request) => request.agent_profile.name)).toEqual(['pi-worker'])
   })
 
   it('reuses the recorded per-spawn completion result on durable resume', async () => {

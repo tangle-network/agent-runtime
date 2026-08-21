@@ -1,8 +1,16 @@
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   AGENT_PROFILE_MATERIALIZATION_AXES,
   type CanonicalAgentProfileMaterializationAxis,
   profileMaterializationAxes,
 } from '@tangle-network/agent-interface'
+import {
+  type HarnessId,
+  materializeProfile,
+  type SkippableDimension,
+  type Unsupported,
+  type WorkspacePlan,
+} from '@tangle-network/agent-profile-materialize'
 import { ValidationError } from '../errors'
 
 export type { CanonicalAgentProfileMaterializationAxis }
@@ -253,6 +261,59 @@ export function assertProfileMaterialization(options: AssertProfileMaterializati
   const issues = validateProfileMaterialization(options)
   if (issues.length === 0) return
   throw new ValidationError(renderProfileMaterializationIssues(issues, options.context))
+}
+
+/**
+ * Throw when the CHOSEN HARNESS has no control for a dimension the profile asks for.
+ *
+ * The contract above answers which axes a run path carries; this answers whether the harness can
+ * execute them. `materializeProfile` is pure, so the verdict costs no process and no IO.
+ *
+ * `skip` must mirror what the EXECUTING caller skips, or this refuses a profile that would have
+ * run: a dimension handled by the executor's own native control is not unsupported, it is simply
+ * not the plan's to lower.
+ */
+export function assertProfileMaterializes(
+  profile: AgentProfile,
+  harness: HarnessId,
+  context: string,
+  skip?: readonly SkippableDimension[],
+): WorkspacePlan {
+  const plan = materializeProfile(profile, harness, skip ? { skip: [...skip] } : undefined)
+  if (plan.unsupported.length > 0) {
+    throw new ValidationError(
+      `${context}: ${harness} cannot materialize the profile: ${renderUnsupported(plan.unsupported)}`,
+    )
+  }
+  return plan
+}
+
+/**
+ * Ask the materializer which of `dimensions` this harness has no control for, without executing
+ * the profile's own `resources.failOnError` policy.
+ *
+ * A caller that gates only SOME dimensions needs the verdict as data, not as a throw: the
+ * materializer throws while planning when `failOnError` is set (its strict default), which hides
+ * the dimension list and would conflate a gated dimension with an ungated one. The query copy sets
+ * `failOnError: false` so every dimension comes back on `plan.unsupported` and the caller decides.
+ */
+export function unsupportedProfileDimensions(
+  profile: AgentProfile,
+  harness: HarnessId,
+  dimensions: ReadonlyArray<Unsupported['dimension']>,
+  skip?: readonly SkippableDimension[],
+): readonly Unsupported[] {
+  const query: AgentProfile = {
+    ...profile,
+    resources: { ...profile.resources, failOnError: false },
+  }
+  const plan = materializeProfile(query, harness, skip ? { skip: [...skip] } : undefined)
+  return plan.unsupported.filter((entry) => dimensions.includes(entry.dimension))
+}
+
+/** One clause per dimension the harness cannot execute, carrying the materializer's own reason. */
+export function renderUnsupported(unsupported: readonly Unsupported[]): string {
+  return unsupported.map(({ dimension, reason }) => `${dimension}: ${reason}`).join('; ')
 }
 
 /** Format profile-axis drop issues into a concise operator-facing error. */
