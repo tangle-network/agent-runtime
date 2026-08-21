@@ -9,6 +9,7 @@ import type {
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
   AgentSession,
+  AgentSessionRef,
 } from '@tangle-network/agent-interface/environment-provider'
 import {
   RetainedInteractiveAdmissionError,
@@ -287,15 +288,36 @@ async function dispatchRetainedRun(
     executionId: identity.executionId,
   })
 
-  // Once dispatch begins, its outcome may be unknown to this process. Keep the
-  // environment so a retry or reconnect can recover work that may already be live.
-  const reference = await environment.dispatch!(
-    freshTurnInput(options.turn, {
-      turnId: options.turn.turnId,
-      detach: true,
-      ...identity,
-    }),
-  )
+  // Dispatch failure leaks a paid environment when THIS call provisioned it, and deletes another
+  // caller's workspace when it did not. The provider's creation receipt is what separates the two:
+  // only `created` is destroyed, and `replayed` or an absent receipt is kept, because an
+  // environment whose creation cannot be proven may be held by someone else.
+  const destroyIfCreated = async (cause: unknown): Promise<never> => {
+    if (environment.creation !== 'created') throw cause
+    try {
+      await environment.destroy?.()
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [cause, cleanupError],
+        'retained run dispatch failed and the environment it created could not be destroyed',
+      )
+    }
+    throw cause
+  }
+
+  let reference: AgentSessionRef
+  try {
+    reference = await environment.dispatch!(
+      freshTurnInput(options.turn, {
+        turnId: options.turn.turnId,
+        detach: true,
+        ...identity,
+      }),
+    )
+  } catch (error) {
+    await destroyIfCreated(error)
+    throw error
+  }
   // Every post-dispatch binding failure is triageable: the durable
   // environment admission names the requested coordinates, and the error
   // carries the provider's actual answer. The environment is kept.
@@ -317,7 +339,7 @@ async function dispatchRetainedRun(
     }
     exact = exactSession(environment, controlRef)
   } catch (error) {
-    throw new RetainedRunDispatchBindingError(
+    const bindingError = new RetainedRunDispatchBindingError(
       {
         provider: options.provider.name,
         environmentId: environment.id,
@@ -331,6 +353,8 @@ async function dispatchRetainedRun(
       },
       { cause: error },
     )
+    await destroyIfCreated(bindingError)
+    throw bindingError
   }
   await admitDurably(options.onAdmission, {
     phase: 'dispatched',

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.21
+
+### Interface 1.4.0 cohort
+
+The Agent Interface dependency range becomes `^1.4.0`, matching the Runtime cohort. Interface 1.4.0 adds the environment creation receipt and the provider-native child-task stream event; nothing in bench changes behavior.
+
 ## 0.8.20
 
 ### Official adapter evidence for tau, DABStep, and FinResearchBench
