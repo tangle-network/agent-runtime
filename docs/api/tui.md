@@ -505,12 +505,6 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 **`Experimental`**
 
-##### cwd?
-
-> `readonly` `optional` **cwd?**: `string`
-
-**`Experimental`**
-
 ##### eventFile?
 
 > `readonly` `optional` **eventFile?**: `string`

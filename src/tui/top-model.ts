@@ -99,7 +99,6 @@ export interface SupervisorView extends SupervisorBase {
 export interface WorkerView {
   readonly id: string
   readonly label: string
-  readonly cwd?: string
   readonly eventFile?: string
   readonly parent?: string
   readonly runtime?: string
@@ -202,7 +201,6 @@ interface SupervisorState extends SupervisorBase {
 interface MutableWorker {
   id: string
   label: string
-  cwd?: string
   eventFile?: string
   parent?: string
   runtime?: string
@@ -222,7 +220,6 @@ interface MutableWorker {
 interface WorkerEventTail {
   readonly file: string
   readonly lines: string[]
-  readonly cwd?: string
 }
 
 /** A diagnostic before its run id is attached; `loadTopSnapshot` adds `runId`. */
@@ -454,7 +451,6 @@ function buildSupervisorView(
         workerEventTails.get(safeWorkerFile(worker.label)) ??
         workerEventTails.get(worker.id)
       worker.liveTail = tail?.lines ?? []
-      if (tail?.cwd) worker.cwd = tail.cwd
       if (tail?.file) worker.eventFile = tail.file
       return finalizeWorker(worker, now)
     })
@@ -536,7 +532,7 @@ export function renderTopFrameWithLayout(
       `${formatMoney(aggregate.usd)}  tok ${formatTokens(aggregate.tokensInput)}/${formatTokens(aggregate.tokensOutput)}`,
   )
   push(
-    `${paint('keys', 'dim', color)} up/down select  left/right run  tab focus  enter detail  o overview  l log  s steer  a shell  c cancel  mouse  q quit`,
+    `${paint('keys', 'dim', color)} up/down select  left/right run  tab focus  enter detail  o overview  l log  s steer  c cancel  mouse  q quit`,
   )
   if (options.notice) push(paint(options.notice, 'yellow', color))
   if (snapshot.completeness === 'partial')
@@ -664,7 +660,6 @@ function finalizeWorker(worker: MutableWorker, now: number): WorkerView {
   return {
     id: worker.id,
     label: worker.label,
-    ...(worker.cwd ? { cwd: worker.cwd } : {}),
     ...(worker.eventFile ? { eventFile: worker.eventFile } : {}),
     ...(worker.parent ? { parent: worker.parent } : {}),
     ...(worker.runtime ? { runtime: worker.runtime } : {}),
@@ -910,7 +905,6 @@ function renderDetail(
       `worker ${paint(worker.label, 'bold', color)} (${worker.id})  ${statusText(worker.status, color)}  latency ${formatDuration(worker.latencyMs)}`,
       `tokens in/out ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}  cost ${formatMoney(spend.usd)}  iterations ${spend.iterations}`,
       `parent ${worker.parent ?? '-'}  runtime ${worker.runtime ?? '-'}  out ${worker.outRef ?? '-'}${worker.infra ? '  infra' : ''}`,
-      `cwd ${compact(worker.cwd ?? '-', width - 5)}`,
       `events ${compact(worker.eventFile ?? '-', width - 8)}`,
       ...(worker.reason ? [`reason ${compact(worker.reason, width - 7)}`] : []),
       ...renderWorkerTail(worker, width, color),
@@ -979,7 +973,6 @@ function formatWorkerEvent(line: string): string {
     const kind = typeof parsed.kind === 'string' ? parsed.kind : 'event'
     if (kind === 'progress')
       return `${at} progress iter ${numberValue(parsed.iteration)} ${String(parsed.phase ?? '')}`
-    if (kind === 'started') return `${at} started ${String(parsed.cwd ?? '')}`
     if (kind === 'message') {
       const state = parsed.queued === true ? 'queued' : 'sent'
       const source =
@@ -1149,23 +1142,9 @@ function readWorkerEventTails(
     const read = readSourceFile(file, 'worker-tail', join(workersDir, entry))
     diagnostics.push(...read.diagnostics)
     const lines = tailLines(read.value, maxLines)
-    const cwd = workerCwd(lines)
-    out.set(entry.slice(0, -'.ndjson'.length), { file, lines, ...(cwd ? { cwd } : {}) })
+    out.set(entry.slice(0, -'.ndjson'.length), { file, lines })
   }
   return { value: out, diagnostics }
-}
-
-function workerCwd(lines: readonly string[]): string | undefined {
-  for (const line of [...lines].reverse()) {
-    try {
-      const parsed = JSON.parse(line) as Record<string, unknown>
-      if (parsed.kind === 'started' && typeof parsed.cwd === 'string' && parsed.cwd.trim())
-        return parsed.cwd
-    } catch {
-      // Corrupt worker events are rendered raw in the detail tail.
-    }
-  }
-  return undefined
 }
 
 function readSupervisorState(dir: string): SourceRead<SupervisorState | undefined> {
