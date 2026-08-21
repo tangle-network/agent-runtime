@@ -334,7 +334,7 @@ describe('profileChatClient exact Runtime adapter', () => {
     const call = profileOptimizerModelCall({
       profile: {
         ...profile,
-        model: { ...profile.model, metadata: { maxTokens: 100 } },
+        model: { ...profile.model, maxVisibleOutputTokens: 100 },
       },
       context: 'profile optimizer test',
       executor: {

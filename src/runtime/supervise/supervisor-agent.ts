@@ -51,6 +51,7 @@ import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './m
 import {
   assertExecutableAgentProfile,
   concreteProfileModel,
+  enforceTokenLimits,
   profileModelExecutionSettings,
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
@@ -872,7 +873,7 @@ function routerBrainFromProfile(
       ...(router.complete !== undefined ? { complete: router.complete } : {}),
       model: modelId,
       ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
-      ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
+      ...enforceTokenLimits(settings.tokenLimits, 'router', 'supervisorAgent').applied,
       ...(settings.stream !== undefined ? { stream: settings.stream } : {}),
     },
     {

@@ -57,7 +57,11 @@ import {
   finalizeRuntimeOwnedPendingExecutor,
   newExecutionAttemptId,
 } from './supervise/materialization'
-import { concreteProfileModel } from './supervise/model-policy'
+import {
+  concreteProfileModel,
+  enforceTokenLimits,
+  profileModelExecutionSettings,
+} from './supervise/model-policy'
 import type {
   Executor,
   ExecutorContext,
@@ -376,6 +380,14 @@ function createProviderExecutor(
   const executionId = ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
   const providerModel = concreteProfileModel(createProfile)
+  // The provider owns the model call inside its environment and the create input carries no
+  // completion cap, so a requested ceiling is refused before the environment is paid for.
+  const tokenLimits = enforceTokenLimits(
+    profileModelExecutionSettings(createProfile, `providerAsExecutor(${provider.name})`)
+      .tokenLimits,
+    'provider',
+    `providerAsExecutor(${provider.name})`,
+  )
   // The environment identity is server-issued, so before `create` resolves this declaration is a
   // planned authority check, never a receipt.
   const plannedDeclaration: ExecutorMaterialization = {
@@ -391,6 +403,7 @@ function createProviderExecutor(
       provider: provider.name,
       destroyOnSettle: options.destroyOnSettle ?? true,
       requireTerminalEvent: options.requireTerminalEvent ?? true,
+      tokenLimits,
       environmentId: null,
     },
   }

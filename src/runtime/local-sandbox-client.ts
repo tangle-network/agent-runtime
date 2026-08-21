@@ -28,7 +28,11 @@ import type { KeyProvider } from './key-provider'
 import { routerBrain } from './router-client'
 import { materializeLocalMcp } from './stdio-mcp-client'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
-import { profileModelExecutionSettings, profileProviderModel } from './supervise/model-policy'
+import {
+  enforceTokenLimits,
+  profileModelExecutionSettings,
+  profileProviderModel,
+} from './supervise/model-policy'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 import type { SandboxClient } from './types'
 
@@ -90,7 +94,7 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
           routerKey: router.key,
           model,
           ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
-          ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
+          ...enforceTokenLimits(settings.tokenLimits, 'router', 'localSandboxClient').applied,
           ...(settings.stream !== undefined ? { stream: settings.stream } : {}),
         },
         {

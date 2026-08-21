@@ -63,6 +63,13 @@ export interface RouterConfig extends RouterTransportConfig {
    */
   maxTokens?: number
   /**
+   * Optional ceiling on TOTAL completion tokens — visible answer plus hidden reasoning —
+   * forwarded as `max_completion_tokens`. Distinct from `maxTokens`: a reasoning model can spend
+   * an entire `max_tokens` budget on hidden thinking, so only this field bounds what the provider
+   * bills for one completion.
+   */
+  maxCompletionTokens?: number
+  /**
    * Take the tool-calling completion over SSE instead of one buffered POST. Off by default —
    * `routerChatWithTools` never streams, and every existing caller keeps the buffered transport
    * byte for byte.
@@ -127,6 +134,8 @@ export async function routerChatWithUsage(
     temperature?: number
     signal?: AbortSignal
     maxTokens?: number
+    /** Ceiling on total billed completion tokens, sent as `max_completion_tokens`. */
+    maxCompletionTokens?: number
     /** OpenAI-compatible deterministic seed. Omit when the provider does not support it. */
     seed?: number
     /**
@@ -155,12 +164,14 @@ export async function routerChatWithUsage(
   const headers = routerRequestHeaders(cfg, opts)
   const temperature = opts?.temperature
   const maxTokens = opts?.maxTokens ?? cfg.maxTokens
+  const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
   const body = (): Record<string, unknown> => ({
     ...providerRequestExtras(opts?.extraBody, [
       'model',
       'messages',
       'temperature',
       'max_tokens',
+      'max_completion_tokens',
       'seed',
       'reasoning_effort',
       'stream',
@@ -170,6 +181,7 @@ export async function routerChatWithUsage(
     messages,
     ...(temperature !== undefined ? { temperature } : {}),
     ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
     ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   })
@@ -329,6 +341,8 @@ export async function routerChatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    /** Ceiling on total billed completion tokens, sent as `max_completion_tokens`. */
+    maxCompletionTokens?: number
     /** OpenAI-compatible deterministic seed. Omit when the provider does not support it. */
     seed?: number
     /** Provider-specific request fields; canonical fields cannot be overridden here. */
@@ -413,11 +427,13 @@ function toolCompletionBody(
     temperature?: number
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    maxCompletionTokens?: number
     seed?: number
     extraBody?: Readonly<Record<string, unknown>>
     reasoningEffort?: ReasoningEffort
   },
 ): Record<string, unknown> {
+  const maxCompletionTokens = opts?.maxCompletionTokens ?? cfg.maxCompletionTokens
   return {
     ...providerRequestExtras(opts?.extraBody, [
       'model',
@@ -426,6 +442,7 @@ function toolCompletionBody(
       'tool_choice',
       'temperature',
       'max_tokens',
+      'max_completion_tokens',
       'seed',
       'reasoning_effort',
       'stream',
@@ -436,6 +453,7 @@ function toolCompletionBody(
     ...(tools.length > 0 ? { tools, tool_choice: opts?.toolChoice ?? 'auto' } : {}),
     ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
     ...(opts?.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+    ...(maxCompletionTokens !== undefined ? { max_completion_tokens: maxCompletionTokens } : {}),
     ...(opts?.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts?.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}),
   }
@@ -644,6 +662,8 @@ export async function streamRouterChatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    /** Ceiling on total billed completion tokens, sent as `max_completion_tokens`. */
+    maxCompletionTokens?: number
     seed?: number
     /** Provider-specific request fields; canonical streaming fields cannot be overridden here. */
     extraBody?: Readonly<Record<string, unknown>>
@@ -1065,6 +1085,8 @@ function chatWithTools(
     signal?: AbortSignal
     toolChoice?: 'auto' | 'required' | 'none'
     maxTokens?: number
+    /** Ceiling on total billed completion tokens, sent as `max_completion_tokens`. */
+    maxCompletionTokens?: number
     seed?: number
     extraBody?: Readonly<Record<string, unknown>>
     reasoningEffort?: ReasoningEffort

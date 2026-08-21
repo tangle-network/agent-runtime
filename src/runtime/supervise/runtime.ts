@@ -119,9 +119,11 @@ import {
 import {
   assertExecutableAgentProfile,
   concreteProfileModel,
+  enforceTokenLimits,
   type ProfileModelExecutionSettings,
   profileBridgeWireModel,
   profileModelExecutionSettings,
+  type TokenLimitDecision,
 } from './model-policy'
 import {
   type ActivityLog,
@@ -688,9 +690,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                     ...(profileExecution.toolChoice
                       ? { toolChoice: profileExecution.toolChoice }
                       : {}),
-                    ...(profileExecution.maxTokens !== undefined
-                      ? { maxTokens: profileExecution.maxTokens }
-                      : {}),
+                    ...profileExecution.tokenLimits.applied,
                     ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
                     ...(Object.keys(extraBody).length > 0 ? { extraBody } : {}),
                     ...requestIdentity,
@@ -712,9 +712,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
                       ? { temperature: profileExecution.temperature }
                       : {}),
                     ...(linked ? { signal: linked } : {}),
-                    ...(profileExecution.maxTokens !== undefined
-                      ? { maxTokens: profileExecution.maxTokens }
-                      : {}),
+                    ...profileExecution.tokenLimits.applied,
                     ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
                     ...(profileExecution.reasoningEffort
                       ? { reasoningEffort: profileExecution.reasoningEffort }
@@ -785,7 +783,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         model,
         provider: spec.profile.model?.provider ?? null,
         temperature: profileExecution.temperature ?? null,
-        maxTokens: profileExecution.maxTokens ?? null,
+        tokenLimits: profileExecution.tokenLimits,
         retry: profileExecution.retry ?? null,
         seed: profileExecution.seed ?? null,
         reasoningEffort: profileExecution.reasoningEffort ?? null,
@@ -1032,9 +1030,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                   ...(profileExecution.toolChoice
                     ? { toolChoice: profileExecution.toolChoice }
                     : {}),
-                  ...(profileExecution.maxTokens !== undefined
-                    ? { maxTokens: profileExecution.maxTokens }
-                    : {}),
+                  ...profileExecution.tokenLimits.applied,
                   ...(profileExecution.seed !== undefined ? { seed: profileExecution.seed } : {}),
                   ...(profileExecution.reasoningEffort
                     ? { reasoningEffort: profileExecution.reasoningEffort }
@@ -1231,7 +1227,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         maxTurns,
         tools: seam.tools,
         temperature: profileExecution.temperature ?? null,
-        maxTokens: profileExecution.maxTokens ?? null,
+        tokenLimits: profileExecution.tokenLimits,
         retry: profileExecution.retry ?? null,
         toolChoice: profileExecution.toolChoice ?? null,
         extraBody: profileExecution.extraBody ?? null,
@@ -1323,6 +1319,13 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   if (!Number.isFinite(maxIterations) || maxIterations <= 0) {
     throw new ValidationError('sandboxExecutor: maxIterations must be > 0')
   }
+  // The harness owns its own model calls inside the box and the Sandbox API exposes no completion
+  // cap, so a requested ceiling is refused here rather than dropped on the way to a paid run.
+  const sandboxTokenLimits = enforceTokenLimits(
+    profileModelExecutionSettings(spec.profile, 'sandboxExecutor').tokenLimits,
+    'sandbox',
+    'sandboxExecutor',
+  )
   // The cross-MACHINE case this exists for: the box gets `TRACE_ID` / `PARENT_SPAN_ID` through
   // `CreateSandboxOptions.env`, so whatever the remote worker emits lands in this run's trace under
   // the spawning node's span. Empty when the run records no spans, and an empty record adds no
@@ -1356,6 +1359,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       harness,
       maxIterations,
       steering: seam.steering !== undefined,
+      tokenLimits: sandboxTokenLimits,
     },
   }
   const sandboxBinding = {
@@ -1878,12 +1882,21 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       ? model.slice(harness.length + 1)
       : model
   const profileExecution = profileModelExecutionSettings(effectiveProfile, 'bridgeExecutor')
+  // cli-bridge lowers ONE completion cap into the run's model catalog, so only the total ceiling
+  // is enforceable here; a visible-only or reasoning-only ceiling is refused before the request.
+  const bridgeTokenLimits = enforceTokenLimits(
+    profileExecution.tokenLimits,
+    'bridge',
+    'bridgeExecutor',
+  )
   const seam: ResolvedBridgeSeam = {
     ...base,
     ...(modelCredential === undefined ? {} : { modelCredential }),
     model,
     providerModel,
-    ...(profileExecution.maxTokens !== undefined ? { maxTokens: profileExecution.maxTokens } : {}),
+    ...(bridgeTokenLimits.applied.maxTokens !== undefined
+      ? { maxTokens: bridgeTokenLimits.applied.maxTokens }
+      : {}),
   }
   if (!seam.bridgeUrl || !seam.bridgeBearer) {
     throw new ValidationError('bridgeExecutor: bridgeUrl + bridgeBearer are required')
@@ -1962,7 +1975,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       maxReconnects,
       timeoutMs: seam.timeoutMs ?? null,
       streaming: true,
-      ...(seam.maxTokens !== undefined ? { maxTokens: seam.maxTokens } : {}),
+      tokenLimits: bridgeTokenLimits,
       terminalAcknowledgement: null,
     },
   }
@@ -4876,7 +4889,8 @@ interface RouterProfileExecution {
   systemPrompt: string
   reasoningEffort?: ReasoningEffort
   temperature?: number
-  maxTokens?: number
+  /** Ceilings this path was asked to enforce and the request fields it sends them as. */
+  tokenLimits: TokenLimitDecision
   retry?: ProfileModelExecutionSettings['retry']
   seed?: number
   toolChoice?: 'auto' | 'required' | 'none'
@@ -4954,10 +4968,12 @@ function routerProfileExecution(
     }
   }
 
+  const { tokenLimits, ...rest } = settings
   return {
     systemPrompt: renderRouterProfilePrompt(profile),
     ...(profileEffort ? { reasoningEffort: profileEffort } : {}),
-    ...settings,
+    ...rest,
+    tokenLimits: enforceTokenLimits(tokenLimits, 'router', 'routerInlineExecutor'),
   }
 }
 
