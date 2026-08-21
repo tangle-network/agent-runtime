@@ -306,20 +306,27 @@ path, `not_live` when the worker is already gone — a missing worker never read
 Which requests this driver OWNS is set by [controlScope](#controlscope). Omit = no acknowledger
 (in-memory runs keep in-process control via handles).
 
+##### onCoordinationTools?
+
+> `readonly` `optional` **onCoordinationTools?**: (`tools`) => `void`
+
+Called with this driver's coordination tool descriptors once they exist and before the brain
+ loop starts — the seam a node tool uses to call the same verbs in code
+ (`SupervisorToolInvocationContext.verbs`).
+
+###### Parameters
+
+###### tools
+
+readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
+
+###### Returns
+
+`void`
+
 ##### controlScope?
 
 > `readonly` `optional` **controlScope?**: `"run"` \| `"subtree"`
-
-Which cancel requests this driver's acknowledger owns when `controlDir` is set.
-
-`'run'` (the default, and the tree root's role): exact node ids of its OWN direct children,
-plus every label/profile-name reference. `'subtree'` (a nested manager): exact direct-child
-node ids ONLY — never labels or profile names, which can match workers under more than one
-manager. Ownership makes each operation appliable by exactly ONE manager, so two acknowledgers
-sharing one `controlDir` can never abort two workers for one operation or race on the
-acknowledgement file. At the end of `act`, the owner writes an expiry record for each owned
-request still open: `not_live` for one never applied, `unknown` for an abort whose settle the
-run ended too soon to observe — so a reader can tell run-over from in-progress.
 
 ##### abortRun?
 
@@ -982,7 +989,11 @@ full-profile contract.
 Resolve product-owned tools from the exact trusted manager context. The same descriptors and
 handlers are bound to router and external-harness managers; resolution happens once per node.
 Each handler receives that manager scope's live cancellation signal in its trusted invocation
-context, including recursive parent and root cascades.
+context, including recursive parent and root cascades, plus `context.verbs` — that manager's
+own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
+chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
+the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
+cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 

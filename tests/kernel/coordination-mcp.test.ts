@@ -107,6 +107,46 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     expect(names).toContain('await_event')
   })
 
+  it('hands the coordination tools to the caller BEFORE the listener opens', async () => {
+    // A node tool bound to `context.verbs` must work on the FIRST request. The hook therefore has
+    // to fire before listen; a bind moved after it would leave the first caller with no verbs.
+    let boundNames: ReadonlyArray<string> | undefined
+    let boundBeforeFirstCall: boolean | undefined
+    const scope = {} as Scope<unknown>
+    const mcp = await serveCoordinationMcp({
+      scope,
+      blobs: new InMemoryResultBlobStore(),
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker: { maxIterations: 1, maxTokens: 1 },
+      onCoordinationTools: (tools) => {
+        boundNames = tools.map((tool) => tool.name)
+      },
+      nodeTools: [
+        {
+          name: 'read_binding',
+          description: 'Report whether the coordination tools were bound before this call',
+          inputSchema: { type: 'object', properties: {} },
+          handler: async () => {
+            boundBeforeFirstCall = boundNames !== undefined
+            return { bound: boundBeforeFirstCall }
+          },
+        },
+      ],
+    })
+    try {
+      const called = await jsonRpc(mcp.url, 'tools/call', {
+        name: 'read_binding',
+        arguments: {},
+      })
+      expect(called.error).toBeUndefined()
+      expect(boundBeforeFirstCall).toBe(true)
+      expect(boundNames).toContain('spawn_agent')
+      expect(boundNames).toContain('await_event')
+    } finally {
+      await mcp.close()
+    }
+  })
+
   it('serves product-owned node tools beside coordination tools over the same HTTP MCP', async () => {
     const calls: unknown[] = []
     const scope = {} as Scope<unknown>

@@ -153,6 +153,10 @@ export async function serveCoordinationMcp(opts: {
    *  pre-journal point that may ask the backend a question. See
    *  `CoordinationToolsOptions.preflightSpawn`. */
   preflightSpawn?: SpawnPreflight
+  /** Called with this server's coordination tool descriptors once they exist and BEFORE the
+   *  listener opens — the seam a caller uses to give an already-bound node tool a way to call the
+   *  same verbs in code (`SupervisorToolInvocationContext.verbs`). */
+  onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
 }): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
   // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
@@ -201,6 +205,9 @@ export async function serveCoordinationMcp(opts: {
       : {}),
   })
   await coord.ready()
+  // Before the listener opens: a node tool invoked on the first request must already be able to
+  // call these verbs.
+  opts.onCoordinationTools?.(coord.tools)
   const mcp = createMcpServer({
     extraTools: [...coord.tools, ...(opts.nodeTools ?? [])],
     serverName: 'coordination',

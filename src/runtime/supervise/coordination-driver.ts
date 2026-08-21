@@ -236,6 +236,10 @@ export interface DriverAgentOptions {
    * request still open: `not_live` for one never applied, `unknown` for an abort whose settle the
    * run ended too soon to observe — so a reader can tell run-over from in-progress.
    */
+  /** Called with this driver's coordination tool descriptors once they exist and before the brain
+   *  loop starts — the seam a node tool uses to call the same verbs in code
+   *  (`SupervisorToolInvocationContext.verbs`). */
+  readonly onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
   readonly controlScope?: 'run' | 'subtree'
   /**
    * Abort the WHOLE run — the seam a run-scoped cancel request (`cancelRun`) is applied through.
@@ -783,6 +787,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           : {}),
       })
       await coord.ready()
+      // Before the first brain turn: a node tool invoked on turn one must already be able to call
+      // these verbs.
+      opts.onCoordinationTools?.(coord.tools)
       // The worker-cancel acknowledger, mounted only for a durable run that named its layout dir.
       // It runs inside this existing turn loop — the one place that already runs every turn and
       // already holds the child handles — so external cancellation needs no second lifetime.

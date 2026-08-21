@@ -900,6 +900,7 @@ export { createRootHandle, createSupervisor } from './supervise/supervisor'
 export {
   assertCoordinationBinding,
   type CoordinationBinding,
+  type CoordinationVerbs,
   type DriveHarness,
   type DriveHarnessOwnerContext,
   type ObserveSupervisorNodeEvent,

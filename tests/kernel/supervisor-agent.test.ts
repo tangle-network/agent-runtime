@@ -2,6 +2,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { ConfigError } from '../../src/errors'
+import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import type { RouterTransportConfig } from '../../src/runtime/router-client'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -19,6 +20,7 @@ import type {
   Budget,
   Executor,
   ExecutorResult,
+  SpawnEvent,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
@@ -445,6 +447,107 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
       expect(Object.isFrozen((call.context as { identity: unknown }).identity)).toBe(true)
       expect((call.context as { signal: AbortSignal }).signal).toBeInstanceOf(AbortSignal)
       expect((call.context as { signal: AbortSignal }).signal.aborted).toBe(false)
+    }
+  })
+
+  it('a product tool composes children through context.verbs on both arms, across the same gates', async () => {
+    // The census fault #813 reports: a lead can only coordinate one model turn per verb, so it
+    // never composes. `context.verbs` gives a product tool the SAME handlers the MCP verbs use —
+    // so a spawn made in code is authorized, capped, journaled, and bussed identically.
+    const authorized: string[] = []
+    const refusals: string[] = []
+    let composeResult: unknown
+
+    const resolveSupervisorTools: ResolveSupervisorTools = async () => [
+      {
+        name: 'compose_children',
+        description: 'Spawn two children in code and await the first settlement',
+        inputSchema: { type: 'object', properties: {} },
+        handler: async (_raw, context) => {
+          const first = await context.verbs.spawnAgent({
+            profile: testAgentProfile('composed-a'),
+            task: 'go',
+            label: 'composed-a',
+          })
+          // The second spawn crosses the same maxLiveWorkers fence the MCP verb crosses.
+          let secondError: string | undefined
+          try {
+            await context.verbs.spawnAgent({
+              profile: testAgentProfile('composed-b'),
+              task: 'go',
+              label: 'composed-b',
+            })
+          } catch (error) {
+            secondError = error instanceof Error ? error.message : String(error)
+          }
+          const settled = await context.verbs.awaitEvent({ kinds: ['settled'] })
+          return { first, secondError, settled }
+        },
+      },
+    ]
+
+    const runArm = async (
+      arm: 'router' | 'external',
+    ): Promise<{ journal: InMemorySpawnJournal; result: unknown }> => {
+      authorized.length = 0
+      refusals.length = 0
+      const blobs = new InMemoryResultBlobStore()
+      const journal = new InMemorySpawnJournal()
+      const makeWorkerAgent: MakeWorkerAgent = (profile) => {
+        authorized.push(profile.name ?? 'unnamed')
+        return deliveringLeaf(profile.name ?? 'composed', { answer: profile.name })
+      }
+      const deps = {
+        blobs,
+        makeWorkerAgent,
+        perWorker,
+        maxLiveWorkers: 1,
+        nodeContext: { runId: 'sup', runNamespace: 'verbs-ns', ownerId: 'owner-root', depth: 0 },
+        resolveSupervisorTools,
+      }
+      if (arm === 'router') {
+        const brain = scriptedBrain([
+          { toolCalls: [{ name: 'compose_children', arguments: {} }] },
+          { content: 'done' },
+        ])
+        await runSupervisor(
+          supervisorAgent(testAgentProfile('router-manager', { harness: 'cli-base' }), {
+            ...deps,
+            brain,
+          }),
+          blobs,
+          journal,
+        )
+        return { journal, result: composeResult }
+      }
+      const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+        composeResult = await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'compose_children',
+          arguments: {},
+        })
+      }
+      await runSupervisor(
+        supervisorAgent(testAgentProfile('external-manager', { harness: 'opencode' }), {
+          ...deps,
+          driveHarness,
+        }),
+        blobs,
+        journal,
+      )
+      return { journal, result: composeResult }
+    }
+
+    for (const arm of ['router', 'external'] as const) {
+      composeResult = undefined
+      const { journal } = await runArm(arm)
+      // authorizeSpawn (makeWorkerAgent) observed the composed spawn on this arm.
+      expect(authorized).toContain('composed-a')
+      // The second spawn was refused by the live-worker cap, not silently accepted.
+      expect(authorized).not.toContain('composed-b')
+      // The child is journaled under THIS manager's scope, like any coordination spawn.
+      const events = (await journal.loadTree('sup')) as SpawnEvent[]
+      expect(events.some((e) => e.kind === 'spawned' && e.label === 'composed-a')).toBe(true)
+      expect(events.some((e) => e.kind === 'settled' && e.status === 'done')).toBe(true)
     }
   })
 
