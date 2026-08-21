@@ -220,6 +220,41 @@ describe('acquireSandbox — cold-start resilience', () => {
     ).rejects.toThrow(/aborted/)
   })
 
+  it('passes the acquisition signal to client.create and a pending create rejects promptly on abort', async () => {
+    // A create request that stays pending until the request signal it received
+    // fires. Without the request signal the acquire could only notice the abort
+    // after the transport timeout; with it the pending create itself rejects.
+    const ctrl = new AbortController()
+    let createStarted!: () => void
+    const started = new Promise<void>((resolve) => {
+      createStarted = resolve
+    })
+    let receivedSignal: AbortSignal | undefined
+    let settledByRequestSignal = false
+    const client = {
+      create: (_opts: CreateSandboxOptions, requestOptions?: { signal?: AbortSignal }) => {
+        receivedSignal = requestOptions?.signal
+        createStarted()
+        return new Promise<SandboxInstance>((_resolve, reject) => {
+          requestOptions?.signal?.addEventListener(
+            'abort',
+            () => {
+              settledByRequestSignal = true
+              reject(Object.assign(new Error('request aborted'), { name: 'AbortError' }))
+            },
+            { once: true },
+          )
+        })
+      },
+    }
+    const pending = acquireSandbox(client, OPTS, { ...clock(), signal: ctrl.signal })
+    await started
+    ctrl.abort()
+    await expect(pending).rejects.toThrow(/aborted/)
+    expect(receivedSignal).toBe(ctrl.signal)
+    expect(settledByRequestSignal).toBe(true)
+  })
+
   it('tears down a created box that never reaches running on abort (no leak)', async () => {
     // Regression: an abort firing while waiting for `running` must delete the
     // already-created box, or the loop leaks a live sandbox per aborted acquire.
