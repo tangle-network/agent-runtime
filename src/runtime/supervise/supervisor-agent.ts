@@ -379,6 +379,11 @@ export interface SupervisorAgentDeps {
    *  (router arm only — the in-process turn loop is the acknowledger). See
    *  `DriverAgentOptions.controlDir`. */
   readonly controlDir?: string
+  /** Which cancel requests this manager's acknowledger owns: `'run'` (default; the tree root —
+   *  its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
+   *  manager — exact direct-child node ids only). Exactly one manager owns any request, so two
+   *  acknowledgers can never apply one operation. See `DriverAgentOptions.controlScope`. */
+  readonly controlScope?: 'run' | 'subtree'
 }
 
 const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete'])
@@ -544,6 +549,7 @@ function buildSupervisorAgent(
         ...(priorCoordination ? { priorCoordination } : {}),
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
         ...(deps.controlDir === undefined ? {} : { controlDir: deps.controlDir }),
+        ...(deps.controlScope === undefined ? {} : { controlScope: deps.controlScope }),
         inbox,
       })
     if (!deps.loadPriorCoordination && !resolveTools && !observeNodeEvent) {

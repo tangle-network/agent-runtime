@@ -296,8 +296,23 @@ worker's existing per-child abort (cascading to the worker's subtree and no sibl
 writes the durable [WorkerCancellation](runtime.md#workercancellation) acknowledgement: `cancel_requested` when the
 abort is issued, `cancelled` only when the worker reaches a terminal `down` on the settle
 path, `not_live` when the worker is already gone — a missing worker never reads as success.
-A request naming a deeper descendant stays unanswered (cancel its lead instead). Omit = no
-acknowledger (in-memory runs keep in-process control via handles).
+Which requests this driver OWNS is set by [controlScope](#controlscope). Omit = no acknowledger
+(in-memory runs keep in-process control via handles).
+
+##### controlScope?
+
+> `readonly` `optional` **controlScope?**: `"run"` \| `"subtree"`
+
+Which cancel requests this driver's acknowledger owns when `controlDir` is set.
+
+`'run'` (the default, and the tree root's role): exact node ids of its OWN direct children,
+plus every label/profile-name reference. `'subtree'` (a nested manager): exact direct-child
+node ids ONLY — never labels or profile names, which can match workers under more than one
+manager. Ownership makes each operation appliable by exactly ONE manager, so two acknowledgers
+sharing one `controlDir` can never abort two workers for one operation or race on the
+acknowledgement file. At the end of `act`, the owner writes an expiry record for each owned
+request still open: `not_live` for one never applied, `unknown` for an abort whose settle the
+run ended too soon to observe — so a reader can tell run-over from in-progress.
 
 ***
 
@@ -1716,6 +1731,19 @@ The durable run directory this manager acknowledges worker-scoped cancel request
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`controlDir`](runtime.md#controldir)
+
+##### controlScope?
+
+> `readonly` `optional` **controlScope?**: `"run"` \| `"subtree"`
+
+Which cancel requests this manager's acknowledger owns: `'run'` (default; the tree root —
+ its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
+ manager — exact direct-child node ids only). Exactly one manager owns any request, so two
+ acknowledgers can never apply one operation. See `DriverAgentOptions.controlScope`.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`controlScope`](runtime.md#controlscope)
 
 ##### brain
 

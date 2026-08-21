@@ -1881,6 +1881,12 @@ function superviseInternal(
               }
             : {}),
           ...(finalizer ? { finalizer } : {}),
+          // A nested manager acknowledges cancels for ITS direct children from the same layout
+          // dir as the root — subtree-scoped, so exact node ids route to the one manager that
+          // parents them and label references stay the root's alone.
+          ...(options.runDir === undefined
+            ? {}
+            : { controlDir: resolve(options.runDir), controlScope: 'subtree' as const }),
         })
         return driverChild(authorized, nested, journal, childExecution.ref)
       }
@@ -1957,8 +1963,10 @@ function superviseInternal(
       ...(options.compaction ? { compaction: options.compaction } : {}),
       ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
       ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
-      // A durable run's layout dir doubles as the worker-cancel control surface: the root
-      // manager's turn loop acknowledges `cancelWorker` requests written there.
+      // A durable run's layout dir doubles as the worker-cancel control surface: every
+      // router-arm manager's turn loop acknowledges the `cancelWorker` requests it OWNS — the
+      // root (default 'run' scope) resolves its direct children plus label/profile references,
+      // each nested manager (above) its own direct-child node ids only.
       ...(options.runDir === undefined ? {} : { controlDir: resolve(options.runDir) }),
     } satisfies SupervisorAgentDeps
     const agent =
