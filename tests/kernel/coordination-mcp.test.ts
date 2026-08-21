@@ -3,6 +3,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
+import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -12,6 +13,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 // A real (simple) delivering leaf — NOT a mock of the MCP path; the HTTP→MCP→Scope.spawn is real.
@@ -287,5 +289,51 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
       }
     })
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
+  })
+})
+
+describe('serveCoordinationMcp receives the peerMail the supervisor forwards', () => {
+  it('serves peer mail when supervise forwards peerMail', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const mailUrls: Array<string | undefined> = []
+    let mailToolNames: ReadonlyArray<string> = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_agent',
+        arguments: { profile: {}, task: 'go' },
+      })
+      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+      const mailUrl = mailUrls[0]
+      if (mailUrl !== undefined) {
+        const listed = await jsonRpc(mailUrl, 'tools/list', {})
+        mailToolNames = ((listed.result as { tools?: Array<{ name: string }> })?.tools ?? []).map(
+          (tool) => tool.name,
+        )
+      }
+      await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
+    }
+    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
+      blobs,
+      makeWorkerAgent: (_profile, context) => {
+        mailUrls.push(context?.peerMailUrl)
+        return deliveringLeaf('w', { answer: 1 })
+      },
+      perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+      driveHarness,
+      peerMail: true,
+    })
+    const result = await createSupervisor<unknown, unknown>().run(root, 'solve', {
+      budget: { maxIterations: 100, maxTokens: 100_000 },
+      runId: 'mail-mcp',
+      journal: new InMemorySpawnJournal(),
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+      now: () => 0,
+    })
+    expect(result.kind).toBe('winner')
+    expect(mailUrls).toHaveLength(1)
+    expect(mailUrls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
+    expect([...mailToolNames].sort()).toEqual(['read_mail', 'send_mail'])
   })
 })

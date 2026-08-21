@@ -15007,6 +15007,19 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
  unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
 
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>; \}
+
+OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
+ and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
+ spawn, serves the mail listener beside the coordination MCP, and hands each worker its
+ endpoint on [WorkerSpawnContext.peerMailUrl](#peermailurl). Mounting that URL into the worker is the
+ `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
+ the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
+ it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
+ supervisor; a router-brained supervisor is refused rather than silently unmailed.
+
 ##### makeWorkerAgent?
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](#makeworkeragent)
@@ -16171,6 +16184,15 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
  unreachable from an off-host harness. A non-loopback host fails closed — see
  [assertCoordinationBinding](#assertcoordinationbinding).
+
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>; \}
+
+OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
+ beside the coordination MCP and mint each spawn a capability URL on
+ `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
+ listener, so there is no post office a worker could reach.
 
 ##### controlDir?
 

@@ -53,6 +53,7 @@ import {
   concreteProfileModel,
   profileModelExecutionSettings,
 } from './model-policy'
+import type { PeerMailLimits } from './peer-mail'
 import { supervisorPolicyPrompt } from './prompt-registry'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
@@ -375,6 +376,11 @@ export interface SupervisorAgentDeps {
    *  unreachable from an off-host harness. A non-loopback host fails closed — see
    *  {@link assertCoordinationBinding}. */
   readonly coordination?: CoordinationBinding
+  /** OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
+   *  beside the coordination MCP and mint each spawn a capability URL on
+   *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
+   *  listener, so there is no post office a worker could reach. */
+  readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
   /** The durable run directory this manager acknowledges worker-scoped cancel requests from
    *  (router arm only — the in-process turn loop is the acknowledger). See
    *  `DriverAgentOptions.controlDir`. */
@@ -488,6 +494,14 @@ function buildSupervisorAgent(
       'supervisorAgent: coordination binding is only meaningful for a harness-brained supervisor ' +
         '(profile.harness set). A router-brained supervisor calls the coordination verbs in ' +
         'process and serves no MCP, so this binding would be silently ignored.',
+    )
+  }
+
+  if (harness === null && deps.peerMail) {
+    throw new ValidationError(
+      'supervisorAgent: peerMail is only served by a harness-brained supervisor ' +
+        '(profile.harness set). A router-brained supervisor serves no coordination MCP listener, ' +
+        'so there is no peer-mail post office to mint worker capabilities from.',
     )
   }
 
@@ -627,6 +641,7 @@ function buildSupervisorAgent(
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(onEvent ? { onEvent } : {}),
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
+        ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
         ...(priorCoordination?.questions.length
           ? { priorQuestions: priorCoordination.questions }
           : {}),
