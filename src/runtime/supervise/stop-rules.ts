@@ -38,6 +38,7 @@
 
 import { ValidationError } from '../../errors'
 import { areaUnderCurve, bestSoFar, plateauLength } from '../anytime'
+import { isTerminalNodeStatus } from './node-status'
 import type { WorkerProgress } from './progress'
 import type { Scope, Settled } from './types'
 
@@ -163,9 +164,7 @@ export function createProgressTracker(opts: ProgressTrackerOptions = {}): Progre
       const workers: WorkerProgress[] = []
       if (scope && treeView) {
         for (const node of treeView.nodes) {
-          if (node.status === 'done' || node.status === 'failed' || node.status === 'cancelled') {
-            continue
-          }
+          if (isTerminalNodeStatus(node.status)) continue
           // A wait-state is not a worker. It produces no metered activity by design, so including
           // it here would make every waiting tree read as a fleet of stalled workers — the exact
           // false positive `allWorkersStalled` exists to avoid. It is counted in `waiting` instead.

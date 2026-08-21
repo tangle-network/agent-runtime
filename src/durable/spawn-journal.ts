@@ -750,20 +750,55 @@ function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): vo
   }
 }
 
-/** Node-CREATION and informational records — outside the cursor namespace whose uniqueness replay
- *  ordering rests on. The single predicate both the guard's sides read, so a new event kind is
- *  classified once. */
-function outsideCursorNamespace(ev: SpawnEvent): boolean {
-  return (
-    ev.kind === 'spawned' ||
-    ev.kind === 'waiting' ||
-    ev.kind === 'metered' ||
-    ev.kind === 'materialized' ||
-    ev.kind === 'execution-bound' ||
-    ev.kind === 'edge' ||
-    ev.kind === 'teardown-unconfirmed' ||
-    ev.kind === 'trace-unpropagated'
-  )
+/**
+ * The records that CLOSE a node's cursor slot: a settlement, a cancellation, or a wait being
+ * woken. The complement question to {@link outsideCursorNamespace}, and the one a resume needs —
+ * a kind missing here leaves a finished node looking live, so its budget is never reclaimed and
+ * its reservation is replayed as still in doubt.
+ */
+export function closesCursorSlot(ev: SpawnEvent): boolean {
+  return ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken'
+}
+
+/**
+ * The kinds that sit OUTSIDE the cursor namespace: node-CREATION and informational records. The
+ * cursor namespace is the one whose per-node uniqueness replay ordering rests on, so every side of
+ * that guard reads this one list — the seq guard, `materializeTreeView`'s settlement split, and
+ * `trajectory`'s close list.
+ *
+ * Declared once as data. `SpawnEvent` is a discriminated union, so the complement below is
+ * COMPUTED rather than hand-written: a twelfth kind lands in the cursor namespace by construction
+ * instead of by whichever copies its author remembered to update.
+ */
+const outsideCursorNamespaceKinds = [
+  'spawned',
+  'waiting',
+  'metered',
+  'materialized',
+  'execution-bound',
+  'edge',
+  'teardown-unconfirmed',
+  'trace-unpropagated',
+] as const satisfies ReadonlyArray<SpawnEvent['kind']>
+
+type OutsideCursorNamespaceKind = (typeof outsideCursorNamespaceKinds)[number]
+
+/** A record that closes or advances a node's cursor slot — the complement of
+ *  {@link outsideCursorNamespace}, computed from the union rather than restated. */
+export type CursorNamespaceEvent = Exclude<SpawnEvent, { kind: OutsideCursorNamespaceKind }>
+
+const outsideKinds: ReadonlySet<string> = new Set<string>(outsideCursorNamespaceKinds)
+
+/** True for a node-CREATION or informational record. Narrows, so a caller keeps the union's arms. */
+export function outsideCursorNamespace(
+  ev: SpawnEvent,
+): ev is Extract<SpawnEvent, { kind: OutsideCursorNamespaceKind }> {
+  return outsideKinds.has(ev.kind)
+}
+
+/** True for a record inside the cursor namespace. Narrows to {@link CursorNamespaceEvent}. */
+export function insideCursorNamespace(ev: SpawnEvent): ev is CursorNamespaceEvent {
+  return !outsideKinds.has(ev.kind)
 }
 
 // ── Replay executor (build step 7) ───────────────────────────────────────────────
@@ -998,19 +1033,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
         ev.kind === 'spawned' || ev.kind === 'waiting',
     )
     .sort((a, b) => a.seq - b.seq)
-  const settlements = events
-    .filter(
-      (ev) =>
-        ev.kind !== 'spawned' &&
-        ev.kind !== 'waiting' &&
-        ev.kind !== 'metered' &&
-        ev.kind !== 'materialized' &&
-        ev.kind !== 'execution-bound' &&
-        ev.kind !== 'edge' &&
-        ev.kind !== 'teardown-unconfirmed' &&
-        ev.kind !== 'trace-unpropagated',
-    )
-    .sort((a, b) => a.seq - b.seq)
+  const settlements = events.filter((ev) => insideCursorNamespace(ev)).sort((a, b) => a.seq - b.seq)
   for (const ev of spawns) {
     if (ev.kind === 'waiting') {
       // An ARMED wait reads `waiting` until a `woken` event lands. That is the whole durability

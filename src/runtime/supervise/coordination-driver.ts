@@ -64,6 +64,7 @@ import {
   type SupervisorFinalizer,
 } from './finalizer'
 import { createInbox, type Inbox } from './inbox'
+import { isTerminalNodeStatus } from './node-status'
 import {
   type RunCancellation,
   readRunCancellation,
@@ -482,8 +483,7 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
     // way, and a worker that appears later can still be cancelled by a later pass.
     const settledNode = deps.scope.view.nodes.find(
       (n) =>
-        (n.id === request.worker || n.label === request.worker) &&
-        (n.status === 'done' || n.status === 'failed' || n.status === 'cancelled'),
+        (n.id === request.worker || n.label === request.worker) && isTerminalNodeStatus(n.status),
     )
     const goneId = settledNode?.id ?? deps.coord.settled().find((w) => w.id === request.worker)?.id
     if (goneId !== undefined) {
