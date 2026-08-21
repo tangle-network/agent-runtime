@@ -50,7 +50,9 @@ import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
 import {
   canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
+  isSandboxTerminalEvent,
   sandboxProgressEvents,
+  sandboxTerminalUsageField,
 } from './sandbox-events'
 import { linkAbort } from './supervise/abortable'
 import {
@@ -1404,7 +1406,9 @@ function isTerminalEnvironmentEvent(event: AgentEnvironmentEvent): boolean {
 }
 
 function isTerminalEventShape(type: string, data: Record<string, unknown>): boolean {
-  if (type === 'result' || type === 'done' || type === 'final') return true
+  if (isSandboxTerminalEvent(type)) return true
+  // A namespaced completion this provider transport may emit under any prefix. Broader than the
+  // named sandbox list on purpose: an unknown `<x>.completed` still ends the stream.
   if (type.endsWith('.completed') || type.endsWith('.failed')) return true
   if (type !== 'status') return false
   return data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled'
@@ -1414,8 +1418,9 @@ function isUsageType(type: string): boolean {
   return type === 'llm_call' || type === 'usage' || type === 'cost.usage'
 }
 
+/** A terminal event whose usage rides `data.usage` — the nested shape this transport unwraps. */
 function isNestedUsageType(type: string): boolean {
-  return type === 'message.completed' || type === 'result' || type === 'final'
+  return isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage'
 }
 
 function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {

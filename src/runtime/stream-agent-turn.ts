@@ -72,6 +72,7 @@ import { awaitAbortable } from './retained-run-binding'
 import {
   canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
+  isSandboxTerminalEvent,
   mapSandboxEvent,
   mapSandboxToolEvent,
 } from './sandbox-events'
@@ -1310,7 +1311,7 @@ function foldEvent(
 function terminalTextFromSandboxEvent(event: SandboxEvent): string | undefined {
   if (!event || typeof event !== 'object') return undefined
   const type = String(event.type ?? '')
-  if (type !== 'result' && type !== 'done' && type !== 'final') return undefined
+  if (!isSandboxTerminalEvent(type)) return undefined
   const data =
     event.data && typeof event.data === 'object'
       ? (event.data as Record<string, unknown>)

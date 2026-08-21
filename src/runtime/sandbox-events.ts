@@ -198,6 +198,37 @@ function firstString(...values: unknown[]): string | undefined {
 }
 
 /**
+ * The sandbox event types that END a turn.
+ *
+ * One list, because two consumers ask this question about the same wire event and must agree: the
+ * usage credit below, and the terminal-text lift in `stream-agent-turn.ts`. Written separately they
+ * drifted by exactly one member — `message.completed` credited tokens and dollars while its final
+ * text was never lifted, so a backend whose terminal frame carries that type produced a run that
+ * was billed and recorded no answer.
+ */
+export const sandboxTerminalEventTypes = ['message.completed', 'result', 'final', 'done'] as const
+
+export type SandboxTerminalEventType = (typeof sandboxTerminalEventTypes)[number]
+
+const terminalTypes: ReadonlySet<string> = new Set<string>(sandboxTerminalEventTypes)
+
+/** True for an event type that ends a sandbox turn. */
+export function isSandboxTerminalEvent(type: string): type is SandboxTerminalEventType {
+  return terminalTypes.has(type)
+}
+
+/**
+ * Which member of a terminal event's `data` carries its usage receipt.
+ *
+ * The one place the terminal types legitimately differ, stated rather than implied by two lists:
+ * sandbox 0.4.0's `done` reports under `tokenUsage` with the cost at the top level, every other
+ * terminal type reports under `usage`.
+ */
+export function sandboxTerminalUsageField(type: SandboxTerminalEventType): 'usage' | 'tokenUsage' {
+  return type === 'done' ? 'tokenUsage' : 'usage'
+}
+
+/**
  * Extract a `RuntimeStreamEvent`-shaped `llm_call` from a sandbox event when
  * the event carries usage/cost data. Returns `undefined` for non-cost events
  * so the kernel can iterate the full stream without branching.
@@ -231,7 +262,7 @@ export function extractLlmCallEvent(
   if (type === 'llm_call' || type === 'cost.usage' || type === 'usage') {
     return buildLlmCall(data, agentRunName)
   }
-  if (type === 'message.completed' || type === 'result' || type === 'final') {
+  if (isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage') {
     const usage = data.usage as Record<string, unknown> | undefined
     if (!usage || typeof usage !== 'object') return undefined
     return buildLlmCall({ ...usage, model: data.model ?? usage.model }, agentRunName)
