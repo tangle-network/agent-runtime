@@ -80,6 +80,7 @@ import type { PeerMailLimits } from './peer-mail'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
   bindReusableExecutorExecutionId,
+  bridgeRuntimeAttachmentsKey,
   bridgeStopSignalKey,
   captureReusableExecutorConfig,
   createExecutor,
@@ -428,26 +429,27 @@ function driveHarnessFromBackend(
         `driveHarnessFromBackend: profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved`,
       )
     }
-    const effectiveProfile = agentProfileSchema.parse({
-      ...canonicalDriverProfile,
-      mcp: {
-        ...canonicalDriverProfile.mcp,
-        [coordinationMcpAlias]: { transport: 'http', url: coordinationMcpUrl },
-      },
-    })
     const stableCoordinationTools = detachedSnapshot(
       coordinationTools,
       'driveHarnessFromBackend coordination tools',
     )
+    // The authored profile travels unchanged. The coordination server is a Runtime-owned
+    // attachment: it rides the executor's attachment seam, so a resumed run that rebinds the
+    // port keeps the profile digest a durable bridge session is bound to.
     const spec: AgentSpec = {
-      profile: effectiveProfile,
+      profile: canonicalDriverProfile,
       harness:
-        boundBackend.backend === 'sandbox' ? (effectiveProfile.harness as BackendType) : null,
+        boundBackend.backend === 'sandbox' ? (canonicalDriverProfile.harness as BackendType) : null,
     }
     const executor = baseFactory(spec, {
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
-      seams: stopSignal === undefined ? {} : { [bridgeStopSignalKey]: stopSignal },
+      seams: {
+        ...(stopSignal === undefined ? {} : { [bridgeStopSignalKey]: stopSignal }),
+        [bridgeRuntimeAttachmentsKey]: {
+          [coordinationMcpAlias]: { transport: 'http', url: coordinationMcpUrl },
+        },
+      },
     })
     activeExecutor = executor
     let completed = false
@@ -577,14 +579,6 @@ function driveHarnessFromBackend(
       // unmetered runtime reaches the single bounded teardown path below.
       const declaration = runtimeOwnedExecutorMaterialization(executor)
       const executionBinding = runtimeOwnedExecutorExecutionBinding(executor)
-      const authoredProfileFromDriverExecution = (profile: AgentProfile): AgentProfile => {
-        const mcp = profile.mcp ?? {}
-        const { [coordinationMcpAlias]: _runtimeAttachment, ...authoredMcp } = mcp
-        const { mcp: _mcp, ...withoutMcp } = profile
-        return agentProfileSchema.parse(
-          Object.keys(authoredMcp).length > 0 ? { ...withoutMcp, mcp: authoredMcp } : withoutMcp,
-        )
-      }
       if (pending === undefined && (declaration === undefined || executionBinding === undefined)) {
         throw new ValidationError(
           `driveHarnessFromBackend: built-in runtime ${JSON.stringify(executor.runtime)} has no trusted materialization declaration or execution binding`,
@@ -600,9 +594,8 @@ function driveHarnessFromBackend(
           )
         }
         if (
-          canonicalAgentProfileDigest(
-            authoredProfileFromDriverExecution(pending.declaration.effectiveProfile),
-          ) !== canonicalAgentProfileDigest(canonicalDriverProfile)
+          canonicalAgentProfileDigest(pending.declaration.effectiveProfile) !==
+          canonicalAgentProfileDigest(canonicalDriverProfile)
         ) {
           throw new ValidationError(
             'driveHarnessFromBackend: pending executor changed the authored AgentProfile before execution',

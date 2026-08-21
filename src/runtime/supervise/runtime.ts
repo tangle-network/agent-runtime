@@ -32,6 +32,7 @@ import { Readable } from 'node:stream'
 import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
+  type AgentProfileMcpServer,
   type AgentProfileResourceRef,
   AgentTurnInputSchema,
   agentProfileSchema,
@@ -421,6 +422,11 @@ const bridgeSeamKey = 'bridge'
 /** Internal control seam used by Runtime-owned external supervisors. A completion request stops
  * the next bridge turn; it must not abort the paid request that is already streaming. */
 export const bridgeStopSignalKey = '__bridge_stop_signal'
+/** Internal attachment seam used by Runtime-owned external supervisors. The named MCP servers ride
+ * beside the AgentProfile as `runtime_attachments`, so the bridge mounts them for the run and keeps
+ * them out of its session profile binding. A rebound coordination port therefore cannot move the
+ * authored profile digest that binds a durable session. */
+export const bridgeRuntimeAttachmentsKey = '__bridge_runtime_attachments'
 const maxBridgeTimeoutMs = 2_147_483_647
 const bridgeModelCredentialHeader = 'x-cli-bridge-model-credential'
 const bridgeModelBaseUrlHeader = 'x-cli-bridge-model-base-url'
@@ -1850,6 +1856,7 @@ function bridgeProfileModel(profile: AgentProfile, context: string): string {
 export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const base = readSeam<BridgeSeam>(ctx, bridgeSeamKey, 'bridge')
   const stopSignal = readOptionalAbortSignal(ctx, bridgeStopSignalKey, 'bridge')
+  const runtimeAttachments = readOptionalMcpAttachments(ctx, bridgeRuntimeAttachmentsKey, 'bridge')
   const modelCredential = validateBridgeModelCredential(
     base.modelCredential,
     base.bridgeUrl,
@@ -1995,6 +2002,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         task,
         signal,
         ...(stopSignal === undefined ? {} : { stopSignal }),
+        ...(runtimeAttachments === undefined ? {} : { runtimeAttachments }),
         profile: effectiveProfile,
         seam,
         sessionId,
@@ -2060,6 +2068,8 @@ interface StreamBridgeArgs {
   signal: AbortSignal
   /** Completion request from a Runtime-owned driver. It stops future turns after the current one. */
   stopSignal?: AbortSignal
+  /** Runtime-owned MCP servers mounted for the run, outside the bound AgentProfile. */
+  runtimeAttachments?: Readonly<Record<string, AgentProfileMcpServer>>
   profile: AgentProfile
   seam: ResolvedBridgeSeam
   sessionId: string
@@ -2407,6 +2417,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         ...(seam.timeoutMs !== undefined ? { timeoutMs: seam.timeoutMs } : {}),
       },
       agent_profile: args.profile,
+      ...(args.runtimeAttachments === undefined
+        ? {}
+        : { runtime_attachments: { mcp: args.runtimeAttachments } }),
       messages,
     }
 
@@ -2449,6 +2462,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         profile: args.profile,
         sessionId: args.sessionId,
         body: requestBody,
+        requiresRuntimeAttachments: args.runtimeAttachments !== undefined,
         signal: turnController.signal,
         run: activeRun,
         maxReconnects: args.maxReconnects,
@@ -2698,6 +2712,8 @@ interface StreamDurableBridgeRunArgs {
   profile: AgentProfile
   sessionId: string
   body: unknown
+  /** The body carries `runtime_attachments`; the bridge must advertise that channel. */
+  requiresRuntimeAttachments: boolean
   signal: AbortSignal
   run: ActiveBridgeRun
   maxReconnects: number
@@ -2714,7 +2730,7 @@ interface StreamDurableBridgeRunArgs {
 async function* streamDurableBridgeRun(
   args: StreamDurableBridgeRunArgs,
 ): AsyncIterable<BridgeStreamChunk> {
-  await assertBridgeExecutionCapabilities(args.seam, args.signal)
+  await assertBridgeExecutionCapabilities(args.seam, args.signal, args.requiresRuntimeAttachments)
   let reconnects = 0
   let pendingUpstreamError: Error | undefined
 
@@ -2856,6 +2872,7 @@ async function* streamDurableBridgeRun(
 async function assertBridgeExecutionCapabilities(
   seam: BridgeSeam,
   signal: AbortSignal,
+  requiresRuntimeAttachments: boolean,
 ): Promise<void> {
   const target = new URL(`${seam.bridgeUrl.replace(/\/$/, '')}/`)
   const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
@@ -2910,6 +2927,19 @@ async function assertBridgeExecutionCapabilities(
   }
   if (body.capabilities?.usageCostProvenance !== bridgeUsageCostSchema) {
     throw new ValidationError(`bridgeExecutor: bridge does not advertise ${bridgeUsageCostSchema}`)
+  }
+  if (requiresRuntimeAttachments) {
+    const attachments = body.capabilities?.runtimeAttachments
+    if (
+      attachments === null ||
+      typeof attachments !== 'object' ||
+      (attachments as { mcp?: unknown }).mcp !== true
+    ) {
+      throw new ValidationError(
+        `bridgeExecutor: bridge at ${seam.bridgeUrl} does not advertise capabilities.runtimeAttachments.mcp; ` +
+          'upgrade cli-bridge to a version that carries Runtime MCP attachments outside the bound AgentProfile',
+      )
+    }
   }
 }
 
@@ -4762,6 +4792,31 @@ function readOptionalAbortSignal(
     throw new ValidationError(`${who} executor: seam "${key}" must be an AbortSignal`)
   }
   return value as AbortSignal
+}
+
+/** Narrow the Runtime-owned MCP attachment seam. Absent means the run mounts nothing; a present
+ *  value must be a named map of MCP servers, never an empty one that would silently mount nothing. */
+function readOptionalMcpAttachments(
+  ctx: ExecutorContext,
+  key: string,
+  who: string,
+): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
+  const value = ctx.seams[key]
+  if (value === undefined) return undefined
+  const entries =
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? Object.entries(value as Record<string, unknown>)
+      : undefined
+  if (
+    entries === undefined ||
+    entries.length === 0 ||
+    entries.some(([, server]) => server === null || typeof server !== 'object')
+  ) {
+    throw new ValidationError(
+      `${who} executor: seam ${JSON.stringify(key)} must be a non-empty map of MCP servers`,
+    )
+  }
+  return value as Record<string, AgentProfileMcpServer>
 }
 
 /** A leaf task is opaque (`unknown`). A string is the prompt verbatim; an object

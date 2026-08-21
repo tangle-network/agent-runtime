@@ -131,10 +131,10 @@ async function readJsonBody(req: AsyncIterable<Uint8Array>): Promise<Record<stri
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
 }
 
-async function submitBridgeResult(profile: Record<string, unknown>): Promise<void> {
-  const mcp = profile.mcp as Record<string, { url?: string }> | undefined
-  const url = mcp?.['agent-runtime-coordination']?.url
-  if (!url) throw new Error('bridge test profile omitted the Runtime coordination URL')
+async function submitBridgeResult(body: Record<string, unknown>): Promise<void> {
+  const attachments = (body.runtime_attachments as { mcp?: Record<string, { url?: string }> })?.mcp
+  const url = attachments?.['agent-runtime-coordination']?.url
+  if (!url) throw new Error('bridge test request omitted the Runtime coordination attachment')
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -177,6 +177,7 @@ async function startPiBridge(
           capabilities: {
             profileMaterialization: 'cli-bridge.profile-materialization.v2',
             usageCostProvenance: 'cli-bridge.usage-cost.v1',
+            runtimeAttachments: { mcp: true },
           },
         }),
       )
@@ -191,7 +192,7 @@ async function startPiBridge(
     const profile = body.agent_profile as Record<string, unknown>
     const requestModel = String(body.model)
     const profileDigest = canonicalAgentProfileDigest(profile as unknown as SandboxAgentProfile)
-    await submitBridgeResult(profile)
+    await submitBridgeResult(body)
     const usage = options.unknownCost
       ? { prompt_tokens: 11, completion_tokens: 7, cost_known: false }
       : {

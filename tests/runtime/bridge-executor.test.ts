@@ -19,6 +19,7 @@ import {
 import { promptHandle } from '../../src/runtime/supervise/prompt-registry'
 import {
   bridgeExecutor,
+  bridgeRuntimeAttachmentsKey,
   bridgeStopSignalKey,
   createExecutorRegistry,
 } from '../../src/runtime/supervise/runtime'
@@ -38,6 +39,12 @@ let bridgeHttpHandler: ((payload: Record<string, unknown>) => Readable) | null =
 let lastBridgeUrl: URL | null = null
 let lastBridgePostHeaders: Record<string, unknown> | null = null
 let activeBridgePayload: Record<string, unknown> | null = null
+const defaultBridgeCapabilities: Record<string, unknown> = {
+  profileMaterialization: 'cli-bridge.profile-materialization.v2',
+  usageCostProvenance: 'cli-bridge.usage-cost.v1',
+}
+let bridgeCapabilities: Record<string, unknown> = defaultBridgeCapabilities
+let lastBridgeRequestBody: string | null = null
 
 vi.mock('node:http', async () => {
   const actual = await vi.importActual<typeof import('node:http')>('node:http')
@@ -61,17 +68,11 @@ vi.mock('node:http', async () => {
             }
             capability.statusCode = 200
             capability.headers = { 'content-type': 'application/json' }
-            capability.end(
-              JSON.stringify({
-                capabilities: {
-                  profileMaterialization: 'cli-bridge.profile-materialization.v2',
-                  usageCostProvenance: 'cli-bridge.usage-cost.v1',
-                },
-              }),
-            )
+            capability.end(JSON.stringify({ capabilities: bridgeCapabilities }))
             cb(capability)
             return
           }
+          lastBridgeRequestBody = body
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
           activeBridgePayload = payload
@@ -203,6 +204,73 @@ describe('bridgeExecutor over node:http', () => {
     bridgeHttpHandler = null
     lastBridgeUrl = null
     lastBridgePostHeaders = null
+    lastBridgeRequestBody = null
+    bridgeCapabilities = defaultBridgeCapabilities
+  })
+
+  // A coordination MCP server lives on a process-ephemeral port. Sending it inside
+  // `agent_profile.mcp` moved the canonical profile digest, and cli-bridge's exact session binding
+  // then refused the resumed turn (agent-runtime#774). The attachment must travel beside the
+  // profile, and the profile must reach the wire exactly as authored.
+  it('sends runtime_attachments beside agent_profile and never inside it', async () => {
+    bridgeCapabilities = { ...defaultBridgeCapabilities, runtimeAttachments: { mcp: true } }
+    bridgeHttpHandler = () => sse('attached turn', 1, 1)
+    const profile: AgentProfile = {
+      name: 'attached-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+      mcp: { notes: { transport: 'stdio', command: 'notes-mcp' } },
+    }
+    const attachment = { transport: 'http', url: 'http://127.0.0.1:36827/mcp' }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' },
+          [bridgeRuntimeAttachmentsKey]: { 'agent-runtime-coordination': attachment },
+        },
+      },
+    )
+    await drainExecutor(executor)
+
+    const payload = lastBridgePayload()
+    expect(payload.runtime_attachments).toEqual({
+      mcp: { 'agent-runtime-coordination': attachment },
+    })
+    expect((payload.agent_profile as AgentProfile).mcp).toEqual({
+      notes: { transport: 'stdio', command: 'notes-mcp' },
+    })
+    expect(canonicalAgentProfileDigest(payload.agent_profile as AgentProfile)).toBe(
+      canonicalAgentProfileDigest(profile),
+    )
+  })
+
+  // No silent fallback to profile injection: an old bridge would bind the ephemeral port into the
+  // session and refuse the next resume, so the run stops before it spends a token.
+  it('refuses when the bridge does not advertise runtimeAttachments', async () => {
+    bridgeHttpHandler = () => sse('never reached', 1, 1)
+    const profile: AgentProfile = {
+      name: 'attached-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'safe-model' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' },
+          [bridgeRuntimeAttachmentsKey]: {
+            'agent-runtime-coordination': { transport: 'http', url: 'http://127.0.0.1:36827/mcp' },
+          },
+        },
+      },
+    )
+
+    await expect(drainExecutor(executor)).rejects.toThrow(
+      /does not advertise capabilities\.runtimeAttachments\.mcp/u,
+    )
   })
 
   it('stamps the inherited trace context as traceparent (+ legacy pair) headers on the bridge POST', async () => {
@@ -1313,6 +1381,12 @@ function isUsageStream(value: unknown): value is AsyncIterable<UsageEvent> {
     typeof value === 'object' &&
     typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
   )
+}
+
+/** The last request body the mocked transport received, parsed. */
+function lastBridgePayload(): Record<string, unknown> {
+  if (!lastBridgeRequestBody) throw new Error('no bridge request was sent')
+  return JSON.parse(lastBridgeRequestBody) as Record<string, unknown>
 }
 
 async function drainExecutor(executor: Executor<unknown>): Promise<UsageEvent[]> {

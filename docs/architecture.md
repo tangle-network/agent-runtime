@@ -462,7 +462,9 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
 - **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`supervise/supervise.ts`).
   A child marked `metadata.role: 'driver'` recursively becomes another supervisor over the same budget; every other child resolves to a leaf.
-- **REAL** — a local external-harness supervisor runs automatically through a `bridge` `driverBackend ?? backend` with the live coordination MCP injected under one reserved alias.
+- **REAL** — a local external-harness supervisor runs automatically through a `bridge` `driverBackend ?? backend` that mounts the live coordination MCP under one reserved alias.
+  The endpoint travels as a runtime attachment beside the AgentProfile (`runtime_attachments.mcp` on the cli-bridge request), never inside it, so a rebound ephemeral port cannot move the profile digest a durable bridge session is bound to.
+  cli-bridge must advertise `capabilities.runtimeAttachments.mcp`; a bridge that does not is refused before the first paid turn.
   Its own tools, resources, MCP servers, hooks, subagents, permissions, modes, prompt, and model remain profile data sent to that backend (`supervise/supervise.ts`, `supervise/runtime.ts`).
   A pre-execution `materialized` journal event binds the authored-profile, effective-profile, and platform-attachment digests to the node that ran.
 - **REAL** — a cli-bridge worker is observable mid-run: `bridgeExecutor.progress()` reports its live turn count, tool activity, queued steers, and what it derived about the caller's declaration, and `bridgeExecutor.traceSource()` feeds the online detectors and the settle-time analysts (`supervise/runtime.ts`).

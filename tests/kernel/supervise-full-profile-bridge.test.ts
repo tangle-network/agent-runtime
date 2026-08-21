@@ -20,6 +20,7 @@ type BridgeRequest = {
   run_id: string
   session_id: string
   agent_profile: AgentProfile
+  runtime_attachments?: { mcp: Record<string, { transport?: string; url?: string }> }
   messages: Array<{ role: string; content: string }>
 }
 
@@ -43,7 +44,17 @@ function routerTestProfile(name: string, systemPrompt?: string): AgentProfile {
   }
 }
 
+/**
+ * The fake bridge enforces the real one's exact session binding: cli-bridge records the canonical
+ * AgentProfile digest plus the model on a session's first request and answers 400 to any later
+ * request that changes either (`assertSessionProfileBinding`). Without that rule a resume test
+ * passes even when the runtime moves the digest between turns, which is exactly how the coordination
+ * port reached the bound profile unnoticed.
+ */
+const bridgeRequestBodies = new WeakMap<object, BridgeRequest>()
+
 function createBridgeServer(handler: Parameters<typeof createServer>[0]): Server {
+  const sessionBindings = new Map<string, string>()
   return createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/') {
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -52,12 +63,38 @@ function createBridgeServer(handler: Parameters<typeof createServer>[0]): Server
           capabilities: {
             profileMaterialization: 'cli-bridge.profile-materialization.v2',
             usageCostProvenance: 'cli-bridge.usage-cost.v1',
+            runtimeAttachments: { mcp: true },
           },
         }),
       )
       return
     }
-    return handler(req, res)
+    if (req.method !== 'POST' || !req.url?.startsWith('/v1/chat/completions')) {
+      return handler(req, res)
+    }
+    void (async () => {
+      const body = await readJson(req)
+      bridgeRequestBodies.set(req, body)
+      const binding = JSON.stringify({
+        effectiveProfileDigest: canonicalAgentProfileDigest(body.agent_profile),
+        model: body.model,
+      })
+      const bound = sessionBindings.get(body.session_id)
+      if (bound === undefined) sessionBindings.set(body.session_id, binding)
+      else if (bound !== binding) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            error: {
+              message: `session ${JSON.stringify(body.session_id)} is bound to a different AgentProfile/model`,
+              type: 'parse_error',
+            },
+          }),
+        )
+        return
+      }
+      await handler(req, res)
+    })()
   })
 }
 
@@ -153,6 +190,8 @@ function respondWithTerminalCancellation(res: ServerResponse, runId: string): vo
 }
 
 async function readJson(req: AsyncIterable<Uint8Array>): Promise<BridgeRequest> {
+  const buffered = bridgeRequestBodies.get(req as object)
+  if (buffered) return buffered
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(Buffer.from(chunk))
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as BridgeRequest
@@ -643,10 +682,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         const body = await readJson(req)
         requests.push(body)
         const profile = body.agent_profile
-        const coordination = profile.mcp?.['agent-runtime-coordination']
+        const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
         const depth = profile.metadata?.depth
 
-        if (coordination?.enabled !== false && coordination?.url) {
+        if (coordination?.url) {
           if (depth === 0) {
             await callCoordination(coordination.url, 'spawn_agent', {
               profile: {
@@ -835,22 +874,27 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
     const pi = requests[0]!.agent_profile
     expect(pi.tools).toEqual({ web: true })
-    expect(pi.mcp?.literature).toEqual({
-      transport: 'http',
-      url: 'https://papers.example.test/mcp',
+    expect(pi.mcp).toEqual({
+      literature: { transport: 'http', url: 'https://papers.example.test/mcp' },
     })
-    expect(pi.mcp?.['agent-runtime-coordination']).toMatchObject({ transport: 'http' })
+    expect(requests[0]?.runtime_attachments?.mcp['agent-runtime-coordination']).toMatchObject({
+      transport: 'http',
+    })
 
     const nested = requests[1]!.agent_profile
     expect(nested.resources?.skills?.[0]).toMatchObject({ name: 'experimental-method' })
     expect(nested.subagents?.critic?.prompt).toBe('Challenge the result.')
     expect(nested.modes?.adversarial?.prompt).toBe('Try to falsify the claim.')
-    expect(nested.mcp?.['agent-runtime-coordination']).toMatchObject({ transport: 'http' })
+    expect(nested.mcp).toBeUndefined()
+    expect(requests[1]?.runtime_attachments?.mcp['agent-runtime-coordination']).toMatchObject({
+      transport: 'http',
+    })
 
+    // A leaf worker drives nothing, so it receives no coordination attachment at all.
     const worker = requests[2]!.agent_profile
     expect(worker.permissions).toEqual({ shell: 'allow' })
     expect(worker.resources?.files?.[0]?.path).toBe('protocol.txt')
-    expect(worker.mcp?.['agent-runtime-coordination']).toBeUndefined()
+    expect(requests[2]?.runtime_attachments).toBeUndefined()
     expect(requests.every((request) => request.messages[0]?.role === 'user')).toBe(true)
     expect(result.spentTotal.tokens).toEqual({
       input: 33,
@@ -894,7 +938,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(JSON.stringify(rootEvents)).not.toContain(backend.bridgeUrl)
     expect(JSON.stringify(rootEvents)).not.toContain(backend.bridgeBearer)
     expect(JSON.stringify(rootEvents)).not.toContain(
-      String(pi.mcp?.['agent-runtime-coordination']?.url),
+      String(requests[0]?.runtime_attachments?.mcp['agent-runtime-coordination']?.url),
     )
     const rootSpawn = rootEvents?.find(
       (event) => event.kind === 'spawned' && event.id === 'identity-run',
@@ -957,9 +1001,14 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
   it('isolates identical concurrent managers but reuses one durable manager session on restart', async () => {
     const sessions: string[] = []
+    const coordinationUrls: string[] = []
+    const profileMcpAliases: string[][] = []
     server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
       sessions.push(body.session_id)
+      const attachment = body.runtime_attachments?.mcp['agent-runtime-coordination']
+      if (attachment?.url) coordinationUrls.push(attachment.url)
+      profileMcpAliases.push(Object.keys(body.agent_profile.mcp ?? {}))
       respondWithBridgeStream(res, body, successStream('managed'))
     })
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
@@ -993,6 +1042,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(new Set(sessions).size).toBe(2)
 
     sessions.length = 0
+    coordinationUrls.length = 0
+    profileMcpAliases.length = 0
     const runDir = await mkdtemp(join(tmpdir(), 'manager-stable-session-'))
     try {
       const options = {
@@ -1007,6 +1058,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       expect(sessions).toHaveLength(2)
       expect(sessions[0]).toMatch(/^supervised-manager-[a-f0-9]{64}$/)
       expect(sessions[1]).toBe(sessions[0])
+      // Each run serves coordination on a fresh ephemeral port. The bridge accepted the second
+      // turn on the same durable session, so the rebound endpoint never entered the bound profile:
+      // it rode `runtime_attachments`, and the authored profile declared no MCP server at all.
+      expect(new Set(coordinationUrls).size).toBe(2)
+      expect(profileMcpAliases).toEqual([[], []])
     } finally {
       await rm(runDir, { recursive: true, force: true })
     }
@@ -1178,7 +1234,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const journal = new InMemorySpawnJournal()
     server = createBridgeServer(async (req, res) => {
       const body = await readJson(req)
-      const coordination = body.agent_profile.mcp?.['agent-runtime-coordination']
+      const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
       if (!coordination || typeof coordination.url !== 'string') {
         throw new Error('bridge test request did not carry the coordination MCP')
       }
@@ -1514,8 +1570,8 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       const body = await readJson(req)
       requests.push(body)
       const profile = body.agent_profile
-      const coordination = profile.mcp?.['agent-runtime-coordination']
-      if (coordination?.enabled !== false && coordination?.url) {
+      const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+      if (coordination?.url) {
         await callCoordination(coordination.url, 'spawn_agent', {
           profile: {
             name: 'worker',
