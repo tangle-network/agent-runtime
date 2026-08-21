@@ -3,13 +3,17 @@
  * payment files. Worker artifact = final answer text. Judge = the official
  * DABStep `grade.py` normalization/matching function. No LLM judge.
  *
- * Live tasks require `DABSTEP_DIR` pointing at an official DABStep checkout that
- * includes `dataset.csv`, `splits/*.txt`, `files/*`, and `grade.py`. The adapter
- * exposes `metadata.resourceRoot` so runners can mount the benchmark files into
- * AgentProfile.resources.files; it does not paste the dataset into prompt text.
+ * Live tasks require `DABSTEP_DIR` pointing at an official DABStep checkout
+ * (https://github.com/EnvCommons/DABStep) for `splits/*.txt`, `files/*`, and
+ * `grade.py`, plus the released `dataset.csv` task rows — beside the checkout
+ * or anywhere via `DABSTEP_DATASET_CSV`. The checkout does not ship
+ * `dataset.csv`; see the preflight error text for where the rows come from.
+ * The adapter exposes `metadata.resourceRoot` so runners can mount the
+ * benchmark files into AgentProfile.resources.files; it does not paste the
+ * dataset into prompt text.
  */
 
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { access, readFile, stat } from 'node:fs/promises'
 import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 import { benchRoot, runVenvPython, runVenvScriptStdin } from './_harness'
@@ -35,6 +39,31 @@ const dabstepDir = (): string | undefined => process.env.DABSTEP_DIR
 const gradeFile = (dir: string): string => join(dir, 'grade.py')
 const resourceRoot = (dir: string): string => join(dir, 'files')
 
+/**
+ * Where the released task rows come from. The EnvCommons/DABStep git checkout
+ * carries grade.py, splits/, and files/ but not dataset.csv: the row file
+ * (task_id,question,guidelines,all_golds_by_task) ships with the OpenReward
+ * DABStep environment, mounted at /orwd_data/dataset.csv on that platform.
+ * The public https://huggingface.co/datasets/adyen/DABstep release holds the
+ * same task rows without golds (data/tasks/all.jsonl; answers withheld for the
+ * leaderboard) and a 10-task dev split with reference answers
+ * (data/tasks/dev.jsonl).
+ */
+const datasetAcquisitionHint =
+  'The DABStep checkout ships grade.py, splits/, and files/ but not dataset.csv. ' +
+  'dataset.csv (task_id,question,guidelines,all_golds_by_task) is distributed with the OpenReward DABStep environment ' +
+  '(mounted at /orwd_data/dataset.csv on that platform); the public https://huggingface.co/datasets/adyen/DABstep release ' +
+  'carries the task rows without golds (data/tasks/all.jsonl) and a 10-task dev split with reference answers (data/tasks/dev.jsonl). ' +
+  'Place dataset.csv beside the checkout, or point DABSTEP_DATASET_CSV at it.'
+
+/** The released row file: `<dir>/dataset.csv`, or the `DABSTEP_DATASET_CSV` override so checkout and export can live apart. */
+function datasetFile(dir: string): string {
+  const override = process.env.DABSTEP_DATASET_CSV
+  if (override === undefined) return join(dir, 'dataset.csv')
+  if (!isAbsolute(override)) throw new Error('DABSTEP_DATASET_CSV must be an absolute path')
+  return override
+}
+
 async function assertFile(path: string, label: string): Promise<void> {
   try {
     await access(path)
@@ -44,7 +73,14 @@ async function assertFile(path: string, label: string): Promise<void> {
 }
 
 async function assertOfficialFiles(dir: string, split: string): Promise<void> {
-  await assertFile(join(dir, 'dataset.csv'), 'released dataset.csv')
+  const dataset = datasetFile(dir)
+  try {
+    await access(dataset)
+  } catch (err) {
+    throw new Error(
+      `DABStep: missing released dataset.csv at ${dataset} (${err instanceof Error ? err.message : err}). ${datasetAcquisitionHint}`,
+    )
+  }
   await assertFile(join(dir, 'splits', `${split}.txt`), `${split} split file`)
   await assertFile(gradeFile(dir), 'official grade.py')
   const files = resourceRoot(dir)
@@ -124,10 +160,10 @@ root = Path(sys.argv[1])
 split = sys.argv[2]
 limit = None if sys.argv[3] == "" else int(sys.argv[3])
 ids = set(json.loads(sys.argv[4]))
-dataset = root / "dataset.csv"
+dataset = Path(sys.argv[5])
 split_file = root / "splits" / f"{split}.txt"
 if not dataset.exists():
-    raise SystemExit(f"missing official DABStep dataset.csv at {dataset}")
+    raise SystemExit(f"missing official DABStep dataset.csv at {dataset}; the checkout does not ship it — see the adapter preflight error for acquisition")
 if not split_file.exists():
     raise SystemExit(f"missing official DABStep split file at {split_file}")
 split_ids = {int(line.strip()) for line in split_file.read_text().splitlines() if line.strip()}
@@ -150,7 +186,13 @@ if not out:
     raise SystemExit(f"no DABStep rows matched split={split} ids={sorted(ids)} limit={limit}")
 print(json.dumps(out))
 `
-  const stdout = await runVenvPython(script, [dir, split, opts.limit === undefined ? '' : String(opts.limit), JSON.stringify(opts.ids ?? [])])
+  const stdout = await runVenvPython(script, [
+    dir,
+    split,
+    opts.limit === undefined ? '' : String(opts.limit),
+    JSON.stringify(opts.ids ?? []),
+    datasetFile(dir),
+  ])
   return selectRows(JSON.parse(stdout) as DabstepFixtureRow[], opts, split, dir)
 }
 
@@ -166,7 +208,8 @@ export function createDabstepAdapter(): BenchmarkAdapter {
       const dir = dabstepDir()
       if (!dir) {
         throw new Error(
-          'DABSTEP_DIR is required. Fix: clone https://github.com/EnvCommons/DABStep, add the released dataset.csv under that checkout, then set DABSTEP_DIR=/path/to/DABStep.',
+          'DABSTEP_DIR is required. Fix: clone https://github.com/EnvCommons/DABStep and set DABSTEP_DIR=/path/to/DABStep. ' +
+            datasetAcquisitionHint,
         )
       }
       await assertOfficialFiles(dir, DEFAULT_SPLIT)

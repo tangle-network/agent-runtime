@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.20
+
+### Official adapter evidence for tau, DABStep, and FinResearchBench
+
+Official tau2/tau3 task loads stamp the upstream checkout commit and the installed `tau2` distribution version into task metadata, and the trajectory judge records both in its score detail.
+A dirty checkout, a non-git bench directory, a missing `tau2` distribution, or a checkout that moved between load and judge now fails loud.
+FinResearchBench records the judge turn's exact Runtime usage on `BenchScore.judgeUsage`, so an unproven judge cost stays unknown instead of reading as zero spend.
+DABStep accepts an absolute `DABSTEP_DATASET_CSV` override for the released task rows, and its preflight error states where those rows come from.
+
 ## 0.8.19
 
 - Align the Bench package with Runtime 0.143.0, Interface 1.3.0, and Sandbox 0.31.0.

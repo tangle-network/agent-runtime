@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAgentBenchAdapter } from './agentbench'
 import { createBfclAdapter } from './bfcl'
-import { createFinResearchBenchAdapter } from './finresearchbench'
+import { createFinResearchBenchAdapter, scoreOfficialJudgeTurn } from './finresearchbench'
 import { createTau2BenchAdapter } from './tau2-bench'
 import { createTau3BankingAdapter } from './tau3-banking'
 import { createToolLlmAdapter } from './toollm'
@@ -147,4 +147,64 @@ test('FinResearchBench fixture mode is explicit and live mode requires exported 
   await withEnv({ FINRESEARCHBENCH_FIXTURES: undefined, FINRESEARCHBENCH_DATA_FILE: undefined }, async () => {
     await assert.rejects(() => createFinResearchBenchAdapter().preflight(), /FINRESEARCHBENCH_DATA_FILE is required/)
   })
+})
+
+const officialFinResearchTask = {
+  id: 'row-1',
+  prompt: 'unused',
+  split: 'macro',
+  metadata: {
+    id: 'row-1',
+    category: 'macro',
+    question: 'Assess margin trajectory.',
+    referenceAnswer: 'Margin expansion',
+    referenceReport: 'Margin expansion',
+    logicTree: null,
+    rubric: null,
+    scoring: 'official-logic-tree-judge',
+  },
+}
+
+test('FinResearchBench official judge score carries the judge turn usage verbatim', () => {
+  const usage = {
+    input: 1200,
+    output: 44,
+    costUsd: 0.0123,
+    model: 'deepseek-v4-flash',
+  }
+  const score = scoreOfficialJudgeTurn(
+    officialFinResearchTask,
+    { finalText: '```json\n{"score": 8}\n```', usage },
+    'deepseek-v4-flash',
+  )
+  assert.equal(score.score, 0.8)
+  assert.equal(score.resolved, true)
+  assert.deepEqual(score.judgeUsage, usage)
+  const detail = JSON.parse(score.detail ?? '{}') as Record<string, unknown>
+  assert.equal(detail.judgeModel, 'deepseek-v4-flash')
+  assert.equal(detail.scoring, 'official-logic-tree-judge')
+})
+
+test('FinResearchBench keeps unknown judge cost unknown instead of reporting zero spend', () => {
+  const usage = {
+    input: 0,
+    output: 0,
+    tokensKnown: false as const,
+    usdKnown: false as const,
+    estimatedCostUsd: 0.002,
+  }
+  const score = scoreOfficialJudgeTurn(officialFinResearchTask, { finalText: '{"score": 3}', usage }, 'deepseek-v4-flash')
+  assert.equal(score.score, 0.3)
+  assert.equal(score.resolved, false)
+  assert.equal(score.judgeUsage?.usdKnown, false)
+  assert.equal(score.judgeUsage?.tokensKnown, false)
+  assert.equal(score.judgeUsage?.costUsd, undefined)
+  assert.equal(score.judgeUsage?.estimatedCostUsd, 0.002)
+})
+
+test('FinResearchBench official judge fails loud on an empty judge message', () => {
+  assert.throws(
+    () => scoreOfficialJudgeTurn(officialFinResearchTask, { usage: { input: 1, output: 0 } }, 'deepseek-v4-flash'),
+    /judge returned no message content/,
+  )
 })
