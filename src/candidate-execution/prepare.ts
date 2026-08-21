@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { lstat, readdir } from 'node:fs/promises'
 import { isAbsolute, posix, relative, resolve as resolveHostPath } from 'node:path'
-
 import type {
   AgentCandidateConfigValue,
   AgentCandidateEffectiveMemory,
@@ -27,7 +26,6 @@ import {
   sha256DigestSchema,
 } from '@tangle-network/agent-interface'
 import { applyAgentCandidateWorkspacePlan } from '@tangle-network/agent-profile-materialize'
-
 import {
   readMaterializedWorkspaceFiles,
   readVerifiedArtifact,
@@ -50,6 +48,7 @@ import {
   omitTopLevelDigest,
   sha256Bytes,
 } from './digest'
+import { isWellFormedUnicode } from './exact-object'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
 import {
@@ -1014,19 +1013,6 @@ function exactProfileExecutorFiles(
     }
     return { path: expected.relPath, mode, bytes: Uint8Array.from(bytes) }
   })
-}
-function isWellFormedUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index)
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false
-      index++
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false
-    }
-  }
-  return true
 }
 
 function errorMessage(error: unknown): string {

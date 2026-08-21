@@ -42,6 +42,7 @@ import {
   type PeerMailLimits,
 } from '../../runtime/supervise/peer-mail'
 import type { WorkerProgress } from '../../runtime/supervise/progress'
+import { detachedFrozen } from '../../runtime/supervise/snapshot'
 import {
   parseWorkerToolTraceArtifact,
   workerTraceAnalysisStore,
@@ -836,7 +837,7 @@ function spawnProfileArg(): Record<string, unknown> {
     })
     // Deep-frozen because ONE memoized object is handed to every coordination toolbox in the
     // process: an unfrozen shared schema lets one consumer's mutation corrupt every later one.
-    spawnProfileArgCache = deepFreeze(deriveSpawnProfileArg(canonical.properties))
+    spawnProfileArgCache = detachedFrozen(deriveSpawnProfileArg(canonical.properties))
   }
   return spawnProfileArgCache
 }
@@ -914,7 +915,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       trace,
       ...(resumed ? { resumed: true as const } : {}),
     }
-    return deepFreezeDetached<SettledWorker>(
+    return detachedFrozen<SettledWorker>(
       settled.kind === 'done'
         ? {
             ...common,
@@ -953,9 +954,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // observer acknowledges it. Opted-in high-level callers replay those events at least once. Keep
   // each frozen event object across an in-process retry so EventBus reuses its exact BusRecord.
   const resumeEvents = opts.replaySettlements
-    ? resumedWorkers.map((worker) =>
-        deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
-      )
+    ? resumedWorkers.map((worker) => detachedFrozen<CoordinationEvent>({ type: 'settled', worker }))
     : []
   let resumeEventIndex = 0
   let readyInFlight: Promise<void> | undefined
@@ -1077,7 +1076,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     run: AnalystRunInFlight,
     settled: Settled<unknown>,
   ): CoordinationEvent =>
-    deepFreezeDetached<CoordinationEvent>({
+    detachedFrozen<CoordinationEvent>({
       type: 'finding',
       finding: canonicalFindingEvent({
         fromWorker: run.sourceWorker,
@@ -1295,7 +1294,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       await bus.publish(
         {
           type: 'steer',
-          down: deepFreezeDetached({
+          down: detachedFrozen({
             receiptId: randomUUID(),
             toWorker: destination,
             instruction: text,
@@ -1321,7 +1320,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       try {
         await sendDown(
           'steer',
-          deepFreezeDetached({
+          detachedFrozen({
             receiptId: randomUUID(),
             toWorker: targetId,
             instruction: text,
@@ -1434,7 +1433,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         : {
             settled,
             worker,
-            event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+            event: detachedFrozen<CoordinationEvent>({ type: 'settled', worker }),
             analyze: true,
           }
     }
@@ -1465,7 +1464,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           : {
               settled,
               worker,
-              event: deepFreezeDetached<CoordinationEvent>({ type: 'settled', worker }),
+              event: detachedFrozen<CoordinationEvent>({ type: 'settled', worker }),
               analyze: false,
             }
       }
@@ -1509,9 +1508,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           `coordination tools: cannot authorize ${kind} for worker ${JSON.stringify(workerId)} without durable identity`,
         )
       }
-      const decision = deepFreezeDetached(
+      const decision = detachedFrozen(
         opts.authorizeDownMessage(
-          deepFreezeDetached({
+          detachedFrozen({
             kind,
             workerId,
             workerIdentity,
@@ -1532,7 +1531,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       }
       authorizedInstruction = decision.instruction
     }
-    return deepFreezeDetached({
+    return detachedFrozen({
       receiptId: randomUUID(),
       kind,
       toWorker: workerId,
@@ -1555,7 +1554,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   const recordDeliveryAttempt = async (
     instruction: ContinuationInstruction,
   ): Promise<DownMessageDeliveryAttempt> => {
-    const attempt = deepFreezeDetached({
+    const attempt = detachedFrozen({
       receiptId: instruction.receiptId,
       kind: instruction.kind,
       toWorker: instruction.toWorker,
@@ -1592,7 +1591,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       outcome = 'runtime-error'
       error = cause instanceof Error ? cause.message : String(cause)
     }
-    const down = deepFreezeDetached({
+    const down = detachedFrozen({
       receiptId: instruction.receiptId,
       toWorker: instruction.toWorker,
       instruction: instruction.instruction,
@@ -1979,7 +1978,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             })),
           })
         }
-        const profile = deepFreezeDetached(parsedProfile.data)
+        const profile = detachedFrozen(parsedProfile.data)
         // Continuity resolves BEFORE any assignment is minted or budget reserved, so a refused
         // resume touches nothing — same fail-closed discipline as the fences above.
         const continuity = resolveContinuity(parseContinuity(a.continuity), profile.name, key)
@@ -1991,7 +1990,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             freeSlots: freeWorkerSlots(),
           })
         }
-        const task = deepFreezeDetached(a.task)
+        const task = detachedFrozen(a.task)
         const label = typeof a.label === 'string' ? a.label : 'worker'
         // The ONE pre-journal point that may ask the backend a question: everything below —
         // assignment, budget reservation, `Scope.spawn` — is synchronous and commits state.
@@ -2570,10 +2569,6 @@ function nextUnkeyedAssignmentOrdinal(scope: Scope<unknown>): number {
   return next
 }
 
-function deepFreezeDetached<T>(value: T): T {
-  return deepFreeze(structuredClone(value))
-}
-
 /** Stringify a findings payload for a routed delivery; never throws (a cyclic payload degrades to
  *  its String form rather than killing the settle path). */
 function safeJsonText(value: unknown): string {
@@ -2583,11 +2578,4 @@ function safeJsonText(value: unknown): string {
   } catch {
     return String(value)
   }
-}
-
-function deepFreeze<T>(value: T, seen = new Set<object>()): T {
-  if (value === null || typeof value !== 'object' || seen.has(value)) return value
-  seen.add(value)
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen)
-  return Object.freeze(value)
 }

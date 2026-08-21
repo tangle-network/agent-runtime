@@ -64,6 +64,7 @@ import {
   type SupervisorFinalizer,
 } from './finalizer'
 import { createInbox, type Inbox } from './inbox'
+import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import {
   type RunCancellation,
@@ -82,7 +83,6 @@ import type {
   Agent,
   Budget,
   NodeSnapshot,
-  ProviderModelExecutionEvidence,
   ResultBlobStore,
   ResumedWork,
   Scope,
@@ -302,18 +302,6 @@ function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
 function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
   const b = scope.budget
   return b.deadlineMs > 0 && now() >= b.deadlineMs
-}
-
-function providerAttemptEvidence(model: string | undefined): ProviderModelExecutionEvidence {
-  const attempts = Object.freeze([
-    Object.freeze({ observations: Object.freeze(model === undefined ? [] : [model]) }),
-  ])
-  const models = Object.freeze(model === undefined ? [] : [model])
-  return Object.freeze(
-    model === undefined
-      ? { status: 'unknown' as const, attempts, models, reason: 'provider-model-missing' as const }
-      : { status: 'known' as const, attempts, models },
-  )
 }
 
 /** The USD-denominated members of {@link PromptCacheUsage} — the schema, not a guess. Every

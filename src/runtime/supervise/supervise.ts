@@ -68,6 +68,7 @@ import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import {
   attestRuntimeOwnedScopeOwner,
+  providerAttemptEvidence,
   recordRuntimeOwnedDriveHarnessProviderEvidence,
   runtimeOwnedDriveHarnessProviderEvidence,
   runtimeOwnedExecutorExecutionBinding,
@@ -925,18 +926,6 @@ function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
     typeof value === 'object' &&
     Symbol.asyncIterator in value &&
     typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === 'function'
-  )
-}
-
-function providerAttemptEvidence(model: string | undefined): ProviderModelExecutionEvidence {
-  const attempts = Object.freeze([
-    Object.freeze({ observations: Object.freeze(model === undefined ? [] : [model]) }),
-  ])
-  const models = Object.freeze(model === undefined ? [] : [model])
-  return Object.freeze(
-    model === undefined
-      ? { status: 'unknown' as const, attempts, models, reason: 'provider-model-missing' as const }
-      : { status: 'known' as const, attempts, models },
   )
 }
 
