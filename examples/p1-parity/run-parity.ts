@@ -353,8 +353,6 @@ function liveBackends(
       agentTransport: completionsTransport(cell.coderProfile, env.url, env.bearer),
       driverTransport: completionsTransport(cell.reviewerProfile, env.routerUrl, env.routerKey),
       shotPassed,
-      apiKey: env.bearer,
-      baseUrl: env.url,
     },
     graph: {
       kind: 'chat',

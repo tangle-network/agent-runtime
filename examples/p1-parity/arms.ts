@@ -167,10 +167,6 @@ export interface MultishotArmBackend {
   /** The shared completion check, applied to each turn-initial coder reply. MUST be the same
    *  predicate the paired graph arm's deliverable uses, or the comparison is invalid. */
   readonly shotPassed: (assistantText: string) => boolean
-  /** `runMultishot` resolves apiKey/baseUrl eagerly even with both transports injected; the
-   *  offline path passes inert placeholders so no env is required. */
-  readonly apiKey?: string
-  readonly baseUrl?: string
 }
 
 /** Execution seams for the graph arm: fully-scripted (offline/CI) or the live chat transport. */
@@ -348,8 +344,6 @@ export async function runMultishotArm(
       agentMaxTokens: PARITY_CODER_SAMPLING.maxTokens,
       agentTransport: metered(backend.agentTransport, 'agent'),
       driverTransport: metered(backend.driverTransport, 'driver'),
-      apiKey: backend.apiKey ?? 'unused',
-      baseUrl: backend.baseUrl ?? 'http://unused.invalid',
     })
   } catch (err) {
     if (!(err instanceof LoopTransportFailure)) throw err
