@@ -984,6 +984,11 @@ export type SpawnEvent =
       ownedTreeRoot?: NodeId
       /** Exact profile/task digests plus trusted candidate/campaign attribution when available. */
       identity?: NodeExecutionIdentity
+      /** `ResultBlobStore` key holding the AUTHORED child `AgentProfile` this spawn ran under.
+       *  Distinct from `identity.profileDigest`: that is the canonical AgentProfile digest, which
+       *  names the agent, while this is the blob store's own content address, which retrieves its
+       *  bytes. Absent on records written before the body was persisted. */
+      profileRef?: string
       seq: number
       at: string
     }
