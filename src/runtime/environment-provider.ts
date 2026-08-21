@@ -52,6 +52,7 @@ import {
   createSandboxToolPartState,
   sandboxProgressEvents,
 } from './sandbox-events'
+import { linkAbort } from './supervise/abortable'
 import {
   attestRuntimeOwnedPendingExecutor,
   finalizeRuntimeOwnedPendingExecutor,
@@ -363,12 +364,7 @@ function createProviderExecutor(
   ctx: ExecutorContext,
   options: ProviderExecutorOptions,
 ): Executor<unknown> {
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+  const controller = linkAbort(ctx.signal)
 
   let environment: AgentEnvironment | undefined
   let artifact: ExecutorResult<unknown> | undefined
@@ -499,7 +495,7 @@ async function* streamProviderExecutor(
   args: StreamProviderExecutorArgs,
 ): AsyncIterable<UsageEvent> {
   const started = Date.now()
-  const linked = mergeAbortSignals(args.signal, args.controller.signal)
+  const linked = linkAbort(args.signal, args.controller.signal).signal
   const environment = await args.provider.create({
     ...(args.options.defaults ?? {}),
     profile: args.createProfile,
@@ -1737,28 +1733,6 @@ function defaultTangleSandboxCapabilities(options: {
     usage: true,
     confidential: true,
   }
-}
-
-function mergeAbortSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
-  const controller = new AbortController()
-  // Forward the firing signal's reason. Dropping it here renamed every cascaded death to the
-  // generic "execution aborted", which is what made this class undiagnosable from a journal.
-  const reasonOf = (signal: AbortSignal): unknown => {
-    const reason = signal.reason
-    if (typeof reason === 'string' && reason.length > 0) return reason
-    // A bare `abort()` sets a DOMException carrying the platform placeholder message, which
-    // is no more diagnostic than the generic death — name the scope instead.
-    if (reason instanceof Error && reason.name !== 'AbortError' && reason.message.length > 0) {
-      return reason.message
-    }
-    return 'aborted by parent scope'
-  }
-  if (a.aborted || b.aborted) controller.abort(reasonOf(a.aborted ? a : b))
-  else {
-    a.addEventListener('abort', () => controller.abort(reasonOf(a)), { once: true })
-    b.addEventListener('abort', () => controller.abort(reasonOf(b)), { once: true })
-  }
-  return controller.signal
 }
 
 function contentRef(prefix: string, value: unknown): string {
