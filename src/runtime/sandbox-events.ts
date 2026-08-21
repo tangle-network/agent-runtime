@@ -540,8 +540,8 @@ export function createSandboxToolPartState(): SandboxToolPartState {
   return { statusByCall: new Map(), seq: 0 }
 }
 
-/** Statuses that settle a tool call, or a whole execution, as a failure. One vocabulary for
- *  both so a status never counts as failed in one projection and settled-fine in the other. */
+/** Statuses that settle one tool call as a failure. A failed tool call stays a tool result:
+ *  the run's terminal state comes from the public Sandbox outcome tracker, never from here. */
 const TERMINAL_FAILURE = /^(error|errored|failed|failure|cancelled|canceled|timeout|timed_out)$/i
 
 /**
