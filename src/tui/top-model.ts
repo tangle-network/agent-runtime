@@ -9,6 +9,11 @@
  * Extracted from the `loops` repo (`src/top-model.ts`), which held a hand-joined copy of the
  * layout. Rendering is deliberately unchanged: raw ANSI, zero dependencies.
  *
+ * This is the OPERATOR view: what is on disk right now, for a human watching a workspace. It
+ * carries no model-call identity, so its per-supervisor totals cannot be joined with root stream
+ * events without double counting. A client that needs one execution's totals reads
+ * `projectPursuit` from `../durable` instead.
+ *
  * @experimental
  */
 

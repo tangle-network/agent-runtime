@@ -31,13 +31,7 @@ import type {
   SpawnJournal,
   Spend,
 } from '../supervise/types'
-import {
-  addTokenUsage,
-  chargedTokens,
-  cloneTokenUsage,
-  usdEstimatedOf,
-  zeroTokenUsage,
-} from '../util'
+import { addSpend, chargedTokens, cloneSpend, zeroSpend } from '../util'
 import type {
   EqualKArm,
   EqualKOnCostOptions,
@@ -125,7 +119,7 @@ export async function trajectoryReport(
   for (const ev of events) {
     if (ev.kind !== 'metered') continue
     const node = requireNode(nodes, ev.id, root)
-    node.ownSpend = addNodeSpend(node.ownSpend, ev.spend)
+    node.ownSpend = addSpend(node.ownSpend, ev.spend)
   }
 
   if (!nodes.has(root)) {
@@ -236,8 +230,8 @@ function rollUpSpend(nodes: Map<NodeId, MutableNode>, root: NodeId): Map<NodeId,
       for (const child of node.children) stack.push({ id: child, expanded: false })
       continue
     }
-    const sum = cloneSpend(node.ownSpend)
-    for (const child of node.children) addSpend(sum, requireSpend(rolled, child, root))
+    let sum = cloneSpend(node.ownSpend)
+    for (const child of node.children) sum = addSpend(sum, requireSpend(rolled, child, root))
     rolled.set(frame.id, sum)
   }
   return rolled
@@ -292,53 +286,6 @@ function countStatuses(
   }
   for (const node of reported) counts[node.status] += 1
   return counts
-}
-
-// ── Spend arithmetic (single-sourced on `addTokenUsage`) ─────────────────────────
-
-function zeroSpend(): Spend {
-  return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
-}
-
-/** Add a `metered` event's spend onto a node's accumulated ownSpend (per channel). */
-function addNodeSpend(a: Spend, b: Spend): Spend {
-  return {
-    iterations: a.iterations + b.iterations,
-    tokens: (() => {
-      const tokens = cloneTokenUsage(a.tokens)
-      addTokenUsage(tokens, b.tokens)
-      return tokens
-    })(),
-    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
-    usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ...usdEstimatedOf(a, b),
-    ms: a.ms + b.ms,
-  }
-}
-
-function cloneSpend(spend: Spend): Spend {
-  return {
-    iterations: spend.iterations,
-    tokens: cloneTokenUsage(spend.tokens),
-    ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
-    usd: spend.usd,
-    ...(spend.usdKnown === false ? { usdKnown: false } : {}),
-    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
-    ms: spend.ms,
-  }
-}
-
-/** Add `delta` into `acc` in place across every conserved channel. */
-function addSpend(acc: Spend, delta: Spend): void {
-  acc.iterations += delta.iterations
-  addTokenUsage(acc.tokens, delta.tokens)
-  if (delta.tokensKnown === false) acc.tokensKnown = false
-  acc.usd += delta.usd
-  if (delta.usdKnown === false) acc.usdKnown = false
-  if (delta.usdEstimated !== undefined)
-    acc.usdEstimated = (acc.usdEstimated ?? 0) + delta.usdEstimated
-  acc.ms += delta.ms
 }
 
 // ── Cross-arm spread ─────────────────────────────────────────────────────────────

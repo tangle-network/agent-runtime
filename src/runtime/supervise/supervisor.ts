@@ -44,7 +44,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
-import { addTokenUsage, cloneTokenUsage, usdEstimatedOf, zeroTokenUsage } from '../util'
+import { addSpend, addTokenUsage, zeroTokenUsage } from '../util'
 import { runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
@@ -1319,24 +1319,6 @@ function accumulate(a: Spend, b: Spend): void {
   if (b.usdKnown === false) a.usdKnown = false
   if (b.usdEstimated !== undefined) a.usdEstimated = (a.usdEstimated ?? 0) + b.usdEstimated
   a.ms += b.ms
-}
-
-/** Sum two conserved-spend tallies per channel — the child-work journal sum + the drivers' own
- *  metered inference, so `spentTotal` is the true cost of the run. */
-function addSpend(a: Spend, b: Spend): Spend {
-  return {
-    iterations: a.iterations + b.iterations,
-    tokens: (() => {
-      const tokens = cloneTokenUsage(a.tokens)
-      addTokenUsage(tokens, b.tokens)
-      return tokens
-    })(),
-    ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
-    usd: a.usd + b.usd,
-    ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ...usdEstimatedOf(a, b),
-    ms: a.ms + b.ms,
-  }
 }
 
 /** True when any driver metered inference this run (so the winner carries a `spentBreakdown`).
