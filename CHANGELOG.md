@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.153.1
+
+### The opencode.json materialization fix reaches this package
+
+`@tangle-network/agent-profile-materialize@0.17.1` owns `opencode.json` as a path it generates and may replace. Before that release, re-applying a workspace plan whose child profile asked for a different combination of prompt files refused the turn, and the child died at zero tokens.
+
+The catalog range moves from `>=0.16.0 <0.17.0` to `>=0.17.1 <0.18.0`. The floor is `0.17.1` because `0.17.0` still refuses.
+
+A consumer that pins `@tangle-network/agent-profile-materialize` itself must move to `0.17.1` or later.
+
 ## 0.151.0
 
 ### Provider-native child tasks reach the turn stream

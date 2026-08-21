@@ -23,7 +23,7 @@ catalog:
   '@tangle-network/agent-eval': '>=0.149.0 <0.150.0'
   '@tangle-network/agent-interface': ^1.4.0
   '@tangle-network/agent-knowledge': ^8.0.10
-  '@tangle-network/agent-profile-materialize': '>=0.16.0 <0.17.0'
+  '@tangle-network/agent-profile-materialize': '>=0.17.1 <0.18.0'
   '@tangle-network/agent-trace-contract': ^1.0.2
   '@tangle-network/sandbox': '>=0.31.0 <0.32.0'
   publint: 0.3.22
