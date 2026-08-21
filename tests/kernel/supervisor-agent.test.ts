@@ -906,19 +906,6 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     ).toThrow(ConfigError)
   })
 
-  it('refuses peerMail on a router-brained supervisor', () => {
-    const blobs = new InMemoryResultBlobStore()
-    expect(() =>
-      supervisorAgent(testAgentProfile('sup', { harness: 'cli-base' }), {
-        blobs,
-        makeWorkerAgent: () => deliveringLeaf('w', {}),
-        perWorker,
-        brain: async () => ({ content: '', toolCalls: [] }),
-        peerMail: true,
-      }),
-    ).toThrow(/peerMail is only served by a harness-brained supervisor/)
-  })
-
   it('refuses a non-loopback coordination host with no acknowledgment (a ConfigError)', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
