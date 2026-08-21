@@ -682,6 +682,23 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`coordination`](runtime.md#coordination)
 
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](runtime.md#peermaillimits)\>; \}
+
+OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
+ and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
+ spawn, serves the mail listener beside the coordination MCP, and hands each worker its
+ endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl). Mounting that URL into the worker is the
+ `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
+ the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
+ it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
+ supervisor; a router-brained supervisor is refused rather than silently unmailed.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail)
+
 ##### makeWorkerAgent?
 
 > `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
@@ -1719,6 +1736,19 @@ Where the coordination MCP binds (external arm). Omit = an ephemeral loopback po
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`coordination`](runtime.md#coordination-1)
+
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](runtime.md#peermaillimits)\>; \}
+
+OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
+ beside the coordination MCP and mint each spawn a capability URL on
+ `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
+ listener, so there is no post office a worker could reach.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`peerMail`](runtime.md#peermail-1)
 
 ##### controlDir?
 

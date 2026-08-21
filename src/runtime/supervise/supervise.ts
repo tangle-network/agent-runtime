@@ -76,6 +76,7 @@ import {
   type SupervisorSpanOptions,
   type SupervisorSpanRecorder,
 } from './otel-spans'
+import type { PeerMailLimits } from './peer-mail'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
   bindReusableExecutorExecutionId,
@@ -888,6 +889,15 @@ export interface SuperviseOptions {
    *  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
    *  unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated. */
   readonly coordination?: CoordinationBinding
+  /** OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
+   *  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
+   *  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
+   *  endpoint on {@link WorkerSpawnContext.peerMailUrl}. Mounting that URL into the worker is the
+   *  `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
+   *  the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
+   *  it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
+   *  supervisor; a router-brained supervisor is refused rather than silently unmailed. */
+  readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
    *  This is caller-owned execution: profile security, spawn authorization, and recursive-driver
    *  selection below apply only to the backend-derived worker path. `authorizeMessage` still
@@ -1868,6 +1878,7 @@ function superviseInternal(
           ...(options.continuityByProfile
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
+          ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
           ...(options.maxTurns !== undefined ? { maxTurns: options.maxTurns } : {}),
@@ -1936,6 +1947,7 @@ function superviseInternal(
         : {}),
       ...(finalizer ? { finalizer } : {}),
       ...(options.coordination ? { coordination: options.coordination } : {}),
+      ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),
       ...(rootDriveHarness ? { driveHarness: rootDriveHarness } : {}),

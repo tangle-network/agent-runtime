@@ -1289,3 +1289,103 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   })
 })
+
+describe('supervise — peerMail threads from options through both supervisor arms', () => {
+  async function callTool(
+    url: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<{ result?: unknown; error?: unknown }> {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    })
+    return (await response.json()) as { result?: unknown; error?: unknown }
+  }
+
+  const offlineBackend: ExecutorConfig = {
+    backend: 'router-tools',
+    routerBaseUrl: 'http://offline.test/v1',
+    routerKey: 'test',
+    tools: [],
+    executeToolCall: async () => '',
+    complete: async () => ({
+      model: 'offline-test-model',
+      choices: [{ message: { content: 'done', tool_calls: [] } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, cost_usd: 0 },
+    }),
+  }
+
+  it('supervise({ peerMail: true }) hands every backend-derived worker a peerMailUrl', async () => {
+    const seen: Array<string | undefined> = []
+    const makeLeaf = workerFromBackend(offlineBackend)
+    await supervise(testAgentProfile('root', { harness: 'opencode' }), 'fan out', {
+      budget,
+      makeWorkerAgent: (profile, context) => {
+        seen.push(context?.peerMailUrl)
+        return makeLeaf(profile, context)
+      },
+      peerMail: true,
+      driveHarness: async ({ coordinationMcpUrl }) => {
+        await callTool(coordinationMcpUrl, 'spawn_agent', {
+          profile: workerProfile('w1'),
+          task: 'go',
+        })
+        await callTool(coordinationMcpUrl, 'spawn_agent', {
+          profile: workerProfile('w2'),
+          task: 'go',
+        })
+        await callTool(coordinationMcpUrl, 'await_event', {})
+        await callTool(coordinationMcpUrl, 'await_event', {})
+        await callTool(coordinationMcpUrl, 'stop', {})
+      },
+    })
+    expect(seen).toHaveLength(2)
+    for (const url of seen) {
+      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
+    }
+    expect(seen[0]).not.toBe(seen[1])
+  })
+
+  it('refuses peerMail on a router-brained root supervisor', async () => {
+    await expect(
+      supervise(rootProfile(), 't', {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', {}),
+        brain: scriptedBrain([{ content: 'stop' }]),
+        peerMail: true,
+      }),
+    ).rejects.toThrow(/peerMail is only served by a harness-brained supervisor/)
+  })
+
+  it('refuses a router-brained nested driver as a loud spawn error, not a silent no-mail run', async () => {
+    const spawnReplies: unknown[] = []
+    await supervise(testAgentProfile('root', { harness: 'opencode' }), 'delegate', {
+      budget,
+      backend: offlineBackend,
+      peerMail: true,
+      driveHarness: async ({ coordinationMcpUrl }) => {
+        spawnReplies.push(
+          await callTool(coordinationMcpUrl, 'spawn_agent', {
+            profile: testAgentProfile('lead', {
+              harness: 'cli-base',
+              metadata: { role: 'driver' },
+            }),
+            task: 'coordinate',
+          }),
+        )
+        await callTool(coordinationMcpUrl, 'stop', {})
+      },
+    })
+    expect(spawnReplies).toHaveLength(1)
+    expect(JSON.stringify(spawnReplies[0])).toContain(
+      'peerMail is only served by a harness-brained supervisor',
+    )
+  })
+})
