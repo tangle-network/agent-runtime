@@ -53,7 +53,7 @@
           "file": "tests/kernel/worker-cancellation.test.ts",
           "cases": [
             "repeating one operationId applies cancellation once and returns the same record",
-            "a worker that is already gone acknowledges not_live, and an unknown one stays unknown — never success",
+            "a worker that is already gone acknowledges not_live, and an unmatched one expires not_live at run end — never success",
             "the cancelled worker reaches a terminal down state visible on the settle path"
           ]
         }
