@@ -13,8 +13,16 @@
  * the right home for "supervise over a graded surface". The within-run self-improvement is the analyst
  * (authored content, swap `analysts`); the across-run kind wraps this call in `improve()`.
  */
-import { OUTPUT_VALUE, type TraceAnalysisStore } from '@tangle-network/agent-eval'
+import { randomUUID } from 'node:crypto'
+import {
+  DEFAULT_TRACE_ANALYST_KINDS,
+  OUTPUT_VALUE,
+  type RegistryRunOpts,
+  type TraceAnalysisStore,
+} from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AnalystRegistryLike } from '../analyst-loop/types'
+import { ValidationError } from '../errors'
 import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
 import type { RouterTransportConfig } from './router-client'
 import {
@@ -86,6 +94,59 @@ export function traceSurfaceCalls(base: AgenticSurface): {
     close: (h) => base.close(h),
   }
   return { surface, failing: () => failingTestNames(lastReport), traceSource: trace.source }
+}
+
+/**
+ * Adapt an `agent-eval` `AnalystRegistry` into the lens shape `supervise({ analysts })` takes.
+ *
+ * The two registries were never structurally compatible: eval's class exposes `list()` and
+ * `run(runId, inputs, opts)` and returns an `AnalystRunResult`, while `supervise` wants `kinds`
+ * and `run(kindId, trace)`. So `'kinds' in buildDefaultAnalystRegistry()` is `false` and the five
+ * calibrated lenses in `DEFAULT_TRACE_ANALYST_KINDS` were unreachable from any supervised run —
+ * every consumer hand-rolled a lens instead (#630).
+ *
+ * The adapter lives HERE, not in eval, for one reason: eval must never import runtime, and runtime
+ * already owns both shapes — it consumes `AnalystFinding` / `AnalystRunResult` from eval for its
+ * analyst loop and defines the supervise lens itself. Writing it in eval would mean eval declaring
+ * a duck-typed copy of a type this package already exports.
+ *
+ * `kinds` is the DEFINITION list, not `registry.list()`, because `Analyst` carries no `area` while
+ * `TraceAnalystDefinition` does — `list()` cannot supply the field the lens shape requires. Every
+ * id must be registered: an unknown kind throws at adapt time rather than returning nothing at run
+ * time, when the driver would read the silence as "no findings".
+ */
+export function analystsFromRegistry(
+  registry: AnalystRegistryLike,
+  kinds: ReadonlyArray<{
+    id: string
+    description: string
+    area: string
+  }> = DEFAULT_TRACE_ANALYST_KINDS,
+  opts?: { runOpts?: RegistryRunOpts },
+): AnalystRegistry {
+  const registered = new Set(registry.list().map((analyst) => analyst.id))
+  const missing = kinds.map((kind) => kind.id).filter((id) => !registered.has(id))
+  if (missing.length > 0) {
+    throw new ValidationError(
+      `analystsFromRegistry: ${missing.map((id) => JSON.stringify(id)).join(', ')} ${missing.length === 1 ? 'is' : 'are'} not registered; the registry has ${[...registered].map((id) => JSON.stringify(id)).join(', ') || '<none>'}`,
+    )
+  }
+  const adapted = kinds.map((kind) => ({
+    id: kind.id,
+    description: kind.description,
+    area: kind.area,
+  }))
+  return {
+    kinds: adapted,
+    run: async (kindId, trace) => {
+      const result = await registry.run(
+        `supervise-analyst-${kindId}-${randomUUID()}`,
+        { traceStore: trace },
+        { ...opts?.runOpts, only: [kindId] },
+      )
+      return result.findings
+    },
+  }
 }
 
 /** The default self-improvement LENS — authored content, not a code path. On each settled worker it hands
