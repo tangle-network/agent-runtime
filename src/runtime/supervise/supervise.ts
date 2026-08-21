@@ -459,7 +459,16 @@ function driveHarnessFromBackend(
   backend: ExecutorConfig,
   executionId: string,
   now: () => number = Date.now,
+  maxTurns?: number,
 ): DriveHarness {
+  // Same refusal the router arm makes in `driverAgent`: a negative cap would silently run zero
+  // turns and finalize an empty no-winner.
+  if (maxTurns !== undefined && maxTurns < 0) {
+    throw new ValidationError(
+      'driveHarnessFromBackend: maxTurns must be >= 0 (0 lifts the turn cap; bounds become the conserved pool + deadline + abort)',
+    )
+  }
+  const turnCap = maxTurns ?? 0
   const capturedBackend = captureReusableExecutorConfig(backend, 'driveHarnessFromBackend')
   const boundBackend = bindReusableExecutorExecutionId(capturedBackend, executionId)
   const baseFactory = createExecutor(boundBackend)
@@ -503,11 +512,23 @@ function driveHarnessFromBackend(
       harness:
         boundBackend.backend === 'sandbox' ? (canonicalDriverProfile.harness as BackendType) : null,
     }
+    // The turn cap rides the SAME stop lever the coordination stop uses: the harness runs its own
+    // loop, so the only honest bound is "stop at the next turn boundary". Composing the two
+    // signals keeps one lever rather than a second stop path.
+    const turnStop = turnCap > 0 ? new AbortController() : undefined
+    const effectiveStopSignal =
+      turnStop === undefined
+        ? stopSignal
+        : stopSignal === undefined
+          ? turnStop.signal
+          : AbortSignal.any([stopSignal, turnStop.signal])
     const executor = baseFactory(spec, {
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
       seams: {
-        ...(stopSignal === undefined ? {} : { [bridgeStopSignalKey]: stopSignal }),
+        ...(effectiveStopSignal === undefined
+          ? {}
+          : { [bridgeStopSignalKey]: effectiveStopSignal }),
         [bridgeRuntimeAttachmentsKey]: {
           [coordinationMcpAlias]: { transport: 'http', url: coordinationMcpUrl },
         },
@@ -677,9 +698,14 @@ function driveHarnessFromBackend(
       // drain so its served model and terminal materialization remain valid evidence.
       const run = executor.execute(task, scope.signal)
       if (isAsyncIterable<UsageEvent>(run)) {
+        let turns = 0
         for await (const event of run) {
           if (event.kind === 'iteration') {
             await meterPending()
+            turns += 1
+            if (turnStop !== undefined && turns >= turnCap && !turnStop.signal.aborted) {
+              turnStop.abort(`supervise: maxTurns ${turnCap} reached`)
+            }
           } else if (event.kind !== 'progress') {
             // A progress event carries the driver's observed output, never accounting.
             pendingUsage.push(event)
@@ -1135,9 +1161,14 @@ export interface SuperviseOptions {
    *  `registry.probes`. */
   readonly probes?: WaitProbeRegistry | string
   /**
-   * PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
-   * before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
-   * not because it ran out". It composes with the budget guards and can never override one.
+   * PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
+   * exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
+   * it ran out". It composes with the budget guards and can never override one.
+   *
+   * The evaluation boundary differs by arm because the loop does: a router-brained supervisor is
+   * evaluated before each of its own inference turns; a harness-brained supervisor is evaluated on
+   * each worker settle, and a stop aborts its stop signal so the harness ends at its next turn
+   * boundary. Both arms fold the same settled ledger through the same evaluator.
    *
    * Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
    * `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
@@ -1145,16 +1176,24 @@ export interface SuperviseOptions {
    * only (unchanged behavior).
    */
   readonly stopRule?: StopRule
-  /** One-shot notification of WHY a `stopRule` ended the run — so a caller records the reason
-   *  instead of inferring an early stop from an unexhausted budget. */
+  /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
+   *  reason instead of inferring an early stop from an unexhausted budget. */
   readonly onProgressStop?: (reason: string) => void
   readonly maxDepth?: number
+  /** Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns of the
+   *  driver's tool loop. Harness arm: turns the harness reports, counted off its `iteration`
+   *  stream — reaching the cap aborts the stop signal, so the harness ends at its next turn
+   *  boundary rather than mid-request. `0` lifts the cap on both arms and leaves the conserved
+   *  pool, the deadline, and abort as the bounds; a negative value is refused. Omit = the router
+   *  arm's default cap, and no turn cap on the harness arm. */
   readonly maxTurns?: number
-  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
-   *  its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
-   *  continues, instead of re-billing the whole transcript every turn (the cost that makes the LLM-brain
-   *  front door lose to a dumb-Ralph respawn). The live `Scope` roster is the durable state across
-   *  chapters. Default off. `distill` defaults to a brain self-summary + the settled-worker roster. */
+  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
+   *  a harness owns its own context window and its own compaction, so this is refused for a
+   *  harness-brained supervisor rather than silently ignored): once its coordination transcript
+   *  exceeds `thresholdTokens` it distills to a compact progress note and continues, instead of
+   *  re-billing the whole transcript every turn (the cost that makes the LLM-brain front door lose
+   *  to a dumb-Ralph respawn). The live `Scope` roster is the durable state across chapters.
+   *  Default off. `distill` defaults to a brain self-summary + the settled-worker roster. */
   readonly compaction?: ToolLoopCompactionOptions
   readonly runId?: string
   readonly now?: () => number
@@ -1718,6 +1757,7 @@ function superviseInternal(
             ownerId: context.ownerId,
           }),
           options.now ?? Date.now,
+          options.maxTurns,
         )
       : undefined
   }
