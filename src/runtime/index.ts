@@ -428,6 +428,7 @@ export {
   type SandboxServedBackend,
   type SandboxToolPartState,
   sandboxEventServedBackend,
+  sandboxProgressEvents,
   sumSandboxUsage,
 } from './sandbox-events'
 export {
@@ -829,7 +830,6 @@ export {
   type ProviderSeam,
   type RouterSeam,
   type RouterToolsSeam,
-  type SandboxExecutorToolCall,
   type SandboxLeafOut,
   type SandboxSeam,
   type ToolSpec,
@@ -935,8 +935,10 @@ export type {
   ExecutorFactory,
   ExecutorMaterialization,
   ExecutorNodeContext,
+  ExecutorProgressEvent,
   ExecutorRegistry,
   ExecutorResult,
+  ExecutorToolCall,
   Handle,
   MaterializedExecutionIdentity,
   MaterializedModelIdentity,

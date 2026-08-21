@@ -24,6 +24,7 @@ import {
   providerAsSandboxClient,
   sandboxClientAsProvider,
 } from './environment-provider'
+import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import { createExecutor } from './supervise/runtime'
 import type { AgentSpec, ExecutorContext, UsageEvent } from './supervise/types'
 import type { SandboxClient } from './types'
@@ -1248,7 +1249,10 @@ describe('environment provider adapters', () => {
     finishFirstTurn.resolve()
     await secondTurnStreaming.promise
     executor.deliver?.({ steer: 'Stop and change direction.', interrupt: true })
-    const usage = await running
+    const events = await running
+    // Accounting and observed output ride the same channel; this assertion owns the accounting
+    // half, and the live tool activity is asserted below.
+    const usage = events.filter((event) => event.kind !== 'progress')
 
     expect(executor.runtime).toBe('session-provider')
     expect(created?.profile).toStrictEqual(profile)
@@ -1294,12 +1298,34 @@ describe('environment provider adapters', () => {
     await expect(executor.traceSource?.()?.collect()).resolves.toMatchObject([
       { toolName: 'read', args: { path: 'src/index.ts' }, status: 'ok' },
     ])
+    // The live projection publishes the call and its result while the turn streams, so a client
+    // renders box activity without re-parsing the harness output.
+    expect(events.filter((event) => event.kind === 'progress')).toEqual([
+      {
+        kind: 'progress',
+        progress: {
+          kind: 'tool_call',
+          toolName: 'read',
+          toolCallId: 'call-1',
+          args: { path: 'src/index.ts' },
+        },
+      },
+      {
+        kind: 'progress',
+        progress: {
+          kind: 'tool_result',
+          toolName: 'read',
+          toolCallId: 'call-1',
+          result: 'source',
+        },
+      },
+    ])
     const artifact = executor.resultArtifact()
     expect(artifact).toMatchObject({
       out: {
         content: 'changed direction',
         turns: 2,
-        toolCalls: ['read'],
+        toolCalls: [{ id: 'call-1', name: 'read', arguments: { path: 'src/index.ts' } }],
       },
       spent: {
         iterations: 2,
@@ -1419,7 +1445,86 @@ describe('environment provider adapters', () => {
     ])
     expect(executor.resultArtifact().out).toMatchObject({
       content: 'provider default',
-      toolCalls: ['read'],
+      toolCalls: [{ id: 'normalized-call', name: 'read', arguments: { path: 'README.md' } }],
+    })
+  })
+
+  it('streams a provider executor through streamAgentTurn with known materialization', async () => {
+    // The issue's reproduction: `createExecutor({ backend: 'provider' })` used to reach
+    // `streamAgentTurn` with no Runtime materialization, so an exact turn ended before
+    // `provider.create` with `materialization.reason = "executor-did-not-report"`.
+    let created = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        created += 1
+        return fakeEnvironment({
+          id: 'env-42',
+          provider: 'fixture',
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'hi' } }
+            yield {
+              type: 'done',
+              data: { finalText: 'hi', tokenUsage: { inputTokens: 3, outputTokens: 1 } },
+            }
+          },
+        })
+      },
+    }
+    const profile: AgentProfile = {
+      name: 'provider-exact-turn',
+      harness: 'pi',
+      model: { provider: 'fixture', default: 'fixture/model' },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory: createExecutor({ backend: 'provider', provider }), profile },
+        { prompt: 'hello' },
+      ),
+    )
+
+    expect(created).toBe(1)
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('hi')
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final.metadata?.materialization).toMatchObject({ status: 'known' })
+    expect(
+      (final.metadata?.executionBindings as Array<{ status?: string }> | undefined)?.[0],
+    ).toMatchObject({ status: 'known' })
+  })
+
+  it('reports an unknown receipt when the provider fails before creating the environment', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture-down',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        throw new Error('provider unavailable')
+      },
+    }
+    const profile: AgentProfile = {
+      name: 'provider-exact-turn',
+      harness: 'pi',
+      model: { provider: 'fixture-down', default: 'fixture-down/model' },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory: createExecutor({ backend: 'provider', provider }), profile },
+        { prompt: 'hello' },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('provider unavailable')
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    // A planned declaration never becomes a receipt: the create that would have proved it failed.
+    expect(final.metadata?.materialization).toMatchObject({
+      status: 'unknown',
+      reason: 'executor-failed-before-receipt',
     })
   })
 

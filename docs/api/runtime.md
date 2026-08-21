@@ -7610,26 +7610,6 @@ Sequence for synthesized call ids when an event carries none.
 
 ***
 
-### SandboxExecutorToolCall
-
-One tool call retained in a Sandbox executor artifact.
-
-#### Properties
-
-##### id?
-
-> `optional` **id?**: `string`
-
-##### name
-
-> **name**: `string`
-
-##### arguments
-
-> **arguments**: `unknown`
-
-***
-
 ### SandboxLeafOut
 
 Parsed output of one Sandbox executor turn.
@@ -7646,7 +7626,7 @@ Parsed output of one Sandbox executor turn.
 
 ##### toolCalls?
 
-> `optional` **toolCalls?**: [`SandboxExecutorToolCall`](#sandboxexecutortoolcall)[]
+> `optional` **toolCalls?**: [`ExecutorToolCall`](#executortoolcall)[]
 
 ##### outcome?
 
@@ -16573,6 +16553,29 @@ Terminal artifact of a one-shot `Executor.execute`.
 
 ***
 
+### ExecutorToolCall
+
+One tool call retained in an executor artifact. Every Runtime-owned executor reports this exact
+shape, so `streamAgentTurn` projects terminal tool activity through one reader instead of a
+per-backend parser. `arguments` holds the captured argument value; an empty object means the
+source reported the call without its arguments.
+
+#### Properties
+
+##### id?
+
+> `readonly` `optional` **id?**: `string`
+
+##### name
+
+> `readonly` **name**: `string`
+
+##### arguments
+
+> `readonly` **arguments**: `unknown`
+
+***
+
 ### AgentExecutionRef
 
 Caller-owned identity beyond the exact profile/task bytes Scope can compute itself.
@@ -21326,18 +21329,20 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ***
 
+### ExecutorProgressEvent
+
+> **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \}
+
+Live output observed while an executor runs, in Runtime's own vocabulary. It carries what the
+backend produced — text, reasoning, tool activity, an interaction request — and never carries
+accounting: tokens and dollars stay on the `tokens`/`cost` channels, so a progress event can
+never meter a budget.
+
+***
+
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \} \| \{ `kind`: `"iteration"`; \}
-
-Normalized usage event — the single channel every executor reports through, so the
-conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
-`{ input, output }` plus an optional provider cache split; `usd` is a SEPARATE channel (never
-folded into tokens).
-
-Either channel can explicitly say its numeric subtotal is incomplete. A missing provider receipt
-therefore remains unknown through live metering and terminal reconciliation instead of becoming
-a fabricated zero.
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"iteration"`; \}
 
 #### Union Members
 
@@ -21420,6 +21425,22 @@ provider would bill and never measures what it did.
 
 Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
 is what says whether a dollar figure is measured.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \}
+
+###### kind
+
+> **kind**: `"progress"`
+
+Observed output, not accounting. Meters ignore it; the turn projection publishes it.
+
+###### progress
+
+> **progress**: [`ExecutorProgressEvent`](#executorprogressevent)
 
 ***
 
@@ -25025,6 +25046,38 @@ The opencode backend emits incremental text as
 #### Returns
 
 [`RuntimeStreamEvent`](index.md#runtimestreamevent) \| `undefined`
+
+***
+
+### sandboxProgressEvents()
+
+> **sandboxProgressEvents**(`event`, `state`): [`ExecutorProgressEvent`](#executorprogressevent)[]
+
+**`Experimental`**
+
+Project one `SandboxEvent` onto Runtime's executor progress vocabulary: incremental text and
+reasoning, tool calls and results, and an interaction request. It composes the existing
+projections ([mapSandboxEvent](#mapsandboxevent), [mapSandboxToolEvent](#mapsandboxtoolevent), and the canonical Agent
+Interface decode) so every sandbox-shaped executor publishes live output through one reader.
+Usage-bearing events project to nothing here — accounting stays on the `tokens`/`cost`
+channels.
+
+Pass one [SandboxToolPartState](#sandboxtoolpartstate) per turn so a multi-frame tool call yields one call and
+at most one result.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+##### state
+
+[`SandboxToolPartState`](#sandboxtoolpartstate)
+
+#### Returns
+
+[`ExecutorProgressEvent`](#executorprogressevent)[]
 
 ***
 

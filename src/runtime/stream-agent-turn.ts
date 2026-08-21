@@ -96,6 +96,7 @@ import type {
   ExecutionBindingReceipt,
   Executor,
   ExecutorFactory,
+  ExecutorProgressEvent,
   ExecutorResult,
   NodeExecutionIdentity,
   ProfileMaterializationReceipt,
@@ -973,6 +974,13 @@ async function* driveExecutorTurn(
   let result: ExecutorResult<unknown>
   if (isAsyncIterable(run)) {
     for await (const usage of abortableValues(run, signal)) {
+      if (usage.kind === 'progress') {
+        const projected = executorProgressStreamEvent(usage.progress, task, session)
+        foldEvent(projected, acc)
+        yield projected
+        throwIfAborted(signal)
+        continue
+      }
       foldUsageEvent(usage, acc)
       throwIfAborted(signal)
     }
@@ -1150,27 +1158,74 @@ function executorResultReasoningTokens(value: unknown): number | undefined {
   return Number.isSafeInteger(count) && (count as number) >= 0 ? (count as number) : undefined
 }
 
+/**
+ * Read the terminal tool calls an executor artifact published. Every Runtime-owned executor
+ * reports `ExecutorToolCall[]`, so an artifact carrying any other shape is a defect in that
+ * executor rather than a turn without tool calls: refuse it instead of dropping the calls.
+ */
 function executorResultToolCalls(
   value: unknown,
 ): Array<{ id?: string; name: string; arguments: string }> {
   if (!value || typeof value !== 'object') return []
   const raw = (value as Record<string, unknown>).toolCalls
-  if (!Array.isArray(raw)) return []
-  return raw.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object') return []
-    const call = entry as Record<string, unknown>
-    if (typeof call.name !== 'string') return []
-    return [
-      {
-        ...(typeof call.id === 'string' ? { id: call.id } : {}),
-        name: call.name,
-        arguments:
-          typeof call.arguments === 'string'
-            ? call.arguments
-            : JSON.stringify(call.arguments ?? {}),
-      },
-    ]
+  if (raw === undefined) return []
+  if (!Array.isArray(raw)) {
+    throw new ValidationError(
+      `streamAgentTurn: executor artifact toolCalls must be an ExecutorToolCall array, received ${typeof raw}`,
+    )
+  }
+  return raw.map((entry) => {
+    const call = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : undefined
+    if (!call || typeof call.name !== 'string' || call.name.length === 0) {
+      throw new ValidationError(
+        'streamAgentTurn: executor artifact toolCalls entries require a non-empty name',
+      )
+    }
+    return {
+      ...(typeof call.id === 'string' ? { id: call.id } : {}),
+      name: call.name,
+      arguments:
+        typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments ?? {}),
+    }
   })
+}
+
+/** Project one executor progress event onto the public turn vocabulary. */
+function executorProgressStreamEvent(
+  progress: ExecutorProgressEvent,
+  task: AgentTaskSpec,
+  session: RuntimeSession,
+): RuntimeStreamEvent {
+  const timestamp = nowIso()
+  if (progress.kind === 'text_delta') {
+    return { type: 'text_delta', task, session, text: progress.text, timestamp }
+  }
+  if (progress.kind === 'reasoning_delta') {
+    return { type: 'reasoning_delta', task, session, text: progress.text, timestamp }
+  }
+  if (progress.kind === 'tool_call') {
+    return {
+      type: 'tool_call',
+      task,
+      session,
+      toolName: progress.toolName,
+      ...(progress.toolCallId === undefined ? {} : { toolCallId: progress.toolCallId }),
+      ...(progress.args === undefined ? {} : { args: progress.args }),
+      timestamp,
+    }
+  }
+  if (progress.kind === 'tool_result') {
+    return {
+      type: 'tool_result',
+      task,
+      session,
+      toolName: progress.toolName,
+      ...(progress.toolCallId === undefined ? {} : { toolCallId: progress.toolCallId }),
+      ...(progress.result === undefined ? {} : { result: progress.result }),
+      timestamp,
+    }
+  }
+  return { type: 'interaction', request: progress.request, task, session, timestamp }
 }
 
 /** Fold one normalized executor usage event into the turn accumulator. */

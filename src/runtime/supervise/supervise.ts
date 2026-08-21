@@ -618,7 +618,8 @@ function driveHarnessFromBackend(
         for await (const event of run) {
           if (event.kind === 'iteration') {
             await meterPending()
-          } else {
+          } else if (event.kind !== 'progress') {
+            // A progress event carries the driver's observed output, never accounting.
             pendingUsage.push(event)
           }
         }

@@ -47,6 +47,7 @@ import type {
   ExecutorFactory,
   ExecutorRegistry,
   ExecutorResult,
+  ExecutorToolCall,
   Scope,
   Settled,
 } from './supervise/types'
@@ -274,12 +275,12 @@ async function runShot(
     throw new Error(`agentic shot failed: ${turn.error?.message ?? turn.status}`)
   }
   const out = turn.output as
-    | { messages?: StrategyMessage[]; turns?: number; toolCalls?: number }
+    | { messages?: StrategyMessage[]; turns?: number; toolCalls?: ExecutorToolCall[] }
     | undefined
   return {
     messages: out?.messages ?? messages,
     completions: out?.turns ?? 0,
-    toolCalls: out?.toolCalls ?? 0,
+    toolCalls: out?.toolCalls?.length ?? 0,
     toolErrors,
     tokens: { input: turn.usage.input, output: turn.usage.output },
     ...(turn.usage.tokensKnown === false ? { tokensKnown: false } : {}),

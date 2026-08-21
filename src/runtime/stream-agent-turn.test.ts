@@ -15,7 +15,7 @@ import { inProcessSandboxClient } from './in-process-sandbox-client'
 import { collectAgentTurn, streamAgentTurn, streamObservedAgentTurn } from './stream-agent-turn'
 import { attestRuntimeOwnedExecutor } from './supervise/materialization'
 import { createExecutor } from './supervise/runtime'
-import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
+import type { Executor, ExecutorFactory, ExecutorResult, UsageEvent } from './supervise/types'
 
 const TEST_PROFILE = {
   name: 'stream-agent-turn-test',
@@ -919,6 +919,100 @@ describe('streamAgentTurn: executor backend', () => {
     expect(finalOf(turn.events).metadata).toMatchObject({
       sandboxOutcome: { success: true, status: 'success' },
     })
+  })
+
+  it('projects live executor progress as ordered tool and text events before final', async () => {
+    // A streaming executor's text and tool activity used to be drained and dropped, so a client
+    // could not render a running CLI Bridge or provider turn without re-parsing harness output.
+    const factory: ExecutorFactory<unknown> = (spec, ctx): Executor<unknown> => {
+      const attemptId = ctx.node?.attemptId ?? 'progress-attempt'
+      const artifact: ExecutorResult<unknown> = {
+        outRef: 'progress-1',
+        out: {
+          content: 'listed the repository',
+          toolCalls: [{ id: 'call-1', name: 'bash', arguments: { cmd: 'ls' } }],
+        },
+        spent: { iterations: 1, tokens: { input: 4, output: 3 }, usd: 0.002, ms: 2 },
+      }
+      return attestRuntimeOwnedExecutor(
+        {
+          runtime: 'inline',
+          async *execute(): AsyncIterable<UsageEvent> {
+            yield {
+              kind: 'progress',
+              progress: {
+                kind: 'tool_call',
+                toolName: 'bash',
+                toolCallId: 'call-1',
+                args: { cmd: 'ls' },
+              },
+            }
+            yield {
+              kind: 'progress',
+              progress: {
+                kind: 'tool_result',
+                toolName: 'bash',
+                toolCallId: 'call-1',
+                result: 'file.txt',
+              },
+            }
+            yield {
+              kind: 'progress',
+              progress: { kind: 'text_delta', text: 'listed the repository' },
+            }
+            yield { kind: 'tokens', input: 4, output: 3 }
+            yield { kind: 'cost', usd: 0.002 }
+            yield { kind: 'iteration' }
+          },
+          async teardown() {
+            return { destroyed: true }
+          },
+          resultArtifact: () => artifact,
+        },
+        {
+          effectiveProfile: spec.profile,
+          backend: 'inline-test',
+          model: { status: 'known', id: 'offline-test-model' },
+          execution: { kind: 'request', id: attemptId },
+          materializer: 'offline-test-executor',
+          plan: { kind: 'offline-test' },
+        },
+        {
+          attemptId,
+          binding: { kind: 'offline-test', attemptId },
+          descriptor: { kind: 'offline-test', transport: 'in-process' },
+        },
+      )
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn({ kind: 'executor', factory, profile: TEST_PROFILE }, { prompt: 'ls' }),
+    )
+
+    expect(turn.events.map((event) => event.type)).toEqual([
+      'backend_start',
+      'tool_call',
+      'tool_result',
+      'text_delta',
+      'llm_call',
+      'tool_call',
+      'artifact',
+      'final',
+    ])
+    expect(turn.events[1]).toMatchObject({
+      type: 'tool_call',
+      toolName: 'bash',
+      toolCallId: 'call-1',
+      args: { cmd: 'ls' },
+    })
+    expect(turn.events[2]).toMatchObject({ type: 'tool_result', result: 'file.txt' })
+    expect(turn.finalText).toBe('listed the repository')
+    expect(turn.usage).toEqual({ input: 4, output: 3, costUsd: 0.002 })
+    // Replay keeps the same calls: a client reading the drained turn sees what live consumers saw.
+    expect(turn.toolCalls).toEqual([
+      { id: 'call-1', name: 'bash', arguments: '{"cmd":"ls"}' },
+      { id: 'call-1', name: 'bash', arguments: '{"cmd":"ls"}' },
+    ])
   })
 
   it('uses one detached profile snapshot even when the caller mutates nested input mid-turn', async () => {

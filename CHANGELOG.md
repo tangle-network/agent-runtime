@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.144.0
+
+### Live executor output, one tool-call shape, and attested provider executors
+
+`UsageEvent` gains a `progress` kind carrying an `ExecutorProgressEvent` — incremental text, reasoning, tool calls, tool results, and interaction requests.
+The CLI Bridge session, the steerable Sandbox session, and the environment-provider executor publish it while a turn runs.
+`streamAgentTurn` projects each progress event onto the public `text_delta`, `reasoning_delta`, `tool_call`, `tool_result`, and `interaction` events before the terminal `final`, so a client renders live harness activity without parsing raw backend output.
+`collectAgentTurn` keeps those calls on replay.
+Accounting is unchanged: only `tokens` and `cost` events meter a budget, and `meterUsageEvent` is now the one place that decides which kinds meter.
+
+Every Runtime-owned executor reports terminal tool calls as `ExecutorToolCall` (`{ id?, name, arguments }`).
+The CLI Bridge and the steerable Sandbox session previously published tool names only, and the Router tool loop published a count, so `streamAgentTurn` dropped their calls.
+`streamAgentTurn` now refuses an artifact whose `toolCalls` is not that shape instead of silently dropping it.
+`ExecutorToolCall` replaces `SandboxExecutorToolCall`, which 0.143.0 introduced one release earlier.
+`sandboxProgressEvents` projects one Sandbox event onto the progress vocabulary through the existing event mappers.
+
+`createExecutor({ backend: 'provider' })` now binds Runtime materialization and execution-binding evidence: a planned declaration before `provider.create`, finalized with the environment identity the provider issues.
+The provider steering path keeps the Sandbox executor's evidence across its runtime rename.
+Exact turn execution therefore accepts every executor `createExecutor` returns.
+
+This is a minor release because `UsageEvent` widens and one public export is renamed.
+
 ## 0.143.0
 
 ### Sandbox moves to 0.31.0, and its run outcome is the one terminal result

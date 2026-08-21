@@ -5,19 +5,13 @@ import {
 } from '@tangle-network/sandbox'
 import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import { createSandboxToolPartState, mapSandboxToolEvent } from './sandbox-events'
-
-/** One tool call retained in a Sandbox executor artifact. */
-export interface SandboxExecutorToolCall {
-  id?: string
-  name: string
-  arguments: unknown
-}
+import type { ExecutorToolCall } from './supervise/types'
 
 /** Parsed output of one Sandbox executor turn. */
 export interface SandboxLeafOut {
   events: SandboxEvent[]
   content: string
-  toolCalls?: SandboxExecutorToolCall[]
+  toolCalls?: ExecutorToolCall[]
   outcome?: AgentRunOutcome
 }
 
@@ -32,7 +26,7 @@ export function sandboxLeafOutputFromEvents(events: SandboxEvent[]): SandboxLeaf
   }
 }
 
-function sandboxToolCalls(events: readonly SandboxEvent[]): SandboxExecutorToolCall[] {
+function sandboxToolCalls(events: readonly SandboxEvent[]): ExecutorToolCall[] {
   const state = createSandboxToolPartState()
   return events.flatMap((event) =>
     mapSandboxToolEvent(event, state).flatMap((projected) =>
