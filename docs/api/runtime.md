@@ -28806,7 +28806,7 @@ Decode a part with a specific harness's adapter when known, else try every regis
 
 ##### harness?
 
-`string`
+`HarnessType`
 
 #### Returns
 
@@ -28881,7 +28881,7 @@ The SANDBOX / fleet trace source: read a box session's message parts and decode 
 
 ###### harness?
 
-`string`
+`HarnessType`
 
 The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapter.
 

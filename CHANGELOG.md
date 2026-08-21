@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.155.0
+
+### The tool-part decoder registry is keyed by the harness names that arrive
+
+`toolPartDecoders` held an entry under `kimi`. Nothing can produce that name: every in-repo caller reaches `decodeToolPart` through `SteerableSandboxSession.harness`, which is `BackendType`, and the harness kimi is served under is `kimi-code`. The entry was also wrong about the wire — it named the OpenAI decoder, while kimi-code streams an Anthropic `tool_use` content block AND a top-level OpenAI `tool_calls` entry on one session, so binding it to either decoder alone drops half of a worker's tool calls with no error.
+
+Nothing was lost in practice, because an unknown harness falls through to the try-all path, which reaches both decoders. The defect was a trap: correcting the key to `kimi-code` while keeping the decoder it named would have made the specific adapter win and silenced the `tool_use` half.
+
+The registry is now typed `Partial<Record<HarnessType, ToolPartDecoder>>`, so a key no caller can produce does not compile, and `kimi-code` maps to a decoder that reads both shapes. The three keys that were never harness names — `anthropic`, `openai`, `router` — are gone; a part carrying any of those wire shapes decodes identically through the try-all path.
+
+`decodeToolPart`'s `harness` parameter and `sandboxSessionTraceSource`'s `harness` option narrow from `string` to `HarnessType`. A caller passing a harness this package does not register should omit the argument, which is what the try-all path is for.
+
 ## 0.154.0
 
 ### A promotion may not call a candidate cheaper on dollars nobody measured
