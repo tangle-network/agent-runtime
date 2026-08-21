@@ -682,6 +682,7 @@ describe('promotionGate non-inferiority', () => {
       candScore: number
       incUsd: number
       candUsd: number
+      candUsdKnown?: boolean
     }>,
   ): BenchmarkReport => ({
     n: rows.length,
@@ -703,6 +704,7 @@ describe('promotionGate non-inferiority', () => {
           resolved: false,
           progression: [],
           usd: r.candUsd,
+          ...(r.candUsdKnown !== undefined ? { usdKnown: r.candUsdKnown } : {}),
           ms: 0,
           tokens: { input: 0, output: 0 },
         },
@@ -735,6 +737,39 @@ describe('promotionGate non-inferiority', () => {
     expect(v.reason).toBe('non-inferior-and-cheaper')
     expect(v.costSavings?.low).toBeGreaterThan(0)
     expect(v.latency).toBeDefined()
+  })
+
+  it('refuses to call a candidate cheaper when its dollars were never measured', () => {
+    // The same inputs that PROMOTE above, with one arm's dollars marked unmeasured. `usdKnown:
+    // false` means `usd` is a floor, and `Spend.usdKnown` states the rule: an unknown amount must
+    // not be treated as a measurement "when enforcing a dollar-denominated comparison or limit".
+    // Promotion on cost savings is exactly that comparison.
+    const scoreDeltas = [-0.018, -0.012, -0.008, -0.004, 0, 0.006, 0.011, -0.006]
+    const costSavings = [0.011, 0.014, 0.016, 0.013, 0.018, 0.015, 0.012, 0.017]
+    const rows = Array.from({ length: 24 }, (_, i) => {
+      const incScore = 0.48 + (i % 7) * 0.055
+      const incUsd = 0.024 + (i % 5) * 0.0014
+      return {
+        id: `t${i}`,
+        incScore,
+        candScore: incScore + scoreDeltas[i % scoreDeltas.length]!,
+        incUsd,
+        candUsd: incUsd - costSavings[i % costSavings.length]!,
+        // Only the first task is unmeasured; one unmeasured pair is enough to void the comparison.
+        ...(i === 0 ? { candUsdKnown: false } : {}),
+      }
+    })
+    const v = promotionGate({
+      report: costReport(rows),
+      incumbent: 'incumbent',
+      candidate: 'candidate',
+      mode: 'non-inferiority',
+    })
+    expect(v.promoted).toBe(false)
+    expect(v.reason).toBe('cost-unknown')
+    expect(v.costUnknownTasks).toEqual(['t0'])
+    // The refusal replaces the cost verdict rather than reporting one built on the same numbers.
+    expect(v.costSavings).toBeUndefined()
   })
 
   it('cheaper but score-inferior beyond tolerance LOSES', () => {
