@@ -19,7 +19,7 @@
  */
 
 import type { ToolSpan } from '@tangle-network/agent-eval'
-import type { ToolPart, ToolState } from '@tangle-network/agent-interface'
+import type { HarnessType, ToolPart, ToolState } from '@tangle-network/agent-interface'
 
 export interface ToolStepInput {
   readonly toolName: string
@@ -147,20 +147,27 @@ export const decodeOpenAiPart: ToolPartDecoder = (p) => {
   }
 }
 
-/** The harness → decoder registry. Add a harness by adding one entry. */
-export const toolPartDecoders: Record<string, ToolPartDecoder> = {
+/** kimi-code streams BOTH shapes on one session — an Anthropic `tool_use` content block AND a
+ *  top-level OpenAI `tool_calls` entry (cli-bridge `kimi.ts` surfaces each from a different part of
+ *  the wire). A decoder that reads only one of them drops half of a kimi worker's tool calls, and
+ *  drops them silently: the trace simply reports fewer calls. */
+export const decodeKimiPart: ToolPartDecoder = (p) => decodeAnthropicPart(p) ?? decodeOpenAiPart(p)
+
+/** The harness → decoder registry. Add a harness by adding one entry.
+ *
+ *  Keyed by `HarnessType`, the vocabulary the `harness` argument is actually drawn from, so a key
+ *  no caller can produce does not compile. `codex` is registered although the bridge's `codex.ts`
+ *  never yields `tool_calls`; the entry states which family it would belong to. */
+export const toolPartDecoders: Partial<Record<HarnessType, ToolPartDecoder>> = {
   opencode: decodeOpencodePart,
   'claude-code': decodeAnthropicPart,
-  anthropic: decodeAnthropicPart,
   codex: decodeOpenAiPart,
-  openai: decodeOpenAiPart,
-  router: decodeOpenAiPart,
-  kimi: decodeOpenAiPart,
+  'kimi-code': decodeKimiPart,
 }
 
 /** Decode a part with a specific harness's adapter when known, else try every registered adapter
  *  (the composite — robust to mixed/unknown streams). Never throws. */
-export function decodeToolPart(part: unknown, harness?: string): ToolStepInput | undefined {
+export function decodeToolPart(part: unknown, harness?: HarnessType): ToolStepInput | undefined {
   const p = obj(part)
   if (!p) return undefined
   const specific = harness ? toolPartDecoders[harness] : undefined
@@ -224,7 +231,7 @@ export function createPartsTraceSource(opts: {
   collectParts: () => Promise<ReadonlyArray<unknown>>
   subscribeParts?: (onPart: (part: unknown) => void) => () => void
   /** The harness whose decoder to use (e.g. 'opencode'); omit to try every registered adapter. */
-  harness?: string
+  harness?: HarnessType
   runId?: string
   now?: () => number
 }): TraceSource {
@@ -305,7 +312,7 @@ export function sandboxSessionTraceSource(
   sessionId: string,
   opts: {
     /** The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapter. */
-    harness?: string
+    harness?: HarnessType
     subscribeParts?: (onPart: (part: unknown) => void) => () => void
     runId?: string
     now?: () => number

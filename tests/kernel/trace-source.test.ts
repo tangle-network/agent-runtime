@@ -52,6 +52,25 @@ describe('decodeToolPart — validated against the LIVE opencode shape', () => {
     ).toEqual({ toolName: 'read', args: { f: 'x' }, callId: 'k1' })
   })
 
+  it("decodes BOTH kimi shapes when the harness that arrives is named ('kimi-code')", () => {
+    // kimi-code streams a tool_use content block AND a top-level OpenAI tool_calls entry on one
+    // session (cli-bridge kimi.ts surfaces each from a different part of the wire). Binding the
+    // harness to one of the two decoders drops half of a worker's tool calls with no error: the
+    // trace just reports fewer calls, and every rate computed from it is wrong.
+    expect(
+      decodeToolPart(
+        { type: 'tool_use', tool_use_id: 'k1', tool: 'read', input: { f: 'x' } },
+        'kimi-code',
+      ),
+    ).toEqual({ toolName: 'read', args: { f: 'x' }, callId: 'k1' })
+    expect(
+      decodeToolPart(
+        { type: 'function', id: 'call_k', function: { name: 'bash', arguments: '{"cmd":"ls"}' } },
+        'kimi-code',
+      ),
+    ).toEqual({ toolName: 'bash', args: { cmd: 'ls' }, callId: 'call_k' })
+  })
+
   it('a known harness selects its adapter (opencode shape only decodes under opencode)', () => {
     const part = {
       type: 'tool',
