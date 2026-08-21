@@ -56,7 +56,12 @@ import {
 import type { PeerMailLimits } from './peer-mail'
 import { supervisorPolicyPrompt } from './prompt-registry'
 import { detachedSnapshot } from './snapshot'
-import type { StopRule } from './stop-rules'
+import {
+  createProgressTracker,
+  progressStop,
+  type SettledLedger,
+  type StopRule,
+} from './stop-rules'
 import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
 
 /** The standing strategy a router-brained supervisor runs with when its profile names no
@@ -343,15 +348,21 @@ export interface SupervisorAgentDeps {
    *  that name to the node's latest settled worker; `spawn_agent`'s per-call `continuity`
    *  overrides. Omit = every spawn fresh (status quo). */
   readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
-  /** PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
-   *  exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
+  /** PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped learning BEFORE it
+   *  exhausts a ceiling; it can never keep a run alive past one. Router arm: evaluated before each
+   *  driver inference turn. External arm: evaluated on each worker settle, and a stop aborts
+   *  `stopSignal` so the harness ends at its next turn boundary. Build it with `plateau` /
    *  `noProgressFor` / `allWorkersStalled` from `supervise/stop-rules` — the thresholds are the
    *  caller's judgment. Omit = ceilings only. */
   readonly stopRule?: StopRule
-  /** One-shot notification of WHY a `stopRule` ended the run. */
+  /** One-shot notification of WHY a `stopRule` ended the run (BOTH arms). */
   readonly onProgressStop?: (reason: string) => void
+  /** Turn cap for the supervisor's own loop. Router arm: driver inference turns (see
+   *  `DriverAgentOptions.maxTurns`). External arm: the cap belongs to the harness loop, so
+   *  `supervise()` applies it in the drive seam it builds and this field is not read here. */
   readonly maxTurns?: number
-  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
+  /** Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY; a
+   *  harness-brained supervisor is refused at construction rather than silently ignoring it) — it
    *  distills its coordination transcript to a compact progress note once it exceeds the threshold,
    *  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`. */
   readonly compaction?: ToolLoopCompactionOptions
@@ -617,8 +628,44 @@ function buildSupervisorAgent(
         resolveTools && context
           ? await bindSupervisorTools(resolveTools, context, scope.signal)
           : undefined
-      const onEvent = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
+      const nodeObserver = bindSupervisorNodeObserver(context, observeNodeEvent, deps.onEvent)
       const stopController = new AbortController()
+      // PROGRESS-derived stop on this arm. The harness owns its own turn loop, so a worker settle
+      // is the evaluation boundary the supervisor has — and it is the same ledger + the same
+      // `progressStop` evaluator the router arm consults before each of its inference turns.
+      // The stop is delivered through the ONE lever this arm already has: `stopController`, which
+      // the harness reads as its stop signal and honours at the next turn boundary.
+      const tracker = deps.stopRule ? createProgressTracker({ now: Date.now }) : undefined
+      let progressStopReason: string | undefined
+      let ledger: SettledLedger | undefined
+      const rule = deps.stopRule
+      const onEvent =
+        tracker && rule
+          ? async (
+              event: CoordinationEvent,
+              record: BusRecord<CoordinationEvent>,
+            ): Promise<void> => {
+              await nodeObserver?.(event, record)
+              if (event.type !== 'settled') return
+              if (ledger === undefined) {
+                throw new ValidationError(
+                  'supervisorAgent: a worker settled before the coordination server was bound',
+                )
+              }
+              const decision = progressStop(
+                tracker,
+                rule,
+                ledger,
+                scope,
+                Date.now,
+                deps.stallAfterMs,
+              )
+              if (!decision.stop || progressStopReason !== undefined) return
+              progressStopReason = decision.reason
+              deps.onProgressStop?.(decision.reason)
+              if (!stopController.signal.aborted) stopController.abort(decision.reason)
+            }
+          : nodeObserver
       const mcp = await serveCoordinationMcp({
         scope,
         blobs: deps.blobs,
@@ -653,6 +700,7 @@ function buildSupervisorAgent(
           : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
       })
+      ledger = mcp
       try {
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns

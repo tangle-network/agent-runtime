@@ -31,6 +31,7 @@ import {
   sampleFromSettled,
 } from '../../src/runtime/supervise/stop-rules'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
+import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -40,8 +41,18 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
 import { testAgentProfile } from '../kernel/test-agent-profile'
+
+async function jsonRpc(url: string, method: string, params: unknown): Promise<unknown> {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+  })
+  return r.json()
+}
 
 // ── A scored offline leaf: fixed token cost, a verdict score the rules read ─────────────────────
 
@@ -518,5 +529,90 @@ describe('ProgressView reads the live worker feed off the scope', () => {
     expect(view.workers[0]?.stalled).toBe(true)
     expect(view.inFlight).toBe(1)
     expect(view.waiting).toBe(1)
+  })
+})
+
+describe('external-arm stopRule — the harness arm stops on the settle that plateaus', () => {
+  /** A harness that keeps spawning workers over the live coordination MCP until its stop signal
+   *  aborts — the shape a real in-box supervisor has: its own loop, stopped only at a turn
+   *  boundary. Returns how many workers it managed to spawn. */
+  async function runHarnessArm(opts: {
+    readonly score: (n: number) => number
+    readonly stopRule?: StopRule
+    readonly maxSpawns: number
+  }) {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let spawned = 0
+    const stops: string[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl, stopSignal }) => {
+      for (let i = 0; i < opts.maxSpawns; i += 1) {
+        if (stopSignal?.aborted) return
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_agent',
+          arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
+        })
+        // Each settle is this arm's evaluation boundary — the harness pulls it, the bus publishes
+        // it, and the stop rule is folded over the ledger before the next spawn.
+        await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
+      }
+    }
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'opencode',
+        prompt: { systemPrompt: 'delegate, do not solve' },
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => {
+          const leaf = scoredLeaf(`w${spawned}`, opts.score(spawned))
+          spawned += 1
+          return leaf
+        },
+        perWorker: perUnit,
+        driveHarness,
+        ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
+        onProgressStop: (reason) => stops.push(reason),
+      },
+    )
+    const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
+      // A pool that affords every spawn, so an early stop can only be the rule.
+      budget: { maxIterations: 500, maxTokens: WORKER_TOKENS * 200 },
+      runId: 'harness-stop',
+      journal,
+      blobs,
+      executors: createExecutorRegistry(),
+      maxDepth: 4,
+    })
+    return { result, spawned, stops }
+  }
+
+  it('a flat objective aborts the harness stop signal once; the same harness without the rule runs on', async () => {
+    const flat = () => 0.4
+    const withRule = await runHarnessArm({
+      score: flat,
+      stopRule: plateau({ window: 3, minDelta: 0.01 }),
+      maxSpawns: 12,
+    })
+    const withoutRule = await runHarnessArm({ score: flat, maxSpawns: 12 })
+
+    // The rule ended the harness loop, said why, and fired exactly once even though every later
+    // settle also reads as plateaued.
+    expect(withRule.stops).toHaveLength(1)
+    expect(withRule.stops[0]).toContain('plateau')
+    // The control — identical everything except the rule — spent the whole queue.
+    expect(withRule.spawned).toBeLessThan(withoutRule.spawned)
+    expect(withoutRule.spawned).toBe(12)
+    expect(withRule.result.kind).toBe('winner')
+  })
+
+  it('an improving objective under the SAME rule is not stopped', async () => {
+    const rising = await runHarnessArm({
+      score: (n) => Math.min(0.95, 0.1 + n * 0.05),
+      stopRule: plateau({ window: 3, minDelta: 0.01 }),
+      maxSpawns: 8,
+    })
+    expect(rising.stops).toEqual([])
+    expect(rising.spawned).toBe(8)
   })
 })

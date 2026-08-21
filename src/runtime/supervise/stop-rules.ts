@@ -367,3 +367,46 @@ export function allOf(...rules: ReadonlyArray<StopRule>): StopRule {
     return { stop: true, reason: reasons.join(' AND ') }
   }
 }
+
+/** The settled-work ledger a stop evaluation folds — the shape both the router driver's
+ *  coordination tools and the harness arm's MCP handle expose. */
+export interface SettledLedger {
+  settled(): ReadonlyArray<{
+    readonly id: string
+    readonly status: 'done' | 'down'
+    readonly score?: number
+    readonly valid?: boolean
+    readonly settledAt?: number
+  }>
+}
+
+/**
+ * Evaluate a rule against the run's settled work — the ONE evaluator both supervisor arms call.
+ *
+ * The router arm calls it before each driver inference turn; the harness arm calls it on each
+ * worker settle. Ordering is the contract in both: the hard ceilings (`poolStarved`,
+ * `deadlinePassed`, abort, the driver's own stop) are checked first and independently, so a stop
+ * rule can only ever ADD a stop — it can never keep a run alive past a budget it has exhausted.
+ *
+ * Folding the whole roster each call is idempotent by worker id, so it costs O(settled) and never
+ * double-counts. `settledAt` carries the instant the ledger recorded a settlement; `now()` is the
+ * fallback resolution a per-turn guard has.
+ */
+export function progressStop(
+  tracker: ProgressTracker,
+  rule: StopRule,
+  ledger: SettledLedger,
+  scope: Scope<unknown>,
+  now: () => number,
+  stallAfterMs: number | undefined,
+): StopDecision {
+  for (const w of ledger.settled()) {
+    tracker.record({
+      id: w.id,
+      at: w.settledAt ?? now(),
+      ...(w.score !== undefined ? { objective: w.score } : {}),
+      delivered: w.status === 'done' && w.valid === true,
+    })
+  }
+  return tracker.evaluate(rule, scope, stallAfterMs !== undefined ? { stallAfterMs } : undefined)
+}

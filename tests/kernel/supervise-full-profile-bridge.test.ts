@@ -351,6 +351,62 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(() => handle.deliver({ steer: 'after completion' })).toThrow()
   })
 
+  it('maxTurns caps the bridge manager turns; the same run without it keeps resuming', async () => {
+    // The harness owns its own loop, so `maxTurns` can only bound it at a turn boundary. Each
+    // steer would produce one more bridge request; the cap stops the loop after N of them.
+    async function runWithCap(maxTurns?: number): Promise<number> {
+      const requests: BridgeRequest[] = []
+      const steersToSend = 4
+      const handle = createRootHandle<unknown>()
+      const local = createBridgeServer(async (req, res) => {
+        const cancelledId = cancelledRunId(req.url)
+        if (cancelledId !== undefined) {
+          respondWithTerminalCancellation(res, cancelledId)
+          return
+        }
+        const body = await readJson(req)
+        requests.push(body)
+        // Queue the next turn's prompt while the run is provably live: without a pending message
+        // the bridge session settles after one turn, so this is what makes a turn CAP observable.
+        if (requests.length <= steersToSend)
+          handle.deliver({ steer: `continue ${requests.length}` })
+        respondWithBridgeStream(res, body, successStream(`manager turn ${requests.length}`))
+      })
+      await new Promise<void>((resolve) => local.listen(0, '127.0.0.1', resolve))
+      const { port } = local.address() as AddressInfo
+      try {
+        await supervise(
+          {
+            name: 'pi-leader',
+            harness: 'codex',
+            prompt: { systemPrompt: 'Lead the pursuit.' },
+            model: { provider: 'openai', default: 'gpt-5.6' },
+          },
+          'Choose the next experiment.',
+          {
+            rootHandle: handle,
+            backend: {
+              backend: 'bridge',
+              bridgeUrl: `http://127.0.0.1:${port}`,
+              bridgeBearer: 'test-token',
+            },
+            budget: { maxIterations: 20, maxTokens: 100_000 },
+            ...(maxTurns === undefined ? {} : { maxTurns }),
+          },
+        )
+      } finally {
+        await new Promise((resolve) => local.close(resolve))
+      }
+      return requests.length
+    }
+
+    const capped = await runWithCap(2)
+    const uncapped = await runWithCap()
+    expect(capped).toBe(2)
+    // The control proves the cap did the stopping: identical steer pressure, more turns.
+    expect(uncapped).toBeGreaterThan(capped)
+  })
+
   it('journals every outstanding served model when a resumed turn dies before terminal proof', async () => {
     const runId = 'bridge-two-outstanding-provider-attempts'
     const journal = new InMemorySpawnJournal()
