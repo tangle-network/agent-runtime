@@ -1380,6 +1380,53 @@ describe('retained runtime run control', () => {
     expect(creates).toBe(0)
   })
 
+  it('returns at once for a session that is already stopped', async () => {
+    // `stopped` is a member of `AgentSessionStatus` and the runtime treats it as terminal
+    // everywhere else (`sandboxSessionStatusFromAgentSessionStatus` projects it to `failed` —
+    // "Sandbox has no neutral stopped state"). The terminal predicate omitted it, so this wait
+    // polled every 25 ms for its whole deadline before returning the answer it had at the first
+    // snapshot.
+    const controlRef = {
+      runId: 'stopped-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'stopped-session',
+      executionId: 'stopped-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    let statusCalls = 0
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => {
+        statusCalls += 1
+        return 'stopped'
+      },
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: false }),
+      prompt: async () => ({ text: 'continued', success: false }),
+      cancel: async () => {},
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({ id: session.id, provider: 'test-provider', controlRef }),
+      session: () => session,
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'stopped-environment' },
+      turn: { prompt: 'go', turnId: 'stopped-turn' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    })
+
+    const started = Date.now()
+    await expect(run.status({ waitMs: 500 })).resolves.toMatchObject({ status: 'stopped' })
+    expect(Date.now() - started).toBeLessThan(200)
+    expect(statusCalls).toBe(1)
+  })
+
   it('waits for a status change up to the caller deadline and honors cancellation', async () => {
     const controlRef = {
       runId: 'status-run',

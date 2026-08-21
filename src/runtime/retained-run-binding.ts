@@ -339,10 +339,34 @@ export function assertWaitDuration(value: number, label: string): void {
   }
 }
 
+/**
+ * Whether a session can still change state.
+ *
+ * Exhaustive over `AgentSessionStatus` by construction: the map below is `satisfies
+ * Record<AgentSessionStatus, boolean>`, so a member added upstream fails to compile here instead of
+ * being silently classified as non-terminal. Written as a boolean chain, `stopped` was missing —
+ * and a `status({ waitMs })` call on an already-stopped session then polled every 25 ms for the
+ * whole wait before returning the answer it already had at the first snapshot.
+ *
+ * `unknown` is deliberately NOT terminal: it says the provider could not tell us, which is the one
+ * state where continuing to poll is the point. That differs from
+ * `sandboxSessionStatusFromAgentSessionStatus`, which projects `unknown` to `failed` because a run
+ * RESULT must never claim success without proof — a different question about the same word.
+ */
+const sessionStatusIsTerminal = {
+  pending: false,
+  provisioning: false,
+  running: false,
+  unknown: false,
+  stopped: true,
+  completed: true,
+  cancelled: true,
+  failed: true,
+  expired: true,
+} satisfies Record<AgentSessionStatus, boolean>
+
 export function isTerminalSessionStatus(status: AgentSessionStatus | null): boolean {
-  return (
-    status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'expired'
-  )
+  return status !== null && sessionStatusIsTerminal[status]
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
