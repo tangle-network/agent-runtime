@@ -40,6 +40,7 @@ const worker = inProcessSandboxClient({
         },
       },
     },
+    { type: 'done', data: { outcome: { type: 'completed' } } },
   ],
 })
 

@@ -23,6 +23,7 @@ const profile = {
 const worker = inProcessSandboxClient({
   onPrompt: (): SandboxEvent[] => [
     { type: 'result', data: { result: { note: 'Shipped one-click restore.' } } },
+    { type: 'done', data: { outcome: { type: 'completed' } } },
   ],
 })
 

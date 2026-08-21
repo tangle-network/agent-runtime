@@ -11,8 +11,8 @@
  *     whole output, so the kernel prunes it and the valid candidate wins.
  */
 
-import type { ResearchOutput, ResearchTask } from '@tangle-network/agent-knowledge/profiles'
 import { inProcessSandboxClient, type SandboxClient } from '@tangle-network/agent-runtime/kernel'
+import type { ResearchOutput, ResearchTask } from '@tangle-network/agent-runtime/profiles'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 
 export const namespace = 'example-tenant'
@@ -138,6 +138,7 @@ export const sandboxClient: SandboxClient = inProcessSandboxClient({
         },
       },
       { type: 'result', data: { result: output } },
+      { type: 'done', data: { outcome: { type: 'completed' } } },
     ]
   },
 })

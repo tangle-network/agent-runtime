@@ -18,9 +18,10 @@ written. It also shows the **propose-don't-apply** contract: the winning agent r
 
 ## How it works
 
-1. `researcherProfile({ task })` hands you three things wired to work together: the system prompt for
-   a research agent, the output parser that turns its reply into structured findings, and the
-   validator that scores them.
+1. `researcherProfile({ profile, task })` hands you three things wired to work together on top of a
+   profile you own: the system prompt for a research agent, the output parser that turns its reply
+   into structured findings, and the validator that scores them. The harness, provider and model
+   stay yours; the preset supplies the research half.
 2. A tiny **driver** launches two agents on the same question (a "fanout"), collects both answers,
    and asks the loop to pick the best valid one.
 3. The validator scores each answer on citation density and per-claim evidence, and **hard-fails**
@@ -32,11 +33,8 @@ written. It also shows the **propose-don't-apply** contract: the winning agent r
 ## Run
 
 ```bash
-# 1. Install the one optional package this example needs (the runtime does NOT depend on it —
-#    domain packs are injected, not bundled, so it isn't installed by default):
-pnpm add -D @tangle-network/agent-knowledge
-
-# 2. Run it (fully offline — the two agent answers are scripted fixtures, no model call, no key):
+# Fully offline — the two agent answers are scripted fixtures, no model call, no key, no
+# extra package. `researcherProfile` ships in this repo, under @tangle-network/agent-runtime/profiles.
 pnpm tsx examples/researcher-loop/researcher-loop.ts
 ```
 

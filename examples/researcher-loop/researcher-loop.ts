@@ -7,21 +7,31 @@
  * different knowledge namespace, so the bad candidate is pruned by construction.
  *
  * Offline: the two synthetic researcher outputs and the stand-in `sandboxClient` live in
- * ./synthetic-researcher.ts. Needs the optional `@tangle-network/agent-knowledge` peer.
+ * ./synthetic-researcher.ts. No model call, no key, no extra package.
  *
  * Run:  pnpm tsx examples/researcher-loop/researcher-loop.ts
  */
 
+import type { AgentProfile } from '@tangle-network/agent-interface'
+import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
 import {
   type ResearchOutput,
   type ResearchTask,
   researcherProfile,
-} from '@tangle-network/agent-knowledge/profiles'
-import { type Driver, runAgentRounds } from '@tangle-network/agent-runtime/kernel'
+} from '@tangle-network/agent-runtime/profiles'
 import { sandboxClient, task } from './synthetic-researcher'
 
+// The caller owns the harness/provider/model identity; the preset supplies the research system
+// prompt, the output parser, and the validator on top of it. `scripted` is what the offline
+// sandbox client below answers to — swap it for a real provider to run this live.
+const researcher = {
+  name: 'researcher',
+  harness: 'cli-base',
+  model: { provider: 'scripted', default: 'scripted/researcher' },
+} satisfies AgentProfile
+
 async function main(): Promise<void> {
-  const { output, validator, agentRunSpec } = researcherProfile({ task })
+  const { output, validator, agentRunSpec } = researcherProfile({ profile: researcher, task })
   const driver: Driver<ResearchTask, ResearchOutput, 'pick-winner' | 'fail'> = {
     name: 'fanout',
     // A "round" = one plan → run workers → decide cycle. This driver is SINGLE-ROUND:
