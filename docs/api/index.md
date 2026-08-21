@@ -8482,6 +8482,19 @@ this runtime (the settle-time analyzers still work).
 
 [`TraceSource`](runtime.md#tracesource-1) \| `undefined`
 
+##### interactive()?
+
+> `optional` **interactive**(): [`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
+
+The exact interactive process this worker runs in, when its execution was started in an
+attachable terminal. Read through `Scope.interactive`; synchronous and side-effect free, and
+it must not throw. Omitting it is the honest answer for every headless executor: omission
+reads as `executor-exposes-no-interactive-session`, never as an empty handle.
+
+###### Returns
+
+[`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
+
 ##### teardown()
 
 > **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; \}\>
@@ -8980,6 +8993,29 @@ The live tool-call trace of one child when its executor exposes one (`Executor.t
 ###### Returns
 
 [`TraceSource`](runtime.md#tracesource-1) \| `undefined`
+
+##### interactive()
+
+> **interactive**(`nodeId`): [`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
+
+Attach a human terminal to the exact process ONE child is running in.
+
+Returns that child's `RetainedInteractiveRunHandle` when its executor holds an interactive
+session — the caller then types, resizes, detaches, reconnects, and closes against the same
+admitted execution, with one ordered output history. Every other worker returns an explicit
+`unavailable` reason: a headless run, a runner whose provider publishes no interactive
+contract, and an unknown or settled node are each distinguishable, and none of them is ever
+converted into a fake attachment.
+
+###### Parameters
+
+###### nodeId
+
+`string`
+
+###### Returns
+
+[`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
 
 ##### meter()
 

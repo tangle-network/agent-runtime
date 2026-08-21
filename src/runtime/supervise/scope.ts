@@ -108,6 +108,8 @@ import type {
   TreeView,
   UsageEvent,
   WaitOpts,
+  WorkerInteractiveSession,
+  WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
 } from './types'
 import {
@@ -282,6 +284,8 @@ interface LiveChild {
   readonly readProgress?: () => ExecutorProgress | undefined
   /** The executor's optional live tool trace, captured at spawn — backs `scope.traceSource`. */
   readonly readTraceSource?: () => TraceSource | undefined
+  /** The executor's optional interactive process, captured at spawn — backs `scope.interactive`. */
+  readonly readInteractive?: () => WorkerInteractiveSession
   /** Kernel-owned declaration of the exact execution plan, durable before `execute` starts. */
   materialization?: ProfileMaterializationReceipt
   /** One immutable record per concrete execution attempt. */
@@ -725,6 +729,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           : {}),
         ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
+        ...(executor.interactive ? { readInteractive: executor.interactive.bind(executor) } : {}),
       }
       children.set(id, live)
       if (opts.key !== undefined) {
@@ -1267,6 +1272,34 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
   }
 
+  function terminalNodeStatus(status: NodeStatus): boolean {
+    return status === 'done' || status === 'failed' || status === 'cancelled'
+  }
+
+  function interactive(nodeId: NodeId): WorkerInteractiveSession {
+    const child = children.get(nodeId)
+    if (!child) return noInteractiveSession('unknown-node')
+    // A wait-state node holds no executor, and a settled one holds no process.
+    if (child.wait || child.executorDone || terminalNodeStatus(child.status)) {
+      return noInteractiveSession('not-live')
+    }
+    if (!child.readInteractive)
+      return noInteractiveSession('executor-exposes-no-interactive-session')
+    let reported: WorkerInteractiveSession
+    try {
+      reported = child.readInteractive()
+    } catch {
+      // A throwing read is an executor that cannot produce a session, not a reason to break the
+      // operator's attach path.
+      return noInteractiveSession('executor-exposes-no-interactive-session')
+    }
+    // The executor answers for its own runner, so its reason is kept. A malformed answer is not
+    // an attachment: it degrades to the honest omission reason rather than reaching a caller.
+    if (reported?.status === 'unavailable' && reported.reason) return reported
+    if (reported?.status === 'available' && reported.handle) return reported
+    return noInteractiveSession('executor-exposes-no-interactive-session')
+  }
+
   async function meterInternal(
     spend: Spend,
     detail?: Record<string, unknown>,
@@ -1341,6 +1374,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     wait,
     progress,
     traceSource,
+    interactive,
     signal: args.signal,
     meter: (spend, detail) => meterInternal(spend, detail),
     ...(resume ? { resume } : {}),
@@ -2423,6 +2457,13 @@ function downRecord(
     ...(providerModel ? { providerModel } : {}),
     ...(metered ? { metered } : {}),
   }
+}
+
+/** The one place an absent interactive process is spelled, so every refusal reads the same. */
+function noInteractiveSession(
+  reason: WorkerInteractiveUnavailableReason,
+): WorkerInteractiveSession {
+  return Object.freeze({ status: 'unavailable' as const, reason })
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
