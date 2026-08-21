@@ -15498,6 +15498,13 @@ Restrict the run to this subset of models. When set, every configured model — 
  supervisor router model, the profile's model, and the backend's model — must be a member,
  or `supervise()` throws a `ConfigError` before any compute is spent. Unset = unrestricted.
 
+ This is a MODEL-ID filter, not a route filter. The compared values are the bare ids a profile
+ declares — `model.default`, `model.small`, `subagents[].model`, `modes[].model`. The composed
+ wire id (`harness/provider/model`) is never built here and never compared, so an entry written
+ in qualified form matches nothing, and a child that names an allowed id is admitted whatever
+ harness and provider its own profile declares. Pin the route with `authorizeSpawn`: it reads
+ the authored child profile and may refuse the spawn before any reservation.
+
 ##### finalizer?
 
 > `readonly` `optional` **finalizer?**: `string` \| [`SupervisorFinalizer`](index.md#supervisorfinalizer)
@@ -26677,6 +26684,11 @@ readonly `string`[] \| `undefined`
 
 Check every canonical model-bearing field in a complete profile, including the models a
 backend may select for cheap work, named subagents, or modes.
+
+Every compared value is a bare model id. The composed `harness/provider/model` wire id
+(`profileBridgeWireModel`) is neither built nor compared here, so this admits any route that
+declares an allowed id, and a qualified entry in `allowed` matches nothing. Route pinning
+belongs to `SuperviseOptions.authorizeSpawn`.
 
 #### Parameters
 
