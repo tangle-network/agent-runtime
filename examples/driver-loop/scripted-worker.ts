@@ -52,6 +52,7 @@ export function scriptedWorkerClient(): SandboxClient {
           data: { model: 'scripted', tokensIn: 200, tokensOut: 40, costUsd: 0.0006 },
         },
         { type: 'result', data: { result: { note } satisfies NoteOutput } },
+        { type: 'done', data: { outcome: { type: 'completed' } } },
       ]
     },
   })

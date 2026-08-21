@@ -43,7 +43,7 @@ pnpm tsx examples/improve/improve.ts
 | [`mcp-delegation`](./mcp-delegation/) | another agent needs Runtime's delegation tools over MCP |
 | [`fleet-delegation`](./fleet-delegation/) | delegated workers must share a fleet workspace |
 | [`knowledge-gating`](./knowledge-gating/) | execution must stop when required knowledge is below threshold |
-| [`researcher-loop`](./researcher-loop/) | a domain uses the optional `agent-knowledge` peer and a hard isolation check |
+| [`researcher-loop`](./researcher-loop/) | a domain preset on a caller-owned profile, with a hard tenant-isolation check |
 | [`sanitized-telemetry-streaming`](./sanitized-telemetry-streaming/) | runtime telemetry must be useful without leaking user content |
 
 ## Specialized examples

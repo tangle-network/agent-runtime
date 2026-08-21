@@ -23,5 +23,5 @@
     "sourceMap": false
   },
   "include": ["examples"],
-  "exclude": ["node_modules", "dist", "examples/researcher-loop"]
+  "exclude": ["node_modules", "dist"]
 }
