@@ -462,6 +462,104 @@ describe('supervisor top model', () => {
     expect(frame).toContain(join(root, '.agent', 'supervisor'))
   })
 
+  it('keeps the complete supervisor and reports one bounded diagnostic for a half-written one', () => {
+    const root = fixtureRoot()
+    const okDir = supervisorRunDir(root, 'sup-ok')
+    mkdirSync(okDir, { recursive: true })
+    writeFileSync(
+      join(okDir, 'state.json'),
+      JSON.stringify({
+        id: 'sup-ok',
+        status: 'running',
+        task: 'stay readable',
+        workspaceDir: '/repo',
+        budget: 1,
+      }),
+    )
+    const tornDir = supervisorRunDir(root, 'sup-torn')
+    mkdirSync(tornDir, { recursive: true })
+    // A writer mid-append leaves state.json truncated; the read degrades and reports, never throws.
+    writeFileSync(join(tornDir, 'state.json'), '{"id":"sup-torn","status":"running"')
+
+    const partial = loadTopSnapshot(root)
+    expect(partial.supervisors.map((view) => view.id)).toEqual(['sup-ok'])
+    expect(partial.completeness).toBe('partial')
+    expect(partial.diagnostics).toEqual([
+      { source: 'supervisor-state', runId: 'sup-torn', path: 'state.json', reason: 'partial-json' },
+    ])
+    expect(partial.discovered).toBe(2)
+    expect(partial.loaded).toBe(1)
+
+    writeFileSync(
+      join(tornDir, 'state.json'),
+      JSON.stringify({
+        id: 'sup-torn',
+        status: 'running',
+        task: 'now complete',
+        workspaceDir: '/repo',
+        budget: 1,
+      }),
+    )
+    const complete = loadTopSnapshot(root)
+    expect(complete.completeness).toBe('complete')
+    expect(complete.diagnostics).toEqual([])
+    expect(complete.discovered).toBe(2)
+    expect(complete.loaded).toBe(2)
+    expect(complete.supervisors.map((view) => view.id).sort()).toEqual(['sup-ok', 'sup-torn'])
+  })
+
+  it('reports a journal mid-append as partial-json and a wrong state shape as invalid-state', () => {
+    const root = fixtureRoot()
+    const dir = supervisorRunDir(root, 'sup-journal')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'state.json'),
+      JSON.stringify({
+        id: 'sup-journal',
+        status: 'running',
+        task: 'journal mid-append',
+        workspaceDir: '/repo',
+        budget: 1,
+      }),
+    )
+    writeFileSync(
+      join(dir, 'spawn-journal.jsonl'),
+      `${JSON.stringify({
+        kind: 'spawned',
+        id: 'sup-journal:s1',
+        parent: 'sup-journal',
+        label: 'w-0',
+        at: '2026-06-28T10:00:00.000Z',
+      })}\n{"kind":"settl`,
+    )
+    const shapeDir = supervisorRunDir(root, 'sup-shape')
+    mkdirSync(shapeDir, { recursive: true })
+    // Valid JSON, wrong shape: distinct from a torn write.
+    writeFileSync(join(shapeDir, 'state.json'), JSON.stringify({ id: 'sup-shape' }))
+
+    const snapshot = loadTopSnapshot(root)
+    // The resilient read keeps every line that parsed.
+    expect(snapshot.supervisors.map((view) => view.id)).toEqual(['sup-journal'])
+    expect(snapshot.supervisors[0]!.workers.map((worker) => worker.id)).toEqual(['sup-journal:s1'])
+    expect(snapshot.completeness).toBe('partial')
+    expect(snapshot.diagnostics).toEqual([
+      {
+        source: 'journal',
+        runId: 'sup-journal',
+        path: 'spawn-journal.jsonl',
+        reason: 'partial-json',
+      },
+      {
+        source: 'supervisor-state',
+        runId: 'sup-shape',
+        path: 'state.json',
+        reason: 'invalid-state',
+      },
+    ])
+    expect(snapshot.discovered).toBe(2)
+    expect(snapshot.loaded).toBe(1)
+  })
+
   function fixtureRoot(): string {
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-top-'))
     roots.push(root)

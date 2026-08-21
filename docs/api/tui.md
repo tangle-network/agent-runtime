@@ -74,6 +74,73 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 **`Experimental`**
 
+##### completeness
+
+> `readonly` **completeness**: [`TopSnapshotCompleteness`](#topsnapshotcompleteness-1)
+
+**`Experimental`**
+
+`partial` when at least one discovered source could not be read completely.
+
+##### diagnostics
+
+> `readonly` **diagnostics**: readonly [`TopSnapshotDiagnostic`](#topsnapshotdiagnostic)[]
+
+**`Experimental`**
+
+One bounded entry per skipped or partially read source; empty when complete.
+
+##### discovered
+
+> `readonly` **discovered**: `number`
+
+**`Experimental`**
+
+Run directories found under the runs roots, readable or not.
+
+##### loaded
+
+> `readonly` **loaded**: `number`
+
+**`Experimental`**
+
+Run directories whose state.json parsed into a valid supervisor view.
+
+***
+
+### TopSnapshotDiagnostic
+
+**`Experimental`**
+
+One skipped or partially read snapshot source. `path` is relative to the run directory and
+never carries file contents, so a diagnostic is safe to show or log without leaking run data.
+
+#### Properties
+
+##### source
+
+> `readonly` **source**: [`TopSnapshotDiagnosticSource`](#topsnapshotdiagnosticsource)
+
+**`Experimental`**
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
+**`Experimental`**
+
+##### path
+
+> `readonly` **path**: `string`
+
+**`Experimental`**
+
+##### reason
+
+> `readonly` **reason**: [`TopSnapshotDiagnosticReason`](#topsnapshotdiagnosticreason)
+
+**`Experimental`**
+
 ***
 
 ### SupervisorBase
@@ -850,6 +917,30 @@ How the app was invoked. Defaults read `process.argv` / `process.cwd()`.
 
 ## Type Aliases
 
+### TopSnapshotCompleteness
+
+> **TopSnapshotCompleteness** = `"complete"` \| `"partial"`
+
+**`Experimental`**
+
+***
+
+### TopSnapshotDiagnosticSource
+
+> **TopSnapshotDiagnosticSource** = `"supervisor-state"` \| `"journal"` \| `"progress"` \| `"worker-tail"`
+
+**`Experimental`**
+
+***
+
+### TopSnapshotDiagnosticReason
+
+> **TopSnapshotDiagnosticReason** = `"unreadable"` \| `"partial-json"` \| `"invalid-state"` \| `"missing"`
+
+**`Experimental`**
+
+***
+
 ### TopJournalEvent
 
 > **TopJournalEvent** = \{ `kind`: `"spawned"`; `id`: `string`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"settled"`; `id`: `string`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: `string`; `reason?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"metered"`; `id`: `string`; `spend?`: `unknown`; `seq?`: `number`; `at?`: `string`; \}
@@ -908,9 +999,11 @@ otherwise it writes a single frame to stdout and returns.
 
 Read every supervisor run under one workspace into a single point-in-time snapshot.
 
-Pure with respect to the process: it only reads, and every unreadable or half-written file is
-skipped rather than thrown on — an operator view must survive a writer mid-append. `now` is
-injectable so elapsed time is deterministic under test.
+Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
+An unreadable or half-written source is still skipped — an operator view must survive a live
+writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
+tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
+under test.
 
 #### Parameters
 
