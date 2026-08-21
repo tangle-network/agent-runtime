@@ -10,6 +10,7 @@ import {
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { RuntimeRunStateError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
@@ -1063,6 +1064,52 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       // it rode `runtime_attachments`, and the authored profile declared no MCP server at all.
       expect(new Set(coordinationUrls).size).toBe(2)
       expect(profileMcpAliases).toEqual([[], []])
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a durable manager run whose authored profile changed instead of reusing the stale bridge session', async () => {
+    const sessions: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      sessions.push(body.session_id)
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const profile = {
+      name: 'pi-leader',
+      harness: 'codex',
+      prompt: { systemPrompt: 'Lead the pursuit.' },
+      model: { provider: 'openai', default: 'gpt-5.6' },
+    } as const
+    const runDir = await mkdtemp(join(tmpdir(), 'manager-failover-session-'))
+    try {
+      const options = {
+        backend: {
+          backend: 'bridge' as const,
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        runDir,
+        runId: 'failover-manager-session',
+      }
+      await supervise(profile, 'Choose the next experiment.', options)
+      expect(sessions).toHaveLength(1)
+
+      // The model failover a seat performs: same run layout, a different authored profile. The
+      // authored profile digest is part of the recorded run identity, so this is refused here —
+      // it never reaches the bridge, which would answer the stale session with a 400.
+      await expect(
+        supervise(
+          { ...profile, model: { ...profile.model, default: 'gpt-5.5' } },
+          'Choose the next experiment.',
+          options,
+        ),
+      ).rejects.toBeInstanceOf(RuntimeRunStateError)
+      expect(sessions).toHaveLength(1)
     } finally {
       await rm(runDir, { recursive: true, force: true })
     }

@@ -216,7 +216,12 @@ export function assertModelAllowed(
 }
 
 /** Check every canonical model-bearing field in a complete profile, including the models a
- * backend may select for cheap work, named subagents, or modes. */
+ * backend may select for cheap work, named subagents, or modes.
+ *
+ * Every compared value is a bare model id. The composed `harness/provider/model` wire id
+ * (`profileBridgeWireModel`) is neither built nor compared here, so this admits any route that
+ * declares an allowed id, and a qualified entry in `allowed` matches nothing. Route pinning
+ * belongs to `SuperviseOptions.authorizeSpawn`. */
 export function assertProfileModelsAllowed(
   profile: AgentProfile,
   allowed: readonly string[] | undefined,
