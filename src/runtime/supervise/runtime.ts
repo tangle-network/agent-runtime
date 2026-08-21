@@ -99,7 +99,13 @@ import type {
   SandboxClient,
   Validator,
 } from '../types'
-import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import {
+  addTokenUsage,
+  cloneTokenUsage,
+  promptCacheTokenClasses,
+  unmeteredSpend,
+  zeroTokenUsage,
+} from '../util'
 import { linkAbort } from './abortable'
 import { priceUnreceiptedWork } from './cost-estimate'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
@@ -587,37 +593,6 @@ function contentRef(prefix: string, value: unknown): string {
   return `${prefix}:${(h >>> 0).toString(16).padStart(8, '0')}`
 }
 
-/**
- * The spend of work that HAPPENED and reported no usage receipt.
- *
- * Not the same value as a plain zero even though both carry `{0,0}` tokens and `$0`. A bare zero
- * asserts a MEASUREMENT — "this ran and cost nothing" — and every consumer downstream reads it that
- * way: the pool keeps reporting `readout().tokensKnown === true`, the journal totals stay clean, the
- * OTEL span records a priced zero, and a caller's token-denominated ceiling can never fire no matter
- * how much the work really burned. A ceiling that cannot fire is worse than no ceiling, because it
- * reads as protection.
- *
- * `Spend.tokensKnown` is the marker the substrate already threads end to end for exactly this case
- * (`budget.ts`, `otel-spans.ts`, `spawn-journal.ts`, `supervisor.ts`): the work is recorded, the
- * zero is labelled a floor rather than a total, and every rollup that touches it reports its balance
- * as a ceiling rather than a measurement. Use this — never a bare zero — whenever a runtime cannot
- * see what its worker spent.
- *
- * The same rule applies to dollars. A dollar-capped run must refuse an executor whose billed spend
- * is unknowable; `budgetExempt` does not authorize Runtime to relabel unknown spend as a measured
- * zero. Callers that require dollar accounting must use a backend with a trusted billing receipt.
- */
-function unmeteredSpend(ms: number): Spend {
-  return {
-    iterations: 0,
-    tokens: zeroTokenUsage(),
-    tokensKnown: false,
-    usd: 0,
-    usdKnown: false,
-    ms,
-  }
-}
-
 // ── router/inline executor (harness === null) ──────────────────────────────────
 
 /**
@@ -742,7 +717,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
             ? cloneTokenUsage({
                 input: r.usage.input,
                 output: r.usage.output,
-                ...routerPromptCacheUsage(r.usage.input, r.cache),
+                ...promptCacheTokenClasses(r.usage.input, r.cache),
               })
             : zeroTokenUsage(),
           usd: r.billedCostUsd ?? 0,
@@ -875,39 +850,6 @@ function mergePromptCache(
     if (value !== undefined) target[key] = (Number(target[key]) || 0) + value
   }
   if (cache.status !== undefined) target.status = cache.status
-}
-
-/** Preserve a complete Router cache split; an incomplete provider receipt stays unknown. */
-function routerPromptCacheUsage(
-  input: number | undefined,
-  cache: PromptCacheUsage | undefined,
-): {
-  freshInput?: number
-  cacheRead?: number
-  cacheWrite?: number
-  cacheBreakdownKnown?: false
-} {
-  if (cache === undefined) return {}
-  const read = cache.readTokens
-  const write = cache.writeTokens
-  if (read === undefined && write === undefined) return {}
-  if (
-    input === undefined ||
-    !isCacheTokenCount(read) ||
-    !isCacheTokenCount(write) ||
-    read + write > input
-  ) {
-    return { cacheBreakdownKnown: false }
-  }
-  return {
-    freshInput: input - read - write,
-    cacheRead: read,
-    cacheWrite: write,
-  }
-}
-
-function isCacheTokenCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
 async function runRouterTransport<T>(context: string, call: () => Promise<T>): Promise<T> {
@@ -1088,12 +1030,12 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
               addTokenUsage(tokens, {
                 input: res.usage.input,
                 output: res.usage.output,
-                ...routerPromptCacheUsage(res.usage.input, res.cache),
+                ...promptCacheTokenClasses(res.usage.input, res.cache),
               })
               if (res.usage.reasoning !== undefined) reasoningTokens += res.usage.reasoning
               else reasoningKnown = false
             } else {
-              addTokenUsage(tokens, routerPromptCacheUsage(undefined, res.cache))
+              addTokenUsage(tokens, promptCacheTokenClasses(undefined, res.cache))
               tokensKnown = false
               reasoningKnown = false
             }

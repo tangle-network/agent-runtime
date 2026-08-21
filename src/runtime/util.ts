@@ -163,6 +163,37 @@ export function zeroSpend(): Spend {
   return { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
 }
 
+/**
+ * The spend of work that HAPPENED and reported no usage receipt.
+ *
+ * Not the same value as {@link zeroSpend} even though both carry `{0,0}` tokens and `$0`. A bare
+ * zero asserts a MEASUREMENT — "this ran and cost nothing" — and every consumer downstream reads it
+ * that way: the pool keeps reporting `readout().tokensKnown === true`, the journal totals stay
+ * clean, the OTEL span records a priced zero, and a caller's token-denominated ceiling can never
+ * fire no matter how much the work really burned. A ceiling that cannot fire is worse than no
+ * ceiling, because it reads as protection.
+ *
+ * `tokensKnown` is the marker the substrate already threads end to end for exactly this case
+ * (`budget.ts`, `otel-spans.ts`, `spawn-journal.ts`, `supervisor.ts`): the work is recorded, the
+ * zero is labelled a floor rather than a total, and every rollup that touches it reports its
+ * balance as a ceiling rather than a measurement. Use this — never a bare zero — whenever a runtime
+ * cannot see what its worker spent.
+ *
+ * The same rule applies to dollars. A dollar-capped run must refuse an executor whose billed spend
+ * is unknowable; `budgetExempt` does not authorize Runtime to relabel unknown spend as a measured
+ * zero. Callers that require dollar accounting must use a backend with a trusted billing receipt.
+ */
+export function unmeteredSpend(ms: number): Spend {
+  return {
+    iterations: 0,
+    tokens: zeroTokenUsage(),
+    tokensKnown: false,
+    usd: 0,
+    usdKnown: false,
+    ms,
+  }
+}
+
 /** Copy a conserved spend without dropping a completeness marker or the catalog-priced part. */
 export function cloneSpend(spend: Spend): Spend {
   return {
@@ -269,6 +300,16 @@ function classifiedTotal(usage: Partial<LoopTokenUsage>, cacheRead: number): num
   return (usage.freshInput ?? 0) + cacheRead + (usage.cacheWrite ?? 0)
 }
 
+/**
+ * The only two members this reads out of a provider prompt-cache report, named rather than taken as
+ * an open record: both the typed `PromptCacheUsage` and the open `promptCache` an `llm_call` carries
+ * satisfy it, and each value is validated before it is credited.
+ */
+export interface PromptCacheCounters {
+  readonly readTokens?: unknown
+  readonly writeTokens?: unknown
+}
+
 /** The prompt-cache token classes of one observation, as `LoopTokenUsage` members. */
 export type PromptCacheTokenClasses = Pick<
   LoopTokenUsage,
@@ -298,7 +339,7 @@ export type PromptCacheTokenClasses = Pick<
  */
 export function promptCacheTokenClasses(
   input: number | undefined,
-  promptCache: Readonly<Record<string, number | string>> | undefined,
+  promptCache: PromptCacheCounters | undefined,
 ): PromptCacheTokenClasses {
   if (promptCache === undefined) return {}
   const read = tokenCount(promptCache.readTokens)

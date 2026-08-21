@@ -31,14 +31,37 @@ import { testAgentProfile } from './test-agent-profile'
 function workerLeaf(
   name: string,
   tokens: { input: number; output: number },
+  /** Dollars this runtime priced from a catalog because no provider receipt covered the work. */
+  estimatedUsd?: number,
 ): Agent<unknown, unknown> {
+  const cost: UsageEvent =
+    estimatedUsd === undefined
+      ? { kind: 'cost', usd: 0, usdKnown: true, provenance: 'provider-receipt' }
+      : {
+          kind: 'cost',
+          usd: estimatedUsd,
+          usdKnown: false,
+          usdEstimated: estimatedUsd,
+          provenance: 'catalog-estimate',
+        }
+  const spent =
+    estimatedUsd === undefined
+      ? { iterations: 1, tokens: { ...tokens }, usd: 0, ms: 0 }
+      : {
+          iterations: 1,
+          tokens: { ...tokens },
+          usd: estimatedUsd,
+          usdKnown: false,
+          usdEstimated: estimatedUsd,
+          ms: 0,
+        }
   const executor: Executor<unknown> = {
     runtime: 'router',
     execute() {
       return (async function* (): AsyncGenerator<UsageEvent> {
         yield { kind: 'iteration' }
         yield { kind: 'tokens', input: tokens.input, output: tokens.output }
-        yield { kind: 'cost', usd: 0, usdKnown: true, provenance: 'provider-receipt' }
+        yield cost
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
@@ -47,7 +70,7 @@ function workerLeaf(
         outRef: `w:${name}`,
         out: { worker: name },
         verdict: { valid: true, score: 1 },
-        spent: { iterations: 1, tokens: { ...tokens }, usd: 0, ms: 0 },
+        spent,
       }
     },
   }
@@ -318,6 +341,117 @@ describe("driver inference metering — the driver's own tokens count against th
       output: 160,
       cacheBreakdownKnown: false,
     })
+  })
+
+  it("keeps a nested sub-driver's catalog-priced dollars separable from the billed ones", async () => {
+    // `usd - usdEstimated` is what a provider is known to have billed (see `Spend.usdEstimated`),
+    // and `assertValidSpend` refuses an estimate larger than the total carrying it. The sub-driver
+    // roll-up dropped the estimated part, so a parent reported catalog-priced dollars as billed and
+    // the observer plane labelled the node's cost provenance `unknown` rather than `estimated`.
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const estimated = 0.42
+    const worker = workerLeaf('leaf', { input: 10, output: 5 }, estimated)
+    const nestedPerWorker: Budget = { ...perWorker }
+
+    // root driver → mid sub-driver → worker leaf. The recursive resolver: a 'driver' profile becomes
+    // a driverChild wrapping another driverAgent; a 'worker' profile becomes the leaf.
+    const driverOf = (
+      name: string,
+      brain: ToolLoopChat,
+      workerBudget: Budget = nestedPerWorker,
+    ): DriverAgentOptions => ({
+      name,
+      brain,
+      blobs,
+      makeWorkerAgent: makeAgent,
+      perWorker: workerBudget,
+      systemPrompt: 'drive',
+      maxTurns: 8,
+    })
+
+    // mid sub-driver inference = 60/40 + 30/20 + 10/5 = 100/65 tokens, $0.05 (re-homed up).
+    const midTurns: ScriptedTurn[] = [
+      {
+        toolCalls: [
+          {
+            name: 'spawn_agent',
+            arguments: {
+              profile: testAgentProfile('worker', { metadata: { kind: 'worker' } }),
+              task: 'sub',
+            },
+          },
+        ],
+        usage: { input: 60, output: 40 },
+        costUsd: 0.05,
+      },
+      {
+        toolCalls: [{ name: 'await_event', arguments: {} }],
+        usage: { input: 30, output: 20 },
+        costUsd: 0,
+      },
+      { content: 'mid done', usage: { input: 10, output: 5 }, costUsd: 0 },
+    ]
+    function makeAgent(
+      profile: AgentProfile,
+      context?: { readonly budget: Budget },
+    ): Agent<unknown, unknown> {
+      if (profile.metadata?.kind === 'driver') {
+        if (!context) throw new Error('driver spawn context missing')
+        const childBudget: Budget = {
+          maxIterations: context.budget.maxIterations,
+          maxTokens: Math.max(1, Math.floor(context.budget.maxTokens / 4)),
+        }
+        return driverChild(
+          testAgentProfile('mid', {
+            harness: 'cli-base',
+            metadata: { kind: 'driver' },
+          }),
+          driverAgent(driverOf('mid', meteredChat(midTurns), childBudget)),
+          journal,
+        )
+      }
+      return worker
+    }
+    const midProfile = testAgentProfile('mid', { metadata: { kind: 'driver' } })
+    // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
+    const rootChat = meteredChat([
+      {
+        toolCalls: [{ name: 'spawn_agent', arguments: { profile: midProfile, task: 'go' } }],
+        usage: { input: 100, output: 50 },
+        costUsd: 0.02,
+      },
+      {
+        toolCalls: [{ name: 'await_event', arguments: {} }],
+        usage: { input: 50, output: 30 },
+        costUsd: 0,
+      },
+      { content: 'root done', usage: { input: 20, output: 10 }, costUsd: 0 },
+    ])
+
+    const result = await createSupervisor<unknown, unknown>().run(
+      driverAgent(driverOf('root', rootChat)),
+      'task',
+      {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId: 'priced-nested',
+        journal,
+        blobs,
+        executors: withDriverExecutor(createExecutorRegistry()),
+        maxDepth: 4,
+        now: () => 0,
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    if (result.kind !== 'winner') return
+    // The leaf's dollars were priced from a catalog, never billed. Both facts must survive the
+    // sub-driver roll-up: the total, and the part of it that no provider receipt covers.
+    expect(result.spentBreakdown?.childWork.usd).toBeCloseTo(estimated, 6)
+    expect(result.spentBreakdown?.childWork.usdEstimated).toBeCloseTo(estimated, 6)
+    expect(result.spentTotal.usdEstimated).toBeCloseTo(estimated, 6)
+    expect(result.spentTotal.usd - (result.spentTotal.usdEstimated ?? 0)).toBeCloseTo(0.07, 6)
+    expect(result.spentTotal.usdKnown).toBe(false)
   })
 
   it('re-homes a CRASHED sub-driver partial inference on the down path (pool and journal stay in agreement)', async () => {
