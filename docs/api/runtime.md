@@ -21641,7 +21641,7 @@ never meter a budget.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"iteration"`; \}
 
 #### Union Members
 
@@ -21698,17 +21698,43 @@ them is an upper bound. A counter the provider did not report is absent, never z
 
 ##### Type Literal
 
-\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \}
+\{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \}
 
 ###### kind
 
 > **kind**: `"cost"`
 
-###### usdKnown?
+###### usdKnown
 
-> `optional` **usdKnown?**: `false`
+> **usdKnown**: `true`
 
-Known dollar subtotal. When false, `usd` must not be treated as total cost.
+A provider or billing receipt covers this amount in full.
+
+###### usd
+
+> **usd**: `number`
+
+###### provenance
+
+> **provenance**: `"provider-receipt"` \| `"billing-receipt"`
+
+Which receipt proves it. A number without one of these cannot claim `usdKnown: true`.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \}
+
+###### kind
+
+> **kind**: `"cost"`
+
+###### usdKnown
+
+> **usdKnown**: `false`
+
+No receipt covers this work, so `usd` is an observed floor, never the total charge.
 
 ###### usd
 
@@ -21719,11 +21745,17 @@ Known dollar subtotal. When false, `usd` must not be treated as total cost.
 > `optional` **usdEstimated?**: `number`
 
 The part of `usd` this runtime priced from a model catalog because no provider receipt
-covered the work. Requires `usdKnown: false` — a catalog price approximates what a
-provider would bill and never measures what it did.
+covered the work. A catalog price approximates what a provider would bill and never
+measures what it did.
 
-Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
-is what says whether a dollar figure is measured.
+Absence means this runtime priced nothing here, NOT that `usd` is a receipt.
+
+###### provenance
+
+> **provenance**: `"catalog-estimate"` \| `"uncaptured"`
+
+Why the amount is not measured: a local catalog price, or nothing captured at all —
+including a provider that reported a number with no receipt behind it.
 
 ***
 

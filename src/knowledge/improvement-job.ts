@@ -304,6 +304,9 @@ async function captureKnowledgeEvidence(
   })
 }
 
+/** The starting accumulator, before any supervised run has been folded in. Zero iterations means
+ *  nothing ran, so a zero dollar total IS the measured amount; `addSpent` lowers `usdKnown` as
+ *  soon as it folds a run whose own dollars were not proven. */
 function emptySpent(): KnowledgeImprovementJobMeasurement['supervisedSpent'] {
   return { iterations: 0, inputTokens: 0, outputTokens: 0, usdKnown: true, usd: 0, ms: 0 }
 }

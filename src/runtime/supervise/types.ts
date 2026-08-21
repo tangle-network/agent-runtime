@@ -359,18 +359,30 @@ export type UsageEvent =
     }
   | {
       kind: 'cost'
-      /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
-      usdKnown?: false
+      /** A provider or billing receipt covers this amount in full. */
+      usdKnown: true
+      usd: number
+      /** Which receipt proves it. A number without one of these cannot claim `usdKnown: true`. */
+      provenance: 'provider-receipt' | 'billing-receipt'
+    }
+  | {
+      kind: 'cost'
+      /** No receipt covers this work, so `usd` is an observed floor, never the total charge. */
+      usdKnown: false
       usd: number
       /**
        * The part of `usd` this runtime priced from a model catalog because no provider receipt
-       * covered the work. Requires `usdKnown: false` — a catalog price approximates what a
-       * provider would bill and never measures what it did.
+       * covered the work. A catalog price approximates what a provider would bill and never
+       * measures what it did.
        *
-       * Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
-       * is what says whether a dollar figure is measured.
+       * Absence means this runtime priced nothing here, NOT that `usd` is a receipt.
        */
       usdEstimated?: number
+      /**
+       * Why the amount is not measured: a local catalog price, or nothing captured at all —
+       * including a provider that reported a number with no receipt behind it.
+       */
+      provenance: 'catalog-estimate' | 'uncaptured'
     }
   | {
       /** Observed output, not accounting. Meters ignore it; the turn projection publishes it. */

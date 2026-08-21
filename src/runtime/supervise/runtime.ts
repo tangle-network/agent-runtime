@@ -1638,7 +1638,9 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       }
     }
     if (result.iterations.length > 0 || result.costUsd) {
-      yield { kind: 'cost', usd: result.costUsd, ...(usdKnown ? {} : { usdKnown: false }) }
+      yield usdKnown
+        ? { kind: 'cost', usdKnown: true, usd: result.costUsd, provenance: 'provider-receipt' }
+        : { kind: 'cost', usdKnown: false, usd: result.costUsd, provenance: 'uncaptured' }
     }
   } finally {
     args.signal.removeEventListener('abort', cascadeExternal)
@@ -2630,6 +2632,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     let sawTurnCostStatus = false
     let turnUsdKnown = true
     let turnKnownCostSubtotal = 0
+    let turnCostProvenance: 'provider-receipt' | 'billing-receipt' | undefined
     let turnEstimatedCostSubtotal = 0
     // This turn's own token totals, kept apart from the run-wide `tokens` so an unreceipted turn
     // is priced on what IT presented rather than on the running sum of every turn before it.
@@ -2773,6 +2776,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
             }
           }
         }
+        if (chunk.costProvenance !== undefined) turnCostProvenance = chunk.costProvenance
         if (chunk.costKnown !== undefined) {
           sawTurnCostStatus = true
           if (!chunk.costKnown) turnUsdKnown = false
@@ -2789,7 +2793,12 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
           turnKnownCostSubtotal += increment
           if (increment > 0) {
             usd += increment
-            yield { kind: 'cost', usd: increment }
+            yield {
+              kind: 'cost',
+              usdKnown: true,
+              usd: increment,
+              provenance: turnCostProvenance ?? 'provider-receipt',
+            }
           }
         }
         if (typeof chunk.estimatedCost === 'number') {
@@ -2865,8 +2874,15 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
               outputTokens: turnOutputTokens,
               model: observedModel ?? seam.providerModel,
             })
-          : { kind: 'cost' as const, usd: 0, usdKnown: false as const }
-      if (priced.usdEstimated !== undefined) estimatedUsdCharged += priced.usdEstimated
+          : {
+              kind: 'cost' as const,
+              usd: 0,
+              usdKnown: false as const,
+              provenance: 'uncaptured' as const,
+            }
+      if (priced.usdKnown === false && priced.usdEstimated !== undefined) {
+        estimatedUsdCharged += priced.usdEstimated
+      }
       usd += priced.usd
       yield priced
     }
@@ -3521,6 +3537,8 @@ interface BridgeStreamChunk {
   }
   cost?: number
   costKnown?: boolean
+  /** Which receipt the bridge proved a known cost with. Absent when the cost is not known. */
+  costProvenance?: 'provider-receipt' | 'billing-receipt'
   estimatedCost?: number
   costScope?: 'incremental' | 'total'
   profileMaterialization?: BridgeProfileMaterializationReceipt
@@ -4288,6 +4306,7 @@ function applyBridgeCostReceipt(
     }
     out.costKnown = true
     out.cost = cost
+    out.costProvenance = provenance
     return
   }
   if (cost !== undefined) {

@@ -150,6 +150,9 @@ export async function runPersonaConversation(
     tokensOut: 0,
     costUsd: 0,
     sawLlmCall: false,
+    // Both flags start true and are lowered by the first unproven reading. They only reach a
+    // result when `sawLlmCall` is true (see the terminal read below), so an unmetered
+    // conversation never publishes them as a measured zero.
     tokensKnown: true,
     usdKnown: true,
   }

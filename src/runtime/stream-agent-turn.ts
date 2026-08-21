@@ -1237,11 +1237,11 @@ function foldUsageEvent(event: UsageEvent, acc: TurnAccumulator): void {
     acc.input += event.input
     acc.output += event.output
   } else if (event.kind === 'cost') {
-    const known = event.usdKnown !== false
+    const known = event.usdKnown
     acc.usdKnown = acc.sawCostUsage ? acc.usdKnown && known : known
     acc.sawCostUsage = true
     acc.costUsd += event.usd
-    if (event.usdEstimated !== undefined) {
+    if (event.usdKnown === false && event.usdEstimated !== undefined) {
       acc.estimatedCostUsd += event.usdEstimated
       acc.sawEstimatedCost = true
     }

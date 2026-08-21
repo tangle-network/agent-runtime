@@ -303,7 +303,12 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
               if (typeof call.costUsd === 'number' && call.costUsd > 0) {
                 usd += call.costUsd
                 // Numeric sandbox cost has no billing-provenance/completeness receipt.
-                yield { kind: 'cost', usd: call.costUsd, usdKnown: false }
+                yield {
+                  kind: 'cost',
+                  usd: call.costUsd,
+                  usdKnown: false,
+                  provenance: 'uncaptured',
+                }
               }
             }
             assertSandboxServedModel(event, requested)
@@ -344,7 +349,9 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
     // Mark the dollar channel unknown even when no event carried a numeric subtotal: a completed
     // sandbox turn is not proof that the provider billed exactly zero.
-    if (state.turns > 0) yield { kind: 'cost', usd: 0, usdKnown: false }
+    if (state.turns > 0) {
+      yield { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' }
+    }
     const spent: Spend = {
       iterations: state.turns,
       tokens,

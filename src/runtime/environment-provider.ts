@@ -535,7 +535,8 @@ async function* streamProviderExecutor(
       }
       if (usage.usd) {
         usd += usage.usd
-        yield { kind: 'cost', usd: usage.usd }
+        // A provider-reported dollar figure carries no receipt, so it is an observed floor.
+        yield { kind: 'cost', usdKnown: false, usd: usage.usd, provenance: 'uncaptured' }
       }
       if (isTerminalEnvironmentEvent(event)) terminal = true
     }
@@ -550,6 +551,9 @@ async function* streamProviderExecutor(
       iterations: 1,
       tokens,
       usd,
+      // No provider event carries a billing receipt, so the dollar channel stays unproven even
+      // when the provider reported a number. A dollar cap must refuse rather than compare.
+      usdKnown: false,
       ms: Date.now() - started,
     }
     args.onArtifact({

@@ -293,7 +293,7 @@ describe('environment provider adapters', () => {
 
     expect(usage).toEqual([
       { kind: 'tokens', input: 7, output: 16 },
-      { kind: 'cost', usd: 0.03 },
+      { kind: 'cost', usd: 0.03, usdKnown: false, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ])
     expect(artifact).toMatchObject({
@@ -1078,7 +1078,9 @@ describe('environment provider adapters', () => {
 
     expect(usage).toEqual([
       { kind: 'tokens', input: 7, output: 16 },
-      { kind: 'cost', usd: 0.03 },
+      // A provider event's dollar figure carries no receipt, so it is an observed floor rather
+      // than measured spend — a dollar cap must not be enforced against it.
+      { kind: 'cost', usd: 0.03, usdKnown: false, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ])
     expect(artifact.out).toMatchObject({ content: 'hello world' })
@@ -1086,6 +1088,7 @@ describe('environment provider adapters', () => {
       iterations: 1,
       tokens: { input: 7, output: 16 },
       usd: 0.03,
+      usdKnown: false,
     })
   })
 
@@ -1278,14 +1281,14 @@ describe('environment provider adapters', () => {
       // not fit inside the total it says it partitions buys no credit, so nothing is classified
       // and the split is declared unknown.
       { kind: 'tokens', input: 2, output: 7, cacheBreakdownKnown: false },
-      { kind: 'cost', usd: 0.1, usdKnown: false },
+      { kind: 'cost', usd: 0.1, usdKnown: false, provenance: 'uncaptured' },
       { kind: 'iteration' },
       // Turn 3 reports a cache WRITE and no read. The measured write is carried; the rest of the
       // prompt stays unclassified, so the split is incomplete rather than completed with a zero.
       { kind: 'tokens', input: 5, output: 13, cacheWrite: 2, cacheBreakdownKnown: false },
-      { kind: 'cost', usd: 0.2, usdKnown: false },
+      { kind: 'cost', usd: 0.2, usdKnown: false, provenance: 'uncaptured' },
       { kind: 'iteration' },
-      { kind: 'cost', usd: 0, usdKnown: false },
+      { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' },
     ])
     expect(turns).toHaveLength(3)
     expect(turns[0]).toMatchObject({ prompt: 'investigate' })

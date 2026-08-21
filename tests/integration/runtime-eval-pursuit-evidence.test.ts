@@ -30,7 +30,7 @@ function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
       return (async function* () {
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
-        yield { kind: 'cost', usd: 0 } as UsageEvent
+        yield { kind: 'cost', usd: 0, usdKnown: true, provenance: 'provider-receipt' } as UsageEvent
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),
