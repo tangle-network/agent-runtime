@@ -13673,6 +13673,86 @@ is proven.
 
 ***
 
+### RunCancelRequest
+
+One durable run-scoped cancel request: cancel the WHOLE run, not one worker.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+Caller-minted stable operation identifier — the idempotency key of the whole operation.
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO timestamp of the write.
+
+##### source
+
+> `readonly` **source**: `string`
+
+Who asked — 'human', a brain label, a tool name. Provenance, not authorization.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### RunCancellation
+
+The durable acknowledgement state for the run-scoped cancel operation, keyed by `operationId`.
+The runtime is the ONLY writer; [cancelRun](#cancelrun) only reads it.
+
+`effect` is the same [RetainedRunEffect](#retainedruneffect) vocabulary the worker-scoped and retained-run
+paths use, so the runtime has one spelling of the four cancellation states:
+ - `'unknown'`          — no runtime has answered yet. Never a success.
+ - `'cancel_requested'` — the root manager issued the run's cascading abort; the run's terminal
+                          state is not yet observed.
+ - `'cancelled'`        — the run reached its terminal state ABORTED after that request.
+ - `'not_live'`         — the run was not live to cancel: it settled on its own despite the
+                          request, or it ended before the request was applied.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### requestedAt
+
+> `readonly` **requestedAt**: `string`
+
+ISO timestamp of the original request.
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+ISO timestamp of the runtime's most recent observation of this operation.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+The caller's reason, carried verbatim from the request.
+
+##### detail?
+
+> `readonly` `optional` **detail?**: `string`
+
+The runtime's explanation of how it arrived at `effect`.
+
+***
+
 ### RouterSeam
 
 Router/inline transport seam. The profile owns model, prompt, and generation behavior.
@@ -16408,6 +16488,23 @@ Which cancel requests this manager's acknowledger owns: `'run'` (default; the tr
  its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
  manager — exact direct-child node ids only). Exactly one manager owns any request, so two
  acknowledgers can never apply one operation. See `DriverAgentOptions.controlScope`.
+
+##### abortRun?
+
+> `readonly` `optional` **abortRun?**: (`reason`) => `void`
+
+Abort the whole run — the seam a run-scoped cancel request is applied through (router arm,
+ `'run'` scope only). See `DriverAgentOptions.abortRun`.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
 
 ***
 
@@ -27844,6 +27941,130 @@ result after a reconnect.
 #### Returns
 
 [`WorkerCancellation`](#workercancellation)
+
+***
+
+### runCancelRequestFile()
+
+> **runCancelRequestFile**(`eventDir`): `string`
+
+The run-scoped cancel request file of one run — one [RunCancelRequest](#runcancelrequest).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### runCancellationFile()
+
+> **runCancellationFile**(`eventDir`): `string`
+
+The run-scoped acknowledgement file of one run — one [RunCancellation](#runcancellation).
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### readRunCancelRequest()
+
+> **readRunCancelRequest**(`eventDir`): [`RunCancelRequest`](#runcancelrequest) \| `undefined`
+
+Read the run-scoped cancel request, or `undefined` when none was written.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+[`RunCancelRequest`](#runcancelrequest) \| `undefined`
+
+***
+
+### readRunCancellation()
+
+> **readRunCancellation**(`eventDir`, `operationId`): [`RunCancellation`](#runcancellation) \| `undefined`
+
+Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has
+not answered. A record holding a DIFFERENT `operationId` belongs to another operation on the
+same run — fail loud rather than answer for it.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+[`RunCancellation`](#runcancellation) \| `undefined`
+
+***
+
+### cancelRun()
+
+> **cancelRun**(`eventDir`, `operationId`, `options?`): [`RunCancellation`](#runcancellation)
+
+Request the cancellation of the WHOLE run, idempotently, and return the operation's current
+durable state.
+
+The run-scoped twin of [cancelWorker](#cancelworker): write the request into the run's cancellation
+directory, where the run's own root manager applies it — aborting the root through the one
+cascade controller the run already has, so every live worker comes down with it. This function
+never applies the cancellation itself; writing a request file is not an acknowledgement.
+
+Idempotency is a lookup: when an acknowledgement for `operationId` already exists it is returned
+AS-IS and nothing is written. A request the runtime has not answered yet returns
+`effect: 'unknown'` (never a success); call again with the same `operationId` — or
+[readRunCancellation](#readruncancellation) — to read the acknowledged result after a reconnect.
+
+A run carries ONE run-scoped operation: a second request under a different `operationId` throws
+rather than silently replacing the pending one, because both would claim the same single abort.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+##### options?
+
+###### reason?
+
+`string`
+
+###### source?
+
+`string`
+
+#### Returns
+
+[`RunCancellation`](#runcancellation)
 
 ***
 

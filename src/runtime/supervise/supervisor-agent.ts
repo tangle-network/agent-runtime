@@ -408,6 +408,9 @@ export interface SupervisorAgentDeps {
    *  manager — exact direct-child node ids only). Exactly one manager owns any request, so two
    *  acknowledgers can never apply one operation. See `DriverAgentOptions.controlScope`. */
   readonly controlScope?: 'run' | 'subtree'
+  /** Abort the whole run — the seam a run-scoped cancel request is applied through (router arm,
+   *  `'run'` scope only). See `DriverAgentOptions.abortRun`. */
+  readonly abortRun?: (reason: string) => void
 }
 
 const ROUTER_TRANSPORT_FIELDS = new Set(['routerBaseUrl', 'routerKey', 'complete'])
@@ -583,6 +586,7 @@ function buildSupervisorAgent(
         ...(deps.finalizer ? { finalizer: deps.finalizer } : {}),
         ...(deps.controlDir === undefined ? {} : { controlDir: deps.controlDir }),
         ...(deps.controlScope === undefined ? {} : { controlScope: deps.controlScope }),
+        ...(deps.abortRun ? { abortRun: deps.abortRun } : {}),
         inbox,
       })
     if (!deps.loadPriorCoordination && !resolveTools && !observeNodeEvent) {

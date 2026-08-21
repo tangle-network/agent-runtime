@@ -27,6 +27,12 @@
  *                                  acknowledger in the OWNING manager's turn loop: exact node
  *                                  ids route to the manager that parents them (any depth);
  *                                  label/profile-name references to the root manager alone
+ *   cancellations/run.request.json the run-scoped cancel request — one {@link RunCancelRequest},
+ *                                  the whole RUN rather than one worker
+ *   cancellations/run.json         the acknowledgement for the run-scoped request — a
+ *                                  {@link RunCancellation} written ONLY by the runtime (the root
+ *                                  manager issues the abort; the `supervise()` settle path records
+ *                                  what the run actually did)
  *
  * Reads are tolerant by contract: a partial trailing line (a writer mid-append) or a corrupt line
  * never poisons the rest of the file — later valid lines still matter.
@@ -126,6 +132,43 @@ export interface WorkerCancellation {
    * is proven.
    */
   readonly terminated: ReadonlyArray<string>
+}
+
+/** One durable run-scoped cancel request: cancel the WHOLE run, not one worker. */
+export interface RunCancelRequest {
+  /** Caller-minted stable operation identifier — the idempotency key of the whole operation. */
+  readonly operationId: string
+  /** ISO timestamp of the write. */
+  readonly at: string
+  /** Who asked — 'human', a brain label, a tool name. Provenance, not authorization. */
+  readonly source: string
+  readonly reason?: string
+}
+
+/**
+ * The durable acknowledgement state for the run-scoped cancel operation, keyed by `operationId`.
+ * The runtime is the ONLY writer; {@link cancelRun} only reads it.
+ *
+ * `effect` is the same {@link RetainedRunEffect} vocabulary the worker-scoped and retained-run
+ * paths use, so the runtime has one spelling of the four cancellation states:
+ *  - `'unknown'`          — no runtime has answered yet. Never a success.
+ *  - `'cancel_requested'` — the root manager issued the run's cascading abort; the run's terminal
+ *                           state is not yet observed.
+ *  - `'cancelled'`        — the run reached its terminal state ABORTED after that request.
+ *  - `'not_live'`         — the run was not live to cancel: it settled on its own despite the
+ *                           request, or it ended before the request was applied.
+ */
+export interface RunCancellation {
+  readonly operationId: string
+  readonly effect: RetainedRunEffect
+  /** ISO timestamp of the original request. */
+  readonly requestedAt: string
+  /** ISO timestamp of the runtime's most recent observation of this operation. */
+  readonly observedAt: string
+  /** The caller's reason, carried verbatim from the request. */
+  readonly reason?: string
+  /** The runtime's explanation of how it arrived at `effect`. */
+  readonly detail?: string
 }
 
 /** The root every supervisor run of one workspace lives under. */
@@ -392,6 +435,135 @@ export function cancelWorker(
     detail: 'request queued; no runtime acknowledger has answered yet',
     terminated: [],
   }
+}
+
+/** The run-scoped cancel request file of one run — one {@link RunCancelRequest}. */
+export function runCancelRequestFile(eventDir: string): string {
+  return join(workerCancellationsDir(eventDir), 'run.request.json')
+}
+
+/** The run-scoped acknowledgement file of one run — one {@link RunCancellation}. */
+export function runCancellationFile(eventDir: string): string {
+  return join(workerCancellationsDir(eventDir), 'run.json')
+}
+
+/** Read the run-scoped cancel request, or `undefined` when none was written. */
+export function readRunCancelRequest(eventDir: string): RunCancelRequest | undefined {
+  const file = runCancelRequestFile(eventDir)
+  if (!existsSync(file)) return undefined
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<RunCancelRequest>
+  if (!isRunCancelRequest(parsed)) {
+    throw new Error(`run cancel request '${file}' is not a complete RunCancelRequest`)
+  }
+  return parsed
+}
+
+/**
+ * Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has
+ * not answered. A record holding a DIFFERENT `operationId` belongs to another operation on the
+ * same run — fail loud rather than answer for it.
+ */
+export function readRunCancellation(
+  eventDir: string,
+  operationId: string,
+): RunCancellation | undefined {
+  const file = runCancellationFile(eventDir)
+  if (!existsSync(file)) return undefined
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as RunCancellation
+  if (parsed.operationId !== operationId) {
+    throw new Error(
+      `run cancel acknowledgement '${file}' holds operation '${parsed.operationId}', not ` +
+        `'${operationId}' — one run carries one run-scoped cancel operation`,
+    )
+  }
+  return parsed
+}
+
+/**
+ * Durably write the run-scoped acknowledgement. Write-then-rename, so a concurrent reader sees the
+ * prior complete record or the new complete record, never a partial file.
+ *
+ * @internal The runtime is the only intended writer; clients read via {@link readRunCancellation}
+ * or {@link cancelRun}.
+ */
+export function writeRunCancellation(eventDir: string, record: RunCancellation): void {
+  const dir = workerCancellationsDir(eventDir)
+  mkdirSync(dir, { recursive: true })
+  const file = runCancellationFile(eventDir)
+  const tmp = `${file}.${randomUUID()}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+  renameSync(tmp, file)
+}
+
+/**
+ * Request the cancellation of the WHOLE run, idempotently, and return the operation's current
+ * durable state.
+ *
+ * The run-scoped twin of {@link cancelWorker}: write the request into the run's cancellation
+ * directory, where the run's own root manager applies it — aborting the root through the one
+ * cascade controller the run already has, so every live worker comes down with it. This function
+ * never applies the cancellation itself; writing a request file is not an acknowledgement.
+ *
+ * Idempotency is a lookup: when an acknowledgement for `operationId` already exists it is returned
+ * AS-IS and nothing is written. A request the runtime has not answered yet returns
+ * `effect: 'unknown'` (never a success); call again with the same `operationId` — or
+ * {@link readRunCancellation} — to read the acknowledged result after a reconnect.
+ *
+ * A run carries ONE run-scoped operation: a second request under a different `operationId` throws
+ * rather than silently replacing the pending one, because both would claim the same single abort.
+ */
+export function cancelRun(
+  eventDir: string,
+  operationId: string,
+  options: { readonly reason?: string; readonly source?: string } = {},
+): RunCancellation {
+  const opId = operationId.trim()
+  if (!opId) throw new Error('cancelRun: operationId is empty')
+  const acknowledged = readRunCancellation(eventDir, opId)
+  if (acknowledged) return acknowledged
+  const pending = readRunCancelRequest(eventDir)
+  if (pending !== undefined && pending.operationId !== opId) {
+    throw new Error(
+      `cancelRun: run cancel '${pending.operationId}' is already pending for this run; ` +
+        `read it with readRunCancellation instead of issuing '${opId}'`,
+    )
+  }
+  const source = options.source ?? 'human'
+  const request: RunCancelRequest = pending ?? {
+    operationId: opId,
+    at: new Date().toISOString(),
+    source,
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+  }
+  if (pending === undefined) {
+    mkdirSync(workerCancellationsDir(eventDir), { recursive: true })
+    writeFileSync(runCancelRequestFile(eventDir), `${JSON.stringify(request, null, 2)}\n`, 'utf8')
+    appendWorkerControlEvent(eventDir, 'run', {
+      kind: 'run-cancel-request',
+      operationId: opId,
+      source,
+      queued: true,
+      ...(options.reason === undefined ? {} : { reason: options.reason }),
+    })
+  }
+  return {
+    operationId: opId,
+    effect: 'unknown',
+    requestedAt: request.at,
+    observedAt: request.at,
+    ...(request.reason === undefined ? {} : { reason: request.reason }),
+    detail: 'request queued; no runtime acknowledger has answered yet',
+  }
+}
+
+function isRunCancelRequest(value: Partial<RunCancelRequest>): value is RunCancelRequest {
+  return (
+    typeof value.operationId === 'string' &&
+    value.operationId.length > 0 &&
+    typeof value.at === 'string' &&
+    typeof value.source === 'string' &&
+    (value.reason === undefined || typeof value.reason === 'string')
+  )
 }
 
 function isWorkerCancelRequest(value: Partial<WorkerCancelRequest>): value is WorkerCancelRequest {

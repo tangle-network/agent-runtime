@@ -65,10 +65,14 @@ import {
 } from './finalizer'
 import { createInbox, type Inbox } from './inbox'
 import {
+  type RunCancellation,
+  readRunCancellation,
+  readRunCancelRequest,
   readWorkerCancellation,
   readWorkerCancelRequests,
   type WorkerCancellation,
   type WorkerCancelRequest,
+  writeRunCancellation,
   writeWorkerCancellation,
 } from './run-layout'
 import { meterRuntimeOwnedProviderAttempt } from './scope'
@@ -233,6 +237,14 @@ export interface DriverAgentOptions {
    * run ended too soon to observe — so a reader can tell run-over from in-progress.
    */
   readonly controlScope?: 'run' | 'subtree'
+  /**
+   * Abort the WHOLE run — the seam a run-scoped cancel request (`cancelRun`) is applied through.
+   * Wired by `supervise()` to the run's ONE cascade controller (the attached root control), so a
+   * run cancel takes the same path a caller's `RootHandle.abort` takes; there is no second
+   * controller and no poller. Read only by the `'run'`-scoped manager with a `controlDir`; omit
+   * and a run-scoped request stays unanswered.
+   */
+  readonly abortRun?: (reason: string) => void
 }
 
 /** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
@@ -367,6 +379,10 @@ interface CancelAcknowledgerDeps {
   /** `'run'` also owns label/profile-name references (the tree root's role); `'subtree'` owns
    *  exact direct-child node ids only. See `DriverAgentOptions.controlScope`. */
   readonly controlScope: 'run' | 'subtree'
+  /** Abort the WHOLE run through the one cascade controller it already has. Present only on the
+   *  `'run'`-scoped manager, and only when the caller wired a root control; without it a
+   *  run-scoped cancel request is not this manager's to apply. */
+  readonly abortRun?: (reason: string) => void
 }
 
 /**
@@ -394,10 +410,14 @@ interface CancelAcknowledgerDeps {
  * acknowledgement is returned as-is and never re-applied.
  */
 function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
-  pass(): void
+  /** `'turn'` = a driver turn boundary (the only phase that APPLIES a request); `'final'` = the
+   *  post-drain pass, which only reconciles records the run already wrote. */
+  pass(phase: 'turn' | 'final'): void
   finish(): void
 } {
   const tracked = new Map<string, WorkerCancellation>()
+  // The run-scoped operation this manager has already applied, so its abort is issued once.
+  let runTracked: RunCancellation | undefined
   // The abort-issue instant per operation (the `observedAt` written on its `cancel_requested`
   // record) — the terminated-set window survives the record moving to `cancelled`.
   const abortIssuedAt = new Map<string, string>()
@@ -525,7 +545,41 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
     }
   }
 
-  const pass = (): void => {
+  /**
+   * The RUN-scoped request: seen once, `cancel_requested` written the moment the run's cascading
+   * abort is issued through the one controller the run already has. The `supervise()` settle path
+   * records what the run then actually did — this manager cannot observe its own tree's terminal
+   * state from inside `act`.
+   *
+   * Applied only at a TURN boundary, never on the final post-drain pass: by then the driver has
+   * finished and drained, so a root abort could only void work that is already delivered. A
+   * request that arrives that late expires in `finish()` instead — it terminated nothing.
+   */
+  const passRun = (): void => {
+    if (deps.controlScope !== 'run' || deps.abortRun === undefined) return
+    const request = readRunCancelRequest(deps.dir)
+    if (request === undefined) return
+    if (runTracked !== undefined) return
+    const prior = readRunCancellation(deps.dir, request.operationId)
+    if (prior !== undefined) {
+      runTracked = prior
+      return
+    }
+    const record: RunCancellation = {
+      operationId: request.operationId,
+      effect: 'cancel_requested',
+      requestedAt: request.at,
+      observedAt: iso(),
+      ...(request.reason === undefined ? {} : { reason: request.reason }),
+      detail: 'root abort issued to the whole run; termination not yet proven',
+    }
+    writeRunCancellation(deps.dir, record)
+    runTracked = record
+    deps.abortRun(request.reason ?? 'run cancel requested')
+  }
+
+  const pass = (phase: 'turn' | 'final'): void => {
+    if (phase === 'turn') passRun()
     for (const request of readWorkerCancelRequests(deps.dir)) {
       if (!owned(request.worker)) continue
       let record = tracked.get(request.operationId)
@@ -547,6 +601,25 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
   return {
     pass,
     finish(): void {
+      const runRequest =
+        deps.controlScope === 'run' && deps.abortRun !== undefined
+          ? readRunCancelRequest(deps.dir)
+          : undefined
+      if (
+        runRequest !== undefined &&
+        readRunCancellation(deps.dir, runRequest.operationId) === undefined
+      ) {
+        // The request landed after the last turn boundary. The run is over, so it terminated
+        // nothing — recording it here keeps a reader from seeing an operation that never resolves.
+        writeRunCancellation(deps.dir, {
+          operationId: runRequest.operationId,
+          effect: 'not_live',
+          requestedAt: runRequest.at,
+          observedAt: iso(),
+          ...(runRequest.reason === undefined ? {} : { reason: runRequest.reason }),
+          detail: 'run ended before the request was applied',
+        })
+      }
       for (const request of readWorkerCancelRequests(deps.dir)) {
         if (!owned(request.worker)) continue
         const record =
@@ -723,6 +796,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               now,
               ownerId: scope.view.root,
               controlScope: opts.controlScope ?? 'run',
+              ...(opts.abortRun ? { abortRun: opts.abortRun } : {}),
             })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
@@ -962,7 +1036,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         // burning turns. Checked before each inference turn.
         hooks: {
           beforeTurn: (_turn, messages) => {
-            acknowledger?.pass()
+            acknowledger?.pass('turn')
             const pending = inbox.drain()
             if (pending.length > 0) {
               messages.push({ role: 'user', content: inbox.fold(pending) })
@@ -1008,7 +1082,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // Then expiry: run end closes every owned request that is still open (`not_live` never
       // applied, `unknown` issued-but-unproven) — a reader can tell run-over from in-progress,
       // and no pending request survives to abort a future spawn that matches by label.
-      acknowledger?.pass()
+      acknowledger?.pass('final')
       acknowledger?.finish()
       // Direct work is eligible only through `submit_result`, after the same injected independent
       // check workers face. Raw driver prose remains ineligible. The first passing submission wins;

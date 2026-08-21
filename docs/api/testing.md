@@ -321,6 +321,26 @@ acknowledgement file. At the end of `act`, the owner writes an expiry record for
 request still open: `not_live` for one never applied, `unknown` for an abort whose settle the
 run ended too soon to observe — so a reader can tell run-over from in-progress.
 
+##### abortRun?
+
+> `readonly` `optional` **abortRun?**: (`reason`) => `void`
+
+Abort the WHOLE run — the seam a run-scoped cancel request (`cancelRun`) is applied through.
+Wired by `supervise()` to the run's ONE cascade controller (the attached root control), so a
+run cancel takes the same path a caller's `RootHandle.abort` takes; there is no second
+controller and no poller. Read only by the `'run'`-scoped manager with a `controlDir`; omit
+and a run-scoped request stays unanswered.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
+
 ***
 
 ### RunGraphTestOptions
@@ -1822,6 +1842,27 @@ Which cancel requests this manager's acknowledger owns: `'run'` (default; the tr
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`controlScope`](runtime.md#controlscope)
+
+##### abortRun?
+
+> `readonly` `optional` **abortRun?**: (`reason`) => `void`
+
+Abort the whole run — the seam a run-scoped cancel request is applied through (router arm,
+ `'run'` scope only). See `DriverAgentOptions.abortRun`.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`abortRun`](runtime.md#abortrun)
 
 ##### brain
 
