@@ -26,7 +26,6 @@ import {
   applyWorkspacePlan,
   type HarnessId,
   hashWorkspacePlan,
-  materializeProfile,
   type ResolveAgentProfileResourcesOptions,
   resolveAgentProfileResources,
   type WorkspacePlan,
@@ -36,6 +35,7 @@ import {
 } from '@tangle-network/agent-profile-materialize'
 import {
   assertProfileMaterialization,
+  assertProfileMaterializes,
   profileMaterializationAxes,
   worktreeCliProfileMaterialization,
 } from '../agent/profile-materialization'
@@ -398,14 +398,7 @@ function prepareWorktreeProfile(
   const workspaceProfile = materializationOnlyProfile(profile)
   assertSupportedWorktreeProfile(profile, harness)
   assertSafeProfileResourcePaths(profile)
-  const plan = materializeProfile(workspaceProfile, harness)
-  if (plan.unsupported.length > 0) {
-    throw new Error(
-      `runWorktreeHarness: profile cannot be materialized for ${harness}: ${plan.unsupported
-        .map(({ dimension, reason }) => `${dimension}: ${reason}`)
-        .join('; ')}`,
-    )
-  }
+  const plan = assertProfileMaterializes(workspaceProfile, harness, 'runWorktreeHarness')
   assertSafeMaterializedPaths(plan)
   return { plan, resourceInstructions }
 }
