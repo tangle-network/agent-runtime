@@ -1524,7 +1524,8 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     const winningIteration = result.winner
       ? result.iterations.find((iteration) => iteration.index === result.winner?.iterationIndex)
       : result.iterations.at(-1)
-    const out = winningIteration?.output ?? sandboxLeafOutputFromEvents(winningIteration?.events ?? [])
+    const out =
+      winningIteration?.output ?? sandboxLeafOutputFromEvents(winningIteration?.events ?? [])
     const sandboxOutcome = winningIteration?.sandboxOutcome
     const outWithOutcome: SandboxLeafOut = {
       ...out,
