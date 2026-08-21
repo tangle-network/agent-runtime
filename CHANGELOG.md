@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.145.0
+
+### A sandbox settle names its served backend and says what it produced
+
+`SandboxLeafOut` and the steerable Sandbox session artifact carry `servedBackend` — the provider and model the platform reported serving the turn, read from the last `effectiveBackend` the event stream carried. It is absent when the platform reported nothing, and it is never filled from the request.
+
+`content` becomes `string | undefined` and travels with an explicit `output` marker: `{ kind: 'text', bytes }`, `{ kind: 'empty' }`, or `{ kind: 'absent' }`. `empty` means a text-bearing event was observed and carried nothing; `absent` means no text-bearing event was observed at all. The previous `?? ''` collapsed those two into one blob, so a box that produced nothing looked exactly like a box whose answer was lost.
+
+Both ride the executor artifact, so they reach `final.metadata.result` and the supervise settle record.
+
 ## 0.144.0
 
 ### Live executor output, one tool-call shape, and attested provider executors

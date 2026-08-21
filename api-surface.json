@@ -1319,6 +1319,7 @@
       "SandboxLeafOut": "type",
       "SandboxLineage": "type",
       "SandboxLineageHandle": "type",
+      "SandboxOutputMarker": "type",
       "SandboxRun": "type",
       "SandboxRunAbortError": "value",
       "SandboxSeam": "type",
