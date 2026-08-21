@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.150.0
+
+### A failed retained dispatch destroys only what that call created
+
+The Interface peer range becomes `^1.4.0`, which is where `AgentEnvironment.creation` (`created` | `replayed`) arrives.
+
+`startRetainedRun` wraps detached dispatch and exact-reference validation in cleanup that reads that receipt: an environment this call provisioned (`creation: 'created'`) is destroyed when dispatch or binding fails, and a `replayed` environment — or one whose creation the provider cannot prove — is kept, because another caller may hold it. A destroy that also fails raises an `AggregateError` carrying the dispatch error and the cleanup error, in that order.
+
+Previously every post-create failure kept the environment, so a failed dispatch could leave one paid cloud environment alive until its external lifetime expired.
+
 ## 0.149.0
 
 ### Every usage cost states its provenance

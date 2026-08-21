@@ -374,6 +374,76 @@ describe('retained runtime run control', () => {
     ])
   })
 
+  it('destroys exactly the environment this call created when dispatch fails', async () => {
+    // Braid measured the opposite failure first: an unconditional destroy deleted a workspace a
+    // same-key replay had returned. The provider's creation receipt is what separates the two.
+    let destroys = 0
+    const created = providerWithEnvironment({
+      creation: 'created',
+      async dispatch() {
+        throw new Error('connection lost after dispatch')
+      },
+      async destroy() {
+        destroys += 1
+      },
+    })
+    await expect(
+      startRetainedRun({
+        provider: created,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'created-key' },
+        turn: { prompt: 'go', turnId: 'created-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).rejects.toThrow('connection lost after dispatch')
+    expect(destroys).toBe(1)
+
+    const replayed = providerWithEnvironment({
+      creation: 'replayed',
+      async dispatch() {
+        throw new Error('connection lost after dispatch')
+      },
+      async destroy() {
+        destroys += 1
+      },
+    })
+    await expect(
+      startRetainedRun({
+        provider: replayed,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'replayed-key' },
+        turn: { prompt: 'go', turnId: 'replayed-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).rejects.toThrow('connection lost after dispatch')
+    // A pre-existing environment another caller may hold survives the failure.
+    expect(destroys).toBe(1)
+  })
+
+  it('reports both errors when destroying a created environment also fails', async () => {
+    const created = providerWithEnvironment({
+      creation: 'created',
+      async dispatch() {
+        throw new Error('connection lost after dispatch')
+      },
+      async destroy() {
+        throw new Error('destroy refused')
+      },
+    })
+    await expect(
+      startRetainedRun({
+        provider: created,
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'aggregate-key' },
+        turn: { prompt: 'go', turnId: 'aggregate-turn' },
+        onAdmission: recordedAdmissions().onAdmission,
+      }),
+    ).rejects.toMatchObject({
+      name: 'AggregateError',
+      errors: [
+        expect.objectContaining({ message: 'connection lost after dispatch' }),
+        expect.objectContaining({ message: 'destroy refused' }),
+      ],
+    })
+  })
+
   it('keeps an environment after dispatch becomes uncertain, but cleans an unused one', async () => {
     let destroys = 0
     const uncertain = providerWithEnvironment({
