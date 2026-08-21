@@ -83,10 +83,46 @@ export function assertExecutableAgentProfile(profile: AgentProfile, context: str
   }
 }
 
+/**
+ * Separate completion ceilings an exact profile may request.
+ *
+ * They are distinct because providers do not share one meaning for a single number: measured
+ * through the Tangle Router on 2026-08-10, `glm-5.2` accepted `max_tokens: 8` and still billed 135
+ * completion tokens — 132 reasoning, 3 visible — while `max_completion_tokens: 256` bounded the
+ * total. A path that cannot enforce a requested ceiling refuses the run instead of sending a
+ * number that means something else there.
+ */
+export interface ProfileTokenLimits {
+  /** Visible answer tokens, from `AgentProfile.model.maxVisibleOutputTokens`. */
+  readonly visible?: number
+  /** Hidden reasoning tokens, from `AgentProfile.model.maxReasoningTokens`. */
+  readonly reasoning?: number
+  /** Visible and reasoning tokens together, from `AgentProfile.model.maxTotalOutputTokens`. */
+  readonly total?: number
+}
+
+/** The ceilings one execution path actually sends, in the request fields it sends them as. */
+export interface AppliedTokenLimits {
+  /** Sent as `max_tokens`. */
+  readonly maxTokens?: number
+  /** Sent as `max_completion_tokens`. */
+  readonly maxCompletionTokens?: number
+}
+
+/** What a path was asked to enforce and what it sent, for the execution receipt. */
+export interface TokenLimitDecision {
+  readonly requested: ProfileTokenLimits
+  readonly applied: AppliedTokenLimits
+}
+
+/** The execution paths that lower a profile into a provider request. */
+export type ModelExecutionPath = 'router' | 'bridge' | 'sandbox' | 'provider'
+
 /** Generation and loop controls that may affect one model execution. */
 export interface ProfileModelExecutionSettings {
   readonly temperature?: number
-  readonly maxTokens?: number
+  /** Completion ceilings the profile requested. Empty when it requested none. */
+  readonly tokenLimits: ProfileTokenLimits
   readonly retry?: ResolvedRouterRetryPolicy
   readonly seed?: number
   readonly toolChoice?: 'auto' | 'required' | 'none'
@@ -98,7 +134,6 @@ export interface ProfileModelExecutionSettings {
 
 const PROFILE_MODEL_METADATA_KEYS = new Set([
   'extraBody',
-  'maxTokens',
   'maxTurns',
   'retry',
   'seed',
@@ -116,6 +151,11 @@ export function profileModelExecutionSettings(
   context: string,
 ): ProfileModelExecutionSettings {
   const metadata = profile.model?.metadata ?? {}
+  if (metadata.maxTokens !== undefined) {
+    throw new ConfigError(
+      `${context}: AgentProfile.model.metadata.maxTokens is ambiguous across providers; declare AgentProfile.model.maxVisibleOutputTokens, maxReasoningTokens, or maxTotalOutputTokens instead`,
+    )
+  }
   const unknown = Object.keys(metadata).filter((key) => !PROFILE_MODEL_METADATA_KEYS.has(key))
   if (unknown.length > 0) {
     throw new ConfigError(
@@ -123,7 +163,7 @@ export function profileModelExecutionSettings(
     )
   }
   const temperature = finiteNumber(metadata.temperature, `${context}: temperature`)
-  const maxTokens = positiveInteger(metadata.maxTokens, `${context}: maxTokens`)
+  const tokenLimits = profileTokenLimits(profile, context)
   const retryInput = metadata.retry
   const retry =
     retryInput === undefined
@@ -150,7 +190,7 @@ export function profileModelExecutionSettings(
   }
   return {
     ...(temperature !== undefined ? { temperature } : {}),
-    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    tokenLimits,
     ...(retry !== undefined ? { retry } : {}),
     ...(seed !== undefined ? { seed } : {}),
     ...(toolChoice !== undefined ? { toolChoice } : {}),
@@ -160,6 +200,99 @@ export function profileModelExecutionSettings(
     ...(maxTurns !== undefined ? { maxTurns } : {}),
     ...(stream !== undefined ? { stream } : {}),
   }
+}
+
+/**
+ * Read the completion ceilings an exact profile declares. The Interface schema already refines
+ * these fields, but a profile can reach an executor without a parse, so the same rules are
+ * enforced here: positive integers, and no single ceiling above the total.
+ */
+export function profileTokenLimits(
+  profile: Pick<AgentProfile, 'model'>,
+  context: string,
+): ProfileTokenLimits {
+  const model = profile.model
+  const visible = positiveInteger(
+    model?.maxVisibleOutputTokens,
+    `${context}: maxVisibleOutputTokens`,
+  )
+  const reasoning = positiveInteger(model?.maxReasoningTokens, `${context}: maxReasoningTokens`)
+  const total = positiveInteger(model?.maxTotalOutputTokens, `${context}: maxTotalOutputTokens`)
+  if (total !== undefined) {
+    for (const [name, value] of [
+      ['maxVisibleOutputTokens', visible],
+      ['maxReasoningTokens', reasoning],
+    ] as const) {
+      if (value !== undefined && value > total) {
+        throw new ConfigError(
+          `${context}: AgentProfile.model.${name} (${value}) exceeds maxTotalOutputTokens (${total})`,
+        )
+      }
+    }
+  }
+  return {
+    ...(visible !== undefined ? { visible } : {}),
+    ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(total !== undefined ? { total } : {}),
+  }
+}
+
+/**
+ * Lower the requested ceilings onto one execution path, or refuse the run before any paid
+ * transport.
+ *
+ * - Router and OpenAI-compatible routes send the visible ceiling as `max_tokens` and the total as
+ *   `max_completion_tokens`.
+ * - The CLI Bridge lowers ONE completion cap into the run's model catalog, so it carries the total
+ *   as `max_tokens` and cannot bound the visible half on its own.
+ * - The Sandbox and environment-provider paths expose no completion cap at all.
+ * - No route publishes a reasoning-token budget, so a reasoning ceiling is refused everywhere.
+ *   `AgentProfile.model.reasoningEffort` is an intensity dial, not a token bound.
+ */
+export function enforceTokenLimits(
+  limits: ProfileTokenLimits,
+  path: ModelExecutionPath,
+  context: string,
+): TokenLimitDecision {
+  const refuse = (field: string, reason: string): never => {
+    throw new ConfigError(
+      `${context}: AgentProfile.model.${field} cannot be enforced on the ${path} path (${reason}); remove the ceiling or select a path that enforces it`,
+    )
+  }
+  if (limits.reasoning !== undefined) {
+    refuse('maxReasoningTokens', 'no route exposes a reasoning-token budget')
+  }
+  if (path === 'router') {
+    return {
+      requested: limits,
+      applied: {
+        ...(limits.visible !== undefined ? { maxTokens: limits.visible } : {}),
+        ...(limits.total !== undefined ? { maxCompletionTokens: limits.total } : {}),
+      },
+    }
+  }
+  if (path === 'bridge') {
+    if (limits.visible !== undefined) {
+      refuse('maxVisibleOutputTokens', 'the bridge lowers one completion cap covering both halves')
+    }
+    return {
+      requested: limits,
+      applied: {
+        ...(limits.total !== undefined ? { maxTokens: limits.total } : {}),
+      },
+    }
+  }
+  if (limits.visible !== undefined) refuse('maxVisibleOutputTokens', 'the backend accepts no cap')
+  if (limits.total !== undefined) refuse('maxTotalOutputTokens', 'the backend accepts no cap')
+  return { requested: limits, applied: {} }
+}
+
+/** The receipt form of one path's ceilings: what was asked for, and what was sent. */
+export function tokenLimitReceipt(decision: TokenLimitDecision): {
+  readonly requested: ProfileTokenLimits
+  readonly applied: AppliedTokenLimits
+} {
+  return { requested: decision.requested, applied: decision.applied }
 }
 
 function finiteNumber(value: unknown, context: string): number | undefined {

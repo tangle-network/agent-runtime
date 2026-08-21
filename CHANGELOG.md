@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.146.0
+
+### Separate visible, reasoning, and total completion ceilings
+
+`AgentProfile.model.maxVisibleOutputTokens`, `maxReasoningTokens`, and `maxTotalOutputTokens` (Agent Interface since 0.48.0) are now enforced. Measured through the Tangle Router on 2026-08-10: `glm-5.2` accepted `max_tokens: 8` and still billed 135 completion tokens — 132 reasoning, 3 visible — while `max_completion_tokens: 256` bounded the billed total. One number could not express both.
+
+Per path:
+
+- Router and OpenAI-compatible routes send the visible ceiling as `max_tokens` and the total as `max_completion_tokens`.
+- The CLI Bridge carries the total as its single completion cap; a visible-only ceiling is refused there.
+- The Sandbox and environment-provider paths expose no completion cap, so any ceiling is refused.
+- No route publishes a reasoning-token budget, so `maxReasoningTokens` is refused on every path. `AgentProfile.model.reasoningEffort` remains an intensity dial, not a token bound.
+
+A refusal is a `ConfigError` raised before any paid transport, and every planned execution declaration records `tokenLimits: { requested, applied }`, so the receipt says what was asked for and what was sent.
+
+`AgentProfile.model.metadata.maxTokens` is removed. A profile that still sets it fails with an error naming the three fields that replace it. `superviseSurface` no longer derives a worker's token budget from that field: a per-completion ceiling is not a per-worker budget, so the budget comes from the conserved pool alone.
+
+`profileChatClient` compares a caller's `maxTokens` against the visible ceiling the router path actually sends.
+
 ## 0.145.0
 
 ### A sandbox settle names its served backend and says what it produced

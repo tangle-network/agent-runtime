@@ -311,8 +311,9 @@ export async function superviseSurface(
     maxIterations: (innerTurns + 2) * 5 + 16,
     maxTokens: 1_000_000_000,
   }
-  const workerMaxTokens =
-    profileMaxTokens(opts.worker.profile) ?? Math.max(1, Math.floor(budget.maxTokens / 8))
+  // A worker's share of the conserved pool. It is deliberately not read from the profile: the
+  // profile's ceilings bound ONE completion, while this bounds everything a worker may spend.
+  const workerMaxTokens = Math.max(1, Math.floor(budget.maxTokens / 8))
 
   // Every spawned worker is a BYO executor that runs the surface task; the deliverable is the completion
   // oracle (delivered ⟺ the surface check passed).
@@ -365,15 +366,4 @@ export async function superviseSurface(
     ms: sp.ms,
     completions: sp.iterations,
   }
-}
-
-function profileMaxTokens(profile: AgentProfile): number | undefined {
-  const value = profile.model?.metadata?.maxTokens
-  if (value === undefined) return undefined
-  if (!Number.isSafeInteger(value) || (value as number) < 1) {
-    throw new Error(
-      'superviseSurface: AgentProfile.model.metadata.maxTokens must be a positive safe integer',
-    )
-  }
-  return value as number
 }

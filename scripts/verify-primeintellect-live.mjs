@@ -275,7 +275,8 @@ function exactProfile(name, instruction, model) {
     model: {
       provider,
       default: model,
-      metadata: { temperature: 0, maxTokens: 192, maxRetries: 1 },
+      metadata: { temperature: 0, maxRetries: 1 },
+      maxVisibleOutputTokens: 192,
     },
     prompt: { systemPrompt: instruction },
   }

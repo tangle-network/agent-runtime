@@ -1469,6 +1469,8 @@
       "WorkerCancelRequest": "type",
       "WorkerCancellation": "type",
       "WorkerEvidenceInput": "type",
+      "WorkerInteractiveSession": "type",
+      "WorkerInteractiveUnavailableReason": "type",
       "WorkerProgress": "type",
       "WorkerResumeContext": "type",
       "WorkerSpawnContext": "type",

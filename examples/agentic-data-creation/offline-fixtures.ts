@@ -195,7 +195,8 @@ export function buildRubricJudge(): JudgeConfig<SolverArtifact> {
       model: {
         provider: 'scripted',
         default: 'offline-judge',
-        metadata: { temperature: 0.1, maxTokens: 800 },
+        metadata: { temperature: 0.1 },
+        maxVisibleOutputTokens: 800,
       },
       prompt: { systemPrompt },
     },

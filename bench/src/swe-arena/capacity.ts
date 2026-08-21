@@ -141,7 +141,8 @@ export function httpCapacityProbe(spec: HttpProbeSpec): CapacityProbe {
           model: {
             provider: spec.provider,
             default: spec.model,
-            metadata: { temperature: 0, maxTokens: spec.maxTokens ?? 8000 },
+            metadata: { temperature: 0 },
+            maxVisibleOutputTokens: spec.maxTokens ?? 8000,
           },
           prompt: { systemPrompt: 'Reply with the single word OK.' },
         },

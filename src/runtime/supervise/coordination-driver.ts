@@ -72,12 +72,7 @@ import {
   writeWorkerCancellation,
 } from './run-layout'
 import { meterRuntimeOwnedProviderAttempt } from './scope'
-import {
-  createProgressTracker,
-  type ProgressTracker,
-  type StopDecision,
-  type StopRule,
-} from './stop-rules'
+import { createProgressTracker, progressStop, type StopRule } from './stop-rules'
 import type {
   Agent,
   Budget,
@@ -290,37 +285,6 @@ function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
 function deadlinePassed(scope: Scope<unknown>, now: () => number): boolean {
   const b = scope.budget
   return b.deadlineMs > 0 && now() >= b.deadlineMs
-}
-
-/**
- * The PROGRESS-derived stop, evaluated strictly AFTER the hard ceilings above.
- *
- * Ordering is the contract, not a detail: `poolStarved` / `deadlinePassed` / abort / the driver's
- * own stop are checked first and independently, so a stop rule can only ever ADD a stop — it can
- * never keep a run alive past a budget it has exhausted. The rule reads the settled-work ledger
- * (via the tracker) plus the live worker feed off the scope; it spends nothing to do so.
- */
-function progressStop(
-  tracker: ProgressTracker,
-  rule: StopRule,
-  coord: { settled(): ReadonlyArray<SettledWorker> },
-  scope: Scope<unknown>,
-  now: () => number,
-  stallAfterMs: number | undefined,
-): StopDecision {
-  // Fold every settlement the coordination ledger has recorded. `record` is idempotent by worker
-  // id, so pushing the whole roster each turn costs O(settled) and never double-counts. The
-  // timestamp is when the DRIVER observed the settlement, which is the resolution a per-turn guard
-  // has; `SettledWorker.settledAt` carries the real instant when the ledger recorded one.
-  for (const w of coord.settled()) {
-    tracker.record({
-      id: w.id,
-      at: w.settledAt ?? now(),
-      ...(w.score !== undefined ? { objective: w.score } : {}),
-      delivered: w.status === 'done' && w.valid === true,
-    })
-  }
-  return tracker.evaluate(rule, scope, stallAfterMs !== undefined ? { stallAfterMs } : undefined)
 }
 
 function providerAttemptEvidence(model: string | undefined): ProviderModelExecutionEvidence {

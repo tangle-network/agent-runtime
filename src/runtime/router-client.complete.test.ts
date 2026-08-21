@@ -379,6 +379,28 @@ describe('RouterConfig.complete — the injected completion transport', () => {
     expect(seen[2]?.max_tokens).toBe(32_768)
   })
 
+  it('sends the total completion ceiling as max_completion_tokens beside max_tokens', async () => {
+    // A reasoning model can spend a whole `max_tokens` budget on hidden thinking, so the two
+    // ceilings must reach the provider as two different fields.
+    const seen: Array<Record<string, unknown>> = []
+    const complete = async (body: Record<string, unknown>) => {
+      seen.push(body)
+      return { choices: [{ message: { content: 'done' } }] }
+    }
+    await routerChatWithUsage(
+      {
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'k',
+        model: 'glm-5.2',
+        complete,
+        maxTokens: 8,
+        maxCompletionTokens: 256,
+      },
+      [{ role: 'user', content: 'bounded' }],
+    )
+    expect(seen[0]).toMatchObject({ max_tokens: 8, max_completion_tokens: 256 })
+  })
+
   it('accepts multimodal messages and provider fields without letting extras replace canonical fields', async () => {
     const content = [
       { type: 'text', text: 'describe this image' },

@@ -48,7 +48,8 @@ const parityCell = (shots: number): CellSpec => ({
     model: {
       provider: 'scripted',
       default: 'scripted/parity-coder',
-      metadata: { temperature: 0.7, maxTokens: 2500 },
+      metadata: { temperature: 0.7 },
+      maxVisibleOutputTokens: 2500,
     },
     prompt: { systemPrompt: 'Make tests pass.' },
   },
@@ -58,7 +59,8 @@ const parityCell = (shots: number): CellSpec => ({
     model: {
       provider: 'scripted',
       default: 'scripted/parity-reviewer',
-      metadata: { temperature: 0.9, maxTokens: 600 },
+      metadata: { temperature: 0.9 },
+      maxVisibleOutputTokens: 600,
     },
     prompt: { systemPrompt: 'Verify.' },
   },

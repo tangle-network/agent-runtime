@@ -15539,9 +15539,14 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 > `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule)
 
-PROGRESS-derived stop rule (router-brained supervisor). Ends a run that has stopped LEARNING
-before it exhausts a ceiling — the answer to "a run should end because it is done or stuck,
-not because it ran out". It composes with the budget guards and can never override one.
+PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
+exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
+it ran out". It composes with the budget guards and can never override one.
+
+The evaluation boundary differs by arm because the loop does: a router-brained supervisor is
+evaluated before each of its own inference turns; a harness-brained supervisor is evaluated on
+each worker settle, and a stop aborts its stop signal so the harness ends at its next turn
+boundary. Both arms fold the same settled ledger through the same evaluator.
 
 Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
 `noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
@@ -15552,8 +15557,8 @@ only (unchanged behavior).
 
 > `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
 
-One-shot notification of WHY a `stopRule` ended the run — so a caller records the reason
- instead of inferring an early stop from an unexhausted budget.
+One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
+ reason instead of inferring an early stop from an unexhausted budget.
 
 ###### Parameters
 
@@ -15573,15 +15578,24 @@ One-shot notification of WHY a `stopRule` ended the run — so a caller records 
 
 > `readonly` `optional` **maxTurns?**: `number`
 
+Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns of the
+ driver's tool loop. Harness arm: turns the harness reports, counted off its `iteration`
+ stream — reaching the cap aborts the stop signal, so the harness ends at its next turn
+ boundary rather than mid-request. `0` lifts the cap on both arms and leaves the conserved
+ pool, the deadline, and abort as the bounds; a negative value is refused. Omit = the router
+ arm's default cap, and no turn cap on the harness arm.
+
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only): once
- its coordination transcript exceeds `thresholdTokens` it distills to a compact progress note and
- continues, instead of re-billing the whole transcript every turn (the cost that makes the LLM-brain
- front door lose to a dumb-Ralph respawn). The live `Scope` roster is the durable state across
- chapters. Default off. `distill` defaults to a brain self-summary + the settled-worker roster.
+Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
+ a harness owns its own context window and its own compaction, so this is refused for a
+ harness-brained supervisor rather than silently ignored): once its coordination transcript
+ exceeds `thresholdTokens` it distills to a compact progress note and continues, instead of
+ re-billing the whole transcript every turn (the cost that makes the LLM-brain front door lose
+ to a dumb-Ralph respawn). The live `Scope` roster is the durable state across chapters.
+ Default off. `distill` defaults to a brain self-summary + the settled-worker roster.
 
 ##### runId?
 
@@ -16248,8 +16262,10 @@ Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attache
 
 > `readonly` `optional` **stopRule?**: [`StopRule`](#stoprule)
 
-PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BEFORE it
- exhausts a ceiling; it can never keep a run alive past one. Build it with `plateau` /
+PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped learning BEFORE it
+ exhausts a ceiling; it can never keep a run alive past one. Router arm: evaluated before each
+ driver inference turn. External arm: evaluated on each worker settle, and a stop aborts
+ `stopSignal` so the harness ends at its next turn boundary. Build it with `plateau` /
  `noProgressFor` / `allWorkersStalled` from `supervise/stop-rules` — the thresholds are the
  caller's judgment. Omit = ceilings only.
 
@@ -16257,7 +16273,7 @@ PROGRESS-derived stop rule (router arm). Ends a run that has stopped learning BE
 
 > `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
 
-One-shot notification of WHY a `stopRule` ended the run.
+One-shot notification of WHY a `stopRule` ended the run (BOTH arms).
 
 ###### Parameters
 
@@ -16273,11 +16289,16 @@ One-shot notification of WHY a `stopRule` ended the run.
 
 > `readonly` `optional` **maxTurns?**: `number`
 
+Turn cap for the supervisor's own loop. Router arm: driver inference turns (see
+ `DriverAgentOptions.maxTurns`). External arm: the cap belongs to the harness loop, so
+ `supervise()` applies it in the drive seam it builds and this field is not read here.
+
 ##### compaction?
 
 > `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](#toolloopcompactionoptions)
 
-Give the supervisor brain a chapter-lifecycle on its OWN context window (router arm only) — it
+Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY; a
+ harness-brained supervisor is refused at construction rather than silently ignoring it) — it
  distills its coordination transcript to a compact progress note once it exceeds the threshold,
  instead of re-billing the whole thing every turn. See `DriverAgentOptions.compaction`.
 
@@ -21491,6 +21512,27 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 #### Returns
 
 [`DriveHarness`](#driveharness-1)
+
+***
+
+### WorkerInteractiveUnavailableReason
+
+> **WorkerInteractiveUnavailableReason** = `"unknown-node"` \| `"not-live"` \| `"executor-exposes-no-interactive-session"` \| `"provider-has-no-interactive-contract"` \| `"interactive-session-not-started"`
+
+Why Runtime cannot hand a caller the exact interactive process one worker runs in.
+
+***
+
+### WorkerInteractiveSession
+
+> **WorkerInteractiveSession** = \{ `status`: `"available"`; `handle`: [`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle); \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerInteractiveUnavailableReason`](#workerinteractiveunavailablereason); \}
+
+One worker's attachable process, or the named reason there is none.
+
+`available` carries the exact `RetainedInteractiveRunHandle` bound to THAT child's admitted
+execution: input, resize, ordered replay, detach, and an acknowledged close all check every
+provider answer against the session reference, so a second process that merely resumes the same
+conversation cannot present itself as this one. `unavailable` names why, and is never a handle.
 
 ***
 
