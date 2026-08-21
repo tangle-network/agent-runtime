@@ -15,13 +15,11 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve, sep, win32 } from 'node:path'
 import { isAnyArrayBuffer, isSharedArrayBuffer } from 'node:util/types'
-
 import type {
   AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
 import { type Entry, extract, type Pack, pack } from 'tar-stream'
-
 import {
   candidateWorkspaceManifest,
   captureMaterializedWorkspace,
@@ -35,6 +33,7 @@ import {
   embeddedCandidateArtifact,
   sha256Bytes,
 } from './digest'
+import { isWellFormedUnicode } from './exact-object'
 import {
   assertNoGitIndirection,
   readCandidateGitTreeFiles,
@@ -918,20 +917,6 @@ function detachWorkspaceBytes(input: {
   const copy = new Uint8Array(byteLength)
   Uint8Array.prototype.set.call(copy, new Uint8Array(buffer, byteOffset, byteLength))
   return copy
-}
-
-function isWellFormedUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index)
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (!(next >= 0xdc00 && next <= 0xdfff)) return false
-      index++
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return false
-    }
-  }
-  return true
 }
 
 function workspacePath(root: string, relativePath: string): string {

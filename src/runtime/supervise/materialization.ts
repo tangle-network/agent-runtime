@@ -588,3 +588,20 @@ function jsonWireSnapshot(value: unknown, path = '$'): unknown {
   }
   return out
 }
+
+/**
+ * The provider-identity evidence for ONE attempt, from the served model alone. `unknown` with a
+ * `provider-model-missing` reason when the attempt produced no model, because an attempt that
+ * cannot name what served it is not evidence that nothing did.
+ */
+export function providerAttemptEvidence(model: string | undefined): ProviderModelExecutionEvidence {
+  const attempts = Object.freeze([
+    Object.freeze({ observations: Object.freeze(model === undefined ? [] : [model]) }),
+  ])
+  const models = Object.freeze(model === undefined ? [] : [model])
+  return Object.freeze(
+    model === undefined
+      ? { status: 'unknown' as const, attempts, models, reason: 'provider-model-missing' as const }
+      : { status: 'known' as const, attempts, models },
+  )
+}
