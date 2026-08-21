@@ -26,6 +26,7 @@ describe('pricing work that carried no provider receipt', () => {
       usd: expected,
       usdKnown: false,
       usdEstimated: expected,
+      provenance: 'catalog-estimate',
     })
     expect(expected).toBeGreaterThan(0)
   })
@@ -46,7 +47,7 @@ describe('pricing work that carried no provider receipt', () => {
       outputTokens: 2_000,
       model: 'in-house/no-such-model-family',
     })
-    expect(event).toEqual({ kind: 'cost', usd: 0, usdKnown: false })
+    expect(event).toEqual({ kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' })
     expect(event.usdEstimated).toBeUndefined()
   })
 
@@ -55,6 +56,7 @@ describe('pricing work that carried no provider receipt', () => {
       kind: 'cost',
       usd: 0,
       usdKnown: false,
+      provenance: 'uncaptured',
     })
   })
 
@@ -64,6 +66,7 @@ describe('pricing work that carried no provider receipt', () => {
         kind: 'cost',
         usd: 0,
         usdKnown: false,
+        provenance: 'uncaptured',
       })
     }
   })
@@ -91,7 +94,7 @@ describe('a dollar total built from estimates', () => {
   it('keeps a receipt and an estimate separable through the fold', () => {
     const priced = priceUnreceiptedWork({ inputTokens: 10_000, outputTokens: 2_000, model: MODEL })
     const folded = spendFromUsageEvents([
-      { kind: 'cost', usd: 0.25 },
+      { kind: 'cost', usd: 0.25, usdKnown: true, provenance: 'provider-receipt' },
       priced,
       { kind: 'iteration' },
     ])
@@ -103,7 +106,10 @@ describe('a dollar total built from estimates', () => {
   })
 
   it('leaves a pure-receipt fold with no estimated part at all', () => {
-    const folded = spendFromUsageEvents([{ kind: 'cost', usd: 0.25 }, { kind: 'iteration' }])
+    const folded = spendFromUsageEvents([
+      { kind: 'cost', usd: 0.25, usdKnown: true, provenance: 'provider-receipt' },
+      { kind: 'iteration' },
+    ])
     expect(folded.usd).toBe(0.25)
     expect(folded.usdEstimated).toBeUndefined()
     expect(folded.usdKnown).toBeUndefined()

@@ -43,7 +43,7 @@ function cachingLeaf(
       return (async function* () {
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', ...tokens } as UsageEvent
-        yield { kind: 'cost', usd } as UsageEvent
+        yield { kind: 'cost', usd, usdKnown: true, provenance: 'provider-receipt' } as UsageEvent
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),

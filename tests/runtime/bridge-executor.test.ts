@@ -1202,6 +1202,47 @@ describe('bridgeExecutor live observability', () => {
     ])
   })
 
+  it('keeps a Pi zero-catalog turn as reported tokens with unproven dollars', async () => {
+    // The reproduced failure (#732): Pi returned 7,579 fresh input, 8,832 cached input, 2 output
+    // tokens and `usage.cost.total: 0` because its local catalog has zero rates. cli-bridge sends
+    // that as `cost_known: false` with `cost_provenance: 'catalog-estimate'` (verified in
+    // cli-bridge `src/backends/pi.ts`), and Runtime must keep the tokens while refusing to read
+    // the zero as measured spend.
+    bridgeHttpHandler = () =>
+      streamOf([
+        frame(1, {
+          choices: [{ index: 0, delta: { content: 'done' } }],
+          usage: {
+            prompt_tokens: 16_411,
+            completion_tokens: 2,
+            cache_read_input_tokens: 8_832,
+            fresh_input_tokens: 7_579,
+            estimated_cost: 0,
+            cost_known: false,
+            cost_provenance: 'catalog-estimate',
+            cost_scope: 'total',
+          },
+        }),
+        'data: [DONE]\n\n',
+      ])
+    const executor = observedBridgeExecutor()
+    await drain(executor)
+
+    const spent = executor.resultArtifact().spent
+    expect(spent.tokens).toMatchObject({
+      input: 16_411,
+      output: 2,
+      cacheRead: 8_832,
+      freshInput: 7_579,
+    })
+    expect(spent.tokensKnown).not.toBe(false)
+    expect(spent.usdKnown).toBe(false)
+    // Runtime prices the unreceipted turn from its own catalog so the channel is not a silent
+    // zero, and labels every one of those dollars as an estimate: nothing here is billed spend.
+    expect(spent.usdEstimated).toBe(spent.usd)
+    expect(spent.usd).toBeGreaterThan(0)
+  })
+
   it('marks a tool call whose arguments the wire omitted as uncaptured, not as empty', async () => {
     bridgeHttpHandler = () =>
       streamOf([

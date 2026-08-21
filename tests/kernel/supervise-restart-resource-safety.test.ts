@@ -1107,7 +1107,7 @@ describe('supervision restart and resource safety', () => {
       async *execute(): AsyncIterable<UsageEvent> {
         yield { kind: 'iteration' }
         yield { kind: 'tokens', input: 1, output: 0 }
-        yield { kind: 'cost', usd: 0.1 }
+        yield { kind: 'cost', usd: 0.1, usdKnown: true, provenance: 'provider-receipt' }
         throw new Error('network died')
       },
       teardown: async () => ({ destroyed: true }),

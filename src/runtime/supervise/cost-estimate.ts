@@ -35,12 +35,12 @@ export interface UnreceiptedWork {
  * The turn then reads as unknown dollars, which is true, rather than as a free turn.
  */
 export function priceUnreceiptedWork(work: UnreceiptedWork): Extract<UsageEvent, { kind: 'cost' }> {
-  const unknown = { kind: 'cost', usd: 0, usdKnown: false } as const
+  const unknown = { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' } as const
   const { inputTokens, outputTokens, model } = work
   if (model === undefined || !isModelPriced(model)) return unknown
   if (!Number.isFinite(inputTokens) || !Number.isFinite(outputTokens)) return unknown
   if (inputTokens < 0 || outputTokens < 0) return unknown
   const usd = estimateCost(inputTokens, outputTokens, model)
   if (!Number.isFinite(usd) || usd <= 0) return unknown
-  return { kind: 'cost', usd, usdKnown: false, usdEstimated: usd }
+  return { kind: 'cost', usd, usdKnown: false, usdEstimated: usd, provenance: 'catalog-estimate' }
 }

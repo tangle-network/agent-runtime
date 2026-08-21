@@ -47,7 +47,12 @@ function workerLeaf(
       return (async function* () {
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', input: tokens.input, output: tokens.output } as UsageEvent
-        yield { kind: 'cost', usd: 0.25 } as UsageEvent
+        yield {
+          kind: 'cost',
+          usd: 0.25,
+          usdKnown: true,
+          provenance: 'provider-receipt',
+        } as UsageEvent
       })()
     },
     teardown: () => Promise.resolve({ destroyed: true }),

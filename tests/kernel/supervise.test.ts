@@ -551,7 +551,7 @@ describe('conserved budget pool', () => {
       { kind: 'iteration' },
       { kind: 'tokens', input: 10, output: 5 },
       { kind: 'tokens', input: 2, output: 3 },
-      { kind: 'cost', usd: 0.01 },
+      { kind: 'cost', usd: 0.01, usdKnown: true, provenance: 'provider-receipt' },
     ])
     expect(spend).toEqual({
       iterations: 1,
@@ -564,7 +564,7 @@ describe('conserved budget pool', () => {
   it('preserves explicitly unknown dollar cost in sync and async usage folds', async () => {
     const events: UsageEvent[] = [
       { kind: 'tokens', input: 12, output: 3 },
-      { kind: 'cost', usd: 0, usdKnown: false },
+      { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ]
     const expected: Spend = {
@@ -985,7 +985,7 @@ describe('equal-k by construction', () => {
         out: 'complete',
         events: [
           { kind: 'tokens', input: 12, output: 3 },
-          { kind: 'cost', usd: 0, usdKnown: false },
+          { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' },
           { kind: 'iteration' },
         ],
       }),
@@ -1017,7 +1017,7 @@ describe('equal-k by construction', () => {
         out: 'complete',
         events: [
           { kind: 'tokens', input: 12, output: 3 },
-          { kind: 'cost', usd: 0, usdKnown: false },
+          { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' },
           { kind: 'iteration' },
         ],
       }),
@@ -1073,7 +1073,16 @@ describe('equal-k by construction', () => {
       const events: UsageEvent[] = [
         { kind: 'iteration' },
         { kind: 'tokens', input: 100, output: 50 },
-        ...(cell.cost ? [{ kind: 'cost', usd: 0.25 } as UsageEvent] : []),
+        ...(cell.cost
+          ? [
+              {
+                kind: 'cost',
+                usd: 0.25,
+                usdKnown: true,
+                provenance: 'provider-receipt',
+              } as UsageEvent,
+            ]
+          : []),
       ]
       const spawned = scope.spawn(leafAgent('priced-leaf', { out: 'complete', events }), 'task', {
         label: 'priced-leaf',
@@ -1123,7 +1132,7 @@ describe('equal-k by construction', () => {
         events: [
           { kind: 'iteration' },
           { kind: 'tokens', input: 4000, output: 900 },
-          { kind: 'cost', usd: 0, usdKnown: false },
+          { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' },
         ],
       }),
       'task',
@@ -1159,7 +1168,7 @@ describe('equal-k by construction', () => {
         events: [
           { kind: 'iteration' },
           { kind: 'tokens', input: 100, output: 50 },
-          { kind: 'cost', usd: 0.25 },
+          { kind: 'cost', usd: 0.25, usdKnown: true, provenance: 'provider-receipt' },
         ],
       }),
       'task',

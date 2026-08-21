@@ -980,6 +980,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       usd: priced,
       usdKnown: false,
       usdEstimated: priced,
+      provenance: 'catalog-estimate',
     })
     const spend = spendFromUsageEvents(events)
     expect(spend.usdKnown).toBe(false)
@@ -1015,7 +1016,12 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const events = await drain(
       executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
     )
-    expect(events).toContainEqual({ kind: 'cost', usd: 0, usdKnown: false })
+    expect(events).toContainEqual({
+      kind: 'cost',
+      usd: 0,
+      usdKnown: false,
+      provenance: 'uncaptured',
+    })
     const spend = spendFromUsageEvents(events)
     expect(spend.usd).toBe(0)
     expect(spend.usdKnown).toBe(false)
@@ -1050,7 +1056,12 @@ describe('bridgeExecutor upstream-error propagation', () => {
       executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
     )
 
-    expect(events).toContainEqual({ kind: 'cost', usd: 0.012 })
+    expect(events).toContainEqual({
+      kind: 'cost',
+      usd: 0.012,
+      usdKnown: true,
+      provenance: 'provider-receipt',
+    })
     expect(executor.resultArtifact().spent).toMatchObject({ usd: 0.012 })
     expect(executor.resultArtifact().spent.usdKnown).not.toBe(false)
   })
@@ -1079,7 +1090,12 @@ describe('bridgeExecutor upstream-error propagation', () => {
       executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
     )
 
-    expect(events).toContainEqual({ kind: 'cost', usd: 0.0731 })
+    expect(events).toContainEqual({
+      kind: 'cost',
+      usd: 0.0731,
+      usdKnown: true,
+      provenance: 'provider-receipt',
+    })
     const spent = executor.resultArtifact().spent
     expect(spent).toMatchObject({ tokens: { input: 12_000, output: 900 }, usd: 0.0731 })
     // A receipt is a measurement, and a turn holding one is never catalog-priced on top.

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.149.0
+
+### Every usage cost states its provenance
+
+The `cost` variant of `UsageEvent` becomes a discriminated union: `usdKnown: true` requires `provenance: 'provider-receipt' | 'billing-receipt'`, and `usdKnown: false` requires `provenance: 'catalog-estimate' | 'uncaptured'`. A cost with no provenance no longer compiles, so a dollar figure can never reach the conserved pool as measured spend without naming the receipt behind it.
+
+Two paths change what they claim:
+
+- The environment-provider executor reported a provider event's `usage.cost` as known dollars. No provider event carries a billing receipt, so both its cost events and its terminal `Spend` now read `usdKnown: false` with `uncaptured` provenance — an observed floor, never measured spend.
+- `runBenchmark` recorded a thrown cell as `usd: 0, usdKnown: true, tokensKnown: true`. A cell that threw measured nothing, so both channels are now unknown and a comparison cannot sum them as a free cell.
+
+The CLI Bridge carries the exact receipt kind (`provider-receipt` / `billing-receipt`) from its decode onto the emitted event, and the unreceipted-turn fallback keeps its catalog price labelled as an estimate.
+
 ## 0.148.0
 
 ### Provider-neutral executor cancellation

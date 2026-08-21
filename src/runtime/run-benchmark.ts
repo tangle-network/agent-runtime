@@ -261,15 +261,18 @@ export async function runBenchmark(cfg: BenchmarkConfig): Promise<BenchmarkRepor
           }
         } catch (e) {
           errors[s.name] = e instanceof Error ? e.message.slice(0, 300) : String(e)
+          // The cell threw, so nothing about its spend was measured. Zeros here are the absence
+          // of a reading, not a free cell: mark both channels unknown so a comparison cannot sum
+          // them as measured zero.
           cells[s.name] = {
             score: 0,
             resolved: false,
             progression: [],
             usd: 0,
-            usdKnown: true,
+            usdKnown: false,
             ms: 0,
             tokens: { input: 0, output: 0 },
-            tokensKnown: true,
+            tokensKnown: false,
           }
         }
       }

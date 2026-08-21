@@ -961,7 +961,12 @@ describe('streamAgentTurn: executor backend', () => {
               progress: { kind: 'text_delta', text: 'listed the repository' },
             }
             yield { kind: 'tokens', input: 4, output: 3 }
-            yield { kind: 'cost', usd: 0.002 }
+            yield {
+              kind: 'cost',
+              usdKnown: true,
+              usd: 0.002,
+              provenance: 'provider-receipt',
+            }
             yield { kind: 'iteration' }
           },
           async teardown() {

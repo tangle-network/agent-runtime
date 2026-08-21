@@ -293,8 +293,10 @@ export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
   }
   if (ev.kind === 'cost') {
     totals.usd += ev.usd
-    totals.usdEstimated += ev.usdEstimated ?? 0
-    if (ev.usdKnown === false) totals.usdKnown = false
+    if (ev.usdKnown === false) {
+      totals.usdEstimated += ev.usdEstimated ?? 0
+      totals.usdKnown = false
+    }
     return
   }
   if (ev.kind === 'iteration') totals.iterations += 1
