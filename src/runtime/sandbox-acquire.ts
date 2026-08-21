@@ -101,7 +101,13 @@ export async function acquireSandbox(
   while (now() < deadline) {
     throwIfAborted(acquire.signal)
     try {
-      const box = await client.create(createOpts)
+      // The request carries the acquisition signal so an abort stops a pending
+      // control-plane create at once instead of waiting for its transport
+      // timeout. Acquire owns the deadline, so no request timeout is passed.
+      const box = await client.create(
+        createOpts,
+        acquire.signal === undefined ? undefined : { signal: acquire.signal },
+      )
       // Tear the just-created box down if it never reaches `running` (abort,
       // terminal status, budget) so a failed wait never leaks a live sandbox.
       return await waitReadyOrDestroy(box, deadline, pollMs, acquire.signal, now, sleep)
