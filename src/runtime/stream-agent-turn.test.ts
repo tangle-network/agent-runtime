@@ -630,6 +630,94 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
   })
 })
 
+describe('streamAgentTurn: provider-native child tasks', () => {
+  function childTaskEvent(
+    over: Partial<{
+      childId: string
+      parentChildId: string
+      status: 'started' | 'running' | 'completed'
+      sourceEventId: string
+      title: string
+    }>,
+  ): SandboxEvent {
+    const { childId = 'child-1', status = 'started', sourceEventId = 'evt-1', ...rest } = over
+    return {
+      type: 'child-task',
+      data: {
+        childId,
+        status,
+        sourceEventId,
+        time: { started: 1, updated: 1 },
+        runner: 'claude-code',
+        ...rest,
+      },
+    } as SandboxEvent
+  }
+
+  it('publishes two nested children and their updates once, live and on replay', async () => {
+    // Braid renders provider-native subagents without inferring identity from tool names or
+    // transcript order, so the child tree must come from the provider's own ids — including when
+    // a reconnect repeats an update it already delivered.
+    const client = inProcessSandboxClient({
+      onPrompt: () =>
+        [
+          childTaskEvent({ childId: 'parent-1', title: 'survey the repo' }),
+          childTaskEvent({
+            childId: 'child-a',
+            parentChildId: 'parent-1',
+            sourceEventId: 'evt-2',
+          }),
+          childTaskEvent({
+            childId: 'child-a',
+            parentChildId: 'parent-1',
+            status: 'completed',
+            sourceEventId: 'evt-3',
+          }),
+          // The same update again: a reconnect replay, not a second child.
+          childTaskEvent({
+            childId: 'child-a',
+            parentChildId: 'parent-1',
+            status: 'completed',
+            sourceEventId: 'evt-3',
+          }),
+          doneEvent({ tokenUsage: { inputTokens: 2, outputTokens: 1 } }),
+        ] as SandboxEvent[],
+    })
+    const box = await client.create()
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'delegate' }),
+    )
+
+    const children = turn.events.filter((event) => event.type === 'child-task')
+    expect(children.map((event) => [event.childId, event.status, event.sourceEventId])).toEqual([
+      ['parent-1', 'started', 'evt-1'],
+      ['child-a', 'started', 'evt-2'],
+      ['child-a', 'completed', 'evt-3'],
+    ])
+    expect(children[1]).toMatchObject({ parentChildId: 'parent-1', runner: 'claude-code' })
+    expect(children[0]).toMatchObject({ title: 'survey the repo' })
+  })
+
+  it('emits nothing for a child update the provider cannot identify', async () => {
+    const client = inProcessSandboxClient({
+      onPrompt: () =>
+        [
+          // No `childId`: the provider cannot name the child, so no normalized event exists.
+          {
+            type: 'child-task',
+            data: { status: 'started', sourceEventId: 'evt-9', time: { started: 1, updated: 1 } },
+          },
+          doneEvent({ tokenUsage: { inputTokens: 1, outputTokens: 1 } }),
+        ] as SandboxEvent[],
+    })
+    const box = await client.create()
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'delegate' }),
+    )
+    expect(turn.events.some((event) => event.type === 'child-task')).toBe(false)
+  })
+})
+
 describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
   it('receives EVERY raw sandbox event — including unmapped ones — before its projection, awaited', async () => {
     const log: string[] = []

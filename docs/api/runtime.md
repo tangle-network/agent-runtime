@@ -21630,12 +21630,61 @@ conversation cannot present itself as this one. `unavailable` names why, and is 
 
 ### ExecutorProgressEvent
 
-> **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \}
+> **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \} \| \{ `kind`: `"child_task"`; `event`: `ChildTaskEvent`; \}
 
 Live output observed while an executor runs, in Runtime's own vocabulary. It carries what the
 backend produced — text, reasoning, tool activity, an interaction request — and never carries
 accounting: tokens and dollars stay on the `tokens`/`cost` channels, so a progress event can
 never meter a budget.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"text_delta"`; `text`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"reasoning_delta"`; `text`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"child_task"`; `event`: `ChildTaskEvent`; \}
+
+###### kind
+
+> `readonly` **kind**: `"child_task"`
+
+One update of a provider-native child task — a subagent or delegated task the runner
+started inside this run. It is the Interface event verbatim, so a client rebuilds the
+child tree from provider identity (`childId`, `parentChildId`, `sourceEventId`) instead
+of inferring children from tool names or transcript order.
+
+###### event
+
+> `readonly` **event**: `ChildTaskEvent`
 
 ***
 

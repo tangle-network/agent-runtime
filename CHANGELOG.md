@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.151.0
+
+### Provider-native child tasks reach the turn stream
+
+Agent Interface 1.4.0 publishes a `child-task` stream event: one observed update of a subagent or delegated task a runner started inside the same run, carrying the provider's stable `childId`, its `parentChildId`, status, times, runner, model, usage, and a `sourceEventId` for replay.
+
+Runtime admits it. `child-task` joins the canonical stream-event vocabulary, so a sandbox- or provider-sourced update is decoded rather than dropped, executors publish it on the progress channel, and `streamAgentTurn` yields it verbatim — a client rebuilds the child tree from provider identity instead of inferring children from tool names, transcript text, or array position.
+
+One dedupe covers every backend kind: a repeated `sourceEventId` is the same update, so a reconnect or replay publishes it once. A provider that cannot report a stable `childId` produces no event at all, because the Interface schema rejects it.
+
 ## 0.150.0
 
 ### A failed retained dispatch destroys only what that call created
