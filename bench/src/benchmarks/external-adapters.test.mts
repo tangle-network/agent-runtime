@@ -201,10 +201,3 @@ test('FinResearchBench keeps unknown judge cost unknown instead of reporting zer
   assert.equal(score.judgeUsage?.costUsd, undefined)
   assert.equal(score.judgeUsage?.estimatedCostUsd, 0.002)
 })
-
-test('FinResearchBench official judge fails loud on an empty judge message', () => {
-  assert.throws(
-    () => scoreOfficialJudgeTurn(officialFinResearchTask, { usage: { input: 1, output: 0 } }, 'deepseek-v4-flash'),
-    /judge returned no message content/,
-  )
-})

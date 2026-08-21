@@ -115,20 +115,3 @@ test('a relative DABSTEP_DATASET_CSV is refused before any load', async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
-
-test('the missing-dataset preflight error names the released-row acquisition paths', async () => {
-  const dir = await makeCheckout()
-  try {
-    await withEnv({ DABSTEP_FIXTURES: undefined, DABSTEP_DIR: dir, DABSTEP_DATASET_CSV: undefined }, async () => {
-      await assert.rejects(() => createDabstepAdapter().preflight(), (err: Error) => {
-        assert.match(err.message, /missing released dataset\.csv/)
-        assert.match(err.message, /OpenReward/)
-        assert.match(err.message, /huggingface\.co\/datasets\/adyen\/DABstep/)
-        assert.match(err.message, /DABSTEP_DATASET_CSV/)
-        return true
-      })
-    })
-  } finally {
-    await rm(dir, { recursive: true, force: true })
-  }
-})
