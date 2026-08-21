@@ -8,7 +8,7 @@
  * from the benchmark's published evaluation harness.
  */
 
-import type { OutputAdapter } from '@tangle-network/agent-runtime/kernel'
+import type { AgentTurnUsage, OutputAdapter } from '@tangle-network/agent-runtime/kernel'
 
 export interface BenchTask {
   /** Stable benchmark instance id. */
@@ -54,6 +54,11 @@ export interface BenchScore {
   detail?: string
   /** Present only when the caller explicitly requested durable judge evidence. */
   judgeArtifacts?: JudgeArtifactReceipt
+  /** The judge model turn's exact Runtime usage record, present only when the
+   *  adapter's judge is itself a model call. `usdKnown: false` and
+   *  `tokensKnown: false` survive verbatim — an unknown judge cost stays
+   *  unknown instead of reading as zero. Deterministic judges never set it. */
+  judgeUsage?: AgentTurnUsage
 }
 
 export interface LoadOptions {

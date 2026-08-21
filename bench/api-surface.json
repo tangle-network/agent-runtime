@@ -132,7 +132,8 @@
       "enterpriseOpsTranscriptOutput": "value"
     },
     "./benchmarks/finresearchbench": {
-      "createFinResearchBenchAdapter": "value"
+      "createFinResearchBenchAdapter": "value",
+      "scoreOfficialJudgeTurn": "value"
     },
     "./benchmarks/finsearchcomp": {
       "T1Seam": "value",
@@ -271,6 +272,8 @@
     },
     "./benchmarks/tau-bench-shared": {
       "TauBenchConfig": "value",
+      "TauUpstreamPin": "value",
+      "assertTauUpstreamPinUnchanged": "value",
       "createTauBenchAdapter": "value",
       "tauResultsOutput": "value"
     },

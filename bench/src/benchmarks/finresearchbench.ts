@@ -9,6 +9,7 @@
 
 import { readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { AgentTurnUsage } from '@tangle-network/agent-runtime/kernel'
 import { runBenchRouterTurn } from '../router-turn'
 import { benchRoot } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
@@ -178,7 +179,30 @@ function parseJudgeScore(content: string): { score: number; raw: unknown } {
   throw new Error(`FinResearchBench judge produced no parseable JSON score: ${content.slice(0, 400)}`)
 }
 
-async function runOfficialJudge(meta: FinResearchMeta, response: string): Promise<BenchScore> {
+/**
+ * Map one drained judge turn to a BenchScore. The judge turn's exact Runtime
+ * usage record lands on `judgeUsage` verbatim, so an unproven token count or
+ * dollar amount stays flagged (`tokensKnown`/`usdKnown` false) instead of
+ * reading as a known zero cost.
+ */
+export function scoreOfficialJudgeTurn(
+  task: BenchTask,
+  turn: Readonly<{ finalText?: string; usage: AgentTurnUsage }>,
+  requestedJudgeModel: string,
+): BenchScore {
+  const meta = readMeta(task)
+  const content = turn.finalText
+  if (!content) throw new Error('FinResearchBench judge returned no message content')
+  const { score, raw } = parseJudgeScore(content)
+  return {
+    resolved: score >= Number(process.env.FINRESEARCHBENCH_PASS_THRESHOLD ?? 0.8),
+    score,
+    detail: JSON.stringify({ scoring: meta.scoring, category: meta.category, judgeModel: requestedJudgeModel, raw }),
+    judgeUsage: turn.usage,
+  }
+}
+
+async function runOfficialJudge(task: BenchTask, meta: FinResearchMeta, response: string): Promise<BenchScore> {
   if (!meta.judgeSystemPrompt) throw new Error(`FinResearchBench task ${meta.id} missing judge_system_prompt`)
   const router = routerConfig()
   const turn = await runBenchRouterTurn(
@@ -198,14 +222,7 @@ async function runOfficialJudge(meta: FinResearchMeta, response: string): Promis
     },
     fillTemplate(meta, response),
   )
-  const content = turn.finalText
-  if (!content) throw new Error('FinResearchBench judge returned no message content')
-  const { score, raw } = parseJudgeScore(content)
-  return {
-    resolved: score >= Number(process.env.FINRESEARCHBENCH_PASS_THRESHOLD ?? 0.8),
-    score,
-    detail: JSON.stringify({ scoring: meta.scoring, category: meta.category, judgeModel: router.model, raw }),
-  }
+  return scoreOfficialJudgeTurn(task, turn, router.model)
 }
 
 function normalizeText(value: string): string {
@@ -267,7 +284,7 @@ export function createFinResearchBenchAdapter(): BenchmarkAdapter {
           detail: JSON.stringify({ scoring: meta.scoring, category: meta.category, reason: 'empty answer' }),
         }
       }
-      return runOfficialJudge(meta, artifact)
+      return runOfficialJudge(task, meta, artifact)
     },
   }
 }

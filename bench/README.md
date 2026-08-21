@@ -63,6 +63,35 @@ Each destination contains the untouched evaluator tree under `evaluator/`, raw `
 The destination must be unique and absent; an existing path fails loud instead of overwriting evidence.
 Failed evaluators throw `StagedJudgeError` with the same `judgeArtifacts` receipt after retaining partial logs.
 
+## Official-data adapters: tau2/tau3, DABStep, FinResearchBench
+
+Fixture mode (`TAU2_FIXTURES=1`, `TAU3_FIXTURES=1`, `DABSTEP_FIXTURES=1`, `FINRESEARCHBENCH_FIXTURES=1`) proves adapter plumbing only.
+A fixture result is never a benchmark score.
+A benchmark score requires the official data below plus the benchmark's own judge, and nothing else counts.
+
+| Adapter | Official data | Judge |
+|---|---|---|
+| `tau2-bench` / `tau3-banking` | `TAU2_BENCH_DIR` / `TAU3_BENCH_DIR` = clean git checkout of [sierra-research/tau2-bench](https://github.com/sierra-research/tau2-bench); domain via `TAU2_DOMAIN` / `TAU3_DOMAIN` | tau2's own reward recomputation over a tau `results.json` trajectory |
+| `dabstep` | `DABSTEP_DIR` = checkout of [EnvCommons/DABStep](https://github.com/EnvCommons/DABStep) (`grade.py`, `splits/`, `files/`); released `dataset.csv` beside it or via `DABSTEP_DATASET_CSV` | official `grade.py`, deterministic, no LLM |
+| `finresearchbench` | `FINRESEARCHBENCH_DATA_FILE` = JSON/JSONL export whose rows carry `judge_system_prompt` and `judge_prompt_template` | official logic-tree model judge over the Tangle router (`TANGLE_API_KEY`) |
+
+**tau2/tau3.**
+Run `uv sync --extra knowledge` inside the checkout and set `AGENT_BENCH_PYTHON=<checkout>/.venv/bin/python3` so the loader and judge run in the interpreter that holds the `tau2` distribution.
+Every official load stamps `upstreamCommit` (checkout HEAD) and `upstreamVersion` (installed `tau2` distribution) into task metadata, and fails loud on a dirty or non-git checkout or a missing distribution.
+The judge re-resolves the pin, refuses a checkout or interpreter that moved after load, and writes both values into its score detail.
+A trajectory score needs a tau `results.json` produced by the paid tau simulation (agent plus user simulator); the adapter only recomputes the official reward from that artifact.
+
+**DABStep.**
+The git checkout does not ship `dataset.csv`.
+The row file (`task_id,question,guidelines,all_golds_by_task`) is distributed with the OpenReward DABStep environment, which mounts it at `/orwd_data/dataset.csv`.
+The public [adyen/DABstep](https://huggingface.co/datasets/adyen/DABstep) release carries the task rows without golds (`data/tasks/all.jsonl`; answers withheld for the leaderboard) and a 10-task dev split with reference answers (`data/tasks/dev.jsonl`).
+Point `DABSTEP_DATASET_CSV` at an absolute row-file path when the checkout and the rows live apart.
+
+**FinResearchBench.**
+The judge is a model call, so its score records the exact judge turn usage on `BenchScore.judgeUsage` (tokens, cost, model).
+`tokensKnown: false` and `usdKnown: false` survive verbatim; an unknown judge cost never reads as zero spend.
+`FINRESEARCHBENCH_JUDGE_MODEL` (or `JUDGE_MODEL`) selects the judge; `FINRESEARCHBENCH_PASS_THRESHOLD` moves the resolve bar from 0.8.
+
 ## Pier custom candidates
 
 The package executes a branded `PreparedAgentCandidateExecution` from `@tangle-network/agent-runtime` through one atomic API and ships `pier_agents.tangle_candidate:TangleCandidateAgent` as its thin Pier transport.
