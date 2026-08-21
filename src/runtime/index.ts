@@ -800,12 +800,19 @@ export {
 // readers fall back to). Promoted from the loops repo (#4519 in agent-dev-container) so the
 // writer contract is published alongside its reader.
 export {
+  cancelRun,
   cancelWorker,
   legacySupervisorRunDir,
   legacySupervisorRunsRoot,
+  type RunCancellation,
+  type RunCancelRequest,
+  readRunCancellation,
+  readRunCancelRequest,
   readWorkerCancellation,
   readWorkerCancelRequests,
   readWorkerSteerRequests,
+  runCancellationFile,
+  runCancelRequestFile,
   safeWorkerFile,
   supervisorRunDir,
   supervisorRunsRoot,

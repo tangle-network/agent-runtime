@@ -88,6 +88,7 @@ import {
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
+import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
 import {
   type BridgeSeam,
   bindReusableExecutorExecutionId,
@@ -109,7 +110,7 @@ import {
 } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type { StopRule } from './stop-rules'
-import { createSupervisor } from './supervisor'
+import { createRootHandle, createSupervisor } from './supervisor'
 import {
   assertCoordinationBinding,
   type CoordinationBinding,
@@ -139,6 +140,7 @@ import type {
   RootHandle,
   RootProviderModelEvidence,
   SpawnJournal,
+  SupervisedResult,
   UsageEvent,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
@@ -1473,6 +1475,55 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
   })
 }
 
+/**
+ * Record what a run-scoped cancel actually did, at the ONE place that observes the run's terminal
+ * state: the `supervise()` settle path.
+ *
+ * The root manager writes `cancel_requested` when it issues the abort; only here is the run's own
+ * outcome known. A run that ends `aborted` after that request reads `cancelled`; a run that
+ * reached any other terminal state despite the request terminated nothing and reads `not_live`,
+ * never a success. A request the run ended before applying is expired here too, so a reader can
+ * tell run-over from in-progress and a stale request cannot outlive its run.
+ */
+function recordRunCancellationOutcome(
+  runDir: string | undefined,
+  result: SupervisedResult<unknown>,
+  now: () => number,
+): void {
+  if (runDir === undefined) return
+  const dir = resolve(runDir)
+  const request = readRunCancelRequest(dir)
+  if (request === undefined) return
+  const record = readRunCancellation(dir, request.operationId)
+  if (record !== undefined && record.effect !== 'cancel_requested') return
+  const aborted = result.kind === 'no-winner' && result.reason === 'aborted'
+  const observedAt = new Date(now()).toISOString()
+  const base = {
+    operationId: request.operationId,
+    requestedAt: request.at,
+    observedAt,
+    ...(request.reason === undefined ? {} : { reason: request.reason }),
+  }
+  if (record === undefined) {
+    writeRunCancellation(dir, {
+      ...base,
+      effect: 'not_live',
+      detail: 'run ended before the request was applied',
+    })
+    return
+  }
+  writeRunCancellation(
+    dir,
+    aborted
+      ? { ...base, effect: 'cancelled', detail: 'the run reached its terminal aborted state' }
+      : {
+          ...base,
+          effect: 'not_live',
+          detail: `run settled ${result.kind === 'winner' ? 'winner' : result.reason} despite the abort request; nothing was terminated`,
+        },
+  )
+}
+
 /** A quarter of token and optional dollar capacity per worker; nested managers partition again. */
 /** A per-child budget may not exceed the conserved pool it is reserved from. */
 function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
@@ -2112,6 +2163,11 @@ function superviseInternal(
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
+    // The ONE root control this run is aborted through: the caller's handle when it supplied one,
+    // otherwise a Runtime-minted handle for the durable run-cancel path. A run with neither a
+    // caller handle nor a `runDir` has no external abort party and mints nothing.
+    const runControl =
+      options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
     const agentDeps = {
       blobs,
       makeWorkerAgent: workerFactory,
@@ -2167,8 +2223,14 @@ function superviseInternal(
       // A durable run's layout dir doubles as the worker-cancel control surface: every
       // router-arm manager's turn loop acknowledges the `cancelWorker` requests it OWNS — the
       // root (default 'run' scope) resolves its direct children plus label/profile references,
-      // each nested manager (above) its own direct-child node ids only.
-      ...(options.runDir === undefined ? {} : { controlDir: resolve(options.runDir) }),
+      // each nested manager (above) its own direct-child node ids only. The root ALSO applies the
+      // run-scoped request (`cancelRun`) through the run's one cascade controller.
+      ...(options.runDir === undefined || runControl === undefined
+        ? {}
+        : {
+            controlDir: resolve(options.runDir),
+            abortRun: (reason: string) => runControl.abort(reason),
+          }),
     } satisfies SupervisorAgentDeps
     const agent =
       testBrain === undefined
@@ -2182,7 +2244,7 @@ function superviseInternal(
     const hooks = recorder ? composeRuntimeHooks(options.hooks, recorder.hooks) : options.hooks
 
     const supervisor = createSupervisor<unknown, unknown>()
-    if (options.rootHandle) supervisor.attach(options.rootHandle)
+    if (runControl !== undefined) supervisor.attach(runControl)
     const run = supervisor.run(agent, canonicalTask, {
       budget: options.budget,
       runId,
@@ -2218,6 +2280,7 @@ function superviseInternal(
     })
     const settle = async () => {
       const result = await run
+      recordRunCancellationOutcome(options.runDir, result, now)
       const rootProviderModel =
         ctx.resume === true
           ? rootProviderModelEvidence([])

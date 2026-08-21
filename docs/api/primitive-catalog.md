@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.151.0` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.151.1` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 172 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 828 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 835 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -580,6 +580,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 828 exports.
 | `boxSurfaceReader` | function | A {@link SurfaceReader} over a sandbox box's filesystem — the same `box.fs.read` seam |
 | `breadthStrategy` | function | BREADTH: K independent rollouts (each own artifact), verifier picks the best. |
 | `buildSteerContext` | function | Build the `SteerContext` a combinator reads to steer (its `loopUntil.until`, `widen` gate, any |
+| `cancelRun` | function | Request the cancellation of the WHOLE run, idempotently, and return the operation's current |
 | `cancelWorker` | function | Request the cancellation of ONE worker, idempotently, and return the operation's current |
 | `canDisplace` | function | The repair keep-best guard: a challenger displaces the incumbent only when it is |
 | `canonicalFindingEvent` | function | Producer-side cleanliness for the `finding` event. The findings payload is arbitrary analyst |
@@ -707,6 +708,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 828 exports.
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
+| `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
+| `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
 | `readWorkerCancelRequests` | function | Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
@@ -736,6 +739,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 828 exports.
 | `runAgentic` | function | Run a Strategy through the keystone Supervisor — `Agent.act` over a conserved-budget Scope. |
 | `runAgentRounds` | function | The round-synchronous MULTI-AGENT kernel: each round `driver.plan()` fans N tasks |
 | `runBenchmark` | function | Run the requested strategies over the tasks, scored by the Environment's own check. |
+| `runCancellationFile` | function | The run-scoped acknowledgement file of one run — one {@link RunCancellation}. |
+| `runCancelRequestFile` | function | The run-scoped cancel request file of one run — one {@link RunCancelRequest}. |
 | `runFinalizer` | function | Run a finalizer over a settled-worker ledger under the delivered-only invariant: filter the |
 | `runGraph` | function | Execute an {@link AgentGraph}. The root node becomes the supervisor (`supervise()` — the |
 | `runInWorkspace` | function | Run a worker `body` inside a FRESH clone of a shared `Workspace`, then commit its work back |
@@ -1029,6 +1034,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 828 exports.
 | `RouterSeam` | interface | Router/inline transport seam. The profile owns model, prompt, and generation behavior. |
 | `RouterToolsSeam` | interface | Router seam WITH tool use — the tool-using router backend. Same direct |
 | `RouterTransportConfig` | interface | Connection details for Runtime's Router-backed executors. |
+| `RunCancellation` | interface | The durable acknowledgement state for the run-scoped cancel operation, keyed by `operationId`. |
+| `RunCancelRequest` | interface | One durable run-scoped cancel request: cancel the WHOLE run, not one worker. |
 | `RunPersonifiedOptions` | interface | The end-to-end entrypoint. Builds the persona's root `Agent` from the chosen shape, then |
 | `RunProvenance` | interface | Domain-free run provenance: a manifest of what was mounted into the run's |
 | `SandboxCapabilities` | interface | What the loop kernel is allowed to know about a sandbox backend: a single |

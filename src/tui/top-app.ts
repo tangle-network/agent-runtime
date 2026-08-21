@@ -17,10 +17,10 @@
 
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { emitKeypressEvents } from 'node:readline'
-import { cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
+import { cancelRun, cancelWorker, writeWorkerSteer } from '../runtime/supervise/run-layout'
 import {
   loadTopSnapshot,
   type RenderTarget,
@@ -425,25 +425,18 @@ function requestCancel(): void {
     }
     return
   }
-  // Supervisor focus cancels the WHOLE run — a root-scoped intent, which is out of the
-  // worker-scoped acknowledgement contract: a non-retained supervisor tree exposes no root
-  // handle to acknowledge with, so the request stays a file the run's HOST process may honor.
+  // Supervisor focus cancels the WHOLE run through the same acknowledged contract: the request
+  // lands in the run layout, the run's root manager aborts the whole tree through the one cascade
+  // controller it already has, and `supervise()` records the terminal effect.
   try {
-    mkdirSync(supervisor.stateDir, { recursive: true })
-    writeFileSync(
-      join(supervisor.stateDir, 'cancel.request.json'),
-      `${JSON.stringify(
-        {
-          at: new Date().toISOString(),
-          source: 'agent-runtime-top',
-          reason: 'operator requested cancel from TUI',
-        },
-        null,
-        2,
-      )}\n`,
-      'utf8',
-    )
-    state.notice = `run cancel requested for ${supervisor.id} (host-honored; not runtime-acknowledged)`
+    const record = cancelRun(supervisor.stateDir, randomUUID(), {
+      reason: 'operator requested cancel from TUI',
+      source: 'agent-runtime-top',
+    })
+    state.notice =
+      record.effect === 'unknown'
+        ? `run cancel queued for ${supervisor.id} (op ${record.operationId}); awaiting runtime acknowledgement`
+        : `run cancel ${record.effect} for ${supervisor.id} (op ${record.operationId})`
   } catch (err) {
     state.notice = `cancel request failed: ${err instanceof Error ? err.message : String(err)}`
   }
