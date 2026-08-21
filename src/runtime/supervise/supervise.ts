@@ -91,6 +91,8 @@ import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
   type BridgeSeam,
   bindReusableExecutorExecutionId,
+  bridgeAdmissionRead,
+  bridgeModelRouteRefusal,
   bridgeRuntimeAttachmentsKey,
   bridgeStopSignalKey,
   captureReusableExecutorConfig,
@@ -473,8 +475,6 @@ function unmountedCoordinationTools(profile: AgentProfile): readonly string[] {
  *   evidence that the bridge is full and admits the spawn.
  */
 function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
-  const base = seam.bridgeUrl.replace(/\/+$/, '')
-  const headers = { authorization: `Bearer ${seam.bridgeBearer}` }
   return async (profile) => {
     const unmounted = unmountedCoordinationTools(profile)
     if (unmounted.length > 0) {
@@ -490,58 +490,19 @@ function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
         detail: 'the child AgentProfile resolves no bridge wire model (harness + provider + model)',
       }
     }
-    let capabilities: Response
-    try {
-      capabilities = await fetch(`${base}/v1/capabilities?model=${encodeURIComponent(wireModel)}`, {
-        headers,
-      })
-    } catch (error) {
-      return {
-        cause: 'model-route',
-        detail: `bridge ${base} did not answer for model ${JSON.stringify(wireModel)}: ${error instanceof Error ? error.message : String(error)}`,
-      }
-    }
-    if (!capabilities.ok) {
-      return {
-        cause: 'model-route',
-        detail:
-          capabilities.status === 404
-            ? `bridge ${base} routes no backend for model ${JSON.stringify(wireModel)}`
-            : `bridge ${base} answered ${capabilities.status} for model ${JSON.stringify(wireModel)}`,
-      }
-    }
-    const admission = await bridgeAdmission(base, headers)
+    const routeRefusal = await bridgeModelRouteRefusal(seam, wireModel)
+    if (routeRefusal !== undefined) return { cause: 'model-route', detail: routeRefusal }
+    const admission = await bridgeAdmissionRead(seam)
     if (admission && admission.active >= admission.maxActive) {
       return {
         cause: 'bridge-full',
-        detail: `bridge ${base} admission is full: active ${admission.active} of maxActive ${admission.maxActive}`,
+        detail: `bridge ${seam.bridgeUrl.replace(/\/$/, '')} admission is full: active ${admission.active} of maxActive ${admission.maxActive}`,
       }
     }
     return undefined
   }
 }
 
-/** The bridge's admission counters, or `undefined` when it does not report them. */
-async function bridgeAdmission(
-  base: string,
-  headers: Readonly<Record<string, string>>,
-): Promise<{ active: number; maxActive: number } | undefined> {
-  let health: Response
-  try {
-    health = await fetch(`${base}/health`, { headers })
-  } catch {
-    return undefined
-  }
-  const body: unknown = await health.json().catch(() => undefined)
-  const admission = (body as { admission?: { active?: unknown; maxActive?: unknown } } | undefined)
-    ?.admission
-  const active = admission?.active
-  const maxActive = admission?.maxActive
-  if (typeof active !== 'number' || typeof maxActive !== 'number' || maxActive <= 0) {
-    return undefined
-  }
-  return { active, maxActive }
-}
 const defaultAllowedMcpHosts: string[] = []
 Object.freeze(defaultAllowedMcpHosts)
 

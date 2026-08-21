@@ -2195,6 +2195,97 @@ function scheduleBridgeRunStateRefresh(
   })()
 }
 
+/** One bridge GET over the `node:http(s)` core client — the same transport every other bridge
+ *  read uses, so a computed provider endpoint never reaches global `fetch`. Resolves the status
+ *  and the body text; a transport failure rejects. */
+function bridgeGet(
+  seam: BridgeSeam,
+  path: string,
+  timeoutMs: number,
+): Promise<{ status: number; body: string }> {
+  const target = new URL(`${seam.bridgeUrl.replace(/\/$/, '')}${path}`)
+  const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
+  return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const req = requestFn(
+      target,
+      {
+        method: 'GET',
+        headers: { authorization: `Bearer ${seam.bridgeBearer}` },
+        timeout: timeoutMs,
+      },
+      (res) => {
+        void (async () => {
+          const chunks: Buffer[] = []
+          for await (const chunk of res) chunks.push(Buffer.from(chunk))
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') })
+        })().catch(reject)
+      },
+    )
+    req.on('timeout', () => req.destroy(new Error(`bridge GET ${path} timed out`)))
+    req.on('error', reject)
+    req.end()
+  })
+}
+
+/**
+ * `GET /v1/capabilities?model=<wire id>` — does this bridge route this model AT ALL.
+ *
+ * The bridge answers exactly this question and 404s `no backend matches model "…"`, which is the
+ * error a child would otherwise discover after it was spawned and metered. Returns `undefined`
+ * when the route resolves; otherwise the operator-facing reason it did not. FAIL CLOSED: a
+ * transport error and an unexpected status are both reasons, never a silent pass.
+ */
+export async function bridgeModelRouteRefusal(
+  seam: BridgeSeam,
+  wireModel: string,
+): Promise<string | undefined> {
+  const base = seam.bridgeUrl.replace(/\/$/, '')
+  let answer: { status: number; body: string }
+  try {
+    answer = await bridgeGet(
+      seam,
+      `/v1/capabilities?model=${encodeURIComponent(wireModel)}`,
+      BRIDGE_RUN_STATE_TIMEOUT_MS,
+    )
+  } catch (error) {
+    return `bridge ${base} did not answer for model ${JSON.stringify(wireModel)}: ${error instanceof Error ? error.message : String(error)}`
+  }
+  if (answer.status === 200) return undefined
+  return answer.status === 404
+    ? `bridge ${base} routes no backend for model ${JSON.stringify(wireModel)}`
+    : `bridge ${base} answered ${answer.status} for model ${JSON.stringify(wireModel)}`
+}
+
+/**
+ * `GET /health` → `admission.{active,maxActive}`, or `undefined` when the bridge does not report
+ * them. ADVISORY by nature — admission fills and drains — so an unanswered or admission-less
+ * `/health` is not evidence about capacity and must not be read as one.
+ */
+export async function bridgeAdmissionRead(
+  seam: BridgeSeam,
+): Promise<{ active: number; maxActive: number } | undefined> {
+  let answer: { status: number; body: string }
+  try {
+    answer = await bridgeGet(seam, '/health', BRIDGE_RUN_STATE_TIMEOUT_MS)
+  } catch {
+    return undefined
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(answer.body)
+  } catch {
+    return undefined
+  }
+  const admission = (parsed as { admission?: { active?: unknown; maxActive?: unknown } } | null)
+    ?.admission
+  const active = admission?.active
+  const maxActive = admission?.maxActive
+  if (typeof active !== 'number' || typeof maxActive !== 'number' || maxActive <= 0) {
+    return undefined
+  }
+  return { active, maxActive }
+}
+
 /** `GET /v1/runs/:id` — the bridge's durable-run registry read. Resolves `undefined` for any
  *  non-200 or non-conforming body rather than throwing: this is only ever an observability read. */
 function bridgeRunStateGet(
