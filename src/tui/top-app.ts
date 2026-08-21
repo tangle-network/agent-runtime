@@ -49,7 +49,15 @@ export interface TopAppOptions {
 }
 
 let state: UiState = initialState([], process.cwd())
-let snapshot: TopSnapshot = { root: state.root, generatedAt: 0, supervisors: [] }
+let snapshot: TopSnapshot = {
+  root: state.root,
+  generatedAt: 0,
+  supervisors: [],
+  completeness: 'complete',
+  diagnostics: [],
+  discovered: 0,
+  loaded: 0,
+}
 let targets: RenderTarget[] = []
 let timer: NodeJS.Timeout | undefined
 

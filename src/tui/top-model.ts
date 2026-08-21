@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import {
   legacySupervisorRunsRoot,
   safeWorkerFile,
@@ -25,6 +25,39 @@ export interface TopSnapshot {
   readonly root: string
   readonly generatedAt: number
   readonly supervisors: SupervisorView[]
+  /** `partial` when at least one discovered source could not be read completely. */
+  readonly completeness: TopSnapshotCompleteness
+  /** One bounded entry per skipped or partially read source; empty when complete. */
+  readonly diagnostics: ReadonlyArray<TopSnapshotDiagnostic>
+  /** Run directories found under the runs roots, readable or not. */
+  readonly discovered: number
+  /** Run directories whose state.json parsed into a valid supervisor view. */
+  readonly loaded: number
+}
+
+export type TopSnapshotCompleteness = 'complete' | 'partial'
+
+export type TopSnapshotDiagnosticSource =
+  | 'supervisor-state'
+  | 'journal'
+  | 'progress'
+  | 'worker-tail'
+
+export type TopSnapshotDiagnosticReason =
+  | 'unreadable'
+  | 'partial-json'
+  | 'invalid-state'
+  | 'missing'
+
+/**
+ * One skipped or partially read snapshot source. `path` is relative to the run directory and
+ * never carries file contents, so a diagnostic is safe to show or log without leaking run data.
+ */
+export interface TopSnapshotDiagnostic {
+  readonly source: TopSnapshotDiagnosticSource
+  readonly runId?: string
+  readonly path: string
+  readonly reason: TopSnapshotDiagnosticReason
 }
 
 export interface SupervisorBase {
@@ -187,6 +220,22 @@ interface WorkerEventTail {
   readonly cwd?: string
 }
 
+/** A diagnostic before its run id is attached; `loadTopSnapshot` adds `runId`. */
+interface SourceDiagnostic {
+  readonly source: TopSnapshotDiagnosticSource
+  readonly path: string
+  readonly reason: TopSnapshotDiagnosticReason
+}
+
+/**
+ * What one snapshot source read produced: the value it could recover, and the bounded diagnostics
+ * the read raised. Every reader returns this one shape, so the loader folds them identically.
+ */
+interface SourceRead<T> {
+  readonly value: T
+  readonly diagnostics: readonly SourceDiagnostic[]
+}
+
 export interface RenderOptions {
   readonly width?: number
   readonly height?: number
@@ -238,32 +287,56 @@ const colors = {
 /**
  * Read every supervisor run under one workspace into a single point-in-time snapshot.
  *
- * Pure with respect to the process: it only reads, and every unreadable or half-written file is
- * skipped rather than thrown on — an operator view must survive a writer mid-append. `now` is
- * injectable so elapsed time is deterministic under test.
+ * Pure with respect to the process: it only reads, and it never throws for a writer mid-append.
+ * An unreadable or half-written source is still skipped — an operator view must survive a live
+ * writer — but every skip is reported as one bounded `TopSnapshotDiagnostic`, so a client can
+ * tell a removed run from a partial read. `now` is injectable so elapsed time is deterministic
+ * under test.
  */
 export function loadTopSnapshot(rootDir: string, now = Date.now()): TopSnapshot {
   const root = resolve(rootDir)
+  const supervisors: SupervisorView[] = []
+  const diagnostics: TopSnapshotDiagnostic[] = []
+  let discovered = 0
+  const report = (runId: string, sources: readonly SourceDiagnostic[]): void => {
+    for (const source of sources) diagnostics.push({ ...source, runId })
+  }
   // `.loops` is the pre-rename state dir; runs already on disk there stay visible.
-  const supervisors = [supervisorRunsRoot(root), legacySupervisorRunsRoot(root)]
-    .filter((runsRoot) => existsSync(runsRoot))
-    .flatMap((runsRoot) =>
-      readdirSync(runsRoot)
-        .filter((entry) => isDirectory(join(runsRoot, entry)))
-        .map((entry) => {
-          const dir = join(runsRoot, entry)
-          const state = readJson<Partial<SupervisorState>>(join(dir, 'state.json'))
-          if (!isSupervisorState(state)) return undefined
-          const events = readJournal(dir)
-          const progressTail = readTail(join(dir, 'progress.ndjson'), 8)
-          const workerEvents = readWorkerEventTails(supervisorWorkersDir(dir), 8)
-          return buildSupervisorView(state, dir, events, progressTail, now, workerEvents)
-        }),
-    )
-    .filter((view): view is SupervisorView => view !== undefined)
-    .sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')))
-
-  return { root, generatedAt: now, supervisors }
+  for (const runsRoot of [supervisorRunsRoot(root), legacySupervisorRunsRoot(root)]) {
+    if (!existsSync(runsRoot)) continue
+    for (const entry of readdirSync(runsRoot)) {
+      const dir = join(runsRoot, entry)
+      if (!isDirectory(dir)) continue
+      discovered += 1
+      const state = readSupervisorState(dir)
+      report(entry, state.diagnostics)
+      if (!state.value) continue
+      const journal = readJournal(dir)
+      const progress = readProgressTail(dir, 8)
+      const workerEvents = readWorkerEventTails(supervisorWorkersDir(dir), 8)
+      report(entry, [...journal.diagnostics, ...progress.diagnostics, ...workerEvents.diagnostics])
+      supervisors.push(
+        buildSupervisorView(
+          state.value,
+          dir,
+          journal.value,
+          progress.value,
+          now,
+          workerEvents.value,
+        ),
+      )
+    }
+  }
+  supervisors.sort((a, b) => String(b.startedAt ?? '').localeCompare(String(a.startedAt ?? '')))
+  return {
+    root,
+    generatedAt: now,
+    supervisors,
+    completeness: diagnostics.length === 0 ? 'complete' : 'partial',
+    diagnostics,
+    discovered,
+    loaded: supervisors.length,
+  }
 }
 
 /**
@@ -274,19 +347,14 @@ export function loadTopSnapshot(rootDir: string, now = Date.now()): TopSnapshot 
  */
 const journalFileNames = ['spawn-journal.jsonl', 'journal.jsonl'] as const
 
-function readJournal(eventDir: string): TopJournalEvent[] {
-  const file = journalFileNames
-    .map((name) => join(eventDir, name))
-    .find((candidate) => existsSync(candidate))
-  if (!file) return []
+function readJournal(eventDir: string): SourceRead<TopJournalEvent[]> {
+  const path = journalFileNames.find((candidate) => existsSync(join(eventDir, candidate)))
+  if (!path) return { value: [], diagnostics: [] }
+  const read = readSourceFile(join(eventDir, path), 'journal', path)
+  if (read.value === undefined) return { value: [], diagnostics: read.diagnostics }
   const out: TopJournalEvent[] = []
-  let raw = ''
-  try {
-    raw = readFileSync(file, 'utf8')
-  } catch {
-    return out
-  }
-  for (const line of raw.split('\n')) {
+  let partial = false
+  for (const line of read.value.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
     try {
@@ -294,10 +362,14 @@ function readJournal(eventDir: string): TopJournalEvent[] {
       const event = (parsed.event ?? parsed) as Record<string, unknown>
       if (isSpawnEvent(event)) out.push(event)
     } catch {
-      // Corrupt journal lines should not take down the operator view.
+      // A corrupt line is expected while the writer is mid-append; keep the lines that parsed.
+      partial = true
     }
   }
-  return out
+  return {
+    value: out,
+    diagnostics: partial ? [{ source: 'journal', path, reason: 'partial-json' }] : [],
+  }
 }
 
 function buildSupervisorView(
@@ -462,12 +534,29 @@ export function renderTopFrameWithLayout(
     `${paint('keys', 'dim', color)} up/down select  left/right run  tab focus  enter detail  o overview  l log  s steer  a shell  c cancel  mouse  q quit`,
   )
   if (options.notice) push(paint(options.notice, 'yellow', color))
+  if (snapshot.completeness === 'partial')
+    push(
+      paint(
+        `partial snapshot: ${snapshot.diagnostics.length} source${
+          snapshot.diagnostics.length === 1 ? '' : 's'
+        } skipped or truncated; runs loaded ${snapshot.loaded}/${snapshot.discovered}`,
+        'yellow',
+        color,
+      ),
+    )
   if (options.steerInput?.active) push(renderSteerInput(options.steerInput, width, color))
   push(rule(width, color))
 
   if (snapshot.supervisors.length === 0) {
-    push(paint('NO SUPERVISORS', 'yellow', color))
-    push(`No run state under ${supervisorRunsRoot(snapshot.root)}`)
+    if (snapshot.discovered > 0) {
+      push(paint('NO READABLE SUPERVISORS', 'yellow', color))
+      push(
+        `${snapshot.discovered} run director${snapshot.discovered === 1 ? 'y' : 'ies'} found under ${supervisorRunsRoot(snapshot.root)}, none readable`,
+      )
+    } else {
+      push(paint('NO SUPERVISORS', 'yellow', color))
+      push(`No run state under ${supervisorRunsRoot(snapshot.root)}`)
+    }
     push(
       `A run appears here once its driver writes state.json; re-point with: agent-runtime-top <root>`,
     )
@@ -1002,29 +1091,63 @@ function selectWorker(
   return supervisor.workers[0]
 }
 
-function readTail(file: string, maxLines: number): string[] {
-  if (!existsSync(file)) return []
+/**
+ * Read one source file under a run directory. An absent file is not a defect on its own — the
+ * writer may not have reached it yet — so it reads as `undefined` with no diagnostic; only a
+ * failed read raises one. `path` stays run-relative and never carries file contents.
+ */
+function readSourceFile(
+  file: string,
+  source: TopSnapshotDiagnosticSource,
+  path: string,
+): SourceRead<string | undefined> {
+  if (!existsSync(file)) return { value: undefined, diagnostics: [] }
   try {
-    const lines = readFileSync(file, 'utf8').trim().split('\n').filter(Boolean)
-    return lines.slice(-maxLines)
+    return { value: readFileSync(file, 'utf8'), diagnostics: [] }
   } catch {
-    return []
+    return { value: undefined, diagnostics: [{ source, path, reason: 'unreadable' }] }
   }
 }
 
-function readWorkerEventTails(dir: string, maxLines: number): Map<string, WorkerEventTail> {
+function tailLines(raw: string | undefined, maxLines: number): string[] {
+  if (raw === undefined) return []
+  return raw.trim().split('\n').filter(Boolean).slice(-maxLines)
+}
+
+function readProgressTail(dir: string, maxLines: number): SourceRead<string[]> {
+  const path = 'progress.ndjson'
+  const read = readSourceFile(join(dir, path), 'progress', path)
+  return { value: tailLines(read.value, maxLines), diagnostics: read.diagnostics }
+}
+
+function readWorkerEventTails(
+  dir: string,
+  maxLines: number,
+): SourceRead<Map<string, WorkerEventTail>> {
   const out = new Map<string, WorkerEventTail>()
-  if (!existsSync(dir)) return out
-  for (const entry of readdirSync(dir)) {
+  if (!existsSync(dir)) return { value: out, diagnostics: [] }
+  const workersDir = basename(dir)
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return {
+      value: out,
+      diagnostics: [{ source: 'worker-tail', path: workersDir, reason: 'unreadable' }],
+    }
+  }
+  const diagnostics: SourceDiagnostic[] = []
+  for (const entry of entries) {
     // `<label>.inbox.ndjson` is the down-leg steer queue, not this worker's control-event log.
     if (!entry.endsWith('.ndjson') || entry.endsWith('.inbox.ndjson')) continue
-    const label = entry.slice(0, -'.ndjson'.length)
     const file = join(dir, entry)
-    const lines = readTail(file, maxLines)
+    const read = readSourceFile(file, 'worker-tail', join(workersDir, entry))
+    diagnostics.push(...read.diagnostics)
+    const lines = tailLines(read.value, maxLines)
     const cwd = workerCwd(lines)
-    out.set(label, { file, lines, ...(cwd ? { cwd } : {}) })
+    out.set(entry.slice(0, -'.ndjson'.length), { file, lines, ...(cwd ? { cwd } : {}) })
   }
-  return out
+  return { value: out, diagnostics }
 }
 
 function workerCwd(lines: readonly string[]): string | undefined {
@@ -1040,12 +1163,30 @@ function workerCwd(lines: readonly string[]): string | undefined {
   return undefined
 }
 
-function readJson<T>(file: string): T | undefined {
+function readSupervisorState(dir: string): SourceRead<SupervisorState | undefined> {
+  const path = 'state.json'
+  const read = readSourceFile(join(dir, path), 'supervisor-state', path)
+  if (read.diagnostics.length > 0) return { value: undefined, diagnostics: read.diagnostics }
+  if (read.value === undefined)
+    return {
+      value: undefined,
+      diagnostics: [{ source: 'supervisor-state', path, reason: 'missing' }],
+    }
+  let parsed: Partial<SupervisorState>
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as T
+    parsed = JSON.parse(read.value) as Partial<SupervisorState>
   } catch {
-    return undefined
+    return {
+      value: undefined,
+      diagnostics: [{ source: 'supervisor-state', path, reason: 'partial-json' }],
+    }
   }
+  if (!isSupervisorState(parsed))
+    return {
+      value: undefined,
+      diagnostics: [{ source: 'supervisor-state', path, reason: 'invalid-state' }],
+    }
+  return { value: parsed, diagnostics: [] }
 }
 
 function isSupervisorState(value: Partial<SupervisorState> | undefined): value is SupervisorState {

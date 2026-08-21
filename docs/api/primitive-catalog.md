@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.143.0` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.143.1` and `@tangle-network/agent-eval@0.149.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1594,7 +1594,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 210 exports.
 
 ### Supervisor TUI — live terminal view over the on-disk run layout
 
-Import from `@tangle-network/agent-runtime/tui` — 18 exports.
+Import from `@tangle-network/agent-runtime/tui` — 22 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1604,8 +1604,9 @@ Import from `@tangle-network/agent-runtime/tui` — 18 exports.
 | `renderTopOnce` | function | Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a |
 | `runTopApp` | function | Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`; |
 | `TopSnapshot` | interface | The read side of the supervisor-run TUI: turn the on-disk run layout into one `TopSnapshot`, and |
+| `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BudgetStats`, `Distribution`, `RenderedTopFrame`, `RenderOptions`, `RenderTarget`, `SpendStats`, `SupervisorBase`, `SupervisorTotals`, `SupervisorView`, `TopAppOptions`, `WorkerView`, `TopJournalEvent`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `BudgetStats`, `Distribution`, `RenderedTopFrame`, `RenderOptions`, `RenderTarget`, `SpendStats`, `SupervisorBase`, `SupervisorTotals`, `SupervisorView`, `TopAppOptions`, `WorkerView`, `TopJournalEvent`, `TopSnapshotCompleteness`, `TopSnapshotDiagnosticReason`, `TopSnapshotDiagnosticSource`.
 
 ## 2. agent-eval — substrate primitives to REUSE
 

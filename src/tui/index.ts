@@ -37,5 +37,9 @@ export {
   type SupervisorView,
   type TopJournalEvent,
   type TopSnapshot,
+  type TopSnapshotCompleteness,
+  type TopSnapshotDiagnostic,
+  type TopSnapshotDiagnosticReason,
+  type TopSnapshotDiagnosticSource,
   type WorkerView,
 } from './top-model'
