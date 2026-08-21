@@ -876,7 +876,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-12)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-13)
 
 ##### runtime
 
@@ -14389,6 +14389,22 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 [`ExecutorProgress`](#executorprogress)
 
+##### cancel()
+
+> **cancel**(`request`): `Promise`\<[`ExecutorCancellation`](#executorcancellation)\>
+
+Ask the box to stop the running execution on this exact session and report what it answered.
+
+###### Parameters
+
+###### request
+
+[`ExecutorCancellationRequest`](#executorcancellationrequest)
+
+###### Returns
+
+`Promise`\<[`ExecutorCancellation`](#executorcancellation)\>
+
 ##### traceSource()
 
 > **traceSource**(): [`TraceSource`](#tracesource-1)
@@ -16648,6 +16664,68 @@ path; returning `true` means the message was accepted for the current manager se
 
 ***
 
+### ExecutorCancellationRequest
+
+One cancellation ask. `operationId` makes the request idempotent per attempt, exactly as the
+ worker and retained layers already key their cancellations.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+Deadline for the acknowledgement itself. Its expiry produces `unknown`, never a claim.
+
+***
+
+### ExecutorCancellation
+
+What a backend acknowledged about one cancellation ask.
+
+`status` is the backend's answer to the ASK; `effect` is what is now known about the RUN, in the
+one cancellation vocabulary the worker and retained layers already use. A local abort with no
+provider acknowledgement is `{ status: 'unknown', effect: 'cancel_requested' }` — never
+`accepted`.
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: `"unknown"` \| `"rejected"` \| `"accepted"` \| `"already-terminal"`
+
+##### effect
+
+> `readonly` **effect**: [`RetainedRunEffect`](#retainedruneffect)
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+When the acknowledgement was observed, ISO-8601.
+
+##### detail?
+
+> `readonly` `optional` **detail?**: `string`
+
+Why the backend answered this way — required reading for `unknown`.
+
+##### evidence?
+
+> `readonly` `optional` **evidence?**: `unknown`
+
+Backend-native proof, persisted by digest only.
+
+***
+
 ### ExecutorAccounting
 
 Split used by a recursive executor when journaled child work differs from the full amount
@@ -17690,7 +17768,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-1).[`signal`](#signal-25)
+[`RootHandle`](#roothandle-1).[`signal`](#signal-26)
 
 ##### abort()
 
@@ -28678,7 +28756,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-27), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-28), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

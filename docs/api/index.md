@@ -8495,6 +8495,28 @@ reads as `executor-exposes-no-interactive-session`, never as an empty handle.
 
 [`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
 
+##### cancel()?
+
+> `optional` **cancel**(`request`): `Promise`\<[`ExecutorCancellation`](runtime.md#executorcancellation)\>
+
+Optional provider-neutral CANCELLATION, distinct from `teardown`: it asks the backend to stop
+the work and reports what the backend acknowledged, so a caller never has to read a local
+iterator abort as remote acceptance. `teardown` remains the resource verb — it releases what
+this process holds and says nothing about remote compute or billing.
+
+An executor that cannot ask its backend anything omits this method; one whose backend has no
+cancel operation implements it and answers `unknown` with the reason in `detail`.
+
+###### Parameters
+
+###### request
+
+[`ExecutorCancellationRequest`](runtime.md#executorcancellationrequest)
+
+###### Returns
+
+`Promise`\<[`ExecutorCancellation`](runtime.md#executorcancellation)\>
+
 ##### teardown()
 
 > **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; \}\>
@@ -9016,6 +9038,28 @@ converted into a fake attachment.
 ###### Returns
 
 [`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
+
+##### cancel()
+
+> **cancel**(`nodeId`, `request`): `Promise`\<[`ExecutorCancellation`](runtime.md#executorcancellation)\>
+
+Ask one child's backend to stop, and report what it acknowledged. It delegates to
+`Executor.cancel` when the runtime has one; otherwise the child is aborted locally and the
+answer is `unknown`, never `accepted`. Resource release still belongs to teardown.
+
+###### Parameters
+
+###### nodeId
+
+`string`
+
+###### request
+
+[`ExecutorCancellationRequest`](runtime.md#executorcancellationrequest)
+
+###### Returns
+
+`Promise`\<[`ExecutorCancellation`](runtime.md#executorcancellation)\>
 
 ##### meter()
 

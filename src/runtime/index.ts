@@ -936,6 +936,8 @@ export type {
   ExecutionBindingReceipt,
   Executor,
   ExecutorAccounting,
+  ExecutorCancellation,
+  ExecutorCancellationRequest,
   ExecutorContext,
   ExecutorExecutionBinding,
   ExecutorFactory,

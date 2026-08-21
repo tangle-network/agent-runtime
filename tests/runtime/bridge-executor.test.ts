@@ -89,8 +89,14 @@ vi.mock('node:http', async () => {
           activeBridgePayload = null
           res.statusCode = res.statusCode ?? 200
           if (res.statusCode >= 200 && res.statusCode < 300) {
+            // A turn POST names its run in the body; the run cancel operation names it in the
+            // path, and the bridge stamps the same identity headers on both.
+            const runId =
+              payload.run_id !== undefined
+                ? String(payload.run_id)
+                : (url.pathname.match(/^\/v1\/runs\/([^/]+)\/cancel$/)?.[1] ?? '')
             res.headers = {
-              'x-run-id': String(payload.run_id),
+              'x-run-id': runId,
               'x-run-request-digest': `sha256:${'a'.repeat(64)}`,
             }
           }
@@ -1355,6 +1361,55 @@ function jsonOf(body: unknown): Readable {
   stream.end(JSON.stringify(body))
   return stream
 }
+
+describe('bridgeExecutor cancellation acknowledgement', () => {
+  it('claims cancellation only after the bridge reports the run terminal', async () => {
+    // Braid could not advertise cancellation from `teardown()`: it proved the local request
+    // stopped, not that the provider accepted anything. This arm posts the bridge cancel
+    // operation and answers from the terminal snapshot the bridge returns.
+    const live = new PassThrough()
+    let cancelPosts = 0
+    bridgeHttpHandler = (payload) => {
+      if (payload.run_id !== undefined) {
+        live.write('id: 1\n')
+        live.write(`data: ${JSON.stringify({ choices: [{ delta: { content: 'working' } }] })}\n\n`)
+        return live as unknown as Readable
+      }
+      cancelPosts += 1
+      const res = new PassThrough() as Readable & { statusCode?: number }
+      res.statusCode = 200
+      res.end(
+        JSON.stringify({
+          terminal: true,
+          run: {
+            id: String(lastBridgeUrl?.pathname.split('/')[3] ?? ''),
+            requestDigest: `sha256:${'a'.repeat(64)}`,
+            terminal: true,
+          },
+        }),
+      )
+      return res
+    }
+    const executor = observedBridgeExecutor()
+    const stream = executor.execute('go', new AbortController().signal) as AsyncIterable<UsageEvent>
+    const iterator = stream[Symbol.asyncIterator]()
+    const first = iterator.next()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    const acknowledgement = await executor.cancel?.({ operationId: 'op-1' })
+    expect(cancelPosts).toBe(1)
+    expect(acknowledgement).toMatchObject({ status: 'accepted', effect: 'cancelled' })
+
+    // A second ask has nothing live left to cancel, and says so instead of repeating acceptance.
+    expect(await executor.cancel?.({ operationId: 'op-2' })).toMatchObject({
+      status: 'already-terminal',
+      effect: 'not_live',
+    })
+    live.end()
+    await first.catch(() => undefined)
+    await iterator.return?.(undefined).catch(() => undefined)
+  })
+})
 
 function observedBridgeExecutor(): Executor<unknown> {
   return bridgeExecutor(

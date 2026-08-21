@@ -64,6 +64,7 @@ import {
 } from './supervise/model-policy'
 import type {
   Executor,
+  ExecutorCancellation,
   ExecutorContext,
   ExecutorExecutionBinding,
   ExecutorFactory,
@@ -446,6 +447,22 @@ function createProviderExecutor(
           artifact = next
         },
       })
+    },
+    async cancel(request): Promise<ExecutorCancellation> {
+      // The provider streams a turn rather than dispatching a durable run, so this executor holds
+      // no exact control reference the provider could cancel against. Aborting the local stream is
+      // all Runtime can prove; the environment stays alive for `teardown` to release.
+      controller.abort()
+      return {
+        status: 'unknown',
+        effect: 'cancel_requested',
+        observedAt: new Date().toISOString(),
+        detail: `providerAsExecutor(${provider.name}): the streamed turn carries no durable run reference, so the provider acknowledged nothing`,
+        evidence: {
+          operationId: request.operationId,
+          ...(environment ? { environmentId: environment.id } : {}),
+        },
+      }
     },
     async teardown(_grace): Promise<{ destroyed: boolean }> {
       controller.abort()
