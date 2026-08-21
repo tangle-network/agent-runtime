@@ -47,6 +47,7 @@ const { values } = parseArgs({
     'agent-knowledge-repo': { type: 'string' },
     'agent-runtime-repo': { type: 'string' },
     'keep-temp': { type: 'boolean', default: false },
+    report: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
   },
   strict: true,
@@ -63,6 +64,7 @@ if (values.help) {
       '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
       '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
       '  --keep-temp                    Retain the generated archives and consumer',
+      '  --report <path>                Also write the verified cohort report to this file',
       '',
       'Repository paths default to sibling checkouts next to agent-runtime.',
       '',
@@ -145,17 +147,22 @@ try {
       `${artifact.name}@${artifact.version} commit=${artifact.sourceCommit} sha256=${artifact.sha256} archive=${basename(artifact.path)}\n`,
     )
   }
-  process.stdout.write(
-    `${JSON.stringify({
-      packages: artifacts.map(({ name, version, sourceCommit, sha256 }) => ({
-        name,
-        version,
-        sourceCommit,
-        sha256,
-      })),
-      consumer,
-    })}\n`,
-  )
+  const report = {
+    packages: artifacts.map(({ name, version, sourceCommit, sha256 }) => ({
+      name,
+      version,
+      sourceCommit,
+      sha256,
+    })),
+    consumer,
+  }
+  process.stdout.write(`${JSON.stringify(report)}\n`)
+  if (values.report) {
+    const reportPath = resolve(values.report)
+    mkdirSync(dirname(reportPath), { recursive: true })
+    writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`)
+    process.stdout.write(`Cohort report written to ${reportPath}\n`)
+  }
 
   function registerArtifact(artifact) {
     const identity = `${artifact.name}@${artifact.version}`

@@ -161,6 +161,7 @@ jobs:
           --agent-interface-repo .cohort/agent-sdk
           --agent-eval-repo .cohort/agent-eval
           --agent-knowledge-repo .cohort/agent-knowledge
+          --report "$RUNNER_TEMP/cohort-report.json"
 
       - name: Verify packed Runtime with official GEPA and SkillOpt
         run: pnpm run verify:official-optimizers
@@ -191,11 +192,33 @@ jobs:
           echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
           echo "Runtime archive locked: $package ($sha256)"
 
-      - name: Upload exact Runtime archive
+      # The manifest reports what this exact archive proved about its own durable
+      # and control capabilities, so it travels with the archive it describes.
+      - name: Emit and verify the conformance manifest for the exact archive
+        run: |
+          package_dir="$RUNNER_TEMP/agent-runtime-package"
+          mapfile -t packages < <(find "$package_dir" -maxdepth 1 -type f -name '*.tgz' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "::error::Expected one Runtime archive, found ${#packages[@]}."
+            exit 1
+          fi
+          manifest="$package_dir/agent-runtime-conformance-manifest.json"
+          node scripts/emit-conformance-manifest.mjs \
+            --tarball "${packages[0]}" \
+            --cohort-report "$RUNNER_TEMP/cohort-report.json" \
+            --out "$manifest"
+          node scripts/verify-conformance-manifest.mjs "$manifest" \
+            --tarball "${packages[0]}" \
+            --cohort-report "$RUNNER_TEMP/cohort-report.json" \
+            --source-root .
+
+      - name: Upload exact Runtime archive and its conformance manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: agent-runtime-package
-          path: ${{ runner.temp }}/agent-runtime-package/*.tgz
+          path: |
+            ${{ runner.temp }}/agent-runtime-package/*.tgz
+            ${{ runner.temp }}/agent-runtime-package/agent-runtime-conformance-manifest.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 1

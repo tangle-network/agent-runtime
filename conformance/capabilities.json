@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "agent-runtime/conformance-capabilities/v1",
+  "note": "The capability -> test mapping is hand-authored judgment: a human decides which behavioral test proves a capability. Everything downstream of this file is mechanical. A capability whose named cases do not all pass is reported unproven or unsupported, never silently narrowed into a pass.",
+  "capabilities": {
+    "retained-run-control": {
+      "scenario": "control-claim-accepted",
+      "summary": "A retained run acquires the next exact control claim against the provider launch generation, and one operation identity survives an ambiguous retry.",
+      "evidence": [
+        {
+          "file": "src/runtime/retained-interactive-control.test.ts",
+          "cases": [
+            "discovers the launch generation and acquires the next exact claim",
+            "reuses one operation identity when an ambiguous acquisition is retried",
+            "rejects a provider generation that does not advance"
+          ]
+        },
+        {
+          "file": "src/runtime/retained-run.test.ts",
+          "cases": [
+            "rejects a start with no admission hook before any provider call",
+            "awaits each admission before dispatch and before the start resolves"
+          ]
+        }
+      ]
+    },
+    "session-replay": {
+      "scenario": "reconnected-replay",
+      "summary": "A reconnected session replays from an exclusive cursor with canonical event identity, and refuses a replay anchor it cannot validate.",
+      "evidence": [
+        {
+          "file": "src/runtime/retained-run.test.ts",
+          "cases": [
+            "reconstructs in a new process, resumes after an exclusive cursor, answers, and cancels",
+            "preserves the CLI Bridge cursor while emitting its canonical event identity",
+            "assigns contiguous positive sequences when a replayable provider omits them",
+            "validates a replay anchor before skipping it"
+          ]
+        }
+      ]
+    },
+    "cancellation-acknowledgement": {
+      "scenario": "stop-accepted",
+      "summary": "Cancellation is acknowledged by operation id, applied once, and a worker that is already gone reads not_live or unknown — never success.",
+      "evidence": [
+        {
+          "file": "src/runtime/retained-run.test.ts",
+          "cases": [
+            "acknowledges cancellation by operation id and never repeats its effect",
+            "rejects cancellation when the provider has no durable operation contract"
+          ]
+        },
+        {
+          "file": "tests/kernel/worker-cancellation.test.ts",
+          "cases": [
+            "repeating one operationId applies cancellation once and returns the same record",
+            "a worker that is already gone acknowledges not_live, and an unmatched one expires not_live at run end — never success",
+            "the cancelled worker reaches a terminal down state visible on the settle path"
+          ]
+        }
+      ]
+    },
+    "native-continuation": {
+      "scenario": "verified-native-continuation",
+      "summary": "A continuation stays on the same box and session id, and is verified against the platform before it proceeds.",
+      "evidence": [
+        {
+          "file": "tests/kernel/sandbox-lineage.test.ts",
+          "cases": [
+            "a refine continues the parent on the SAME box with the SAME session id",
+            "proceeds when the platform reports the session is live",
+            "throws when the platform reports the continued session is unknown"
+          ]
+        }
+      ]
+    },
+    "recursive-observation": {
+      "scenario": "observer-projection-chain",
+      "summary": "One execution journal carries a verified chain, keeps recursive terminal truth isolated per run, and refuses a tampered history before projecting it.",
+      "evidence": [
+        {
+          "file": "src/durable/tests/observer-journal.test.ts",
+          "cases": [
+            "persists one execution journal with a verified chain",
+            "fails closed on identity conflicts and detects mutation",
+            "never returns a trusted projection after a durable append failure"
+          ]
+        },
+        {
+          "file": "src/durable/tests/observer-projection.test.ts",
+          "cases": [
+            "keeps run lifecycle and recursive terminal truth isolated per Runtime run",
+            "refuses mixed or tampered observer history before projecting it"
+          ]
+        }
+      ]
+    },
+    "cleanup-settlement": {
+      "scenario": "cleanup-dependency-order",
+      "summary": "Every owned box is torn down at loop end, partial live branches are reaped before a rejection, and an environment is kept when dispatch is uncertain but cleaned when unused.",
+      "evidence": [
+        {
+          "file": "tests/kernel/sandbox-lineage.test.ts",
+          "cases": [
+            "tears down every lineage-owned box at loop end",
+            "reaps partial live branches before rejecting the fanout"
+          ]
+        },
+        {
+          "file": "src/runtime/retained-run.test.ts",
+          "cases": ["keeps an environment after dispatch becomes uncertain, but cleans an unused one"]
+        }
+      ]
+    },
+    "interaction-response-acknowledgement": {
+      "scenario": "same-response",
+      "summary": "An interaction response is acknowledged, and replaying the same command digest returns the same acknowledgement rather than a second effect.",
+      "evidence": []
+    },
+    "context-transfer": {
+      "scenario": "accepted-transfer-receipt",
+      "summary": "A portable context is transferred between environments and the receipt proves the accepted transfer.",
+      "evidence": []
+    }
+  }
+}
