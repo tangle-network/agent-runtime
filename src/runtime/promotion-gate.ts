@@ -45,6 +45,7 @@ export interface PromotionVerdict {
     | 'non-inferior-and-cheaper'
     | 'non-inferiority-unproven'
     | 'not-cheaper'
+    | 'cost-unknown'
   mode: 'superiority' | 'non-inferiority'
   /** Paired tasks that carried both strategies' cells. */
   n: number
@@ -54,6 +55,10 @@ export interface PromotionVerdict {
   /** non-inferiority mode: paired (incumbent − candidate) cost savings per task (usd).
    *  Positive means the candidate is cheaper; `low` and `high` carried the decision. */
   costSavings?: { mean: number; median: number; low: number; high: number }
+  /** non-inferiority mode: the tasks whose dollars were not measured on at least one arm.
+   *  Present only with `reason: 'cost-unknown'`; naming them is what makes the refusal
+   *  actionable instead of a bare no. */
+  costUnknownTasks?: string[]
   /** Paired (candidate − incumbent) wall-clock per task (ms) — negative = the candidate
    *  is FASTER. Informational in every mode (never gates); the latency answer to "what
    *  does this win actually cost the user?". */
@@ -79,6 +84,8 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
   const incMs: number[] = []
   const candMs: number[] = []
   const cellIds: string[] = []
+  /** Tasks where either arm's dollars were never measured — see the refusal below. */
+  const costUnknownTasks: string[] = []
   for (const row of opts.report.perTask) {
     const inc = row.cells?.[opts.incumbent]
     const cand = row.cells?.[opts.candidate]
@@ -87,6 +94,7 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
     after.push(cand.score)
     incUsd.push(inc.usd)
     candUsd.push(cand.usd)
+    if (inc.usdKnown === false || cand.usdKnown === false) costUnknownTasks.push(row.taskId)
     incMs.push(inc.ms)
     candMs.push(cand.ms)
     cellIds.push(row.taskId)
@@ -147,6 +155,22 @@ export function promotionGate(opts: PromotionGateOptions): PromotionVerdict {
       ...(opts.resamples !== undefined ? { resamples: opts.resamples } : {}),
     },
   )
+  // `BenchmarkCell.usdKnown` false means the dollars are a floor, not a measurement, and
+  // `Spend.usdKnown` states the rule this gate has to obey: an unknown dollar amount "must not be
+  // treated as $0 when enforcing a dollar-denominated comparison or limit". Promotion on cost
+  // savings IS that comparison, so an unmeasured arm cannot be declared cheaper — it can only be
+  // declared unmeasured. Refuse rather than promote on a number no provider ever billed.
+  if (costUnknownTasks.length > 0) {
+    return {
+      promoted: false,
+      reason: 'cost-unknown',
+      mode,
+      n: before.length,
+      lift,
+      costUnknownTasks: [...costUnknownTasks],
+      latency,
+    }
+  }
   const costSig = heldoutSignificance(
     { before: candUsd, after: incUsd, cellIds },
     {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.154.0
+
+### A promotion may not call a candidate cheaper on dollars nobody measured
+
+`BenchmarkCell` carries `usd` and `usdKnown` as required siblings. `promotionGate` read `usd` from both arms and never read `usdKnown`, while non-inferiority mode promotes on a significant paired cost saving. A candidate whose dollars were a catalog estimate or an unreported floor could therefore be promoted for being cheaper than a receipted incumbent.
+
+`Spend.usdKnown` states the rule: a false value must not be treated as a measurement when enforcing a dollar-denominated comparison or limit. Promotion on cost savings is that comparison.
+
+`PromotionVerdict.reason` gains `'cost-unknown'`, and the verdict carries `costUnknownTasks` naming the tasks that caused the refusal. A caller that exhaustively switches on `reason` must handle the new member; a caller in `superiority` mode is unaffected, because only non-inferiority mode reads dollars.
+
 ## 0.153.2
 
 ### Eval 0.163.2 and Knowledge 10.7.0 reach this package

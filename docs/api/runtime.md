@@ -5854,7 +5854,7 @@ Fixed by the substrate by default — the same report always yields the same ver
 
 ##### reason
 
-> **reason**: `"identical-champion"` \| `"few-tasks"` \| `"no-margin"` \| `"significant"` \| `"non-inferior-and-cheaper"` \| `"non-inferiority-unproven"` \| `"not-cheaper"`
+> **reason**: `"identical-champion"` \| `"few-tasks"` \| `"no-margin"` \| `"significant"` \| `"non-inferior-and-cheaper"` \| `"non-inferiority-unproven"` \| `"not-cheaper"` \| `"cost-unknown"`
 
 ##### mode
 
@@ -5911,6 +5911,14 @@ non-inferiority mode: paired (incumbent − candidate) cost savings per task (us
 ###### high
 
 > **high**: `number`
+
+##### costUnknownTasks?
+
+> `optional` **costUnknownTasks?**: `string`[]
+
+non-inferiority mode: the tasks whose dollars were not measured on at least one arm.
+ Present only with `reason: 'cost-unknown'`; naming them is what makes the refusal
+ actionable instead of a bare no.
 
 ##### latency?
 
