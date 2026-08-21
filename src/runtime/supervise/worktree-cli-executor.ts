@@ -36,6 +36,7 @@ import {
   type WorktreeProfileMaterializationReceipt,
   worktreeProfileExecutionPlan,
 } from '../../mcp/worktree-harness'
+import { linkAbort } from './abortable'
 import { executableAgentProfileSnapshot } from './executable-spec'
 import { attestRuntimeOwnedExecutor, newExecutionAttemptId } from './materialization'
 import { concreteProfileModel } from './model-policy'
@@ -164,7 +165,7 @@ export function createWorktreeCliExecutor(
       runtime: 'cli',
       budgetExempt,
       async execute(task, signal): Promise<ExecutorResult<WorktreePatchArtifact>> {
-        const linked = linkSignals(signal, controller.signal)
+        const linked = linkAbort(signal, controller.signal).signal
         const started = Date.now()
         const taskPrompt = executionTaskPrompt(task, options.taskPrompt)
 
@@ -309,19 +310,4 @@ function executionTaskPrompt(task: unknown, configuredPrompt: string | undefined
     })
   }
   throw new ValidationError('createWorktreeCliExecutor: execute task must be JSON-serializable')
-}
-
-/** Link two abort signals into one that fires when either does. Returns `undefined` when neither
- *  is present so the harness runner gets no signal at all. */
-function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
-  if (a.aborted || b.aborted) {
-    const c = new AbortController()
-    c.abort()
-    return c.signal
-  }
-  const c = new AbortController()
-  const onAbort = () => c.abort()
-  a.addEventListener('abort', onAbort, { once: true })
-  b.addEventListener('abort', onAbort, { once: true })
-  return c.signal
 }
