@@ -134,7 +134,8 @@ async function chatComplete(
         model: {
           provider: 'tangle-router',
           default: model,
-          metadata: { temperature: 0, maxTokens },
+          metadata: { temperature: 0 },
+          maxVisibleOutputTokens: maxTokens,
         },
         ...(system ? { prompt: { systemPrompt: system } } : {}),
       },

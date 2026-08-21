@@ -69,7 +69,8 @@ const result = await runBenchRouterTurn(
       model: {
         provider: 'tangle-router',
         default: model,
-        metadata: { temperature, maxTokens },
+        metadata: { temperature },
+        maxVisibleOutputTokens: maxTokens,
       },
       prompt: { systemPrompt: instruction },
     },

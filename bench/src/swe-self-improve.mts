@@ -32,7 +32,8 @@ async function main(): Promise<void> {
     model: {
       provider: 'tangle-router',
       default: workerModel,
-      metadata: { maxTokens: 8000, maxTurns: innerTurns },
+      metadata: { maxTurns: innerTurns },
+      maxVisibleOutputTokens: 8000,
     },
   }
   const authorProfile = (model: string, name: string): AgentProfile => ({
@@ -41,7 +42,7 @@ async function main(): Promise<void> {
     model: {
       provider: 'tangle-router',
       default: model,
-      metadata: { maxTokens: 8000 },
+      maxVisibleOutputTokens: 8000,
     },
     prompt: { systemPrompt: strategyAuthorSystemPrompt },
   })
