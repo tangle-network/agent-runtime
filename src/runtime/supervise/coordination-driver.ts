@@ -217,10 +217,23 @@ export interface DriverAgentOptions {
    * writes the durable {@link WorkerCancellation} acknowledgement: `cancel_requested` when the
    * abort is issued, `cancelled` only when the worker reaches a terminal `down` on the settle
    * path, `not_live` when the worker is already gone — a missing worker never reads as success.
-   * A request naming a deeper descendant stays unanswered (cancel its lead instead). Omit = no
-   * acknowledger (in-memory runs keep in-process control via handles).
+   * Which requests this driver OWNS is set by {@link controlScope}. Omit = no acknowledger
+   * (in-memory runs keep in-process control via handles).
    */
   readonly controlDir?: string
+  /**
+   * Which cancel requests this driver's acknowledger owns when `controlDir` is set.
+   *
+   * `'run'` (the default, and the tree root's role): exact node ids of its OWN direct children,
+   * plus every label/profile-name reference. `'subtree'` (a nested manager): exact direct-child
+   * node ids ONLY — never labels or profile names, which can match workers under more than one
+   * manager. Ownership makes each operation appliable by exactly ONE manager, so two acknowledgers
+   * sharing one `controlDir` can never abort two workers for one operation or race on the
+   * acknowledgement file. At the end of `act`, the owner writes an expiry record for each owned
+   * request still open: `not_live` for one never applied, `unknown` for an abort whose settle the
+   * run ended too soon to observe — so a reader can tell run-over from in-progress.
+   */
+  readonly controlScope?: 'run' | 'subtree'
 }
 
 /** The default chapter-close prompt: the brain summarizes its OWN progress for its future self before
@@ -381,31 +394,63 @@ interface CancelAcknowledgerDeps {
   }
   readonly scope: Scope<unknown>
   readonly now: () => number
+  /** This manager's own node id (`scope.view.root`) — the parent every owned node id hangs off. */
+  readonly ownerId: string
+  /** `'run'` also owns label/profile-name references (the tree root's role); `'subtree'` owns
+   *  exact direct-child node ids only. See `DriverAgentOptions.controlScope`. */
+  readonly controlScope: 'run' | 'subtree'
 }
 
 /**
  * The worker-cancel ACKNOWLEDGER — the runtime-side half of `run-layout`'s `cancelWorker`
  * contract, run from the coordination driver's turn loop (one cancellation-inbox read per turn,
- * no new process, no poller, no extra lifetime).
+ * no new process, no poller, no extra lifetime). Every manager with a `controlDir` mounts one;
+ * OWNERSHIP keeps them from colliding: a request naming a node id is owned by the manager whose
+ * own id is that node's parent, and a label/profile-name reference is owned by the `'run'`-scoped
+ * (root) manager only — so exactly one acknowledger can ever apply one operation.
  *
  * Two-phase, honestly reported: `cancel_requested` is written the moment a live worker's abort is
  * issued (through the per-child abort chain the scope already owns, so siblings are untouched);
  * `cancelled` is written only when that worker's settlement is DELIVERED on the settle path with
  * a terminal `down`, and then the record names every subtree node id proven terminated. A worker
  * that already settled — or that settles `done` despite the abort — records `not_live`; a
- * reference matching nothing this manager knows stays pending (`cancelWorker` reports it
+ * reference matching nothing this manager owns stays pending (`cancelWorker` reports it
  * `unknown`). No path reports success for a missing worker.
+ *
+ * Expiry is run end, not a clock: `finish()` (after the final post-drain pass) writes `not_live`
+ * for every owned request never applied and `unknown` for an issued abort whose settle the run
+ * ended too soon to observe. A pending request can therefore never outlive its run and abort a
+ * future spawn that happens to reuse a label.
  *
  * Idempotency is a lookup, in-process and across processes: an operation with a durable
  * acknowledgement is returned as-is and never re-applied.
  */
-function createCancelAcknowledger(deps: CancelAcknowledgerDeps): { pass(): void } {
+function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
+  pass(): void
+  finish(): void
+} {
   const tracked = new Map<string, WorkerCancellation>()
+  // The abort-issue instant per operation (the `observedAt` written on its `cancel_requested`
+  // record) — the terminated-set window survives the record moving to `cancelled`.
+  const abortIssuedAt = new Map<string, string>()
   const iso = () => new Date(deps.now()).toISOString()
 
   const write = (record: WorkerCancellation): void => {
     writeWorkerCancellation(deps.dir, record)
     tracked.set(record.operationId, record)
+  }
+
+  /** `ref` is exactly one of THIS manager's direct-child node ids (`${ownerId}:s<seq>`). */
+  const directChildId = (ref: string): boolean =>
+    ref.startsWith(`${deps.ownerId}:s`) && /^s\d+$/.test(ref.slice(deps.ownerId.length + 1))
+
+  /** Whether this acknowledger owns `ref`. A node id deeper in this subtree belongs to the nested
+   *  manager that parents it; anything that is not a node id under this manager is a
+   *  label/profile-name reference, owned by the `'run'`-scoped manager alone. */
+  const owned = (ref: string): boolean => {
+    if (directChildId(ref)) return true
+    if (deps.controlScope !== 'run') return false
+    return !ref.startsWith(`${deps.ownerId}:`) && ref !== deps.ownerId
   }
 
   // Terminal knowledge of one node, visible only once its settlement was DELIVERED (the ledger
@@ -430,6 +475,7 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): { pass(): void 
       ...(request.reason === undefined ? {} : { reason: request.reason }),
     }
     if (aborted !== undefined) {
+      abortIssuedAt.set(request.operationId, base.observedAt)
       write({
         ...base,
         effect: 'cancel_requested',
@@ -459,6 +505,19 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): { pass(): void 
     }
   }
 
+  /** The proven-terminated set for one record: the worker plus every subtree id with a terminal
+   *  journal record at/after the abort was issued. Union with what the record already names, so
+   *  the set only ever grows (a late teardown journal adds; nothing removes). */
+  const provenTerminated = (record: WorkerCancellation, workerId: string): string[] => {
+    const since = abortIssuedAt.get(record.operationId) ?? record.observedAt
+    const ids = new Set<string>([
+      ...record.terminated,
+      workerId,
+      ...terminatedDescendants(deps.dir, workerId, since),
+    ])
+    return [...ids].sort()
+  }
+
   const reconcile = (record: WorkerCancellation): void => {
     const workerId = record.workerId
     if (workerId === undefined) return
@@ -469,7 +528,7 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): { pass(): void 
         ...record,
         effect: 'cancelled',
         observedAt: iso(),
-        terminated: [workerId, ...terminatedDescendants(deps.dir, workerId, record.requestedAt)],
+        terminated: provenTerminated(record, workerId),
         detail: `worker '${workerId}' reached a terminal down state on the settle path`,
       })
       return
@@ -485,21 +544,70 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): { pass(): void 
     })
   }
 
+  /** Re-scan a `cancelled` record while the manager still turns: a descendant whose teardown
+   *  journals after the lead's settle joins the set on a later pass instead of being lost. Only
+   *  a grown set is re-written; the window needs the in-process abort instant, so a record a
+   *  PRIOR process closed stays as that process proved it. */
+  const regrow = (record: WorkerCancellation): void => {
+    const workerId = record.workerId
+    if (workerId === undefined || !abortIssuedAt.has(record.operationId)) return
+    const terminated = provenTerminated(record, workerId)
+    if (terminated.length > record.terminated.length) {
+      write({ ...record, observedAt: iso(), terminated })
+    }
+  }
+
+  const pass = (): void => {
+    for (const request of readWorkerCancelRequests(deps.dir)) {
+      if (!owned(request.worker)) continue
+      let record = tracked.get(request.operationId)
+      if (record === undefined) {
+        // Cross-process idempotency: an acknowledgement a prior process wrote wins over
+        // re-applying the operation.
+        record = readWorkerCancellation(deps.dir, request.operationId)
+        if (record !== undefined) tracked.set(request.operationId, record)
+      }
+      if (record === undefined) {
+        apply(request)
+        continue
+      }
+      if (record.effect === 'cancel_requested') reconcile(record)
+      else if (record.effect === 'cancelled') regrow(record)
+    }
+  }
+
   return {
-    pass(): void {
+    pass,
+    finish(): void {
       for (const request of readWorkerCancelRequests(deps.dir)) {
-        let record = tracked.get(request.operationId)
+        if (!owned(request.worker)) continue
+        const record =
+          tracked.get(request.operationId) ?? readWorkerCancellation(deps.dir, request.operationId)
         if (record === undefined) {
-          // Cross-process idempotency: an acknowledgement a prior process wrote wins over
-          // re-applying the operation.
-          record = readWorkerCancellation(deps.dir, request.operationId)
-          if (record !== undefined) tracked.set(request.operationId, record)
-        }
-        if (record === undefined) {
-          apply(request)
+          // Never applied and the run is over: the request expires as `not_live` so it cannot
+          // linger and abort a future spawn that matches by label — and never reads as success.
+          write({
+            operationId: request.operationId,
+            worker: request.worker,
+            effect: 'not_live',
+            requestedAt: request.at,
+            observedAt: iso(),
+            ...(request.reason === undefined ? {} : { reason: request.reason }),
+            detail: 'run ended before the request was applied',
+            terminated: [],
+          })
           continue
         }
-        if (record.effect === 'cancel_requested') reconcile(record)
+        if (record.effect === 'cancel_requested') {
+          // The abort went out but act is returning before the settle path could prove the
+          // termination. `unknown` is the honest terminal: not in progress, never a success.
+          write({
+            ...record,
+            effect: 'unknown',
+            observedAt: iso(),
+            detail: 'abort issued; run ended before termination was observed',
+          })
+        }
       }
     },
   }
@@ -507,11 +615,15 @@ function createCancelAcknowledger(deps: CancelAcknowledgerDeps): { pass(): void 
 
 /**
  * Subtree node ids with a terminal `down`/`cancelled` journal record at or after `sinceIso` —
- * the descendants a cancelled lead's cascading abort took down, read from the durable spawn
- * journal beside the run layout (the nested trees journal their terminal records before the lead
- * itself settles). Ids are hierarchical (`parent:sN`), so `${nodeId}:` prefixes exactly the
- * subtree. Tolerant of a missing or partially-written journal: evidence that cannot be read
- * names fewer nodes, never wrong ones.
+ * the abort-issue instant (the acknowledger's own `observedAt` on the `cancel_requested` record,
+ * runtime clock), never the client's `requestedAt` — read from the durable spawn journal beside
+ * the run layout. The set is proven at acknowledgement time and is approximate about post-abort
+ * causation: a descendant that died of its OWN cause after the abort was issued is
+ * indistinguishable from the cascade and may be included; one whose teardown journals late joins
+ * on a later acknowledger pass; a teardown journal still absent when the run ends is absent from
+ * the set. Ids are hierarchical (`parent:sN`), so `${nodeId}:` prefixes exactly the subtree.
+ * Tolerant of a missing or partially-written journal: evidence that cannot be read names fewer
+ * nodes, never wrong ones.
  */
 function terminatedDescendants(dir: string, nodeId: string, sinceIso: string): string[] {
   let raw: string
@@ -635,7 +747,14 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       const acknowledger =
         opts.controlDir === undefined
           ? undefined
-          : createCancelAcknowledger({ dir: opts.controlDir, coord, scope, now })
+          : createCancelAcknowledger({
+              dir: opts.controlDir,
+              coord,
+              scope,
+              now,
+              ownerId: scope.view.root,
+              controlScope: opts.controlScope ?? 'run',
+            })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
       // (they settle through the same cursor `await_event` drains). Fail loud on a wait that
@@ -917,7 +1036,11 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       await coord.drainResolved()
       // Final acknowledgement pass over the drained ledger, so a cancellation whose worker
       // settled after the last turn's pass still records its terminal effect before act returns.
+      // Then expiry: run end closes every owned request that is still open (`not_live` never
+      // applied, `unknown` issued-but-unproven) — a reader can tell run-over from in-progress,
+      // and no pending request survives to abort a future spawn that matches by label.
       acknowledger?.pass()
+      acknowledger?.finish()
       // Direct work is eligible only through `submit_result`, after the same injected independent
       // check workers face. Raw driver prose remains ineligible. The first passing submission wins;
       // otherwise finalize over delivered children as before.

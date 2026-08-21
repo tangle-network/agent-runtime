@@ -13494,7 +13494,9 @@ Who asked — 'human', a brain label, a tool name. Provenance, not authorization
 
 > `readonly` **worker**: `string`
 
-The worker the request targets: a workerId (node id), a profile name, or a spawn label.
+The worker the request targets: a workerId (node id — routed to the owning manager at any
+ depth), or a profile name or spawn label (resolved by the root manager against its direct
+ children only).
 
 ##### reason?
 
@@ -13510,11 +13512,18 @@ The durable acknowledgement state for one worker-scoped cancel operation, keyed 
 `effect` reuses the retained-run vocabulary ([RetainedRunEffect](#retainedruneffect)) so the runtime has one
 spelling of the four cancellation states:
  - `'unknown'`          — not yet resolved by the runtime (also what `cancelWorker` returns for
-                          a request no acknowledger has answered). Never a success.
+                          a request no acknowledger has answered), or — terminally, with the
+                          run-over detail — an abort was issued but the run ended before the
+                          termination could be observed. Never a success.
  - `'cancel_requested'` — the runtime issued the worker's abort; termination not yet proven.
  - `'cancelled'`        — the worker reached a terminal `down` state on the settle path.
- - `'not_live'`         — the worker was not live to cancel (already settled, or it settled
-                          `done` despite the abort). Never a success of THIS operation.
+ - `'not_live'`         — the worker was not live to cancel (already settled, it settled
+                          `done` despite the abort, or the run ended before the request was
+                          ever applied). Never a success of THIS operation.
+
+Expiry is run end: the owning manager's final pass closes every still-open request it owns
+(`not_live` never applied, `unknown` issued-but-unproven), so a pending request cannot outlive
+its run and abort a future spawn that happens to reuse a label.
 
 #### Properties
 
@@ -13567,9 +13576,15 @@ The runtime's explanation of how it arrived at `effect`.
 > `readonly` **terminated**: readonly `string`[]
 
 Every node id this operation PROVED terminated: the requested worker plus each descendant of
-its subtree observed to reach a terminal `down`/`cancelled` journal record at or after
-`requestedAt` (a cancelled lead cascades to its subtree by design — the scope signal chain —
-so the acknowledgement names the set, not one id). Empty until termination is proven.
+its subtree observed to reach a terminal `down`/`cancelled` journal record at or after the
+abort was ISSUED — the acknowledger's own `observedAt` on the `cancel_requested` record
+(runtime clock), never the client's `requestedAt` (a cancelled lead cascades to its subtree
+by design — the scope signal chain — so the acknowledgement names the set, not one id).
+Proven at acknowledgement time; post-abort causation is approximate: a descendant that died
+of its own cause after the abort is indistinguishable from the cascade and may be included,
+a late teardown journal joins the set on a later pass while the manager still runs, and one
+still absent at run end is absent from the set. Grows monotonically; empty until termination
+is proven.
 
 ***
 
@@ -16224,6 +16239,15 @@ Where the coordination MCP binds (external arm). Omit = an ephemeral loopback po
 The durable run directory this manager acknowledges worker-scoped cancel requests from
  (router arm only — the in-process turn loop is the acknowledger). See
  `DriverAgentOptions.controlDir`.
+
+##### controlScope?
+
+> `readonly` `optional` **controlScope?**: `"run"` \| `"subtree"`
+
+Which cancel requests this manager's acknowledger owns: `'run'` (default; the tree root —
+ its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
+ manager — exact direct-child node ids only). Exactly one manager owns any request, so two
+ acknowledgers can never apply one operation. See `DriverAgentOptions.controlScope`.
 
 ***
 
@@ -27260,9 +27284,10 @@ Request the cancellation of ONE worker, idempotently, and return the operation's
 durable state.
 
 The write half of the acknowledged-cancellation contract (`writeWorkerSteer` is the steer
-analog): append the request to the run's cancellation inbox, where the runtime's acknowledger
-(the coordination driver's turn loop) applies it — aborting exactly that worker's subtree and
-recording what it proved. This function never applies the cancellation itself; writing a
+analog): append the request to the run's cancellation inbox, where the OWNING manager's
+acknowledger (its turn loop — the root for label/profile references, the parent manager for an
+exact node id at any depth) applies it — aborting exactly that worker's subtree and recording
+what it proved. This function never applies the cancellation itself; writing a
 request file is not an acknowledgement.
 
 Idempotency is a lookup: when an acknowledgement for `operationId` already exists, it is
