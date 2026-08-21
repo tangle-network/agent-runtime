@@ -40,6 +40,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type { McpToolDescriptor } from '../../mcp/protocol'
+import { isLiveNodeStatus } from './node-status'
 import type { Scope } from './types'
 
 /**
@@ -244,9 +245,6 @@ function isPeerMailKind(value: unknown): value is PeerMailKind {
   return value === 'ask' || value === 'tell' || value === 'challenge' || value === 'answer'
 }
 
-const isLiveStatus = (status: string): boolean =>
-  status !== 'done' && status !== 'failed' && status !== 'cancelled'
-
 /** Create the run's post office. One per manager scope; the manager's siblings are its addresses. */
 export function createPeerMailbox(opts: PeerMailboxOptions): PeerMailbox {
   const limits: PeerMailLimits = Object.freeze({ ...DEFAULT_PEER_MAIL_LIMITS, ...opts.limits })
@@ -293,7 +291,7 @@ export function createPeerMailbox(opts: PeerMailboxOptions): PeerMailbox {
     return event
   }
 
-  const liveNodes = () => opts.scope.view.nodes.filter((node) => isLiveStatus(node.status))
+  const liveNodes = () => opts.scope.view.nodes.filter((node) => isLiveNodeStatus(node.status))
 
   const mailbox: PeerMailbox = {
     limits,
@@ -406,7 +404,7 @@ export function createPeerMailbox(opts: PeerMailboxOptions): PeerMailbox {
       if (opts.scope.signal.aborted) return record(envelope, 'scope-stopped')
       const node = opts.scope.view.nodes.find((candidate) => candidate.id === to)
       if (node === undefined) return record(envelope, 'unknown-worker')
-      if (!isLiveStatus(node.status)) return record(envelope, 'already-settled')
+      if (!isLiveNodeStatus(node.status)) return record(envelope, 'already-settled')
 
       let delivered = false
       try {

@@ -66,6 +66,7 @@ import {
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './materialization'
+import { isTerminalNodeStatus } from './node-status'
 import {
   DEFAULT_STALL_AFTER_MS,
   type ExecutorProgress,
@@ -1312,15 +1313,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
   }
 
-  function terminalNodeStatus(status: NodeStatus): boolean {
-    return status === 'done' || status === 'failed' || status === 'cancelled'
-  }
-
   function interactive(nodeId: NodeId): WorkerInteractiveSession {
     const child = children.get(nodeId)
     if (!child) return noInteractiveSession('unknown-node')
     // A wait-state node holds no executor, and a settled one holds no process.
-    if (child.wait || child.executorDone || terminalNodeStatus(child.status)) {
+    if (child.wait || child.executorDone || isTerminalNodeStatus(child.status)) {
       return noInteractiveSession('not-live')
     }
     if (!child.readInteractive)
@@ -1434,13 +1431,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         // own, so a leak is attributable rather than an integer.
         unconfirmed: Object.freeze(
           [...children.values()]
-            .filter(
-              (child) =>
-                (child.status === 'done' ||
-                  child.status === 'failed' ||
-                  child.status === 'cancelled') &&
-                !child.cleanupConfirmed,
-            )
+            .filter((child) => isTerminalNodeStatus(child.status) && !child.cleanupConfirmed)
             .map((child) =>
               Object.freeze({
                 id: child.id,

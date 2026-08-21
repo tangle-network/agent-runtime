@@ -22,6 +22,7 @@
  * @experimental
  */
 
+import { isLiveNodeStatus } from './node-status'
 import type { NodeStatus } from './types'
 
 /** How long a worker may produce no metered activity before a `progress()` read calls it stalled.
@@ -161,7 +162,7 @@ export function readWorkerProgress(
   now: number,
   stallAfterMs: number = DEFAULT_STALL_AFTER_MS,
 ): WorkerProgress {
-  const live = scope.status !== 'done' && scope.status !== 'failed' && scope.status !== 'cancelled'
+  const live = isLiveNodeStatus(scope.status)
   // An executor-reported activity is newer evidence than the last metered usage event: a harness
   // can run a five-minute tool call without emitting a single token.
   const executorActivityAt = executor?.recentActivity?.length

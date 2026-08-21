@@ -34,6 +34,7 @@ import type { DeliverableSpec } from '../../runtime/supervise/completion-gate'
 import { type WatchTraceOptions, watchTrace } from '../../runtime/supervise/detector-monitor'
 import { freeSlots } from '../../runtime/supervise/dispatch'
 import { type BusRecord, type BusStats, createEventBus } from '../../runtime/supervise/event-bus'
+import { isLiveNodeStatus } from '../../runtime/supervise/node-status'
 import {
   createPeerMailbox,
   type PeerMailbox,
@@ -604,6 +605,25 @@ export const coordinationVerbNames = [
   'run_analyst',
 ] as const
 
+/**
+ * The `CoordinationEvent` kinds a driver may name in `await_event`. The pull queue carries the
+ * UP-leg only: `steer` / `answer` / `instruction` / `delivery-attempt` are recorded `queue: false`
+ * (history and subscribers, never pulled back), and `mail` is delivered to its addressee's inbox.
+ *
+ * Declared once because the tool advertises this list in its JSON Schema AND filters on it at
+ * dispatch. Written twice, the two drift and the schema promises a kind the filter drops — a
+ * driver then blocks on a queue that already holds its event.
+ */
+const awaitableEventKinds = ['settled', 'question', 'finding'] as const satisfies ReadonlyArray<
+  CoordinationEvent['type']
+>
+
+type AwaitableEventKind = (typeof awaitableEventKinds)[number]
+
+function isAwaitableEventKind(value: unknown): value is AwaitableEventKind {
+  return (awaitableEventKinds as ReadonlyArray<unknown>).includes(value)
+}
+
 const idArg = { type: 'string', description: 'The workerId returned by spawn_agent.' } as const
 
 /**
@@ -1148,7 +1168,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   /** The LIVE worker a route destination names, by profile name first, label second. */
   const liveWorkerIdNamed = (destination: string): string | undefined => {
-    const live = opts.scope.view.nodes.filter((node) => isLive(node.status))
+    const live = opts.scope.view.nodes.filter((node) => isLiveNodeStatus(node.status))
     return (
       live.find((node) => profileNameByWorker.get(node.id) === destination)?.id ??
       live.find((node) => node.label === destination)?.id
@@ -1162,7 +1182,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // which is the documented resume boundary (a prior process's workers are not resume targets).
   const liveWorkerForNode = (name: string): string | undefined =>
     opts.scope.view.nodes.find(
-      (node) => isLive(node.status) && profileNameByWorker.get(node.id) === name,
+      (node) => isLiveNodeStatus(node.status) && profileNameByWorker.get(node.id) === name,
     )?.id
   const latestSettledWorkerForNode = (name: string): string | undefined => {
     for (let i = ledger.length - 1; i >= 0; i -= 1) {
@@ -1552,7 +1572,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (opts.scope.signal.aborted) return 'scope-stopped'
     const node = opts.scope.view.nodes.find((candidate) => candidate.id === workerId)
     if (!node) return 'unknown-worker'
-    if (!isLive(node.status)) return 'already-settled'
+    if (!isLiveNodeStatus(node.status)) return 'already-settled'
     return 'runtime-has-no-inbox'
   }
 
@@ -1710,10 +1730,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // to this toolbox's direct-child count. The shared reading is what prevents each nested manager
   // from multiplying the same cap independently.
   const maxLiveWorkers = opts.maxLiveWorkers
-  const isLive = (status: string): boolean =>
-    status !== 'done' && status !== 'failed' && status !== 'cancelled'
   const localLiveWorkerCount = (): number =>
-    opts.scope.view.nodes.filter((n) => isLive(n.status)).length
+    opts.scope.view.nodes.filter((n) => isLiveNodeStatus(n.status)).length
   const sharedWorkerCapacity = (): Scope<unknown>['workerCapacity'] | undefined => {
     const scope = opts.scope as Partial<Scope<unknown>>
     return scope.workerCapacity
@@ -1748,7 +1766,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   })
 
   const liveSnapshot = (): Array<Record<string, unknown>> =>
-    opts.scope.view.nodes.filter((n) => isLive(n.status)).map((n) => projectNodeEvidence(n))
+    opts.scope.view.nodes
+      .filter((n) => isLiveNodeStatus(n.status))
+      .map((n) => projectNodeEvidence(n))
 
   // How many workers the driver could open RIGHT NOW without hitting the simultaneity fence, or
   // `null` when no cap is set (the conserved pool is then the only fence, so there is no finite
@@ -2201,18 +2221,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         properties: {
           kinds: {
             type: 'array',
-            items: { type: 'string', enum: ['settled', 'question', 'finding'] },
+            items: { type: 'string', enum: [...awaitableEventKinds] },
             description: 'Restrict to these event kinds (any if omitted).',
           },
         },
       },
       handler: async (raw) => {
         const k = obj(raw).kinds
-        const kinds = Array.isArray(k)
-          ? (k.filter((x) => x === 'settled' || x === 'question' || x === 'finding') as Array<
-              CoordinationEvent['type']
-            >)
-          : undefined
+        const kinds = Array.isArray(k) ? k.filter(isAwaitableEventKind) : undefined
         // Already-queued async messages (findings, questions) first — a fast, non-blocking pull.
         let ev = bus.pull(kinds)
         // Every return from this verb carries `freeSlots` — a settlement is exactly the moment
@@ -2465,7 +2481,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const id = str(a.workerId, 'workerId')
         const node = nodeForWorker(id)
         if (!node) return { error: `unknown workerId ${JSON.stringify(id)}` }
-        if (isLive(node.status)) {
+        if (isLiveNodeStatus(node.status)) {
           return { error: `worker ${JSON.stringify(id)} has not settled — no trace to analyze yet` }
         }
         const trace =
@@ -2496,7 +2512,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     ref: string,
     reason?: string,
   ): { readonly id: string; readonly label: string } | undefined => {
-    const live = opts.scope.view.nodes.filter((node) => isLive(node.status))
+    const live = opts.scope.view.nodes.filter((node) => isLiveNodeStatus(node.status))
     const target =
       live.find((node) => node.id === ref) ??
       live.find((node) => profileNameByWorker.get(node.id) === ref) ??

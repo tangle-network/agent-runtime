@@ -23,6 +23,7 @@
  * @experimental
  */
 
+import { insideCursorNamespace } from '../../durable/spawn-journal'
 import type {
   DefaultVerdict,
   NodeId,
@@ -68,19 +69,7 @@ export async function trajectoryReport(
   // `metered` events (driver inference) are folded onto each node in a separate pass below, so
   // they accumulate ONTO the settled child-work base regardless of seq order; closes are the
   // settlements/cancellations that set node status.
-  const closes = events
-    .filter(
-      (ev) =>
-        ev.kind !== 'spawned' &&
-        ev.kind !== 'waiting' &&
-        ev.kind !== 'metered' &&
-        ev.kind !== 'materialized' &&
-        ev.kind !== 'execution-bound' &&
-        ev.kind !== 'edge' &&
-        ev.kind !== 'teardown-unconfirmed' &&
-        ev.kind !== 'trace-unpropagated',
-    )
-    .sort(bySeq)
+  const closes = events.filter(insideCursorNamespace).sort(bySeq)
 
   const nodes = new Map<NodeId, MutableNode>()
   for (const ev of spawns) {

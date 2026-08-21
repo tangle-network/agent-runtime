@@ -37,6 +37,7 @@
 import { sha256DigestSchema } from '@tangle-network/agent-interface'
 import {
   aggregateProviderModelEvidence,
+  closesCursorSlot,
   contentAddress,
   loadSpawnForest,
   materializeTreeView,
@@ -350,13 +351,7 @@ function rootDeadline(root: SpawnedEvent): number {
 
 /** Child reservations whose spawn was durable but whose terminal record never landed. */
 function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
-  const terminal = new Set(
-    events
-      .filter(
-        (event) => event.kind === 'settled' || event.kind === 'cancelled' || event.kind === 'woken',
-      )
-      .map((event) => event.id),
-  )
+  const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
   return events
     .filter(
       (event): event is SpawnedEvent =>
@@ -534,10 +529,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           settled,
           view,
           maxSpawnOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'spawned'),
-          maxCursorSeq: maxSeqOf(
-            prior,
-            (ev) => ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken',
-          ),
+          maxCursorSeq: maxSeqOf(prior, closesCursorSlot),
           maxWaitOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'waiting'),
           // Waits armed but never woken: the run died mid-wait. They ride onto `Scope.resume.waits`,
           // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
@@ -1265,9 +1257,7 @@ function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
   const terminal = new Set<NodeId>()
   for (const ev of events) {
     if (ev.kind === 'spawned') labels.set(ev.id, ev.label)
-    else if (ev.kind === 'settled' || ev.kind === 'cancelled' || ev.kind === 'woken') {
-      terminal.add(ev.id)
-    }
+    else if (closesCursorSlot(ev)) terminal.add(ev.id)
   }
   const gaps = new Map<
     string,
