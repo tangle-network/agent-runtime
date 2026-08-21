@@ -19,6 +19,7 @@ import { parseCanonicalTransportEvent } from './sandbox-transport-events'
 import type { ExecutorProgressEvent } from './supervise/types'
 
 const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'child-task',
   'message.part.updated',
   'tool-heartbeat',
   'tool-slow',
@@ -742,6 +743,9 @@ export function sandboxProgressEvents(
   const canonical = canonicalStreamEventFromSandboxEvent(event)
   if (canonical?.type === 'interaction') {
     return [{ kind: 'interaction', request: canonical.request }]
+  }
+  if (canonical?.type === 'child-task') {
+    return [{ kind: 'child_task', event: canonical }]
   }
   const tools = mapSandboxToolEvent(event, state).map((projected) =>
     projected.type === 'tool_call'

@@ -28,6 +28,7 @@
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
+  ChildTaskEvent,
   InteractionRequest,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -335,6 +336,16 @@ export type ExecutorProgressEvent =
       readonly result?: unknown
     }
   | { readonly kind: 'interaction'; readonly request: InteractionRequest }
+  | {
+      /**
+       * One update of a provider-native child task — a subagent or delegated task the runner
+       * started inside this run. It is the Interface event verbatim, so a client rebuilds the
+       * child tree from provider identity (`childId`, `parentChildId`, `sourceEventId`) instead
+       * of inferring children from tool names or transcript order.
+       */
+      readonly kind: 'child_task'
+      readonly event: ChildTaskEvent
+    }
 
 export type UsageEvent =
   | {
