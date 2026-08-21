@@ -935,11 +935,23 @@ export interface Scope<Out> {
     reservedTokens: number
   }>
   /** One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
-   *  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set. */
+   *  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
+   *  `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
+   *  the nodes still holding a capacity slot. Empty on every healthy run. */
   readonly workerCapacity: Readonly<{
     live: number
     freeSlots: number | null
+    unconfirmed: ReadonlyArray<UnconfirmedTeardown>
   }>
+}
+
+/** One settled child whose executor teardown was never acknowledged: the run cannot prove the
+ *  resource is gone, so its capacity slot stays charged. Named so an operator can act on it. */
+export interface UnconfirmedTeardown {
+  readonly id: NodeId
+  readonly label: string
+  readonly runtime: Runtime
+  readonly status: NodeStatus
 }
 
 /**
@@ -1137,6 +1149,21 @@ export type SpawnEvent =
       accountingOnly?: true
       /** Runtime-owned provider attempt evidence for this driver's own inference turn. */
       providerModel?: ProviderModelExecutionEvidence
+      seq: number
+      at: string
+    }
+  | {
+      /** A settled child whose executor teardown was never acknowledged: the run cannot prove the
+       *  resource is gone, so its capacity slot stays charged for the rest of the run. Recorded so
+       *  the leak is durable evidence about the EXECUTOR rather than a cause of run failure.
+       *  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` lives
+       *  outside the cursor-uniqueness namespace. */
+      kind: 'teardown-unconfirmed'
+      id: NodeId
+      label: string
+      runtime: Runtime
+      /** The node's terminal status when the barrier read it. */
+      status: NodeStatus
       seq: number
       at: string
     }
@@ -1385,6 +1412,11 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
+      /** Settled children whose executor teardown was never acknowledged — the resources this run
+       *  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
+       *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
+       *  healthy run never carries it. */
+      teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1416,6 +1448,11 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
+      /** Settled children whose executor teardown was never acknowledged — the resources this run
+       *  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
+       *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
+       *  healthy run never carries it. */
+      teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1444,6 +1481,11 @@ export type SupervisedResult<Out> =
       readonly rootProviderModel?: RootProviderModelEvidence
       /** Runtime-owned provider evidence reduced across the complete journal forest. */
       readonly providerModel?: ProviderModelExecutionEvidence
+      /** Settled children whose executor teardown was never acknowledged — the resources this run
+       *  could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
+       *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
+       *  healthy run never carries it. */
+      teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>

@@ -80,6 +80,7 @@ import type {
   Supervisor,
   SupervisorOpts,
   TreeView,
+  UnconfirmedTeardown,
 } from './types'
 import type { PendingWait } from './wait'
 
@@ -698,6 +699,11 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         ok: false,
         error: new RuntimeRunStateError('supervisor: root execution did not start'),
       }
+      // Settled children whose executor teardown was never acknowledged, read at the join
+      // barrier. Surfaced on every result arm so the leak is loud without voiding the run.
+      let teardownUnconfirmed: ReadonlyArray<UnconfirmedTeardown> = []
+      // `teardown-unconfirmed` records live outside the cursor namespace, like `metered`/`edge`.
+      let teardownSeq = 0
       let executionAborted = controller.signal.aborted
       // Whether every spawned child was ALREADY down when root execution settled. Read at settle,
       // never after the join barrier: the barrier's own teardown turns healthy live children into
@@ -744,7 +750,20 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             ? boundedSettleGrace(opts.childSettleGraceMs, rootDeadlineAtMs, now)
             : 0
         try {
-          await drainLiveChildren(openScope, controller, settleGraceMs)
+          teardownUnconfirmed = await drainLiveChildren(openScope, controller, settleGraceMs)
+          // The leak is real and must surface, so it is journaled per node — durable evidence a
+          // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping.
+          for (const node of teardownUnconfirmed) {
+            await opts.journal.appendEvent(opts.runId, {
+              kind: 'teardown-unconfirmed',
+              id: node.id,
+              label: node.label,
+              runtime: node.runtime,
+              status: node.status,
+              seq: teardownSeq++,
+              at: new Date(now()).toISOString(),
+            })
+          }
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
@@ -792,6 +811,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
             tree,
             spentTotal,
             providerModel,
+            ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
             ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
             ...(isNonEmptySpend(driverInference)
               ? { spentBreakdown: { driverInference, childWork } }
@@ -822,6 +842,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           downCount: breaker.downCount(),
           spentTotal,
           providerModel,
+          ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
           ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a
@@ -1042,20 +1063,13 @@ async function drainLiveChildren(
   scope: Scope<unknown>,
   controller: AbortController,
   settleGraceMs = 0,
-): Promise<void> {
+): Promise<ReadonlyArray<UnconfirmedTeardown>> {
   // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
   // wait holds no executor, but it DOES hold a live timer, so a run that returns without
   // cancelling one would leave the process pinned to a deadline nobody is reading anymore.
   const view = scope.view
   const hasLive = view.inFlight > 0 || view.waiting > 0
-  if (!hasLive) {
-    if (scope.workerCapacity.live > 0) {
-      throw new RuntimeRunStateError(
-        `supervisor: cleanup ended with ${scope.workerCapacity.live} executor resource(s) not confirmed destroyed`,
-      )
-    }
-    return
-  }
+  if (!hasLive) return unconfirmedTeardowns(scope)
   // Cascade the abort into every live child's executor before draining — unless the caller granted
   // a settle grace, in which case the timer owns the cascade and the drain reads whatever the
   // children finish in the meantime. Exactly ONE cursor reader either way: the grace never races
@@ -1079,11 +1093,38 @@ async function drainLiveChildren(
     if (graceTimer !== undefined) clearTimeout(graceTimer)
   }
   const after = scope.view
-  if (after.inFlight > 0 || after.waiting > 0 || scope.workerCapacity.live > 0) {
+  if (after.inFlight > 0 || after.waiting > 0) {
     throw new RuntimeRunStateError(
-      `supervisor: cleanup ended with ${after.inFlight} running, ${after.waiting} waiting, and ${scope.workerCapacity.live} executor resource(s) not confirmed destroyed`,
+      `supervisor: cleanup ended with ${after.inFlight} running, ${after.waiting} waiting, and ` +
+        describeUnconfirmed(scope),
     )
   }
+  return unconfirmedTeardowns(scope)
+}
+
+/**
+ * The settled children whose executor teardown was never acknowledged.
+ *
+ * They still hold their capacity slot — the ledger stays poisoned, so replacement work can never
+ * exceed the physical live count — but every one of them has already reached a terminal state and
+ * journaled its work. That is evidence about an EXECUTOR, not a cause of run failure, so the
+ * barrier NAMES them and lets the run reach its real terminal state. Live work after the drain is
+ * a different fault and still fails loud.
+ */
+function unconfirmedTeardowns(scope: Scope<unknown>): ReadonlyArray<UnconfirmedTeardown> {
+  return scope.workerCapacity.unconfirmed
+}
+
+/** The unconfirmed set as one error clause: the count plus the node ids behind it. One integer is
+ *  not actionable after a six-hour run. */
+function describeUnconfirmed(scope: Scope<unknown>): string {
+  const unconfirmed = scope.workerCapacity.unconfirmed
+  const named = unconfirmed
+    .map((node) => `${node.id} (${node.label}, ${node.runtime}, ${node.status})`)
+    .join(', ')
+  return `${scope.workerCapacity.live} executor resource(s) not confirmed destroyed${
+    named.length > 0 ? `: ${named}` : ''
+  }`
 }
 
 /** The settle window a failed driver's children actually get: the caller's grace, never past the
