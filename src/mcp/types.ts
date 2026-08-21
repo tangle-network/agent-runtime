@@ -18,8 +18,15 @@ import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
 import type { DelegationTraceSpan } from './delegation-trace'
 import type { CoderOutput } from './detached-coder'
 
+/**
+ * Every delegation profile a queued record can carry. One owner: the tool schemas and validators
+ * that filter on a profile read this list, so a profile added here cannot be one a tool refuses.
+ * @experimental
+ */
+export const delegationProfiles = ['coder', 'researcher', 'ui-auditor'] as const
+
 /** @experimental */
-export type DelegationProfile = 'coder' | 'researcher' | 'ui-auditor'
+export type DelegationProfile = (typeof delegationProfiles)[number]
 
 /** @experimental */
 export type DelegationStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'

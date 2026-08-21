@@ -3114,7 +3114,7 @@ persistent stores round-trip records through `JSON.stringify`.
 
 ##### profile
 
-> **profile**: [`DelegationProfile`](#delegationprofile)
+> **profile**: `"coder"` \| `"researcher"` \| `"ui-auditor"`
 
 ##### namespace?
 
@@ -3219,7 +3219,7 @@ Caller span that dispatched the delegation, when one was inherited.
 
 ##### profile
 
-> **profile**: [`DelegationProfile`](#delegationprofile)
+> **profile**: `"coder"` \| `"researcher"` \| `"ui-auditor"`
 
 ##### args
 
@@ -4998,7 +4998,7 @@ one research implementation.
 
 ##### profile
 
-> **profile**: [`DelegationProfile`](#delegationprofile)
+> **profile**: `"coder"` \| `"researcher"` \| `"ui-auditor"`
 
 **`Experimental`**
 
@@ -5092,7 +5092,7 @@ Caller span that dispatched the delegation, when one was inherited.
 
 ##### profile?
 
-> `optional` **profile?**: [`DelegationProfile`](#delegationprofile)
+> `optional` **profile?**: `"coder"` \| `"researcher"` \| `"ui-auditor"`
 
 **`Experimental`**
 
@@ -5172,7 +5172,7 @@ Default 50. Hard cap 500.
 
 ##### profile
 
-> **profile**: [`DelegationProfile`](#delegationprofile)
+> **profile**: `"coder"` \| `"researcher"` \| `"ui-auditor"`
 
 **`Experimental`**
 
@@ -5601,9 +5601,15 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ***
 
+### QuestionEscalationTarget
+
+> **QuestionEscalationTarget** = *typeof* [`questionEscalationTargets`](#questionescalationtargets)\[`number`\]
+
+***
+
 ### QuestionDecision
 
-> **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: `"parent"` \| `"user"` \| `string`; `reason`: `string`; \}
+> **QuestionDecision** = \{ `kind`: `"answer"`; `answer`: `string`; `by`: `string`; \} \| \{ `kind`: `"defer"`; `reason`: `string`; \} \| \{ `kind`: `"escalate"`; `to`: [`QuestionEscalationTarget`](#questionescalationtarget); `reason`: `string`; \}
 
 ***
 
@@ -5624,7 +5630,7 @@ The synchronous result the `delegate` tool returns to the calling agent: the del
 
 ### DelegationProfile
 
-> **DelegationProfile** = `"coder"` \| `"researcher"` \| `"ui-auditor"`
+> **DelegationProfile** = *typeof* [`delegationProfiles`](#delegationprofiles)\[`number`\]
 
 **`Experimental`**
 
@@ -5770,6 +5776,15 @@ Env var naming the JSONL retrieval log (one row per `memory_search`).
 > `const` **MEMORY\_NAME\_ENV**: `"AGENT_MEMORY_NAME"` = `'AGENT_MEMORY_NAME'`
 
 Env var overriding the served display name (default 'agent-memory').
+
+***
+
+### questionEscalationTargets
+
+> `const` **questionEscalationTargets**: readonly \[`"parent"`, `"user"`\]
+
+Where a question this driver cannot answer goes next. `answer_question` accepts these and
+ nothing else, so the decision type states them and nothing else.
 
 ***
 
@@ -6349,7 +6364,7 @@ JSON Schema for `delegation_history` tool arguments (optional `namespace`, `prof
 
 ###### properties.profile.enum
 
-> `readonly` **enum**: readonly \[`"coder"`, `"researcher"`\]
+> `readonly` **enum**: readonly \[`"coder"`, `"researcher"`, `"ui-auditor"`\] = `delegationProfiles`
 
 ###### properties.since
 
@@ -6454,6 +6469,17 @@ JSON Schema for `delegation_status` tool arguments (`taskId` + optional `include
 ##### additionalProperties
 
 > `readonly` **additionalProperties**: `false` = `false`
+
+***
+
+### delegationProfiles
+
+> `const` **delegationProfiles**: readonly \[`"coder"`, `"researcher"`, `"ui-auditor"`\]
+
+**`Experimental`**
+
+Every delegation profile a queued record can carry. One owner: the tool schemas and validators
+that filter on a profile read this list, so a profile added here cannot be one a tool refuses.
 
 ## Functions
 

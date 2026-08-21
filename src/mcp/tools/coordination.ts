@@ -94,10 +94,23 @@ export interface Question {
   readonly options?: ReadonlyArray<QuestionOption>
 }
 
+/** Where a question this driver cannot answer goes next. `answer_question` accepts these and
+ *  nothing else, so the decision type states them and nothing else. */
+export const questionEscalationTargets = ['parent', 'user'] as const
+
+export type QuestionEscalationTarget = (typeof questionEscalationTargets)[number]
+
+const isQuestionEscalationTarget = (value: unknown): value is QuestionEscalationTarget =>
+  (questionEscalationTargets as ReadonlyArray<unknown>).includes(value)
+
 export type QuestionDecision =
   | { readonly kind: 'answer'; readonly answer: string; readonly by: string }
   | { readonly kind: 'defer'; readonly reason: string }
-  | { readonly kind: 'escalate'; readonly to: 'parent' | 'user' | string; readonly reason: string }
+  | {
+      readonly kind: 'escalate'
+      readonly to: QuestionEscalationTarget
+      readonly reason: string
+    }
 
 export interface QuestionRecord extends Question {
   readonly status: 'open' | 'answered' | 'deferred' | 'escalated'
@@ -2264,7 +2277,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           answer: { type: 'string' },
           by: { type: 'string', description: 'Node id or "user".' },
           deferReason: { type: 'string' },
-          escalateTo: { type: 'string', enum: ['parent', 'user'] },
+          escalateTo: { type: 'string', enum: questionEscalationTargets },
           escalateReason: { type: 'string' },
         },
         required: ['questionId'],
@@ -2322,7 +2335,14 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             }),
           })
         }
-        if (a.escalateTo === 'parent' || a.escalateTo === 'user') {
+        if (typeof a.escalateTo === 'string' && a.escalateTo.length > 0) {
+          if (!isQuestionEscalationTarget(a.escalateTo)) {
+            throw new Error(
+              `answer_question: escalateTo must be one of ${questionEscalationTargets.join(
+                ', ',
+              )}; received ${JSON.stringify(a.escalateTo)}`,
+            )
+          }
           const escalateReason =
             typeof a.escalateReason === 'string' && a.escalateReason.length > 0
               ? a.escalateReason

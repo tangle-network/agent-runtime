@@ -166,11 +166,13 @@ export {
   type MakeWorkerAgent,
   type Question,
   type QuestionDecision,
+  type QuestionEscalationTarget,
   type QuestionLevel,
   type QuestionOption,
   type QuestionPolicy,
   type QuestionRecord,
   type QuestionUrgency,
+  questionEscalationTargets,
   type SettledWorker,
   type WorkerSpawnContext,
   type WorkerWatchOptions,
@@ -256,6 +258,7 @@ export type {
   UiAuditLensFilter,
   UiAuditorDelegationOutput,
 } from './types'
+export { delegationProfiles } from './types'
 export type {
   CreateWorktreeOptions,
   DiffOptions,
