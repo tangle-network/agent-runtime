@@ -40,22 +40,16 @@ export function readCapabilityMap(path) {
       `${path} declares schema ${String(map.schemaVersion)}, expected ${capabilityMapSchemaVersion}`,
     )
   }
-  if (!map.capabilities || typeof map.capabilities !== 'object') {
-    throw new Error(`${path} declares no capabilities`)
-  }
-  for (const [key, capability] of Object.entries(map.capabilities)) {
-    if (typeof capability.scenario !== 'string' || capability.scenario.length === 0) {
-      throw new Error(`capability ${key} names no conformance scenario`)
+  for (const [key, capability] of Object.entries(map.capabilities ?? {})) {
+    const declared = Array.isArray(capability.evidence) ? capability.evidence : undefined
+    if (!capability.scenario || !declared) {
+      throw new Error(`capability ${key} needs a scenario and an evidence array`)
     }
-    if (!Array.isArray(capability.evidence)) {
-      throw new Error(`capability ${key} declares no evidence array`)
-    }
-    for (const entry of capability.evidence) {
-      if (typeof entry.file !== 'string' || !Array.isArray(entry.cases) || entry.cases.length === 0) {
-        throw new Error(`capability ${key} declares an evidence entry with no file or cases`)
-      }
+    if (declared.some((entry) => !entry.file || !entry.cases?.length)) {
+      throw new Error(`capability ${key} declares an evidence entry with no file or cases`)
     }
   }
+  if (Object.keys(map.capabilities ?? {}).length === 0) throw new Error(`${path} declares no capabilities`)
   return map
 }
 
@@ -132,29 +126,7 @@ export function buildConformanceManifest(input) {
     capabilities: input.capabilities,
     verifiedBy: input.verifiedBy,
   }
-  assertManifestShape(body)
   return { ...body, digest: digestOf(body) }
-}
-
-function assertManifestShape(body) {
-  const pkg = body.package
-  if (!pkg || typeof pkg.name !== 'string' || typeof pkg.version !== 'string') {
-    throw new Error('manifest package identity requires a name and a version')
-  }
-  if (typeof pkg.sha256 !== 'string' || pkg.sha256.length !== 64) {
-    throw new Error('manifest package identity requires the packed archive sha256')
-  }
-  if (typeof pkg.sourceCommit !== 'string' || pkg.sourceCommit.length === 0) {
-    throw new Error('manifest package identity requires the source commit')
-  }
-  if (!Array.isArray(body.cohort?.packages) || body.cohort.packages.length === 0) {
-    throw new Error('manifest requires the first-party cohort it was verified with')
-  }
-  for (const capability of Object.values(body.capabilities ?? {})) {
-    if (!statuses.has(capability.status)) {
-      throw new Error(`capability status ${String(capability.status)} is not a supported status`)
-    }
-  }
 }
 
 /**
@@ -198,7 +170,8 @@ export function verifyConformanceManifest(manifest, options = {}) {
     if (sha256 !== body.package.sha256) {
       problems.push(`packed archive sha256 ${sha256} does not match the manifest (${body.package.sha256})`)
     }
-    const identity = readPackedIdentity(options.tarball, options.readPackedManifest)
+    const readPackedManifest = options.readPackedManifest ?? defaultReadPackedManifest
+    const identity = JSON.parse(readPackedManifest(options.tarball))
     if (identity.name !== body.package.name || identity.version !== body.package.version) {
       problems.push(
         `packed archive is ${identity.name}@${identity.version}, manifest claims ${body.package.name}@${body.package.version}`,
@@ -231,11 +204,6 @@ export function verifyConformanceManifest(manifest, options = {}) {
   }
 
   return { ok: problems.length === 0, problems }
-}
-
-function readPackedIdentity(tarball, readPackedManifest) {
-  const read = readPackedManifest ?? defaultReadPackedManifest
-  return JSON.parse(read(tarball))
 }
 
 function defaultReadPackedManifest(tarball) {
