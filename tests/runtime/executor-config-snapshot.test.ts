@@ -286,4 +286,14 @@ describe('createExecutor config intake', () => {
       runId: 'execution-b',
     })
   })
+
+  it('refuses a backend nothing implements, by name, at the call that names it', () => {
+    // The backend is data a profile, an experiment config, or a replay journal can carry, so a
+    // name outside the union reaches this factory untyped. Without a refusal here the switch
+    // returns undefined, createExecutor hands back a working-looking factory, and the failure
+    // lands one call later as a TypeError that never mentions the backend.
+    expect(() => createExecutor({ backend: 'bridge-worktree' } as never)).toThrow(
+      /no backend named "bridge-worktree"; supported backends are bridge, cli, cli-worktree, provider, router, router-tools, sandbox/,
+    )
+  })
 })
