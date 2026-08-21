@@ -100,6 +100,7 @@ import type {
   Validator,
 } from '../types'
 import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
+import { linkAbort } from './abortable'
 import { priceUnreceiptedWork } from './cost-estimate'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInbox, type Inbox } from './inbox'
@@ -653,12 +654,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const profileExecution = routerProfileExecution(spec.profile, seam, { multiTurn: false })
   const requestIdentity = routerRequestIdentity(ctx)
 
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+  const controller = linkAbort(ctx.signal)
 
   let artifact: ExecutorResult<unknown> | undefined
   const executionId = ctx.node?.nodeId ?? `router-request-${randomUUID()}`
@@ -671,7 +667,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       async execute(task, signal): Promise<ExecutorResult<unknown>> {
         const messages = taskToMessages(task, spec, profileExecution.systemPrompt)
         const started = Date.now()
-        const linked = linkSignals(signal, controller.signal)
+        const linked = linkAbort(signal, controller.signal).signal
         const extraBody = {
           ...(profileExecution.extraBody ?? {}),
           ...(profileExecution.reasoningEffort
@@ -958,12 +954,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
   const maxTurns = profileExecution.maxTurns ?? 0
   const requestIdentity = routerRequestIdentity(ctx)
 
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+  const controller = linkAbort(ctx.signal)
 
   // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
   const inbox = createInbox()
@@ -1012,7 +1003,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
 
         // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
         // re-register listeners on these long-lived signals every turn.
-        const external = mergeAbortSignals(signal, controller.signal)
+        const external = linkAbort(signal, controller.signal).signal
 
         try {
           for (let t = 0; maxTurns === 0 || t < maxTurns; t += 1) {
@@ -1363,12 +1354,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // `env` key to the create options at all.
   const traceEnv = workerTraceEnv(ctx)
 
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+  const controller = linkAbort(ctx.signal)
 
   let artifact: ExecutorResult<unknown> | undefined
   const executionId = ctx.node?.nodeId ?? `sandbox-run-${randomUUID()}`
@@ -1531,16 +1517,7 @@ interface StreamSandboxArgs {
 }
 
 async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageEvent> {
-  const linked = new AbortController()
-  // Stable listener identities: the finally block removes these by reference.
-  const cascadeExternal = (): void => linked.abort(abortReasonOf(args.signal))
-  const cascadeScope = (): void => linked.abort(abortReasonOf(args.controller.signal))
-  if (args.signal.aborted || args.controller.signal.aborted) {
-    linked.abort(abortReasonOf(args.signal.aborted ? args.signal : args.controller.signal))
-  } else {
-    args.signal.addEventListener('abort', cascadeExternal, { once: true })
-    args.controller.signal.addEventListener('abort', cascadeScope, { once: true })
-  }
+  const linked = linkAbort(args.signal, args.controller.signal)
 
   const agentRun: AgentRunSpec<unknown> = {
     profile: args.spec.profile,
@@ -1643,8 +1620,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
         : { kind: 'cost', usdKnown: false, usd: result.costUsd, provenance: 'uncaptured' }
     }
   } finally {
-    args.signal.removeEventListener('abort', cascadeExternal)
-    args.controller.signal.removeEventListener('abort', cascadeScope)
+    linked.release()
   }
 }
 
@@ -1696,12 +1672,7 @@ export const cliExecutor: ExecutorFactory<unknown> = (_spec, ctx) => {
   // `TRACE_ID` / `PARENT_SPAN_ID` for this worker when the run records spans; `{}` otherwise.
   const traceEnv = workerTraceEnv(ctx)
 
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+  const controller = linkAbort(ctx.signal)
 
   let proc: ReturnType<typeof spawn> | undefined
   let artifact: ExecutorResult<unknown> | undefined
@@ -1970,12 +1941,7 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // environment at spawn. Empty when the run records no spans, adding no header at all.
   const traceHeaders = workerTraceHeaders(ctx)
 
-  const controller = new AbortController()
-  const abortIfSignalled = () => {
-    if (ctx.signal.aborted) controller.abort()
-  }
-  abortIfSignalled()
-  if (!ctx.signal.aborted) ctx.signal.addEventListener('abort', abortIfSignalled, { once: true })
+  const controller = linkAbort(ctx.signal)
 
   // The down-leg receive end: the driver's steer/answer/resume land here via `Scope.send`.
   const inbox = createInbox()
@@ -2526,7 +2492,7 @@ interface BridgeInferenceUsage {
 async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<UsageEvent> {
   const { seam, inbox, observation } = args
   const started = Date.now()
-  const external = mergeAbortSignals(args.signal, args.controller.signal)
+  const external = linkAbort(args.signal, args.controller.signal).signal
   const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
@@ -4417,7 +4383,7 @@ function bridgeWorktreeExecutor(
     execute(task, signal): AsyncIterable<UsageEvent> {
       return (async function* bridgeWorktreeStream() {
         const started = Date.now()
-        const linked = mergeAbortSignals(signal, controller.signal)
+        const linked = linkAbort(signal, controller.signal).signal
         let bridgeArtifact: ExecutorResult<unknown> | undefined
 
         try {
@@ -5290,52 +5256,6 @@ function singleShotDriver<Out>(maxIterations: number): Driver<unknown, Out, stri
       return history.length >= maxIterations ? 'stop' : 'continue'
     },
   }
-}
-
-/** Link two abort signals into one that fires when either does. Returns
- *  `undefined` when neither is present so `fetch` gets no signal at all. */
-function linkSignals(a: AbortSignal, b: AbortSignal): AbortSignal | undefined {
-  if (a.aborted || b.aborted) {
-    const c = new AbortController()
-    c.abort(abortReasonOf(a.aborted ? a : b))
-    return c.signal
-  }
-  const c = new AbortController()
-  a.addEventListener('abort', () => c.abort(abortReasonOf(a)), { once: true })
-  b.addEventListener('abort', () => c.abort(abortReasonOf(b)), { once: true })
-  return c.signal
-}
-
-/** The reason a signal carries, or a named fallback. A cascade that drops the upstream reason
- *  turns every downstream death into the generic "execution aborted": the worker's `down`
- *  record then says nothing about WHY, which is what makes a whole class of child mortality
- *  undiagnosable from the journal alone. */
-function abortReasonOf(signal: AbortSignal, fallback = 'aborted by parent scope'): unknown {
-  const reason = signal.reason
-  if (typeof reason === 'string' && reason.length > 0) return reason
-  // `controller.abort()` with no argument sets a DOMException whose message is the platform
-  // placeholder ("This operation was aborted"), which carries no more information than the
-  // generic death it replaces — treat it as reasonless and name the scope instead.
-  if (reason instanceof Error && reason.name !== 'AbortError' && reason.message.length > 0) {
-    return reason.message
-  }
-  return fallback
-}
-
-/** Combine N abort signals into one that fires when ANY does. Node-portable (no `AbortSignal.any`,
- *  which needs >=20.3 — the package floor is >=20). Module-exported (not package surface) so
- *  sibling leaf executors share the one portable implementation. */
-export function mergeAbortSignals(...signals: AbortSignal[]): AbortSignal {
-  const c = new AbortController()
-  const onAbort = () => c.abort()
-  for (const s of signals) {
-    if (s.aborted) {
-      c.abort()
-      break
-    }
-    s.addEventListener('abort', onAbort, { once: true })
-  }
-  return c.signal
 }
 
 // Re-export the verdict + spend surface so a consumer importing the runtime

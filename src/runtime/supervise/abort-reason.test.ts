@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { abortError, linkAbort } from './abortable'
 
 /**
  * A cascaded abort must carry the upstream reason. When it does not, every downstream
@@ -6,28 +7,10 @@ import { describe, expect, it } from 'vitest'
  * runtime emits when `signal.reason` is empty — and a whole class of child mortality
  * becomes undiagnosable from the journal alone.
  *
- * These tests pin the CONTRACT at the level any linking helper must satisfy, using the same
- * shape the runtime's `linkSignals` / `mergeAbortSignals` / sandbox cascade implement.
+ * These tests run against `linkAbort`, the cascade every executor composes, so the contract
+ * is pinned on the shipped path rather than on a copy of it.
  */
-
-/** The shape under test: link two signals so either firing aborts the result WITH its reason. */
-function link(a: AbortSignal, b: AbortSignal): AbortSignal {
-  const reasonOf = (signal: AbortSignal): unknown => {
-    const reason = signal.reason
-    if (typeof reason === 'string' && reason.length > 0) return reason
-    if (reason instanceof Error && reason.name !== 'AbortError' && reason.message.length > 0) {
-      return reason.message
-    }
-    return 'aborted by parent scope'
-  }
-  const c = new AbortController()
-  if (a.aborted || b.aborted) c.abort(reasonOf(a.aborted ? a : b))
-  else {
-    a.addEventListener('abort', () => c.abort(reasonOf(a)), { once: true })
-    b.addEventListener('abort', () => c.abort(reasonOf(b)), { once: true })
-  }
-  return c.signal
-}
+const link = (a: AbortSignal, b: AbortSignal): AbortSignal => linkAbort(a, b).signal
 
 describe('cascaded abort reasons', () => {
   it('forwards a string reason from whichever signal fired', () => {
@@ -70,5 +53,26 @@ describe('cascaded abort reasons', () => {
     parent.abort()
     expect(linked.reason).toBe('aborted by parent scope')
     expect(String(linked.reason)).not.toBe('execution aborted')
+  })
+
+  it('carries the upstream reason into the AbortError a worker settles with', () => {
+    // The end of the chain: the cascade feeds `abortError`, whose message becomes the `down`
+    // record. A dropped reason surfaced here as the caller's fallback, naming no cause.
+    const parent = new AbortController()
+    const linked = link(parent.signal, new AbortController().signal)
+    parent.abort('pool starved before the child could start')
+    expect(abortError(linked, 'execution aborted').message).toBe(
+      'pool starved before the child could start',
+    )
+  })
+
+  it('stops listening to its sources once released', () => {
+    // A link whose sources outlive it (a long-lived executor context signal) must be able to
+    // detach, or every turn leaks a listener onto the same signal.
+    const parent = new AbortController()
+    const linked = linkAbort(parent.signal)
+    linked.release()
+    parent.abort('too late')
+    expect(linked.signal.aborted).toBe(false)
   })
 })
