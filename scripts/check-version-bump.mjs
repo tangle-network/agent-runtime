@@ -44,11 +44,15 @@
  * a consumer spent hours proving types that existed were absent.
  *
  * So every publishable package also commits `api-surface.json`, the symbols each
- * entry point exports, generated from the built declarations by
- * `check-api-surface.mjs`. This check compares that record against the merge
- * base and requires the level the change implies:
+ * entry point exports AND the shape of each one, generated from the built
+ * declarations by `check-api-surface.mjs`. A name alone is not enough: removing
+ * a field from an exported interface, or adding a member to an exported union,
+ * moves no name, so a name-only record answers "consumer surface unchanged" for
+ * a change every consumer can see. This check compares that record against the
+ * merge base and requires the level the change implies:
  *
- *   - a removed export, or one narrowed from a value to a type, is breaking;
+ *   - a removed export, one narrowed from a value to a type, or one whose SHAPE
+ *     moved, is breaking;
  *   - an added export is additive;
  *   - a manifest-only change asks for a higher version, as it always did.
  *
@@ -412,12 +416,13 @@ for (const name of names) {
   // so there is nothing yet to have changed against.
   const exportChanges =
     baseRecord === null
-      ? { added: [], removed: [], narrowed: [], widened: [] }
+      ? { added: [], removed: [], narrowed: [], widened: [], changed: [] }
       : compareSurfaces(baseRecord.surface, headRecord.surface)
   const severity = surfaceSeverity(exportChanges)
   const exportLines = [
     ...exportChanges.removed.map((change) => `export removed: ${change}`),
     ...exportChanges.narrowed.map((change) => `export narrowed: ${change}`),
+    ...exportChanges.changed.map((change) => `export shape changed: ${change}`),
     ...exportChanges.added.map((change) => `export added: ${change}`),
     ...exportChanges.widened.map((change) => `export kind changed: ${change}`),
   ]
