@@ -18,6 +18,12 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import {
+  isNoEntError,
+  parseCommittedJsonLines,
+  prepareJsonlAppend,
+  writeAllBytes,
+} from '../../durable/jsonl-file'
 import type {
   Corpus,
   CorpusFilter,
@@ -197,8 +203,9 @@ export class InMemoryCorpus implements Corpus {
  * back silently) and folding by `id`: a later identical line dedups, a later conflicting line
  * under the same `id` is a corruption (fail loud). `append` first replays to enforce the same
  * idempotence/conflict contract as the in-mem impl, then fsyncs the new line so a crash between
- * writes never loses an acknowledged fact. Shares the JSONL append-line spine with the spawn
- * journal, but the interface stays separate (a learned fact is not a replay record).
+ * writes never loses an acknowledged fact. Reads and appends over the shared append-only
+ * spine (`durable/jsonl-file`) — the same one the spawn journal uses — but the interface stays
+ * separate (a learned fact is not a replay record).
  */
 export class FileCorpus implements Corpus {
   constructor(private readonly path: string) {}
@@ -245,19 +252,10 @@ export class FileCorpus implements Corpus {
       if (isNoEntError(err)) return new Map()
       throw err
     }
-    const lines = text.split('\n').filter((line) => line.length > 0)
     const byId = new Map<string, CorpusRecord>()
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i] as string
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(line)
-      } catch (err) {
-        throw new Error(
-          `corpus corrupted: ${this.path} line ${i + 1} is not valid JSON: ` +
-            (err instanceof Error ? err.message : String(err)),
-        )
-      }
+    const records = parseCommittedJsonLines<unknown>(text, this.path)
+    for (let i = 0; i < records.length; i++) {
+      const parsed = records[i]
       assertCorpusRecord(parsed, `corpus ${this.path} line ${i + 1}`)
       const existing = byId.get(parsed.id)
       if (existing && !recordsEqual(existing, parsed)) {
@@ -275,9 +273,10 @@ export class FileCorpus implements Corpus {
     const fs = await import('node:fs/promises')
     const path = await import('node:path')
     await fs.mkdir(path.dirname(this.path), { recursive: true })
+    const needsSeparator = await prepareJsonlAppend(this.path)
     const fh = await fs.open(this.path, 'a')
     try {
-      await fh.write(`${JSON.stringify(record)}\n`)
+      await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
       await fh.sync()
     } finally {
       await fh.close()
@@ -346,13 +345,4 @@ function renderLine(record: CorpusRecord): string {
 
 function freeze(record: CorpusRecord): CorpusRecord {
   return Object.freeze({ ...record })
-}
-
-function isNoEntError(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code: unknown }).code === 'ENOENT'
-  )
 }

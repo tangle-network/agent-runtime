@@ -743,8 +743,10 @@ on `loadRun` — cheap for the conversation sizes this is designed for
 (thousands of turns, not millions). For huge runs, plug in a real DB
 adapter; the interface is small.
 
-Each `appendTurn` / `recordHalt` calls `fsync` after the write so a
-process crash between writes never loses an acknowledged turn.
+Reads and appends over the shared append-only spine (`durable/jsonl-file`): each
+`appendTurn` / `recordHalt` finishes a short write and calls `fsync`, so a process
+crash between writes never loses an acknowledged turn, and a crash DURING one leaves
+an uncommitted final line that the next read skips and the next append truncates.
 
 #### Implements
 

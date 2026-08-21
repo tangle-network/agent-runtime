@@ -41,7 +41,12 @@ import type {
 import type { PendingWait } from '../runtime/supervise/wait'
 import { addSpend, cloneSpend, zeroSpend } from '../runtime/util'
 import { contentAddress } from './content-address'
-import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
+import {
+  isNoEntError,
+  parseCommittedJsonLines,
+  prepareJsonlAppend,
+  writeAllBytes,
+} from './jsonl-file'
 
 export { contentAddress } from './content-address'
 
@@ -1193,14 +1198,5 @@ function traceEvidenceFor(
       status: 'unavailable',
       reason: 'legacy-settlement-without-trace-evidence',
     }
-  )
-}
-
-function isNoEntError(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    'code' in err &&
-    (err as { code: unknown }).code === 'ENOENT'
   )
 }

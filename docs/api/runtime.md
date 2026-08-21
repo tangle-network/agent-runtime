@@ -412,8 +412,9 @@ file, validating every line (a malformed line fails loud — a corrupted corpus 
 back silently) and folding by `id`: a later identical line dedups, a later conflicting line
 under the same `id` is a corruption (fail loud). `append` first replays to enforce the same
 idempotence/conflict contract as the in-mem impl, then fsyncs the new line so a crash between
-writes never loses an acknowledged fact. Shares the JSONL append-line spine with the spawn
-journal, but the interface stays separate (a learned fact is not a replay record).
+writes never loses an acknowledged fact. Reads and appends over the shared append-only
+spine (`durable/jsonl-file`) — the same one the spawn journal uses — but the interface stays
+separate (a learned fact is not a replay record).
 
 #### Implements
 
