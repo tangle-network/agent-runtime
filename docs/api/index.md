@@ -8836,10 +8836,12 @@ Conserved-pool readouts (post-reservation).
 
 ##### workerCapacity
 
-> `readonly` **workerCapacity**: `Readonly`\<\{ `live`: `number`; `freeSlots`: `number` \| `null`; \}\>
+> `readonly` **workerCapacity**: `Readonly`\<\{ `live`: `number`; `freeSlots`: `number` \| `null`; `unconfirmed`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; \}\>
 
 One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
+ `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
+ the nodes still holding a capacity slot. Empty on every healthy run.
 
 #### Methods
 
@@ -12186,7 +12188,7 @@ The accounting channels a usage gap leaves incomplete.
 
 ### SupervisedResult
 
-> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+> **SupervisedResult**\<`Out`\> = \{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \} \| \{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \} \| \{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output.
 
@@ -12200,7 +12202,7 @@ Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort out
 
 ##### Type Literal
 
-\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
+\{ `kind`: `"winner"`; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `spentBreakdown?`: \{ `driverInference`: [`Spend`](#spend); `childWork`: [`Spend`](#spend); \}; \}
 
 ###### kind
 
@@ -12246,6 +12248,15 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 
 Runtime-owned provider evidence reduced across the complete journal forest.
 
+###### teardownUnconfirmed?
+
+> `optional` **teardownUnconfirmed?**: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>
+
+Settled children whose executor teardown was never acknowledged — the resources this run
+ could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
+ each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
+ healthy run never carries it.
+
 ###### spendGaps?
 
 > `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
@@ -12275,7 +12286,7 @@ Where `spentTotal` went: `driverInference` = the drivers' own chat turns (metere
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
+\{ `kind`: `"no-winner"`; `reason`: `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error?`: `never`; \}
 
 ###### kind
 
@@ -12320,6 +12331,15 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 
 Runtime-owned provider evidence reduced across the complete journal forest.
 
+###### teardownUnconfirmed?
+
+> `optional` **teardownUnconfirmed?**: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>
+
+Settled children whose executor teardown was never acknowledged — the resources this run
+ could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
+ each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
+ healthy run never carries it.
+
 ###### spendGaps?
 
 > `optional` **spendGaps?**: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>
@@ -12338,7 +12358,7 @@ Never present on a lifecycle arm — the discriminant, not prose, is what makes
 
 ##### Type Literal
 
-\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
+\{ `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](#spend); `rootProviderModel?`: [`RootProviderModelEvidence`](#rootprovidermodelevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `teardownUnconfirmed?`: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>; `spendGaps?`: `ReadonlyArray`\<[`SpendGap`](#spendgap)\>; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \}
 
 ###### kind
 
@@ -12382,6 +12402,15 @@ Runtime-owned provider evidence for the root manager, when the root executed inf
 > `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence)
 
 Runtime-owned provider evidence reduced across the complete journal forest.
+
+###### teardownUnconfirmed?
+
+> `optional` **teardownUnconfirmed?**: `ReadonlyArray`\<[`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)\>
+
+Settled children whose executor teardown was never acknowledged — the resources this run
+ could not prove destroyed. Their capacity slots stay charged for the rest of the run, and
+ each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
+ healthy run never carries it.
 
 ###### spendGaps?
 

@@ -11,6 +11,7 @@ import type {
   Executor,
   ExecutorResult,
   Scope,
+  SpawnEvent,
 } from '../../src/runtime/supervise/types'
 import { supervise, supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
@@ -129,7 +130,7 @@ function profileDepth(profile: AgentProfile): number {
 }
 
 describe('supervise tree-wide worker capacity', () => {
-  it('retains a slot when teardown cannot prove the executor was destroyed', async () => {
+  it('retains a slot when teardown cannot prove the executor was destroyed, and names the node', async () => {
     let secondReason: string | undefined
     const unkillable = trackedLeaf('placeholder') as Agent<unknown, unknown> & {
       executorSpec: AgentSpec
@@ -164,17 +165,26 @@ describe('supervise tree-wide worker capacity', () => {
       },
     }
 
+    const journal = new InMemorySpawnJournal()
     const result = await createSupervisor<unknown, unknown>().run(root, 'task', {
       budget: { maxIterations: 2, maxTokens: 20 },
       maxLiveWorkers: 1,
       runId: 'retain-unconfirmed-capacity',
-      journal: new InMemorySpawnJournal(),
+      journal,
       blobs: new InMemoryResultBlobStore(),
       executors: createExecutorRegistry(),
     })
 
+    // The ledger stays poisoned: the slot is never released, so replacement work cannot exceed
+    // the physical live count.
     expect(secondReason).toBe('max-live-workers')
-    expect(result.kind).toBe('no-winner')
+    // The run still reaches its REAL terminal state — every child settled and its work is
+    // journaled, so a cleanup bookkeeping fault no longer voids the run.
+    expect(result.kind).toBe('winner')
+    expect(result.teardownUnconfirmed?.map((node) => node.label)).toEqual(['unkillable'])
+    const events = (await journal.loadTree('retain-unconfirmed-capacity')) as SpawnEvent[]
+    const leak = events.find((event) => event.kind === 'teardown-unconfirmed')
+    expect(leak).toMatchObject({ label: 'unkillable', runtime: 'router', status: 'failed' })
   })
 
   it('holds one cap across root → manager → sub-manager → worker execution', async () => {

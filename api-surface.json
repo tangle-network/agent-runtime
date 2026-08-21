@@ -1443,6 +1443,7 @@
       "TraversalContinuity": "type",
       "TreeView": "type",
       "TurnResult": "type",
+      "UnconfirmedTeardown": "type",
       "UnknownMaterializationReason": "type",
       "UntrackedCopyStats": "type",
       "UsageEvent": "type",

@@ -990,6 +990,7 @@ export type {
   Supervisor,
   SupervisorOpts,
   TreeView,
+  UnconfirmedTeardown,
   UnknownMaterializationReason,
   UsageEvent,
   WaitOpts,

@@ -1429,6 +1429,27 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       return {
         live: liveWorkerCapacity.live,
         freeSlots: freeSlots(liveWorkerCapacity.live, liveWorkerCapacity.max),
+        // The nodes behind a charged-but-idle slot: settled, yet their executor never
+        // acknowledged teardown. This scope names its OWN children; a nested manager names its
+        // own, so a leak is attributable rather than an integer.
+        unconfirmed: Object.freeze(
+          [...children.values()]
+            .filter(
+              (child) =>
+                (child.status === 'done' ||
+                  child.status === 'failed' ||
+                  child.status === 'cancelled') &&
+                !child.cleanupConfirmed,
+            )
+            .map((child) =>
+              Object.freeze({
+                id: child.id,
+                label: child.label,
+                runtime: child.runtime,
+                status: child.status,
+              }),
+            ),
+        ),
       }
     },
   }
