@@ -1499,6 +1499,50 @@ describe('environment provider adapters', () => {
     ).toMatchObject({ status: 'known' })
   })
 
+  it('publishes a provider-native child task through the executor turn', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture-children',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          id: 'env-children',
+          provider: 'fixture-children',
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'child-task',
+              data: {},
+              normalized: {
+                type: 'child-task',
+                childId: 'child-1',
+                status: 'started',
+                sourceEventId: 'evt-1',
+                time: { started: 1, updated: 1 },
+                runner: 'claude-code',
+              },
+            }
+            yield { type: 'done', data: { finalText: 'delegated', tokenUsage: {} } }
+          },
+        })
+      },
+    }
+    const profile: AgentProfile = {
+      name: 'provider-children',
+      harness: 'pi',
+      model: { provider: 'fixture-children', default: 'fixture-children/model' },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory: createExecutor({ backend: 'provider', provider }), profile },
+        { prompt: 'delegate' },
+      ),
+    )
+
+    expect(turn.events.filter((event) => event.type === 'child-task')).toMatchObject([
+      { childId: 'child-1', status: 'started', sourceEventId: 'evt-1', runner: 'claude-code' },
+    ])
+  })
+
   it('reports an unknown receipt when the provider fails before creating the environment', async () => {
     const provider: AgentEnvironmentProvider = {
       name: 'fixture-down',

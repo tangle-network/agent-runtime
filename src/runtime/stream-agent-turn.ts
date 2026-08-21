@@ -655,7 +655,14 @@ async function* streamAgentTurnInternal(
                 ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
               },
             )
+    // One dedupe for every backend kind: a repeated provider `sourceEventId` is the same child
+    // update, so the turn publishes it once whether it arrives live, on reconnect, or on replay.
+    const seenChildTaskUpdates = new Set<string>()
     for await (const event of abortableValues(inner, deadline.signal)) {
+      if (childTaskAlreadySeen(event, seenChildTaskUpdates)) {
+        throwIfAborted(deadline.signal)
+        continue
+      }
       yield event
       throwIfAborted(deadline.signal)
     }
@@ -1225,7 +1232,21 @@ function executorProgressStreamEvent(
       timestamp,
     }
   }
+  if (progress.kind === 'child_task') {
+    return { ...progress.event, task, session, timestamp }
+  }
   return { type: 'interaction', request: progress.request, task, session, timestamp }
+}
+
+/**
+ * Drop a child-task update this turn already published. The provider's `sourceEventId` names one
+ * exact update, so a reconnect or replay that repeats it must not add a second child.
+ */
+function childTaskAlreadySeen(event: RuntimeStreamEvent, seen: Set<string>): boolean {
+  if (event.type !== 'child-task') return false
+  if (seen.has(event.sourceEventId)) return true
+  seen.add(event.sourceEventId)
+  return false
 }
 
 /** Fold one normalized executor usage event into the turn accumulator. */
