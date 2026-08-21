@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.148.0
+
+### Provider-neutral executor cancellation
+
+`Executor.cancel?(request)` asks a backend to stop and reports what it acknowledged: `status` (`accepted | rejected | already-terminal | unknown`), the run `effect` in the existing `RetainedRunEffect` vocabulary, `observedAt`, a `detail`, and backend `evidence`. `teardown` stays the resource verb and is unchanged.
+
+Per arm:
+
+- Router and the Router tool loop answer `unknown` / `cancel_requested`: the chat-completions API exposes no cancel operation, so the local request is aborted and `detail` says the provider may still bill the completion. A local abort is never presented as acceptance.
+- The CLI Bridge posts its run cancel operation and answers from the terminal snapshot: `accepted` / `cancelled` when every live run reached terminal, `already-terminal` / `not_live` when none was live, and `unknown` / `cancel_requested` when the deadline passed first.
+- The steerable Sandbox session interrupts the exact box session it holds: `accepted` / `cancelled` when the platform reports the execution cancelled, `already-terminal` / `not_live` when it reports none running.
+- The composed Sandbox leaf and the environment-provider stream retain no exact control reference, so both answer `unknown` and say why.
+
+`Scope.cancel(nodeId, request)` delegates to the child executor's operation, or aborts the child locally and answers `unknown` for a runtime that has none.
+
 ## 0.146.0
 
 ### Separate visible, reasoning, and total completion ceilings

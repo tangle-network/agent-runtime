@@ -59,6 +59,8 @@ import {
 import { createPushTraceSource, decodeToolPart, type TraceSource } from './trace-source'
 import type {
   DefaultVerdict,
+  ExecutorCancellation,
+  ExecutorCancellationRequest,
   ExecutorProgressEvent,
   ExecutorToolCall,
   Spend,
@@ -85,6 +87,8 @@ export interface SteerableSandboxSession {
   /** Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `execute`. */
   stream(task: unknown, signal: AbortSignal): AsyncIterable<UsageEvent>
   progress(): ExecutorProgress
+  /** Ask the box to stop the running execution on this exact session and report what it answered. */
+  cancel(request: ExecutorCancellationRequest): Promise<ExecutorCancellation>
   traceSource(): TraceSource
   artifact(): { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend } | undefined
   teardown(): Promise<void>
@@ -132,6 +136,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       | { outRef: string; out: unknown; verdict?: DefaultVerdict; spent: Spend }
       | undefined,
     latestOutcome: undefined as AgentRunOutcome | undefined,
+    /** Reads the live lineage handle once a box and session exist, for exact cancellation. */
+    session: undefined as (() => SandboxLineageHandle | undefined) | undefined,
     teardown: undefined as (() => Promise<void>) | undefined,
     note: 'starting',
   }
@@ -209,6 +215,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     let tokensKnown = true
     let usd = 0
     let handle: SandboxLineageHandle | undefined
+    state.session = () => handle
     let nextPrompt: string | undefined = args.taskToPrompt(task)
 
     try {
@@ -367,6 +374,62 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
   return {
     stream,
+    async cancel(request: ExecutorCancellationRequest): Promise<ExecutorCancellation> {
+      const live = state.session?.()
+      const observedAt = () => new Date().toISOString()
+      if (!live) {
+        return {
+          status: 'unknown',
+          effect: 'cancel_requested',
+          observedAt: observedAt(),
+          detail: 'no box session exists yet for this worker; nothing remote could be asked',
+        }
+      }
+      const session = (
+        live.box as unknown as {
+          session?: (id: string) => { interrupt?: (options?: unknown) => Promise<unknown> }
+        }
+      ).session?.(live.sessionId)
+      if (!session || typeof session.interrupt !== 'function') {
+        return {
+          status: 'unknown',
+          effect: 'cancel_requested',
+          observedAt: observedAt(),
+          detail: 'the sandbox client exposes no session interrupt operation',
+          evidence: { sessionId: live.sessionId },
+        }
+      }
+      try {
+        const result = (await session.interrupt()) as { cancelled?: unknown }
+        const evidence = { sessionId: live.sessionId, operationId: request.operationId, result }
+        if (result?.cancelled === true) {
+          args.controller.abort('executor cancelled')
+          return {
+            status: 'accepted',
+            effect: 'cancelled',
+            observedAt: observedAt(),
+            detail: 'the box reported the running execution cancelled',
+            evidence,
+          }
+        }
+        // `cancelled: false` is the platform saying the selected execution was not running.
+        return {
+          status: 'already-terminal',
+          effect: 'not_live',
+          observedAt: observedAt(),
+          detail: 'the box reported no running execution on this session',
+          evidence,
+        }
+      } catch (error) {
+        return {
+          status: 'unknown',
+          effect: 'cancel_requested',
+          observedAt: observedAt(),
+          detail: `the box interrupt failed: ${error instanceof Error ? error.message : String(error)}`,
+          evidence: { sessionId: live.sessionId, operationId: request.operationId },
+        }
+      }
+    },
     progress: (): ExecutorProgress => ({
       turns: state.turns,
       pendingMessages: args.inbox.pending(),

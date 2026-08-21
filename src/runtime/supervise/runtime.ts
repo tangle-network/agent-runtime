@@ -143,6 +143,7 @@ import type {
   AgentSpec,
   DefaultVerdict,
   Executor,
+  ExecutorCancellation,
   ExecutorContext,
   ExecutorFactory,
   ExecutorRegistry,
@@ -629,6 +630,20 @@ function unmeteredSpend(ms: number): Spend {
  * failures (429/5xx/Cloudflare-origin) retry with backoff before the executor
  * fails the task.
  */
+/**
+ * The honest answer for a backend with no cancel operation: the local request stopped, and
+ * nothing about the remote run is known. Never `accepted` — a client that advertises provider
+ * cancellation from this would claim more than Runtime observed.
+ */
+function localAbortCancellation(detail: string): ExecutorCancellation {
+  return {
+    status: 'unknown',
+    effect: 'cancel_requested',
+    observedAt: new Date().toISOString(),
+    detail,
+  }
+}
+
 export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   const seam = readSeam<RouterSeam>(ctx, routerSeamKey, 'router/inline')
   const model = exactRouterModel(spec.profile, 'routerInlineExecutor')
@@ -757,6 +772,14 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         } as unknown
         artifact = { outRef: contentRef('router', { model, out }), out, spent }
         return artifact
+      },
+      cancel(_request): Promise<ExecutorCancellation> {
+        controller.abort('executor cancelled')
+        return Promise.resolve(
+          localAbortCancellation(
+            'the Router chat-completions API exposes no cancel operation; the local request was aborted and the provider may still bill the completion',
+          ),
+        )
       },
       teardown(_grace): Promise<{ destroyed: boolean }> {
         controller.abort('executor torn down')
@@ -1198,6 +1221,14 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         artifact = { outRef: contentRef('router-tools', { model, content: lastText }), out, spent }
         return artifact
       },
+      cancel(_request): Promise<ExecutorCancellation> {
+        controller.abort('executor cancelled')
+        return Promise.resolve(
+          localAbortCancellation(
+            'the Router chat-completions API exposes no cancel operation; the in-flight turn was aborted and the provider may still bill it',
+          ),
+        )
+      },
       teardown(_grace): Promise<{ destroyed: boolean }> {
         controller.abort('executor torn down')
         return Promise.resolve({ destroyed: true })
@@ -1399,6 +1430,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         runtime: 'sandbox' as Runtime,
         deliver: (m) => inbox.deliver(m),
         progress: (): ExecutorProgress => session.progress(),
+        cancel: (request): Promise<ExecutorCancellation> => session.cancel(request),
         traceSource: (): TraceSource => session.traceSource(),
         execute(task, signal): AsyncIterable<UsageEvent> {
           return session.stream(task, signal)
@@ -1453,6 +1485,14 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
             artifact = a
           },
         })
+      },
+      cancel(_request): Promise<ExecutorCancellation> {
+        controller.abort('executor cancelled')
+        return Promise.resolve(
+          localAbortCancellation(
+            'the composed sandbox run owns its boxes, so this executor retains no exact session control reference to cancel against',
+          ),
+        )
       },
       teardown(_grace): Promise<{ destroyed: boolean }> {
         // The composed runAgentRounds owns its box teardown (finally{allSettled(destroy)});
@@ -2072,6 +2112,47 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           )
         },
       })
+    },
+    async cancel(request): Promise<ExecutorCancellation> {
+      // The bridge OWNS a cancel operation and reports terminal state, so this arm can answer with
+      // provider evidence instead of a local abort.
+      const live = [...activeRuns.values()].filter((run) => !run.terminal)
+      const observedAt = () => new Date().toISOString()
+      if (live.length === 0) {
+        return {
+          status: 'already-terminal',
+          effect: 'not_live',
+          observedAt: observedAt(),
+          detail: 'every bridge run for this session was already terminal',
+          evidence: { runs: [...activeRuns.keys()] },
+        }
+      }
+      controller.abort('executor cancelled')
+      const grace = request.signal === undefined ? 'infinity' : BRIDGE_CANCEL_LONG_POLL_MS
+      const terminal = await Promise.all(
+        live.map((run) => cancelBridgeRunToTerminal(seam, run, grace, request.signal)),
+      )
+      const evidence = {
+        operationId: request.operationId,
+        runs: live.map((run, index) => ({ id: run.id, terminal: terminal[index] === true })),
+      }
+      if (terminal.every(Boolean)) {
+        return {
+          status: 'accepted',
+          effect: 'cancelled',
+          observedAt: observedAt(),
+          detail: 'the bridge reported every run terminal after the cancel operation',
+          evidence,
+        }
+      }
+      return {
+        status: 'unknown',
+        effect: 'cancel_requested',
+        observedAt: observedAt(),
+        detail:
+          'the bridge accepted the cancel operation but a run had not reached terminal state within the deadline',
+        evidence,
+      }
     },
     async teardown(grace): Promise<{ destroyed: boolean }> {
       controller.abort()

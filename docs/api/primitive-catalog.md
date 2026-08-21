@@ -921,6 +921,8 @@ Import from `@tangle-network/agent-runtime/kernel` — 826 exports.
 | `ExecCtx` | interface | Execution context for `runAgentRounds`: the sandbox client the kernel creates boxes through, plus optional runtime hooks. |
 | `Executor` | interface | The leaf runtime — ONE open interface, not a closed union. `execute` returns a |
 | `ExecutorAccounting` | interface | Split used by a recursive executor when journaled child work differs from the full amount |
+| `ExecutorCancellation` | interface | What a backend acknowledged about one cancellation ask. |
+| `ExecutorCancellationRequest` | interface | One cancellation ask. `operationId` makes the request idempotent per attempt, exactly as the |
 | `ExecutorContext` | interface | Construction context handed to a `ExecutorFactory` — the seams a built-in needs |
 | `ExecutorExecutionBinding` | interface | Volatile execution routing that is true for one attempt but is not profile identity. The full |
 | `ExecutorMaterialization` | interface | Data-only declaration from trusted executor code about the exact sealed plan `execute` uses. |

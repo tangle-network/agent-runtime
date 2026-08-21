@@ -34,6 +34,7 @@ import type {
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
+import type { RetainedRunEffect } from '../retained-run-types'
 import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { TraceSource } from './trace-source'
@@ -157,6 +158,16 @@ export interface Executor<Out> {
    */
   interactive?(): WorkerInteractiveSession
   /**
+   * Optional provider-neutral CANCELLATION, distinct from `teardown`: it asks the backend to stop
+   * the work and reports what the backend acknowledged, so a caller never has to read a local
+   * iterator abort as remote acceptance. `teardown` remains the resource verb — it releases what
+   * this process holds and says nothing about remote compute or billing.
+   *
+   * An executor that cannot ask its backend anything omits this method; one whose backend has no
+   * cancel operation implements it and answers `unknown` with the reason in `detail`.
+   */
+  cancel?(request: ExecutorCancellationRequest): Promise<ExecutorCancellation>
+  /**
    * Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
    * (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
    */
@@ -237,6 +248,33 @@ export type WorkerInteractiveUnavailableReason =
 export type WorkerInteractiveSession =
   | { readonly status: 'available'; readonly handle: RetainedInteractiveRunHandle }
   | { readonly status: 'unavailable'; readonly reason: WorkerInteractiveUnavailableReason }
+/** One cancellation ask. `operationId` makes the request idempotent per attempt, exactly as the
+ *  worker and retained layers already key their cancellations. */
+export interface ExecutorCancellationRequest {
+  readonly operationId: string
+  readonly reason?: string
+  /** Deadline for the acknowledgement itself. Its expiry produces `unknown`, never a claim. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * What a backend acknowledged about one cancellation ask.
+ *
+ * `status` is the backend's answer to the ASK; `effect` is what is now known about the RUN, in the
+ * one cancellation vocabulary the worker and retained layers already use. A local abort with no
+ * provider acknowledgement is `{ status: 'unknown', effect: 'cancel_requested' }` — never
+ * `accepted`.
+ */
+export interface ExecutorCancellation {
+  readonly status: 'accepted' | 'rejected' | 'already-terminal' | 'unknown'
+  readonly effect: RetainedRunEffect
+  /** When the acknowledgement was observed, ISO-8601. */
+  readonly observedAt: string
+  /** Why the backend answered this way — required reading for `unknown`. */
+  readonly detail?: string
+  /** Backend-native proof, persisted by digest only. */
+  readonly evidence?: unknown
+}
 
 /** Split used by a recursive executor when journaled child work differs from the full amount
  * reconciled against its parent reservation. */
@@ -818,6 +856,12 @@ export interface Scope<Out> {
    * converted into a fake attachment.
    */
   interactive(nodeId: NodeId): WorkerInteractiveSession
+  /**
+   * Ask one child's backend to stop, and report what it acknowledged. It delegates to
+   * `Executor.cancel` when the runtime has one; otherwise the child is aborted locally and the
+   * answer is `unknown`, never `accepted`. Resource release still belongs to teardown.
+   */
+  cancel(nodeId: NodeId, request: ExecutorCancellationRequest): Promise<ExecutorCancellation>
   /** This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
    *  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
    *  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested

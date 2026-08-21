@@ -1096,6 +1096,8 @@
       "ExecutionBindingReceipt": "type",
       "Executor": "type",
       "ExecutorAccounting": "type",
+      "ExecutorCancellation": "type",
+      "ExecutorCancellationRequest": "type",
       "ExecutorConfig": "type",
       "ExecutorContext": "type",
       "ExecutorExecutionBinding": "type",

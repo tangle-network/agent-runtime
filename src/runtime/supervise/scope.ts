@@ -83,6 +83,8 @@ import type {
   DefaultVerdict,
   ExecutionBindingReceipt,
   Executor,
+  ExecutorCancellation,
+  ExecutorCancellationRequest,
   ExecutorContext,
   ExecutorExecutionBinding,
   ExecutorNodeContext,
@@ -286,6 +288,10 @@ interface LiveChild {
   readonly readTraceSource?: () => TraceSource | undefined
   /** The executor's optional interactive process, captured at spawn — backs `scope.interactive`. */
   readonly readInteractive?: () => WorkerInteractiveSession
+  /** The executor's optional cancellation operation, captured at spawn — backs `scope.cancel`. */
+  readonly requestCancel?: (request: ExecutorCancellationRequest) => Promise<ExecutorCancellation>
+  /** Abort this child's own signal — the local half of `scope.cancel`. */
+  readonly abortChild: (reason?: string) => void
   /** Kernel-owned declaration of the exact execution plan, durable before `execute` starts. */
   materialization?: ProfileMaterializationReceipt
   /** One immutable record per concrete execution attempt. */
@@ -730,6 +736,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
         ...(executor.interactive ? { readInteractive: executor.interactive.bind(executor) } : {}),
+        ...(executor.cancel ? { requestCancel: executor.cancel.bind(executor) } : {}),
+        abortChild: (reason?: string): void => controller.abort(reason),
       }
       children.set(id, live)
       if (opts.key !== undefined) {
@@ -1123,6 +1131,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       id,
       status: 'waiting',
       runtime: 'wait',
+      abortChild: (reason?: string): void => waitAbort.abort(reason),
       // A wait's recorded budget is zero on every channel — nothing was reserved, so nothing may
       // be reconciled, and a journal reader sums it as the zero it truly is.
       budget: { maxIterations: 0, maxTokens: 0 },
@@ -1273,6 +1282,26 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     )
   }
 
+  async function cancel(
+    nodeId: NodeId,
+    request: ExecutorCancellationRequest,
+  ): Promise<ExecutorCancellation> {
+    const child = children.get(nodeId)
+    if (!child) {
+      throw new ValidationError(`scope.cancel: unknown node ${JSON.stringify(nodeId)}`)
+    }
+    if (child.requestCancel) return await child.requestCancel(request)
+    // No backend operation exists for this runtime. Abort the child locally and say exactly that,
+    // so a caller never reads a local abort as provider acceptance.
+    child.abortChild('cancelled')
+    return {
+      status: 'unknown',
+      effect: 'cancel_requested',
+      observedAt: new Date().toISOString(),
+      detail: `executor runtime ${JSON.stringify(child.runtime ?? 'unknown')} exposes no cancellation operation; the child was aborted locally`,
+    }
+  }
+
   function traceSource(nodeId: NodeId): TraceSource | undefined {
     const child = children.get(nodeId)
     if (!child) return undefined
@@ -1386,6 +1415,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     progress,
     traceSource,
     interactive,
+    cancel,
     signal: args.signal,
     meter: (spend, detail) => meterInternal(spend, detail),
     ...(resume ? { resume } : {}),
