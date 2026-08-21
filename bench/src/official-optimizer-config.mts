@@ -93,10 +93,10 @@ export function officialOptimizerModel(options: {
       provider: options.provider ?? new URL(options.baseUrl).hostname,
       default: options.model,
       ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
-      metadata: {
-        maxTokens: options.maxOutputTokensPerRequest,
-        ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-      },
+      maxVisibleOutputTokens: options.maxOutputTokensPerRequest,
+      ...(options.temperature !== undefined
+        ? { metadata: { temperature: options.temperature } }
+        : {}),
     },
   }
   const profileDigest = canonicalAgentProfileDigest(profile)

@@ -137,7 +137,8 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
         model: {
           provider: 'scripted',
           default: 'test/model',
-          metadata: { temperature: 0.7, maxTokens: 2500 },
+          metadata: { temperature: 0.7 },
+          maxVisibleOutputTokens: 2500,
         },
         tools: { step: true },
       }),
@@ -158,7 +159,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     }
   })
 
-  it('rejects a non-positive or fractional maxTokens before any transport call', () => {
+  it('rejects a non-positive or fractional visible ceiling before any transport call', () => {
     const { transport, requests } = scriptedTransport([reply('never')])
     for (const maxTokens of [0, -1, 1.5]) {
       expect(() =>
@@ -169,12 +170,12 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
             model: {
               provider: 'scripted',
               default: 'test/model',
-              metadata: { maxTokens },
+              maxVisibleOutputTokens: maxTokens,
             },
           }),
           complete: transport,
         }),
-      ).toThrow(/maxTokens must (?:be positive|be a safe integer)/)
+      ).toThrow(/maxVisibleOutputTokens/)
     }
     expect(requests).toHaveLength(0)
   })
@@ -409,7 +410,8 @@ describe('chatWorkerSeam — the continuity-honoring makeWorkerAgent over the ex
         model: {
           provider: 'scripted',
           default: 'profile/model',
-          metadata: { temperature: 0.7, maxTokens: 2500 },
+          metadata: { temperature: 0.7 },
+          maxVisibleOutputTokens: 2500,
         },
         // The graph pins the delegates directive by APPENDING to instructions — it must reach
         // the system message.

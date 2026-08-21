@@ -285,7 +285,7 @@ describe('structuralRollout — the strategy, end to end (offline transport, fak
         model: {
           provider: 'offline',
           default: 'stub-model',
-          metadata: { maxTokens: 64 },
+          maxVisibleOutputTokens: 64,
         },
         prompt: { systemPrompt: 'Solve it.' },
         tools: {},

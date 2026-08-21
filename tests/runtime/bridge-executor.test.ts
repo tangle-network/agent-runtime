@@ -618,7 +618,7 @@ describe('bridgeExecutor over node:http', () => {
       model: {
         provider: 'tangle-router',
         default: 'safe-model',
-        metadata: { maxTokens: 1_000 },
+        maxTotalOutputTokens: 1_000,
       },
     }
     const executor = bridgeExecutor(
@@ -629,7 +629,10 @@ describe('bridgeExecutor over node:http', () => {
       },
     )
     const pending = runtimeOwnedPendingExecutorMaterialization(executor)
-    expect(pending?.declaration.plan).toMatchObject({ maxTokens: 1_000 })
+    // The receipt records what the profile asked for and what the bridge actually sent.
+    expect(pending?.declaration.plan).toMatchObject({
+      tokenLimits: { requested: { total: 1_000 }, applied: { maxTokens: 1_000 } },
+    })
     deliver = (message) => executor.deliver?.(message)
 
     const events = await drainExecutor(executor)
@@ -638,7 +641,7 @@ describe('bridgeExecutor over node:http', () => {
     expect(seen.map((request) => request.max_tokens)).toEqual([1_000, 1_000])
     for (const request of seen) {
       const requestProfile = request.agent_profile as AgentProfile
-      expect(request.max_tokens).toBe(requestProfile.model?.metadata?.maxTokens)
+      expect(request.max_tokens).toBe(requestProfile.model?.maxTotalOutputTokens)
     }
 
     // The profile cap is a per-completion request field. The conserved Runtime budget still meters
@@ -821,7 +824,7 @@ describe('bridgeExecutor over node:http', () => {
         model: {
           provider: 'tangle-router',
           default: 'safe-model',
-          metadata: { maxTokens },
+          maxTotalOutputTokens: maxTokens,
         },
       }
 
@@ -833,7 +836,7 @@ describe('bridgeExecutor over node:http', () => {
             seams: { bridge: { bridgeUrl: 'http://bridge.test', bridgeBearer: 'secret' } },
           },
         ),
-      ).toThrow(/maxTokens/)
+      ).toThrow(/maxTotalOutputTokens/)
       expect(requests).toBe(0)
     },
   )

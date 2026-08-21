@@ -89,7 +89,8 @@ function parityCell(index: number, shots: number): CellSpec {
       model: {
         provider: 'scripted',
         default: 'scripted/parity-coder',
-        metadata: { temperature: 0.7, maxTokens: 2500 },
+        metadata: { temperature: 0.7 },
+        maxVisibleOutputTokens: 2500,
       },
       prompt: { systemPrompt: 'Make tests pass.' },
     },
@@ -99,7 +100,8 @@ function parityCell(index: number, shots: number): CellSpec {
       model: {
         provider: 'scripted',
         default: 'scripted/parity-reviewer',
-        metadata: { temperature: 0.9, maxTokens: 600 },
+        metadata: { temperature: 0.9 },
+        maxVisibleOutputTokens: 600,
       },
       prompt: { systemPrompt: 'Verify.' },
     },
@@ -281,7 +283,10 @@ function completionsTransport(
       throw new Error('P1 transport request model conflicts with its AgentProfile')
     }
     const metadata = profile.model?.metadata ?? {}
-    if (req.temperature !== metadata.temperature || req.maxTokens !== metadata.maxTokens) {
+    if (
+      req.temperature !== metadata.temperature ||
+      req.maxTokens !== profile.model?.maxVisibleOutputTokens
+    ) {
       throw new Error('P1 transport generation controls conflict with its AgentProfile')
     }
     const tools = (req.tools ?? []) as ToolSpec[]

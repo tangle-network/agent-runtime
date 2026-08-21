@@ -498,7 +498,7 @@ function optimizerModel(baseUrl, maxOutputTokensPerRequest) {
     model: {
       provider: 'local-openai-compatible',
       default: 'local-model',
-      metadata: { maxTokens: maxOutputTokensPerRequest },
+      maxVisibleOutputTokens: maxOutputTokensPerRequest,
     },
   }
   const profileDigest = canonicalAgentProfileDigest(profile)
