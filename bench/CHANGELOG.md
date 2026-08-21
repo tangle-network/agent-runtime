@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.22
+
+### Eval 0.163.2 and Knowledge 10.7.0 cohort
+
+The Eval catalog range becomes `>=0.163.2 <0.164.0` and the Knowledge catalog range `^10.7.0`, matching the Runtime cohort. Bench resolves both through the catalog, so its published manifest states the new ranges. Nothing in bench changes behavior.
+
+A consumer that pins Eval or Knowledge itself must move them with this package.
+
 ## 0.8.21
 
 ### Interface 1.4.0 cohort

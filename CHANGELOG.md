@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.153.2
+
+### Eval 0.163.2 and Knowledge 10.7.0 reach this package
+
+The Eval catalog range moves from `>=0.149.0 <0.150.0` to `>=0.163.2 <0.164.0`, and the Knowledge catalog range from `^8.0.10` to `^10.7.0`. Both were far enough behind to hide shipped work from every consumer of this package: Eval by fourteen minors, Knowledge by two majors.
+
+Eval 0.160.0 removed every Eval-owned paid model transport. This package already owns that role through `profileChatClient` and `profileOptimizerModelCall`, so no runtime code path depended on the removed transports. The one place that still did was `examples/p1-parity`, which passed `apiKey` and `baseUrl` into `runMultishot` as inert placeholders because that function used to resolve them eagerly even when the caller injected both transports. `runMultishot` now takes the caller's transports and nothing else, so both fields are deleted from `MultishotArmBackend` and from the live and offline construction sites. The live arm still reaches its endpoint: `completionsTransport(profile, env.url, env.bearer)` carries the same URL and bearer it always did.
+
+Knowledge 10.0.0 replaced the retrieval-receipt shape and split its verifiers. This package imports none of them — the Knowledge surface it uses is `hashKnowledgeBase`, the improvement-job and activation entry points, and `RagKnowledgeUpdateResult` — so the two majors cross with no source change here.
+
+A consumer that pins `@tangle-network/agent-eval` or `@tangle-network/agent-knowledge` itself must move them together with this package: Eval to `0.163.2` or later within `0.163.x`, and Knowledge to `10.7.0` or later. Knowledge 10.7.0 is the first Knowledge release whose own Eval peer admits 0.163.x, so an older Knowledge beside this package is an unmet peer.
+
 ## 0.153.1
 
 ### The opencode.json materialization fix reaches this package

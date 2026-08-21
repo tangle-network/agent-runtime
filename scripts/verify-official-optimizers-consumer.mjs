@@ -265,8 +265,8 @@ async function runOmniVerification() {
         objective: 'Return a JSON configuration whose k value is 2.',
         recipe: {
           kind: 'omni',
-          explore: [gepaEngineRun(11, 4), gepaEngineRun(29, 4)],
-          continueWith: gepaEngineRun(47, 4),
+          explore: [gepaEngineRun(4), gepaEngineRun(4)],
+          continueWith: gepaEngineRun(4),
           maxWorkers: 1,
         },
         optimizer: optimizerModel(model.baseUrl, 2_000),
@@ -356,7 +356,7 @@ function runGepa({
       objective,
       recipe: {
         kind: 'engine',
-        run: gepaEngineRun(7, 5),
+        run: gepaEngineRun(5),
       },
       optimizer: optimizerModel(modelUrl, 2_000),
       resume,
@@ -383,7 +383,9 @@ function runGepa({
   })
 }
 
-function gepaEngineRun(seed, maxEvaluations) {
+// The run seed owns `engine.seed`: Eval refuses a caller-supplied one on both
+// sides of the wire and the bridge forwards the comparison seed itself.
+function gepaEngineRun(maxEvaluations) {
   return {
     engine: 'gepa',
     maxEvaluations,
@@ -396,7 +398,6 @@ function gepaEngineRun(seed, maxEvaluations) {
         max_workers: 1,
         parallel: false,
         raise_on_exception: true,
-        seed,
         use_cloudpickle: false,
       },
       reflection: {

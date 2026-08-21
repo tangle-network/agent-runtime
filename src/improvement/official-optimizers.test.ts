@@ -136,6 +136,7 @@ function fakeRunner(
           '  recipeKind: input.recipe.kind,',
           '  tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, calls: 0 },',
           '  proposerCostAccounting: "unavailable",',
+          '  seedApplied: true,',
           '  upstream: optimizerSource,',
         ]
       : [
