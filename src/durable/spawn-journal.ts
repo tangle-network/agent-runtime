@@ -879,7 +879,6 @@ export async function replaySpawnTree(
           handle: handleFor(ev.id, 'cancelled'),
           reason: 'wait cancelled',
           infra: false,
-          restartCount: 0,
           trace: { status: 'unavailable', reason: 'not-an-executor' },
           ...settlementTime(ev.at),
           seq: ev.seq,
@@ -910,7 +909,6 @@ export async function replaySpawnTree(
         handle: handleFor(ev.id, 'cancelled'),
         reason: ev.reason,
         infra: false,
-        restartCount: 0,
         trace: { status: 'unavailable', reason: 'execution-did-not-start' },
         ...settlementTime(ev.at),
         seq: ev.seq,
@@ -927,7 +925,6 @@ export async function replaySpawnTree(
         // pre-field convention and the generic text keeps still-older reasonless journals usable.
         reason: ev.reason ?? ev.verdict?.notes ?? 'child down',
         infra: ev.infra === true,
-        restartCount: 0,
         ...(ev.providerModel === undefined
           ? {}
           : { providerModel: copyProviderModelEvidence(ev.providerModel) }),

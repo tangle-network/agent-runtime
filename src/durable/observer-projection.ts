@@ -11,7 +11,12 @@ import { addSpend, cloneSpend, zeroSpend } from '../runtime/util'
 import type { RuntimeDecisionKind, RuntimeHookTarget } from '../runtime-hooks'
 import { type ObserverRecord, verifyObserverRecords } from './observer-journal'
 
-export type PursuitRunStatus = 'running' | 'done' | 'failed'
+/**
+ * One settled projection status, shared by runs and nodes. `down` is the journal's own word for a
+ * failure (a settlement is journaled as `kind: 'down'`, cancellation included), so a consumer can
+ * join run rows to node rows on `status` and read one failure population instead of two.
+ */
+export type PursuitStatus = 'running' | 'done' | 'down'
 
 /**
  * Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` =
@@ -81,7 +86,7 @@ export interface PursuitRunTotals {
 
 export interface PursuitRunProjection {
   readonly runId: string
-  readonly status: PursuitRunStatus
+  readonly status: PursuitStatus
   readonly settledAt?: number
   readonly error?: string
   readonly firstSequence: number
@@ -97,8 +102,6 @@ export interface PursuitRunProjection {
   readonly spendGaps?: ReadonlyArray<SpendGap>
 }
 
-export type PursuitNodeStatus = 'running' | 'done' | 'down'
-
 export interface PursuitNodeProjection {
   readonly id: string
   readonly parentId?: string
@@ -111,7 +114,7 @@ export interface PursuitNodeProjection {
   readonly assignmentId?: string
   readonly identity?: unknown
   readonly budget?: unknown
-  readonly status: PursuitNodeStatus
+  readonly status: PursuitStatus
   readonly settledAt?: number
   /** The child work this node reported at settlement. Absent until a terminal record lands. */
   readonly spent?: Spend
@@ -144,7 +147,6 @@ export interface PursuitNodeProjection {
   readonly valid?: boolean
   readonly reason?: string
   readonly infra?: boolean
-  readonly restartCount?: number
   readonly wait?: unknown
   readonly firstSequence: number
   readonly lastSequence: number
@@ -170,7 +172,7 @@ export interface PursuitProjection {
 
 type MutableRun = {
   runId: string
-  status: PursuitRunStatus
+  status: PursuitStatus
   settledAt?: number
   error?: string
   firstSequence: number
@@ -195,7 +197,7 @@ type MutableNode = {
   assignmentId?: string
   identity?: unknown
   budget?: unknown
-  status: PursuitNodeStatus
+  status: PursuitStatus
   startedAt?: number
   settledAt?: number
   spent?: Spend
@@ -218,7 +220,6 @@ type MutableNode = {
   valid?: boolean
   reason?: string
   infra?: boolean
-  restartCount?: number
   wait?: unknown
   firstSequence: number
   lastSequence: number
@@ -342,8 +343,10 @@ function projectRunActivity(run: MutableRun, record: ObserverRecord): void {
     run.settledAt = record.observedAt
     return
   }
+  // The `agent.run` hook payload spells a failure `failed`; the projection spells every
+  // settled failure `down`, the journal's word, so run and node rows join on one vocabulary.
   if (event.phase !== 'error' && status !== 'failed') return
-  run.status = 'failed'
+  run.status = 'down'
   run.settledAt = record.observedAt
   const error = stringField(payload, 'error')
   if (error) run.error = error
@@ -437,8 +440,6 @@ function projectNodeActivity(nodes: Map<string, MutableNode>, record: ObserverRe
   if (reason) node.reason = reason
   const infra = booleanField(payload, 'infra')
   if (infra !== undefined) node.infra = infra
-  const restartCount = numberField(payload, 'restartCount')
-  if (restartCount !== undefined) node.restartCount = restartCount
   if (payload && Object.hasOwn(payload, 'wait')) node.wait = payload.wait
   attachSettlementEvidence(node, payload)
 }

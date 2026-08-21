@@ -37,6 +37,8 @@ import {
   AgentTurnInputSchema,
   agentProfileSchema,
   canonicalAgentProfileDigest,
+  harnessTypeSchema,
+  nativeReasoningControl,
   profileMaterializationAxes,
   REASONING_EFFORTS,
   type ReasoningEffort,
@@ -3579,7 +3581,13 @@ function assertBridgeProfileMaterialization(
     )
   }
   const expectedRequested = profile.model?.reasoningEffort ?? null
-  const expectedApplied = expectedBridgeAppliedReasoning(raw.harness, expectedRequested)
+  // `@tangle-network/agent-interface` owns the canonical-effort → native-control map, and the
+  // cli-bridge argv builders read the same one: the acknowledgement is checked against what the
+  // process must have received, and a renamed rung moves both sides together.
+  const receiptHarness = harnessTypeSchema.safeParse(raw.harness)
+  const expectedApplied = receiptHarness.success
+    ? nativeReasoningControl(receiptHarness.data, expectedRequested)
+    : null
   if (requested !== expectedRequested || applied !== expectedApplied) {
     throw new ValidationError(
       `bridgeExecutor: bridge materialized reasoning effort ${JSON.stringify({ requested, applied })}, expected ${JSON.stringify({ requested: expectedRequested, applied: expectedApplied })}`,
@@ -3856,37 +3864,6 @@ function bridgeInferenceMoney(value: unknown, field: string): number {
     )
   }
   return value
-}
-
-/** Expected native control for the bridge backends that can emit the v2 acknowledgement. These
- * mappings mirror the actual cli-bridge argv functions, so the acknowledgement is checked against
- * what the process must have received rather than merely echoing the canonical request. */
-function expectedBridgeAppliedReasoning(
-  harness: string,
-  requested: ReasoningEffort | null,
-): string | null {
-  if (requested === null) return null
-  switch (harness) {
-    case 'pi':
-      if (requested === 'none') return 'off'
-      return requested === 'ultracode' ? 'xhigh' : requested
-    case 'claude-code':
-      if (requested === 'none' || requested === 'minimal') return 'low'
-      return requested === 'ultracode' ? 'max' : requested
-    case 'codex':
-      if (requested === 'none') return 'minimal'
-      return requested === 'xhigh' || requested === 'ultracode' ? 'high' : requested
-    case 'kimi-code':
-      if (requested === 'medium') return null
-      return requested === 'none' || requested === 'minimal' || requested === 'low'
-        ? '--no-thinking'
-        : '--thinking'
-    case 'gemini':
-      return null
-    default:
-      // OpenCode and bridge backends with direct reasoning variants preserve the canonical label.
-      return requested
-  }
 }
 
 /**

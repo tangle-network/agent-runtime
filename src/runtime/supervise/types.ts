@@ -235,7 +235,11 @@ export type WorkerInteractiveUnavailableReason =
   /** The executor is backed by a runner whose provider publishes no interactive-session contract
    *  (the local CLI Bridge today), so no process can be attached to even though one is running. */
   | 'provider-has-no-interactive-contract'
-  /** The runner supports interactive sessions but this execution was not started in one. */
+  /** The runner supports interactive sessions but this execution was not started in one. Part of
+   *  the `Executor` PORT vocabulary: `Scope.interactive` keeps whatever reason an executor's own
+   *  `interactive()` returns, so any executor — including one implemented outside this package —
+   *  answers with it. No first-party executor emits it yet: the sandbox arm must first ask its
+   *  provider whether it supports control, which agent-runtime#773 tracks. */
   | 'interactive-session-not-started'
 
 /**
@@ -646,9 +650,6 @@ export interface Spend {
 
 // ── Node lifecycle ────────────────────────────────────────────────────────────
 
-/** OTP child-spec restart class. */
-export type Restart = 'temporary' | 'transient' | 'permanent'
-
 /** `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box
  *  during sandbox acquire BEFORE it is `running`, so abort must be defined over it.
  *  `'waiting'` is first-class for the opposite reason: a wait-state node holds NO executor, NO
@@ -672,7 +673,6 @@ export interface SpawnOpts {
   /** Manager-scoped semantic assignment identity. Unlike `key`, this names every spawn, including
    * unkeyed siblings, so product traces can join authorization, node, and backend execution. */
   readonly assignmentId?: string
-  readonly restart?: Restart
   /** Teardown grace handed to the executor when this node is reaped. */
   readonly shutdown?: number | 'brutalKill' | 'infinity'
   /**
@@ -772,7 +772,6 @@ export type Settled<Out> =
       reason: string
       /** True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result. */
       infra: boolean
-      restartCount: number
       /** Partial structured tool evidence captured before this failure was journaled. */
       trace: WorkerTraceEvidence
       /** Partial provider model evidence survives an aborted or failed execution. */

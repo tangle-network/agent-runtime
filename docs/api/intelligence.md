@@ -3889,7 +3889,7 @@ never inlined here.
 
 ### DeliveryBinding
 
-> **DeliveryBinding** = \{ `kind`: `"inline"`; `content`: [`ContentRef`](#contentref); \} \| \{ `kind`: `"file"`; `path`: `string`; `content`: [`ContentRef`](#contentref); `executable?`: `boolean`; \} \| \{ `kind`: `"http"`; `url`: `string`; `method?`: `string`; `auth?`: [`CapabilityAuth`](#capabilityauth); \} \| \{ `kind`: `"sandbox-code"`; `entry`: `string`; `code`: [`ContentRef`](#contentref); `runtime?`: `string`; `harness?`: `string`; \} \| \{ `kind`: `"mcp-stdio"`; `command`: `string`; `args?`: `string`[]; `env?`: `Record`\<`string`, `string`\>; `cwd?`: `string`; \} \| \{ `kind`: `"mcp-remote"`; `url`: `string`; `transport`: `"http"` \| `"sse"`; `headers?`: `Record`\<`string`, `string`\>; \} \| \{ `kind`: `"process-on-infra"`; `host`: [`HostSpec`](#hostspec); `inner`: [`DeliveryBinding`](#deliverybinding); \} \| \{ `kind`: `"rag-index"`; `index`: [`ContentRef`](#contentref); `embedModel`: `string`; `topK?`: `number`; \} \| \{ `kind`: `"memory-store"`; `provision`: `"sqlite"` \| `"neo4j"` \| `"vector"`; `seed?`: [`ContentRef`](#contentref); \} \| \{ `kind`: `"wasm"`; `module`: [`ContentRef`](#contentref); `exports`: `string`[]; \} \| \{ `kind`: `"a2a"`; `endpoint`: `string`; `card`: [`ContentRef`](#contentref); `auth?`: [`CapabilityAuth`](#capabilityauth); \}
+> **DeliveryBinding** = \{ `kind`: `"inline"`; `content`: [`ContentRef`](#contentref); \} \| \{ `kind`: `"file"`; `path`: `string`; `content`: [`ContentRef`](#contentref); `executable?`: `boolean`; \} \| \{ `kind`: `"http"`; `url`: `string`; `method?`: `string`; `auth?`: [`CapabilityAuth`](#capabilityauth); \} \| \{ `kind`: `"sandbox-code"`; `entry`: `string`; `code`: [`ContentRef`](#contentref); `runtime?`: `string`; `harness?`: `string`; \} \| \{ `kind`: `"mcp-stdio"`; `command`: `string`; `args?`: `string`[]; `env?`: `Record`\<`string`, `string`\>; `cwd?`: `string`; \} \| \{ `kind`: `"mcp-remote"`; `url`: `string`; `transport`: `"http"` \| `"sse"`; `headers?`: `Record`\<`string`, `string`\>; \} \| \{ `kind`: `"process-on-infra"`; `host`: [`HostSpec`](#hostspec); `inner`: [`DeliveryBinding`](#deliverybinding); \} \| \{ `kind`: `"rag-index"`; `index`: [`ContentRef`](#contentref); `embedModel`: `string`; `topK?`: `number`; \} \| \{ `kind`: `"memory-store"`; `provision`: `"sqlite"`; `seed?`: [`ContentRef`](#contentref); \} \| \{ `kind`: `"wasm"`; `module`: [`ContentRef`](#contentref); `exports`: `string`[]; \} \| \{ `kind`: `"a2a"`; `endpoint`: `string`; `card`: [`ContentRef`](#contentref); `auth?`: [`CapabilityAuth`](#capabilityauth); \}
 
 How a capability is backed. OPEN tagged union — THE extension point. All arms
 are typed even when the resolver does not yet admit them; an un-admitted arm
@@ -4039,16 +4039,6 @@ The portable profile changes that the measured-profile contract permits.
 ### AgentImprovementActivationTargetIdentity
 
 > **AgentImprovementActivationTargetIdentity** = `Pick`\<`AgentImprovementActivationTarget`, `"surface"` \| `"identity"`\>
-
-***
-
-### UsageClass
-
-> **UsageClass** = `"inference"` \| `"intelligence"`
-
-Usage class for billing. Base-stream tokens bill `'inference'`; every
- intelligence spawn (analyst, corpus, loop) bills `'intelligence'`. The
- billing line falls on the spawn line.
 
 ***
 
@@ -4931,7 +4921,7 @@ Bind caller-owned target identities to the exact source state Runtime measured.
 
 ##### surfaces
 
-readonly `AgentImprovementSurface`[]
+readonly (`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"code"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"`)[]
 
 ##### experiment
 
@@ -4961,7 +4951,7 @@ Return whether a measured surface can be delivered through an agent profile.
 
 ##### surface
 
-`AgentImprovementSurface`
+`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"code"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"`
 
 #### Returns
 

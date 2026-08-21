@@ -212,7 +212,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
       const sandboxId = (box as unknown as { id?: string }).id
       const meta = (box as VirtualSandbox).__inProcess
       return {
-        kind: 'sibling',
+        kind: 'in-process',
         sandboxId,
         worktreePath: meta?.worktree?.path,
         harness: meta?.harness,

@@ -158,6 +158,39 @@ function numberSseDataFrames(body: string): string {
   return body.replace(/^data: (?!\[DONE\])/gmu, () => `id: ${++seq}\ndata: `)
 }
 
+/**
+ * What cli-bridge 0.3.0 really puts in `reasoningEffort.applied`, transcribed from the argv
+ * builders that spawn each CLI — claude.ts, codex.ts, pi.ts, kimi.ts and opencode.ts — and NOT
+ * from `nativeReasoningControl`. Reading the shared table here would make this test assert that
+ * the runtime agrees with itself: the previous version of this fake echoed the runtime's own
+ * mapping, which is how a stale codex expectation survived long enough to refuse three of the
+ * seven rungs in production.
+ *
+ * A harness with no case plumbs no thinking flag, so its receipt carries `null`.
+ */
+function fakeBridgeAppliedReasoning(harness: string, requested: string | null): string | null {
+  if (requested === null) return null
+  switch (harness) {
+    case 'claude-code':
+      if (requested === 'none' || requested === 'minimal') return 'low'
+      return requested === 'ultracode' ? 'max' : requested
+    case 'codex':
+      return requested === 'ultracode' ? 'ultra' : requested
+    case 'pi':
+      if (requested === 'none') return 'off'
+      return requested === 'ultracode' ? 'xhigh' : requested
+    case 'kimi-code':
+      if (requested === 'medium') return null
+      return requested === 'none' || requested === 'minimal' || requested === 'low'
+        ? '--no-thinking'
+        : '--thinking'
+    case 'opencode':
+      return requested
+    default:
+      return null
+  }
+}
+
 function respondWithBridgeStream(
   res: ServerResponse,
   request: BridgeRequest,
@@ -186,12 +219,7 @@ function respondWithBridgeStream(
     .join('\n')
   const parts = request.model.split('/')
   const requested = request.agent_profile.model?.reasoningEffort ?? null
-  const applied =
-    requested === 'none'
-      ? 'minimal'
-      : requested === 'xhigh' || requested === 'ultracode'
-        ? 'high'
-        : requested
+  const applied = fakeBridgeAppliedReasoning(parts[0] ?? '', requested)
   const receipt = `data: ${JSON.stringify({
     profile_materialization: {
       schema: 'cli-bridge.profile-materialization.v2',

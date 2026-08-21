@@ -21,7 +21,7 @@ catalog:
   '@tangle-network/agent-core': '>=0.9.4 <0.10.0'
   '@types/node': 26.1.1
   '@tangle-network/agent-eval': '>=0.163.2 <0.164.0'
-  '@tangle-network/agent-interface': ^1.4.0
+  '@tangle-network/agent-interface': ^1.6.0
   '@tangle-network/agent-knowledge': ^10.7.0
   '@tangle-network/agent-profile-materialize': '>=0.17.1 <0.18.0'
   '@tangle-network/agent-trace-contract': ^1.0.2

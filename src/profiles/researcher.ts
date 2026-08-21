@@ -34,7 +34,9 @@ import type {
   Validator,
 } from '../runtime/types'
 
-/** Source families a researcher profile may prefer for a task. @experimental */
+/** Source families a researcher profile may prefer for a task. One owner: the delegation
+ *  vocabulary (`DelegateResearchArgs.sources`) re-exports this type rather than restating it.
+ *  @experimental */
 export type ResearchSource = 'web' | 'corpus' | 'twitter' | 'github' | 'docs'
 
 /** Task contract for a source-grounded research agent. @experimental */

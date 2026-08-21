@@ -1511,7 +1511,6 @@ describe('settledToIteration adapter', () => {
       handle: { id: 'run:s0', label: 'x', status: 'failed', abort() {} },
       reason: 'boom',
       infra: false,
-      restartCount: 0,
       seq: 0,
     }
     expect(() => settledToIteration(down)).toThrow(/cannot adapt a 'down'/)
@@ -1750,7 +1749,6 @@ describe('WidenGate default', () => {
       handle: { id: 'run:s1', label: 'b', status: 'failed', abort() {} },
       reason: 'x',
       infra: false,
-      restartCount: 0,
       seq: 1,
     }
     // Even a near-perfect verdict does not widen under the flat default.

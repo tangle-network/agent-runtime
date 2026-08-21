@@ -14,6 +14,7 @@
  */
 
 import type { CoderTask } from '../profiles/coder'
+import type { ResearchSource } from '../profiles/researcher'
 import type { UiFinding, UiLens } from '../profiles/ui-auditor/substrate'
 import type { DelegationTraceSpan } from './delegation-trace'
 import type { CoderOutput } from './detached-coder'
@@ -72,8 +73,7 @@ export interface DelegateCodeResult {
   estimatedDurationMs?: number
 }
 
-/** @experimental */
-export type ResearchSource = 'web' | 'corpus' | 'twitter' | 'github' | 'docs'
+export type { ResearchSource }
 
 /** @experimental */
 export interface DelegateResearchConfig {
