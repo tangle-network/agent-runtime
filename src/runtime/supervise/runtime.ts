@@ -149,6 +149,7 @@ import type {
   Runtime,
   Spend,
   UsageEvent,
+  WorkerInteractiveSession,
 } from './types'
 import { workerTraceEnv, workerTraceHeaders } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
@@ -2004,6 +2005,14 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
       }
     },
     traceSource: (): TraceSource => trace.source,
+    // CLI Bridge starts headless subprocesses and keeps only a LOGICAL resume id. Its server
+    // publishes no PTY or terminal-session contract, so there is nothing to attach a human
+    // terminal to; saying so beats letting the worker look merely headless.
+    interactive: (): WorkerInteractiveSession =>
+      Object.freeze({
+        status: 'unavailable' as const,
+        reason: 'provider-has-no-interactive-contract',
+      }),
     execute(task, signal): AsyncIterable<UsageEvent> {
       return streamBridgeSession({
         task,

@@ -21366,6 +21366,27 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ***
 
+### WorkerInteractiveUnavailableReason
+
+> **WorkerInteractiveUnavailableReason** = `"unknown-node"` \| `"not-live"` \| `"executor-exposes-no-interactive-session"` \| `"provider-has-no-interactive-contract"` \| `"interactive-session-not-started"`
+
+Why Runtime cannot hand a caller the exact interactive process one worker runs in.
+
+***
+
+### WorkerInteractiveSession
+
+> **WorkerInteractiveSession** = \{ `status`: `"available"`; `handle`: [`RetainedInteractiveRunHandle`](#retainedinteractiverunhandle); \} \| \{ `status`: `"unavailable"`; `reason`: [`WorkerInteractiveUnavailableReason`](#workerinteractiveunavailablereason); \}
+
+One worker's attachable process, or the named reason there is none.
+
+`available` carries the exact `RetainedInteractiveRunHandle` bound to THAT child's admitted
+execution: input, resize, ordered replay, detach, and an acknowledged close all check every
+provider answer against the session reference, so a second process that merely resumes the same
+conversation cannot present itself as this one. `unavailable` names why, and is never a handle.
+
+***
+
 ### ExecutorProgressEvent
 
 > **ExecutorProgressEvent** = \{ `kind`: `"text_delta"`; `text`: `string`; \} \| \{ `kind`: `"reasoning_delta"`; `text`: `string`; \} \| \{ `kind`: `"tool_call"`; `toolName`: `string`; `toolCallId?`: `string`; `args?`: `unknown`; \} \| \{ `kind`: `"tool_result"`; `toolName`: `string`; `toolCallId?`: `string`; `result?`: `unknown`; \} \| \{ `kind`: `"interaction"`; `request`: `InteractionRequest`; \}
