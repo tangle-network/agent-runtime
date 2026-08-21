@@ -931,9 +931,13 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
     )
 
+    // The router reported a cache READ and no write (the OpenAI shape). The read is measured, so
+    // it is credited; the rest of the prompt stays unclassified rather than completed with an
+    // invented zero write. Same rule as `bridge-prompt-cache.test.ts` — one splitter, one answer.
     expect(result.spentTotal.tokens).toEqual({
       input: 10,
       output: 5,
+      cacheRead: 4,
       cacheBreakdownKnown: false,
     })
     expect(result.spentTotal.usd).toBe(0.02)

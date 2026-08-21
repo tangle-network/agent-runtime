@@ -38,7 +38,7 @@
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
-import { addSpend, addTokenUsage, zeroSpend } from '../util'
+import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
@@ -347,33 +347,17 @@ function isSettled(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'settled' 
 /** Sum the conserved spend over the nested tree's settled events — the honest per-channel
  *  roll-up of the whole sub-tree's child WORK. */
 function sumSpend(settled: ReadonlyArray<{ spent: Spend }>): Spend {
-  const total: Spend = zeroSpend()
-  for (const ev of settled) {
-    total.iterations += ev.spent.iterations
-    addTokenUsage(total.tokens, ev.spent.tokens)
-    if (ev.spent.tokensKnown === false) total.tokensKnown = false
-    total.usd += ev.spent.usd
-    if (ev.spent.usdKnown === false) total.usdKnown = false
-    total.ms += ev.spent.ms
-  }
-  return total
+  return settled.reduce<Spend>((total, ev) => addSpend(total, ev.spent), zeroSpend())
 }
 
 /** Sum the nested tree's `metered` events — the sub-tree's whole driver INFERENCE (this driver's
  *  own turns + any sub-driver inference already re-homed into this tree). Re-homed up to the parent
  *  as one `metered` event; never reconciled (already pool-debited live via `observe`). */
 function sumMetered(events: ReadonlyArray<SpawnEvent>): Spend {
-  const total: Spend = zeroSpend()
-  for (const ev of events) {
-    if (ev.kind !== 'metered') continue
-    total.iterations += ev.spend.iterations
-    addTokenUsage(total.tokens, ev.spend.tokens)
-    if (ev.spend.tokensKnown === false) total.tokensKnown = false
-    total.usd += ev.spend.usd
-    if (ev.spend.usdKnown === false) total.usdKnown = false
-    total.ms += ev.spend.ms
-  }
-  return total
+  return events.reduce<Spend>(
+    (total, ev) => (ev.kind === 'metered' ? addSpend(total, ev.spend) : total),
+    zeroSpend(),
+  )
 }
 
 /** An all-zero spend that carries an UNKNOWN marker counts as non-zero: a sub-driver whose turns

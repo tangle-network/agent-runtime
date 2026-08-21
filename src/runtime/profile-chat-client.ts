@@ -359,13 +359,35 @@ function assertProfileChatRequest(
   }
 }
 
+/**
+ * Which dollar fact a receipt carries, in the one order that never presents an estimate as a
+ * measurement: a provider receipt, else this runtime's own estimate, else the catalog rate the
+ * caller supplied, else an explicit refusal to state a cost.
+ *
+ * `pricing` is deliberately withheld on the unknown-usage path. A per-token rate applied to the
+ * zero token counts that path reports would produce a fabricated `$0`, which is the one thing
+ * `costUnknown` exists to prevent.
+ */
+function costAttribution(
+  usage: ProfileChatRun['turn']['usage'],
+  pricing: CustomTokenPricing | undefined,
+): Pick<
+  CostReceiptInput,
+  'actualCostUsd' | 'estimatedCostUsd' | 'customTokenPricing' | 'costUnknown'
+> {
+  const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
+  if (actualCostUsd !== undefined) return { actualCostUsd }
+  if (usage.estimatedCostUsd !== undefined) return { estimatedCostUsd: usage.estimatedCostUsd }
+  if (pricing) return { customTokenPricing: pricing }
+  return { costUnknown: true }
+}
+
 function optimizerReceipt(
   model: string,
   run: ProfileChatRun,
   pricing: CustomTokenPricing | undefined,
 ): CostReceiptInput {
   const usage = run.turn.usage
-  const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   if (usage.tokensKnown === false) {
     return {
       // The receipt model is the served identity when Runtime observed one. Eval and the response
@@ -374,11 +396,7 @@ function optimizerReceipt(
       inputTokens: 0,
       outputTokens: 0,
       usageUnknown: true,
-      ...(actualCostUsd !== undefined
-        ? { actualCostUsd }
-        : usage.estimatedCostUsd !== undefined
-          ? { estimatedCostUsd: usage.estimatedCostUsd }
-          : { costUnknown: true }),
+      ...costAttribution(usage, undefined),
     }
   }
   const cachedTokens = optimizerTokenCount(usage.promptCache?.readTokens, 'cache read tokens')
@@ -394,13 +412,7 @@ function optimizerReceipt(
     ...(cachedTokens !== undefined ? { cachedTokens } : {}),
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),
     ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
-    ...(actualCostUsd !== undefined
-      ? { actualCostUsd }
-      : usage.estimatedCostUsd !== undefined
-        ? { estimatedCostUsd: usage.estimatedCostUsd }
-        : pricing
-          ? { customTokenPricing: pricing }
-          : { costUnknown: true }),
+    ...costAttribution(usage, pricing),
   }
 }
 
@@ -412,20 +424,13 @@ function rawOptimizerReceipt(
 ): CostReceiptInput {
   const usage = run.turn.usage
   const tokensKnown = usage.tokensKnown !== false
-  const actualCostUsd = usage.usdKnown === false ? undefined : usage.costUsd
   return {
     model,
     inputTokens: tokensKnown ? usage.input : 0,
     outputTokens: tokensKnown ? usage.output : 0,
     ...(tokensKnown ? {} : { usageUnknown: true }),
     ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
-    ...(actualCostUsd !== undefined
-      ? { actualCostUsd }
-      : usage.estimatedCostUsd !== undefined
-        ? { estimatedCostUsd: usage.estimatedCostUsd }
-        : pricing
-          ? { customTokenPricing: pricing }
-          : { costUnknown: true }),
+    ...costAttribution(usage, pricing),
   }
 }
 

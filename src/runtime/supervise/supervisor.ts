@@ -44,7 +44,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
-import { addSpend, addTokenUsage, zeroTokenUsage } from '../util'
+import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
@@ -1342,24 +1342,13 @@ function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
 } {
-  const childWork: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
-  const driverInference: Spend = { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 }
+  let childWork = zeroSpend()
+  let driverInference = zeroSpend()
   for (const ev of events) {
-    if (ev.kind === 'settled') accumulate(childWork, ev.spent)
-    else if (ev.kind === 'metered') accumulate(driverInference, ev.spend)
+    if (ev.kind === 'settled') childWork = addSpend(childWork, ev.spent)
+    else if (ev.kind === 'metered') driverInference = addSpend(driverInference, ev.spend)
   }
   return { childWork, driverInference }
-}
-
-/** Add `b` into `a` in place, per channel. */
-function accumulate(a: Spend, b: Spend): void {
-  a.iterations += b.iterations
-  addTokenUsage(a.tokens, b.tokens)
-  if (b.tokensKnown === false) a.tokensKnown = false
-  a.usd += b.usd
-  if (b.usdKnown === false) a.usdKnown = false
-  if (b.usdEstimated !== undefined) a.usdEstimated = (a.usdEstimated ?? 0) + b.usdEstimated
-  a.ms += b.ms
 }
 
 /** True when any driver metered inference this run (so the winner carries a `spentBreakdown`).

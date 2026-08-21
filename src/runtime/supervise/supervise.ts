@@ -58,6 +58,7 @@ import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
+import { unmeteredSpend } from '../util'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
@@ -876,14 +877,7 @@ function driveHarnessFromBackend(
             if (attempts <= meteredProviderAttempts) break
             await meterRuntimeOwnedProviderAttempt(
               scope,
-              {
-                iterations: 0,
-                tokens: { input: 0, output: 0 },
-                tokensKnown: false,
-                usd: 0,
-                usdKnown: false,
-                ms: 0,
-              },
+              unmeteredSpend(0),
               providerEvidenceForNextMeter(),
               { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
             )
@@ -891,14 +885,7 @@ function driveHarnessFromBackend(
           if (meteredProviderAttempts === 0) {
             await meterRuntimeOwnedProviderAttempt(
               scope,
-              {
-                iterations: 0,
-                tokens: { input: 0, output: 0 },
-                tokensKnown: false,
-                usd: 0,
-                usdKnown: false,
-                ms: 0,
-              },
+              unmeteredSpend(0),
               providerEvidenceForNextMeter(),
               { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
             )
