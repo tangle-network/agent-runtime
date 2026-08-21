@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.157.0
+
+### The bridge reasoning check refused runs it should have admitted
+
+`bridgeExecutor` compared the effort a cli-bridge materialization receipt reports as `applied` against a private copy of the bridge's own mapping, and the copy was stale. It expected codex to apply `minimal` for `none` and `high` for both `xhigh` and `ultracode`; cli-bridge 0.3.0 applies `none`, `xhigh` and `ultra`. A mismatch throws `ValidationError`, so **three of the seven rungs refused a legitimate codex run**. The same switch's default arm asserted the canonical rung for eleven further harnesses, none of which plumbs a thinking flag, so their receipts carried `applied: null` and those runs were refused too.
+
+The map now has one owner: `nativeReasoningControl` in `@tangle-network/agent-interface` 1.6.0, which the cli-bridge argv builders read as well. Interface moves to `^1.6.0` — a consumer that pins it itself must move it with this package.
+
+### An in-process worker is no longer recorded as a sandbox sibling
+
+`LoopSandboxPlacement.kind` and `LoopIterationDispatchPayload.placement` now carry `'in-process'`, and `PlacementInfo` maps it to its existing `'local'` kind. A consumer that switches exhaustively over either union must add the arm. In exchange, a cost or latency breakdown split by placement stops counting every local worktree-CLI iteration in the sandbox bucket.
+
+### One word for a failed projection row
+
+`PursuitRunStatus` and `PursuitNodeStatus` are replaced by one `PursuitStatus = 'running' | 'done' | 'down'`. They disagreed on the word for a failure in the same file, so a consumer joining run rows to node rows on `status` reported two failure populations where there is one. Read `PursuitStatus` and expect `down` on both.
+
+### `improve()` can no longer produce a surface a proposal cannot name
+
+`ImproveSurface` is now `Exclude<AgentImprovementSurface, 'knowledge'>`, and Interface 1.6.0 adds `rollout-policy` to the proposal vocabulary. A rollout-policy improvement can now reach a review or a gate. A consumer switching exhaustively over `AgentImprovementSurface` must add that arm.
+
+### Removed
+
+`Restart` and `SpawnOpts.restart` are gone. The supervisor never read the option, and the retry story already has an owner: a keyed spawn is idempotent per key, and a key whose prior attempt settled `down` spawns fresh and says so. A caller passing `restart` should use `key`.
+
+`restartCount` is gone from the `down` settlement and from `PursuitNodeProjection`. Nothing could increment it, and replay overwrote whatever a journal carried with `0`.
+
+`CoderReview.recommendation` is gone. Selection reads `approved` and `readiness`; a reviewer that wants a caller to read something puts it in `notes`.
+
+`UsageClass` is gone. `UsageSplit` carries the same idea as two named number fields.
+
+`DeliveryBinding`'s `memory-store` arm narrows `provision` to `'sqlite'`. Nothing provisioned the other two, and the whole arm is still refused at resolve time until it clears the E3 admission bar.
+
 ## 0.156.0
 
 ### Two MCP tool vocabularies now match what the tools accept
