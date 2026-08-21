@@ -41,6 +41,7 @@ import {
   type MakeWorkerAgent,
   normalizeAnalyzeOnSettle,
   type SettledWorker,
+  type SpawnPreflight,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import type { ToolSpec } from '../router-client'
@@ -132,6 +133,9 @@ export interface DriverAgentOptions {
    *  `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
    *  argument overrides. Omit = every spawn fresh (status quo). */
   readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
+  /** OPT-IN async gate run before every spawn mints an assignment or reserves budget. See
+   *  `CoordinationToolsOptions.preflightSpawn`. */
+  readonly preflightSpawn?: SpawnPreflight
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -734,6 +738,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
+        ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),
         ...(opts.priorCoordination?.questions.length

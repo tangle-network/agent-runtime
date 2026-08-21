@@ -4002,6 +4002,22 @@ capability is minted (the status quo: a worker is reachable only by its parent).
 
 > `readonly` `optional` **limits?**: `Partial`\<[`PeerMailLimits`](runtime.md#peermaillimits)\>
 
+##### preflightSpawn?
+
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](runtime.md#spawnpreflight)
+
+OPT-IN async gate run on every spawn BEFORE an assignment is minted, budget is reserved, or
+`Scope.spawn` is called — the one pre-journal point where a network question may be asked.
+
+`Scope.spawn` and `MakeWorkerAgent` are synchronous, so a check that needs the backend's
+answer (does this bridge route the child's wire id; is it already at admission capacity)
+cannot live there. Returning a [SpawnRefusal](runtime.md#spawnrefusal) refuses the spawn as a tool result: no
+assignment, no reservation, no journal entry, no worker — and the refusal is counted on
+[CoordinationTools.stats](#stats) so a gate that never refuses is visible as such.
+
+Returning `undefined` admits the spawn. A THROW is not a refusal: it propagates, because a
+pre-flight that fails open would hand back exactly the silent admission it exists to stop.
+
 ***
 
 ### CoordinationTools
@@ -4094,13 +4110,16 @@ readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coo
 
 ##### stats()
 
-> **stats**(): [`BusStats`](runtime.md#busstats)
+> **stats**(): [`CoordinationStats`](runtime.md#coordinationstats)
 
-Bus throughput counters (published / pulled / by-kind) for live dashboards.
+Bus throughput counters (published / pulled / by-kind) for live dashboards, plus one
+ counter per [SpawnRefusalCause](runtime.md#spawnrefusalcause) the pre-flight refused. `preflight` is present
+ whenever `preflightSpawn` is installed, with every cause at 0 until one fires — a gate that
+ never refuses has to be readable as such.
 
 ###### Returns
 
-[`BusStats`](runtime.md#busstats)
+[`CoordinationStats`](runtime.md#coordinationstats)
 
 ##### raiseFinding()
 

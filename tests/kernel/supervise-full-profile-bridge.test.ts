@@ -68,9 +68,49 @@ function routerTestProfile(name: string, systemPrompt?: string): AgentProfile {
  */
 const bridgeRequestBodies = new WeakMap<object, BridgeRequest>()
 
-function createBridgeServer(handler: Parameters<typeof createServer>[0]): Server {
+/**
+ * The routes the real bridge answers pre-flight questions on, mirrored here so a pre-flight test
+ * exercises the same shapes: `/v1/capabilities?model=` 404s `no backend matches model` for an
+ * unrouted wire id, and `/health` reports `admission.{active,maxActive}`.
+ */
+interface FakeBridgeRoutes {
+  /** Wire ids this bridge routes. Any other id 404s. Omit = route everything. */
+  routedModels?: ReadonlySet<string>
+  /** Admission counters `/health` reports. Omit = report no admission snapshot at all. */
+  admission?: { active: number; maxActive: number }
+}
+
+function createBridgeServer(
+  handler: Parameters<typeof createServer>[0],
+  routes: FakeBridgeRoutes = {},
+): Server {
   const sessionBindings = new Map<string, string>()
   return createServer((req, res) => {
+    if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities')) {
+      const model = new URL(req.url, 'http://bridge.test').searchParams.get('model') ?? ''
+      if (routes.routedModels && !routes.routedModels.has(model)) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            error: { message: `no backend matches model ${JSON.stringify(model)}` },
+          }),
+        )
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ model, backend: 'fake' }))
+      return
+    }
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(
+        JSON.stringify({
+          status: 'ok',
+          ...(routes.admission ? { admission: routes.admission } : {}),
+        }),
+      )
+      return
+    }
     if (req.method === 'GET' && req.url === '/') {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(
@@ -724,6 +764,191 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       events.filter((event) => event.kind === 'spawned' && event.key === 'pi-worker'),
     ).toHaveLength(1)
     expect(requests.map((request) => request.agent_profile.name)).toEqual(['pi-worker'])
+  })
+
+  it('refuses an unrouted wire id before any journal entry, naming the id', async () => {
+    const requests: BridgeRequest[] = []
+    server = createBridgeServer(
+      async (req, res) => {
+        const body = await readJson(req)
+        requests.push(body)
+        respondWithBridgeStream(res, body, successStream('never reached'))
+      },
+      { routedModels: new Set(['pi/tangle-router/glm-5.2']) },
+    )
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    const toolResults: string[] = []
+    let turn = 0
+    await supervise(routerTestProfile('root', 'Delegate.'), 'Delegate.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 8, maxTokens: 8_000 },
+      perWorker: { maxIterations: 2, maxTokens: 1_000 },
+      journal,
+      runId: 'unrouted-wire-id',
+      brain: async (messages) => {
+        turn += 1
+        if (turn === 1) {
+          return {
+            toolCalls: [
+              {
+                id: 'spawn',
+                name: 'spawn_agent',
+                arguments: JSON.stringify({
+                  profile: {
+                    name: 'ghost',
+                    harness: 'pi',
+                    model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+                  },
+                  task: 'do the work',
+                  key: 'ghost',
+                }),
+              },
+            ],
+          }
+        }
+        for (const message of messages) {
+          if (typeof message.content === 'string') toolResults.push(message.content)
+        }
+        return { content: 'done', toolCalls: [] }
+      },
+    })
+
+    expect(events.filter((event) => event.kind === 'spawned' && event.key === 'ghost')).toEqual([])
+    expect(requests).toEqual([])
+    const refusal = toolResults.find((text) => text.includes('preflight-refused'))
+    expect(refusal).toBeDefined()
+    expect(refusal).toContain('model-route')
+    expect(refusal).toContain('pi/tangle-router/deepseek-v4-flash')
+  })
+
+  it('refuses into a full bridge and reports the refusal count', async () => {
+    const requests: BridgeRequest[] = []
+    server = createBridgeServer(
+      async (req, res) => {
+        const body = await readJson(req)
+        requests.push(body)
+        respondWithBridgeStream(res, body, successStream('never reached'))
+      },
+      { admission: { active: 12, maxActive: 12 } },
+    )
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    const toolResults: string[] = []
+    let turn = 0
+    await supervise(routerTestProfile('root', 'Delegate.'), 'Delegate.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 8, maxTokens: 8_000 },
+      perWorker: { maxIterations: 2, maxTokens: 1_000 },
+      journal,
+      runId: 'full-bridge',
+      brain: async (messages) => {
+        turn += 1
+        if (turn === 1) {
+          return {
+            toolCalls: [
+              {
+                id: 'spawn',
+                name: 'spawn_agent',
+                arguments: JSON.stringify({
+                  profile: {
+                    name: 'queued',
+                    harness: 'pi',
+                    model: { provider: 'tangle-router', default: 'glm-5.2' },
+                  },
+                  task: 'do the work',
+                  key: 'queued',
+                }),
+              },
+            ],
+          }
+        }
+        for (const message of messages) {
+          if (typeof message.content === 'string') toolResults.push(message.content)
+        }
+        return { content: 'done', toolCalls: [] }
+      },
+    })
+
+    expect(events.filter((event) => event.kind === 'spawned' && event.key === 'queued')).toEqual([])
+    expect(requests).toEqual([])
+    const refusal = toolResults.find((text) => text.includes('preflight-refused'))
+    expect(refusal).toBeDefined()
+    expect(refusal).toContain('bridge-full')
+    expect(refusal).toContain('active 12 of maxActive 12')
+  })
+
+  it('refuses a child requiring a coordination tool no verb names, without asking the bridge', async () => {
+    const capabilityQueries: string[] = []
+    server = createBridgeServer(async (req, res) => {
+      if (req.url?.startsWith('/v1/capabilities')) capabilityQueries.push(req.url)
+      const body = await readJson(req)
+      respondWithBridgeStream(res, body, successStream('never reached'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    const toolResults: string[] = []
+    let turn = 0
+    await supervise(routerTestProfile('root', 'Delegate.'), 'Delegate.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 8, maxTokens: 8_000 },
+      perWorker: { maxIterations: 2, maxTokens: 1_000 },
+      journal,
+      runId: 'unmountable-tool',
+      brain: async (messages) => {
+        turn += 1
+        if (turn === 1) {
+          return {
+            toolCalls: [
+              {
+                id: 'spawn',
+                name: 'spawn_agent',
+                arguments: JSON.stringify({
+                  profile: {
+                    name: 'kb',
+                    harness: 'pi',
+                    model: { provider: 'tangle-router', default: 'glm-5.2' },
+                    tools: { agent_runtime_coordination_kb_record: true },
+                  },
+                  task: 'do the work',
+                  key: 'kb',
+                }),
+              },
+            ],
+          }
+        }
+        for (const message of messages) {
+          if (typeof message.content === 'string') toolResults.push(message.content)
+        }
+        return { content: 'done', toolCalls: [] }
+      },
+    })
+
+    expect(events.filter((event) => event.kind === 'spawned' && event.key === 'kb')).toEqual([])
+    const refusal = toolResults.find((text) => text.includes('preflight-refused'))
+    expect(refusal).toBeDefined()
+    expect(refusal).toContain('unmountable-tool')
+    expect(refusal).toContain('agent_runtime_coordination_kb_record')
+    // The pure cause decides first, so a deterministic refusal costs no round trip.
+    expect(capabilityQueries).toEqual([])
   })
 
   it('reuses the recorded per-spawn completion result on durable resume', async () => {
