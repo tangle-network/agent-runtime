@@ -161,7 +161,7 @@ import type {
   UsageEvent,
   WorkerInteractiveSession,
 } from './types'
-import { workerTraceEnv, workerTraceHeaders } from './worker-trace'
+import { WORKER_TRACE_PROPAGATION, workerTraceEnv, workerTraceHeaders } from './worker-trace'
 import { createWorktreeCliExecutor } from './worktree-cli-executor'
 
 // ── Seam contracts (read off ExecutorContext.seams, narrowed per built-in) ─────
@@ -4519,7 +4519,7 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
 /**
  * Config for {@link createExecutor}: the backend is DATA — the cost dial a profile,
  * an experiment config, or a replay journal can name — not an import choice. Each
- * variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/sandbox).
+ * variant carries its backend's seam.
  */
 export type ExecutorConfig =
   | ({ backend: 'router' } & RouterSeam)
@@ -4670,6 +4670,20 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
     }
     case 'cli':
       return detachedSnapshot(config, `createExecutor ${config.backend} config`)
+    default: {
+      // The backend is DATA — a profile, an experiment config, or a replay journal names it — so
+      // a value outside the union reaches here untyped. Without this arm the switch returns
+      // `undefined`, `createExecutor` hands back a working-looking factory, and the failure lands
+      // one call later as a TypeError that never names the backend that caused it.
+      const named = (config as { backend?: unknown }).backend
+      // The supported list is read off the trace-propagation table rather than written out again:
+      // that table is `satisfies Record<ExecutorConfig['backend'], boolean>`, so it is the one
+      // copy the compiler already forces to hold every arm.
+      const supported = Object.keys(WORKER_TRACE_PROPAGATION).sort().join(', ')
+      throw new ValidationError(
+        `createExecutor: no backend named ${JSON.stringify(named)}; supported backends are ${supported}`,
+      )
+    }
   }
 }
 

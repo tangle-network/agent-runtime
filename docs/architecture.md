@@ -452,9 +452,10 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   composed as one leaf execution backend. Everything above it is the same `act`/`Scope`
   atom, observable as one lifecycle stream (`scope.spawn`/settle →
   `agent.spawn`/`agent.child`).
-- **REAL** — every node materializes in its backend (sandbox / cli-bridge / router /
-  worktree-cli) via the one backend-as-data factory `createExecutor({ backend })`
-  (`src/runtime/supervise/runtime.ts:1517`). The profile says what it is; the executor
+- **REAL** — every node materializes in its backend (`router`, `router-tools`, `bridge`,
+  `cli`, `cli-worktree`, `provider`, `sandbox`) via the one backend-as-data factory
+  `createExecutor({ backend })` (`src/runtime/supervise/runtime.ts:4735`). A name outside
+  that set is refused there by `ValidationError`. The profile says what it is; the executor
   says where it runs.
 - **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1,
   and `canonical-api.md` §1.5): a supervisor's intelligence is *writing full

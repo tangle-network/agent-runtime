@@ -12,8 +12,8 @@
  *  - Join barrier: when `act()` settles (resolve OR reject), every still-live child is
  *    torn down before `run` returns — the generalization of the kernel's
  *    `finally{ Promise.allSettled(destroy) }` barrier (run-loop.ts) from boxes to the
- *    whole sub-tree. A teardown failure is `allSettled`'d and journaled as a
- *    `cancelled` event; it NEVER masks act()'s own outcome. act()'s rejection is the
+ *    whole sub-tree. A teardown failure is `allSettled`'d and journaled per node as a
+ *    `teardown-unconfirmed` event; it NEVER masks act()'s own outcome. act()'s rejection is the
  *    PRIMARY error (the kernel's firstError precedence), so a teardown throw during the
  *    barrier can never overwrite the real failure.
  *  - Abort cascade: a root abort (caller signal, `RootHandle.abort`, a tripped breaker,

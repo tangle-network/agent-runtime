@@ -21737,7 +21737,7 @@ The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext
 
 Config for [createExecutor](#createexecutor): the backend is DATA — the cost dial a profile,
 an experiment config, or a replay journal can name — not an import choice. Each
-variant carries its backend's seam (router/router-tools/bridge/cli/cli-worktree/sandbox).
+variant carries its backend's seam.
 
 ***
 
