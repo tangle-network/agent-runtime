@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import type { TraceAnalysisStore } from '@tangle-network/agent-eval'
+import type { AnalystFinding, TraceAnalysisStore } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   agentProfileSchema,
@@ -106,9 +106,20 @@ export interface QuestionRecord extends Question {
 type QuestionInput = Omit<Question, 'id'> & { readonly id?: string }
 export type QuestionPolicy = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
 
+/**
+ * What one analyst lens may return.
+ *
+ * Two shapes, because two real producers exist and neither can be dropped. An eval-registry lens
+ * returns validated `AnalystFinding`s — the schema every upstream consumer already reads. An
+ * authored lens like `failuresAnalyst` returns a written brief for the driver and has no findings
+ * to validate against. The union names both, so the boundary can no longer silently accept an
+ * unvalidated shape (#630) while the authored lens keeps working.
+ */
+export type AnalystLensOutput = ReadonlyArray<AnalystFinding> | { readonly summary: string }
+
 export interface AnalystRegistry {
   readonly kinds: ReadonlyArray<{ id: string; description: string; area: string }>
-  readonly run: (kindId: string, trace: TraceAnalysisStore) => Promise<unknown>
+  readonly run: (kindId: string, trace: TraceAnalysisStore) => Promise<AnalystLensOutput>
 }
 
 /** A trace-analyst result re-entered as a message on the bus (the `finding` event kind). */
@@ -1252,7 +1263,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
    */
   const deliverRoutedFinding = async (
     route: AnalyzeOnSettleRoute,
-    findings: unknown,
+    findings: AnalystLensOutput | unknown,
   ): Promise<void> => {
     const destination = route.to as string
     const text =

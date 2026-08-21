@@ -212,7 +212,7 @@ export function parityAnalysts(): AnalystRegistry {
         area: 'qa',
       },
     ],
-    run: async () => [{ check: 'shot-completion', observed: 'see the settled output' }],
+    run: async () => ({ summary: 'shot-completion: see the settled output.' }),
   }
 }
 

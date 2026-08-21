@@ -60,6 +60,7 @@ export {
 // its own seam types it from the loop layer rather than the `/mcp` subpath.
 export type {
   AnalystFindingEvent,
+  AnalystLensOutput,
   AnalystRegistry,
   AnalyzeOnSettleRoute,
   AuthorizeDownMessage,
@@ -1063,6 +1064,7 @@ export {
 // (refine by default), settle on the surface's own check, and feed the driver a self-improvement lens (the
 // failing tests, by default) so the next spawn targets them. One capability over `supervise` + `runAgentic`.
 export {
+  analystsFromRegistry,
   failuresAnalyst,
   type SuperviseSurfaceOptions,
   type SuperviseSurfaceResult,

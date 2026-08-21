@@ -20159,6 +20159,20 @@ Present when a commit was attempted (valid, or `commitOnInvalid`).
 
 ## Type Aliases
 
+### AnalystLensOutput
+
+> **AnalystLensOutput** = `ReadonlyArray`\<`AnalystFinding`\> \| \{ `summary`: `string`; \}
+
+What one analyst lens may return.
+
+Two shapes, because two real producers exist and neither can be dropped. An eval-registry lens
+returns validated `AnalystFinding`s — the schema every upstream consumer already reads. An
+authored lens like `failuresAnalyst` returns a written brief for the driver and has no findings
+to validate against. The union names both, so the boundary can no longer silently accept an
+unvalidated shape (#630) while the authored lens keeps working.
+
+***
+
 ### ContinuityMode
 
 > **ContinuityMode** = `"fresh"` \| `"resume"`
@@ -26016,6 +26030,50 @@ Budget note: `runAgentic`'s `budget` sizes the pool — pass at least
 #### Returns
 
 [`Strategy`](#strategy-3)\<[`StructuralRolloutResult`](#structuralrolloutresult)\>
+
+***
+
+### analystsFromRegistry()
+
+> **analystsFromRegistry**(`registry`, `kinds?`, `opts?`): [`AnalystRegistry`](index.md#analystregistry)
+
+Adapt an `agent-eval` `AnalystRegistry` into the lens shape `supervise({ analysts })` takes.
+
+The two registries were never structurally compatible: eval's class exposes `list()` and
+`run(runId, inputs, opts)` and returns an `AnalystRunResult`, while `supervise` wants `kinds`
+and `run(kindId, trace)`. So `'kinds' in buildDefaultAnalystRegistry()` is `false` and the five
+calibrated lenses in `DEFAULT_TRACE_ANALYST_KINDS` were unreachable from any supervised run —
+every consumer hand-rolled a lens instead (#630).
+
+The adapter lives HERE, not in eval, for one reason: eval must never import runtime, and runtime
+already owns both shapes — it consumes `AnalystFinding` / `AnalystRunResult` from eval for its
+analyst loop and defines the supervise lens itself. Writing it in eval would mean eval declaring
+a duck-typed copy of a type this package already exports.
+
+`kinds` is the DEFINITION list, not `registry.list()`, because `Analyst` carries no `area` while
+`TraceAnalystDefinition` does — `list()` cannot supply the field the lens shape requires. Every
+id must be registered: an unknown kind throws at adapt time rather than returning nothing at run
+time, when the driver would read the silence as "no findings".
+
+#### Parameters
+
+##### registry
+
+[`AnalystRegistryLike`](analyst-loop.md#analystregistrylike)
+
+##### kinds?
+
+readonly `object`[] = `DEFAULT_TRACE_ANALYST_KINDS`
+
+##### opts?
+
+###### runOpts?
+
+`RegistryRunOpts`
+
+#### Returns
+
+[`AnalystRegistry`](index.md#analystregistry)
 
 ***
 

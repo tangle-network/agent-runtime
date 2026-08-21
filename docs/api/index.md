@@ -7191,7 +7191,7 @@ Max research rounds (correct-on-veto remediation). Default 1.
 
 ##### run
 
-> `readonly` **run**: (`kindId`, `trace`) => `Promise`\<`unknown`\>
+> `readonly` **run**: (`kindId`, `trace`) => `Promise`\<[`AnalystLensOutput`](runtime.md#analystlensoutput)\>
 
 ###### Parameters
 
@@ -7205,7 +7205,7 @@ Max research rounds (correct-on-veto remediation). Default 1.
 
 ###### Returns
 
-`Promise`\<`unknown`\>
+`Promise`\<[`AnalystLensOutput`](runtime.md#analystlensoutput)\>
 
 ***
 

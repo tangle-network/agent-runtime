@@ -29,7 +29,7 @@ const report = promptHandle('analyzes/findings-report/v1')
 /** The verify lens is ENVIRONMENT: it reads the coder's trace, never sits in the graph. */
 const analysts: AnalystRegistry = {
   kinds: [{ id: 'verify', description: 'read the coder trace, report test outcome', area: 'qa' }],
-  run: async () => [{ check: 'test-suite', observed: 'see the settled output' }],
+  run: async () => ({ summary: 'test-suite: see the settled output.' }),
 }
 
 export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {

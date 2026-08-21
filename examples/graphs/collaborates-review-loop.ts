@@ -36,10 +36,12 @@ const analysts: AnalystRegistry = {
     { id: 'critique', description: 'read the implementer trace, list defects', area: 'review' },
     { id: 'verdict', description: 'read the reviewer trace, extract the verdict', area: 'review' },
   ],
-  run: async (kindId) =>
-    kindId === 'critique'
-      ? [{ claim: 'implementation lacks tests', severity: 'major' }]
-      : { verdict: 'needs-changes', brief: 'add the missing tests' },
+  run: async (kindId) => ({
+    summary:
+      kindId === 'critique'
+        ? 'MAJOR: the implementation lacks tests.'
+        : 'Needs changes: add the missing tests.',
+  }),
 }
 
 export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
