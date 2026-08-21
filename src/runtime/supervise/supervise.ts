@@ -49,9 +49,11 @@ import type {
   CoordinationEvent,
   DownMessageAuthorizationInput,
   MakeWorkerAgent,
+  SpawnPreflight,
   WorkerSpawnContext,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { coordinationVerbNames } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
@@ -77,6 +79,7 @@ import {
   assertExecutableAgentProfile,
   assertModelAllowed,
   assertProfileModelsAllowed,
+  profileBridgeWireModel,
 } from './model-policy'
 import {
   createSupervisorSpanRecorder,
@@ -86,7 +89,10 @@ import {
 import type { PeerMailLimits } from './peer-mail'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import {
+  type BridgeSeam,
   bindReusableExecutorExecutionId,
+  bridgeAdmissionRead,
+  bridgeModelRouteRefusal,
   bridgeRuntimeAttachmentsKey,
   bridgeStopSignalKey,
   captureReusableExecutorConfig,
@@ -430,6 +436,73 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
 })
 
 const coordinationMcpAlias = 'agent-runtime-coordination'
+
+/** How a harness sees a coordination verb once the MCP is mounted under its reserved alias. */
+const coordinationToolPrefix = `${coordinationMcpAlias.replaceAll('-', '_')}_`
+
+/**
+ * Tools a child REQUIRES that name the coordination MCP but no coordination verb.
+ *
+ * A profile can only receive a coordination tool this run actually serves, and the served set is
+ * closed (`coordinationVerbNames`). A required name inside the reserved namespace that is not one
+ * of them can never mount on any harness, for any backend, at any depth — the harness discovers it
+ * only when it starts and exits (`pi exit 78: requested tool "…" is unavailable`), after the child
+ * is spawned, journaled and metered.
+ */
+function unmountedCoordinationTools(profile: AgentProfile): readonly string[] {
+  const served = new Set(coordinationVerbNames.map((verb) => `${coordinationToolPrefix}${verb}`))
+  return Object.entries(profile.tools ?? {})
+    .filter(([name, required]) => required === true && name.startsWith(coordinationToolPrefix))
+    .map(([name]) => name)
+    .filter((name) => !served.has(name))
+}
+
+/**
+ * The pre-flight `supervise` installs for a bridge backend. No new knob: the backend already says
+ * where the bridge is, and these are the questions only the bridge can answer.
+ *
+ * Three causes, in cost order — the pure one first, so a deterministic refusal never pays for a
+ * round trip:
+ *
+ * - `unmountable-tool` — pure; see {@link unmountedCoordinationTools}.
+ * - `model-route` — `GET /v1/capabilities?model=<wire id>`. The bridge answers exactly this
+ *   question and 404s `no backend matches model "…"`. FAIL CLOSED: any answer that is not a route
+ *   refuses, including a transport error or an unexpected status, because a pre-flight that skips
+ *   itself on an error is the silent admission it exists to remove.
+ * - `bridge-full` — `GET /health` → `admission.active >= admission.maxActive`. ADVISORY by
+ *   nature (admission can fill or drain a moment later), so only a POSITIVE reading of fullness
+ *   refuses: a `/health` that does not answer, or answers without an admission snapshot, is not
+ *   evidence that the bridge is full and admits the spawn.
+ */
+function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
+  return async (profile) => {
+    const unmounted = unmountedCoordinationTools(profile)
+    if (unmounted.length > 0) {
+      return {
+        cause: 'unmountable-tool',
+        detail: `no coordination verb is named by ${unmounted.map((name) => JSON.stringify(name)).join(', ')}; this run serves ${coordinationVerbNames.join(', ')}`,
+      }
+    }
+    const wireModel = profileBridgeWireModel(profile)
+    if (wireModel === undefined) {
+      return {
+        cause: 'model-route',
+        detail: 'the child AgentProfile resolves no bridge wire model (harness + provider + model)',
+      }
+    }
+    const routeRefusal = await bridgeModelRouteRefusal(seam, wireModel)
+    if (routeRefusal !== undefined) return { cause: 'model-route', detail: routeRefusal }
+    const admission = await bridgeAdmissionRead(seam)
+    if (admission && admission.active >= admission.maxActive) {
+      return {
+        cause: 'bridge-full',
+        detail: `bridge ${seam.bridgeUrl.replace(/\/$/, '')} admission is full: active ${admission.active} of maxActive ${admission.maxActive}`,
+      }
+    }
+    return undefined
+  }
+}
+
 const defaultAllowedMcpHosts: string[] = []
 Object.freeze(defaultAllowedMcpHosts)
 
@@ -1685,6 +1758,10 @@ function superviseInternal(
       }
     : undefined
   const managerBackend = options.driverBackend ?? options.backend
+  // Derived from the backend the run already declares — no new knob. Only a bridge can answer the
+  // route and admission questions, so only a bridge backend installs one.
+  const spawnPreflight: SpawnPreflight | undefined =
+    options.backend?.backend === 'bridge' ? bridgeSpawnPreflight(options.backend) : undefined
   if (options.driveHarness && options.resolveDriveHarness) {
     throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
   }
@@ -1988,6 +2065,7 @@ function superviseInternal(
           ...(options.continuityByProfile
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
+          ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -2057,6 +2135,7 @@ function superviseInternal(
         : {}),
       ...(finalizer ? { finalizer } : {}),
       ...(options.coordination ? { coordination: options.coordination } : {}),
+      ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),

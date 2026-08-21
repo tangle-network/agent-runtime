@@ -465,6 +465,54 @@ export interface CoordinationToolsOptions {
    * capability is minted (the status quo: a worker is reachable only by its parent).
    */
   readonly peerMail?: { readonly limits?: Partial<PeerMailLimits> }
+  /**
+   * OPT-IN async gate run on every spawn BEFORE an assignment is minted, budget is reserved, or
+   * `Scope.spawn` is called — the one pre-journal point where a network question may be asked.
+   *
+   * `Scope.spawn` and `MakeWorkerAgent` are synchronous, so a check that needs the backend's
+   * answer (does this bridge route the child's wire id; is it already at admission capacity)
+   * cannot live there. Returning a {@link SpawnRefusal} refuses the spawn as a tool result: no
+   * assignment, no reservation, no journal entry, no worker — and the refusal is counted on
+   * {@link CoordinationTools.stats} so a gate that never refuses is visible as such.
+   *
+   * Returning `undefined` admits the spawn. A THROW is not a refusal: it propagates, because a
+   * pre-flight that fails open would hand back exactly the silent admission it exists to stop.
+   */
+  readonly preflightSpawn?: SpawnPreflight
+}
+
+/** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
+export type SpawnRefusalCause = 'model-route' | 'bridge-full' | 'unmountable-tool'
+
+/** A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it. */
+export interface SpawnRefusal {
+  readonly cause: SpawnRefusalCause
+  /** Names the exact thing that failed — the unrouted wire id, the admission numbers, the tool. */
+  readonly detail: string
+}
+
+/** What a pre-flight sees: the authored child profile and the spawn it is being asked to admit. */
+export interface SpawnPreflightContext {
+  readonly label: string
+  readonly key?: string
+  readonly task: unknown
+}
+
+/** The gate `CoordinationToolsOptions.preflightSpawn` installs. */
+export type SpawnPreflight = (
+  profile: AgentProfile,
+  context: SpawnPreflightContext,
+) => Promise<SpawnRefusal | undefined>
+
+/** Bus throughput plus the pre-flight's own refusal ledger. */
+export interface CoordinationStats extends BusStats {
+  /** One counter per refusal cause, present only when a pre-flight is installed. */
+  readonly preflight?: Readonly<Record<SpawnRefusalCause, number>>
+}
+
+/** Every cause at zero — a pre-flight publishes its whole ledger from the first read. */
+function emptyPreflightCounts(): Record<SpawnRefusalCause, number> {
+  return { 'model-route': 0, 'bridge-full': 0, 'unmountable-tool': 0 }
 }
 
 /** Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). */
@@ -502,8 +550,11 @@ export interface CoordinationTools {
    *  instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
    *  timestamp, and priority. A receipt is evidence and is never auto-delivered on restart. */
   history(): ReadonlyArray<BusRecord<CoordinationEvent>>
-  /** Bus throughput counters (published / pulled / by-kind) for live dashboards. */
-  stats(): BusStats
+  /** Bus throughput counters (published / pulled / by-kind) for live dashboards, plus one
+   *  counter per {@link SpawnRefusalCause} the pre-flight refused. `preflight` is present
+   *  whenever `preflightSpawn` is installed, with every cause at 0 until one fires — a gate that
+   *  never refuses has to be readable as such. */
+  stats(): CoordinationStats
   /** The run's peer-mail post office, present only when `peerMail` was enabled. The transport
    *  layer stands the capability endpoint up over it; the parent reads `history()` for the audit
    *  trail and calls `stopThread` to end a peer exchange. */
@@ -810,6 +861,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   // work `ordinal:0` when a prior process already used that assignment. Use the maximum rather
   // than the number of rows: journals can contain gaps, keyed assignments, and legacy/custom ids.
   let unkeyedAssignmentOrdinal = nextUnkeyedAssignmentOrdinal(opts.scope)
+  const preflightCounts = emptyPreflightCounts()
   for (const [key, prior] of opts.scope.resume?.keys ?? []) {
     if (prior.state === 'completed') completedKeys.add(key)
   }
@@ -1876,7 +1928,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         },
         required: ['profile', 'task'],
       },
-      handler: (raw) => {
+      handler: async (raw) => {
         const a = obj(raw)
         const key = a.key === undefined ? undefined : str(a.key, 'key')
         // A key already proven complete — by the resumed journal or by a delivery earlier in this
@@ -1921,6 +1973,25 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         }
         const task = deepFreezeDetached(a.task)
         const label = typeof a.label === 'string' ? a.label : 'worker'
+        // The ONE pre-journal point that may ask the backend a question: everything below —
+        // assignment, budget reservation, `Scope.spawn` — is synchronous and commits state.
+        if (opts.preflightSpawn) {
+          const refusal = await opts.preflightSpawn(profile, {
+            label,
+            ...(key !== undefined ? { key } : {}),
+            task,
+          })
+          if (refusal) {
+            preflightCounts[refusal.cause] += 1
+            return {
+              error: 'preflight-refused' as const,
+              cause: refusal.cause,
+              detail: refusal.detail,
+              live: liveWorkerCount(),
+              freeSlots: freeWorkerSlots(),
+            }
+          }
+        }
         const budget = Object.freeze(
           a.budget === undefined ? opts.perWorker : mergeBudget(opts.perWorker, a.budget),
         )
@@ -2445,7 +2516,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       bus
         .publish({ type: 'finding', finding: canonicalFindingEvent(finding) })
         .then(() => undefined),
-    stats: () => bus.stats(),
+    stats: () =>
+      opts.preflightSpawn === undefined
+        ? bus.stats()
+        : { ...bus.stats(), preflight: { ...preflightCounts } },
     isStopped: () => stopped,
     stopReason: () => reason,
     submittedResult: () => submitted,

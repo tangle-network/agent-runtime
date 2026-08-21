@@ -868,7 +868,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`label`](#label-17)
+[`NodeSnapshot`](#nodesnapshot).[`label`](#label-18)
 
 ##### status
 
@@ -1429,6 +1429,88 @@ It arrives HERE, out of band, rather than being merged into the worker's `AgentP
 for the same reason the driver's coordination URL does: the URL carries fresh random bytes per
 process, so writing it into the profile would change the canonical profile digest every run and
 a keyed re-spawn would then fail its identity check against the journal.
+
+***
+
+### SpawnRefusal
+
+A pre-flight's refusal: the cause it decided on, and the operator-facing evidence for it.
+
+#### Properties
+
+##### cause
+
+> `readonly` **cause**: [`SpawnRefusalCause`](#spawnrefusalcause)
+
+##### detail
+
+> `readonly` **detail**: `string`
+
+Names the exact thing that failed — the unrouted wire id, the admission numbers, the tool.
+
+***
+
+### SpawnPreflightContext
+
+What a pre-flight sees: the authored child profile and the spawn it is being asked to admit.
+
+#### Properties
+
+##### label
+
+> `readonly` **label**: `string`
+
+##### key?
+
+> `readonly` `optional` **key?**: `string`
+
+##### task
+
+> `readonly` **task**: `unknown`
+
+***
+
+### CoordinationStats
+
+Bus throughput plus the pre-flight's own refusal ledger.
+
+#### Extends
+
+- [`BusStats`](#busstats)
+
+#### Properties
+
+##### preflight?
+
+> `readonly` `optional` **preflight?**: `Readonly`\<`Record`\<[`SpawnRefusalCause`](#spawnrefusalcause), `number`\>\>
+
+One counter per refusal cause, present only when a pre-flight is installed.
+
+##### published
+
+> `readonly` **published**: `number`
+
+###### Inherited from
+
+[`BusStats`](#busstats).[`published`](#published-1)
+
+##### pulled
+
+> `readonly` **pulled**: `number`
+
+###### Inherited from
+
+[`BusStats`](#busstats).[`pulled`](#pulled-1)
+
+##### byKind
+
+> `readonly` **byKind**: `Readonly`\<`Record`\<`string`, `number`\>\>
+
+Count published per event `type`.
+
+###### Inherited from
+
+[`BusStats`](#busstats).[`byKind`](#bykind-1)
 
 ***
 
@@ -11251,15 +11333,18 @@ readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](index.md#coordinatione
 
 ##### stats
 
-> **stats**: () => [`BusStats`](#busstats)
+> **stats**: () => [`CoordinationStats`](#coordinationstats)
 
 Bus throughput counters for live dashboards.
 
-Bus throughput counters (published / pulled / by-kind) for live dashboards.
+Bus throughput counters (published / pulled / by-kind) for live dashboards, plus one
+ counter per [SpawnRefusalCause](#spawnrefusalcause) the pre-flight refused. `preflight` is present
+ whenever `preflightSpawn` is installed, with every cause at 0 until one fires — a gate that
+ never refuses has to be readable as such.
 
 ###### Returns
 
-[`BusStats`](#busstats)
+[`CoordinationStats`](#coordinationstats)
 
 ##### raiseFinding
 
@@ -11768,6 +11853,10 @@ Whether the event enters the pull queue (default true). Set `false` for record-o
 ***
 
 ### BusStats
+
+#### Extended by
+
+- [`CoordinationStats`](#coordinationstats)
 
 #### Properties
 
@@ -15834,7 +15923,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-21)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-22)
 
 ##### signal
 
@@ -16268,6 +16357,15 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
  unreachable from an off-host harness. A non-loopback host fails closed — see
  [assertCoordinationBinding](#assertcoordinationbinding).
+
+##### preflightSpawn?
+
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](#spawnpreflight)
+
+OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
+ pre-journal point that may ask the backend a question (does this bridge route the child's
+ wire id; is it already at admission capacity). `supervise` derives one automatically for a
+ bridge backend; see `CoordinationToolsOptions.preflightSpawn`.
 
 ##### peerMail?
 
@@ -20133,6 +20231,36 @@ Product decision over an exact continuation before it is durably recorded or del
 
 ***
 
+### SpawnRefusalCause
+
+> **SpawnRefusalCause** = `"model-route"` \| `"bridge-full"` \| `"unmountable-tool"`
+
+Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision.
+
+***
+
+### SpawnPreflight
+
+> **SpawnPreflight** = (`profile`, `context`) => `Promise`\<[`SpawnRefusal`](#spawnrefusal) \| `undefined`\>
+
+The gate `CoordinationToolsOptions.preflightSpawn` installs.
+
+#### Parameters
+
+##### profile
+
+`AgentProfile`
+
+##### context
+
+[`SpawnPreflightContext`](#spawnpreflightcontext)
+
+#### Returns
+
+`Promise`\<[`SpawnRefusal`](#spawnrefusal) \| `undefined`\>
+
+***
+
 ### ScoreOf
 
 > **ScoreOf** = (`record`) => `number` \| `undefined`
@@ -21725,7 +21853,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -21734,7 +21862,7 @@ Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
 
 ##### Type Literal
 
-\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -21786,6 +21914,15 @@ including records written before this field existed and caller leaves named `dri
 > `optional` **identity?**: [`NodeExecutionIdentity`](#nodeexecutionidentity)
 
 Exact profile/task digests plus trusted candidate/campaign attribution when available.
+
+###### profileRef?
+
+> `optional` **profileRef?**: `string`
+
+`ResultBlobStore` key holding the AUTHORED child `AgentProfile` this spawn ran under.
+ Distinct from `identity.profileDigest`: that is the canonical AgentProfile digest, which
+ names the agent, while this is the blob store's own content address, which retrieves its
+ bytes. Absent on records written before the body was persisted.
 
 ###### seq
 
@@ -26435,6 +26572,14 @@ channel's authority marking would mean nothing. The mail listener serves `send_m
 The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
 that can read another worker's environment or process memory still holds that worker's
 capability. Loopback plus an unguessable path is what this layer can honestly enforce.
+
+###### preflightSpawn?
+
+[`SpawnPreflight`](#spawnpreflight)
+
+OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
+ pre-journal point that may ask the backend a question. See
+ `CoordinationToolsOptions.preflightSpawn`.
 
 #### Returns
 

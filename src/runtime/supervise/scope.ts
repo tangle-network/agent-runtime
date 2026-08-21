@@ -740,21 +740,32 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         })
       }
 
-      const spawnCommitted = args.journal
-        .appendEvent(args.root, {
-          kind: 'spawned',
-          id,
-          parent: args.parentId,
-          label: opts.label,
-          ...(opts.key !== undefined ? { key: opts.key } : {}),
-          ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-          budget: opts.budget,
-          runtime: executor.runtime,
-          ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-          ...(identity ? { identity } : {}),
-          seq: ordinal,
-          at: new Date(now()).toISOString(),
-        })
+      // The authored child profile itself, not only its digest. `identity.profileDigest` is the
+      // canonical AgentProfile digest, which is NOT a blob key: `FileResultBlobStore.put` asserts
+      // the key IS `contentAddress(artifact)`, so the event carries both — the digest that names
+      // the agent and the ref that retrieves its bytes. Content-addressed, so N children sharing a
+      // profile store one body. The blob lands BEFORE the event that names it, so a reader that
+      // sees `profileRef` can always resolve it.
+      const profileRef = contentAddress(spec.profile)
+      const spawnCommitted = args.blobs
+        .put(profileRef, spec.profile)
+        .then(() =>
+          args.journal.appendEvent(args.root, {
+            kind: 'spawned',
+            id,
+            parent: args.parentId,
+            label: opts.label,
+            ...(opts.key !== undefined ? { key: opts.key } : {}),
+            ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+            budget: opts.budget,
+            runtime: executor.runtime,
+            ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+            ...(identity ? { identity } : {}),
+            profileRef,
+            seq: ordinal,
+            at: new Date(now()).toISOString(),
+          }),
+        )
         .then(async () => {
           // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
           // records spans AND resolved a context for this child, but the backend has no channel to

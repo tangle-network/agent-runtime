@@ -29,6 +29,7 @@ import type {
   ContinuityMode,
   CoordinationEvent,
   MakeWorkerAgent,
+  SpawnPreflight,
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { coordinationVerbNames } from '../../mcp/tools/coordination'
@@ -388,6 +389,11 @@ export interface SupervisorAgentDeps {
    *  unreachable from an off-host harness. A non-loopback host fails closed — see
    *  {@link assertCoordinationBinding}. */
   readonly coordination?: CoordinationBinding
+  /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
+   *  pre-journal point that may ask the backend a question (does this bridge route the child's
+   *  wire id; is it already at admission capacity). `supervise` derives one automatically for a
+   *  bridge backend; see `CoordinationToolsOptions.preflightSpawn`. */
+  readonly preflightSpawn?: SpawnPreflight
   /** OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
    *  beside the coordination MCP and mint each spawn a capability URL on
    *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
@@ -566,6 +572,7 @@ function buildSupervisorAgent(
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
+        ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
         ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
         ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
@@ -695,6 +702,7 @@ function buildSupervisorAgent(
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(onEvent ? { onEvent } : {}),
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
+        ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
         ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
         ...(priorCoordination?.questions.length
           ? { priorQuestions: priorCoordination.questions }

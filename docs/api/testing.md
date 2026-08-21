@@ -122,6 +122,13 @@ Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that n
  `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
  argument overrides. Omit = every spawn fresh (status quo).
 
+##### preflightSpawn?
+
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](runtime.md#spawnpreflight)
+
+OPT-IN async gate run before every spawn mints an assignment or reserves budget. See
+ `CoordinationToolsOptions.preflightSpawn`.
+
 ##### systemPrompt
 
 > `readonly` **systemPrompt**: `string` \| ((`task`) => `string`)
@@ -1764,6 +1771,19 @@ Where the coordination MCP binds (external arm). Omit = an ephemeral loopback po
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`coordination`](runtime.md#coordination-1)
+
+##### preflightSpawn?
+
+> `readonly` `optional` **preflightSpawn?**: [`SpawnPreflight`](runtime.md#spawnpreflight)
+
+OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
+ pre-journal point that may ask the backend a question (does this bridge route the child's
+ wire id; is it already at admission capacity). `supervise` derives one automatically for a
+ bridge backend; see `CoordinationToolsOptions.preflightSpawn`.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`preflightSpawn`](runtime.md#preflightspawn)
 
 ##### peerMail?
 

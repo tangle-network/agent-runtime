@@ -186,6 +186,88 @@ describe('spawn journal replay identity', () => {
     ])
   })
 
+  it('journals profileRef at spawn and blobs.get(profileRef) is the authored child profile', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'spawn-profile-body-'))
+    try {
+      const root = 'profile-body'
+      const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
+      const blobs = new FileResultBlobStore(join(dir, 'blobs'))
+      await journal.beginTree(root, new Date(0).toISOString())
+
+      // The parent authors this child's prompt dynamically: nothing else in the run records it, so
+      // without the body a reader can only say "prompt not recoverable" against the digest.
+      const profile = {
+        ...testAgentProfile('measurer'),
+        prompt: { systemPrompt: 'Measure twice; report both observations.' },
+      }
+      const executor: Executor<unknown> = {
+        runtime: 'router',
+        async execute() {
+          return undefined
+        },
+        async teardown() {
+          return { destroyed: true }
+        },
+        resultArtifact() {
+          return {
+            outRef: contentAddress({ done: true }),
+            out: { done: true },
+            spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 1 },
+          }
+        },
+      }
+      const spec: AgentSpec = { profile, harness: null, executor }
+      const agent = {
+        name: 'measurer',
+        act: async () => undefined,
+        executorSpec: spec,
+      } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+      const scope = createScope<unknown>({
+        parentId: root,
+        root,
+        pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, () => 0),
+        journal,
+        blobs,
+        executors: createExecutorRegistry(),
+        seams: {},
+        depth: 0,
+        maxDepth: 4,
+        signal: new AbortController().signal,
+        now: () => 0,
+      })
+
+      expect(
+        scope.spawn(agent, 'measure the system', {
+          budget: { maxIterations: 1, maxTokens: 10 },
+          label: 'measure',
+        }).ok,
+      ).toBe(true)
+      await scope.next()
+
+      const events = (await journal.loadTree(root)) ?? []
+      const spawnedEvents = events.filter((event) => event.kind === 'spawned')
+      expect(spawnedEvents).toHaveLength(1)
+      const spawned = spawnedEvents[0] as Extract<SpawnEvent, { kind: 'spawned' }>
+      // The ref is the blob store's own content address, not the canonical AgentProfile digest:
+      // `FileResultBlobStore.put` refuses any other key, so a `put` that succeeded is itself the
+      // proof. They coincide for a profile whose canonical value round-trips unchanged; they are
+      // still different functions, so the event records the ref rather than reusing the digest.
+      expect(spawned.profileRef).toBe(contentAddress(profile))
+      expect(await blobs.get(spawned.profileRef as string)).toEqual(profile)
+
+      // Replay reads named fields, so the new one must be inert on resume rather than a migration.
+      const replayed = await replaySpawnTree(
+        new FileSpawnJournal(join(dir, 'spawn-journal.jsonl')),
+        new FileResultBlobStore(join(dir, 'blobs')),
+        root,
+      )
+      expect(replayed).toHaveLength(1)
+      expect(replayed[0]?.handle.identity?.profileDigest).toBe(spawned.identity?.profileDigest)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('preserves an exact child failure across a durable restart and still reads legacy records', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'spawn-down-replay-'))
     try {
