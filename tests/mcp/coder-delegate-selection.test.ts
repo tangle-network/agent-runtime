@@ -47,6 +47,7 @@ function candidateClient() {
       return {
         async *streamPrompt() {
           yield { type: 'result', data: { result: out } } satisfies SandboxEvent
+          yield { type: 'done', data: { outcome: { type: 'completed' } } } satisfies SandboxEvent
         },
       } as unknown as SandboxInstance
     },
@@ -133,6 +134,10 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
           return {
             async *streamPrompt() {
               yield { type: 'result', data: { result: CANDIDATES[0] } } satisfies SandboxEvent
+              yield {
+                type: 'done',
+                data: { outcome: { type: 'completed' } },
+              } satisfies SandboxEvent
             },
           } as unknown as SandboxInstance
         },

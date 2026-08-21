@@ -7,6 +7,7 @@
  * paths. No network, no credentials.
  */
 
+import { type InteractionRequest, interactionRequestDigest } from '@tangle-network/agent-interface'
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import type { AgentExecutionBackend, RuntimeStreamEvent } from '../types'
@@ -28,6 +29,30 @@ function finalOf(events: RuntimeStreamEvent[]): RuntimeStreamEvent & { type: 'fi
   return final
 }
 
+function doneEvent(data: Record<string, unknown> = {}): SandboxEvent {
+  return { type: 'done', data: { outcome: { type: 'completed' }, ...data } }
+}
+
+function questionRequest(): InteractionRequest {
+  const material = {
+    id: 'interaction-1',
+    kind: 'question',
+    title: 'Choose a target',
+    answerSpec: {
+      fields: [{ type: 'text' as const, name: 'target', label: 'Target' }],
+    },
+    binding: {
+      runId: 'run-1',
+      provider: 'tangle-sandbox',
+      environmentId: 'sandbox-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      interactionId: 'interaction-1',
+    },
+  }
+  return { ...material, requestDigest: interactionRequestDigest(material) }
+}
+
 describe('streamAgentTurn: box backend', () => {
   async function makeBox(events: SandboxEvent[]) {
     const client = inProcessSandboxClient({ onPrompt: () => events })
@@ -40,6 +65,7 @@ describe('streamAgentTurn: box backend', () => {
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'world' } },
       { type: 'llm_call', data: { model: 'kimi-k2', tokensIn: 100, tokensOut: 40, costUsd: 0.02 } },
       { type: 'result', data: { finalText: 'Hello world' } },
+      doneEvent(),
     ] as SandboxEvent[])
 
     const seen: RuntimeStreamEvent[] = []
@@ -70,7 +96,7 @@ describe('streamAgentTurn: box backend', () => {
   it('collectAgentTurn round-trips the terminal summary', async () => {
     const box = await makeBox([
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: '42' } },
-      { type: 'done', data: { tokenUsage: { inputTokens: 7, outputTokens: 3 } } },
+      doneEvent({ tokenUsage: { inputTokens: 7, outputTokens: 3 } }),
     ] as SandboxEvent[])
 
     const turn = await collectAgentTurn(
@@ -110,7 +136,7 @@ describe('streamAgentTurn: box backend', () => {
     const box = await inProcessSandboxClient({
       onPrompt: (prompt): SandboxEvent[] => {
         prompts.push(prompt)
-        return [{ type: 'done', data: { finalText: 'answer' } }]
+        return [doneEvent({ finalText: 'answer' })]
       },
     }).create()
 
@@ -132,6 +158,120 @@ describe('streamAgentTurn: box backend', () => {
   })
 })
 
+describe('streamAgentTurn: Sandbox outcome contract', () => {
+  const question = questionRequest()
+  const plan = {
+    id: 'plan-1',
+    revision: 1,
+    title: 'Run the checks',
+    body: 'Run the checks and report the result.',
+    submittedAt: '2026-08-19T00:00:00.000Z',
+  }
+  const approvalTool = {
+    toolName: 'send_email',
+    input: { to: 'user@example.com' },
+    result: {
+      structuredContent: {
+        code: 'HUB_APPROVAL_REQUIRED',
+        message: 'Email approval required',
+        details: { approval: { id: 'approval-1', connectionId: 'connection-1' } },
+      },
+    },
+    isError: true,
+  }
+
+  const cases: Array<{
+    name: string
+    events: SandboxEvent[]
+    finalStatus: 'blocked' | 'failed'
+    outcome: Record<string, unknown>
+  }> = [
+    {
+      name: 'question response request',
+      events: [{ type: 'interaction', data: { request: question } }, doneEvent()],
+      finalStatus: 'blocked',
+      outcome: {
+        success: false,
+        status: 'awaiting_question',
+        interaction: question,
+        question: { questionId: question.id, questions: [{ question: 'Target' }] },
+      },
+    },
+    {
+      name: 'durable plan response request',
+      events: [
+        { type: 'plan.submitted', data: { plan } },
+        doneEvent({ outcome: { type: 'awaiting_plan_decision', plan } }),
+      ],
+      finalStatus: 'blocked',
+      outcome: { success: false, status: 'awaiting_plan_decision', plan },
+    },
+    {
+      name: 'approval response request',
+      events: [
+        { type: 'result', data: { toolInvocations: [approvalTool] } },
+        doneEvent({ toolInvocations: [approvalTool] }),
+      ],
+      finalStatus: 'blocked',
+      outcome: {
+        success: false,
+        status: 'blocked_on_approval',
+        toolInvocations: [approvalTool],
+        approval: {
+          message: 'Email approval required',
+          approvalId: 'approval-1',
+          connectionId: 'connection-1',
+        },
+      },
+    },
+    {
+      name: 'run error after a response request',
+      events: [
+        { type: 'interaction', data: { request: question } },
+        { type: 'error', data: { message: 'late provider failure' } },
+      ],
+      finalStatus: 'failed',
+      outcome: { success: false, status: 'failed', error: 'late provider failure' },
+    },
+    {
+      name: 'failed terminal after a response request',
+      events: [
+        { type: 'interaction', data: { request: question } },
+        doneEvent({ status: 'failed', error: 'terminal provider failure' }),
+      ],
+      finalStatus: 'failed',
+      outcome: { success: false, status: 'failed', error: 'terminal provider failure' },
+    },
+    {
+      name: 'result without a terminal',
+      events: [{ type: 'result', data: { finalText: 'not complete' } }],
+      finalStatus: 'failed',
+      outcome: {
+        success: false,
+        status: 'failed',
+        error: 'Agent stream ended without a terminal event',
+      },
+    },
+  ]
+
+  it.each(cases)('settles $name through the public tracker', async (testCase) => {
+    const client = inProcessSandboxClient({ onPrompt: () => testCase.events })
+    const box = await client.create()
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: testCase.name }),
+    )
+    const final = finalOf(turn.events)
+
+    expect(turn.status).toBe(testCase.finalStatus)
+    expect(turn.sandboxOutcome).toMatchObject(testCase.outcome)
+    expect(final.status).toBe(testCase.finalStatus)
+    expect(final.metadata).toMatchObject({
+      sandboxOutcome: testCase.outcome,
+      verdict: { valid: false, score: 0 },
+    })
+  })
+})
+
 describe('streamAgentTurn: current Sandbox prompt options', () => {
   it('forwards current prompt options and folds usage identically', async () => {
     const calls: { mode?: string; options?: Record<string, unknown> }[] = []
@@ -141,14 +281,11 @@ describe('streamAgentTurn: current Sandbox prompt options', () => {
         expect(ctx.signal).toBeInstanceOf(AbortSignal)
         return [
           { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'task output' } },
-          {
-            type: 'done',
-            data: {
-              tokenUsage: { inputTokens: 9, outputTokens: 4 },
-              totalCostUsd: 0.01,
-              model: 'kimi-k2',
-            },
-          },
+          doneEvent({
+            tokenUsage: { inputTokens: 9, outputTokens: 4 },
+            totalCostUsd: 0.01,
+            model: 'kimi-k2',
+          }),
         ] as SandboxEvent[]
       },
     })
@@ -288,10 +425,7 @@ describe('streamAgentTurn: canonical event precedence', () => {
     async (_label, source, type) => {
       const box = await makeBox([
         source,
-        {
-          type: 'done',
-          data: { finalText: 'finished', tokenUsage: { inputTokens: 1, outputTokens: 1 } },
-        },
+        doneEvent({ finalText: 'finished', tokenUsage: { inputTokens: 1, outputTokens: 1 } }),
       ] as SandboxEvent[])
       const turn = await collectAgentTurn(
         streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'canonical' }),
@@ -317,7 +451,7 @@ describe('streamAgentTurn: canonical event precedence', () => {
           },
         },
       },
-      { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } } },
+      doneEvent({ tokenUsage: { inputTokens: 1, outputTokens: 1 } }),
     ] as SandboxEvent[])
     const turn = await collectAgentTurn(
       streamObservedAgentTurn(
@@ -334,7 +468,7 @@ describe('streamAgentTurn: canonical event precedence', () => {
     const observed: SandboxEvent[] = []
     const box = await makeBox([
       { type: 'provider.secret', data: { token: 'do-not-persist' } },
-      { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } } },
+      doneEvent({ tokenUsage: { inputTokens: 1, outputTokens: 1 } }),
     ] as SandboxEvent[])
     const turn = await collectAgentTurn(
       streamObservedAgentTurn(
@@ -389,7 +523,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
       },
     },
     { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'listed' } },
-    { type: 'done', data: { tokenUsage: { inputTokens: 5, outputTokens: 2 } } },
+    doneEvent({ tokenUsage: { inputTokens: 5, outputTokens: 2 } }),
   ] as SandboxEvent[]
 
   async function makeBox(events: SandboxEvent[]) {
@@ -451,7 +585,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
           },
         },
       },
-      { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } } },
+      doneEvent({ tokenUsage: { inputTokens: 1, outputTokens: 1 } }),
     ] as SandboxEvent[])
     const turn = await collectAgentTurn(
       streamObservedAgentTurn(
@@ -473,7 +607,7 @@ describe('streamAgentTurn: tool-part preservation (opt-in)', () => {
         [
           { type: 'tool.call', data: { id: 't-1', name: 'search', input: { q: 'tangle' } } },
           { type: 'tool.result', data: { id: 't-1', name: 'search', output: 'hit' } },
-          { type: 'done', data: { tokenUsage: { inputTokens: 3, outputTokens: 1 } } },
+          doneEvent({ tokenUsage: { inputTokens: 3, outputTokens: 1 } }),
         ] as SandboxEvent[],
     })
     const box = await client.create()
@@ -505,7 +639,7 @@ describe('streamAgentTurn: raw-event tap (onRawEvent)', () => {
           // `step-start` has no chat-UX projection — the tap must still see it.
           { type: 'message.part.updated', data: { part: { type: 'step-start' } } },
           { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'hi' } },
-          { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 1 } } },
+          doneEvent({ tokenUsage: { inputTokens: 2, outputTokens: 1 } }),
         ] as SandboxEvent[],
     })
     const box = await client.create()
@@ -549,10 +683,7 @@ describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () 
           data: { part: { type: 'text' }, delta: 'b' },
         } as SandboxEvent
         log.push('produced:done')
-        yield {
-          type: 'done',
-          data: { tokenUsage: { inputTokens: 1, outputTokens: 1 } },
-        } as SandboxEvent
+        yield doneEvent({ tokenUsage: { inputTokens: 1, outputTokens: 1 } })
       },
     })
     const box = await client.create()
@@ -586,15 +717,13 @@ describe('streamAgentTurn: mid-stream lifecycle (pull-based, no extra API)', () 
     const client = inProcessSandboxClient({
       onPrompt: (_prompt, ctx) =>
         ctx.round === 0
-          ? ([
-              { type: 'done', data: { tokenUsage: { inputTokens: 1, outputTokens: 0 } } },
-            ] as SandboxEvent[])
+          ? ([doneEvent({ tokenUsage: { inputTokens: 1, outputTokens: 0 } })] as SandboxEvent[])
           : ([
               {
                 type: 'message.part.updated',
                 data: { part: { type: 'text' }, delta: 'real answer' },
               },
-              { type: 'done', data: { tokenUsage: { inputTokens: 2, outputTokens: 2 } } },
+              doneEvent({ tokenUsage: { inputTokens: 2, outputTokens: 2 } }),
             ] as SandboxEvent[]),
     })
     const box = await client.create()
@@ -739,6 +868,57 @@ describe('streamAgentTurn: executor backend', () => {
       'final',
     ])
     expect(toreDown).toBe(1)
+  })
+
+  it('projects one Sandbox executor result without a consumer wrapper', async () => {
+    const client = inProcessSandboxClient({
+      onPrompt: () =>
+        [
+          {
+            type: 'message.part.updated',
+            data: {
+              part: {
+                type: 'tool',
+                callID: 'call-1',
+                tool: 'read',
+                state: { status: 'completed', input: { path: 'README.md' }, output: 'ok' },
+              },
+            },
+          },
+          {
+            type: 'message.part.updated',
+            data: { part: { id: 'answer-1', type: 'text', text: 'cloud answer' } },
+          },
+          { type: 'result', data: { finalText: 'tool noise\ncloud answer' } },
+          doneEvent({ tokenUsage: { inputTokens: 9, outputTokens: 3 } }),
+        ] as SandboxEvent[],
+    })
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'sandbox', sandboxClient: client }),
+          profile: { ...TEST_PROFILE, harness: 'opencode' },
+        },
+        { prompt: 'read the file' },
+        { preserveToolParts: true },
+      ),
+    )
+
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('cloud answer')
+    expect(turn.sandboxOutcome).toEqual({ success: true, status: 'success' })
+    expect(turn.events).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_call',
+        toolCallId: 'call-1',
+        toolName: 'read',
+        args: '{"path":"README.md"}',
+      }),
+    )
+    expect(finalOf(turn.events).metadata).toMatchObject({
+      sandboxOutcome: { success: true, status: 'success' },
+    })
   })
 
   it('uses one detached profile snapshot even when the caller mutates nested input mid-turn', async () => {

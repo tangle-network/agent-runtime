@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.143.0
+
+### Sandbox moves to 0.31.0, and its run outcome is the one terminal result
+
+The Sandbox peer range becomes `>=0.31.0 <0.32.0`, and the catalog requires Sandbox `0.31.0`.
+Sandbox 0.31.0 publishes `createAgentRunOutcomeTracker` and `AgentRunOutcome` on its `runtime` subpath, and this package now requires them.
+The Interface peer range becomes `^1.3.0` because Sandbox 0.31.0 requires Interface `^1.3.0`, so one consumer install resolves one Interface copy.
+Bench moves to 0.8.19 with the same dependency cohort.
+
+The round-synchronous leaf (`runAgentRounds`), `openSandboxRun`, the steerable sandbox session, and `streamAgentTurn` observe the complete Sandbox event stream with the public outcome tracker and read the terminal result from it.
+A `failed` outcome fails the iteration or turn with the Sandbox error.
+A `blocked_on_approval` or `awaiting_*` outcome settles as `blocked`.
+A `success` outcome completes, so a recovered tool error no longer fails a completed turn.
+The outcome rides `Iteration.sandboxOutcome`, `CollectedAgentTurn.sandboxOutcome`, and the final stream event's `metadata.sandboxOutcome`.
+A failed or blocked turn keeps its measured token usage and cost.
+`SandboxLeafOut` carries `content`, `toolCalls`, and `outcome` beside the raw `events`, so a consumer does not parse raw Sandbox events a second time; `SandboxExecutorToolCall` names one retained tool call.
+
+`./kernel` drops `assertSandboxEventSucceeded` and `sandboxEventFailure`; the public Sandbox outcome tracker replaces that event-level failure parser.
+This is a minor release because two public exports are removed.
+
 ## 0.142.3
 
 ### Sandbox 0.29 and 0.30 compatibility

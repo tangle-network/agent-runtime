@@ -25,13 +25,13 @@
  */
 
 import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../errors'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import {
-  assertSandboxEventSucceeded,
   assertSandboxServedModel,
   extractLlmCallEvent,
   notifySandboxEventObserver,
@@ -42,6 +42,7 @@ import {
   type SandboxLineage,
   type SandboxLineageHandle,
 } from './sandbox-lineage'
+import { projectSandboxOutcome } from './sandbox-outcome'
 import { assertExecutableAgentProfile, concreteProfileModel } from './supervise/model-policy'
 import type {
   AgentRunSpec,
@@ -747,8 +748,10 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       ...(requestedModel !== undefined ? { model: requestedModel } : {}),
     }
     let sawLlmCall = false
+    const outcomeTracker = createAgentRunOutcomeTracker()
     for await (const event of stream) {
       events.push(event)
+      outcomeTracker.observe(event)
       // Tee each raw event to an optional host observer so a caller can stream
       // the agent's live output. Best-effort + isolated: the observer gets a
       // defensive copy (mutating it cannot corrupt the event the run itself
@@ -758,11 +761,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         iterationIndex: args.item.index,
         agentRunName: slot.agentRunName,
       })
-      // One terminal truth boundary for the single-shot leaf, applied after the event is kept
-      // and observed: an in-band SDK failure, or a box serving a different model, ends the
-      // iteration instead of settling as an empty success.
-      assertSandboxEventSucceeded(event)
-      assertSandboxServedModel(event, requested)
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         sawLlmCall = true
@@ -786,19 +784,28 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         })
         args.ctx.runHandle?.observe(llmCall)
       }
+      assertSandboxServedModel(event, requested)
     }
+    const outcome = outcomeTracker.finish()
+    slot.sandboxOutcome = outcome
     if (!sawLlmCall) {
       slot.tokenUsage.tokensKnown = false
       slot.costUsdKnown = false
     }
     slot.output = args.output.parse(events)
-    if (args.validator) {
+    const projection = projectSandboxOutcome(outcome)
+    if (projection.status === 'failed') {
+      throw new Error(projection.reason)
+    }
+    if (projection.status === 'completed' && args.validator) {
       slot.verdict = await args.validator.validate(slot.output, {
         iteration: args.item.index,
         ...(box ? { box } : {}),
         signal: args.signal,
         traceEmitter: args.ctx.traceEmitter,
       })
+    } else if (projection.status !== 'completed') {
+      slot.verdict = projection.verdict
     }
   } catch (err) {
     slot.error = err instanceof Error ? err : new Error(String(err))

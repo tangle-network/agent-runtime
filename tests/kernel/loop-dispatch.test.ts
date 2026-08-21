@@ -51,7 +51,10 @@ function spec(): AgentRunSpec<Task> {
 
 const output: OutputAdapter<Output> = {
   parse: (events) => {
-    const data = events.at(-1)?.data as { attempt?: number } | undefined
+    const data = [...events]
+      .reverse()
+      .map((event) => event.data as { attempt?: number } | undefined)
+      .find((candidate) => typeof candidate?.attempt === 'number')
     return { attempt: typeof data?.attempt === 'number' ? data.attempt : -1 }
   },
 }
@@ -70,6 +73,7 @@ function stubClient(events: SandboxEvent[]): {
       return {
         async *streamPrompt() {
           for (const e of events) yield e
+          yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
         },
       } as unknown as SandboxInstance
     },

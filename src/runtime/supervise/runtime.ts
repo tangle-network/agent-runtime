@@ -88,6 +88,7 @@ import {
 } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
+import { type SandboxLeafOut, sandboxLeafOutputFromEvents } from '../sandbox-executor-output'
 import type {
   AgentRunSpec,
   Driver,
@@ -243,6 +244,8 @@ export interface SandboxSeam {
    */
   steering?: SandboxSteeringOptions
 }
+
+export type { SandboxExecutorToolCall, SandboxLeafOut } from '../sandbox-executor-output'
 
 /**
  * UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn.
@@ -1402,11 +1405,11 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     )
   }
 
-  // The leaf runs an opaque, self-parallelizing coding harness; the loop just
-  // refines once over it. Output is the raw event stream parsed to its tail text.
+  // The leaf runs an opaque, self-parallelizing coding harness. Runtime keeps
+  // its complete event archive and projects the visible answer and tool calls.
   const output: OutputAdapter<SandboxLeafOut> = {
     parse(events: SandboxEvent[]): SandboxLeafOut {
-      return { events }
+      return sandboxLeafOutputFromEvents(events)
     },
   }
   const driver = singleShotDriver<SandboxLeafOut>(maxIterations)
@@ -1449,12 +1452,6 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
     sandboxMaterialization,
     sandboxBinding,
   )
-}
-
-/** Parsed output of the sandbox leaf: the iteration's raw event stream. What a
- *  `SandboxSeam.validator` receives as its `output` argument. */
-export interface SandboxLeafOut {
-  events: SandboxEvent[]
 }
 
 interface StreamSandboxArgs {
@@ -1524,12 +1521,24 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     // provision) rather than an artifact it never produced.
     const failure = failedRound(result)
     if (failure) throw failure
-    const out = result.winner?.output ?? { events: [] }
-    const verdict = result.winner?.verdict ?? leafVerdict(result)
+    const winningIteration = result.winner
+      ? result.iterations.find((iteration) => iteration.index === result.winner?.iterationIndex)
+      : result.iterations.at(-1)
+    const out =
+      winningIteration?.output ?? sandboxLeafOutputFromEvents(winningIteration?.events ?? [])
+    const sandboxOutcome = winningIteration?.sandboxOutcome
+    const outWithOutcome: SandboxLeafOut = {
+      ...out,
+      ...(sandboxOutcome ? { outcome: sandboxOutcome } : {}),
+    }
+    const verdict =
+      sandboxOutcome && !sandboxOutcome.success
+        ? { valid: false, score: 0 }
+        : (result.winner?.verdict ?? leafVerdict(result))
     const tokensKnown = result.tokenUsage.tokensKnown !== false
     const usdKnown = result.costUsdKnown !== false
     const outWithUsage = {
-      ...out,
+      ...outWithOutcome,
       ...(result.estimatedCostUsd !== undefined
         ? { estimatedCostUsd: result.estimatedCostUsd }
         : {}),

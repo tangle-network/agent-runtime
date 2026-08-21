@@ -55,6 +55,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
 import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { normalizeBackendStreamEvent } from '../backends'
 import { BackendTransportError, ValidationError } from '../errors'
 import { newRuntimeSession, nowIso } from '../sessions'
@@ -74,6 +75,7 @@ import {
   mapSandboxEvent,
   mapSandboxToolEvent,
 } from './sandbox-events'
+import { projectSandboxOutcome, readSandboxOutcome } from './sandbox-outcome'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
   authoredProfileDigest,
@@ -406,6 +408,8 @@ export interface CollectedAgentTurn {
   events: RuntimeStreamEvent[]
   status: AgentTaskStatus
   error?: BackendErrorDetail
+  /** Public Sandbox outcome, when the turn ran through a Sandbox stream or executor. */
+  sandboxOutcome?: AgentRunOutcome
 }
 
 /** Mutable per-turn accumulator threaded through the backend adapters. */
@@ -426,10 +430,13 @@ interface TurnAccumulator {
   tokensKnown: boolean
   usdKnown: boolean
   sawLlmCall: boolean
+  sawTokenUsage: boolean
+  sawCostUsage: boolean
   model?: string
   stopReason?: string
   transportAttempts?: number
   result?: ExecutorResult<unknown>
+  sandboxOutcome?: AgentRunOutcome
 }
 
 /**
@@ -524,6 +531,8 @@ async function* streamAgentTurnInternal(
     tokensKnown: false,
     usdKnown: false,
     sawLlmCall: false,
+    sawTokenUsage: false,
+    sawCostUsage: false,
   }
   const deadline = deriveTurnSignal(opts.signal, opts.timeoutMs ?? 0)
   const startedAt = Date.now()
@@ -658,11 +667,14 @@ async function* streamAgentTurnInternal(
       assertExactExecutorEvidence(materialization, executionBinding)
     }
 
+    const terminalOutcome = acc.sandboxOutcome
+      ? projectSandboxOutcome(acc.sandboxOutcome)
+      : { status: 'completed' as const, reason: 'turn completed' }
     yield buildFinalEvent(
       task,
       session,
       acc,
-      { status: 'completed', reason: 'turn completed' },
+      terminalOutcome,
       turnProvenance(
         startedAt,
         opts.timeoutMs,
@@ -697,12 +709,18 @@ async function* streamAgentTurnInternal(
       materialization = terminal
     }
     const callerAborted = opts.signal?.aborted === true
-    const status: AgentTaskStatus = callerAborted ? 'aborted' : 'failed'
-    const message = err instanceof Error ? err.message : String(err)
+    const sandboxProjection = acc.sandboxOutcome
+      ? projectSandboxOutcome(acc.sandboxOutcome)
+      : undefined
+    const status: AgentTaskStatus = callerAborted
+      ? 'aborted'
+      : (sandboxProjection?.status ?? 'failed')
+    const message = sandboxProjection?.reason ?? (err instanceof Error ? err.message : String(err))
     const error: BackendErrorDetail =
-      err instanceof BackendTransportError
+      sandboxProjection?.error ??
+      (err instanceof BackendTransportError
         ? { kind: 'transport', message, status: err.status, body: err.body }
-        : { kind: 'backend', message }
+        : { kind: 'backend', message })
     yield {
       type: 'backend_error',
       task,
@@ -779,6 +797,10 @@ export async function collectAgentTurn(
     metadata.result && typeof metadata.result === 'object'
       ? (metadata.result as Record<string, unknown>)
       : undefined
+  const sandboxOutcome =
+    metadata.sandboxOutcome && typeof metadata.sandboxOutcome === 'object'
+      ? (metadata.sandboxOutcome as AgentRunOutcome)
+      : undefined
   const tokenUsage =
     metadata.tokenUsage && typeof metadata.tokenUsage === 'object'
       ? (metadata.tokenUsage as Record<string, unknown>)
@@ -818,6 +840,7 @@ export async function collectAgentTurn(
     events,
     status: final.status,
     ...(final.error ? { error: final.error } : {}),
+    ...(sandboxOutcome ? { sandboxOutcome } : {}),
   }
 }
 
@@ -876,7 +899,9 @@ async function* driveBoxTurn(
     signal,
   })
   const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
+  const outcomeTracker = createAgentRunOutcomeTracker()
   for await (const event of abortableValues(stream, signal)) {
+    outcomeTracker.observe(event)
     if (cfg.onRawEvent) {
       await awaitAbortable(
         Promise.resolve().then(() => cfg.onRawEvent!(event)),
@@ -907,6 +932,11 @@ async function* driveBoxTurn(
 
     // Unknown provider events stay available through onRawEvent. Do not copy
     // arbitrary provider payloads into the public stream.
+  }
+  acc.sandboxOutcome = outcomeTracker.finish()
+  const projection = projectSandboxOutcome(acc.sandboxOutcome)
+  if (projection.status === 'failed') {
+    throw new Error(projection.reason)
   }
 }
 
@@ -942,7 +972,8 @@ async function* driveExecutorTurn(
   const run = executor.execute(taskValue, signal)
   let result: ExecutorResult<unknown>
   if (isAsyncIterable(run)) {
-    for await (const _usage of abortableValues(run, signal)) {
+    for await (const usage of abortableValues(run, signal)) {
+      foldUsageEvent(usage, acc)
       throwIfAborted(signal)
     }
     result = executor.resultArtifact()
@@ -950,6 +981,7 @@ async function* driveExecutorTurn(
     result = await awaitAbortable(run, signal)
   }
   acc.result = result
+  acc.sandboxOutcome = readSandboxOutcome(result.out)
   acc.terminalText = executorResultText(result.out)
   acc.input = result.spent.tokens.input
   acc.output = result.spent.tokens.output
@@ -1009,6 +1041,9 @@ async function* driveExecutorTurn(
       ...(result.verdict ? { verdict: result.verdict } : {}),
     },
     timestamp: nowIso(),
+  }
+  if (acc.sandboxOutcome && projectSandboxOutcome(acc.sandboxOutcome).status === 'failed') {
+    throw new Error(projectSandboxOutcome(acc.sandboxOutcome).reason)
   }
 }
 
@@ -1138,6 +1173,27 @@ function executorResultToolCalls(
   })
 }
 
+/** Fold one normalized executor usage event into the turn accumulator. */
+function foldUsageEvent(event: UsageEvent, acc: TurnAccumulator): void {
+  if (event.kind === 'tokens') {
+    const known = event.tokensKnown !== false
+    acc.tokensKnown = acc.sawTokenUsage ? acc.tokensKnown && known : known
+    acc.sawTokenUsage = true
+    acc.input += event.input
+    acc.output += event.output
+  } else if (event.kind === 'cost') {
+    const known = event.usdKnown !== false
+    acc.usdKnown = acc.sawCostUsage ? acc.usdKnown && known : known
+    acc.sawCostUsage = true
+    acc.costUsd += event.usd
+    if (event.usdEstimated !== undefined) {
+      acc.estimatedCostUsd += event.usdEstimated
+      acc.sawEstimatedCost = true
+    }
+  }
+  if (event.kind === 'tokens' || event.kind === 'cost') acc.sawLlmCall = true
+}
+
 /** Fold one normalized event into the turn accumulator (text + usage).
  *  `fallbackModelLabel` — a mapper-stamped run label to exclude from
  *  `usage.model` (it is not a backend-reported model). */
@@ -1215,16 +1271,28 @@ function buildFinalEvent(
       ...(acc.model ? { model: acc.model } : {}),
       ...(acc.stopReason ? { stopReason: acc.stopReason } : {}),
       ...(acc.transportAttempts !== undefined ? { transportAttempts: acc.transportAttempts } : {}),
+      ...(acc.sandboxOutcome
+        ? {
+            sandboxOutcome: acc.sandboxOutcome,
+            verdict: projectSandboxOutcome(acc.sandboxOutcome).verdict,
+          }
+        : {}),
       ...(acc.result
         ? {
             result: {
               outRef: acc.result.outRef,
               output: acc.result.out,
-              ...(acc.result.verdict ? { verdict: acc.result.verdict } : {}),
+              ...(acc.sandboxOutcome
+                ? { verdict: projectSandboxOutcome(acc.sandboxOutcome).verdict }
+                : acc.result.verdict
+                  ? { verdict: acc.result.verdict }
+                  : {}),
               spent: acc.result.spent,
             },
           }
-        : {}),
+        : acc.sandboxOutcome
+          ? { result: { verdict: projectSandboxOutcome(acc.sandboxOutcome).verdict } }
+          : {}),
       ...provenance,
     },
     ...(outcome.error ? { error: outcome.error } : {}),

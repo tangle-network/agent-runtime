@@ -96,6 +96,7 @@ function createFakeClient(opts: FakeClientOpts) {
         })
         opts.onStream?.(streamCalls.length)
         yield { type: 'result', data: { ok: true } } satisfies SandboxEvent
+        yield { type: 'done', data: { outcome: { type: 'completed' } } } satisfies SandboxEvent
       },
       async checkpoint(_o?: { leaveRunning?: boolean }) {
         return { checkpointId: `cp-${checkpointSeq++}`, createdAt: new Date(), tags: [] }
@@ -222,8 +223,10 @@ describe('runAgentRounds — streaming: poll (drop-resilient batch path)', () =>
       },
     }
     const pollOutput: OutputAdapter<string> = {
-      parse: (events) =>
-        String((events.at(-1)?.data as { finalText?: string } | undefined)?.finalText ?? ''),
+      parse: (events) => {
+        const result = [...events].reverse().find((event) => event.type === 'result')
+        return String((result?.data as { finalText?: string } | undefined)?.finalText ?? '')
+      },
     }
     const moves: ScriptedMove<Task>[] = [{ kind: 'refine', task: { goal: 'g' } }, { kind: 'stop' }]
     let i = 0

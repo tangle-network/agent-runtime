@@ -4,7 +4,6 @@ import {
   assertSandboxServedModel,
   extractLlmCallEvent,
   mapSandboxEvent,
-  sandboxEventFailure,
   sandboxEventServedBackend,
   sumSandboxUsage,
 } from '../../src/runtime/sandbox-events'
@@ -219,41 +218,6 @@ describe('the event decoders stay pure so a failed run can still be read', () =>
 
   it('sumSandboxUsage still meters the spend of a turn that ended in failure', () => {
     expect(sumSandboxUsage(failedTurn)).toEqual({ input: 100, output: 40, costUsd: 0.01 })
-  })
-})
-
-describe('sandboxEventFailure — only the execution settles the execution', () => {
-  it('reads the SDK error event', () => {
-    expect(
-      sandboxEventFailure({
-        type: 'error',
-        data: { error: { message: 'No API key found for anthropic' } },
-      } as SandboxEvent),
-    ).toBe('No API key found for anthropic')
-  })
-
-  it('reads a terminal event that reports a failed status', () => {
-    expect(sandboxEventFailure({ type: 'done', data: { status: 'failed' } } as SandboxEvent)).toBe(
-      'sandbox execution ended with status failed',
-    )
-  })
-
-  it('reads a terminal event that reports success:false', () => {
-    expect(
-      sandboxEventFailure({
-        type: 'result',
-        data: { success: false, message: 'provider rejected the request' },
-      } as SandboxEvent),
-    ).toBe('provider rejected the request')
-  })
-
-  it('does not read a failing tool event as an execution failure', () => {
-    expect(
-      sandboxEventFailure({
-        type: 'tool.result',
-        data: { status: 'error', success: false, name: 'bash' },
-      } as SandboxEvent),
-    ).toBeUndefined()
   })
 })
 

@@ -852,7 +852,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-18)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-19)
 
 ##### parent?
 
@@ -7610,6 +7610,50 @@ Sequence for synthesized call ids when an event carries none.
 
 ***
 
+### SandboxExecutorToolCall
+
+One tool call retained in a Sandbox executor artifact.
+
+#### Properties
+
+##### id?
+
+> `optional` **id?**: `string`
+
+##### name
+
+> **name**: `string`
+
+##### arguments
+
+> **arguments**: `unknown`
+
+***
+
+### SandboxLeafOut
+
+Parsed output of one Sandbox executor turn.
+
+#### Properties
+
+##### events
+
+> **events**: `SandboxEvent`[]
+
+##### content
+
+> **content**: `string`
+
+##### toolCalls?
+
+> `optional` **toolCalls?**: [`SandboxExecutorToolCall`](#sandboxexecutortoolcall)[]
+
+##### outcome?
+
+> `optional` **outcome?**: `AgentRunOutcome`
+
+***
+
 ### SandboxLineageHandle
 
 **`Experimental`**
@@ -7953,6 +7997,14 @@ nothing" from a transport/FS fault.
 > **events**: `SandboxEvent`[]
 
 **`Experimental`**
+
+##### outcome
+
+> **outcome**: `AgentRunOutcome`
+
+**`Experimental`**
+
+Outcome settled by the public Sandbox tracker after the stream drained.
 
 ##### readError?
 
@@ -9996,6 +10048,12 @@ Exact underlying transport calls when the Runtime-owned executor reports them.
 ##### error?
 
 > `optional` **error?**: [`BackendErrorDetail`](index.md#backenderrordetail)
+
+##### sandboxOutcome?
+
+> `optional` **sandboxOutcome?**: `AgentRunOutcome`
+
+Public Sandbox outcome, when the turn ran through a Sandbox stream or executor.
 
 ***
 
@@ -14170,19 +14228,6 @@ Online observer of each tool step — the seam a `DetectorMonitor` taps to watch
 
 ***
 
-### SandboxLeafOut
-
-Parsed output of the sandbox leaf: the iteration's raw event stream. What a
- `SandboxSeam.validator` receives as its `output` argument.
-
-#### Properties
-
-##### events
-
-> **events**: `SandboxEvent`[]
-
-***
-
 ### SandboxSteeringOptions
 
 Opt-in configuration for the steerable sandbox worker (`SandboxSeam.steering`). Absent, the
@@ -14254,11 +14299,11 @@ Drive the worker to settlement. `signal` is the spawn-scoped abort handed to `ex
 
 ##### artifact()
 
-> **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
+> **artifact**(): \{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
 
 ###### Returns
 
-\{ `outRef`: `string`; `out`: `unknown`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
+\{ `outRef`: `string`; `out`: `unknown`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); \} \| `undefined`
 
 ##### teardown()
 
@@ -18897,6 +18942,12 @@ Stable name of the `AgentRunSpec` that produced this iteration.
 ##### error?
 
 > `optional` **error?**: `Error`
+
+##### sandboxOutcome?
+
+> `optional` **sandboxOutcome?**: `AgentRunOutcome`
+
+Public Sandbox outcome settled after the complete event stream.
 
 ##### events
 
@@ -24679,54 +24730,6 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 ***
 
-### sandboxEventFailure()
-
-> **sandboxEventFailure**(`event`): `string` \| `undefined`
-
-Return the terminal failure carried by one Sandbox event.
-
-Sandbox transports report execution failure in-band: commonly an `error`
-event followed by a synthetic `done`. Treating the iterable as successfully
-drained therefore turns a provider/configuration failure into a completed
-empty artifact.
-
-The decoder reads a failure from exactly two places, so that a mid-stream
-event describing its OWN failure cannot fail the execution: an `error`-typed
-event, and a terminal event (`done`/`result`/`final`) whose `success` is
-`false` or whose status is a failed one. A failing tool part therefore stays
-a tool result, which is what [mapSandboxToolEvent](#mapsandboxtoolevent) already projects it
-to.
-
-#### Parameters
-
-##### event
-
-`SandboxEvent`
-
-#### Returns
-
-`string` \| `undefined`
-
-***
-
-### assertSandboxEventSucceeded()
-
-> **assertSandboxEventSucceeded**(`event`): `void`
-
-Fail the live execution instead of allowing an in-band failure to become an empty success.
-
-#### Parameters
-
-##### event
-
-`SandboxEvent`
-
-#### Returns
-
-`void`
-
-***
-
 ### sandboxEventServedBackend()
 
 > **sandboxEventServedBackend**(`event`): [`SandboxServedBackend`](#sandboxservedbackend) \| `undefined`
@@ -24791,8 +24794,8 @@ the event carries usage/cost data. Returns `undefined` for non-cost events
 so the kernel can iterate the full stream without branching.
 
 Pure by contract: it never throws on a failed run. The terminal truth
-boundary is [assertSandboxEventSucceeded](#assertsandboxeventsucceeded), applied by the two paths
-that SETTLE an execution. Post-hoc readers — [sumSandboxUsage](#sumsandboxusage), the
+boundary is the public Sandbox outcome tracker, applied after the complete
+stream. Post-hoc readers — [sumSandboxUsage](#sumsandboxusage), the
 analyst trace store, the chat projection — must stay able to read a failed
 turn's events, which is when reading them matters most.
 

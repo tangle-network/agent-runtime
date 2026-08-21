@@ -22,6 +22,7 @@ describe('runAgentRounds sandbox preparation', () => {
         order.push(`stream:${prompt}`)
         expect(order).toContain('prepare')
         yield { type: 'result', data: { finalText: 'done' } } as SandboxEvent
+        yield { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
       },
     } as SandboxInstance
     const client: SandboxClient = {
@@ -48,7 +49,8 @@ describe('runAgentRounds sandbox preparation', () => {
     }
     const output: OutputAdapter<string> = {
       parse(events) {
-        return String(events.at(-1)?.data?.finalText ?? '')
+        const result = [...events].reverse().find((event) => event.type === 'result')
+        return String(result?.data?.finalText ?? '')
       },
     }
 
@@ -103,6 +105,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
     { type: 'token', data: { text: 'hi' } } as SandboxEvent,
     { type: 'token', data: { text: 'there' } } as SandboxEvent,
     { type: 'result', data: { finalText: 'done' } } as SandboxEvent,
+    { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent,
   ]
 
   function runWithObserver(onSandboxEvent: Observer, stream: SandboxEvent[] = STREAM) {
@@ -134,7 +137,8 @@ describe('runAgentRounds onSandboxEvent tee', () => {
     }
     const output: OutputAdapter<string> = {
       parse(events) {
-        return String(events.at(-1)?.data?.finalText ?? '')
+        const result = [...events].reverse().find((event) => event.type === 'result')
+        return String(result?.data?.finalText ?? '')
       },
     }
     return runAgentRounds({
@@ -219,9 +223,13 @@ describe('runAgentRounds onSandboxEvent tee', () => {
       (event) => {
         seen.push(event.type)
       },
-      [nonCloneable, { type: 'result', data: { finalText: 'done' } } as SandboxEvent],
+      [
+        nonCloneable,
+        { type: 'result', data: { finalText: 'done' } } as SandboxEvent,
+        { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent,
+      ],
     )
-    expect(seen).toEqual(['tool', 'result'])
+    expect(seen).toEqual(['tool', 'result', 'done'])
     expect(result.iterations[0]?.output).toBe('done')
   })
 
@@ -248,7 +256,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
         d.finalText = 'corrupted'
         d.usage.inputTokens = 999
       },
-      [event],
+      [event, { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent],
     )
     expect(result.iterations[0]?.output).toBe('done')
     expect(result.tokenUsage.input).toBe(10)
@@ -274,7 +282,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
         const d = (ev as unknown as { data: { usageAlias: { inputTokens: number } } }).data
         d.usageAlias.inputTokens = 999
       },
-      [event],
+      [event, { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent],
     )
     expect(result.tokenUsage.input).toBe(10)
   })
@@ -295,7 +303,7 @@ describe('runAgentRounds onSandboxEvent tee', () => {
         const d = (ev as unknown as { data: { finalText?: string } }).data
         d.finalText = 'corrupted'
       },
-      [event],
+      [event, { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent],
     )
     expect(result.iterations[0]?.output).toBe('done')
     expect(result.tokenUsage.input).toBe(10)

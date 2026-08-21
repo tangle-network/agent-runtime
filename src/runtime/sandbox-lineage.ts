@@ -91,14 +91,34 @@ async function* pollPromptEvents(
   const activeSessionId = dispatched.sessionId
   const result = await box.session(activeSessionId).result()
   if (signal.aborted) throwAbort()
+  const resultData = {
+    finalText: result.response ?? '',
+    success: result.success,
+    ...(result.status ? { status: result.status } : {}),
+    ...(result.error ? { error: result.error } : {}),
+    ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+    ...(result.toolInvocations ? { toolInvocations: result.toolInvocations } : {}),
+    ...(result.approval ? { approval: result.approval } : {}),
+    ...(result.question ? { question: result.question } : {}),
+    ...(result.interaction ? { interaction: result.interaction } : {}),
+    ...(result.plan ? { plan: result.plan } : {}),
+    ...(result.usage ? { usage: result.usage } : {}),
+    ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+  }
   yield {
     type: 'result',
     id: activeSessionId,
+    data: resultData,
+  }
+  yield {
+    type: 'done',
+    id: activeSessionId,
     data: {
-      finalText: result.response ?? '',
-      success: result.success,
-      ...(result.error ? { error: result.error } : {}),
-      ...(result.usage ? { usage: result.usage } : {}),
+      ...resultData,
+      outcome:
+        result.status === 'awaiting_plan_decision' && result.plan
+          ? { type: 'awaiting_plan_decision', plan: result.plan }
+          : { type: 'completed' },
     },
   }
 }

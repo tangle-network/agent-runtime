@@ -13,7 +13,8 @@ function makeSandboxClient() {
       return {
         id: 'box-1',
         async *streamPrompt() {
-          yield { type: 'text', content: 'done' }
+          yield { type: 'text', data: { content: 'done' } }
+          yield { type: 'done', data: { outcome: { type: 'completed' } } }
         },
         async stop() {},
       } as any

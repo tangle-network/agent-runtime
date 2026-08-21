@@ -20,6 +20,7 @@ import type {
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
+import type { AgentRunOutcome } from '@tangle-network/sandbox/runtime'
 import type { RuntimeHooks } from '../runtime-hooks'
 import type { RuntimeRunHandle } from '../runtime-run'
 
@@ -220,6 +221,8 @@ export interface Iteration<Task, Output> {
   output?: Output
   verdict?: DefaultVerdict
   error?: Error
+  /** Public Sandbox outcome settled after the complete event stream. */
+  sandboxOutcome?: AgentRunOutcome
   /** Raw sandbox event stream collected for this iteration. Present on a failed iteration too,
    *  holding the events received before the failure — including the one that reported it. */
   events: SandboxEvent[]
