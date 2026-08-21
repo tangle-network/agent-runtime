@@ -7622,7 +7622,23 @@ Parsed output of one Sandbox executor turn.
 
 ##### content
 
-> **content**: `string`
+> **content**: `string` \| `undefined`
+
+The observed answer. `undefined` when no text-bearing event was observed — never `''`.
+
+##### output
+
+> **output**: [`SandboxOutputMarker`](#sandboxoutputmarker)
+
+Explicit account of what the turn produced.
+
+##### servedBackend?
+
+> `optional` **servedBackend?**: [`SandboxServedBackend`](#sandboxservedbackend)
+
+Provider and model the platform reported serving this turn, when it reported one. Absent means
+the platform said nothing; it is never filled from the request, because a request is not a
+receipt.
 
 ##### toolCalls?
 
@@ -20841,6 +20857,20 @@ A checkable task domain — implement these 5 hooks and the suite does the rest.
 **`Stable`**
 
 One of the kernel's terminal decision values.
+
+***
+
+### SandboxOutputMarker
+
+> **SandboxOutputMarker** = \{ `kind`: `"text"`; `bytes`: `number`; \} \| \{ `kind`: `"empty"`; \} \| \{ `kind`: `"absent"`; \}
+
+What a settled turn produced, as an explicit marker.
+
+`text` carries the byte length of the answer, `empty` says a text-bearing terminal event was
+observed and carried nothing, and `absent` says no text-bearing event was observed at all.
+The three are distinct on purpose: an empty settle blob used to be indistinguishable from lost
+output, so a reader could not tell a box that produced nothing from one whose answer never
+arrived.
 
 ***
 

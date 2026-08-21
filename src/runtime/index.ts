@@ -831,6 +831,7 @@ export {
   type RouterSeam,
   type RouterToolsSeam,
   type SandboxLeafOut,
+  type SandboxOutputMarker,
   type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'

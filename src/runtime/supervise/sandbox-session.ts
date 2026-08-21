@@ -38,8 +38,11 @@ import {
   assertSandboxServedModel,
   createSandboxToolPartState,
   extractLlmCallEvent,
+  type SandboxServedBackend,
+  sandboxEventServedBackend,
   sandboxProgressEvents,
 } from '../sandbox-events'
+import { sandboxOutputMarker } from '../sandbox-executor-output'
 import { createSandboxLineage, type SandboxLineageHandle } from '../sandbox-lineage'
 import { projectSandboxOutcome } from '../sandbox-outcome'
 import type { AgentRunSpec, ExecCtx, SandboxClient } from '../types'
@@ -120,7 +123,9 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
 
   const state = {
     turns: 0,
-    lastText: '',
+    /** `undefined` until a text-bearing terminal event is observed; never seeded with `''`. */
+    lastText: undefined as string | undefined,
+    servedBackend: undefined as SandboxServedBackend | undefined,
     seenToolCalls: new Set<string>(),
     toolCalls: [] as ExecutorToolCall[],
     artifact: undefined as
@@ -160,7 +165,9 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       }
     }
     const text = readFinalText(event)
-    if (text) state.lastText = text
+    if (text !== undefined) state.lastText = text
+    const served = sandboxEventServedBackend(event)
+    if (served !== undefined) state.servedBackend = served
     const progress = sandboxProgressEvents(event, toolParts)
     for (const item of progress) {
       if (item.kind !== 'tool_call') continue
@@ -341,6 +348,8 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     }
     const out = {
       content: state.lastText,
+      output: sandboxOutputMarker(state.lastText),
+      ...(state.servedBackend === undefined ? {} : { servedBackend: state.servedBackend }),
       turns: state.turns,
       toolCalls: state.toolCalls,
       ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
@@ -385,14 +394,16 @@ function isInterruptAbort(
   return aborted && interrupt.aborted && !external.aborted && !owned.aborted
 }
 
-/** The terminal text a sandbox `result` event carries, when it carries one. */
+/** The terminal text a sandbox `result` event carries, when it carries one. An observed empty
+ *  string is returned as `''`, because "the box answered nothing" is not "the box never
+ *  answered". */
 function readFinalText(event: SandboxEvent): string | undefined {
   const data = (event as { data?: unknown }).data
   if (!data || typeof data !== 'object') return undefined
   const text = (data as { finalText?: unknown; text?: unknown }).finalText
-  if (typeof text === 'string' && text.length > 0) return text
+  if (typeof text === 'string') return text
   const alt = (data as { text?: unknown }).text
-  return typeof alt === 'string' && alt.length > 0 ? alt : undefined
+  return typeof alt === 'string' ? alt : undefined
 }
 
 /** Prompt options the composed loop context already carries (agent profile / cwd), forwarded so
