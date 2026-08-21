@@ -339,7 +339,8 @@ async function complete(cfg: ClientCfg, messages: Array<{ role: string; content:
             model: {
               provider: 'tangle-router',
               default: cfg.model,
-              metadata: { temperature: cfg.temperature, maxTokens: cfg.maxTokens },
+              metadata: { temperature: cfg.temperature },
+              maxVisibleOutputTokens: cfg.maxTokens,
             },
             ...(system ? { prompt: { systemPrompt: system } } : {}),
           },

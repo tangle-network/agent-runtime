@@ -373,6 +373,7 @@ The `Scope` it runs inside is the budget-conserving reactive control surface (`t
    │
    ├─ wait(spec)                                    durable timer or named-predicate wait
    ├─ progress(nodeId) / traceSource(nodeId)        explicit live observation
+   ├─ interactive(nodeId)                           the child's exact attachable terminal, or why there is none
    ├─ meter(spend) / recordMaterialization(receipt) runtime accounting and wire-profile evidence
    ├─ view / workerCapacity                         live tree and shared execution slots
    └─ budget → {tokensLeft,tokensKnown,cacheBreakdownKnown,usdLeft,usdKnown,iterationsLeft,deadlineMs,reservedTokens}
@@ -406,6 +407,7 @@ Two facts make this the whole game:
   A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`supervise/budget.ts`).
 - `next()` is the only path that consumes a child's terminal result.
   Live observation is explicit and read-only through `progress` and `traceSource`; neither can manufacture a settlement.
+  `interactive(nodeId)` is the one write-capable live edge: it returns the exact process that child runs in when its executor holds an interactive session, and a named reason otherwise, so a headless worker is never presented as an attachable terminal.
 
 The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up and `answer_question` down (`src/mcp/tools/coordination.ts`), priority-queued on the event bus.
 Every steer/answer authorization receipt is committed before delivery and retained as restart evidence, but Runtime never auto-delivers that old instruction to a replacement worker.

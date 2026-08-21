@@ -21,6 +21,7 @@ import { type CollectedAgentTurn, collectAgentTurn, streamAgentTurn } from './st
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
 import {
   concreteModelId,
+  enforceTokenLimits,
   type ProfileModelExecutionSettings,
   profileModelExecutionSettings,
 } from './supervise/model-policy'
@@ -333,8 +334,15 @@ function assertProfileChatRequest(
   if (req.temperature !== undefined && req.temperature !== settings.temperature) {
     throw new Error(`${context}: request temperature conflicts with AgentProfile model metadata`)
   }
-  if (req.maxTokens !== undefined && req.maxTokens !== settings.maxTokens) {
-    throw new Error(`${context}: request maxTokens conflicts with AgentProfile model metadata`)
+  if (req.maxTokens !== undefined) {
+    // Eval callers may restate the profile's ceiling, never widen or narrow it. The comparison is
+    // against the visible ceiling the router path actually sends as `max_tokens`.
+    const applied = enforceTokenLimits(settings.tokenLimits, 'router', context).applied
+    if (req.maxTokens !== applied.maxTokens) {
+      throw new Error(
+        `${context}: request maxTokens ${req.maxTokens} conflicts with AgentProfile.model.maxVisibleOutputTokens ${applied.maxTokens ?? 'unset'}`,
+      )
+    }
   }
   if (req.thinking !== undefined) {
     const expected =

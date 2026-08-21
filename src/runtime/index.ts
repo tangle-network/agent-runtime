@@ -980,6 +980,8 @@ export type {
   UsageEvent,
   WaitOpts,
   WidenGate,
+  WorkerInteractiveSession,
+  WorkerInteractiveUnavailableReason,
   WorkerTraceEvidence,
   WorkerTraceUnavailableReason,
 } from './supervise/types'

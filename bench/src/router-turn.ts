@@ -69,7 +69,6 @@ export function withBenchProfile(
   const metadata = {
     ...(base.model?.metadata ?? {}),
     ...(settings.temperature !== undefined ? { temperature: settings.temperature } : {}),
-    ...(settings.maxTokens !== undefined ? { maxTokens: settings.maxTokens } : {}),
     ...(settings.retry !== undefined ? { retry: settings.retry } : {}),
     ...(settings.maxTurns !== undefined ? { maxTurns: settings.maxTurns } : {}),
     ...(settings.seed !== undefined ? { seed: settings.seed } : {}),
@@ -83,6 +82,10 @@ export function withBenchProfile(
       ...base.model,
       ...(settings.reasoningEffort !== undefined
         ? { reasoningEffort: settings.reasoningEffort }
+        : {}),
+      // A bench cap bounds the VISIBLE answer, which the Router lowers as `max_tokens`.
+      ...(settings.maxTokens !== undefined
+        ? { maxVisibleOutputTokens: settings.maxTokens }
         : {}),
       ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     },

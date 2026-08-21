@@ -33,6 +33,7 @@ import type {
 } from '@tangle-network/agent-interface'
 import type { BackendType } from '@tangle-network/sandbox'
 import type { RuntimeHooks } from '../../runtime-hooks'
+import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import type { LoopTokenUsage } from '../types'
 import type { ExecutorProgress, WorkerProgress } from './progress'
 import type { TraceSource } from './trace-source'
@@ -149,6 +150,13 @@ export interface Executor<Out> {
    */
   traceSource?(): TraceSource | undefined
   /**
+   * The exact interactive process this worker runs in, when its execution was started in an
+   * attachable terminal. Read through `Scope.interactive`; synchronous and side-effect free, and
+   * it must not throw. Omitting it is the honest answer for every headless executor: omission
+   * reads as `executor-exposes-no-interactive-session`, never as an empty handle.
+   */
+  interactive?(): WorkerInteractiveSession
+  /**
    * Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
    * (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
    */
@@ -202,6 +210,33 @@ export type WorkerTraceEvidence =
       readonly status: 'unavailable'
       readonly reason: WorkerTraceUnavailableReason
     }
+
+/** Why Runtime cannot hand a caller the exact interactive process one worker runs in. */
+export type WorkerInteractiveUnavailableReason =
+  /** No child of this scope carries that node id. */
+  | 'unknown-node'
+  /** The child settled, was cancelled, or is a wait-state node: there is no process to attach to. */
+  | 'not-live'
+  /** The worker runs headless. Its executor exposes no interactive session, so there is no
+   *  terminal — a headless execution is never converted into an attachment. */
+  | 'executor-exposes-no-interactive-session'
+  /** The executor is backed by a runner whose provider publishes no interactive-session contract
+   *  (the local CLI Bridge today), so no process can be attached to even though one is running. */
+  | 'provider-has-no-interactive-contract'
+  /** The runner supports interactive sessions but this execution was not started in one. */
+  | 'interactive-session-not-started'
+
+/**
+ * One worker's attachable process, or the named reason there is none.
+ *
+ * `available` carries the exact `RetainedInteractiveRunHandle` bound to THAT child's admitted
+ * execution: input, resize, ordered replay, detach, and an acknowledged close all check every
+ * provider answer against the session reference, so a second process that merely resumes the same
+ * conversation cannot present itself as this one. `unavailable` names why, and is never a handle.
+ */
+export type WorkerInteractiveSession =
+  | { readonly status: 'available'; readonly handle: RetainedInteractiveRunHandle }
+  | { readonly status: 'unavailable'; readonly reason: WorkerInteractiveUnavailableReason }
 
 /** Split used by a recursive executor when journaled child work differs from the full amount
  * reconciled against its parent reservation. */
@@ -772,6 +807,17 @@ export interface Scope<Out> {
   /** The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
    *  for running the online detector panel over a RUNNING worker. `undefined` otherwise. */
   traceSource(nodeId: NodeId): TraceSource | undefined
+  /**
+   * Attach a human terminal to the exact process ONE child is running in.
+   *
+   * Returns that child's `RetainedInteractiveRunHandle` when its executor holds an interactive
+   * session — the caller then types, resizes, detaches, reconnects, and closes against the same
+   * admitted execution, with one ordered output history. Every other worker returns an explicit
+   * `unavailable` reason: a headless run, a runner whose provider publishes no interactive
+   * contract, and an unknown or settled node are each distinguishable, and none of them is ever
+   * converted into a fake attachment.
+   */
+  interactive(nodeId: NodeId): WorkerInteractiveSession
   /** This scope's abort signal — aborted when the run is cancelled, a breaker trips, the pool
    *  is exhausted, or a parent scope cascades. A long-running driver `act` over this scope reads
    *  it to break promptly (the conserved pool + driver-stop are the other bounds). A nested
