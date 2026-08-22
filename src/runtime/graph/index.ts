@@ -47,6 +47,7 @@ export {
 } from './fold'
 export { decideJoin, type GatingEdge, type JoinDecision } from './join'
 export {
+  type AnyNodeKind,
   type BudgetMode,
   type EffectContext,
   type EffectName,

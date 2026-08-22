@@ -52,8 +52,12 @@ export async function materializeSettles(
     }
     return { ...settle, out, ...(valid !== undefined ? { valid } : {}) }
   }
+  // Chronological, not grouped by node: the array reads in the order the run settled.
   return Promise.all(
-    [...compiled.nodes.keys()].flatMap((id) => state.nodes.get(id)?.settles ?? []).map(rehydrate),
+    [...compiled.nodes.keys()]
+      .flatMap((id) => state.nodes.get(id)?.settles ?? [])
+      .sort((a, b) => a.seq - b.seq)
+      .map(rehydrate),
   )
 }
 

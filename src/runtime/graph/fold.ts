@@ -61,6 +61,8 @@ export interface FoldNode {
 }
 
 export interface GraphFoldState {
+  /** Next settle ordinal; the fold is the only writer, so replay reproduces the same order. */
+  settleSeq: { value: number }
   readonly nodes: Map<string, FoldNode>
   readonly edges: Map<string, FoldEdge>
   /** Every node instance the journal knows, keyed by `<node>#<visit>`. */
@@ -86,6 +88,7 @@ export function emptyFoldState(compiled: CompiledGraph): GraphFoldState {
     })
   }
   return {
+    settleSeq: { value: 0 },
     nodes,
     edges,
     instances: new Map(),
@@ -143,6 +146,7 @@ export function applyGraphFoldEvent(
         node: instance.node,
         visit: instance.visit,
         status: ev.status,
+        seq: state.settleSeq.value++,
         ...(ev.outRef !== undefined ? { outRef: ev.outRef } : {}),
         ...(ev.reason !== undefined ? { reason: ev.reason } : {}),
       }
@@ -251,6 +255,7 @@ export function applyGraphFoldEvent(
             node: suspension.node,
             visit: instance.visit,
             status: 'down',
+            seq: state.settleSeq.value++,
             reason: 'suspension expired',
           }
           instance.settle = settle
@@ -265,6 +270,7 @@ export function applyGraphFoldEvent(
           node: suspension.node,
           visit: instance.visit,
           status: 'done',
+          seq: state.settleSeq.value++,
           ...(ev.outRef !== undefined ? { outRef: ev.outRef } : {}),
         }
         instance.settle = settle
