@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.161.0
+
+### A graph node can be a supervisor
+
+`runGraph` pinned node profiles inside `makeWorkerAgent`, and `supervise()` consults that seam **only after** it has decided whether a child is a leaf or a nested supervisor — from the profile the DRIVER wrote, which under a graph is always `{ name: '<node id>' }` with no metadata. So every node ran as a leaf no matter what its canonical profile declared, silently; a node declared `role: 'driver'` was never a supervisor (#965). Worse, supplying `makeWorkerAgent` skipped the kernel's entire authorized recursive path: no `profileSecurity`, no `authorizeSpawn`, no `isDriverProfile`, no nesting.
+
+Pinning now lives in `authorizeSpawn`, which runs BEFORE that decision and substitutes the canonical node profile. The kernel then classifies the pinned profile: a `role: 'driver'` node becomes a real nested supervisor carrying its own prompt and model; a caller's `authorizeSpawn` sees the canonical profile (directive appended), never the driver's stub; and graph authority composes with the caller's exactly as `hooks` and `authorizeMessage` already do.
+
+Two kernel additions make that possible and are useful on their own:
+
+- **`SuperviseOptions.makeLeafAgent`** — override ONLY how an authorized LEAF executes, keeping profile security, spawn authorization, recursive-driver selection and nested supervisors in force. `makeWorkerAgent` still replaces the whole path for callers that want that; the two are refused together. Offline tests and pinning layers should use `makeLeafAgent`.
+- **`SuperviseOptions.rootDriverFromBackend`** — `false` stops an external-harness root defaulting onto `backend` when `driverBackend` is absent. `runGraph` sets it, because a graph's `backend` places WORKER nodes only; the root driver stays an explicit choice, as before.
+
+`authorizeSpawn`'s input now also carries `analyst` (set only by the runtime's analyst-on-settle hook) and `continuity` (the effective spawn mode), so a pinning authority can admit an analyst node and ledger how a hop continued.
+
+**Breaking for `runGraph` callers:** `RunGraphOptions.makeWorkerAgent` is renamed `makeLeafAgent` — same shape, now slotted inside the kernel's authorized path. A graph with no `authorizeMessage` now passes steer/answer instructions through unchanged instead of having no message authority; only a caller filter can strip.
+
 ## 0.160.0
 
 ### A graph now honors every supervise option it does not own

@@ -40,7 +40,7 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   const opts: RunGraphTestOptions = {
     runId: 'bon',
     maxLiveWorkers: 2,
-    makeWorkerAgent: leafSeam(received, {
+    makeLeafAgent: leafSeam(received, {
       // Candidate A fails its check; candidate B passes — the pick is decided by outcome.
       'coder-a': { shots: [{ out: { candidate: 'a', pass: false }, valid: false }] },
       'coder-b': { shots: [{ out: { candidate: 'b', pass: true }, valid: true }] },

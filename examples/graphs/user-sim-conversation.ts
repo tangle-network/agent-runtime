@@ -113,7 +113,7 @@ export function userSimConversation(): {
   const contexts: Array<WorkerSpawnContext | undefined> = []
   const opts: RunGraphOptions = {
     runId: 'usim',
-    makeWorkerAgent: (profile, context) => {
+    makeLeafAgent: (profile, context) => {
       contexts.push(context)
       return seam(profile, context)
     },

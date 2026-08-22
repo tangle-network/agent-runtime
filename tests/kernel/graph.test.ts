@@ -35,7 +35,10 @@
  *      directions, and the refusals fail loud: resume-with-no-prior, resume-while-live (steer is
  *      the live channel), resume-under-a-key, and nonsense values or analyzes edges carrying
  *      continuity refused at validation.
- *  11. resolveSupervisorTools passthrough: RunGraphOptions forwards the product-tool resolver to
+ *  11. Pinning is spawn AUTHORIZATION (#965): the kernel classifies the PINNED profile, so a node
+ *      declared `role: 'driver'` becomes a supervisor instead of silently running as a leaf; a
+ *      caller's authorizeSpawn sees the canonical profile; steers stay live without a filter.
+ *  12. resolveSupervisorTools passthrough: RunGraphOptions forwards the product-tool resolver to
  *      supervise(), so a declared graph's root mounts the SAME product tools a supervise() run
  *      mounts and its handler receives the trusted node context; omitted = coordination only.
  *  12. driverBackend passthrough: a root node declaring an external harness (`codex`) resolves its
@@ -251,7 +254,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     const res = await runGraph(graph, {
       runId: 'g',
       journal,
-      makeWorkerAgent: leafSeam(received),
+      makeLeafAgent: leafSeam(received),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -308,7 +311,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
   it('a driver-authored profile beyond `name` cannot smuggle capabilities — the node is pinned', async () => {
     const received: AgentProfile[] = []
     const res = await runGraph(twoNodeGraph(), {
-      makeWorkerAgent: leafSeam(received),
+      makeLeafAgent: leafSeam(received),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -337,7 +340,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
 
   it('an unknown node name fails the spawn loud and the run reports it', async () => {
     const res = await runGraph(twoNodeGraph(), {
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -358,7 +361,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     const boilerplate = 'Keep going.'
     const res = await runGraph(twoNodeGraph(), {
       runId: 'g2',
-      makeWorkerAgent: leafSeam([], { awaitSteer: true }),
+      makeLeafAgent: leafSeam([], { awaitSteer: true }),
       // The anti-Goodhart-filter stand-in: replaces the driver's authored steering wholesale —
       // the exact silent substitution the edge ledger exists to expose.
       authorizeMessage: () => ({ instruction: boilerplate }),
@@ -408,7 +411,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     }
     await expect(
       runGraph(graph, {
-        makeWorkerAgent: leafSeam([], { fail: true }),
+        makeLeafAgent: leafSeam([], { fail: true }),
         brain: scriptedBrain([
           spawnTurn,
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -464,7 +467,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
       return inner(messages)
     }
     const res = await runGraph(graph, {
-      makeWorkerAgent: leafSeam([], { fail: true }),
+      makeLeafAgent: leafSeam([], { fail: true }),
       brain,
       signal: controller.signal,
     })
@@ -484,7 +487,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     const res = await runGraph(twoNodeGraph(), {
       runId: 'g7',
       journal,
-      makeWorkerAgent: leafSeam([], { awaitSteer: true }),
+      makeLeafAgent: leafSeam([], { awaitSteer: true }),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -559,7 +562,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     const res = await runGraph(graph, {
       runId: 'g3',
       analysts,
-      makeWorkerAgent: leafSeam([], { withTrace: true }),
+      makeLeafAgent: leafSeam([], { withTrace: true }),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -628,7 +631,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     const res = await runGraph(graph, {
       runId: 'g4',
       analysts,
-      makeWorkerAgent: leafSeam(received, {
+      makeLeafAgent: leafSeam(received, {
         builder: { withTrace: true },
         fixer: { awaitSteer: true },
       }),
@@ -684,7 +687,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       runId: 'g5',
       journal,
       analysts: { kinds: analysts.kinds, run: async () => undefined },
-      makeWorkerAgent: leafSeam([], { withTrace: true }),
+      makeLeafAgent: leafSeam([], { withTrace: true }),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -747,7 +750,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
         kinds: analysts.kinds,
         run: async () => [{ claim: 'worker looped', detail: undefined }],
       },
-      makeWorkerAgent: leafSeam([], { withTrace: true }),
+      makeLeafAgent: leafSeam([], { withTrace: true }),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -797,7 +800,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
     const res = await runGraph(graph, {
       runId: 'g6',
       analysts,
-      makeWorkerAgent: leafSeam([], { withTrace: true, invalid: true }),
+      makeLeafAgent: leafSeam([], { withTrace: true, invalid: true }),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -838,7 +841,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       ],
     })
     expect(() =>
-      runGraph(graph, { analysts, makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+      runGraph(graph, { analysts, makeLeafAgent: leafSeam([]), brain: scriptedBrain([]) }),
     ).toThrow(/oracle doctrine: an analyst is never delegated to/)
   })
 })
@@ -908,7 +911,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
     const res = await runGraph(inspectorGraph('driver'), {
       runId: 'gan',
       journal,
-      makeWorkerAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }, contexts),
+      makeLeafAgent: leafSeam(received, { worker: { withTrace: true }, inspector: {} }, contexts),
       brain: scriptedBrain([
         {
           toolCalls: [
@@ -967,7 +970,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
     const received: AgentProfile[] = []
     const res = await runGraph(inspectorGraph('fixer'), {
       runId: 'gar',
-      makeWorkerAgent: leafSeam(received, {
+      makeLeafAgent: leafSeam(received, {
         worker: { withTrace: true },
         fixer: { awaitSteer: true },
         inspector: {},
@@ -1027,13 +1030,13 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
           kinds: [{ id: 'convergence', description: 'x', area: 'progress' }],
           run: async () => [],
         },
-        makeWorkerAgent: leafSeam([]),
+        makeLeafAgent: leafSeam([]),
         brain: scriptedBrain([]),
       }),
     ).toThrow(/analyst 'ghost' is neither a graph node nor in the analysts registry/)
     // Without a registry the refusal names the missing registry, not a phantom lens.
     expect(() =>
-      runGraph(withRegistry, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+      runGraph(withRegistry, { makeLeafAgent: leafSeam([]), brain: scriptedBrain([]) }),
     ).toThrow(/analyst 'ghost' is not a graph node, and no RunGraphOptions.analysts registry/)
   })
 
@@ -1044,7 +1047,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
           kinds: [{ id: 'inspector', description: 'the same id as the node', area: 'review' }],
           run: async () => [],
         },
-        makeWorkerAgent: leafSeam([]),
+        makeLeafAgent: leafSeam([]),
         brain: scriptedBrain([]),
       }),
     ).toThrow(/'inspector' is BOTH a graph node and a lens/)
@@ -1069,7 +1072,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
       ],
     })
     expect(() =>
-      runGraph(graph, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+      runGraph(graph, { makeLeafAgent: leafSeam([]), brain: scriptedBrain([]) }),
     ).toThrow(/names the ROOT as its analyst/)
   })
 
@@ -1094,7 +1097,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
           kinds: [{ id: 'convergence', description: 'x', area: 'progress' }],
           run: async () => [],
         },
-        makeWorkerAgent: leafSeam([]),
+        makeLeafAgent: leafSeam([]),
         brain: scriptedBrain([]),
       }),
     ).toThrow(/analyst nodes are not analyzable/)
@@ -1132,7 +1135,7 @@ describe('runGraph — every supervise option a graph does not own reaches super
     }
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gx',
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       extraTools: [
         { name: 'measure_rung', description: 'Measure one rung', parameters: { type: 'object' } },
       ],
@@ -1161,6 +1164,178 @@ describe('runGraph — every supervise option a graph does not own reaches super
     }
     expect(options.childSettleGraceMs).toBe(30_000)
     expect(options.finalizer).toBe('collectDelivered')
+  })
+})
+
+describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a supervisor (#965)', () => {
+  // The kernel decides leaf-vs-supervisor from the profile it has AFTER `authorizeSpawn` and
+  // BEFORE the leaf seam. Pinning used to live in the leaf seam, so every node was a leaf no
+  // matter what its canonical profile declared. Now the kernel classifies the PINNED profile.
+
+  it("the kernel's driver decision reads the node's pinned metadata, not the driver's stub", async () => {
+    // `isDriverProfile` receives the post-authorization context. If pinning had not happened yet
+    // it would see `{ name: 'lead' }` with no metadata; it sees the canonical node profile.
+    const seenByClassifier: Array<{ name?: string; role?: unknown; systemPrompt?: string }> = []
+    const graph = twoNodeGraph({
+      nodes: [
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', { harness: 'cli-base' }),
+        },
+        {
+          id: 'lead',
+          profile: testAgentProfile('lead', {
+            harness: 'cli-base',
+            prompt: { systemPrompt: 'You run a sub-team.' },
+            metadata: { role: 'driver' },
+          }),
+        },
+      ],
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'lead',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+      ],
+    })
+    await runGraph(graph, {
+      runId: 'gsup',
+      makeLeafAgent: leafSeam([]),
+      isDriverProfile: (ctx) => {
+        seenByClassifier.push({
+          name: ctx.profile.name,
+          role: ctx.profile.metadata?.role,
+          systemPrompt: ctx.profile.prompt?.systemPrompt,
+        })
+        // Answer "leaf" so the run completes offline: a nested supervisor needs a router brain.
+        return false
+      },
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ]),
+    })
+    expect(seenByClassifier).toEqual([
+      { name: 'lead', role: 'driver', systemPrompt: 'You run a sub-team.' },
+    ])
+  })
+
+  it('a node declared role:driver is classified a SUPERVISOR by default — it no longer runs as a leaf', async () => {
+    // Default classification (`metadata.role === 'driver'`) over the pinned profile. Offline, the
+    // nested supervisor is then refused for lack of a router brain — and that refusal is the proof:
+    // before this fix the same node silently ran as a leaf and the run completed `winner`.
+    const received: AgentProfile[] = []
+    const graph = twoNodeGraph({
+      nodes: [
+        { id: 'driver', profile: testAgentProfile('driver', { harness: 'cli-base' }) },
+        {
+          id: 'lead',
+          profile: testAgentProfile('lead', {
+            harness: 'cli-base',
+            metadata: { role: 'driver' },
+          }),
+        },
+      ],
+      edges: [
+        {
+          kind: 'delegates',
+          from: 'driver',
+          to: 'lead',
+          directive: promptHandle('delegates/worker-brief/v1'),
+        },
+      ],
+    })
+    const res = await runGraph(graph, {
+      runId: 'gsup2',
+      makeLeafAgent: leafSeam(received),
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ]),
+    })
+    // The leaf seam never saw the lead: the kernel took the supervisor branch for it.
+    expect(received).toHaveLength(0)
+    // And the run did not silently succeed on a mis-classified node.
+    expect(res.result.kind).not.toBe('winner')
+  })
+
+  it("a caller's authorizeSpawn sees the CANONICAL node profile, never the driver's stub", async () => {
+    // Graph authority composes before the caller's: a product authorizing spawns can reason
+    // about what will actually run, and can still refuse or re-stamp execution attribution.
+    const seen: AgentProfile[] = []
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gauth',
+      makeLeafAgent: leafSeam([]),
+      authorizeSpawn: (input) => {
+        seen.push(input.profile)
+        return { profile: input.profile }
+      },
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            {
+              name: 'spawn_agent',
+              arguments: {
+                profile: { name: 'worker', prompt: { systemPrompt: 'smuggled' } },
+                task: 'build it',
+              },
+            },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.prompt?.systemPrompt).toBe('You build what the driver asks.')
+    // The directive's resolved TEXT was appended by the graph BEFORE the caller saw it — the
+    // caller authorizes what will run, directive included.
+    expect(seen[0]!.prompt?.instructions?.at(-1)).toContain('delegated sub-task')
+  })
+
+  it('steers stay live with no caller filter — pinning does not cost the steer channel', async () => {
+    // The kernel refuses steer/answer whenever spawn authorization is on. The graph's pinning IS
+    // spawn authorization, so it must supply a pass-through message authority or every steer on a
+    // filter-less graph would be refused. This is the regression the seven red tests caught.
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gsteer',
+      makeLeafAgent: leafSeam([], { worker: { awaitSteer: true } }),
+      brain: scriptedBrain([
+        {
+          toolCalls: [
+            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+          ],
+        },
+        {
+          toolCalls: [
+            {
+              name: 'steer_agent',
+              arguments: { workerId: 'gsteer:s0', instruction: 'Ship the smallest version.' },
+            },
+          ],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        { content: 'done' },
+      ]),
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(res.ledger.map((row) => [row.traversal, row.outcome])).toEqual([
+      [1, 'delivered'],
+      [2, 'delivered'],
+    ])
   })
 })
 
@@ -1208,7 +1383,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
     }
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gt',
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       resolveSupervisorTools: async () => [
         {
           name: 'kb_record',
@@ -1263,7 +1438,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
     }
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gt0',
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       brain,
     })
     expect(res.result.kind).toBe('winner')
@@ -1335,7 +1510,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
     }
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gw',
-      makeWorkerAgent: leafSeam([], { worker: { awaitSteer: true, storm: 5 } }),
+      makeLeafAgent: leafSeam([], { worker: { awaitSteer: true, storm: 5 } }),
       watchWorkers: { maxFindingsPerWorker: 1 },
       brain,
     })
@@ -1353,7 +1528,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gw0',
-      makeWorkerAgent: leafSeam([], { worker: { storm: 5 } }),
+      makeLeafAgent: leafSeam([], { worker: { storm: 5 } }),
       brain: scriptedBrain(
         [
           {
@@ -1428,7 +1603,7 @@ describe('runGraph — driverBackend selects WHERE the root harness brain runs',
     await expect(
       runGraph(externalRootGraph(), {
         runId: 'gdb2',
-        makeWorkerAgent: leafSeam([]),
+        makeLeafAgent: leafSeam([]),
         driverBackend: bridge({ sessionId: 'SHARED' }),
       }),
     ).rejects.toThrow(/driveHarnessFromBackend: fixed sessionId.*isolated id/)
@@ -1485,7 +1660,7 @@ describe('runGraph — the caller-brain seam on the production surface (#694 opt
       const res = await productionRunGraph(twoNodeGraph(), {
         runId: 'gcb',
         journal,
-        makeWorkerAgent: leafSeam(received),
+        makeLeafAgent: leafSeam(received),
         now: () => 1_700_000_000_000,
         ...(arm === 'caller'
           ? { brain: scriptedBrain(driverDecisions) }
@@ -1531,7 +1706,7 @@ describe('runGraph — the caller-brain seam on the production surface (#694 opt
 
   it('omitting the brain leaves the router-brained default in force — no router config still refuses', async () => {
     await expect(
-      productionRunGraph(twoNodeGraph(), { runId: 'gcb-d', makeWorkerAgent: leafSeam([]) }),
+      productionRunGraph(twoNodeGraph(), { runId: 'gcb-d', makeLeafAgent: leafSeam([]) }),
     ).rejects.toThrow(/router/)
   })
 
@@ -1539,7 +1714,7 @@ describe('runGraph — the caller-brain seam on the production surface (#694 opt
     expect(() =>
       productionRunGraph(twoNodeGraph(), {
         runId: 'gcb-x',
-        makeWorkerAgent: leafSeam([]),
+        makeLeafAgent: leafSeam([]),
         brain: scriptedBrain(driverDecisions),
         driverBackend: { backend: 'bridge', bridgeUrl: 'http://127.0.0.1:1', bridgeBearer: 'b' },
       }),
@@ -1565,7 +1740,7 @@ describe('runGraph — the caller-brain seam on the production surface (#694 opt
     expect(() =>
       productionRunGraph(graph, {
         runId: 'gcb-h',
-        makeWorkerAgent: leafSeam([]),
+        makeLeafAgent: leafSeam([]),
         brain: scriptedBrain(driverDecisions),
       }),
     ).toThrow(/harness 'codex'/)
@@ -1577,7 +1752,7 @@ describe('runGraph — caller hooks compose onto the same event stream', () => {
     const seen: string[] = []
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gh1',
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       hooks: {
         onEvent: (event) => {
           if (event.target === 'agent.spawn' && event.phase === 'after') seen.push('spawn:after')
@@ -1629,7 +1804,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const res = await runGraph(resumeGraph(), {
       runId: 'gc1',
       journal,
-      makeWorkerAgent: leafSeam([], {}, contexts),
+      makeLeafAgent: leafSeam([], {}, contexts),
       brain: scriptedBrain([
         spawnTurn('shot 1'),
         awaitTurn,
@@ -1679,7 +1854,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const freshOverride: Array<WorkerSpawnContext | undefined> = []
     const res1 = await runGraph(resumeGraph(), {
       runId: 'gc2a',
-      makeWorkerAgent: leafSeam([], {}, freshOverride),
+      makeLeafAgent: leafSeam([], {}, freshOverride),
       brain: scriptedBrain([
         spawnTurn('shot 1'),
         awaitTurn,
@@ -1697,7 +1872,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const resumeOverride: Array<WorkerSpawnContext | undefined> = []
     const res2 = await runGraph(twoNodeGraph(), {
       runId: 'gc2b',
-      makeWorkerAgent: leafSeam([], {}, resumeOverride),
+      makeLeafAgent: leafSeam([], {}, resumeOverride),
       brain: scriptedBrain([
         spawnTurn('shot 1'),
         awaitTurn,
@@ -1716,7 +1891,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gc3',
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       brain: scriptedBrain(
         [spawnTurn('shot 1', { continuity: 'resume' }), { content: 'give up' }],
         seen,
@@ -1734,7 +1909,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(resumeGraph(), {
       runId: 'gc4',
-      makeWorkerAgent: leafSeam([], { awaitSteer: true }),
+      makeLeafAgent: leafSeam([], { awaitSteer: true }),
       brain: scriptedBrain(
         [
           spawnTurn('shot 1'),
@@ -1777,7 +1952,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       }),
       {
         runId: 'grf',
-        makeWorkerAgent: (profile, ctx) => {
+        makeLeafAgent: (profile, ctx) => {
           seen.push({ continuity: ctx?.continuity, resumeOf: ctx?.resume?.ofWorker })
           // First spawn fails; second must still receive the failed worker's lineage.
           return leafSeam([], seen.length === 1 ? { fail: true } : {})(profile, ctx)
@@ -1813,7 +1988,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gc5',
-      makeWorkerAgent: leafSeam([]),
+      makeLeafAgent: leafSeam([]),
       brain: scriptedBrain(
         [
           spawnTurn('shot 1', { key: 'build' }),
@@ -1835,7 +2010,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     const res = await runGraph(twoNodeGraph(), {
       runId: 'gc6',
       journal,
-      makeWorkerAgent: leafSeam([], { awaitSteer: true }),
+      makeLeafAgent: leafSeam([], { awaitSteer: true }),
       brain: scriptedBrain([
         spawnTurn('build it'),
         {
@@ -1885,7 +2060,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       {
         runId: 'gc7',
         analysts,
-        makeWorkerAgent: leafSeam([], { withTrace: true }),
+        makeLeafAgent: leafSeam([], { withTrace: true }),
         brain: scriptedBrain([spawnTurn('build it'), awaitTurn, awaitTurn, { content: 'done' }]),
       },
     )
@@ -1908,7 +2083,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       ],
     })
     expect(() =>
-      runGraph(graph, { makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+      runGraph(graph, { makeLeafAgent: leafSeam([]), brain: scriptedBrain([]) }),
     ).toThrow(/invalid continuity "warm"/)
   })
 
@@ -1936,7 +2111,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
       ],
     })
     expect(() =>
-      runGraph(graph, { analysts, makeWorkerAgent: leafSeam([]), brain: scriptedBrain([]) }),
+      runGraph(graph, { analysts, makeLeafAgent: leafSeam([]), brain: scriptedBrain([]) }),
     ).toThrow(/continuity is a delegates-edge axis only/)
   })
 })
@@ -1947,7 +2122,7 @@ describe('runGraph — validation fails loud before any compute', () => {
 
   it('requires a deliverable (termination is mandatory)', () => {
     const graph = { ...twoNodeGraph(), deliverable: undefined as never }
-    expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(graph, { makeLeafAgent: seam, brain })).toThrow(
       /deliverable is mandatory/,
     )
   })
@@ -1963,7 +2138,7 @@ describe('runGraph — validation fails loud before any compute', () => {
         },
       ],
     })
-    expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(graph, { makeLeafAgent: seam, brain })).toThrow(
       /no entry for delegates\/no-such-surface\/v9/,
     )
   })
@@ -1978,7 +2153,7 @@ describe('runGraph — validation fails loud before any compute', () => {
         { id: 'worker', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
       ],
     })
-    expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(graph, { makeLeafAgent: seam, brain })).toThrow(
       /profile\.name "builder"[\s\S]*must equal the node id/,
     )
     // An ABSENT profile name diverges the same way (undefined ≠ the node id) and fails the same.
@@ -1988,7 +2163,7 @@ describe('runGraph — validation fails loud before any compute', () => {
         { id: 'worker', profile: { prompt: { systemPrompt: 'Build.' } } },
       ],
     })
-    expect(() => runGraph(unnamed, { makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(unnamed, { makeLeafAgent: seam, brain })).toThrow(
       /must equal the node id/,
     )
   })
@@ -2033,7 +2208,7 @@ describe('runGraph — validation fails loud before any compute', () => {
         },
       ],
     })
-    expect(() => runGraph(graph, { analysts, makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(graph, { analysts, makeLeafAgent: seam, brain })).toThrow(
       /two analyzes edges share analyst 'convergence'/,
     )
   })
@@ -2063,7 +2238,7 @@ describe('runGraph — validation fails loud before any compute', () => {
         },
       ],
     })
-    expect(() => runGraph(graph, { analysts, makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(graph, { analysts, makeLeafAgent: seam, brain })).toThrow(
       /analyzes the ROOT[\s\S]*never settles as one/,
     )
   })
@@ -2091,14 +2266,14 @@ describe('runGraph — validation fails loud before any compute', () => {
         },
       ],
     })
-    expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(/exactly ONE root/)
+    expect(() => runGraph(graph, { makeLeafAgent: seam, brain })).toThrow(/exactly ONE root/)
   })
 
   it('refuses an unreachable node — it could never run', () => {
     const graph = twoNodeGraph({
       nodes: [...twoNodeGraph().nodes, { id: 'orphan', profile: { name: 'orphan' } }],
     })
-    expect(() => runGraph(graph, { makeWorkerAgent: seam, brain })).toThrow(
+    expect(() => runGraph(graph, { makeLeafAgent: seam, brain })).toThrow(
       /'orphan' has no delegates edge/,
     )
   })

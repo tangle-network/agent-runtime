@@ -54,7 +54,7 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   const opts: RunGraphTestOptions = {
     runId: 'shots',
     analysts,
-    makeWorkerAgent: leafSeam(received, {
+    makeLeafAgent: leafSeam(received, {
       // Shot 1 fails its tests; shot 2 (re-briefed from the verify report) passes.
       coder: {
         withTrace: true,

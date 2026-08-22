@@ -173,7 +173,7 @@ export interface MultishotArmBackend {
 export type GraphArmBackend =
   | {
       readonly kind: 'seam'
-      readonly makeWorkerAgent: MakeWorkerAgent
+      readonly makeLeafAgent: MakeWorkerAgent
       readonly brain: ToolLoopChat
       readonly analysts?: AnalystRegistry
       /** Same predicate as the paired multishot arm — becomes the graph's deliverable check. */
@@ -425,7 +425,7 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
   const opts: RunGraphOptions =
     backend.kind === 'seam'
       ? {
-          makeWorkerAgent: backend.makeWorkerAgent,
+          makeLeafAgent: backend.makeLeafAgent,
           brain: backend.brain,
           analysts: backend.analysts ?? parityAnalysts(),
           hooks: infraHooks,
@@ -434,7 +434,7 @@ export async function runGraphArm(cell: CellSpec, backend: GraphArmBackend): Pro
           // The coder on the SAME bare chat transport the multishot arm posts to, with the
           // session-owning seam honoring the edge's `continuity: 'resume'`, and the graph's own
           // deliverable as the settle gate. The reviewer brain runs on the router substrate.
-          makeWorkerAgent: chatWorkerSeam({
+          makeLeafAgent: chatWorkerSeam({
             url: backend.url,
             ...(backend.bearer !== undefined ? { bearer: backend.bearer } : {}),
             deliverable: graph.deliverable,

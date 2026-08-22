@@ -51,7 +51,7 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphTestOpt
   const received: AgentProfile[] = []
   const opts: RunGraphTestOptions = {
     runId: 'rev',
-    makeWorkerAgent: leafSeam(received, {
+    makeLeafAgent: leafSeam(received, {
       implementer: { withTrace: true },
       // The reviewer node settles with its review — that OUTPUT is the findings the driver gets.
       reviewer: {

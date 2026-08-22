@@ -72,7 +72,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
   const opts: RunGraphTestOptions = {
     runId: 'collab',
     analysts,
-    makeWorkerAgent: leafSeam(received, {
+    makeLeafAgent: leafSeam(received, {
       // Shot 1 is the draft; shot 2 (after the driver's re-brief) is the revision that wins.
       implementer: {
         withTrace: true,

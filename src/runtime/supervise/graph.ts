@@ -10,7 +10,8 @@
  *
  * NOT A SECOND SCHEDULER. `runGraph` is an interpretation layer over what already runs:
  * `supervise()` is the execution core — the same `supervisorAgent`/`driverAgent` machinery,
- * `makeWorkerAgent` seam, conserved-pool budget, and deliverable-gated settlement every
+ * backend-derived worker path (authorized, classified, recursive), conserved-pool budget, and
+ * deliverable-gated settlement every
  * supervised run uses. (`runAgentRounds` is deliberately NOT the substrate here.) What the graph
  * layer ADDS is exactly what a bespoke driver loop never
  * had:
@@ -69,13 +70,7 @@ import {
   type PromptHandle,
   type PromptRegistry,
 } from './prompt-registry'
-import type { ExecutorConfig } from './runtime'
-import {
-  type SuperviseOptions,
-  supervise,
-  superviseWithTestBrain,
-  workerFromBackend,
-} from './supervise'
+import { type SuperviseOptions, supervise, superviseWithTestBrain } from './supervise'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
@@ -216,22 +211,26 @@ export class GraphEdgeCapError extends Error {
 
 /** The graph derives these from the `AgentGraph` itself; a caller value would be overwritten. */
 const GRAPH_OWNED_SUPERVISE_OPTIONS = [
+  'rootDriverFromBackend',
   'budget',
   'deliverable',
   'makeWorkerAgent',
   'onCoordinationEvent',
   'analyzeOnSettle',
   'continuityByProfile',
-  'backend',
 ] as const
 
 /** Caller-facing on `RunGraphOptions`, but the graph wraps or defaults the value before it goes in:
  *  `hooks` composes with the graph's own spawn-binding hook, `authorizeMessage` is wrapped so a
- *  narrowed instruction ledgers `stripped`, `analysts` rides only with analyze routes, and
- *  `journal`/`blobs`/`runId` get graph defaults. */
+ *  narrowed instruction ledgers `stripped`, `authorizeSpawn` runs AFTER the graph has pinned the
+ *  node (so a product sees the canonical profile, never the driver's stub), `makeLeafAgent` is the
+ *  caller's leaf override slotted under the graph's pinning, `analysts` rides only with analyze
+ *  routes, and `journal`/`blobs`/`runId` get graph defaults. */
 const GRAPH_TRANSFORMED_SUPERVISE_OPTIONS = [
   'hooks',
   'authorizeMessage',
+  'authorizeSpawn',
+  'makeLeafAgent',
   'analysts',
   'journal',
   'blobs',
@@ -250,6 +249,7 @@ const GRAPH_REFUSED_SUPERVISE_OPTIONS = ['registry'] as const
  * above belongs here — the default is "a graph honors it", not "someone remembered to add it".
  */
 const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
+  'backend',
   'rootHandle',
   'signal',
   'execution',
@@ -324,8 +324,10 @@ function forwardedSuperviseOptions(
  */
 export interface RunGraphOptions
   extends Pick<SuperviseOptions, (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]> {
-  /** WHERE worker nodes run — the executor backend. Provide this OR `makeWorkerAgent`. */
-  readonly backend?: ExecutorConfig
+  /** WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
+   *  `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
+   *  becomes a nested supervisor instead, whose own leaves are derived the same way. */
+  readonly backend?: SuperviseOptions['backend']
   /** WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim (see
    *  `SuperviseOptions.driverBackend`). Needed when the root node's profile declares an external
    *  harness (`codex`, `claude-code`, `opencode`): that root is driven by the harness, not by the
@@ -335,8 +337,10 @@ export interface RunGraphOptions
    *  `profile.harness` is omitted or `cli-base` (that root runs on the router brain). */
   readonly driverBackend?: SuperviseOptions['driverBackend']
   /** Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
-   *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours. */
-  readonly makeWorkerAgent?: MakeWorkerAgent
+   *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
+   *  Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node
+   *  declared `role: 'driver'` still becomes a nested supervisor even under an offline leaf. */
+  readonly makeLeafAgent?: MakeWorkerAgent
   /** The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes every root
    *  model call. Use it when the root's decisions must be caller-owned orchestration (a
    *  deterministic conversation driver, a persona loop with its own LLM calls) rather than a
@@ -695,9 +699,9 @@ function runGraphInternal(
       `runGraph: root node '${root.id}' declares harness '${root.profile.harness}', so the harness drives it — a caller brain applies only to a router-brained root (profile.harness omitted or 'cli-base')`,
     )
   }
-  if (!opts.backend && !opts.makeWorkerAgent) {
+  if (!opts.backend && !opts.makeLeafAgent) {
     throw new ValidationError(
-      'runGraph: provide opts.backend (where nodes run) or opts.makeWorkerAgent',
+      'runGraph: provide opts.backend (where nodes run) or opts.makeLeafAgent',
     )
   }
   const journal = opts.journal ?? new InMemorySpawnJournal()
@@ -744,15 +748,19 @@ function runGraphInternal(
     return row
   }
 
-  // ── Node pinning + delegates spawn traversals (the makeWorkerAgent wrapper) ──
-  const makeLeaf =
-    opts.makeWorkerAgent ?? workerFromBackend(opts.backend as ExecutorConfig, graph.deliverable)
+  // ── Node pinning + delegates spawn traversals (the authorizeSpawn wrapper) ──
+  // Pinning lives in `authorizeSpawn`, which the kernel runs BEFORE it decides whether a child is
+  // a leaf or a nested supervisor. That is what lets a node declared `role: 'driver'` become a real
+  // supervisor carrying its canonical profile: the kernel's `isDriver` reads the PINNED profile,
+  // not the driver-authored `{ name }` stub. (It used to live in `makeWorkerAgent`, a leaf-only
+  // seam, which made every node a leaf no matter what its profile declared — #965.)
   const nodeByWorkerId = new Map<string, NodeId>()
   const pendingByAssignment = new Map<string, EdgeTraversal>()
-  const graphWorker: MakeWorkerAgent = (authoredProfile, spawnContext) => {
+  type SpawnAuthorizationInput = Parameters<NonNullable<SuperviseOptions['authorizeSpawn']>>[0]
+  const pinNode = (input: SpawnAuthorizationInput): AgentProfile => {
     const requested =
-      typeof (authoredProfile as { name?: unknown } | undefined)?.name === 'string'
-        ? (authoredProfile as { name: string }).name
+      typeof (input.profile as { name?: unknown } | undefined)?.name === 'string'
+        ? (input.profile as { name: string }).name
         : undefined
     // An analyst-AGENT run: the coordination settle hook — never the driver; the marker is
     // authored by the runtime, not accepted from model arguments — spawns the analyst NODE.
@@ -760,15 +768,15 @@ function runGraphInternal(
     // the coordination layer with the settled worker's trace evidence), so nothing is appended
     // to the profile's instructions here. Its traversal is ledgered on the finding/steer it
     // produces, exactly like a registry analyst's.
-    if (spawnContext?.analyst !== undefined) {
-      const analystNode = analystNodes.get(spawnContext.analyst)
+    if (input.analyst !== undefined) {
+      const analystNode = analystNodes.get(input.analyst)
       if (!analystNode || requested !== analystNode.id) {
         throw new ValidationError(
-          `runGraph: analyst run for ${JSON.stringify(spawnContext.analyst)} does not name an ` +
+          `runGraph: analyst run for ${JSON.stringify(input.analyst)} does not name an ` +
             `analyst node of this graph (analyst nodes: ${[...analystNodes.keys()].join(', ') || 'none'})`,
         )
       }
-      return makeLeaf(analystNode.profile, spawnContext)
+      return analystNode.profile
     }
     const node = requested !== undefined ? workers.get(requested) : undefined
     if (!node) {
@@ -785,7 +793,7 @@ function runGraphInternal(
     // The EFFECTIVE spawn mode the coordination layer resolved (per-call override, else this
     // edge's declared default, else fresh) — stamped on the row so the ledger states how each
     // hop continued, never how it was merely configured to.
-    const spawnContinuity = spawnContext?.continuity ?? 'fresh'
+    const spawnContinuity = input.continuity ?? 'fresh'
     if (used >= cap) {
       exhausted.add(id)
       exhaustedDelegates.add(id)
@@ -809,7 +817,7 @@ function runGraphInternal(
       )
     }
     const directiveText = registry.resolve(edge.directive).text
-    const taskText = stringifyPayload(spawnContext?.task)
+    const taskText = stringifyPayload(input.task)
     const bytes = byteLength(directiveText) + byteLength(taskText)
     const row = record(
       {
@@ -825,28 +833,29 @@ function runGraphInternal(
       },
       false,
     )
-    if (spawnContext?.assignmentId !== undefined) {
-      pendingByAssignment.set(spawnContext.assignmentId, row)
-    } else {
-      void appendJournal(row, `graph:${row.to}`)
-    }
+    pendingByAssignment.set(input.assignmentId, row)
     // The delegation directive is a STANDING instruction of this traversal: appended to the
     // node's canonical prompt instructions, so the worker runs under node profile + edge
     // directive, and the driver-authored profile contributes ONLY the node selection.
-    const pinned: AgentProfile =
-      directiveText.length === 0
-        ? node.profile
-        : {
-            ...node.profile,
-            prompt: {
-              ...(node.profile.prompt ?? {}),
-              instructions: [
-                ...((node.profile.prompt?.instructions as readonly string[] | undefined) ?? []),
-                directiveText,
-              ],
-            },
-          }
-    return makeLeaf(pinned, spawnContext)
+    return directiveText.length === 0
+      ? node.profile
+      : {
+          ...node.profile,
+          prompt: {
+            ...(node.profile.prompt ?? {}),
+            instructions: [
+              ...((node.profile.prompt?.instructions as readonly string[] | undefined) ?? []),
+              directiveText,
+            ],
+          },
+        }
+  }
+  // Graph authority first, then the caller's: a product authorizing spawns sees the CANONICAL
+  // node profile (what will actually run), never the driver's `{ name }` stub.
+  const graphAuthorizeSpawn: NonNullable<SuperviseOptions['authorizeSpawn']> = (input) => {
+    const pinned = pinNode(input)
+    if (!opts.authorizeSpawn) return { profile: pinned }
+    return opts.authorizeSpawn({ ...input, profile: pinned })
   }
 
   // ── Analyzes edges → analyst-on-settle routes with destinations ──
@@ -930,19 +939,19 @@ function runGraphInternal(
   // bytes differ from the composed bytes — that steer traversal is `stripped` (the VB incident:
   // authored steering silently replaced by boilerplate, byte-indistinguishable downstream).
   const strippedByDigest = new Map<string, { composedBytes: number }>()
-  const authorizeMessage: SuperviseOptions['authorizeMessage'] | undefined = opts.authorizeMessage
-    ? (input) => {
-        const decision = (
-          opts.authorizeMessage as NonNullable<SuperviseOptions['authorizeMessage']>
-        )(input)
-        if (decision.instruction !== input.instruction) {
-          strippedByDigest.set(canonicalCandidateDigest(decision.instruction), {
-            composedBytes: byteLength(input.instruction),
-          })
-        }
-        return decision
-      }
-    : undefined
+  // Always present: the kernel refuses steer/answer whenever spawn authorization is on (the
+  // graph's pinning IS spawn authorization), so a graph with no caller filter passes instructions
+  // through unchanged rather than losing its steer channel. Only a caller filter can strip.
+  const authorizeMessage: NonNullable<SuperviseOptions['authorizeMessage']> = (input) => {
+    if (!opts.authorizeMessage) return { instruction: input.instruction }
+    const decision = opts.authorizeMessage(input)
+    if (decision.instruction !== input.instruction) {
+      strippedByDigest.set(canonicalCandidateDigest(decision.instruction), {
+        composedBytes: byteLength(input.instruction),
+      })
+    }
+    return decision
+  }
 
   const routedAnalyzesByAnalyst = new Map<string, Extract<GraphEdge, { kind: 'analyzes' }>>()
   const driverAnalyzesByAnalyst = new Map<string, Extract<GraphEdge, { kind: 'analyzes' }>>()
@@ -1090,14 +1099,17 @@ function runGraphInternal(
   const start = async (): Promise<GraphResult> => {
     const superviseOptions = {
       // Every forwarded option the caller set, including the ones nobody thought to list here.
-      // `backend` is deliberately absent: it already became the worker seam (`makeWorkerAgent`
-      // below), so the root driver is an explicit `driverBackend` choice, never a side effect of
-      // where workers run.
+      // `backend` rides along: the kernel derives every authorized LEAF from it, under the graph's
+      // pinning. The root driver stays an explicit `driverBackend` choice: `rootDriverFromBackend:
+      // false` stops supervise() defaulting one from the other, so where workers run never selects
+      // where the root runs (the axis split every graph caller relies on).
       ...forwardedSuperviseOptions(opts),
+      rootDriverFromBackend: false,
       // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
       deliverable: graph.deliverable,
-      makeWorkerAgent: graphWorker,
+      authorizeSpawn: graphAuthorizeSpawn,
+      ...(opts.makeLeafAgent ? { makeLeafAgent: opts.makeLeafAgent } : {}),
       journal,
       blobs,
       runId,
@@ -1109,7 +1121,7 @@ function runGraphInternal(
         ? { analyzeOnSettle: routes, ...(opts.analysts ? { analysts: opts.analysts } : {}) }
         : {}),
       ...(Object.keys(continuityByProfile).length > 0 ? { continuityByProfile } : {}),
-      ...(authorizeMessage ? { authorizeMessage } : {}),
+      authorizeMessage,
     } satisfies SuperviseOptions
     const result =
       brain === undefined
