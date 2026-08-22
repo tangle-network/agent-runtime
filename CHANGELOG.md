@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.170.0
+
+### Code mode, mapped to what the ecosystem means by it
+
+An audit of 0.169.0 against the term's mainstream usage (Cloudflare's Code Mode, Anthropic's "code execution with MCP", the CodeAct paper) found the release conflating two different things, and the repo missing the one that matters most here.
+
+**The mainstream meaning is a tools-presentation change for an agent that already executes code**: project the granted tools as a typed code API, let the agent write programs against it, keep intermediates out of the context window. For a harness agent that capability is native — the integration is KNOWLEDGE, and per this repo's own doctrine ("you change an agent's behavior by changing its PROFILE") it ships as a skill. **`skills/codemode/SKILL.md` is new**: batch judgment-free tool stretches into one program, hold intermediates in files, return only the summary, and never script against the coordination verbs (that bypasses the pool and the journal). It is the sixth skill, beside `supervise`, `agent-graphs` and `loop-writer`.
+
+**`codemodeKind` is the OTHER arm — CodeAct — and now says so.** Its `model` effect is a one-shot `complete()`, so it is router-only by construction; 0.169.0 never stated that, and its header implied it was "code mode for agent-runtime" generally. The rewritten header names the lineage, names the one genuinely novel property (per-operation spend metering into the kernel settlement — every pre-existing tool-execute seam returns a bare string), and points harness agents at the skill.
+
+**The duplicate lint is gone.** 0.169.0's `assertAuthoredCode` bragged it "generalized" `assertStrategyContract` while leaving the original in place — two identical banned-construct tables that could drift. `src/runtime/authored-code.ts` is now the single copy; `assertStrategyContract` delegates to it (same refusal messages; marginally looser on purpose: any import FORM of the kernel module passes, since the lint gates which module, not the syntax) and `./graph` re-exports are unchanged.
+
+Also filed from the same audit: #1000 — the new engine's analyzes edges deliver only the literal `trace of <node>: <hash>` string, so no engine node can read trace content today, where the old coordination layer rehydrates a full `TraceAnalysisStore` for lens analysts and inlines span JSON for agent analysts.
+
 ## 0.169.0
 
 ### `codemode`: a node whose action space is code, not tool calls

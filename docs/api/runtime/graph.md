@@ -8,6 +8,32 @@
 
 ## Interfaces
 
+### AuthoredCodeOptions
+
+`@tangle-network/agent-runtime/graph` — the runtime-native multi-agent graph engine.
+
+Design record: agent-runtime#966 (the map) and its closed tickets. Build sequence: #979 (this
+contract + registry + the four core kinds), #980 (scheduler over typed ports), #981 (journal
+fold and kill-anywhere replay), #982 (the `runGraph` preset).
+
+#### Properties
+
+##### allowedImports?
+
+> `readonly` `optional` **allowedImports?**: readonly `string`[]
+
+Import specifiers an authored module may name. Empty (the default) bans every import. A
+ specifier admits ANY import form of that module (named, namespace, default) — the lint
+ gates WHICH module, not the syntax used to reach it.
+
+##### context?
+
+> `readonly` `optional` **context?**: `string`
+
+Names the refusal, e.g. `codemode "planner"`. Defaults to `authored code`.
+
+***
+
 ### CodeOperation
 
 One operation the authored program may call, and the line the model is shown about it.
@@ -1814,6 +1840,46 @@ Engine-appended `woken` ordinals start here — far above any kernel cursor coun
 
 ## Functions
 
+### assertAuthoredCode()
+
+> **assertAuthoredCode**(`code`, `options?`): `void`
+
+Refuse the obvious escapes in authored source. See the module doc for what this is NOT.
+
+#### Parameters
+
+##### code
+
+`string`
+
+##### options?
+
+[`AuthoredCodeOptions`](#authoredcodeoptions) = `{}`
+
+#### Returns
+
+`void`
+
+***
+
+### extractCodeBlock()
+
+> **extractCodeBlock**(`reply`): `string`
+
+Pull the first fenced block out of a model reply; the whole reply if it carries no fence.
+
+#### Parameters
+
+##### reply
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### admitPayload()
 
 > **admitPayload**(`value`): `unknown`
@@ -1836,36 +1902,6 @@ vanished edge.
 
 ***
 
-### assertAuthoredCode()
-
-> **assertAuthoredCode**(`code`, `options?`): `void`
-
-Refuse the obvious escapes in authored source. A LINT, not a sandbox: it reads text and cannot
-constrain what running code does. Generalized from `strategy-author.ts`'s contract check, which
-has guarded agent-authored optimization strategies since 0.60.
-
-#### Parameters
-
-##### code
-
-`string`
-
-##### options?
-
-###### allowedImports?
-
-readonly `string`[]
-
-###### context?
-
-`string`
-
-#### Returns
-
-`void`
-
-***
-
 ### renderCodeApi()
 
 > **renderCodeApi**(`config`): `string`
@@ -1877,24 +1913,6 @@ The API doc the model is shown — generated from the grant, so the two cannot d
 ##### config
 
 [`CodeModeConfig`](#codemodeconfig)
-
-#### Returns
-
-`string`
-
-***
-
-### extractCodeBlock()
-
-> **extractCodeBlock**(`reply`): `string`
-
-Pull the first fenced block out of a model reply; the whole reply if it carries no fence.
-
-#### Parameters
-
-##### reply
-
-`string`
 
 #### Returns
 

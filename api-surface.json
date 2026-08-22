@@ -755,6 +755,7 @@
     "./graph": {
       "AgentKindConfig": "type f3bd2a2d1ef3",
       "AnyNodeKind": "type 55f4a92edcad",
+      "AuthoredCodeOptions": "type fa82814b55dd",
       "BudgetMode": "type 5b16bf1d103a",
       "CONDITION_OPS": "value 373728f5643d",
       "CodeAuthor": "type f2c77ef685ed",
@@ -820,7 +821,7 @@
       "applyGraphFoldEvent": "value 70e27348ccf1",
       "applyProjection": "value b94c8e122df4",
       "assembleGraphResult": "value d678cca36560",
-      "assertAuthoredCode": "value e378262245dd",
+      "assertAuthoredCode": "value fcab3ac5f772",
       "codemodeKind": "value fa5f8401493b",
       "compileGraph": "value a6503da455bc",
       "createEdgeLedger": "value d963f2a8b1ed",

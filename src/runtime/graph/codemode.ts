@@ -1,39 +1,46 @@
 /**
- * `codemode` — a node whose action space is CODE, not JSON tool calls.
+ * `codemode` — a graph node whose action space is CODE, not JSON tool calls.
  *
- * An `agent` node acts by emitting one tool call per turn: N steps cost N model round trips, and
- * every tool's schema occupies context. A `codemode` node asks the model once for a small program
- * written against a typed API of exactly the operations this node grants, then runs it. Loops,
- * branches and fan-out happen inside one turn, and intermediate values live in the program's
- * memory instead of the transcript.
+ * WHERE THIS SITS IN THE TERM'S MAINSTREAM MEANING, so the name is not misread. "Code mode" as
+ * the ecosystem uses it (Cloudflare's Code Mode, Anthropic's "code execution with MCP") is a
+ * TOOLS-PRESENTATION change for an agent that ALREADY executes code: project the granted tools as
+ * a typed code API, let the agent write programs against it, keep intermediates out of the
+ * context window. For a HARNESS agent (claude-code/codex in a sandbox) that capability is native
+ * — the integration is knowledge, and it ships as `skills/codemode/SKILL.md`, not as this node.
  *
- * THE THREE THINGS THIS OWNS, and why a prompt cannot:
+ * THIS KIND IS THE OTHER ARM — CodeAct (Wang et al., ICML 2024; smolagents' CodeAgent): a
+ * ROUTER-BRAINED model with no execution environment of its own authors one program against the
+ * operations this node grants, and the runtime executes it. It is router-only BY CONSTRUCTION:
+ * the `model` effect is a one-shot `complete()`, which a harness brain cannot drive. One model
+ * turn replaces one round trip per step, and intermediates live in program memory.
+ *
+ * WHAT IS GENUINELY THIS NODE'S, beyond what `extraTools`/`authorStrategy` already offered a
+ * router model:
  *
  *  1. THE API IS PROJECTED FROM THE GRANT, not described in prose. `operations` is the whole
  *     surface: what the model is told it may call is generated from the same table the runner
  *     binds, so a documented-but-ungranted call cannot exist, and a granted-but-undocumented one
  *     cannot hide.
  *  2. THE EXECUTION BOUNDARY IS THE HOST'S. This kind declares a `codeRunner` effect and runs
- *     nothing itself. A host that wants speed supplies an in-process runner; a host that wants
- *     isolation supplies a jailed one. The kind is identical either way, so the choice is
- *     configuration and not a rewrite — and no default silently picks the unsafe one.
- *  3. ACCOUNTING PASSES THROUGH THE KERNEL. The node is an ordinary `Executor` under
- *     `Scope.spawn`, so its reservation, settlement, journal record and completion gate are the
- *     kernel's, exactly like every other node. An operation that spends reports its spend, and the
- *     node totals it. This is the property `strategy-author.ts` gets by construction (its authored
- *     bodies compose `shot()`/`critique()`, which spend through the pool) and the reason code mode
- *     cannot be bolted on as a prompt: code that calls tools OUTSIDE the seams makes the budget
- *     and the journal lie.
+ *     nothing itself; in-process or jailed is the host's configuration, and the engine refuses
+ *     before spending when no runner was supplied.
+ *  3. PER-OPERATION SPEND REACHES THE KERNEL. Every existing tool-execute seam returns a bare
+ *     string, so an operation that costs money could not settle true spend; here each operation
+ *     reports its spend and the node totals it into the settlement the kernel journals. This is
+ *     the property that keeps authored code from spending outside the budget — the same reason
+ *     `authorStrategy`'s bodies compose `shot()`/`critique()` through the pool.
  *
- * SAFETY, stated plainly: {@link assertAuthoredCode} is a LINT, not a sandbox. It refuses the
- * obvious escapes in authored source; it cannot stop determined code running in-process. Treat the
- * in-process runner as a development convenience and give a `codeRunner` that jails when the code
- * is not yours.
+ * SAFETY, stated plainly: {@link assertAuthoredCode} is a LINT, not a sandbox. Treat the
+ * in-process runner as a development convenience and give a `codeRunner` that jails when the
+ * code is not yours.
  */
-
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { contentAddress } from '../../durable/content-address'
 import { ValidationError } from '../../errors'
+import { assertAuthoredCode, extractCodeBlock } from '../authored-code'
+
+export { type AuthoredCodeOptions, assertAuthoredCode, extractCodeBlock } from '../authored-code'
+
 import type { Agent, AgentSpec, Executor, ExecutorResult, Spend } from '../supervise/types'
 import type { NodeKind } from './kind'
 
@@ -85,47 +92,6 @@ export interface CodeModeConfig {
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/u
 
-/**
- * Refuse the obvious escapes in authored source. A LINT, not a sandbox: it reads text and cannot
- * constrain what running code does. Generalized from `strategy-author.ts`'s contract check, which
- * has guarded agent-authored optimization strategies since 0.60.
- */
-export function assertAuthoredCode(
-  code: string,
-  options: { readonly allowedImports?: ReadonlyArray<string>; readonly context?: string } = {},
-): void {
-  const context = options.context ?? 'authored code'
-  const allowed = options.allowedImports ?? []
-  for (const line of code.split('\n')) {
-    if (!/^\s*import\s/.test(line)) continue
-    const named = allowed.some(
-      (specifier) => line.includes(`'${specifier}'`) || line.includes(`"${specifier}"`),
-    )
-    if (!named) {
-      throw new ValidationError(
-        `${context} rejected: foreign import — ${line.trim().slice(0, 120)}${
-          allowed.length === 0
-            ? ' (no import is allowed here)'
-            : ` (allowed: ${allowed.join(', ')})`
-        }`,
-      )
-    }
-  }
-  const banned: ReadonlyArray<readonly [RegExp, string]> = [
-    [/\brequire\s*\(/, 'require()'],
-    [/\bimport\s*\(/, 'dynamic import()'],
-    [/\beval\s*\(/, 'eval()'],
-    [/new\s+Function\s*\(/, 'new Function()'],
-    [/\bprocess\s*[.[]/, 'process access'],
-    [/\bglobalThis\s*[.[]/, 'globalThis access'],
-    [/\bfetch\s*\(/, 'network access'],
-    [/child_process|node:fs|node:net|node:http|worker_threads/, 'node builtin access'],
-  ]
-  for (const [pattern, what] of banned) {
-    if (pattern.test(code)) throw new ValidationError(`${context} rejected: ${what}`)
-  }
-}
-
 /** The API doc the model is shown — generated from the grant, so the two cannot disagree. */
 export function renderCodeApi(config: CodeModeConfig): string {
   const lines = config.operations.map(
@@ -141,14 +107,6 @@ export function renderCodeApi(config: CodeModeConfig): string {
     '',
     `TASK: ${config.task}`,
   ].join('\n')
-}
-
-/** Pull the first fenced block out of a model reply; the whole reply if it carries no fence. */
-export function extractCodeBlock(reply: string): string {
-  const fenced = /```(?:[a-zA-Z]*)\n([\s\S]*?)```/u.exec(reply)
-  const code = (fenced?.[1] ?? reply).trim()
-  if (code.length === 0) throw new ValidationError('codemode: the model returned no code')
-  return code
 }
 
 /**
