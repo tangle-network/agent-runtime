@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.164.0
+
+### `pi` is a local harness, `opencode` gets its permission bypass, and reproducible Codex runs on darwin
+
+Three capabilities the types advertised and the code refused.
+
+`pi` was already a `HarnessType` with a system-prompt projection row, but it was excluded from `LocalHarness` and had no `HARNESS_INVOCATIONS` entry, so `AgentProfile.harness: 'pi'` failed at the executor. It is now one row like any other harness: `--print` for non-interactive, `--model` (not `-m`) for selection, `--thinking` for effort, and `--approve` as its permission bypass.
+
+`opencode` declared no `permissionBypassArgs`, on the stated premise that `opencode run` has no approval gate. It does — `--auto`. Without it an unattended worktree run denies writes outside the working directory and reports "The user rejected permission", which reads as an agent that gave up rather than one that was never granted rights. Measured: three worktree runs of a policy-authoring loop produced three empty patches for exactly this reason.
+
+`codexReproducible` refused every non-Linux host, though `@openai/codex` vendors darwin-arm64 and darwin-x64 builds. The vendor check also only understood static ELF, so a Mach-O binary could not have passed even with the gate removed. Target resolution is now a per-host table and the check reads the format the host vendors. On macOS the local-harness suite goes 33/48 to 48/48. Linux behaviour is unchanged: same triples, same static-ELF requirement, same argv.
+
+**What a consumer must do differently:** nothing, unless you were relying on `opencode` running without `--auto` under `dangerouslySkipPermissions`, or on `codexReproducible` throwing on darwin. Both now do the thing they claimed to do.
+
 ## 0.163.0
 
 ### The graph runs: a scheduler over guarded, typed edges (`@tangle-network/agent-runtime/graph`)
