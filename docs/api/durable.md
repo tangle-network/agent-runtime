@@ -1347,7 +1347,7 @@ full-profile contract.
 
 ##### resolveSupervisorTools?
 
-> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
 
 Resolve product-owned tools from the exact trusted manager context. The same descriptors and
 handlers are bound to router and external-harness managers; resolution happens once per node.
@@ -1360,7 +1360,7 @@ cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
 
 ##### onCoordinationEvent?
 

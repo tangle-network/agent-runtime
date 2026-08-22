@@ -507,6 +507,20 @@ Per-child budget reserved from the conserved pool on each spawn.
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-2)
 
+##### resolveSupervisorTools?
+
+> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
+
+Resolve product-owned tools from the exact trusted manager context — forwarded to the root's
+ `supervise()` verbatim (see `SuperviseOptions.resolveSupervisorTools`). Without it a declared
+ graph mounts only the coordination MCP, so a root that is supposed to reach a product tool
+ (a claim ledger, a knowledge base) finds nothing and writes its output somewhere ungraded.
+ A graph run and a supervise run mount the same tools when this is set.
+
+###### Inherited from
+
+[`RunGraphOptions`](runtime.md#rungraphoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools)
+
 ##### authorizeMessage?
 
 > `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
@@ -984,7 +998,7 @@ full-profile contract.
 
 ##### resolveSupervisorTools?
 
-> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
 
 Resolve product-owned tools from the exact trusted manager context. The same descriptors and
 handlers are bound to router and external-harness managers; resolution happens once per node.
@@ -997,7 +1011,7 @@ cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
 
 ##### onCoordinationEvent?
 
@@ -1549,14 +1563,14 @@ Trusted identity for this manager. Required with node-scoped tools or observatio
 
 ##### resolveSupervisorTools?
 
-> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
 
 Resolve product-owned tools for this exact manager. Static `extraTools` remain a router-only
  compatibility seam and deliberately receive no new recursive authority.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-3)
 
 ##### observeNodeEvent?
 

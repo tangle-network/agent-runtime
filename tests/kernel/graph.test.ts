@@ -35,7 +35,10 @@
  *      directions, and the refusals fail loud: resume-with-no-prior, resume-while-live (steer is
  *      the live channel), resume-under-a-key, and nonsense values or analyzes edges carrying
  *      continuity refused at validation.
- *  11. driverBackend passthrough: a root node declaring an external harness (`codex`) resolves its
+ *  11. resolveSupervisorTools passthrough: RunGraphOptions forwards the product-tool resolver to
+ *      supervise(), so a declared graph's root mounts the SAME product tools a supervise() run
+ *      mounts and its handler receives the trusted node context; omitted = coordination only.
+ *  12. driverBackend passthrough: a root node declaring an external harness (`codex`) resolves its
  *      driver through `RunGraphOptions.driverBackend`, forwarded to `supervise()` verbatim. Worker
  *      placement is a separate axis: `backend` alone leaves the root undriveable, and the refusal
  *      names `driveHarnessFromBackend`, not `workerFromBackend` — that is what proves WHICH seam
@@ -1094,6 +1097,114 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
         brain: scriptedBrain([]),
       }),
     ).toThrow(/analyst nodes are not analyzable/)
+  })
+})
+
+describe('runGraph — resolveSupervisorTools passthrough (product tools on a declared graph)', () => {
+  it('forwards resolveSupervisorTools to supervise(): the root mounts the product tool and its handler gets the trusted context', async () => {
+    // The measured failure this closes: a declared-graph root saw only the coordination MCP, so a
+    // product tool (a claim ledger) was unreachable and its output landed somewhere ungraded.
+    const handled: Array<{ raw: unknown; runId: string; nodeId: string }> = []
+    const mounted: string[][] = []
+    let recorded = false
+    let spawned = false
+    const brain: ToolLoopChat = async (messages, tools) => {
+      mounted.push(tools.map((tool) => tool.function.name))
+      if (!recorded) {
+        recorded = true
+        return {
+          toolCalls: [
+            {
+              id: 'k1',
+              name: 'kb_record',
+              arguments: JSON.stringify({ claim: 'gmres diverges at rung 3' }),
+            },
+          ],
+        }
+      }
+      if (!spawned) {
+        spawned = true
+        return {
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'spawn_agent',
+              arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
+            },
+          ],
+        }
+      }
+      const settled = messages.some(
+        (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
+      )
+      if (!settled) {
+        return { toolCalls: [{ id: 'c2', name: 'await_event', arguments: JSON.stringify({}) }] }
+      }
+      return { content: 'done', toolCalls: [] }
+    }
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gt',
+      makeWorkerAgent: leafSeam([]),
+      resolveSupervisorTools: async () => [
+        {
+          name: 'kb_record',
+          description: 'Record one claim in the product ledger',
+          inputSchema: {
+            type: 'object',
+            properties: { claim: { type: 'string' } },
+            required: ['claim'],
+          },
+          handler: async (raw, context) => {
+            handled.push({ raw, runId: context.runId, nodeId: context.nodeId })
+            return { recorded: true }
+          },
+        },
+      ],
+      brain,
+    })
+
+    expect(res.result.kind).toBe('winner')
+    // Mounted alongside the coordination verbs, not instead of them.
+    expect(mounted[0]).toContain('kb_record')
+    expect(mounted[0]).toContain('spawn_agent')
+    // The handler ran with the RUN's identity, not anything the model could author.
+    expect(handled).toHaveLength(1)
+    expect(handled[0]?.raw).toEqual({ claim: 'gmres diverges at rung 3' })
+    expect(handled[0]?.runId).toBe('gt')
+    expect(typeof handled[0]?.nodeId).toBe('string')
+  })
+
+  it('mounts coordination only when omitted — no product tool appears by default', async () => {
+    const mounted: string[][] = []
+    const brain: ToolLoopChat = async (messages, tools) => {
+      mounted.push(tools.map((tool) => tool.function.name))
+      if (mounted.length === 1) {
+        return {
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'spawn_agent',
+              arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
+            },
+          ],
+        }
+      }
+      const settled = messages.some(
+        (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
+      )
+      if (!settled) {
+        return { toolCalls: [{ id: 'c2', name: 'await_event', arguments: JSON.stringify({}) }] }
+      }
+      return { content: 'done', toolCalls: [] }
+    }
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gt0',
+      makeWorkerAgent: leafSeam([]),
+      brain,
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(mounted[0]).toContain('spawn_agent')
+    expect(mounted.flat()).not.toContain('kb_record')
   })
 })
 

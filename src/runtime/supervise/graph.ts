@@ -253,6 +253,12 @@ export interface RunGraphOptions {
   readonly perWorker?: Budget
   readonly maxTurns?: number
   readonly maxLiveWorkers?: number
+  /** Resolve product-owned tools from the exact trusted manager context — forwarded to the root's
+   *  `supervise()` verbatim (see `SuperviseOptions.resolveSupervisorTools`). Without it a declared
+   *  graph mounts only the coordination MCP, so a root that is supposed to reach a product tool
+   *  (a claim ledger, a knowledge base) finds nothing and writes its output somewhere ungraded.
+   *  A graph run and a supervise run mount the same tools when this is set. */
+  readonly resolveSupervisorTools?: SuperviseOptions['resolveSupervisorTools']
   /** Product authority over every steer/answer instruction (the filter seam). `runGraph` observes
    *  what it CHANGES: a narrowed instruction ledgers its steer traversal as `stripped`. */
   readonly authorizeMessage?: SuperviseOptions['authorizeMessage']
@@ -1000,6 +1006,9 @@ function runGraphInternal(
       // (`makeWorkerAgent` above), so the root driver is an explicit choice, never a side effect
       // of where workers run.
       ...(opts.driverBackend ? { driverBackend: opts.driverBackend } : {}),
+      ...(opts.resolveSupervisorTools
+        ? { resolveSupervisorTools: opts.resolveSupervisorTools }
+        : {}),
       ...(authorizeMessage ? { authorizeMessage } : {}),
       ...(opts.perWorker ? { perWorker: opts.perWorker } : {}),
       ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
