@@ -89,7 +89,10 @@ printf 'argv:%s\\n' "$*"
   assert.match(meteredResult.out.command, /'tangle-router\/deepseek-v4-flash'/)
   assert.match(
     meteredResult.out.stdout,
-    /argv:exec -i --workdir \/work -e OPENAI_BASE_URL=http:\/\/router\.test cid \/bin\/sh -c exec 'opencode' 'run' 'echo hello' '-m' 'tangle-router\/deepseek-v4-flash'/,
+    // `--auto` is opencode's permission bypass, emitted for an unattended container run the
+    // same way claude-code and codex emit theirs. Without it the harness denies writes outside
+    // the working directory and reports "The user rejected permission".
+    /argv:exec -i --workdir \/work -e OPENAI_BASE_URL=http:\/\/router\.test cid \/bin\/sh -c exec 'opencode' 'run' 'echo hello' '--auto' '-m' 'tangle-router\/deepseek-v4-flash'/,
   )
   assert.deepEqual(meteredResult.spent.tokens, { input: 7, output: 11 })
   assert.equal(meteredResult.spent.usd, 0.004)

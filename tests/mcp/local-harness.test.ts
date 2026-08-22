@@ -5,10 +5,10 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
-  realpathSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
