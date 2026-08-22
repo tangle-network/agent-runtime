@@ -11,6 +11,7 @@ export {
   type CompiledGraph,
   type CompiledNode,
   compileGraph,
+  isEngineFired,
   schemaAccepts,
 } from './compile'
 export {
@@ -44,6 +45,7 @@ export {
   foldGraphJournal,
   type GraphFoldState,
 } from './fold'
+export { decideJoin, type GatingEdge, type JoinDecision } from './join'
 export {
   type BudgetMode,
   type EffectContext,
@@ -67,6 +69,18 @@ export {
   subgraphKind,
   supervisorKind,
 } from './kinds'
+export { createEdgeLedger, type EdgeLedger } from './ledger'
+export {
+  graphFromRunGraph,
+  RUN_GRAPH_KIND,
+  type RunGraphBody,
+  type RunGraphCapture,
+  type RunGraphNodeConfig,
+  type RunGraphNodeOut,
+  runGraphEngine,
+  runGraphKind,
+  runGraphThroughEngine,
+} from './preset-run-graph'
 export { applyProjection, type Projection, validateProjection } from './projection'
 export {
   createRegistry,
@@ -76,6 +90,12 @@ export {
   type Registry,
   type RegistryHandle,
 } from './registry'
+export {
+  assembleGraphResult,
+  type FinalizerChoice,
+  materializeSettles,
+} from './result'
+export { type GraphRunContext, openGraphRun } from './run-context'
 export {
   admitPayload,
   createGraphRun,
@@ -90,3 +110,9 @@ export {
   type SuspensionRequest,
   suspended,
 } from './scheduler'
+export {
+  isSuspensionRequest,
+  mintSuspensionToken,
+  suspensionNodeId,
+  tokenFromSuspensionNodeId,
+} from './suspension'

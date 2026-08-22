@@ -92,6 +92,12 @@ The check this node must pass to count DELIVERED; resolved per #973.
 
 > `readonly` **outbound**: readonly [`CompiledEdge`](#compilededge)[]
 
+##### modelFired
+
+> `readonly` **modelFired**: `boolean`
+
+Spawned by a supervisor through a `delegates` edge, never entered by the scheduler.
+
 ##### spec
 
 > `readonly` **spec**: [`EngineGraphNode`](#enginegraphnode)
@@ -219,6 +225,14 @@ This node's completion check; a terminal without one (or a kind/graph default) r
 
 Force-mark a terminal. Absent, a node with no outbound gating edge is terminal.
 
+##### entry?
+
+> `readonly` `optional` **entry?**: `boolean`
+
+Force a node out of (or into) the run's entry set. Absent, a node with no inbound edge is an
+ entry, and the declared root always is. A node another node SPAWNS — the `runGraph` preset's
+ workers and analysts — sets `false`: the scheduler must never enter it on its own.
+
 ##### profile?
 
 > `readonly` `optional` **profile?**: `Readonly`\<`Partial`\<`AgentProfile`\>\>
@@ -287,7 +301,7 @@ Evaluated over the source's settle context; absent = satisfied by completion.
 
 > `readonly` `optional` **maxTraversals?**: `number`
 
-Refuses the traversal past this many firings (ledgered `unpropagated`).
+Refuses the traversal past this many firings (ledgered `unpropagated`); `0` closes the edge from the start.
 
 ##### directive?
 
@@ -546,6 +560,44 @@ Kernel node id → engine instance label, from `spawned`.
 
 ***
 
+### GatingEdge
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: [`CompiledEdge`](#compilededge)
+
+##### folded
+
+> `readonly` **folded**: [`FoldEdge`](#foldedge) \| `undefined`
+
+***
+
+### JoinDecision
+
+#### Properties
+
+##### release
+
+> `readonly` **release**: `boolean`
+
+Whether the node releases now.
+
+##### consuming
+
+> `readonly` **consuming**: readonly [`GatingEdge`](#gatingedge)[]
+
+The edges whose outcomes produced this release — the ones a traversal cap judges.
+
+##### blocked
+
+> `readonly` **blocked**: `boolean`
+
+Whether the node can never release again on this wave (recorded like skipped-by-guard).
+
+***
+
 ### PortSpec
 
 One declared port on a node. Ports are how a `data` edge binds one node's output to another's
@@ -791,6 +843,87 @@ For a metered script: what it spent. Omit on a pure script. A metered script tha
 
 ***
 
+### EdgeLedger
+
+#### Properties
+
+##### entries
+
+> `readonly` **entries**: readonly [`GraphEdgeTraversal`](#graphedgetraversal)[]
+
+#### Methods
+
+##### record()
+
+> **record**(`edge`, `traversal`, `outcome`, `reason?`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### edge
+
+[`CompiledEdge`](#compilededge)
+
+###### traversal
+
+`number`
+
+###### outcome
+
+`"delivered"` \| `"empty"` \| `"unpropagated"`
+
+###### reason?
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### RunGraphCapture
+
+Where the run body's raw failure is kept. A node's output crosses the edge-admission boundary
+ (JSON round-trip), which would reduce an `Error` to a plain object and a typed
+ `GraphEdgeCapError` to an untyped one. The error therefore travels beside the output, by
+ reference, and the preset rethrows the ORIGINAL object.
+
+#### Properties
+
+##### error?
+
+> `optional` **error?**: `unknown`
+
+***
+
+### RunGraphNodeConfig
+
+What the root node carries: the authored graph, the caller's options, and the run body.
+
+#### Properties
+
+##### graph
+
+> `readonly` **graph**: [`AgentGraph`](../runtime.md#agentgraph)
+
+##### options
+
+> `readonly` **options**: [`RunGraphOptions`](../runtime.md#rungraphoptions)
+
+##### run
+
+> `readonly` **run**: [`RunGraphBody`](#rungraphbody)
+
+##### capture
+
+> `readonly` **capture**: [`RunGraphCapture`](#rungraphcapture)
+
+##### brain?
+
+> `readonly` `optional` **brain?**: [`ToolLoopChat`](../runtime.md#toolloopchat)
+
+***
+
 ### RegistryHandle
 
 A versioned name: what a graph writes and what a host registers.
@@ -948,6 +1081,62 @@ Every entry, in `names()` order.
 
 ***
 
+### GraphRunContext
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### journal
+
+> `readonly` **journal**: [`SpawnJournal`](../runtime.md#spawnjournal)
+
+##### blobs
+
+> `readonly` **blobs**: [`ResultBlobStore`](../runtime.md#resultblobstore)
+
+##### scope
+
+> `readonly` **scope**: [`Scope`](../index.md#scope)\<`unknown`\>
+
+##### abort
+
+> `readonly` **abort**: `AbortController`
+
+##### state
+
+> `readonly` **state**: [`GraphFoldState`](#graphfoldstate)
+
+##### resuming
+
+> `readonly` **resuming**: `boolean`
+
+##### prior
+
+> `readonly` **prior**: readonly [`SpawnEvent`](../runtime.md#spawnevent)[]
+
+Journal events present before this process started; empty on a fresh run.
+
+##### engineSeq
+
+> `readonly` **engineSeq**: `number`
+
+Next engine fold-event ordinal, and next engine `woken` ordinal.
+
+##### engineWokenSeq
+
+> `readonly` **engineWokenSeq**: `number`
+
+##### ledgerSeq
+
+> `readonly` **ledgerSeq**: `number`
+
+Ledger ordinals already used by a prior process.
+
+***
+
 ### GraphNodeSettle
 
 One node settlement as the graph result reports it.
@@ -1030,30 +1219,6 @@ One ledgered edge firing (or refusal) — the run's observable data flow.
 
 ***
 
-### SuspensionRequest
-
-#### Properties
-
-##### \_\_graphSuspension
-
-> `readonly` **\_\_graphSuspension**: `true`
-
-##### onExpire
-
-> `readonly` **onExpire**: `"default"` \| `"fail"` \| `"wait"`
-
-##### expiresInMs?
-
-> `readonly` `optional` **expiresInMs?**: `number`
-
-Milliseconds from the suspension's journaling instant; absent with `onExpire: 'wait'`.
-
-##### default?
-
-> `readonly` `optional` **default?**: `unknown`
-
-***
-
 ### GraphRunOptions
 
 #### Properties
@@ -1087,7 +1252,7 @@ Resolves `delegates`/`analyzes` directives; required when any edge carries one.
 
 ##### finalizer?
 
-> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](../index.md#supervisorfinalizer) \| `"bestDelivered"` \| `"collectDelivered"`
+> `readonly` `optional` **finalizer?**: [`FinalizerChoice`](#finalizerchoice)
 
 How terminal settles reduce to `out`. Default `bestDelivered`.
 
@@ -1165,6 +1330,32 @@ A live run: await `done`; deliver host wakes through `resume`/`expire` (#976).
 ###### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### SuspensionRequest
+
+What a kind's executor returns to park its node until a host wakes it.
+
+#### Properties
+
+##### \_\_graphSuspension
+
+> `readonly` **\_\_graphSuspension**: `true`
+
+##### onExpire
+
+> `readonly` **onExpire**: `"default"` \| `"fail"` \| `"wait"`
+
+##### expiresInMs?
+
+> `readonly` `optional` **expiresInMs?**: `number`
+
+Milliseconds from the suspension's journaling instant; absent with `onExpire: 'wait'`.
+
+##### default?
+
+> `readonly` `optional` **default?**: `unknown`
 
 ## Type Aliases
 
@@ -1279,9 +1470,65 @@ The caller code a `script` node runs. Receives the resolved inputs; returns the 
 
 ***
 
+### RunGraphBody
+
+> **RunGraphBody** = (`graph`, `options`, `brain?`) => `Promise`\<[`GraphResult`](../runtime.md#graphresult)\>
+
+The graph supervise run, injected rather than imported: the preset describes the graph, and
+ `runGraph` supplies the body, so this module never imports its caller at runtime.
+
+#### Parameters
+
+##### graph
+
+[`AgentGraph`](../runtime.md#agentgraph)
+
+##### options
+
+[`RunGraphOptions`](../runtime.md#rungraphoptions)
+
+##### brain?
+
+[`ToolLoopChat`](../runtime.md#toolloopchat)
+
+#### Returns
+
+`Promise`\<[`GraphResult`](../runtime.md#graphresult)\>
+
+***
+
+### RunGraphNodeOut
+
+> **RunGraphNodeOut** = \{ `ok`: `true`; `result`: [`GraphResult`](../runtime.md#graphresult); \} \| \{ `ok`: `false`; `error`: `string`; \}
+
+The run's outcome as the root node's output: never a throw, so a typed failure (an exhausted
+ delegates cap) reaches the caller as the exact error object rather than a settle reason.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `ok`: `true`; `result`: [`GraphResult`](../runtime.md#graphresult); \}
+
+***
+
+##### Type Literal
+
+\{ `ok`: `false`; `error`: `string`; \}
+
+The message only; the raw error rides in [RunGraphCapture](#rungraphcapture).
+
+***
+
 ### Projection
 
 > **Projection** = \{ `path`: `string`; \} \| \{ `pick`: `ReadonlyArray`\<`string`\>; \} \| \{ `map`: `string`; \} \| \{ `filter`: [`Condition`](#condition); \} \| \{ `first`: `true`; \} \| \{ `last`: `true`; \} \| \{ `count`: `true`; \}
+
+***
+
+### FinalizerChoice
+
+> **FinalizerChoice** = `"bestDelivered"` \| `"collectDelivered"` \| [`SupervisorFinalizer`](../index.md#supervisorfinalizer)
 
 ***
 
@@ -1410,13 +1657,64 @@ The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach.
 
 ***
 
+### RUN\_GRAPH\_KIND
+
+> `const` **RUN\_GRAPH\_KIND**: `"run-graph.supervisor"` = `'run-graph.supervisor'`
+
+The preset's root kind: one node whose body is the graph's supervise run.
+
+***
+
 ### ENGINE\_WOKEN\_SEQ\_BASE
 
 > `const` **ENGINE\_WOKEN\_SEQ\_BASE**: `10000000` = `10_000_000`
 
-Engine-appended `woken` ordinals start here — far above any kernel cursor counter.
+Engine-appended `woken` ordinals start here — far above any kernel cursor counter, so the two
+ counters can advance independently without ever colliding.
 
 ## Functions
+
+### admitPayload()
+
+> **admitPayload**(`value`): `unknown`
+
+Edge payload admission (agent-runtime#971): every value crossing an edge is JSON round-tripped,
+`undefined` stripped to absence, and a non-representable value (a cycle, a BigInt, a function)
+becomes a RECORD of that fact. This is the kernel's existing findings-guard rule, and it is what
+makes `inputRef` stable and `onCrash: 'restart'` well defined — a degraded record beats a
+vanished edge.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+#### Returns
+
+`unknown`
+
+***
+
+### isEngineFired()
+
+> **isEngineFired**(`edge`): `boolean`
+
+`delegates` is the one MODEL-fired edge kind (agent-runtime#971): its payload is a directive and
+ its target is spawned by the source supervisor through the coordination protocol, not released
+ by the scheduler. `data` and `analyzes` are engine-fired.
+
+#### Parameters
+
+##### edge
+
+[`CompiledEdge`](#compilededge)
+
+#### Returns
+
+`boolean`
+
+***
 
 ### schemaAccepts()
 
@@ -1606,6 +1904,28 @@ readonly [`SpawnEvent`](../runtime.md#spawnevent)[]
 
 ***
 
+### decideJoin()
+
+> **decideJoin**(`rule`, `gating`): [`JoinDecision`](#joindecision)
+
+Decide whether a node's gating edges release it, and which of them the release consumes.
+
+#### Parameters
+
+##### rule
+
+`"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`
+
+##### gating
+
+readonly [`GatingEdge`](#gatingedge)[]
+
+#### Returns
+
+[`JoinDecision`](#joindecision)
+
+***
+
 ### validateNodeKind()
 
 > **validateNodeKind**(`kind`, `context?`): [`NodeKind`](#nodekind)
@@ -1770,6 +2090,132 @@ compiles, and the refusal says exactly what is missing.
 
 ***
 
+### createEdgeLedger()
+
+> **createEdgeLedger**(`args`): [`EdgeLedger`](#edgeledger)
+
+Open a ledger for one run; its ordinals continue past whatever a prior process recorded.
+
+#### Parameters
+
+##### args
+
+###### journal
+
+[`SpawnJournal`](../runtime.md#spawnjournal)
+
+###### runId
+
+`string`
+
+###### now
+
+() => `number`
+
+###### startSeq
+
+`number`
+
+#### Returns
+
+[`EdgeLedger`](#edgeledger)
+
+***
+
+### runGraphKind()
+
+> **runGraphKind**(): [`NodeKind`](#nodekind)\<[`RunGraphNodeConfig`](#rungraphnodeconfig)\>
+
+The node kind behind the preset. Its executor runs the graph and reports the run's own measured
+spend, so the engine pool debits what the graph actually used, never a second copy of it.
+
+#### Returns
+
+[`NodeKind`](#nodekind)\<[`RunGraphNodeConfig`](#rungraphnodeconfig)\>
+
+***
+
+### runGraphEngine()
+
+> **runGraphEngine**(): [`GraphEngine`](#graphengine)
+
+An engine with the preset kind registered beside the core `agent` kind the workers use.
+
+#### Returns
+
+[`GraphEngine`](#graphengine)
+
+***
+
+### graphFromRunGraph()
+
+> **graphFromRunGraph**(`graph`, `options`, `run`, `capture?`, `brain?`): [`EngineGraphSpec`](#enginegraphspec)
+
+Compile an `AgentGraph` into the engine graph that represents it: the supervisor root, one
+pinned `agent` node per worker, and every authored edge. Pure — nothing runs, so a caller can
+inspect, diff, or extend the result before handing it to the engine.
+
+#### Parameters
+
+##### graph
+
+[`AgentGraph`](../runtime.md#agentgraph)
+
+##### options
+
+[`RunGraphOptions`](../runtime.md#rungraphoptions)
+
+##### run
+
+[`RunGraphBody`](#rungraphbody)
+
+##### capture?
+
+[`RunGraphCapture`](#rungraphcapture) = `{}`
+
+##### brain?
+
+[`ToolLoopChat`](../runtime.md#toolloopchat)
+
+#### Returns
+
+[`EngineGraphSpec`](#enginegraphspec)
+
+***
+
+### runGraphThroughEngine()
+
+> **runGraphThroughEngine**(`graph`, `options`, `run`, `brain?`): `Promise`\<[`GraphResult`](../runtime.md#graphresult)\<`unknown`\>\>
+
+Run an `AgentGraph` through the engine: compile it with [graphFromRunGraph](#graphfromrungraph), schedule it,
+and answer the caller in `runGraph`'s own vocabulary. A typed failure the graph threw — an
+exhausted delegates cap — is rethrown as the exact error object it was, never flattened into a
+settle reason.
+
+#### Parameters
+
+##### graph
+
+[`AgentGraph`](../runtime.md#agentgraph)
+
+##### options
+
+[`RunGraphOptions`](../runtime.md#rungraphoptions)
+
+##### run
+
+[`RunGraphBody`](#rungraphbody)
+
+##### brain?
+
+[`ToolLoopChat`](../runtime.md#toolloopchat)
+
+#### Returns
+
+`Promise`\<[`GraphResult`](../runtime.md#graphresult)\<`unknown`\>\>
+
+***
+
 ### validateProjection()
 
 > **validateProjection**(`raw`, `context`): [`Projection`](#projection-1)
@@ -1890,51 +2336,153 @@ kernel and it had zero tests.
 
 ***
 
-### suspended()
+### materializeSettles()
 
-> **suspended**(`options?`): [`SuspensionRequest`](#suspensionrequest)
+> **materializeSettles**(`compiled`, `state`, `blobs`, `outCache`): `Promise`\<[`GraphNodeSettle`](#graphnodesettle)[]\>
 
-What a kind's executor returns to park its node on a host wake (agent-runtime#976).
+Every node settlement with its output rehydrated and its completion check applied.
 
 #### Parameters
 
-##### options?
+##### compiled
 
-###### onExpire?
+[`CompiledGraph`](#compiledgraph)
 
-`"default"` \| `"fail"` \| `"wait"`
+##### state
 
-###### expiresInMs?
+[`GraphFoldState`](#graphfoldstate)
 
-`number`
+##### blobs
 
-###### default?
+[`ResultBlobStore`](../runtime.md#resultblobstore)
 
-`unknown`
+##### outCache
+
+`ReadonlyMap`\<`string`, `unknown`\>
 
 #### Returns
 
-[`SuspensionRequest`](#suspensionrequest)
+`Promise`\<[`GraphNodeSettle`](#graphnodesettle)[]\>
 
 ***
 
-### admitPayload()
+### assembleGraphResult()
 
-> **admitPayload**(`value`): `unknown`
+> **assembleGraphResult**(`args`): `Promise`\<[`GraphRunResult`](#graphrunresult)\>
 
-Admission for every value crossing an edge (#971): JSON round-trip, `undefined` stripped, a
- non-representable value becomes a RECORD of that fact — a degraded record beats a vanished
- edge.
+Turn a finished run into its result: rehydrate, reduce the terminals, classify a no-winner.
 
 #### Parameters
 
-##### value
+##### args
 
-`unknown`
+###### compiled
+
+[`CompiledGraph`](#compiledgraph)
+
+###### state
+
+[`GraphFoldState`](#graphfoldstate)
+
+###### blobs
+
+[`ResultBlobStore`](../runtime.md#resultblobstore)
+
+###### scope
+
+[`Scope`](../index.md#scope)\<`unknown`\>
+
+###### outCache
+
+`ReadonlyMap`\<`string`, `unknown`\>
+
+###### ledger
+
+readonly [`GraphEdgeTraversal`](#graphedgetraversal)[]
+
+###### finalizer?
+
+[`FinalizerChoice`](#finalizerchoice)
+
+###### failure?
+
+\{ `reason`: [`GraphRunReason`](#graphrunreason); `error?`: \{ `name`: `string`; `message`: `string`; \}; \}
+
+###### failure.reason
+
+[`GraphRunReason`](#graphrunreason)
+
+###### failure.error?
+
+\{ `name`: `string`; `message`: `string`; \}
+
+###### failure.error.name
+
+`string`
+
+###### failure.error.message
+
+`string`
+
+###### aborted
+
+`boolean`
 
 #### Returns
 
-`unknown`
+`Promise`\<[`GraphRunResult`](#graphrunresult)\>
+
+***
+
+### openGraphRun()
+
+> **openGraphRun**(`args`): `Promise`\<[`GraphRunContext`](#graphruncontext)\>
+
+Begin or resume a run's journaled tree, pool, scope and folded state.
+
+#### Parameters
+
+##### args
+
+###### compiled
+
+[`CompiledGraph`](#compiledgraph)
+
+###### runId
+
+`string`
+
+###### budget
+
+[`Budget`](../index.md#budget-4)
+
+###### journal?
+
+[`SpawnJournal`](../runtime.md#spawnjournal)
+
+###### blobs?
+
+[`ResultBlobStore`](../runtime.md#resultblobstore)
+
+###### now
+
+() => `number`
+
+###### resume?
+
+`boolean`
+
+###### signal?
+
+`AbortSignal`
+
+###### onAbort
+
+(`listener`) => `void`
+
+#### Returns
+
+`Promise`\<[`GraphRunContext`](#graphruncontext)\>
 
 ***
 
@@ -1942,8 +2490,8 @@ Admission for every value crossing an edge (#971): JSON round-trip, `undefined` 
 
 > **runEngineGraph**(`engine`, `spec`, `task`, `options`): `Promise`\<[`GraphRunResult`](#graphrunresult)\>
 
-Run a graph to its result: `createGraphRun` awaited — the one-call form for a run that needs
- no live host wakes.
+Run a graph to its result: `createGraphRun` awaited — the one-call form for a run that needs no
+ live host wakes.
 
 #### Parameters
 
@@ -1997,3 +2545,108 @@ wakes through `resume`/`expire` while it runs (#976).
 #### Returns
 
 [`GraphRunHandle`](#graphrunhandle)
+
+***
+
+### suspended()
+
+> **suspended**(`options?`): [`SuspensionRequest`](#suspensionrequest)
+
+Build a suspension request. `wait` never expires; `fail` settles the node down at its deadline;
+ `default` resolves with the given payload.
+
+#### Parameters
+
+##### options?
+
+###### onExpire?
+
+`"default"` \| `"fail"` \| `"wait"`
+
+###### expiresInMs?
+
+`number`
+
+###### default?
+
+`unknown`
+
+#### Returns
+
+[`SuspensionRequest`](#suspensionrequest)
+
+***
+
+### isSuspensionRequest()
+
+> **isSuspensionRequest**(`value`): `value is SuspensionRequest`
+
+Whether a node's output is a park request rather than its result.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+#### Returns
+
+`value is SuspensionRequest`
+
+***
+
+### mintSuspensionToken()
+
+> **mintSuspensionToken**(`runId`, `instance`): `string`
+
+Content-addressed over the run identity, so a restart recomputes it and needs no token table.
+
+#### Parameters
+
+##### runId
+
+`string`
+
+##### instance
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### suspensionNodeId()
+
+> **suspensionNodeId**(`token`): `string`
+
+The journal id one suspension's `waiting`/`woken` pair shares.
+
+#### Parameters
+
+##### token
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### tokenFromSuspensionNodeId()
+
+> **tokenFromSuspensionNodeId**(`id`): `string` \| `undefined`
+
+The token inside a suspension node id, or `undefined` for any other id.
+
+#### Parameters
+
+##### id
+
+`string`
+
+#### Returns
+
+`string` \| `undefined`
