@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.24
+
+### Eval 0.170.0 cohort
+
+The Eval catalog range becomes `>=0.163.2 <0.171.0`, matching the Runtime cohort. Bench resolves Eval through the catalog, so its published manifest states the new range. Nothing in bench changes behavior.
+
+A consumer that pins Eval itself must move it with this package.
+
 ## 0.8.23
 
 ### Interface 1.6.0 cohort
