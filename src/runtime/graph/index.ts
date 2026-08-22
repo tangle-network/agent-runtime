@@ -7,6 +7,18 @@
  */
 
 export {
+  assertAuthoredCode,
+  type CodeAuthor,
+  type CodeModeConfig,
+  type CodeOperation,
+  type CodeOperationResult,
+  type CodeRunner,
+  codemodeKind,
+  extractCodeBlock,
+  inlineCodeRunner,
+  renderCodeApi,
+} from './codemode'
+export {
   type CompiledEdge,
   type CompiledGraph,
   type CompiledNode,

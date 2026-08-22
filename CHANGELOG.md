@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.169.0
+
+### `codemode`: a node whose action space is code, not tool calls
+
+An `agent` node acts one JSON tool call per turn, so N steps cost N model round trips and every tool's schema sits in context. A `codemode` node asks the model once for a program written against the operations that node grants, then runs it: loops and branches happen inside the program and only the answer returns. `examples/engine/codemode.ts` runs one job both ways over the same operations table — **1 model turn against 8**, same 7 operation calls, same answer.
+
+The runtime already did this once, hard-wired: `strategy-author.ts` has an LLM write an optimization strategy against a fixed contract, lints it, imports it, and runs it — safe because the authored body composes `shot()`/`critique()` and therefore spends through the Supervisor's pool. `codemodeKind()` generalizes that, and the three properties it keeps are exactly the ones a prompt-and-skill version cannot have:
+
+- **The API is projected from the grant.** `renderCodeApi` generates what the model is shown from the same `operations` table the runner binds, so a documented-but-ungranted call cannot exist and a granted-but-undocumented one cannot hide.
+- **The host owns the execution boundary.** The kind declares a `codeRunner` effect and executes nothing itself; the engine refuses before spending when the host supplied none. `inlineCodeRunner()` is offered for development and documented as what it is — `assertAuthoredCode` is a LINT, not a sandbox, and in-process code reaches whatever the process reaches.
+- **Accounting passes through the kernel.** The node is an ordinary `Executor` under `Scope.spawn`; each operation reports its spend and the node totals it into the settlement. A test asserts this off the journal, not the return value: 100 input tokens from the one model call plus 1 from each of three metered operation calls arrive as `103` in the kernel's `settled` record.
+
+`assertAuthoredCode(code, { allowedImports })` is the strategy-author contract check, generalized and exported: same banned constructs (`require`, dynamic `import`, `eval`, `new Function`, `process`, `globalThis`, `fetch`, node builtins), with the allowed-import list now a parameter instead of one hardcoded specifier.
+
 ## 0.168.0
 
 ### The first example authored against the ENGINE, and the wart it found
