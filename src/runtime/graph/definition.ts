@@ -47,6 +47,10 @@ export interface EngineGraphNode {
   readonly deliverable?: DeliverableSpec<unknown>
   /** Force-mark a terminal. Absent, a node with no outbound gating edge is terminal. */
   readonly terminal?: boolean
+  /** Force a node out of (or into) the run's entry set. Absent, a node with no inbound edge is an
+   *  entry, and the declared root always is. A node another node SPAWNS — the `runGraph` preset's
+   *  workers and analysts — sets `false`: the scheduler must never enter it on its own. */
+  readonly entry?: boolean
   /** Profile fields merged over the engine-authored `{ name: id }` for this node's spawns. */
   readonly profile?: Readonly<Partial<AgentProfile>>
   /** Per-instance reservation for this node's spawns; falls back to the run's `perNode`. */
@@ -63,7 +67,7 @@ export interface EngineGraphEdge {
   readonly guard?: Condition
   /** `data` edges only: ONE pure reshape of the admitted payload. */
   readonly projection?: Projection
-  /** Refuses the traversal past this many firings (ledgered `unpropagated`). */
+  /** Refuses the traversal past this many firings (ledgered `unpropagated`); `0` closes the edge from the start. */
   readonly maxTraversals?: number
   /** `delegates`/`analyzes`: the versioned directive appended to the target's task. */
   readonly directive?: PromptHandle
@@ -141,8 +145,10 @@ export function validateEngineGraphSpec(spec: EngineGraphSpec, context = 'compil
       validateProjection(edge.projection, `${who} projection`)
     }
     if (edge.maxTraversals !== undefined) {
-      if (!Number.isSafeInteger(edge.maxTraversals) || edge.maxTraversals < 1) {
-        throw new ValidationError(`${who}: maxTraversals must be a positive integer`)
+      // Zero is meaningful and authored in practice: an edge closed from the start, which the
+      // scheduler refuses on its first consumption and ledgers `unpropagated`.
+      if (!Number.isSafeInteger(edge.maxTraversals) || edge.maxTraversals < 0) {
+        throw new ValidationError(`${who}: maxTraversals must be a non-negative integer`)
       }
     }
     if (edge.kind === 'data' && edge.directive !== undefined) {

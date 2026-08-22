@@ -61,6 +61,7 @@ import type {
   MakeWorkerAgent,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
+import { runGraphThroughEngine } from '../graph/preset-run-graph'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -663,7 +664,11 @@ function stringifyPayload(payload: unknown): string {
  */
 export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<GraphResult> {
   const { brain, ...runtimeOptions } = opts
-  return runGraphInternal(graph, runtimeOptions, brain)
+  // The preset compiles this graph into an engine graph and runs it there (agent-runtime#982). The
+  // signature, the options and the result are unchanged: a caller sees no difference, including
+  // the timing of a refusal — the authoring contract is asserted here, synchronously, first.
+  assertRunGraphAuthoring(graph, runtimeOptions, brain)
+  return runGraphThroughEngine(graph, runtimeOptions, superviseAgentGraph, brain)
 }
 
 /** Alias for graph tests written before `RunGraphOptions.brain` was production. The production
@@ -673,23 +678,30 @@ export function runGraphWithTestBrain(
   opts: RunGraphTestOptions,
 ): Promise<GraphResult> {
   const { brain, ...runtimeOptions } = opts
-  return runGraphInternal(graph, runtimeOptions, brain)
+  assertRunGraphAuthoring(graph, runtimeOptions, brain)
+  return runGraphThroughEngine(graph, runtimeOptions, superviseAgentGraph, brain)
 }
 
-function runGraphInternal(
+/**
+ * The graph supervise run, as its own entry: the engine's `run-graph` preset node executes exactly
+ * this, so the preset and `runGraph` are the same code path by construction (agent-runtime#982).
+ */
+/**
+ * Every refusal a graph earns before any compute, in one place: the authoring contract. `runGraph`
+ * calls it FIRST so a malformed graph throws synchronously, exactly as it did before the engine
+ * preset (agent-runtime#982) moved execution behind a promise.
+ */
+export function assertRunGraphAuthoring(
   graph: AgentGraph,
   opts: RunGraphOptions,
   brain?: ToolLoopChat,
-): Promise<GraphResult> {
+): ReturnType<typeof validateGraph> {
   const registry = opts.registry ?? kernelPromptRegistry()
-  const { root, workers, delegatesByWorker, analyzes, analystNodes } = validateGraph(
-    graph,
-    registry,
-    opts.analysts,
-  )
-  // A caller brain and a harness driver are two answers to WHO makes the root's calls: refuse
-  // the contradiction before any compute, and refuse a harness-driven root outright — the
-  // harness IS that root's brain, so a supplied one would be silently ignored downstream.
+  const validated = validateGraph(graph, registry, opts.analysts)
+  const { root } = validated
+  // A caller brain and a harness driver are two answers to WHO makes the root's calls: refuse the
+  // contradiction before any compute, and refuse a harness-driven root outright — the harness IS
+  // that root's brain, so a supplied one would be silently ignored downstream.
   if (brain && opts.driverBackend) {
     throw new ValidationError(
       'runGraph: brain and driverBackend are mutually exclusive — a caller brain makes the root model calls, a driverBackend places a harness that makes its own',
@@ -705,6 +717,20 @@ function runGraphInternal(
       'runGraph: provide opts.backend (where nodes run) or opts.makeLeafAgent',
     )
   }
+  return validated
+}
+
+export function superviseAgentGraph(
+  graph: AgentGraph,
+  opts: RunGraphOptions,
+  brain?: ToolLoopChat,
+): Promise<GraphResult> {
+  const registry = opts.registry ?? kernelPromptRegistry()
+  const { root, workers, delegatesByWorker, analyzes, analystNodes } = assertRunGraphAuthoring(
+    graph,
+    opts,
+    brain,
+  )
   const journal = opts.journal ?? new InMemorySpawnJournal()
   const blobs = opts.blobs ?? new InMemoryResultBlobStore()
   const runId =

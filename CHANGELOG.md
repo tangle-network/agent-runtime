@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased
+## 0.166.0
+
+### `runGraph` runs on the engine (`@tangle-network/agent-runtime/graph`)
+
+Engine build 4/4 (#982), and the migration decided in #975. **A `runGraph` caller changes nothing**: same signature, same `RunGraphOptions`, same `GraphResult`, same refusal timing, same journal tree under the same `runId`. `tests/kernel/graph.test.ts` — the 58-case compatibility bar — passes unchanged, as do the topology examples.
+
+What changed underneath: `graphFromRunGraph(graph, options, run)` compiles an `AgentGraph` into an engine graph — one supervisor root carrying the graph, one pinned `agent` node per worker, the authored `delegates`/`analyzes` edges — and `runGraph` runs that. A `runGraph` graph is therefore a first-class engine graph now: compiled, type-checked, inspectable, and composable with `data` edges and `script` nodes. The root node's body is `superviseAgentGraph`, the same function `runGraph` always called, so every property #967 measured as load-bearing — the edge ledger, `maxTraversals` + `GraphEdgeCapError`, `continuity`, directives as registry data, node pinning — is preserved by construction rather than re-implemented.
+
+Four contracts sharpened by making the preset work, each useful on its own:
+
+- **`delegates` is the MODEL-fired edge kind** (#971). Its target is spawned by the source supervisor through the coordination protocol, with the pin and the directive applied inside the kernel's authorized path — the scheduler judges nothing and releases nothing for it. `data` and `analyzes` are engine-fired. `isEngineFired(edge)` names the distinction; a node reached only by delegation is never entered by the scheduler and is never one of its terminals.
+- **`EngineGraphNode.entry`** forces a node out of (or into) the run's entry set, and **the declared `spec.root` is always an entry** — an edge feeding back into the root (a findings route to the driver, a cycle's closing edge) no longer means the graph cannot start.
+- **`maxTraversals: 0` is legal**: an edge closed from the start, refused on its first consumption and ledgered `unpropagated`. The engine previously demanded a positive integer while `runGraph` accepted zero.
+- **`assertRunGraphAuthoring`** is the authoring contract as one exported function, so a malformed graph still throws SYNCHRONOUSLY from `runGraph` even though execution now sits behind the engine's promise.
+
+### The scheduler is six modules, not one file
+
+`src/runtime/graph/scheduler.ts` was 1,180 lines and is now 791, with the parts that other code needs lifted out and reusable: `admit.ts` (edge payload admission), `ledger.ts` (the edge ledger), `join.ts` (the pure join rule), `suspension.ts` (the suspension vocabulary and token minting), `run-context.ts` (the journal/pool/scope bootstrap and the restart recipe), and `result.ts` (settle rehydration, the finalizer reduce, and no-winner classification). No behaviour changed; the preset consumes several of them directly.
 
 ### A multi-turn bridge session survives its own token counters (`bridgeExecutor`)
 
