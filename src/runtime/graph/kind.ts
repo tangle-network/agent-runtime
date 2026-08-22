@@ -130,6 +130,18 @@ export interface NodeKind<
   }) => Agent<unknown, unknown>
 }
 
+/**
+ * A kind of ANY config shape — what a registry holds and what every engine signature accepts.
+ *
+ * `NodeKind<Config>` puts `Config` in a parameter position (`run({ config })`), so it is
+ * contravariant: an array of differently-configured kinds is not assignable to
+ * `ReadonlyArray<NodeKind<unknown>>`, and every caller composing a heterogeneous kind set would
+ * need a cast. That cost belongs here, once, not at each consumer: a registry is heterogeneous by
+ * definition, and each kind validates its own config at its own boundary through
+ * `validateConfig`, which is where the type is actually enforced.
+ */
+export type AnyNodeKind = NodeKind<any, ReadonlyArray<EffectName>>
+
 /** Per-node flags a graph author sets; they are node properties, not kinds (agent-runtime#970). */
 export interface NodeFlags {
   /** An oracle — a judge, grader, auditor, trace analyst — may be bound only by an `analyzes`
@@ -144,7 +156,7 @@ export interface NodeFlags {
 
 /** Validate a kind declaration at registration — so a malformed kind is refused by name once,
  *  not at the first node that uses it. */
-export function validateNodeKind(kind: NodeKind, context = 'registerNodeKind'): NodeKind {
+export function validateNodeKind(kind: AnyNodeKind, context = 'registerNodeKind'): AnyNodeKind {
   const who = `${context}: kind ${JSON.stringify(`${kind.id}/v${kind.version}`)}`
   if (typeof kind.id !== 'string' || kind.id.length === 0) {
     throw new ValidationError(`${context}: a kind must carry a non-empty id`)

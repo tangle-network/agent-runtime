@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.167.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.168.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1246,7 +1246,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 
 ### Graph engine — node kinds, registries, host effects; the four core kinds
 
-Import from `@tangle-network/agent-runtime/graph` — 91 exports.
+Import from `@tangle-network/agent-runtime/graph` — 92 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1302,6 +1302,7 @@ Import from `@tangle-network/agent-runtime/graph` — 91 exports.
 | `RegistryHandle` | interface | A versioned name: what a graph writes and what a host registers. |
 | `SubgraphKindConfig` | interface | Config for a nesting node: the inner graph, and the pool the inner run is given. |
 | `SuspensionRequest` | interface | What a kind's executor returns to park its node until a host wakes it. |
+| `AnyNodeKind` | type | A kind of ANY config shape — what a registry holds and what every engine signature accepts. |
 | `BudgetMode` | type | Whether a kind's spend enters the conserved pool. `'metered'`: the executor reports `Spend` and |
 | `GraphRunReason` | type | Result vocabulary shared by the scheduler and the fold (agent-runtime#973, #974, #976). |
 | `JsonSchema` | type | A JSON Schema document as the kernel already spells it: an opaque record, validated by the |

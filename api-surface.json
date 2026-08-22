@@ -754,6 +754,7 @@
     },
     "./graph": {
       "AgentKindConfig": "type f3bd2a2d1ef3",
+      "AnyNodeKind": "type 55f4a92edcad",
       "BudgetMode": "type 5b16bf1d103a",
       "CONDITION_OPS": "value 373728f5643d",
       "CompiledEdge": "type c827cc9cfb25",
@@ -780,11 +781,11 @@
       "GatingEdge": "type 70dc762746b2",
       "GraphEdgeKind": "type 34a39599f5c1",
       "GraphEdgeTraversal": "type 944ec84a2f32",
-      "GraphEngine": "type 123df4556ebf",
-      "GraphEngineOptions": "type 49124e18a422",
-      "GraphFoldState": "type 58e9cdac6731",
+      "GraphEngine": "type 0d3983622bbb",
+      "GraphEngineOptions": "type b3cb071d39bd",
+      "GraphFoldState": "type 016d549f40fc",
       "GraphHost": "type 219dfa2b928a",
-      "GraphNodeSettle": "type 48123a897b3d",
+      "GraphNodeSettle": "type d529e58cbed4",
       "GraphRunContext": "type 957a71c856f3",
       "GraphRunHandle": "type cda9c61cc44b",
       "GraphRunOptions": "type cc2519718f9b",
@@ -842,7 +843,7 @@
       "suspensionNodeId": "value 3cc8081be44f",
       "tokenFromSuspensionNodeId": "value 31b9eb9e63f6",
       "validateCondition": "value 137bd8f6fb85",
-      "validateNodeKind": "value c9539e65007b",
+      "validateNodeKind": "value 816745aa3700",
       "validateProjection": "value 1b85f3019844"
     },
     "./intelligence": {

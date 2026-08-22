@@ -12,6 +12,10 @@ export type GraphRunReason =
 export interface GraphNodeSettle {
   readonly node: string
   readonly visit: number
+  /** Run-wide settle ordinal. `GraphRunResult.settles` is sorted by it, so the array reads in the
+   *  order the run actually settled — not grouped by node, which is what a reader assumes and
+   *  what the first consumer of this API tripped on. */
+  readonly seq: number
   readonly status: 'done' | 'down'
   /** The node's completion check verdict; `undefined` when the node declares no check. */
   readonly valid?: boolean

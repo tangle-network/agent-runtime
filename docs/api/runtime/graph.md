@@ -347,7 +347,7 @@ Becomes the ROOT node's completion check when the root declares none (#973).
 
 ##### kinds?
 
-> `readonly` `optional` **kinds?**: readonly [`NodeKind`](#nodekind)\<`unknown`, readonly `string`[]\>[]
+> `readonly` `optional` **kinds?**: readonly [`AnyNodeKind`](#anynodekind)[]
 
 Kinds to register beside the core set. A host adds its own here; nothing is global.
 
@@ -359,7 +359,7 @@ The host's effect table, by name. A kind receives only the effects it declared.
 
 ##### coreKinds
 
-> `readonly` **coreKinds**: readonly [`NodeKind`](#nodekind)\<`unknown`, readonly `string`[]\>[]
+> `readonly` **coreKinds**: readonly [`AnyNodeKind`](#anynodekind)[]
 
 The core set. Injected so a test can substitute, and so the engine never imports a
  backend-specific factory at module load.
@@ -372,7 +372,7 @@ The core set. Injected so a test can substitute, and so the engine never imports
 
 ##### kinds
 
-> `readonly` **kinds**: [`Registry`](#registry)\<[`NodeKind`](#nodekind)\<`unknown`, readonly `string`[]\>\>
+> `readonly` **kinds**: [`Registry`](#registry)\<[`AnyNodeKind`](#anynodekind)\>
 
 ##### effects
 
@@ -529,6 +529,16 @@ The admitted source payload this state reflects (the source settle's outRef).
 ### GraphFoldState
 
 #### Properties
+
+##### settleSeq
+
+> **settleSeq**: `object`
+
+Next settle ordinal; the fold is the only writer, so replay reproduces the same order.
+
+###### value
+
+> **value**: `number`
 
 ##### nodes
 
@@ -1182,6 +1192,14 @@ One node settlement as the graph result reports it.
 
 > `readonly` **visit**: `number`
 
+##### seq
+
+> `readonly` **seq**: `number`
+
+Run-wide settle ordinal. `GraphRunResult.settles` is sorted by it, so the array reads in the
+ order the run actually settled — not grouped by node, which is what a reader assumes and
+ what the first consumer of this API tripped on.
+
 ##### status
 
 > `readonly` **status**: `"done"` \| `"down"`
@@ -1471,6 +1489,21 @@ to the live process (the bridge backend's session re-attachment is the existing 
 Whether a kind's spend enters the conserved pool. `'metered'`: the executor reports `Spend` and
 settling without one is an ENGINE ERROR — never "free". `'exempt'`: the whole reservation is
 refunded on settle, keeping the node out of Σk by construction (the kernel's `budgetExempt`).
+
+***
+
+### AnyNodeKind
+
+> **AnyNodeKind** = [`NodeKind`](#nodekind)\<`any`, `ReadonlyArray`\<[`EffectName`](#effectname)\>\>
+
+A kind of ANY config shape — what a registry holds and what every engine signature accepts.
+
+`NodeKind<Config>` puts `Config` in a parameter position (`run({ config })`), so it is
+contravariant: an array of differently-configured kinds is not assignable to
+`ReadonlyArray<NodeKind<unknown>>`, and every caller composing a heterogeneous kind set would
+need a cast. That cost belongs here, once, not at each consumer: a registry is heterogeneous by
+definition, and each kind validates its own config at its own boundary through
+`validateConfig`, which is where the type is actually enforced.
 
 ***
 
@@ -1904,7 +1937,7 @@ readonly [`GatingEdge`](#gatingedge)[]
 
 ### validateNodeKind()
 
-> **validateNodeKind**(`kind`, `context?`): [`NodeKind`](#nodekind)
+> **validateNodeKind**(`kind`, `context?`): [`AnyNodeKind`](#anynodekind)
 
 Validate a kind declaration at registration — so a malformed kind is refused by name once,
  not at the first node that uses it.
@@ -1913,7 +1946,7 @@ Validate a kind declaration at registration — so a malformed kind is refused b
 
 ##### kind
 
-[`NodeKind`](#nodekind)
+[`AnyNodeKind`](#anynodekind)
 
 ##### context?
 
@@ -1921,7 +1954,7 @@ Validate a kind declaration at registration — so a malformed kind is refused b
 
 #### Returns
 
-[`NodeKind`](#nodekind)
+[`AnyNodeKind`](#anynodekind)
 
 ***
 

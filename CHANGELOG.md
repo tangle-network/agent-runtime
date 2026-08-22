@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.168.0
+
+### The first example authored against the ENGINE, and the wart it found
+
+`examples/engine/review-loop.ts` is a PR review as an engine graph: a `build` node, three auditors fanned out on `data` edges, a `verdict` node joined `all` over them, and a guarded rebuild edge back to `build` capped at three traversals. Round 1 ships a hardcoded secret and security rejects it; round 2 leaves a bare `any` and style rejects it; round 3 is clean and ships. Every node is a `script` kind, so it runs offline, deterministically, with no credentials: `pnpm tsx examples/engine/review-loop.ts`.
+
+It exists because until now nothing outside the engine's own tests authored an engine graph, and "it works" was a claim with no user. It exercises fan-out, `join: 'all'`, guards on both arms of the same output, a bounded cycle, one pure edge projection, and the terminal finalizer — in one run. `tests/examples/engine-review-loop.test.ts` pins all of it, including the arm a successful run cannot show: a build that never satisfies its reviewers is ended by the edge cap with `GraphEdgeCapError`, not left to spin.
+
+**A second wart, same source:** `createGraphEngine({ coreKinds: [...] })` would not accept an array of differently-configured kinds. `NodeKind<Config>` puts `Config` in a parameter position, so it is contravariant and a heterogeneous set is not assignable to `ReadonlyArray<NodeKind<unknown>>` — every consumer composing a kind set needed a cast, which the example needed on its first line. `AnyNodeKind` now carries that cost once, inside the engine, where a registry is heterogeneous by definition and each kind validates its own config through `validateConfig` anyway.
+
+**What writing it found first:** `GraphRunResult.settles` was grouped by node, not chronological, because `materializeSettles` flat-mapped over the node map. Any consumer reading a run in order — which is the obvious thing to do — got a wrong answer, and the example's join-ordering assertion caught it on first run. `GraphNodeSettle` now carries a run-wide `seq` assigned by the fold (so replay reproduces the same order) and `settles` is sorted by it. That is a behaviour change for anyone who depended on the grouping, which is why it is a minor.
+
 ## 0.167.0
 
 ### Correction: `runGraph` did NOT run on the engine, and now it honestly doesn't
