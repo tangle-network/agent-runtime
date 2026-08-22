@@ -28,6 +28,7 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { RuntimeRunStateError, ValidationError } from '../../errors'
 import type { McpToolDescriptor } from '../../mcp/server'
 import {
@@ -136,6 +137,9 @@ export interface DriverAgentOptions {
   /** OPT-IN async gate run before every spawn mints an assignment or reserves budget. See
    *  `CoordinationToolsOptions.preflightSpawn`. */
   readonly preflightSpawn?: SpawnPreflight
+  /** Pre-journal profile resolution for `preflightSpawn`; see
+   *  `CoordinationToolsOptions.resolveSpawnProfile`. */
+  readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** The driver's stance — a string, or built from the task (the worker-driver prompt /
    *  the generator). INJECTED so the prompt is a pluggable, optimizable role. */
   readonly systemPrompt: string | ((task: unknown) => string)
@@ -768,6 +772,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
+        ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),
         ...(opts.priorCoordination?.questions.length

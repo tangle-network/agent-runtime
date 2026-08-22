@@ -1107,7 +1107,23 @@ Override the worker seam directly (tests / advanced) instead of deriving it from
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`makeWorkerAgent`](runtime.md#makeworkeragent-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`makeWorkerAgent`](runtime.md#makeworkeragent-1)
+
+##### makeLeafAgent?
+
+> `readonly` `optional` **makeLeafAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
+
+Override ONLY how an authorized LEAF executes, keeping the whole backend-derived path —
+ profile security, spawn authorization, recursive-driver selection, nested supervisors — in
+ force. Unlike `makeWorkerAgent`, which replaces that path, this slots inside it: the kernel
+ authorizes and classifies every spawn, and a child that is NOT a driver runs through this
+ factory instead of `backend`. A child that IS a driver still becomes a nested supervisor, whose
+ own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
+ This is the seam an offline test or a pinning layer (an agent graph) should use.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`makeLeafAgent`](runtime.md#makeleafagent-1)
 
 ##### driverBackend?
 
@@ -1192,6 +1208,20 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 `number`
 
+###### analyst?
+
+`string`
+
+Present (as the analyst id) only when the runtime's analyst-on-settle hook initiated this
+ spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
+ authority reads it to admit the analyst node it would refuse as a driver-authored spawn.
+
+###### continuity?
+
+[`ContinuityMode`](runtime.md#continuitymode)
+
+The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
+
 ###### Returns
 
 [`AuthorizedSpawn`](runtime.md#authorizedspawn)
@@ -1255,6 +1285,43 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-5)
+
+##### rootDriverFromBackend?
+
+> `readonly` `optional` **rootDriverFromBackend?**: `boolean`
+
+When `driverBackend` is absent, whether an external-harness ROOT may default to running on
+ `backend` (where workers run). `true` (default) keeps the convenience every direct caller has.
+ A layer that gives `backend` a narrower meaning — `runGraph`, where it places WORKER nodes only
+ — sets `false`, so an external root without an explicit `driverBackend` is refused before any
+ compute rather than silently driven from the worker placement.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`rootDriverFromBackend`](runtime.md#rootdriverfrombackend)
+
+##### resolveSpawnProfile?
+
+> `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
+
+Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
+ the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
+ sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
+ canonical profile. Identity-free and synchronous; throw to refuse.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSpawnProfile`](runtime.md#resolvespawnprofile)
 
 ##### driveHarness?
 

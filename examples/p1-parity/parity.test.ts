@@ -271,7 +271,7 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
     const chatRequests: Array<Record<string, unknown>> = []
     const backend: GraphArmBackend = {
       kind: 'seam',
-      makeWorkerAgent: chatWorkerSeam({
+      makeLeafAgent: chatWorkerSeam({
         url: 'http://offline.invalid',
         deliverable: {
           describe: cell.task,

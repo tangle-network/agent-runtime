@@ -4017,6 +4017,27 @@ assignment, no reservation, no journal entry, no worker — and the refusal is c
 Returning `undefined` admits the spawn. A THROW is not a refusal: it propagates, because a
 pre-flight that fails open would hand back exactly the silent admission it exists to stop.
 
+##### resolveSpawnProfile?
+
+> `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
+
+OPT-IN pre-journal PROFILE resolution: maps the profile a driver authored to the profile that
+will actually run, before `preflightSpawn` asks the backend about it. A layer that pins
+profiles by name (an agent graph) installs this so the gate judges the canonical profile —
+its real model, tools and harness — never the `{ name }` stub the driver wrote. Synchronous,
+throw-on-refusal, identity-free: it sees only the profile, never the assignment or budget,
+because both are minted AFTER the pre-journal point. Omit = the authored profile is used.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
 ***
 
 ### CoordinationTools

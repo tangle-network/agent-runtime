@@ -20,6 +20,7 @@
  */
 
 import { createServer, type Server } from 'node:http'
+import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError } from '../../errors'
 import type { JsonRpcMessage } from '../../mcp/protocol'
 import { createMcpServer, type McpToolDescriptor } from '../../mcp/server'
@@ -153,6 +154,9 @@ export async function serveCoordinationMcp(opts: {
    *  pre-journal point that may ask the backend a question. See
    *  `CoordinationToolsOptions.preflightSpawn`. */
   preflightSpawn?: SpawnPreflight
+  /** Pre-journal profile resolution for `preflightSpawn`; see
+   *  `CoordinationToolsOptions.resolveSpawnProfile`. */
+  resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** Called with this server's coordination tool descriptors once they exist and BEFORE the
    *  listener opens — the seam a caller uses to give an already-bound node tool a way to call the
    *  same verbs in code (`SupervisorToolInvocationContext.verbs`). */
@@ -195,6 +199,7 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
+    ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.peerMail
       ? {
           peerMail:

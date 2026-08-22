@@ -120,7 +120,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
 
   const opts: RunGraphTestOptions = {
     runId: 'wd',
-    makeWorkerAgent: seam,
+    makeLeafAgent: seam,
     brain,
     watchWorkers: { maxFindingsPerWorker: 1 },
   }

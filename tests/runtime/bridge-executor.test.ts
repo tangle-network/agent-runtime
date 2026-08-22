@@ -78,6 +78,25 @@ vi.mock('node:http', async () => {
             cb(capability)
             return
           }
+          // The spawn pre-flight asks two route/admission questions before any turn. Answer both
+          // "yes, routed; no admission cap" so a graph over this fake bridge reaches its turns —
+          // the preflight now runs under runGraph because pinning is spawn authorization (#965).
+          if (
+            (opts as { method?: string }).method === 'GET' &&
+            (url.pathname === '/v1/capabilities' || url.pathname === '/health')
+          ) {
+            const answer = new PassThrough() as Readable & {
+              statusCode?: number
+              headers?: Record<string, string>
+            }
+            answer.statusCode = 200
+            answer.headers = { 'content-type': 'application/json' }
+            answer.end(
+              url.pathname === '/health' ? JSON.stringify({ ok: true }) : JSON.stringify({}),
+            )
+            cb(answer)
+            return
+          }
           lastBridgeRequestBody = body
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')

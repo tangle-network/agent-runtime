@@ -131,7 +131,7 @@ export function offlineGraphBackend(
     valid: outcome === 'pass',
   }))
   const seam = leafSeam(spawnedProfiles, { [coder]: { withTrace: true, shots } })
-  const makeWorkerAgent: MakeWorkerAgent = (profile, context) => {
+  const makeLeafAgent: MakeWorkerAgent = (profile, context) => {
     spawnedTasks.push(context?.task)
     return seam(profile, context)
   }
@@ -162,7 +162,7 @@ export function offlineGraphBackend(
   return {
     backend: {
       kind: 'seam',
-      makeWorkerAgent,
+      makeLeafAgent,
       brain: meteredScriptedBrain(turns),
       shotPassed: offlineShotPassed,
     },

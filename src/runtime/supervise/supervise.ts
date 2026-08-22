@@ -1036,6 +1036,14 @@ export interface SuperviseOptions {
    *  selection below apply only to the backend-derived worker path. `authorizeMessage` still
    *  governs continuations sent through Runtime's coordination tools. */
   readonly makeWorkerAgent?: MakeWorkerAgent
+  /** Override ONLY how an authorized LEAF executes, keeping the whole backend-derived path —
+   *  profile security, spawn authorization, recursive-driver selection, nested supervisors — in
+   *  force. Unlike `makeWorkerAgent`, which replaces that path, this slots inside it: the kernel
+   *  authorizes and classifies every spawn, and a child that is NOT a driver runs through this
+   *  factory instead of `backend`. A child that IS a driver still becomes a nested supervisor, whose
+   *  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
+   *  This is the seam an offline test or a pinning layer (an agent graph) should use. */
+  readonly makeLeafAgent?: MakeWorkerAgent
   /** Run harness-brained supervisors here. Automatic execution supports a local `bridge`; a remote
    *  sandbox requires an explicit `driveHarness` with a reachable coordination relay or tunnel.
    *  Defaults to `backend`; separate it when managers and workers use different services. */
@@ -1062,6 +1070,12 @@ export interface SuperviseOptions {
     readonly label: string
     readonly key?: string
     readonly depth: number
+    /** Present (as the analyst id) only when the runtime's analyst-on-settle hook initiated this
+     *  spawn — authored by the runtime, never accepted from a driver's tool arguments. A node-pinning
+     *  authority reads it to admit the analyst node it would refuse as a driver-authored spawn. */
+    readonly analyst?: string
+    /** The EFFECTIVE continuity of this spawn, resolved by the coordination layer. */
+    readonly continuity?: ContinuityMode
   }) => AuthorizedSpawn
   /** Product authority over every continuation sent to a live child. When spawn authorization is
    * enabled, omitting this refuses steer/answer instructions instead of silently extending the
@@ -1080,6 +1094,17 @@ export interface SuperviseOptions {
   /** The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
    *  model wins. */
   readonly router?: RouterTransportConfig
+  /** When `driverBackend` is absent, whether an external-harness ROOT may default to running on
+   *  `backend` (where workers run). `true` (default) keeps the convenience every direct caller has.
+   *  A layer that gives `backend` a narrower meaning — `runGraph`, where it places WORKER nodes only
+   *  — sets `false`, so an external root without an explicit `driverBackend` is refused before any
+   *  compute rather than silently driven from the worker placement. */
+  readonly rootDriverFromBackend?: boolean
+  /** Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
+   *  the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
+   *  sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
+   *  canonical profile. Identity-free and synchronous; throw to refuse. */
+  readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -1343,6 +1368,8 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     watchWorkers,
     analysts,
     makeWorkerAgent,
+    makeLeafAgent,
+    resolveSpawnProfile,
     blobs,
     journal,
     probes,
@@ -1429,6 +1456,8 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(capturedWatchWorkers === undefined ? {} : { watchWorkers: capturedWatchWorkers }),
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
+    ...(makeLeafAgent === undefined ? {} : { makeLeafAgent }),
+    ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
     ...(probes === undefined ? {} : { probes }),
@@ -1686,7 +1715,12 @@ function superviseInternal(
   const canonicalTask = freezeDetached(task)
   if (options.makeWorkerAgent && options.authorizeSpawn) {
     throw new ValidationError(
-      'supervise: authorizeSpawn cannot be combined with caller-owned makeWorkerAgent; wrap and authorize the custom factory explicitly or use backend-derived workers',
+      'supervise: authorizeSpawn cannot be combined with caller-owned makeWorkerAgent; use makeLeafAgent to override leaf execution inside the authorized path, or use backend-derived workers',
+    )
+  }
+  if (options.makeWorkerAgent && options.makeLeafAgent) {
+    throw new ValidationError(
+      'supervise: makeWorkerAgent replaces the worker path and makeLeafAgent overrides a leaf inside it; pass one',
     )
   }
   if (options.makeWorkerAgent && options.resolveDeliverable) {
@@ -1788,7 +1822,8 @@ function superviseInternal(
         await options.onCoordinationEvent?.(context, coordinationEventId(context, event), record)
       }
     : undefined
-  const managerBackend = options.driverBackend ?? options.backend
+  const managerBackend =
+    options.driverBackend ?? (options.rootDriverFromBackend === false ? undefined : options.backend)
   // Derived from the backend the run already declares — no new knob. Only a bridge can answer the
   // route and admission questions, so only a bridge backend installs one.
   const spawnPreflight: SpawnPreflight | undefined =
@@ -1914,12 +1949,15 @@ function superviseInternal(
 
   let makeWorkerAgent = options.makeWorkerAgent
   if (!makeWorkerAgent) {
-    if (!options.backend) {
+    if (!options.backend && !options.makeLeafAgent) {
       throw new ValidationError(
-        'supervise: provide opts.backend (where workers run) or opts.makeWorkerAgent',
+        'supervise: provide opts.backend (where workers run), opts.makeLeafAgent, or opts.makeWorkerAgent',
       )
     }
-    const makeLeaf = workerFromBackend(options.backend, deliverable)
+    // A caller-owned leaf factory slots in here, under the same authorization and classification
+    // every backend-derived leaf gets; `backend` is then only needed for a per-spawn deliverable.
+    const makeLeaf =
+      options.makeLeafAgent ?? workerFromBackend(options.backend as ExecutorConfig, deliverable)
     const securityPolicy = options.profileSecurity ?? DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY
 
     const makeRecursiveWorkerFor = (
@@ -1944,6 +1982,8 @@ function superviseInternal(
           label: spawnContext.label,
           ...(spawnContext.key !== undefined ? { key: spawnContext.key } : {}),
           depth,
+          ...(spawnContext.analyst !== undefined ? { analyst: spawnContext.analyst } : {}),
+          ...(spawnContext.continuity !== undefined ? { continuity: spawnContext.continuity } : {}),
         })
         const decision = options.authorizeSpawn
           ? freezeDetached(options.authorizeSpawn(authorizationInput))
@@ -2006,6 +2046,11 @@ function superviseInternal(
                   selectedDeliverable,
                   `supervise deliverable for ${JSON.stringify(spawnContext.label)}`,
                 )
+          if (leafDeliverable !== deliverable && !options.backend) {
+            throw new ValidationError(
+              'supervise: resolveDeliverable selected a per-spawn deliverable but there is no backend to derive that leaf from; makeLeafAgent owns its own completion check',
+            )
+          }
           const makeSelectedLeaf =
             leafDeliverable === deliverable
               ? makeLeaf
@@ -2097,6 +2142,12 @@ function superviseInternal(
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
           ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
+          ...(options.resolveSpawnProfile
+            ? { resolveSpawnProfile: options.resolveSpawnProfile }
+            : {}),
+          ...(options.resolveSpawnProfile
+            ? { resolveSpawnProfile: options.resolveSpawnProfile }
+            : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -2172,6 +2223,7 @@ function superviseInternal(
       ...(finalizer ? { finalizer } : {}),
       ...(options.coordination ? { coordination: options.coordination } : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
+      ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),

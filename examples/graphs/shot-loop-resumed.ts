@@ -57,7 +57,7 @@ export function shotLoopResumed(): {
   const contexts: Array<WorkerSpawnContext | undefined> = []
   const opts: RunGraphTestOptions = {
     runId: 'rshots',
-    makeWorkerAgent: leafSeam(
+    makeLeafAgent: leafSeam(
       received,
       {
         // Shots 1 and 2 fail their tests; shot 3 — resumed twice from the same session — passes.

@@ -211,7 +211,7 @@ describe('model-decided composition — the graph family', () => {
     // The graph is identical to the one whose worker DOES run in `graph.test.ts`; only the brain
     // differs. This brain never emits `spawn_agent`.
     const res = await runGraph(twoNodeGraph(), {
-      makeWorkerAgent: countingSeam(received),
+      makeLeafAgent: countingSeam(received),
       brain: scriptedBrain([{ content: 'I decline to delegate.' }]),
     })
 
@@ -225,7 +225,7 @@ describe('model-decided composition — the graph family', () => {
   it('the same graph runs its worker when the model does ask — the seam is the brain, not the edge', async () => {
     const received: AgentProfile[] = []
     const res = await runGraph(twoNodeGraph(), {
-      makeWorkerAgent: countingSeam(received),
+      makeLeafAgent: countingSeam(received),
       brain: scriptedBrain([
         {
           toolCalls: [
