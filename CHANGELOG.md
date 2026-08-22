@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.163.0
+
+### The graph runs: a scheduler over guarded, typed edges (`@tangle-network/agent-runtime/graph`)
+
+Engine build 2/4 (#980). Build 1 gave a graph its vocabulary; this release makes a graph RUN. `compileGraph` lowers an authored `EngineGraphSpec` against an engine's kind registry, and `runEngineGraph` schedules it by hosting every node instance on one kernel `Scope` — the pool, the journal, the blob store and cancellation stay the kernel's; the scheduler owns only what a graph adds.
+
+- **One predicate tree, one projection.** Every guard — on any edge kind — is the same bounded `all`/`any`/`not` tree over `{ path, op, value }` leaves (ten operators, no regex, 40-node/6-deep caps), adopted from ADC so a comparison can never mean two things on two surfaces. A `data` edge may carry exactly ONE pure projection (`path`/`pick`/`map`/`filter`/`first`/`last`/`count`); anything richer is a script NODE, journaled and typed.
+- **Three edge kinds over typed ports.** `delegates` (directive appended to the target's task), `analyzes` (the source's `trace` into an oracle), `data` (port→port, engine-resolved, structurally type-checked at compile). Node-level `ports` merge over the kind's, so a script node declares its own surface. The compiler refuses before any spend: an unknown kind, a missing port, a schema that cannot fit, a `delegates`/`data` edge into an `oracle` node, a graph none of whose terminals carries a completion check.
+- **ADC's join semantics, adopted whole.** `all | any | any_failed | all_done` decide release; an edge settles satisfied/dead/failed per its source's LATEST completion; a release consumes the wave (settled edges re-arm; an edge with an in-flight completion is consumed-once, so an OR-diamond's second completer never double-fires).
+- **Two cycle bounds with distinct meaning (#973).** Per-edge `maxTraversals` refuses the consumption, ledgers `unpropagated`, and a run it leaves winnerless throws `GraphEdgeCapError`; per-node `maxVisits` (default 25, cap 100) fails the run `cycle-budget-exceeded`. The pool stays the real bound: a spawn that cannot reserve parks and retries after the next settle, never overcommits.
+- **Terminals, honestly.** The result carries EVERY terminal settlement; the kernel's finalizer seam (`bestDelivered` default, `collectDelivered`, or custom) reduces them to `out`. A guarded route that can never fire marks its downstream `unreachable`, and a run whose terminal is among them ends `no-winner/unreachable-terminal` — the honest reason, not a stall.
+
+The journal's `edge` event gains an additive `data` arm (`directive` optional, `port` recorded); replay skips edge events as before.
+
 ## 0.162.0
 
 ### A graph engine core: node kinds, registries, host effects (`@tangle-network/agent-runtime/graph`)
