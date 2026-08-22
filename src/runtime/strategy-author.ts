@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { strategyAuthorMethod } from '../improvement/optimizer-prompt'
+import { assertAuthoredCode } from './authored-code'
 import { profileChatClient } from './profile-chat-client'
 import type { Strategy } from './strategy'
 import type { ExecutorConfig } from './supervise/runtime'
@@ -119,26 +120,10 @@ export const strategyAuthorSystemPrompt =
  *      equal-budget comparisons between strategies valid.
  *  A lint, not a sandbox: its job is keeping the benchmark numbers interpretable. */
 export function assertStrategyContract(code: string): void {
-  const allowedImport =
-    /^\s*import\s+\{[^}]*\}\s+from\s+['"]@tangle-network\/agent-runtime\/kernel['"]/
-  for (const line of code.split('\n')) {
-    if (/^\s*import\s/.test(line) && !allowedImport.test(line)) {
-      throw new Error(`authored code rejected: foreign import — ${line.trim().slice(0, 120)}`)
-    }
-  }
-  const banned: Array<[RegExp, string]> = [
-    [/\brequire\s*\(/, 'require()'],
-    [/\bimport\s*\(/, 'dynamic import()'],
-    [/\beval\s*\(/, 'eval()'],
-    [/new\s+Function\s*\(/, 'new Function()'],
-    [/\bprocess\s*[.[]/, 'process access'],
-    [/\bglobalThis\s*[.[]/, 'globalThis access'],
-    [/\bfetch\s*\(/, 'network access'],
-    [/child_process|node:fs|node:net|node:http|worker_threads/, 'node builtin access'],
-  ]
-  for (const [re, what] of banned) {
-    if (re.test(code)) throw new Error(`authored code rejected: ${what}`)
-  }
+  // The shared authored-code lint, with this contract's one allowed import. Marginally looser
+  // than the pre-0.169.1 check on purpose: any import FORM of the kernel module passes (the lint
+  // gates which module, not the syntax), and the refusal is a ValidationError.
+  assertAuthoredCode(code, { allowedImports: ['@tangle-network/agent-runtime/kernel'] })
 }
 
 export interface AuthoredStrategy {

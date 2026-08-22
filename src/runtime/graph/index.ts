@@ -7,6 +7,7 @@
  */
 
 export {
+  type AuthoredCodeOptions,
   assertAuthoredCode,
   type CodeAuthor,
   type CodeModeConfig,

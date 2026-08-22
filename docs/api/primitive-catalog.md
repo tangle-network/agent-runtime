@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.169.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.170.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1246,7 +1246,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 
 ### Graph engine — node kinds, registries, host effects; the four core kinds
 
-Import from `@tangle-network/agent-runtime/graph` — 102 exports.
+Import from `@tangle-network/agent-runtime/graph` — 103 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1255,7 +1255,7 @@ Import from `@tangle-network/agent-runtime/graph` — 102 exports.
 | `applyGraphFoldEvent` | function | Apply ONE journal event. The live scheduler calls this right after each append; the restart path |
 | `applyProjection` | function | Apply a validated projection to an admitted payload. Collection operators over a non-array |
 | `assembleGraphResult` | function | Turn a finished run into its result: rehydrate, reduce the terminals, classify a no-winner. |
-| `assertAuthoredCode` | function | Refuse the obvious escapes in authored source. A LINT, not a sandbox: it reads text and cannot |
+| `assertAuthoredCode` | function | Refuse the obvious escapes in authored source. See the module doc for what this is NOT. |
 | `codemodeKind` | function | A node that asks a model for a program and runs it. Declares the two effects it cannot supply |
 | `compileGraph` | function | Lower an authored graph against an engine's kind registry into the schedulable form, refusing |
 | `createEdgeLedger` | function | Open a ledger for one run; its ordinals continue past whatever a prior process recorded. |
@@ -1318,7 +1318,7 @@ Import from `@tangle-network/agent-runtime/graph` — 102 exports.
 | `OnCrash` | type | What happens to a node that was IN FLIGHT when the process died. A settled node is never a |
 | `ScriptBody` | type | The caller code a `script` node runs. Receives the resolved inputs; returns the output. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `CodeModeConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EdgeLedger`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GatingEdge`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunContext`, `GraphRunOptions`, `JoinDecision`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `EffectName`, `FinalizerChoice`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `AuthoredCodeOptions`, `CodeModeConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EdgeLedger`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GatingEdge`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunContext`, `GraphRunOptions`, `JoinDecision`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `EffectName`, `FinalizerChoice`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 
