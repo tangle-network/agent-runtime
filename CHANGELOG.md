@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.167.0
+
+### Correction: `runGraph` did NOT run on the engine, and now it honestly doesn't
+
+0.166.0's entry said "`runGraph` runs on the engine". An audit says that was false in the way that matters. The preset scheduled exactly **one** node whose executor called `superviseAgentGraph` — the entire pre-engine implementation — while every worker node was marked `entry: false` and never scheduled. Execution was 100% the old path. What the wrapper did add was real: a second journal tree (`<runId>:engine`), a second budget pool over the same budget, a second `Scope`, and a capture cell to smuggle a typed error back out through the JSON admission boundary. A layer that moves no behaviour is a second source of truth, so it is deleted.
+
+**`runGraph` calls `superviseAgentGraph` directly again**, as it did before 0.166.0. Its signature, options, result, refusal timing and journal tree are unchanged — the 58-case `tests/kernel/graph.test.ts` still passes unchanged, now for the honest reason that the code path is the one those tests were written against. `graphFromRunGraph(graph, options)` remains, and is what #975 actually asked for: a **pure compiler** that lowers an `AgentGraph` into an engine graph so a consumer can inspect it, diff it, and author natively from there. `tests/graph/preset-run-graph.test.ts` pins what it emits and proves `compileGraph` accepts the result. `preset-run-graph.ts` goes 267 → 82 lines; `RunGraphBody`, `RunGraphCapture`, `RunGraphNodeConfig`, `RunGraphNodeOut`, `runGraphKind`, `runGraphEngine` and `runGraphThroughEngine` are gone with the wrapper.
+
+### `subgraph` runs: the engine nests
+
+0.162.0 shipped `subgraph` as one of "the four core kinds" while its `run` threw `cannot run yet — the scheduler … lands in agent-runtime#980`. #980 shipped in 0.163.0 and the message was never updated, so the engine has been claiming four kinds and executing three.
+
+A subgraph node now runs its inner graph as a full engine run on the SAME kinds and effects, with its own scope, pool and journal tree under a derived run id, and hands the inner result up as its output. `NodeKind.run` gains an optional `host: GraphHost` that the scheduler supplies — the contract a nesting kind needs, declared in `kind.ts` so the contract module stays dependency-free. A subgraph constructed outside a scheduler refuses by name instead of pretending.
+
+### The model-fired edge, finally tested
+
+`delegates` was declared MODEL-fired in 0.166.0 with no test exercising it through the scheduler; only `data` edges were covered. `tests/graph/scheduler.test.ts` now proves it: a delegation target is not an entry, is not a terminal, never runs on its own, and produces no ledger row, because only its supervisor may spawn it.
+
 ## 0.166.1
 
 ### The `agent-eval` peer range admits 0.170.0

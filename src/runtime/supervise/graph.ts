@@ -61,7 +61,6 @@ import type {
   MakeWorkerAgent,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
-import { runGraphThroughEngine } from '../graph/preset-run-graph'
 import { harnessRunsAgent } from '../harness-role'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
@@ -664,11 +663,7 @@ function stringifyPayload(payload: unknown): string {
  */
 export function runGraph(graph: AgentGraph, opts: RunGraphOptions): Promise<GraphResult> {
   const { brain, ...runtimeOptions } = opts
-  // The preset compiles this graph into an engine graph and runs it there (agent-runtime#982). The
-  // signature, the options and the result are unchanged: a caller sees no difference, including
-  // the timing of a refusal — the authoring contract is asserted here, synchronously, first.
-  assertRunGraphAuthoring(graph, runtimeOptions, brain)
-  return runGraphThroughEngine(graph, runtimeOptions, superviseAgentGraph, brain)
+  return superviseAgentGraph(graph, runtimeOptions, brain)
 }
 
 /** Alias for graph tests written before `RunGraphOptions.brain` was production. The production
@@ -678,8 +673,7 @@ export function runGraphWithTestBrain(
   opts: RunGraphTestOptions,
 ): Promise<GraphResult> {
   const { brain, ...runtimeOptions } = opts
-  assertRunGraphAuthoring(graph, runtimeOptions, brain)
-  return runGraphThroughEngine(graph, runtimeOptions, superviseAgentGraph, brain)
+  return superviseAgentGraph(graph, runtimeOptions, brain)
 }
 
 /**

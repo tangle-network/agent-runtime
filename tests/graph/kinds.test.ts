@@ -95,12 +95,12 @@ describe('kind config validation names the node and the field', () => {
     ).toThrow(/agent kind: node "w" has no backend/)
   })
 
-  it('subgraph registers and compiles but refuses to RUN by name until the scheduler lands', () => {
+  it('subgraph refuses by name when nothing hosts it — a nested graph needs its engine', () => {
     const kind = subgraphKind()
     expect(kind.validateConfig({ graph: { nodes: [] } }, 'n')).toEqual({ graph: { nodes: [] } })
     expect(() =>
       kind.run({ config: { graph: {} }, profile: testAgentProfile('sg'), inputs: {}, effects: {} }),
-    ).toThrow(/subgraph kind: node "sg" cannot run yet — the scheduler .* agent-runtime#980/)
+    ).toThrow(/subgraph kind: node "sg" needs its hosting engine/)
   })
 })
 

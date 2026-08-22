@@ -248,3 +248,100 @@ describe('runEngineGraph — the scheduler over guarded, typed edges', () => {
     )
   })
 })
+
+describe('nesting — a subgraph node runs its own graph on the same engine', () => {
+  it('runs the inner graph and hands its winner up as the node output', async () => {
+    const inner: EngineGraphSpec = {
+      nodes: [
+        script('inner-seed', () => ({ n: 7 })),
+        script('inner-sink', (inputs) => ({ doubled: Number((inputs.n as { n: number }).n) * 2 }), {
+          ports: { inputs: [{ name: 'n', schema: { type: 'object' } }] },
+          deliverable: { check: (out: unknown) => (out as { doubled: number }).doubled === 14 },
+        }),
+      ],
+      edges: [
+        { kind: 'data', from: { node: 'inner-seed' }, to: { node: 'inner-sink', port: 'n' } },
+      ],
+    }
+    const outer: EngineGraphSpec = {
+      nodes: [
+        {
+          id: 'nest',
+          kind: 'subgraph/v1',
+          config: { graph: inner, budget, perNode },
+          deliverable: { check: (out: unknown) => (out as { kind: string }).kind === 'winner' },
+        },
+      ],
+      edges: [],
+    }
+    const res = await runEngineGraph(engine(), outer, 'go', { budget, perNode })
+    expect(res.kind).toBe('winner')
+    if (res.kind !== 'winner') return
+    expect(res.out).toEqual({ kind: 'winner', out: { doubled: 14 } })
+  })
+
+  it('a nested run that finds no winner surfaces that, and the outer node is not delivered', async () => {
+    const inner: EngineGraphSpec = {
+      nodes: [
+        script('inner-only', () => ({ ok: false }), {
+          deliverable: { check: (out: unknown) => (out as { ok: boolean }).ok },
+        }),
+      ],
+      edges: [],
+    }
+    const outer: EngineGraphSpec = {
+      nodes: [
+        {
+          id: 'nest',
+          kind: 'subgraph/v1',
+          config: { graph: inner, budget, perNode },
+          deliverable: { check: (out: unknown) => (out as { kind: string }).kind === 'winner' },
+        },
+      ],
+      edges: [],
+    }
+    const res = await runEngineGraph(engine(), outer, 'go', { budget, perNode })
+    expect(res.kind).toBe('no-winner')
+  })
+})
+
+describe('delegates is MODEL-fired — the scheduler never enters its target', () => {
+  it('a delegates target is not an entry, not a terminal, and never runs on its own', async () => {
+    const ran: string[] = []
+    const spec: EngineGraphSpec = {
+      nodes: [
+        script(
+          'lead',
+          () => {
+            ran.push('lead')
+            return { done: true }
+          },
+          { deliverable: { check: (out: unknown) => (out as { done: boolean }).done } },
+        ),
+        script('worker', () => {
+          ran.push('worker')
+          return { built: true }
+        }),
+      ],
+      edges: [
+        {
+          kind: 'delegates',
+          from: { node: 'lead' },
+          to: { node: 'worker' },
+          directive: { surface: 'graph/delegate', version: 1 },
+        },
+      ],
+    }
+    const res = await runEngineGraph(engine(), spec, 'go', {
+      budget,
+      perNode,
+      // A delegates directive is resolved by the supervisor that spawns the target, never by the
+      // scheduler — so no prompt registry is required for it here.
+    })
+    expect(res.kind).toBe('winner')
+    // The lead ran; the worker did NOT, because only its supervisor may spawn it.
+    expect(ran).toEqual(['lead'])
+    // And the delegation never appears in the scheduler's ledger: it judged nothing.
+    expect(res.ledger).toEqual([])
+  })
+})

@@ -50,6 +50,7 @@ export {
   type BudgetMode,
   type EffectContext,
   type EffectName,
+  type GraphHost,
   type JsonSchema,
   kindHandle,
   type NodeFlags,
@@ -64,23 +65,14 @@ export {
   agentKind,
   type ScriptBody,
   type ScriptKindConfig,
+  type SubgraphKindConfig,
   type SupervisorKindConfig,
   scriptKind,
   subgraphKind,
   supervisorKind,
 } from './kinds'
 export { createEdgeLedger, type EdgeLedger } from './ledger'
-export {
-  graphFromRunGraph,
-  RUN_GRAPH_KIND,
-  type RunGraphBody,
-  type RunGraphCapture,
-  type RunGraphNodeConfig,
-  type RunGraphNodeOut,
-  runGraphEngine,
-  runGraphKind,
-  runGraphThroughEngine,
-} from './preset-run-graph'
+export { graphFromRunGraph, RUN_GRAPH_ROOT_KIND } from './preset-run-graph'
 export { applyProjection, type Projection, validateProjection } from './projection'
 export {
   createRegistry,
