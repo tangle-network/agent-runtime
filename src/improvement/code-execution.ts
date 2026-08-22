@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises'
+import { resolve as resolvePath } from 'node:path'
 import { makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
 import {
@@ -140,6 +142,27 @@ async function discardPreparedBaseline(
   )
 }
 
+/**
+ * The real path of a repository root, for the one comparison that needs it.
+ *
+ * Git prints a RESOLVED worktree path, and the Eval worktree adapter compares what git
+ * printed against the root it was handed. A root whose PREFIX is a symlink therefore never
+ * matches: on macOS the OS hands out temp roots under /var, a symlink to /private/var, so the
+ * adapter refuses to finalize or discard a worktree it created seconds earlier. Resolve once
+ * here, where the caller's root meets git, instead of at every caller.
+ *
+ * A directory that does not exist yet — `worktreeDir` is created on demand — keeps its
+ * lexical form; the adapter creates it under a root that is already resolved.
+ */
+async function realRoot(path: string): Promise<string> {
+  try {
+    return await realpath(path)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    return resolvePath(path)
+  }
+}
+
 /** Create a clean incumbent checkout and the candidate producer for a code run. */
 async function prepareCodeRun(code: ImproveCodeOptions): Promise<PreparedCodeRun> {
   const authorProfile = agentProfileSchema.parse(code.profile)
@@ -148,8 +171,8 @@ async function prepareCodeRun(code: ImproveCodeOptions): Promise<PreparedCodeRun
   const worktree =
     code.worktree ??
     gitWorktreeAdapter({
-      repoRoot: code.repoRoot,
-      ...(code.worktreeDir ? { worktreeDir: code.worktreeDir } : {}),
+      repoRoot: await realRoot(code.repoRoot),
+      ...(code.worktreeDir ? { worktreeDir: await realRoot(code.worktreeDir) } : {}),
     })
   const baselineWorktree = await worktree.create({ baseRef, label: 'incumbent-baseline' })
   try {

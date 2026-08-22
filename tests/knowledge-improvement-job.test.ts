@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import {
   type AgentImprovementActivationResult,
@@ -40,6 +39,7 @@ import {
   cleanupCandidateExperimentFixtures,
   createCandidateExperimentFixture,
 } from './helpers/candidate-experiment-fixture'
+import { makeTempRoot } from './helpers/temp-root'
 
 const supervisorProfile: SupervisorProfile = {
   name: 'knowledge-research-supervisor',
@@ -53,7 +53,7 @@ afterEach(() => {
 })
 
 async function withKb(fn: (root: string) => Promise<void>): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), 'agent-runtime-knowledge-job-'))
+  const root = makeTempRoot('agent-runtime-knowledge-job-')
   try {
     await initKnowledgeBase(root)
     await fn(root)
@@ -150,7 +150,11 @@ function isMissingFile(error: unknown): boolean {
 
 const KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS = 60_000
 
-describe('runKnowledgeImprovementJob', () => {
+// Every case here promotes a knowledge candidate, and agent-knowledge implements promotion
+// with Linux directory descriptors to prove exact file identity ("exact knowledge candidate
+// workflows require Linux directory descriptors"). The capability, not the test, is what is
+// absent elsewhere; CI runs on Linux, so these cases stay covered.
+describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () => {
   it(
     'leaves the live knowledge base byte-identical until activation',
     async () => {

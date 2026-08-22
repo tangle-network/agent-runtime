@@ -291,15 +291,29 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
   it.each(['127.0.0.1', '127.0.0.53', 'localhost', '::1', '::ffff:127.0.0.1'])(
     'binds the loopback host %s with no acknowledgment needed',
     async (host) => {
-      const port = await withLiveScope(async (scope) => {
-        const mcp = await serve(scope, { host })
+      // Linux gives every 127/8 address to the loopback interface; macOS assigns only
+      // 127.0.0.1, so `listen` there answers EADDRNOTAVAIL for 127.0.0.53. That is a
+      // transport outcome the caller fixes by choosing an assigned address. What this case
+      // pins on every host is the SECURITY gate: the host must never be refused as remote.
+      const outcome = await withLiveScope(async (scope) => {
+        let mcp: Awaited<ReturnType<typeof serve>>
         try {
-          return mcp.port
+          mcp = await serve(scope, { host })
+        } catch (err) {
+          return { error: err as NodeJS.ErrnoException }
+        }
+        try {
+          return { port: mcp.port }
         } finally {
           await mcp.close()
         }
       })
-      expect(port).toBeGreaterThan(0)
+      if ('error' in outcome) {
+        expect(outcome.error.message).not.toMatch(/loopback/)
+        expect(outcome.error.code).toBe('EADDRNOTAVAIL')
+        return
+      }
+      expect(outcome.port).toBeGreaterThan(0)
     },
   )
 

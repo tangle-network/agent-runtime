@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -912,7 +912,10 @@ function createRepo(prefix: string): {
   git(args: string[]): string
   cleanup(): void
 } {
-  const repoRoot = mkdtempSync(join(tmpdir(), prefix))
+  // Git prints a RESOLVED worktree path, so a repository whose path prefix is a symbolic
+  // link — every macOS temp root, where /var links to /private/var — never matches the root
+  // the Eval worktree adapter was handed. Name the repository by its real path once, here.
+  const repoRoot = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
   const git = (args: string[]) =>
     execFileSync('git', args, {
       cwd: repoRoot,
