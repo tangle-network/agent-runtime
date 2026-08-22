@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -56,8 +57,10 @@ async function rawTar(header: Headers, bytes = Buffer.alloc(0)): Promise<Uint8Ar
   return output
 }
 
-function repository(objectFormat: 'sha1' | 'sha256' = 'sha1'): string {
-  const root = temporaryRoot('candidate-workspace-source-')
+function repository(
+  objectFormat: 'sha1' | 'sha256' = 'sha1',
+  root: string = temporaryRoot('candidate-workspace-source-'),
+): string {
   git(root, [
     'init',
     '-b',
@@ -110,6 +113,48 @@ describe('candidate workspace archive', () => {
       ])
     },
   )
+
+  it('captures and materializes through a symlinked path prefix', async () => {
+    // macOS hands out every temp path under /var, a symlink to /private/var, so a caller there
+    // always supplies a root whose PREFIX is a link. Build that shape explicitly, so the
+    // property is checked on a platform whose temp root is real too.
+    const realParent = temporaryRoot('candidate-workspace-real-parent-')
+    const source = join(realParent, 'repo')
+    mkdirSync(source)
+    repository('sha1', source)
+    const aliasParent = join(temporaryRoot('candidate-workspace-alias-'), 'alias')
+    symlinkSync(realParent, aliasParent, 'dir')
+    expect(realpathSync(join(aliasParent, 'repo'))).not.toBe(join(aliasParent, 'repo'))
+
+    const expectedHead = git(source, ['rev-parse', 'HEAD'])
+    const captured = await captureAgentCandidateWorkspace(join(aliasParent, 'repo'), {
+      includeRepository: true,
+    })
+    const destination = join(aliasParent, 'restored')
+    await createAgentCandidateWorkspacePort().materialize({
+      role: 'task',
+      snapshot: captured.snapshot,
+      archive: captured.archive,
+      destination,
+    })
+
+    expect(readFileSync(join(destination, 'README.md'), 'utf8')).toBe('workspace\n')
+    expect(git(destination, ['rev-parse', 'HEAD'])).toBe(expectedHead)
+    expect(captured.snapshot.material.files.map((file) => file.path)).toEqual([
+      '.gitignore',
+      'README.md',
+      'bin/run',
+    ])
+  })
+
+  it('still refuses a workspace root that is itself a symbolic link', async () => {
+    const source = repository()
+    const link = `${source}-link`
+    symlinkSync(source, link, 'dir')
+    await expect(captureAgentCandidateWorkspace(link, { includeRepository: true })).rejects.toThrow(
+      'candidate repository root must be a real directory',
+    )
+  })
 
   it('restores a non-repository workspace and rejects archive drift', async () => {
     const source = temporaryRoot('candidate-workspace-files-')
