@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.165.0
+
+### Kill it anywhere: journal fold, replay, suspensions (`@tangle-network/agent-runtime/graph`)
+
+Engine build 3/4 (#981). The scheduler's state is now a pure function of the journal — fold, never checkpoint (#974). Every scheduling decision is journaled BEFORE its effect is visible (blob-then-journal where a ref is minted), then applied to live state through the SAME reducer (`applyGraphFoldEvent`) a restart replays the journal through. The bar, held by `tests/graph/replay.test.ts`: kill a file-journaled run at EVERY journal boundary — kernel events included — restart with the same journal, and zero settled nodes re-execute while an all-pure graph reproduces its result byte-identically.
+
+- **Three fold events** join the journal union: `node-inputs-resolved` (the exact envelope one instance was given, pinned by `inputRef` before it spawns — `onCrash: 'restart'` re-runs from this, never through a transform someone has since changed), `edge-verdict` (what the scheduler DECIDED about one edge; `edge` stays delivery observability with its own ledger), and `join-state` (one release: which edges produced it, which in-flight edges the wave consumed-once). The planned `guard-decision` event is NOT needed: every guard is pure over journaled inputs, so the fold re-evaluates nothing and trusts only journaled verdicts. Kernel replay skips all three, exactly as it skips `edge`.
+- **Idempotent recovery.** Each edge folds `judgedSourceSettles` — bumped by a verdict or an absorption — so a kill between a settle and its verdicts re-judges only the unaccounted edges, and an absorbed completion is never re-fired. A kill between a suspension's kernel settle and its `waiting` event is finished on recovery, never propagated as data.
+- **Suspensions (#976).** A kind's executor returns `suspended({ onExpire, expiresInMs, default })` to park its node as a `waiting`/`woken` pair — the kernel's existing durable wait, extended with a `token` `WaitSpec` arm and `woken.by: 'expired'`. Tokens are engine-minted and content-addressed (recomputable from the journal; no token table). `createGraphRun` returns a handle: `resume(token, payload)` lands as `woken{by:'fired'}` blob-then-journal; `expire(token)` follows the suspension's `onExpire`. Offline, a fully-parked run returns `{ kind: 'suspended', tokens }` — a resumable artifact, not a hang — an `onExpire: 'default'` suspension auto-resolves, and a restart after the deadline transitions `fail`/`default` by the engine's own clock.
+- **Restart is the kernel's own resume.** The engine journals a root anchor exactly like the supervisor, rebuilds the pool with committed spend and uncertain in-doubt reservations (`sumMeasuredSpendFromEvents`/`uncertainSpawnBudgets`, now exported), and hands `createScope` the same `resumeFrom` maxima the kernel supervisor uses, so a fresh spawn never reuses a journaled `seq`. Engine `woken` ordinals live in a reserved high band above the kernel's cursor counter.
 ## 0.164.0
 
 ### `pi` is a local harness, `opencode` gets its permission bypass, and reproducible Codex runs on darwin

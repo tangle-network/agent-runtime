@@ -389,6 +389,163 @@ The declared effects no host value covers. Empty means every registered kind is 
 
 ***
 
+### FoldEdge
+
+#### Properties
+
+##### state
+
+> **state**: [`FoldEdgeState`](#foldedgestate)
+
+##### consumedOnce
+
+> **consumedOnce**: `boolean`
+
+Set by a `join-state` whose wave this edge was pending inside; cleared when the in-flight
+ completion it refers to settles (absorbed, never re-released).
+
+##### traversals
+
+> **traversals**: `number`
+
+Delivered consumptions — what the per-edge cap counts.
+
+##### judgedSourceSettles
+
+> **judgedSourceSettles**: `number`
+
+How many of the source's settles this edge has accounted for — by a journaled verdict or by
+ an absorption. The idempotence key: a kill between a settle and its verdicts re-judges ONLY
+ the unaccounted edges on restart, never a judged or absorbed one twice.
+
+##### payloadRef?
+
+> `optional` **payloadRef?**: `string`
+
+The admitted source payload this state reflects (the source settle's outRef).
+
+##### capped
+
+> **capped**: `boolean`
+
+***
+
+### FoldInstance
+
+#### Properties
+
+##### node
+
+> `readonly` **node**: `string`
+
+##### instance
+
+> `readonly` **instance**: `string`
+
+##### visit
+
+> `readonly` **visit**: `number`
+
+##### inputRef?
+
+> `optional` **inputRef?**: `string`
+
+##### status
+
+> **status**: [`FoldInstanceStatus`](#foldinstancestatus)
+
+##### settle?
+
+> `optional` **settle?**: [`GraphNodeSettle`](#graphnodesettle)
+
+***
+
+### FoldSuspension
+
+#### Properties
+
+##### token
+
+> `readonly` **token**: `string`
+
+##### node
+
+> `readonly` **node**: `string`
+
+##### instance
+
+> `readonly` **instance**: `string`
+
+##### onExpire
+
+> `readonly` **onExpire**: `"default"` \| `"fail"` \| `"wait"`
+
+##### expiresAtMs?
+
+> `readonly` `optional` **expiresAtMs?**: `number`
+
+##### defaultRef?
+
+> `readonly` `optional` **defaultRef?**: `string`
+
+##### status
+
+> **status**: `"pending"` \| `"expired"` \| `"woken"`
+
+***
+
+### FoldNode
+
+#### Properties
+
+##### visits
+
+> **visits**: `number`
+
+##### blocked
+
+> **blocked**: `boolean`
+
+##### settles
+
+> **settles**: [`GraphNodeSettle`](#graphnodesettle)[]
+
+***
+
+### GraphFoldState
+
+#### Properties
+
+##### nodes
+
+> `readonly` **nodes**: `Map`\<`string`, [`FoldNode`](#foldnode)\>
+
+##### edges
+
+> `readonly` **edges**: `Map`\<`string`, [`FoldEdge`](#foldedge)\>
+
+##### instances
+
+> `readonly` **instances**: `Map`\<`string`, [`FoldInstance`](#foldinstance)\>
+
+Every node instance the journal knows, keyed by `<node>#<visit>`.
+
+##### spawnedIds
+
+> `readonly` **spawnedIds**: `Map`\<`string`, `string`\>
+
+Kernel node id → engine instance label, from `spawned`.
+
+##### suspensions
+
+> `readonly` **suspensions**: `Map`\<`string`, [`FoldSuspension`](#foldsuspension)\>
+
+##### exhaustedEdges
+
+> `readonly` **exhaustedEdges**: `Set`\<`string`\>
+
+***
+
 ### PortSpec
 
 One declared port on a node. Ports are how a `data` edge binds one node's output to another's
@@ -873,6 +1030,30 @@ One ledgered edge firing (or refusal) — the run's observable data flow.
 
 ***
 
+### SuspensionRequest
+
+#### Properties
+
+##### \_\_graphSuspension
+
+> `readonly` **\_\_graphSuspension**: `true`
+
+##### onExpire
+
+> `readonly` **onExpire**: `"default"` \| `"fail"` \| `"wait"`
+
+##### expiresInMs?
+
+> `readonly` `optional` **expiresInMs?**: `number`
+
+Milliseconds from the suspension's journaling instant; absent with `onExpire: 'wait'`.
+
+##### default?
+
+> `readonly` `optional` **default?**: `unknown`
+
+***
+
 ### GraphRunOptions
 
 #### Properties
@@ -926,6 +1107,65 @@ How terminal settles reduce to `out`. Default `bestDelivered`.
 
 > `readonly` `optional` **runId?**: `string`
 
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Continue an existing journaled run. An existing tree without this refuses, like the kernel.
+
+##### waitForWakes?
+
+> `readonly` `optional` **waitForWakes?**: `boolean`
+
+Hold a fully-suspended run open for live `resume()` calls instead of returning
+ `{ kind: 'suspended' }`. Offline callers leave this off and restart later (#976).
+
+***
+
+### GraphRunHandle
+
+A live run: await `done`; deliver host wakes through `resume`/`expire` (#976).
+
+#### Properties
+
+##### done
+
+> `readonly` **done**: `Promise`\<[`GraphRunResult`](#graphrunresult)\>
+
+#### Methods
+
+##### resume()
+
+> **resume**(`token`, `payload`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### token
+
+`string`
+
+###### payload
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`void`\>
+
+##### expire()
+
+> **expire**(`token`): `Promise`\<`void`\>
+
+###### Parameters
+
+###### token
+
+`string`
+
+###### Returns
+
+`Promise`\<`void`\>
+
 ## Type Aliases
 
 ### ConditionOp
@@ -949,6 +1189,18 @@ How terminal settles reduce to `out`. Default `bestDelivered`.
 ### GraphEdgeKind
 
 > **GraphEdgeKind** = `"delegates"` \| `"analyzes"` \| `"data"`
+
+***
+
+### FoldEdgeState
+
+> **FoldEdgeState** = `"pending"` \| `"satisfied"` \| `"dead"` \| `"failed"`
+
+***
+
+### FoldInstanceStatus
+
+> **FoldInstanceStatus** = `"released"` \| `"live"` \| `"done"` \| `"down"` \| `"suspended"`
 
 ***
 
@@ -1037,11 +1289,13 @@ The caller code a `script` node runs. Receives the resolved inputs; returns the 
 
 > **GraphRunReason** = `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"` \| `"driver-failed"` \| `"cycle-budget-exceeded"` \| `"unreachable-terminal"`
 
+Result vocabulary shared by the scheduler and the fold (agent-runtime#973, #974, #976).
+
 ***
 
 ### GraphRunResult
 
-> **GraphRunResult** = \{ `kind`: `"winner"`; `out`: `unknown`; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; \} \| \{ `kind`: `"no-winner"`; `reason`: [`GraphRunReason`](#graphrunreason); `error?`: \{ `name`: `string`; `message`: `string`; \}; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; `unreachable`: `ReadonlyArray`\<`string`\>; \}
+> **GraphRunResult** = \{ `kind`: `"winner"`; `out`: `unknown`; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; \} \| \{ `kind`: `"no-winner"`; `reason`: [`GraphRunReason`](#graphrunreason); `error?`: \{ `name`: `string`; `message`: `string`; \}; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; `unreachable`: `ReadonlyArray`\<`string`\>; \} \| \{ `kind`: `"suspended"`; `tokens`: `ReadonlyArray`\<`string`\>; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; \}
 
 #### Union Members
 
@@ -1093,6 +1347,35 @@ The caller code a `script` node runs. Receives the resolved inputs; returns the 
 
 Nodes provably stuck when the run ended: every upstream settled, no release possible.
 
+***
+
+##### Type Literal
+
+\{ `kind`: `"suspended"`; `tokens`: `ReadonlyArray`\<`string`\>; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; \}
+
+###### kind
+
+> `readonly` **kind**: `"suspended"`
+
+Every live branch parked on a host wake: a legitimate terminal state for an offline run.
+ Restart over the same journal and `resume(token, payload)` to continue (#976).
+
+###### tokens
+
+> `readonly` **tokens**: `ReadonlyArray`\<`string`\>
+
+###### terminals
+
+> `readonly` **terminals**: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>
+
+###### settles
+
+> `readonly` **settles**: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>
+
+###### ledger
+
+> `readonly` **ledger**: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>
+
 ## Variables
 
 ### CONDITION\_OPS
@@ -1124,6 +1407,14 @@ ADC-compatible visit backstop: nothing may be ENTERED more than this many times.
 > `const` **MAX\_MAX\_NODE\_VISITS**: `100` = `100`
 
 The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach.
+
+***
+
+### ENGINE\_WOKEN\_SEQ\_BASE
+
+> `const` **ENGINE\_WOKEN\_SEQ\_BASE**: `10000000` = `10_000_000`
+
+Engine-appended `woken` ordinals start here — far above any kernel cursor counter.
 
 ## Functions
 
@@ -1244,6 +1535,74 @@ here, never at its first node.
 #### Returns
 
 [`GraphEngine`](#graphengine)
+
+***
+
+### emptyFoldState()
+
+> **emptyFoldState**(`compiled`): [`GraphFoldState`](#graphfoldstate)
+
+The reducer's zero: every node unvisited, every edge pending, nothing suspended.
+
+#### Parameters
+
+##### compiled
+
+[`CompiledGraph`](#compiledgraph)
+
+#### Returns
+
+[`GraphFoldState`](#graphfoldstate)
+
+***
+
+### applyGraphFoldEvent()
+
+> **applyGraphFoldEvent**(`state`, `ev`, `compiled`): `void`
+
+Apply ONE journal event. The live scheduler calls this right after each append; the restart path
+calls it over the loaded journal. Unknown kernel events are ignored — the engine folds only what
+it understands, exactly as the kernel's replay skips the engine's events.
+
+#### Parameters
+
+##### state
+
+[`GraphFoldState`](#graphfoldstate)
+
+##### ev
+
+[`SpawnEvent`](../runtime.md#spawnevent)
+
+##### compiled
+
+[`CompiledGraph`](#compiledgraph)
+
+#### Returns
+
+`void`
+
+***
+
+### foldGraphJournal()
+
+> **foldGraphJournal**(`events`, `compiled`): [`GraphFoldState`](#graphfoldstate)
+
+Fold a loaded journal (append order) into scheduler state.
+
+#### Parameters
+
+##### events
+
+readonly [`SpawnEvent`](../runtime.md#spawnevent)[]
+
+##### compiled
+
+[`CompiledGraph`](#compiledgraph)
+
+#### Returns
+
+[`GraphFoldState`](#graphfoldstate)
 
 ***
 
@@ -1531,6 +1890,34 @@ kernel and it had zero tests.
 
 ***
 
+### suspended()
+
+> **suspended**(`options?`): [`SuspensionRequest`](#suspensionrequest)
+
+What a kind's executor returns to park its node on a host wake (agent-runtime#976).
+
+#### Parameters
+
+##### options?
+
+###### onExpire?
+
+`"default"` \| `"fail"` \| `"wait"`
+
+###### expiresInMs?
+
+`number`
+
+###### default?
+
+`unknown`
+
+#### Returns
+
+[`SuspensionRequest`](#suspensionrequest)
+
+***
+
 ### admitPayload()
 
 > **admitPayload**(`value`): `unknown`
@@ -1555,8 +1942,8 @@ Admission for every value crossing an edge (#971): JSON round-trip, `undefined` 
 
 > **runEngineGraph**(`engine`, `spec`, `task`, `options`): `Promise`\<[`GraphRunResult`](#graphrunresult)\>
 
-Run a graph: host every node instance on one kernel `Scope`, resolve joins over guarded edges,
-enforce the traversal and visit caps, and reduce the terminal settlements through the finalizer.
+Run a graph to its result: `createGraphRun` awaited — the one-call form for a run that needs
+ no live host wakes.
 
 #### Parameters
 
@@ -1579,3 +1966,34 @@ enforce the traversal and visit caps, and reduce the terminal settlements throug
 #### Returns
 
 `Promise`\<[`GraphRunResult`](#graphrunresult)\>
+
+***
+
+### createGraphRun()
+
+> **createGraphRun**(`engine`, `spec`, `task`, `options`): [`GraphRunHandle`](#graphrunhandle)
+
+Start (or resume) a graph run and return its handle: await `done` for the result; deliver host
+wakes through `resume`/`expire` while it runs (#976).
+
+#### Parameters
+
+##### engine
+
+[`GraphEngine`](#graphengine)
+
+##### spec
+
+[`CompiledGraph`](#compiledgraph) \| [`EngineGraphSpec`](#enginegraphspec)
+
+##### task
+
+`string`
+
+##### options
+
+[`GraphRunOptions`](#graphrunoptions)
+
+#### Returns
+
+[`GraphRunHandle`](#graphrunhandle)

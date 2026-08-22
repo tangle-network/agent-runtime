@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.164.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.165.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -783,7 +783,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
 | `visibleCheckScore` | function | Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1, |
-| `waitUntil` | function | The absolute instant a spec is bounded by, or `undefined` for an unbounded poll. |
+| `waitUntil` | function | The absolute instant a spec is bounded by, or `undefined` for an unbounded wait. |
 | `watchTrace` | function | Subscribe to a `TraceSource` and run the streaming detectors over its live spans. Returns an |
 | `widen` | function | `widen(spec)` — the streaming spawn-on-completion driver. Spawns the seed lineages, then REACTS |
 | `withUntrackedArtifacts` | function | Wrap a `Workspace` so every `materialize` (the per-worker `git clone` inside |
@@ -1246,35 +1246,42 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 
 ### Graph engine — node kinds, registries, host effects; the four core kinds
 
-Import from `@tangle-network/agent-runtime/graph` — 57 exports.
+Import from `@tangle-network/agent-runtime/graph` — 72 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `admitPayload` | function | Admission for every value crossing an edge (#971): JSON round-trip, `undefined` stripped, a |
 | `agentKind` | function | One profile, one run: the kernel's leaf, exactly as `supervise()` derives it from `backend`. |
+| `applyGraphFoldEvent` | function | Apply ONE journal event. The live scheduler calls this right after each append; the restart path |
 | `applyProjection` | function | Apply a validated projection to an admitted payload. Collection operators over a non-array |
 | `compileGraph` | function | Lower an authored graph against an engine's kind registry into the schedulable form, refusing |
 | `createGraphEngine` | function | Build one engine: a kind registry seeded with the core kinds plus the host's, and the host's |
+| `createGraphRun` | function | Start (or resume) a graph run and return its handle: await `done` for the result; deliver host |
 | `createRegistry` | function | Create a registry. Per-instance by construction: two engines in one process may hold |
+| `emptyFoldState` | function | The reducer's zero: every node unvisited, every edge pending, nothing suspended. |
 | `evaluateCondition` | function | Walk a validated condition over a context to a boolean. Never throws on data shape. |
+| `foldGraphJournal` | function | Fold a loaded journal (append order) into scheduler state. |
 | `formatRegistryHandle` | function | `<id>/v<n>` — the only spelling a handle has on the wire, in a journal, or in an error. |
 | `kindHandle` | function | The handle a graph writes to name this kind. |
 | `narrowEffects` | function | Narrow a host's effect table to exactly what one kind declared. Anything the kind did not |
 | `parseRegistryHandle` | function | Parse the wire spelling back. Refuses anything that is not exactly `<id>/v<n>`. |
-| `runEngineGraph` | function | Run a graph: host every node instance on one kernel `Scope`, resolve joins over guarded edges, |
+| `runEngineGraph` | function | Run a graph to its result: `createGraphRun` awaited — the one-call form for a run that needs |
 | `schemaAccepts` | function | Bounded structural acceptance: does a value of `source`'s shape fit `target`? Schemas with no |
 | `scriptKind` | function | Caller code as a node. The one kind with no kernel primitive behind it: the kernel has no |
 | `subgraphKind` | function | A node carrying its own graph: the constraint on what a supervisor may spawn at depth>1. Its |
 | `supervisorKind` | function | The thing that DECIDES: a nested `supervisorAgent` with the coordination verbs. Its children |
+| `suspended` | function | What a kind's executor returns to park its node on a host wake (agent-runtime#976). |
 | `validateCondition` | function | Validate shape, bounds, and per-leaf path/operator rules; returns the input for chaining. |
 | `validateNodeKind` | function | Validate a kind declaration at registration — so a malformed kind is refused by name once, |
 | `validateProjection` | function | Validate a projection: exactly one known operator, its argument well-formed. |
 | `CONDITION_OPS` | const | The leaf comparison operators; `exists`/`truthy` are unary, the rest compare against `value`. |
 | `DEFAULT_MAX_NODE_VISITS` | const | ADC-compatible visit backstop: nothing may be ENTERED more than this many times. |
+| `ENGINE_WOKEN_SEQ_BASE` | const | Engine-appended `woken` ordinals start here — far above any kernel cursor counter. |
 | `JOIN_RULES` | const | Which gating-edge outcomes release a node (adopted from ADC, agent-runtime#968). |
 | `MAX_MAX_NODE_VISITS` | const | The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach. |
 | `GraphEdgeTraversal` | interface | One ledgered edge firing (or refusal) — the run's observable data flow. |
 | `GraphNodeSettle` | interface | One node settlement as the graph result reports it. |
+| `GraphRunHandle` | interface | A live run: await `done`; deliver host wakes through `resume`/`expire` (#976). |
 | `NodeFlags` | interface | Per-node flags a graph author sets; they are node properties, not kinds (agent-runtime#970). |
 | `NodeKind` | interface | The validated declaration every kind provides. `Config` is the per-node config shape; |
 | `PortSpec` | interface | One declared port on a node. Ports are how a `data` edge binds one node's output to another's |
@@ -1282,11 +1289,12 @@ Import from `@tangle-network/agent-runtime/graph` — 57 exports.
 | `RegistryHandle` | interface | A versioned name: what a graph writes and what a host registers. |
 | `BudgetMode` | type | Whether a kind's spend enters the conserved pool. `'metered'`: the executor reports `Spend` and |
 | `EffectName` | type | What a kind declares it needs from the host. The engine never imports a host capability; it |
+| `GraphRunReason` | type | Result vocabulary shared by the scheduler and the fold (agent-runtime#973, #974, #976). |
 | `JsonSchema` | type | A JSON Schema document as the kernel already spells it: an opaque record, validated by the |
 | `OnCrash` | type | What happens to a node that was IN FLIGHT when the process died. A settled node is never a |
 | `ScriptBody` | type | The caller code a `script` node runs. Receives the resolved inputs; returns the output. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `GraphEngine`, `GraphEngineOptions`, `GraphRunOptions`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `GraphEdgeKind`, `GraphRunReason`, `GraphRunResult`, `JoinRule`, `Projection`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunOptions`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `SuspensionRequest`, `Condition`, `ConditionOp`, `EffectContext`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

@@ -779,6 +779,9 @@ const outsideCursorNamespaceKinds = [
   'edge',
   'teardown-unconfirmed',
   'trace-unpropagated',
+  'node-inputs-resolved',
+  'edge-verdict',
+  'join-state',
 ] as const satisfies ReadonlyArray<SpawnEvent['kind']>
 
 type OutsideCursorNamespaceKind = (typeof outsideCursorNamespaceKinds)[number]
@@ -870,6 +873,9 @@ export async function replaySpawnTree(
     if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement
     if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement
+    if (ev.kind === 'node-inputs-resolved') continue // graph-engine fold input, not a settlement
+    if (ev.kind === 'edge-verdict') continue // graph-engine fold input, not a settlement
+    if (ev.kind === 'join-state') continue // graph-engine fold input, not a settlement
     if (ev.kind === 'woken') {
       // A wait that was cancelled carries no outcome blob — it replays as a `down`, exactly as a
       // cancelled worker does. A fired/timed-out wait rehydrates its `WaitOutcome` and costs zero.

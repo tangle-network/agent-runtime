@@ -1111,6 +1111,51 @@ export type SpawnEvent =
     }
   | { kind: 'cancelled'; id: NodeId; reason: string; seq: number; at: string }
   | {
+      /** GRAPH ENGINE fold input: the exact inputs one node instance was given, pinned by content
+       *  address BEFORE the instance spawns. `onCrash: 'restart'` re-runs from this ref, never
+       *  through a transform someone has since changed. Kernel replay skips it. */
+      kind: 'node-inputs-resolved'
+      /** The engine instance label (`<node>#<visit>`), which the matching `spawned` also carries. */
+      id: NodeId
+      node: string
+      instance: string
+      inputRef: string
+      seq: number
+      at: string
+    }
+  | {
+      /** GRAPH ENGINE fold input: what the scheduler DECIDED about one edge on one source
+       *  completion — distinct from `edge`, which stays delivery observability. Kernel replay
+       *  skips it; the engine fold consumes it as authority (never re-judged through changed
+       *  guard code). */
+      kind: 'edge-verdict'
+      id: NodeId
+      edge: string
+      /** satisfied ⇒ true; dead or failed ⇒ false, with `sourceStatus` distinguishing. */
+      fired: boolean
+      sourceStatus: 'done' | 'down' | 'invalid'
+      /** A consumption the traversal cap refused: the edge stays satisfied, the target may block. */
+      capped?: boolean
+      inputRef?: string
+      toInstance?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** GRAPH ENGINE fold input: one join release — which gating edges produced it and which
+       *  in-flight edges were consumed-once by the wave. Kernel replay skips it. */
+      kind: 'join-state'
+      id: NodeId
+      node: string
+      rule: 'all' | 'any' | 'any_failed' | 'all_done'
+      satisfiedBy: ReadonlyArray<string>
+      consumedPending: ReadonlyArray<string>
+      /** The instance this release entered (`<node>#<visit>`). */
+      instance: string
+      seq: number
+      at: string
+    }
+  | {
       /** A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the wait
        *  ordinal within its parent scope), exactly like `spawned` — it creates a node, it does not
        *  settle one. It carries the whole `spec` and the original `armedAt` so a brand-new process
@@ -1131,7 +1176,10 @@ export type SpawnEvent =
        *  rehydrates its `WaitOutcome`, absent when the wait was cancelled. */
       kind: 'woken'
       id: NodeId
-      by: 'fired' | 'timeout' | 'cancelled'
+      /** `expired`: a graph suspension whose `onExpire: 'fail'` deadline passed — distinct from
+       *  `timeout` (a poll wait's own deadline), so a consumer can tell "the human never
+       *  answered" from "the probe never fired". */
+      by: 'fired' | 'timeout' | 'cancelled' | 'expired'
       outRef?: string
       seq: number
       at: string
