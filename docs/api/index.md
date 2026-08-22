@@ -9145,7 +9145,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 
 ###### h
 
-[`RootHandle`](runtime.md#roothandle-1)\<`Out`\>
+[`RootHandle`](runtime.md#roothandle-2)\<`Out`\>
 
 ###### Returns
 

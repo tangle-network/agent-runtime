@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.160.0
+
+### A graph now honors every supervise option it does not own
+
+`RunGraphOptions` restated a hand-picked subset of `SuperviseOptions`, and the hand lost: **25 of 49 keys never reached `supervise()` from a graph.** Each absence was found the same way — by losing a run. `resolveSupervisorTools` was one (a declared graph's root mounted no product tools, so five claims never reached the ledger); `childSettleGraceMs` and `driverRetry` were two more, and a transient root-driver failure tore down children that had **already computed the deliverable** (#963).
+
+Every `SuperviseOptions` key is now classified into exactly one of four lists, and a compile-time check fails — **naming the key** — when a new option belongs to none of them. Adding an option to `supervise()` can no longer omit it from graphs silently; the omission has to be a decision someone writes down.
+
+`RunGraphOptions` extends the forwarded set, so those members inherit their type *and* their documentation from `SuperviseOptions`. Newly reachable from a graph, among others: `childSettleGraceMs`, `driverRetry`, `onDriverAttempt`, `runDir`, `finalizer`, `stopRule`, `onProgressStop`, `probes`, `extraTools`, `executeExtraTool`, `authorizeSpawn`, `profileSecurity`, `coordination`, `peerMail`, `compaction`, `maxDepth`, `rootHandle`, `execution`, `resolveDeliverable`, `isDriverProfile`, `driveHarness`, `resolveDriveHarness`, `driveHarnessMaterialization`.
+
+Two keys are deliberately not forwarded, and now say so in code rather than by omission:
+
+- `backend` — a graph's `backend` places WORKER nodes and already became the worker seam, so the root driver stays an explicit `driverBackend` choice.
+- `registry` — a NAME COLLISION, not a policy. `RunGraphOptions.registry` is the directive `PromptRegistry`; `SuperviseOptions.registry` is the `SuperviseRegistry` name→value table. Two types, one name; the graph's wins. Giving the supervise one a graph channel means renaming a public option.
+
+No behavior changes for a caller who set nothing new.
+
 ## 0.159.0
 
 ### A tool-carrying model call no longer answers tool-free

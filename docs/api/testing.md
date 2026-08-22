@@ -195,7 +195,7 @@ Injected clock for the in-loop absolute-deadline guard — keeps the deadline ch
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
 
 PROGRESS-derived stop (mechanic D). Today a run ends on a ceiling — iterations, tokens,
 dollars, deadline, turn cap — which answers "may it continue?" and never "is it still getting
@@ -398,16 +398,6 @@ Leaf-execution override (offline tests / advanced). `runGraph` still owns node p
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`makeWorkerAgent`](runtime.md#makeworkeragent-1)
 
-##### router?
-
-> `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
-
-The driver brain's router substrate (`profile.harness` omitted or `cli-base`).
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`router`](runtime.md#router-4)
-
 ##### hooks?
 
 > `readonly` `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
@@ -431,25 +421,15 @@ The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — need
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`analysts`](runtime.md#analysts-1)
 
-##### watchWorkers?
-
-> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
-
-Watch every worker's LIVE tool trace with the online detector panel and raise a `finding`
- on the bus the moment one loops or error-storms — forwarded to `supervise()` verbatim (see
- `SuperviseOptions.watchWorkers`). Online findings (`analyst: 'online:<detector>'`) are bus
- events for the driver, not graph edges, so they are never ledgered as traversals. Omit =
- off (no online watching, no extra events).
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`watchWorkers`](runtime.md#watchworkers)
-
 ##### registry?
 
 > `readonly` `optional` **registry?**: [`PromptRegistry`](runtime.md#promptregistry)
 
 Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()`).
+
+ NOT `SuperviseOptions.registry`, which is the `SuperviseRegistry` name→value table for
+ code-valued options. The two share a name and nothing else, and this one wins here — see
+ `GRAPH_REFUSED_SUPERVISE_OPTIONS`.
 
 ###### Inherited from
 
@@ -481,46 +461,6 @@ The run journal the edge ledger and every spawn/settle ride. Default: in-memory.
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`runId`](runtime.md#runid-13)
 
-##### perWorker?
-
-> `readonly` `optional` **perWorker?**: [`Budget`](index.md#budget-4)
-
-Per-child budget reserved from the conserved pool on each spawn.
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`perWorker`](runtime.md#perworker)
-
-##### maxTurns?
-
-> `readonly` `optional` **maxTurns?**: `number`
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`maxTurns`](runtime.md#maxturns)
-
-##### maxLiveWorkers?
-
-> `readonly` `optional` **maxLiveWorkers?**: `number`
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-2)
-
-##### resolveSupervisorTools?
-
-> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
-
-Resolve product-owned tools from the exact trusted manager context — forwarded to the root's
- `supervise()` verbatim (see `SuperviseOptions.resolveSupervisorTools`). Without it a declared
- graph mounts only the coordination MCP, so a root that is supposed to reach a product tool
- (a claim ledger, a knowledge base) finds nothing and writes its output somewhere ungraded.
- A graph run and a supervise run mount the same tools when this is set.
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools)
-
 ##### authorizeMessage?
 
 > `readonly` `optional` **authorizeMessage?**: (`input`) => [`AuthorizedDownMessage`](runtime.md#authorizeddownmessage)
@@ -541,50 +481,6 @@ Product authority over every steer/answer instruction (the filter seam). `runGra
 ###### Inherited from
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`authorizeMessage`](runtime.md#authorizemessage)
-
-##### signal?
-
-> `readonly` `optional` **signal?**: `AbortSignal`
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`signal`](runtime.md#signal-19)
-
-##### now?
-
-> `readonly` `optional` **now?**: () => `number`
-
-###### Returns
-
-`number`
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`now`](runtime.md#now-9)
-
-##### otel?
-
-> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"`\>
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`otel`](runtime.md#otel)
-
-##### stallAfterMs?
-
-> `readonly` `optional` **stallAfterMs?**: `number`
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`stallAfterMs`](runtime.md#stallafterms)
-
-##### allowedModels?
-
-> `readonly` `optional` **allowedModels?**: readonly `string`[]
-
-###### Inherited from
-
-[`RunGraphOptions`](runtime.md#rungraphoptions).[`allowedModels`](runtime.md#allowedmodels-1)
 
 ##### brain
 
@@ -607,38 +503,16 @@ The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes ev
 
 [`RunGraphOptions`](runtime.md#rungraphoptions).[`brain`](runtime.md#brain)
 
-***
-
-### SuperviseTestOptions
-
-Test-only one-call shape, exported only through the package's explicit `/testing` entry.
-
-#### Extends
-
-- [`SuperviseOptions`](runtime.md#superviseoptions)
-
-#### Properties
-
-##### budget
-
-> `readonly` **budget**: [`Budget`](index.md#budget-4)
-
-The conserved compute pool for the whole run.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-15)
-
 ##### rootHandle?
 
-> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle-1)\<`unknown`\>
+> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle-2)\<`unknown`\>
 
 Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
 attaches it before execution and detaches it after the join barrier.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle-1)
 
 ##### signal?
 
@@ -660,30 +534,7 @@ digests itself from the exact detached values it executes.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-1)
-
-##### backend?
-
-> `readonly` `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
-
-WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`backend`](runtime.md#backend-4)
-
-##### deliverable?
-
-> `readonly` `optional` **deliverable?**: `string` \| [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
-
-The independent completion check for backend-derived workers and direct supervisor
- submissions. Strongly recommended: without it the supervisor cannot submit its own work and
- backend-derived workers fall back to their own validity signal. A `string` names an entry in
- `registry.deliverables`.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`deliverable`](runtime.md#deliverable-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-2)
 
 ##### resolveDeliverable?
 
@@ -705,18 +556,7 @@ and may return `undefined` to use the run-wide `deliverable`. Driver profiles ne
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDeliverable`](runtime.md#resolvedeliverable)
-
-##### registry?
-
-> `readonly` `optional` **registry?**: [`SuperviseRegistry`](runtime.md#superviseregistry)
-
-Name→value tables for the four code-valued options, so a recorded run configuration can name
- them instead of carrying closures. See [SuperviseRegistry](runtime.md#superviseregistry).
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDeliverable`](runtime.md#resolvedeliverable-1)
 
 ##### coordination?
 
@@ -728,7 +568,7 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`coordination`](runtime.md#coordination)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`coordination`](runtime.md#coordination-1)
 
 ##### peerMail?
 
@@ -745,32 +585,7 @@ OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_m
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail)
-
-##### makeWorkerAgent?
-
-> `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
-
-Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
- This is caller-owned execution: profile security, spawn authorization, and recursive-driver
- selection below apply only to the backend-derived worker path. `authorizeMessage` still
- governs continuations sent through Runtime's coordination tools.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`makeWorkerAgent`](runtime.md#makeworkeragent-2)
-
-##### driverBackend?
-
-> `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](runtime.md#executorconfig)
-
-Run harness-brained supervisors here. Automatic execution supports a local `bridge`; a remote
- sandbox requires an explicit `driveHarness` with a reachable coordination relay or tunnel.
- Defaults to `backend`; separate it when managers and workers use different services.
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`driverBackend`](runtime.md#driverbackend-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail-1)
 
 ##### profileSecurity?
 
@@ -782,7 +597,7 @@ Security policy applied to every manager-authored child profile before budget re
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`profileSecurity`](runtime.md#profilesecurity)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`profileSecurity`](runtime.md#profilesecurity-1)
 
 ##### authorizeSpawn?
 
@@ -849,7 +664,665 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeSpawn`](runtime.md#authorizespawn)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeSpawn`](runtime.md#authorizespawn-1)
+
+##### isDriverProfile?
+
+> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
+
+Decide whether an authorized child becomes another supervisor. By default only
+ `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
+ context as `resolveDeliverable`, so trusted execution/assignment authority can override
+ model-authored metadata without a side channel.
+
+###### Parameters
+
+###### input
+
+[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
+
+###### Returns
+
+`boolean`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
+
+##### router?
+
+> `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
+
+The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The profile's
+ model wins.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`router`](runtime.md#router-5)
+
+##### driveHarness?
+
+> `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
+
+Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
+ caller-owned override for a local bridge.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarness`](runtime.md#driveharness-1)
+
+##### driverRetry?
+
+> `readonly` `optional` **driverRetry?**: [`DriverRetryPolicy`](runtime.md#driverretrypolicy)
+
+How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
+`driver-failed`. A harness process SIGKILLed at a bridge timeout, a stream cut mid-turn, or an
+upstream 5xx used to end a run of arbitrary length while its budget and deadline sat almost
+untouched (#741). A retry re-enters the driver over the SAME scope, coordination server, and
+live children; the bridge backend reattaches the harness session by its durable execution id.
+
+Runtime's own refusals (a validation guard, an exhausted budget, an abort, a client-side
+transport status) are never retried — they were decisions. Retries stop at the budget, the
+deadline, an abort, or a run of attempts that changed nothing at all.
+
+Omit = retry under the defaults. `{ enabled: false }` = the historical behavior where the first
+driver failure ends the run. Applies to the root manager and every recursive manager under it.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driverRetry`](runtime.md#driverretry-1)
+
+##### onDriverAttempt?
+
+> `readonly` `optional` **onDriverAttempt?**: (`record`) => `void` \| `Promise`\<`void`\>
+
+Per-attempt record for every external driver in the tree — what makes "failed after N
+ attempts, last cause X" visible instead of one backend's last words.
+
+###### Parameters
+
+###### record
+
+[`DriverAttemptRecord`](runtime.md#driverattemptrecord)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
+
+##### childSettleGraceMs?
+
+> `readonly` `optional` **childSettleGraceMs?**: `number`
+
+How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
+cascades the abort into them. A root that died did not make its children unhealthy: a child
+mid-unit holds work already paid for, and an immediate cascade discards everything it has not
+yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
+
+##### resolveDriveHarness?
+
+> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
+
+Resolve one custom external-harness session per trusted manager identity. Use this instead of
+`driveHarness` when recursive managers must be independently steerable.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDriveHarness`](runtime.md#resolvedriveharness-1)
+
+##### driveHarnessMaterialization?
+
+> `readonly` `optional` **driveHarnessMaterialization?**: [`ProfileMaterializationContract`](agent.md#profilematerializationcontract)
+
+Required with a custom `driveHarness` or `resolveDriveHarness`: declares which complete
+AgentProfile axes that path really applies. Built-in bridge driving supplies its own
+full-profile contract.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarnessMaterialization`](runtime.md#driveharnessmaterialization-1)
+
+##### resolveSupervisorTools?
+
+> `readonly` `optional` **resolveSupervisorTools?**: [`ResolveSupervisorTools`](runtime.md#resolvesupervisortools-2)
+
+Resolve product-owned tools from the exact trusted manager context. The same descriptors and
+handlers are bound to router and external-harness managers; resolution happens once per node.
+Each handler receives that manager scope's live cancellation signal in its trusted invocation
+context, including recursive parent and root cascades, plus `context.verbs` — that manager's
+own coordination verbs, callable in code so a product tool can COMPOSE its children (fan out,
+chain, join, retry) in one tool call instead of one model turn per verb. Every verb crosses
+the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
+cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
+
+##### extraTools?
+
+> `readonly` `optional` **extraTools?**: readonly `object`[]
+
+WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do simple work
+ itself) OR SPAWN (delegate when it needs parallelism), not be a pure manager. Pair with
+ `executeExtraTool`. Router arm only (`profile.harness` omitted or `cli-base`).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-1)
+
+##### executeExtraTool?
+
+> `readonly` `optional` **executeExtraTool?**: (`name`, `args`) => `Promise`\<`string` \| `null` \| `undefined`\>
+
+Runs an `extraTools` call; null/undefined falls through to the coordination dispatch.
+
+###### Parameters
+
+###### name
+
+`string`
+
+###### args
+
+`Record`\<`string`, `unknown`\>
+
+###### Returns
+
+`Promise`\<`string` \| `null` \| `undefined`\>
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-1)
+
+##### perWorker?
+
+> `readonly` `optional` **perWorker?**: [`Budget`](index.md#budget-4)
+
+Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`perWorker`](runtime.md#perworker-1)
+
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Hard cap on simultaneously executing spawned workers across the WHOLE recursive tree. The
+ root is excluded; nested drivers and leaves share one allocation, so recursion cannot multiply
+ the cap. Omit/`<= 0` = no cap (the conserved pool stays the only bound).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-4)
+
+##### watchWorkers?
+
+> `readonly` `optional` **watchWorkers?**: [`WorkerWatchOptions`](runtime.md#workerwatchoptions)
+
+Watch every worker's LIVE tool trace with the online detector panel and raise a `finding` the
+moment one loops or error-storms — so the supervisor learns it mid-run (via `await_event`)
+instead of at settle. Pairs with a steerable worker: the finding is the evidence, `steer_agent`
+is the correction. Requires a backend whose executor exposes a trace source (the steerable
+sandbox worker and the pi wrapper do); other runtimes are simply not watched.
+
+Omit = off (status quo — no online watching, no extra events).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`watchWorkers`](runtime.md#watchworkers-1)
+
+##### stallAfterMs?
+
+> `readonly` `optional` **stallAfterMs?**: `number`
+
+Idle time after which `observe_agent` reports a running worker as `stalled`. A derived read
+ at observation time — nothing is killed or retried. Omit = the runtime default.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`stallAfterMs`](runtime.md#stallafterms-3)
+
+##### runDir?
+
+> `readonly` `optional` **runDir?**: `string`
+
+Make the run DURABLE: journal + result blobs + the coordination side-log are file-backed under
+this directory (`createFileRunContext`), fsynced per write, and the supervisor reads the prior
+tree first. Re-running with the same `runDir` AND the same `runId` resumes only when the exact
+root profile/task identity and declared budget match. The original absolute deadline and prior
+measured spend are restored before new admission. The built-in driver is resume-aware: children
+that already settled, including their exact execution identities, are replayed onto
+`Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
+(`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+waits re-arm on their original deadlines, and the coordination log loads prior questions,
+findings, and instruction receipts. The router arm receives all three in its resume brief; the
+external arm seeds prior questions while findings and receipts remain in the durable log.
+Instruction receipts are evidence and are never delivered automatically to a replacement
+worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
+
+The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
+the built-in executors cannot re-attach to a dead process's executions. Each such assignment
+resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
+and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
+capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+
+`runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
+resumable run per directory but collides across concurrent runs sharing one `runDir`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
+
+##### probes?
+
+> `readonly` `optional` **probes?**: `string` \| [`WaitProbeRegistry`](runtime.md#waitproberegistry)
+
+Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so the
+ wait survives a restart; this is what the name resolves against. Unset ⇒ `poll` waits are
+ refused `unknown-probe` and `timer` waits still work. A `string` names an entry in
+ `registry.probes`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`probes`](runtime.md#probes-3)
+
+##### stopRule?
+
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
+
+PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
+exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
+it ran out". It composes with the budget guards and can never override one.
+
+The evaluation boundary differs by arm because the loop does: a router-brained supervisor is
+evaluated before each of its own inference turns; a harness-brained supervisor is evaluated on
+each worker settle, and a stop aborts its stop signal so the harness ends at its next turn
+boundary. Both arms fold the same settled ledger through the same evaluator.
+
+Build it from `supervise/stop-rules`: `plateau({window, minDelta})`,
+`noProgressFor({ms, settles})`, `allWorkersStalled({...})`, combined with `anyOf`/`allOf`. The
+thresholds are policy and stay with you; the enforcement lives in the runtime. Omit = ceilings
+only (unchanged behavior).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`stopRule`](runtime.md#stoprule-2)
+
+##### onProgressStop?
+
+> `readonly` `optional` **onProgressStop?**: (`reason`) => `void`
+
+One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a caller records the
+ reason instead of inferring an early stop from an unexhausted budget.
+
+###### Parameters
+
+###### reason
+
+`string`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onProgressStop`](runtime.md#onprogressstop-1)
+
+##### maxDepth?
+
+> `readonly` `optional` **maxDepth?**: `number`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-3)
+
+##### maxTurns?
+
+> `readonly` `optional` **maxTurns?**: `number`
+
+Turn cap for the supervisor's OWN loop (BOTH arms). Router arm: inference turns of the
+ driver's tool loop. Harness arm: turns the harness reports, counted off its `iteration`
+ stream — reaching the cap aborts the stop signal, so the harness ends at its next turn
+ boundary rather than mid-request. `0` lifts the cap on both arms and leaves the conserved
+ pool, the deadline, and abort as the bounds; a negative value is refused. Omit = the router
+ arm's default cap, and no turn cap on the harness arm.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxTurns`](runtime.md#maxturns-2)
+
+##### compaction?
+
+> `readonly` `optional` **compaction?**: [`ToolLoopCompactionOptions`](runtime.md#toolloopcompactionoptions)
+
+Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER ARM ONLY —
+ a harness owns its own context window and its own compaction, so this is refused for a
+ harness-brained supervisor rather than silently ignored): once its coordination transcript
+ exceeds `thresholdTokens` it distills to a compact progress note and continues, instead of
+ re-billing the whole transcript every turn (the cost that makes the LLM-brain front door lose
+ to a dumb-Ralph respawn). The live `Scope` roster is the durable state across chapters.
+ Default off. `distill` defaults to a brain self-summary + the settled-worker roster.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`compaction`](runtime.md#compaction-1)
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`now`](runtime.md#now-16)
+
+##### allowedModels?
+
+> `readonly` `optional` **allowedModels?**: readonly `string`[]
+
+Restrict the run to this subset of models. When set, every configured model — the
+ supervisor router model, the profile's model, and the backend's model — must be a member,
+ or `supervise()` throws a `ConfigError` before any compute is spent. Unset = unrestricted.
+
+ This is a MODEL-ID filter, not a route filter. The compared values are the bare ids a profile
+ declares — `model.default`, `model.small`, `subagents[].model`, `modes[].model`. The composed
+ wire id (`harness/provider/model`) is never built here and never compared, so an entry written
+ in qualified form matches nothing, and a child that names an allowed id is admitted whatever
+ harness and provider its own profile declares. Pin the route with `authorizeSpawn`: it reads
+ the authored child profile and may refuse the spawn before any reservation.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`allowedModels`](runtime.md#allowedmodels-2)
+
+##### finalizer?
+
+> `readonly` `optional` **finalizer?**: `string` \| [`SupervisorFinalizer`](index.md#supervisorfinalizer)
+
+How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
+ highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
+ `collectDelivered` (every verified distinct output with provenance — a Pareto set / recorded
+ disagreement) or a custom `SupervisorFinalizer`. Whatever the finalizer, it operates on
+ structurally DELIVERED outputs only — an undelivered or invalid child stays ineligible. A
+ `string` names an entry in `registry.finalizers`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`finalizer`](runtime.md#finalizer-1)
+
+##### otel?
+
+> `readonly` `optional` **otel?**: `Omit`\<[`SupervisorSpanOptions`](runtime.md#supervisorspanoptions), `"runId"` \| `"now"`\>
+
+OPT-IN OTLP tracing: emit one span per supervised node (opened at spawn, closed at settle,
+parented to its parent node's span) plus an `LLM` child span per metered driver turn, so the
+tree is readable by any trace viewer instead of only by a journal parser. See `otel-spans.ts`.
+
+Omit and the run emits nothing, allocates no recorder, and installs no hook — telemetry is
+never a default. Present with no reachable endpoint (no `exportConfig.endpoint` and no
+`OTEL_EXPORTER_OTLP_ENDPOINT`) is also a no-op. The spawn journal is untouched either way:
+spans are telemetry, never the replay/resume record.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`otel`](runtime.md#otel-1)
+
+***
+
+### SuperviseTestOptions
+
+Test-only one-call shape, exported only through the package's explicit `/testing` entry.
+
+#### Extends
+
+- [`SuperviseOptions`](runtime.md#superviseoptions)
+
+#### Properties
+
+##### budget
+
+> `readonly` **budget**: [`Budget`](index.md#budget-4)
+
+The conserved compute pool for the whole run.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-15)
+
+##### rootHandle?
+
+> `readonly` `optional` **rootHandle?**: [`RootHandle`](runtime.md#roothandle-2)\<`unknown`\>
+
+Caller-created live handle for observing, steering, or cancelling this root manager. Runtime
+attaches it before execution and detaches it after the join barrier.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`rootHandle`](runtime.md#roothandle-1)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+Caller-owned cancellation for the complete recursive run. Aborting it cascades through the
+root scope and every live child, including acquisition and backend execution.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-21)
+
+##### execution?
+
+> `readonly` `optional` **execution?**: [`AgentExecutionRef`](runtime.md#agentexecutionref)
+
+Trusted candidate and pursuit attribution for the root. The runtime derives profile/task
+digests itself from the exact detached values it executes.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`execution`](runtime.md#execution-2)
+
+##### backend?
+
+> `readonly` `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
+
+WHERE workers run — derives the worker seam. Provide this OR an explicit `makeWorkerAgent`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`backend`](runtime.md#backend-4)
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: `string` \| [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\>
+
+The independent completion check for backend-derived workers and direct supervisor
+ submissions. Strongly recommended: without it the supervisor cannot submit its own work and
+ backend-derived workers fall back to their own validity signal. A `string` names an entry in
+ `registry.deliverables`.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`deliverable`](runtime.md#deliverable-4)
+
+##### resolveDeliverable?
+
+> `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
+
+Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
+after spawn authorization and driver classification, receives a detached immutable context,
+and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+
+###### Parameters
+
+###### input
+
+[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
+
+###### Returns
+
+[`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDeliverable`](runtime.md#resolvedeliverable-1)
+
+##### registry?
+
+> `readonly` `optional` **registry?**: [`SuperviseRegistry`](runtime.md#superviseregistry)
+
+Name→value tables for the four code-valued options, so a recorded run configuration can name
+ them instead of carrying closures. See [SuperviseRegistry](runtime.md#superviseregistry).
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`registry`](runtime.md#registry-3)
+
+##### coordination?
+
+> `readonly` `optional` **coordination?**: [`CoordinationBinding`](runtime.md#coordinationbinding)
+
+Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
+ port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
+ unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`coordination`](runtime.md#coordination-1)
+
+##### peerMail?
+
+> `readonly` `optional` **peerMail?**: `boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](runtime.md#peermaillimits)\>; \}
+
+OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
+ and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
+ spawn, serves the mail listener beside the coordination MCP, and hands each worker its
+ endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl). Mounting that URL into the worker is the
+ `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
+ the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
+ it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
+ supervisor; a router-brained supervisor is refused rather than silently unmailed.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`peerMail`](runtime.md#peermail-1)
+
+##### makeWorkerAgent?
+
+> `readonly` `optional` **makeWorkerAgent?**: [`MakeWorkerAgent`](runtime.md#makeworkeragent)
+
+Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
+ This is caller-owned execution: profile security, spawn authorization, and recursive-driver
+ selection below apply only to the backend-derived worker path. `authorizeMessage` still
+ governs continuations sent through Runtime's coordination tools.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`makeWorkerAgent`](runtime.md#makeworkeragent-2)
+
+##### driverBackend?
+
+> `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](runtime.md#executorconfig)
+
+Run harness-brained supervisors here. Automatic execution supports a local `bridge`; a remote
+ sandbox requires an explicit `driveHarness` with a reachable coordination relay or tunnel.
+ Defaults to `backend`; separate it when managers and workers use different services.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driverBackend`](runtime.md#driverbackend-1)
+
+##### profileSecurity?
+
+> `readonly` `optional` **profileSecurity?**: `AgentProfileSecurityPolicy`
+
+Security policy applied to every manager-authored child profile before budget reservation.
+ The default blocks local and remote MCP, hooks, and connection grants. Pass an explicit
+ allowlist to grant remote MCP hosts or other author-controlled capabilities.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`profileSecurity`](runtime.md#profilesecurity-1)
+
+##### authorizeSpawn?
+
+> `readonly` `optional` **authorizeSpawn?**: (`input`) => [`AuthorizedSpawn`](runtime.md#authorizedspawn)
+
+Product authority over one complete manager-authored spawn. The callback sees the detached,
+ immutable profile, task, budget, label, and key together, so approving a profile cannot
+ authorize a different task. Return the exact allowed profile (which may be narrowed) plus
+ trusted candidate/pursuit attribution, or throw to refuse the whole spawn before reservation.
+
+###### Parameters
+
+###### input
+
+###### profile
+
+`AgentProfile`
+
+###### parent
+
+`AgentProfile`
+
+###### parentIdentity
+
+[`NodeExecutionIdentity`](runtime.md#nodeexecutionidentity)
+
+Trusted identity of the manager authorizing this exact child.
+
+###### parentNodeId
+
+`string`
+
+Concrete manager node; never accepted from model-authored tool arguments.
+
+###### assignmentId
+
+`string`
+
+Stable manager-scoped assignment, including deterministic unkeyed siblings.
+
+###### task
+
+`unknown`
+
+###### budget
+
+[`Budget`](index.md#budget-4)
+
+###### label
+
+`string`
+
+###### key?
+
+`string`
+
+###### depth
+
+`number`
+
+###### Returns
+
+[`AuthorizedSpawn`](runtime.md#authorizedspawn)
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeSpawn`](runtime.md#authorizespawn-1)
 
 ##### authorizeMessage?
 
@@ -894,7 +1367,7 @@ Decide whether an authorized child becomes another supervisor. By default only
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
 
 ##### router?
 
@@ -909,14 +1382,14 @@ The supervisor's router substrate (`profile.harness` omitted or `cli-base`). The
 
 ##### driveHarness?
 
-> `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-1)
+> `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
 
 Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
  caller-owned override for a local bridge.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarness`](runtime.md#driveharness)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarness`](runtime.md#driveharness-1)
 
 ##### driverRetry?
 
@@ -937,7 +1410,7 @@ driver failure ends the run. Applies to the root manager and every recursive man
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`driverRetry`](runtime.md#driverretry)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driverRetry`](runtime.md#driverretry-1)
 
 ##### onDriverAttempt?
 
@@ -958,7 +1431,7 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
 
 ##### childSettleGraceMs?
 
@@ -971,18 +1444,18 @@ yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`childSettleGraceMs`](runtime.md#childsettlegracems-1)
 
 ##### resolveDriveHarness?
 
-> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-1)
+> `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](runtime.md#resolvedriveharness-2)
 
 Resolve one custom external-harness session per trusted manager identity. Use this instead of
 `driveHarness` when recursive managers must be independently steerable.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDriveHarness`](runtime.md#resolvedriveharness)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveDriveHarness`](runtime.md#resolvedriveharness-1)
 
 ##### driveHarnessMaterialization?
 
@@ -994,7 +1467,7 @@ full-profile contract.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarnessMaterialization`](runtime.md#driveharnessmaterialization)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`driveHarnessMaterialization`](runtime.md#driveharnessmaterialization-1)
 
 ##### resolveSupervisorTools?
 
@@ -1052,7 +1525,7 @@ WORK tools the supervisor may call DIRECTLY — so a recursive atom can ACT (do 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`extraTools`](runtime.md#extratools-1)
 
 ##### executeExtraTool?
 
@@ -1076,7 +1549,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`executeExtraTool`](runtime.md#executeextratool-1)
 
 ##### perWorker?
 
@@ -1207,7 +1680,7 @@ resumable run per directory but collides across concurrent runs sharing one `run
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runDir`](runtime.md#rundir-2)
 
 ##### journal?
 
@@ -1231,11 +1704,11 @@ Predicate registry for `poll` wait-states (`Scope.wait`). A `poll` names its pre
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`probes`](runtime.md#probes-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`probes`](runtime.md#probes-3)
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped LEARNING before it
 exhausts a ceiling — the answer to "a run should end because it is done or stuck, not because
@@ -1253,7 +1726,7 @@ only (unchanged behavior).
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`stopRule`](runtime.md#stoprule-1)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`stopRule`](runtime.md#stoprule-2)
 
 ##### onProgressStop?
 
@@ -1274,7 +1747,7 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`onProgressStop`](runtime.md#onprogressstop)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onProgressStop`](runtime.md#onprogressstop-1)
 
 ##### maxDepth?
 
@@ -1282,7 +1755,7 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms) — so a cal
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-2)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxDepth`](runtime.md#maxdepth-3)
 
 ##### maxTurns?
 
@@ -1313,7 +1786,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`compaction`](runtime.md#compaction)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`compaction`](runtime.md#compaction-1)
 
 ##### runId?
 
@@ -1367,7 +1840,7 @@ How the settled-worker ledger becomes the run's output. Default `bestDelivered` 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`finalizer`](runtime.md#finalizer)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`finalizer`](runtime.md#finalizer-1)
 
 ##### hooks?
 
@@ -1508,13 +1981,13 @@ Router substrate for a router-brained supervisor (`harness` omitted or `cli-base
 
 ##### driveHarness?
 
-> `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-1)
+> `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)
 
 Required to run an external-harness supervisor: runs the harness as the driver.
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driveHarness`](runtime.md#driveharness-3)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driveHarness`](runtime.md#driveharness-4)
 
 ##### driverRetry?
 
@@ -1528,7 +2001,7 @@ How hard a transiently-failed EXTERNAL driver is re-entered before the run ends
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driverRetry`](runtime.md#driverretry-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`driverRetry`](runtime.md#driverretry-2)
 
 ##### onDriverAttempt?
 
@@ -1549,7 +2022,7 @@ Per-attempt record for the external driver — how an operator sees "failed afte
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onDriverAttempt`](runtime.md#ondriverattempt-2)
 
 ##### nodeContext?
 
@@ -1601,7 +2074,7 @@ WORK tools the supervisor may call DIRECTLY (router arm) — so it can do simple
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`extraTools`](runtime.md#extratools-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`extraTools`](runtime.md#extratools-2)
 
 ##### executeExtraTool?
 
@@ -1625,7 +2098,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`executeExtraTool`](runtime.md#executeextratool-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`executeExtraTool`](runtime.md#executeextratool-2)
 
 ##### analysts?
 
@@ -1683,7 +2156,7 @@ Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attache
 
 ##### stopRule?
 
-> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule)
+> `readonly` `optional` **stopRule?**: [`StopRule`](runtime.md#stoprule-1)
 
 PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped learning BEFORE it
  exhausts a ceiling; it can never keep a run alive past one. Router arm: evaluated before each
@@ -1694,7 +2167,7 @@ PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped learning BEF
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`stopRule`](runtime.md#stoprule-2)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`stopRule`](runtime.md#stoprule-3)
 
 ##### onProgressStop?
 
@@ -1714,7 +2187,7 @@ One-shot notification of WHY a `stopRule` ended the run (BOTH arms).
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onProgressStop`](runtime.md#onprogressstop-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onProgressStop`](runtime.md#onprogressstop-2)
 
 ##### maxTurns?
 
@@ -1739,7 +2212,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`compaction`](runtime.md#compaction-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`compaction`](runtime.md#compaction-2)
 
 ##### onEvent?
 
@@ -1803,7 +2276,7 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`finalizer`](runtime.md#finalizer-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`finalizer`](runtime.md#finalizer-2)
 
 ##### coordination?
 
@@ -1815,7 +2288,7 @@ Where the coordination MCP binds (external arm). Omit = an ephemeral loopback po
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`coordination`](runtime.md#coordination-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`coordination`](runtime.md#coordination-2)
 
 ##### preflightSpawn?
 
@@ -1841,7 +2314,7 @@ OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` pos
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`peerMail`](runtime.md#peermail-1)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`peerMail`](runtime.md#peermail-2)
 
 ##### controlDir?
 
