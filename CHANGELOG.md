@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.159.0
+
+### A tool-carrying model call no longer answers tool-free
+
+`profileChatClient` and `profileOptimizerModelCall` forwarded only `req.messages` into the turn. A `ChatRequest` carrying `tools` reached the provider without them and came back with ordinary prose — indistinguishable, to the caller, from a model that chose not to call a tool. That is contaminated evidence on the one path agent-eval names Runtime as the owner of.
+
+`tools` now reach the wire through the router seam, and the model's calls come back on `ChatResponse.toolCalls` in the canonical `{ id, name, argumentsJson }` shape. The OpenAI stop cause `tool_calls` is normalized to the canonical `tool_use`.
+
+Three refusals, all before any transport runs, because a dropped tool must never look like an answer:
+
+- A backend without a router seam cannot pass tools; a tool-carrying request names the backend and fails.
+- `toolChoice` reaches the wire only from `AgentProfile.model.metadata.toolChoice`, so a request may restate that policy and never change it. A differing value is refused and the error names both sides.
+- `toolChoice` with no `tools` is refused: the policy is meaningful only with tools.
+
+Unchanged, and worth stating: `routerInlineExecutor` still requires `AgentProfile.tools` to enable every supplied schema by name, so a caller cannot smuggle a tool past the profile. A tool-carrying request restates what the profile already allows.
+
+This is pass-through, not a tool loop. The caller executes the tools; Runtime owns the exact paid call.
+
 ## 0.158.0
 
 ### A declared graph can mount the product tools `supervise()` mounts

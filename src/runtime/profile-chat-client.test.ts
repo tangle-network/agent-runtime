@@ -34,6 +34,24 @@ function clientWith(
   })
 }
 
+function toolClientWith(
+  complete: (
+    body: Record<string, unknown>,
+    request?: { headers: Readonly<Record<string, string>>; signal?: AbortSignal },
+  ) => Promise<unknown>,
+) {
+  return profileChatClient({
+    profile: { ...profile, tools: { read_file: true } },
+    context: 'profile chat test',
+    executor: {
+      backend: 'router',
+      routerBaseUrl: 'http://injected.invalid/v1',
+      routerKey: 'injected-transport',
+      complete,
+    },
+  })
+}
+
 const request = {
   messages: [
     { role: 'system' as const, content: 'Answer exactly.' },
@@ -518,5 +536,86 @@ describe('terminalDurationMs', () => {
     expect(
       terminalDurationMs([{ type: 'final', metadata: { timing: { durationMs: 8 } } }], 12.5),
     ).toBe(8)
+  })
+})
+
+describe('profileChatClient tool pass-through (a tool-carrying request never answers tool-free)', () => {
+  // `routerInlineExecutor` requires the profile to ENABLE every supplied tool by name, so a
+  // caller cannot smuggle a tool past the profile. The request restates what the profile allows.
+  const toolProfile: AgentProfile = { ...profile, tools: { read_file: true } }
+  const tools = [
+    {
+      type: 'function' as const,
+      function: {
+        name: 'read_file',
+        description: 'Read one file',
+        parameters: { type: 'object', properties: { path: { type: 'string' } } },
+      },
+    },
+  ]
+
+  it("sends the request's tools and returns the model's tool calls under the canonical stop cause", async () => {
+    let sentBody: Record<string, unknown> | undefined
+    const response = await toolClientWith(async (body) => {
+      sentBody = body
+      return {
+        model: 'deepseek-v4-flash',
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: { name: 'read_file', arguments: '{"path":"README.md"}' },
+                },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: { prompt_tokens: 11, completion_tokens: 4 },
+      }
+    }).chat({ ...request, tools })
+
+    // The tools reached the wire, not just the request object.
+    expect(sentBody?.tools).toEqual(tools)
+    // The model's calls come back in the canonical shape, and the OpenAI stop cause is normalized.
+    expect(response.toolCalls).toEqual([
+      { id: 'call_1', name: 'read_file', argumentsJson: '{"path":"README.md"}' },
+    ])
+    expect(response.finishReason).toBe('tool_use')
+  })
+
+  it('refuses a tool-carrying request on a backend that cannot pass tools, before any transport', async () => {
+    const client = profileChatClient({
+      profile: toolProfile,
+      context: 'bridge tools test',
+      executor: {
+        backend: 'bridge',
+        bridgeUrl: 'http://127.0.0.1:1/',
+        bridgeBearer: 'unused',
+      },
+    })
+    // Naming the backend is the point: a tool-free answer would be indistinguishable from a model
+    // that chose not to call one.
+    await expect(client.chat({ ...request, tools })).rejects.toThrow(
+      /backend "bridge" cannot pass tools through/,
+    )
+  })
+
+  it('refuses a toolChoice the profile does not declare rather than dropping it', async () => {
+    // `toolChoice` reaches the wire only from AgentProfile.model.metadata, so a request-only value
+    // has no channel; silently ignoring it is the defect.
+    const ran = vi.fn()
+    const client = toolClientWith(async () => {
+      ran()
+      return { model: 'deepseek-v4-flash', choices: [{ message: { content: 'x' } }] }
+    })
+    await expect(client.chat({ ...request, tools, toolChoice: 'required' })).rejects.toThrow(
+      /toolChoice "required" conflicts with AgentProfile\.model\.metadata\.toolChoice null/,
+    )
+    expect(ran).not.toHaveBeenCalled()
   })
 })
