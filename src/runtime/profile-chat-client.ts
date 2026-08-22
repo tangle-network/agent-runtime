@@ -166,6 +166,7 @@ export async function runBoundProfileChat(
     binding.context,
   )
   assertSupportedChatCallOptions(callOpts, binding.context)
+  const executor = toolCarryingExecutor(binding, req)
   const turnProfile = responseProfile(binding.profile, req, binding.context)
   const startedAt = performance.now()
   const turn = await collectAgentTurn(
@@ -173,7 +174,7 @@ export async function runBoundProfileChat(
       {
         kind: 'executor',
         profile: turnProfile,
-        factory: createExecutor(binding.executor),
+        factory: createExecutor(executor),
       },
       {
         providerOptions: {
@@ -211,8 +212,17 @@ export async function runBoundProfileChat(
     }
   }
   const resultOut = turn.output as
-    | { finishReason?: string; system_fingerprint?: unknown }
+    | {
+        finishReason?: string
+        system_fingerprint?: unknown
+        toolCalls?: ReadonlyArray<{ id: string; name: string; arguments: string }>
+      }
     | undefined
+  const toolCalls = (resultOut?.toolCalls ?? []).map((call) => ({
+    id: call.id,
+    name: call.name,
+    argumentsJson: call.arguments,
+  }))
   const promptTokens = turn.usage.input
   const completionTokens = turn.usage.output
   return {
@@ -240,7 +250,11 @@ export async function runBoundProfileChat(
           : turn.usage.costUsd,
       model: observedModel,
       durationMs: terminalDurationMs(turn.events, performance.now() - startedAt),
-      finishReason: resultOut?.finishReason ?? null,
+      // The OpenAI wire spells a tool stop `tool_calls`; the canonical vocabulary spells it
+      // `tool_use`. Normalizing here keeps one stop cause across transports.
+      finishReason:
+        resultOut?.finishReason === 'tool_calls' ? 'tool_use' : (resultOut?.finishReason ?? null),
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
       contentEmpty: turn.finalText.trim().length === 0,
       raw: {
         ...(turn.usage.estimatedCostUsd !== undefined
@@ -270,6 +284,53 @@ export function terminalDurationMs(
   }
   if (Number.isFinite(measuredWallMs) && measuredWallMs >= 0) return measuredWallMs
   throw new Error('profileChatClient: measured wall duration must be a finite non-negative number')
+}
+
+/**
+ * The executor one call runs on, carrying that call's tools.
+ *
+ * A request's `tools` reach the wire only through the router seam, so a backend without that seam
+ * cannot pass them and is REFUSED by name here, before any transport runs. Answering a
+ * tool-carrying request without its tools is contaminated evidence, exactly like a model
+ * substitution: the caller reads a tool-free answer and cannot tell it apart from a model that
+ * chose not to call one.
+ *
+ * `toolChoice` has no per-call channel at all — `routerInlineExecutor` reads it from
+ * `AgentProfile.model.metadata.toolChoice` — so a request may restate the profile's policy and
+ * never change it. The error names both sides, because declaring it on the profile is the fix.
+ */
+function toolCarryingExecutor(binding: BoundProfileChat, req: ChatRequest): ExecutorConfig {
+  const tools = req.tools ?? []
+  if (req.toolChoice !== undefined) {
+    if (tools.length === 0) {
+      throw new Error(
+        `${binding.context}: request sets toolChoice with no tools; tool choice is meaningful only with tools`,
+      )
+    }
+    if (typeof req.toolChoice !== 'string') {
+      throw new Error(
+        `${binding.context}: request toolChoice names one function; Runtime's router turn expresses only auto, required, or none`,
+      )
+    }
+    if (req.toolChoice !== binding.settings.toolChoice) {
+      throw new Error(
+        `${binding.context}: request toolChoice ${JSON.stringify(req.toolChoice)} conflicts with AgentProfile.model.metadata.toolChoice ${JSON.stringify(binding.settings.toolChoice ?? null)}`,
+      )
+    }
+  }
+  if (tools.length === 0) return binding.executor
+  if (binding.executor.backend !== 'router') {
+    throw new Error(
+      `${binding.context}: backend ${JSON.stringify(binding.executor.backend)} cannot pass tools through; refusing a tool-carrying request rather than answering without its tools`,
+    )
+  }
+  const declared = binding.executor.tools
+  if (declared !== undefined && JSON.stringify(declared) !== JSON.stringify(tools)) {
+    throw new Error(
+      `${binding.context}: request tools conflict with the tools already declared on the executor config`,
+    )
+  }
+  return captureReusableExecutorConfig({ ...binding.executor, tools }, binding.context)
 }
 
 function assertSupportedChatCallOptions(
