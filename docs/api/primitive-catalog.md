@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.165.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.165.1` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1827,7 +1827,7 @@ Import from `@tangle-network/agent-eval/campaign` — 404 exports.
 | `combineComparisonCosts` | function | Combine method costs without turning one unknown bill into a known total. |
 | `compareOptimizationMethods` | function | Compare complete optimization methods on disjoint train, selection, and final test data. |
 | `compareRankKeys` | function | Compare fixed-length lexicographic rank keys where each element is higher-is-better. |
-| `componentSurfaceIdentityMaterial` | function | Return deterministic identity material independent of component key order. |
+| `componentSurfaceIdentityMaterial` | function | Deterministic identity material for a component surface. |
 | `composeGate` | function | Compose gates — all must `ship` for the composite to `ship`. First |
 | `costFromLedgerSummary` | function | Keep the cost fields a custom optimization method must report. |
 | `createProfileMatrixPlan` | function | _(no summary — add a TSDoc line at the declaration)_ |

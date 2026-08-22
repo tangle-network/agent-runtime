@@ -550,7 +550,7 @@ Carry-forward from the finding so the apply gate can check the threshold.
 
 ##### severity
 
-> **severity**: `AnalystSeverity`
+> **severity**: `"medium"` \| `"low"` \| `"high"` \| `"info"` \| `"critical"`
 
 Carry-forward severity for prioritization.
 

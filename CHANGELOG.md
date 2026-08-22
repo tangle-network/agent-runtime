@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.165.1
+
+### The `agent-eval` peer range admits 0.170.0
+
+`peerDependencies["@tangle-network/agent-eval"]` was `>=0.163.2 <0.164.0`, a range only one published version satisfies. agent-eval published 0.170.0, so a consumer that asked for the latest of both packages got an unsatisfiable set, and a consumer that resolved it stayed on 0.163.2. The range is now `>=0.163.2 <0.171.0`, and the workspace catalog resolves to 0.170.0 so CI builds and tests against it.
+
+The ceiling was stale, not protective. agent-eval 0.170.0 removes six exports against 0.163.2, all from `@tangle-network/agent-eval/analyst`: `createJudgeAdapter`, `createRunCriticAdapter`, `createVerifierAdapter`, and their option types `JudgeAdapterOpts`, `RunCriticAdapterOpts` and `VerifierAdapterOpts`. This runtime imports none of them. Of the 241 distinct symbols it imports across 11 agent-eval entry points, 0.170.0 supplies all 241.
+
+**What a consumer must do differently:** nothing. A consumer that pinned agent-eval to 0.163.2 to satisfy this peer can move to 0.170.0. One caveat outside this package: `@tangle-network/agent-knowledge@10.7.0`, a direct dependency here, still declares `>=0.163.2 <0.164.0`, so installing agent-eval 0.170.0 reports an unmet peer for agent-knowledge until that package publishes a widened range. The unmet peer is a warning, not an install failure, and no agent-knowledge code path here reads a removed symbol.
+
 ## Unreleased
 
 ### A multi-turn bridge session survives its own token counters (`bridgeExecutor`)
