@@ -8,13 +8,326 @@
 
 ## Interfaces
 
-### GraphEngineOptions
+### CompiledEdge
 
 `@tangle-network/agent-runtime/graph` — the runtime-native multi-agent graph engine.
 
 Design record: agent-runtime#966 (the map) and its closed tickets. Build sequence: #979 (this
 contract + registry + the four core kinds), #980 (scheduler over typed ports), #981 (journal
 fold and kill-anywhere replay), #982 (the `runGraph` preset).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### spec
+
+> `readonly` **spec**: [`EngineGraphEdge`](#enginegraphedge)
+
+##### fromPort
+
+> `readonly` **fromPort**: `string`
+
+##### toPort
+
+> `readonly` **toPort**: `string`
+
+***
+
+### CompiledNode
+
+`@tangle-network/agent-runtime/graph` — the runtime-native multi-agent graph engine.
+
+Design record: agent-runtime#966 (the map) and its closed tickets. Build sequence: #979 (this
+contract + registry + the four core kinds), #980 (scheduler over typed ports), #981 (journal
+fold and kill-anywhere replay), #982 (the `runGraph` preset).
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### kind
+
+> `readonly` **kind**: [`NodeKind`](#nodekind)
+
+##### config
+
+> `readonly` **config**: `unknown`
+
+##### join
+
+> `readonly` **join**: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`
+
+##### maxVisits
+
+> `readonly` **maxVisits**: `number`
+
+##### oracle
+
+> `readonly` **oracle**: `boolean`
+
+##### pure
+
+> `readonly` **pure**: `boolean`
+
+##### terminal
+
+> `readonly` **terminal**: `boolean`
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](../runtime.md#deliverablespec)\<`unknown`\>
+
+The check this node must pass to count DELIVERED; resolved per #973.
+
+##### inbound
+
+> `readonly` **inbound**: readonly [`CompiledEdge`](#compilededge)[]
+
+##### outbound
+
+> `readonly` **outbound**: readonly [`CompiledEdge`](#compilededge)[]
+
+##### spec
+
+> `readonly` **spec**: [`EngineGraphNode`](#enginegraphnode)
+
+***
+
+### CompiledGraph
+
+`@tangle-network/agent-runtime/graph` — the runtime-native multi-agent graph engine.
+
+Design record: agent-runtime#966 (the map) and its closed tickets. Build sequence: #979 (this
+contract + registry + the four core kinds), #980 (scheduler over typed ports), #981 (journal
+fold and kill-anywhere replay), #982 (the `runGraph` preset).
+
+#### Properties
+
+##### nodes
+
+> `readonly` **nodes**: `ReadonlyMap`\<`string`, [`CompiledNode`](#compilednode)\>
+
+##### edges
+
+> `readonly` **edges**: readonly [`CompiledEdge`](#compilededge)[]
+
+##### entries
+
+> `readonly` **entries**: readonly `string`[]
+
+##### terminals
+
+> `readonly` **terminals**: readonly `string`[]
+
+##### root
+
+> `readonly` **root**: `string`
+
+##### maxNodeVisits
+
+> `readonly` **maxNodeVisits**: `number`
+
+***
+
+### ConditionLeaf
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+Dotted path with `[N]` indexing into the guard context, e.g. `out.findings[0].severity`.
+
+##### op
+
+> `readonly` **op**: `"in"` \| `"eq"` \| `"neq"` \| `"gt"` \| `"gte"` \| `"lt"` \| `"lte"` \| `"contains"` \| `"exists"` \| `"truthy"`
+
+##### value?
+
+> `readonly` `optional` **value?**: `unknown`
+
+***
+
+### EngineGraphNode
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### kind
+
+> `readonly` **kind**: `string`
+
+`<id>/v<n>` into the engine's kind registry.
+
+##### config?
+
+> `readonly` `optional` **config?**: `unknown`
+
+This node's config, validated by its kind's `validateConfig` at compile.
+
+##### flags?
+
+> `readonly` `optional` **flags?**: [`NodeFlags`](#nodeflags)
+
+Per-node flags — properties of the node, never of its kind (agent-runtime#970).
+
+##### ports?
+
+> `readonly` `optional` **ports?**: `object`
+
+Node-level port declarations, merged OVER the kind's. A kind whose surface depends on its
+ config (a script) declares ports here; a typed kind's declared ports stay authoritative.
+
+###### inputs?
+
+> `readonly` `optional` **inputs?**: readonly [`PortSpec`](#portspec)[]
+
+###### outputs?
+
+> `readonly` `optional` **outputs?**: readonly [`PortSpec`](#portspec)[]
+
+##### join?
+
+> `readonly` `optional` **join?**: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`
+
+Which inbound gating-edge outcomes release this node. Default `all`.
+
+##### maxVisits?
+
+> `readonly` `optional` **maxVisits?**: `number`
+
+Entered more than this many times fails the run `cycle-budget-exceeded`.
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](../runtime.md#deliverablespec)\<`unknown`\>
+
+This node's completion check; a terminal without one (or a kind/graph default) refuses.
+
+##### terminal?
+
+> `readonly` `optional` **terminal?**: `boolean`
+
+Force-mark a terminal. Absent, a node with no outbound gating edge is terminal.
+
+##### profile?
+
+> `readonly` `optional` **profile?**: `Readonly`\<`Partial`\<`AgentProfile`\>\>
+
+Profile fields merged over the engine-authored `{ name: id }` for this node's spawns.
+
+##### budget?
+
+> `readonly` `optional` **budget?**: [`Budget`](../index.md#budget-4)
+
+Per-instance reservation for this node's spawns; falls back to the run's `perNode`.
+
+***
+
+### EngineGraphEdge
+
+#### Properties
+
+##### id?
+
+> `readonly` `optional` **id?**: `string`
+
+Stable id for the ledger; defaults to `<from>-><to>#<ordinal>`.
+
+##### kind
+
+> `readonly` **kind**: [`GraphEdgeKind`](#graphedgekind)
+
+##### from
+
+> `readonly` **from**: `object`
+
+###### node
+
+> `readonly` **node**: `string`
+
+###### port?
+
+> `readonly` `optional` **port?**: `string`
+
+##### to
+
+> `readonly` **to**: `object`
+
+###### node
+
+> `readonly` **node**: `string`
+
+###### port?
+
+> `readonly` `optional` **port?**: `string`
+
+##### guard?
+
+> `readonly` `optional` **guard?**: [`Condition`](#condition)
+
+Evaluated over the source's settle context; absent = satisfied by completion.
+
+##### projection?
+
+> `readonly` `optional` **projection?**: [`Projection`](#projection-1)
+
+`data` edges only: ONE pure reshape of the admitted payload.
+
+##### maxTraversals?
+
+> `readonly` `optional` **maxTraversals?**: `number`
+
+Refuses the traversal past this many firings (ledgered `unpropagated`).
+
+##### directive?
+
+> `readonly` `optional` **directive?**: [`PromptHandle`](../runtime.md#prompthandle)
+
+`delegates`/`analyzes`: the versioned directive appended to the target's task.
+
+***
+
+### EngineGraphSpec
+
+#### Properties
+
+##### nodes
+
+> `readonly` **nodes**: readonly [`EngineGraphNode`](#enginegraphnode)[]
+
+##### edges
+
+> `readonly` **edges**: readonly [`EngineGraphEdge`](#enginegraphedge)[]
+
+##### root?
+
+> `readonly` `optional` **root?**: `string`
+
+Root node for the graph-level completion check. Defaults to the single entry node.
+
+##### deliverable?
+
+> `readonly` `optional` **deliverable?**: [`DeliverableSpec`](../runtime.md#deliverablespec)\<`unknown`\>
+
+Becomes the ROOT node's completion check when the root declares none (#973).
+
+##### maxNodeVisits?
+
+> `readonly` `optional` **maxNodeVisits?**: `number`
+
+***
+
+### GraphEngineOptions
 
 #### Properties
 
@@ -40,12 +353,6 @@ The core set. Injected so a test can substitute, and so the engine never imports
 ***
 
 ### GraphEngine
-
-`@tangle-network/agent-runtime/graph` — the runtime-native multi-agent graph engine.
-
-Design record: agent-runtime#966 (the map) and its closed tickets. Build sequence: #979 (this
-contract + registry + the four core kinds), #980 (scheduler over typed ports), #981 (journal
-fold and kill-anywhere replay), #982 (the `runGraph` preset).
 
 #### Properties
 
@@ -135,7 +442,7 @@ Kind id, e.g. `agent`, `integration.invoke`. With `version`, forms the handle `<
 
 ###### Overrides
 
-[`Registered`](#registered).[`id`](#id-2)
+[`Registered`](#registered).[`id`](#id-6)
 
 ##### version
 
@@ -367,7 +674,7 @@ Anything a registry holds carries its own handle, so the table cannot drift from
 
 ###### Inherited from
 
-[`RegistryHandle`](#registryhandle).[`id`](#id-1)
+[`RegistryHandle`](#registryhandle).[`id`](#id-5)
 
 ##### version
 
@@ -482,7 +789,168 @@ Every entry, in `names()` order.
 
 `T`[]
 
+***
+
+### GraphNodeSettle
+
+One node settlement as the graph result reports it.
+
+#### Properties
+
+##### node
+
+> `readonly` **node**: `string`
+
+##### visit
+
+> `readonly` **visit**: `number`
+
+##### status
+
+> `readonly` **status**: `"done"` \| `"down"`
+
+##### valid?
+
+> `readonly` `optional` **valid?**: `boolean`
+
+The node's completion check verdict; `undefined` when the node declares no check.
+
+##### out?
+
+> `readonly` `optional` **out?**: `unknown`
+
+##### outRef?
+
+> `readonly` `optional` **outRef?**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### GraphEdgeTraversal
+
+One ledgered edge firing (or refusal) — the run's observable data flow.
+
+#### Properties
+
+##### edge
+
+> `readonly` **edge**: `string`
+
+##### kind
+
+> `readonly` **kind**: `"data"` \| `"delegates"` \| `"analyzes"`
+
+##### from
+
+> `readonly` **from**: `string`
+
+##### to
+
+> `readonly` **to**: `string`
+
+##### traversal
+
+> `readonly` **traversal**: `number`
+
+##### outcome
+
+> `readonly` **outcome**: `"delivered"` \| `"empty"` \| `"unpropagated"`
+
+##### directive?
+
+> `readonly` `optional` **directive?**: `string`
+
+##### port?
+
+> `readonly` `optional` **port?**: `string`
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+***
+
+### GraphRunOptions
+
+#### Properties
+
+##### budget
+
+> `readonly` **budget**: [`Budget`](../index.md#budget-4)
+
+The run's conserved pool.
+
+##### perNode?
+
+> `readonly` `optional` **perNode?**: [`Budget`](../index.md#budget-4)
+
+Default per-instance reservation for nodes that declare no `budget` of their own.
+ Required when any such node exists — the engine invents no split.
+
+##### journal?
+
+> `readonly` `optional` **journal?**: [`SpawnJournal`](../runtime.md#spawnjournal)
+
+##### blobs?
+
+> `readonly` `optional` **blobs?**: [`ResultBlobStore`](../runtime.md#resultblobstore)
+
+##### prompts?
+
+> `readonly` `optional` **prompts?**: [`PromptRegistry`](../runtime.md#promptregistry)
+
+Resolves `delegates`/`analyzes` directives; required when any edge carries one.
+
+##### finalizer?
+
+> `readonly` `optional` **finalizer?**: [`SupervisorFinalizer`](../index.md#supervisorfinalizer) \| `"bestDelivered"` \| `"collectDelivered"`
+
+How terminal settles reduce to `out`. Default `bestDelivered`.
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
+
+##### now?
+
+> `readonly` `optional` **now?**: () => `number`
+
+###### Returns
+
+`number`
+
+##### runId?
+
+> `readonly` `optional` **runId?**: `string`
+
 ## Type Aliases
+
+### ConditionOp
+
+> **ConditionOp** = *typeof* [`CONDITION_OPS`](#condition_ops)\[`number`\]
+
+***
+
+### Condition
+
+> **Condition** = [`ConditionLeaf`](#conditionleaf) \| \{ `all`: `ReadonlyArray`\<[`Condition`](#condition)\>; \} \| \{ `any`: `ReadonlyArray`\<[`Condition`](#condition)\>; \} \| \{ `not`: [`Condition`](#condition); \}
+
+***
+
+### JoinRule
+
+> **JoinRule** = *typeof* [`JOIN_RULES`](#join_rules)\[`number`\]
+
+***
+
+### GraphEdgeKind
+
+> **GraphEdgeKind** = `"delegates"` \| `"analyzes"` \| `"data"`
+
+***
 
 ### JsonSchema
 
@@ -557,7 +1025,207 @@ The caller code a `script` node runs. Receives the resolved inputs; returns the 
 
 `Promise`\<`unknown`\> \| `unknown`
 
+***
+
+### Projection
+
+> **Projection** = \{ `path`: `string`; \} \| \{ `pick`: `ReadonlyArray`\<`string`\>; \} \| \{ `map`: `string`; \} \| \{ `filter`: [`Condition`](#condition); \} \| \{ `first`: `true`; \} \| \{ `last`: `true`; \} \| \{ `count`: `true`; \}
+
+***
+
+### GraphRunReason
+
+> **GraphRunReason** = `"all-children-down"` \| `"budget-exhausted"` \| `"aborted"` \| `"driver-failed"` \| `"cycle-budget-exceeded"` \| `"unreachable-terminal"`
+
+***
+
+### GraphRunResult
+
+> **GraphRunResult** = \{ `kind`: `"winner"`; `out`: `unknown`; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; \} \| \{ `kind`: `"no-winner"`; `reason`: [`GraphRunReason`](#graphrunreason); `error?`: \{ `name`: `string`; `message`: `string`; \}; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; `unreachable`: `ReadonlyArray`\<`string`\>; \}
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"winner"`; `out`: `unknown`; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"no-winner"`; `reason`: [`GraphRunReason`](#graphrunreason); `error?`: \{ `name`: `string`; `message`: `string`; \}; `terminals`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `settles`: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>; `ledger`: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>; `unreachable`: `ReadonlyArray`\<`string`\>; \}
+
+###### kind
+
+> `readonly` **kind**: `"no-winner"`
+
+###### reason
+
+> `readonly` **reason**: [`GraphRunReason`](#graphrunreason)
+
+###### error?
+
+> `readonly` `optional` **error?**: `object`
+
+###### error.name
+
+> `readonly` **name**: `string`
+
+###### error.message
+
+> `readonly` **message**: `string`
+
+###### terminals
+
+> `readonly` **terminals**: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>
+
+###### settles
+
+> `readonly` **settles**: `ReadonlyArray`\<[`GraphNodeSettle`](#graphnodesettle)\>
+
+###### ledger
+
+> `readonly` **ledger**: `ReadonlyArray`\<[`GraphEdgeTraversal`](#graphedgetraversal)\>
+
+###### unreachable
+
+> `readonly` **unreachable**: `ReadonlyArray`\<`string`\>
+
+Nodes provably stuck when the run ended: every upstream settled, no release possible.
+
+## Variables
+
+### CONDITION\_OPS
+
+> `const` **CONDITION\_OPS**: readonly \[`"eq"`, `"neq"`, `"gt"`, `"gte"`, `"lt"`, `"lte"`, `"in"`, `"contains"`, `"exists"`, `"truthy"`\]
+
+The leaf comparison operators; `exists`/`truthy` are unary, the rest compare against `value`.
+
+***
+
+### JOIN\_RULES
+
+> `const` **JOIN\_RULES**: readonly \[`"all"`, `"any"`, `"any_failed"`, `"all_done"`\]
+
+Which gating-edge outcomes release a node (adopted from ADC, agent-runtime#968).
+
+***
+
+### DEFAULT\_MAX\_NODE\_VISITS
+
+> `const` **DEFAULT\_MAX\_NODE\_VISITS**: `25` = `25`
+
+ADC-compatible visit backstop: nothing may be ENTERED more than this many times.
+
+***
+
+### MAX\_MAX\_NODE\_VISITS
+
+> `const` **MAX\_MAX\_NODE\_VISITS**: `100` = `100`
+
+The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach.
+
 ## Functions
+
+### schemaAccepts()
+
+> **schemaAccepts**(`source`, `target`, `depth?`): `boolean`
+
+Bounded structural acceptance: does a value of `source`'s shape fit `target`? Schemas with no
+`type` accept anything; object targets require their `required` properties to be present and
+accepted when the source declares properties. Depth-bounded — this is a compile-time tripwire,
+not a full JSON Schema validator.
+
+#### Parameters
+
+##### source
+
+[`JsonSchema`](#jsonschema)
+
+##### target
+
+[`JsonSchema`](#jsonschema)
+
+##### depth?
+
+`number` = `0`
+
+#### Returns
+
+`boolean`
+
+***
+
+### compileGraph()
+
+> **compileGraph**(`engine`, `spec`, `context?`): [`CompiledGraph`](#compiledgraph)
+
+Lower an authored graph against an engine's kind registry into the schedulable form, refusing
+every structural defect before any spend.
+
+#### Parameters
+
+##### engine
+
+[`GraphEngine`](#graphengine)
+
+##### spec
+
+[`EngineGraphSpec`](#enginegraphspec)
+
+##### context?
+
+`string` = `'compileGraph'`
+
+#### Returns
+
+[`CompiledGraph`](#compiledgraph)
+
+***
+
+### validateCondition()
+
+> **validateCondition**(`raw`, `context`): [`Condition`](#condition)
+
+Validate shape, bounds, and per-leaf path/operator rules; returns the input for chaining.
+
+#### Parameters
+
+##### raw
+
+`unknown`
+
+##### context
+
+`string`
+
+#### Returns
+
+[`Condition`](#condition)
+
+***
+
+### evaluateCondition()
+
+> **evaluateCondition**(`condition`, `context`): `boolean`
+
+Walk a validated condition over a context to a boolean. Never throws on data shape.
+
+#### Parameters
+
+##### condition
+
+[`Condition`](#condition)
+
+##### context
+
+`unknown`
+
+#### Returns
+
+`boolean`
+
+***
 
 ### createGraphEngine()
 
@@ -743,6 +1411,55 @@ compiles, and the refusal says exactly what is missing.
 
 ***
 
+### validateProjection()
+
+> **validateProjection**(`raw`, `context`): [`Projection`](#projection-1)
+
+Validate a projection: exactly one known operator, its argument well-formed.
+
+#### Parameters
+
+##### raw
+
+`unknown`
+
+##### context
+
+`string`
+
+#### Returns
+
+[`Projection`](#projection-1)
+
+***
+
+### applyProjection()
+
+> **applyProjection**(`value`, `projection`, `context`): `unknown`
+
+Apply a validated projection to an admitted payload. Collection operators over a non-array
+refuse by name — a shape the author did not expect is a graph defect, not an empty result.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+##### projection
+
+[`Projection`](#projection-1)
+
+##### context
+
+`string`
+
+#### Returns
+
+`unknown`
+
+***
+
 ### formatRegistryHandle()
 
 > **formatRegistryHandle**(`handle`): `string`
@@ -811,3 +1528,54 @@ kernel and it had zero tests.
 #### Returns
 
 [`Registry`](#registry)\<`T`\>
+
+***
+
+### admitPayload()
+
+> **admitPayload**(`value`): `unknown`
+
+Admission for every value crossing an edge (#971): JSON round-trip, `undefined` stripped, a
+ non-representable value becomes a RECORD of that fact — a degraded record beats a vanished
+ edge.
+
+#### Parameters
+
+##### value
+
+`unknown`
+
+#### Returns
+
+`unknown`
+
+***
+
+### runEngineGraph()
+
+> **runEngineGraph**(`engine`, `spec`, `task`, `options`): `Promise`\<[`GraphRunResult`](#graphrunresult)\>
+
+Run a graph: host every node instance on one kernel `Scope`, resolve joins over guarded edges,
+enforce the traversal and visit caps, and reduce the terminal settlements through the finalizer.
+
+#### Parameters
+
+##### engine
+
+[`GraphEngine`](#graphengine)
+
+##### spec
+
+[`CompiledGraph`](#compiledgraph) \| [`EngineGraphSpec`](#enginegraphspec)
+
+##### task
+
+`string`
+
+##### options
+
+[`GraphRunOptions`](#graphrunoptions)
+
+#### Returns
+
+`Promise`\<[`GraphRunResult`](#graphrunresult)\>

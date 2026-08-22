@@ -1179,11 +1179,14 @@ export type SpawnEvent =
       /** The destination node when known (a spawned worker's id), else `graph:<node>`. */
       id: NodeId
       edge: {
-        kind: 'delegates' | 'analyzes'
+        kind: 'delegates' | 'analyzes' | 'data'
         from: string
         to: string
-        /** The resolved directive reference (`<surface>/v<n>`), never the directive bytes. */
-        directive: string
+        /** The resolved directive reference (`<surface>/v<n>`), never the directive bytes.
+         *  Absent on a `data` edge, which carries a port binding instead. */
+        directive?: string
+        /** `data` edges: the target input port the payload bound to. */
+        port?: string
       }
       /** 1-based traversal ordinal for THIS edge within the run. */
       traversal: number
