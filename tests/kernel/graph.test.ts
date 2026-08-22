@@ -55,6 +55,7 @@ import {
   type AgentGraph,
   GraphEdgeCapError,
   runGraph as productionRunGraph,
+  type RunGraphOptions,
 } from '../../src/runtime/supervise/graph'
 import {
   analyzesFindingsReportPrompt,
@@ -1097,6 +1098,69 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
         brain: scriptedBrain([]),
       }),
     ).toThrow(/analyst nodes are not analyzable/)
+  })
+})
+
+describe('runGraph — every supervise option a graph does not own reaches supervise()', () => {
+  it('forwards an option that was silently dropped before: extraTools reaches the root brain', async () => {
+    // `extraTools` is one of the ~25 SuperviseOptions keys RunGraphOptions never declared. It is
+    // used here because a mounted tool is directly observable in the descriptors handed to the
+    // brain — the same evidence the resolveSupervisorTools case uses.
+    const mounted: string[][] = []
+    let ran = false
+    const brain: ToolLoopChat = async (messages, tools) => {
+      mounted.push(tools.map((tool) => tool.function.name))
+      if (!ran) {
+        ran = true
+        return {
+          toolCalls: [
+            {
+              id: 'c1',
+              name: 'spawn_agent',
+              arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
+            },
+          ],
+        }
+      }
+      const settled = messages.some(
+        (m) => typeof m.content === 'string' && m.content.includes('"type":"settled"'),
+      )
+      if (!settled) {
+        return { toolCalls: [{ id: 'c2', name: 'await_event', arguments: JSON.stringify({}) }] }
+      }
+      return { content: 'done', toolCalls: [] }
+    }
+    const res = await runGraph(twoNodeGraph(), {
+      runId: 'gx',
+      makeWorkerAgent: leafSeam([]),
+      extraTools: [
+        { name: 'measure_rung', description: 'Measure one rung', parameters: { type: 'object' } },
+      ],
+      // Returning null for anything but the extra tool is the contract: a non-null answer
+      // swallows the coordination verb and the root can never spawn.
+      executeExtraTool: async (name) => (name === 'measure_rung' ? '{"measured":true}' : null),
+      brain,
+    })
+    expect(res.result.kind).toBe('winner')
+    expect(mounted[0]).toContain('measure_rung')
+    expect(mounted[0]).toContain('spawn_agent')
+  })
+
+  it("accepts the root-durability knobs a lost run needed, typed as supervise's own", () => {
+    // agent-runtime#963: a transient root-driver failure tore down children that had ALREADY
+    // computed the deliverable, because `childSettleGraceMs` had no graph channel. These now
+    // exist on RunGraphOptions by construction — the compiler is the assertion.
+    const options: RunGraphOptions = {
+      childSettleGraceMs: 30_000,
+      driverRetry: { enabled: true },
+      runDir: '/tmp/does-not-need-to-exist-for-a-type-check',
+      onDriverAttempt: () => undefined,
+      finalizer: 'collectDelivered',
+      maxDepth: 3,
+      stallAfterMs: 1_000,
+    }
+    expect(options.childSettleGraceMs).toBe(30_000)
+    expect(options.finalizer).toBe('collectDelivered')
   })
 })
 

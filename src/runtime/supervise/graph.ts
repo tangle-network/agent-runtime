@@ -58,11 +58,9 @@ import type {
   ContinuityMode,
   CoordinationEvent,
   MakeWorkerAgent,
-  WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { harnessRunsAgent } from '../harness-role'
-import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import {
@@ -201,7 +199,131 @@ export class GraphEdgeCapError extends Error {
 
 // ── Options / result ───────────────────────────────────────────────────────────
 
-export interface RunGraphOptions {
+/**
+ * Every `SuperviseOptions` key, partitioned by what `runGraph` does with it.
+ *
+ * `runGraph` starts one `supervise()` run, so every option that run honors is a graph option too
+ * unless the graph itself owns the value. This used to be an opt-in list written by hand, and the
+ * hand lost: 25 of 49 keys never reached `supervise()` from a graph, including `childSettleGraceMs`
+ * (a root-driver failure tore down children that had ALREADY computed the deliverable) and
+ * `driverRetry` (agent-runtime#963). Each absence was discovered by losing a run.
+ *
+ * The four lists below must cover `keyof SuperviseOptions` exactly. `everySuperviseOptionIsClassified`
+ * below fails to COMPILE, naming the offender, when a key belongs to none of them — so the next
+ * option added to `supervise()` cannot go missing here silently. It has to be classified, and
+ * classifying it as forwarded is one word.
+ */
+
+/** The graph derives these from the `AgentGraph` itself; a caller value would be overwritten. */
+const GRAPH_OWNED_SUPERVISE_OPTIONS = [
+  'budget',
+  'deliverable',
+  'makeWorkerAgent',
+  'onCoordinationEvent',
+  'analyzeOnSettle',
+  'continuityByProfile',
+  'backend',
+] as const
+
+/** Caller-facing on `RunGraphOptions`, but the graph wraps or defaults the value before it goes in:
+ *  `hooks` composes with the graph's own spawn-binding hook, `authorizeMessage` is wrapped so a
+ *  narrowed instruction ledgers `stripped`, `analysts` rides only with analyze routes, and
+ *  `journal`/`blobs`/`runId` get graph defaults. */
+const GRAPH_TRANSFORMED_SUPERVISE_OPTIONS = [
+  'hooks',
+  'authorizeMessage',
+  'analysts',
+  'journal',
+  'blobs',
+  'runId',
+] as const
+
+/** Not reachable from a graph, with the reason. `registry` is a NAME COLLISION, not a policy:
+ *  `RunGraphOptions.registry` is the directive `PromptRegistry` and `SuperviseOptions.registry` is
+ *  the `SuperviseRegistry` name→value table. Two different types under one name; the graph's wins.
+ *  Giving the supervise one a graph channel means renaming a public option, so it is recorded here
+ *  rather than silently dropped. */
+const GRAPH_REFUSED_SUPERVISE_OPTIONS = ['registry'] as const
+
+/**
+ * Forwarded to the root `supervise()` VERBATIM. Everything not owned, transformed, or refused
+ * above belongs here — the default is "a graph honors it", not "someone remembered to add it".
+ */
+const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
+  'rootHandle',
+  'signal',
+  'execution',
+  'resolveDeliverable',
+  'coordination',
+  'peerMail',
+  'driverBackend',
+  'profileSecurity',
+  'authorizeSpawn',
+  'isDriverProfile',
+  'router',
+  'driveHarness',
+  'driverRetry',
+  'onDriverAttempt',
+  'childSettleGraceMs',
+  'resolveDriveHarness',
+  'driveHarnessMaterialization',
+  'resolveSupervisorTools',
+  'extraTools',
+  'executeExtraTool',
+  'perWorker',
+  'maxLiveWorkers',
+  'watchWorkers',
+  'stallAfterMs',
+  'runDir',
+  'probes',
+  'stopRule',
+  'onProgressStop',
+  'maxDepth',
+  'maxTurns',
+  'compaction',
+  'now',
+  'allowedModels',
+  'finalizer',
+  'otel',
+] as const
+
+type ClassifiedSuperviseOption =
+  | (typeof GRAPH_OWNED_SUPERVISE_OPTIONS)[number]
+  | (typeof GRAPH_TRANSFORMED_SUPERVISE_OPTIONS)[number]
+  | (typeof GRAPH_REFUSED_SUPERVISE_OPTIONS)[number]
+  | (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]
+
+/** A `SuperviseOptions` key in none of the four lists makes this assignment fail, and the compiler
+ *  error names the key. Classify it — `GRAPH_FORWARDED_SUPERVISE_OPTIONS` is usually the answer. */
+type UnclassifiedSuperviseOption = Exclude<keyof SuperviseOptions, ClassifiedSuperviseOption>
+const everySuperviseOptionIsClassified: UnclassifiedSuperviseOption extends never
+  ? true
+  : UnclassifiedSuperviseOption = true
+void everySuperviseOptionIsClassified
+
+/** Copy every forwarded option the caller actually set. Absent stays absent: `supervise()` and the
+ *  graph must not disagree about what "unset" means. */
+function forwardedSuperviseOptions(
+  opts: RunGraphOptions,
+): Pick<SuperviseOptions, (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]> {
+  const forwarded: Record<string, unknown> = {}
+  for (const key of GRAPH_FORWARDED_SUPERVISE_OPTIONS) {
+    const value = (opts as Record<string, unknown>)[key]
+    if (value !== undefined) forwarded[key] = value
+  }
+  return forwarded as Pick<SuperviseOptions, (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]>
+}
+
+/**
+ * Options for one `runGraph` run.
+ *
+ * Extends every forwarded `SuperviseOptions` key, so a graph honors what a `supervise()` run
+ * honors WITHOUT anyone restating it here. Only the graph-specific members and the ones whose
+ * graph semantics differ are declared below; everything else inherits its type AND its
+ * documentation from `SuperviseOptions`, which is the one owner of both.
+ */
+export interface RunGraphOptions
+  extends Pick<SuperviseOptions, (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]> {
   /** WHERE worker nodes run — the executor backend. Provide this OR `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
   /** WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim (see
@@ -211,12 +333,10 @@ export interface RunGraphOptions {
    *  does NOT default to `backend`: a graph's `backend` places WORKER nodes, so the root driver
    *  is selected only by this field. Omit = no harness driver, which is correct for a root whose
    *  `profile.harness` is omitted or `cli-base` (that root runs on the router brain). */
-  readonly driverBackend?: ExecutorConfig
+  readonly driverBackend?: SuperviseOptions['driverBackend']
   /** Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
    *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours. */
   readonly makeWorkerAgent?: MakeWorkerAgent
-  /** The driver brain's router substrate (`profile.harness` omitted or `cli-base`). */
-  readonly router?: RouterTransportConfig
   /** The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes every root
    *  model call. Use it when the root's decisions must be caller-owned orchestration (a
    *  deterministic conversation driver, a persona loop with its own LLM calls) rather than a
@@ -237,36 +357,19 @@ export interface RunGraphOptions {
   /** The analyst lens registry `analyzes` edges resolve against. ENVIRONMENT — needed only for
    *  lens analysts; an analyzes edge naming a graph NODE as its analyst needs no registry. */
   readonly analysts?: AnalystRegistry
-  /** Watch every worker's LIVE tool trace with the online detector panel and raise a `finding`
-   *  on the bus the moment one loops or error-storms — forwarded to `supervise()` verbatim (see
-   *  `SuperviseOptions.watchWorkers`). Online findings (`analyst: 'online:<detector>'`) are bus
-   *  events for the driver, not graph edges, so they are never ledgered as traversals. Omit =
-   *  off (no online watching, no extra events). */
-  readonly watchWorkers?: WorkerWatchOptions
-  /** Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()`). */
+  /** Directive registry. Default: the seeded kernel registry (`kernelPromptRegistry()`).
+   *
+   *  NOT `SuperviseOptions.registry`, which is the `SuperviseRegistry` name→value table for
+   *  code-valued options. The two share a name and nothing else, and this one wins here — see
+   *  `GRAPH_REFUSED_SUPERVISE_OPTIONS`. */
   readonly registry?: PromptRegistry
   /** The run journal the edge ledger and every spawn/settle ride. Default: in-memory. */
   readonly journal?: SpawnJournal
   readonly blobs?: ResultBlobStore
   readonly runId?: string
-  /** Per-child budget reserved from the conserved pool on each spawn. */
-  readonly perWorker?: Budget
-  readonly maxTurns?: number
-  readonly maxLiveWorkers?: number
-  /** Resolve product-owned tools from the exact trusted manager context — forwarded to the root's
-   *  `supervise()` verbatim (see `SuperviseOptions.resolveSupervisorTools`). Without it a declared
-   *  graph mounts only the coordination MCP, so a root that is supposed to reach a product tool
-   *  (a claim ledger, a knowledge base) finds nothing and writes its output somewhere ungraded.
-   *  A graph run and a supervise run mount the same tools when this is set. */
-  readonly resolveSupervisorTools?: SuperviseOptions['resolveSupervisorTools']
   /** Product authority over every steer/answer instruction (the filter seam). `runGraph` observes
    *  what it CHANGES: a narrowed instruction ledgers its steer traversal as `stripped`. */
   readonly authorizeMessage?: SuperviseOptions['authorizeMessage']
-  readonly signal?: AbortSignal
-  readonly now?: () => number
-  readonly otel?: SuperviseOptions['otel']
-  readonly stallAfterMs?: number
-  readonly allowedModels?: readonly string[]
 }
 
 export interface GraphResult<Out = unknown> {
@@ -986,6 +1089,12 @@ function runGraphInternal(
   // contract); only the run itself is asynchronous.
   const start = async (): Promise<GraphResult> => {
     const superviseOptions = {
+      // Every forwarded option the caller set, including the ones nobody thought to list here.
+      // `backend` is deliberately absent: it already became the worker seam (`makeWorkerAgent`
+      // below), so the root driver is an explicit `driverBackend` choice, never a side effect of
+      // where workers run.
+      ...forwardedSuperviseOptions(opts),
+      // Graph-owned values come after the spread: the graph, not the caller, decides these.
       budget: graph.budget,
       deliverable: graph.deliverable,
       makeWorkerAgent: graphWorker,
@@ -1000,24 +1109,7 @@ function runGraphInternal(
         ? { analyzeOnSettle: routes, ...(opts.analysts ? { analysts: opts.analysts } : {}) }
         : {}),
       ...(Object.keys(continuityByProfile).length > 0 ? { continuityByProfile } : {}),
-      ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
-      ...(opts.router ? { router: opts.router } : {}),
-      // The root's harness driver. `backend` is NOT forwarded: it already became the worker seam
-      // (`makeWorkerAgent` above), so the root driver is an explicit choice, never a side effect
-      // of where workers run.
-      ...(opts.driverBackend ? { driverBackend: opts.driverBackend } : {}),
-      ...(opts.resolveSupervisorTools
-        ? { resolveSupervisorTools: opts.resolveSupervisorTools }
-        : {}),
       ...(authorizeMessage ? { authorizeMessage } : {}),
-      ...(opts.perWorker ? { perWorker: opts.perWorker } : {}),
-      ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),
-      ...(opts.maxLiveWorkers !== undefined ? { maxLiveWorkers: opts.maxLiveWorkers } : {}),
-      ...(opts.signal ? { signal: opts.signal } : {}),
-      ...(opts.now ? { now: opts.now } : {}),
-      ...(opts.otel ? { otel: opts.otel } : {}),
-      ...(opts.stallAfterMs !== undefined ? { stallAfterMs: opts.stallAfterMs } : {}),
-      ...(opts.allowedModels ? { allowedModels: opts.allowedModels } : {}),
     } satisfies SuperviseOptions
     const result =
       brain === undefined
