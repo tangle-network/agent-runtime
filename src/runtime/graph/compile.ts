@@ -27,6 +27,13 @@ export interface CompiledEdge {
   readonly toPort: string
 }
 
+/** `delegates` is the one MODEL-fired edge kind (agent-runtime#971): its payload is a directive and
+ *  its target is spawned by the source supervisor through the coordination protocol, not released
+ *  by the scheduler. `data` and `analyzes` are engine-fired. */
+export function isEngineFired(edge: CompiledEdge): boolean {
+  return edge.spec.kind !== 'delegates'
+}
+
 export interface CompiledNode {
   readonly id: string
   readonly kind: NodeKind
@@ -40,6 +47,8 @@ export interface CompiledNode {
   readonly deliverable?: DeliverableSpec<unknown>
   readonly inbound: ReadonlyArray<CompiledEdge>
   readonly outbound: ReadonlyArray<CompiledEdge>
+  /** Spawned by a supervisor through a `delegates` edge, never entered by the scheduler. */
+  readonly modelFired: boolean
   readonly spec: EngineGraphSpec['nodes'][number]
 }
 
@@ -221,26 +230,44 @@ export function compileGraph(
     dupes.add(edge.id)
   }
 
-  const entries = spec.nodes.filter((node) => (inbound.get(node.id) ?? []).length === 0)
-  if (entries.length === 0) {
+  // A node reached only by `delegates` is spawned by its supervisor, so it is neither an entry nor
+  // a scheduler-released node; a node with no ENGINE-fired outbound edge is terminal, because a
+  // delegation does not continue the scheduler's flow.
+  const engineInbound = (id: string) => (inbound.get(id) ?? []).filter(isEngineFired)
+  const engineOutbound = (id: string) => (outbound.get(id) ?? []).filter(isEngineFired)
+  const unfed = spec.nodes.filter((node) => (inbound.get(node.id) ?? []).length === 0)
+  if (unfed.length === 0 && spec.root === undefined) {
     throw new ValidationError(`${context}: no entry node — every node has an inbound edge`)
   }
   const root =
     spec.root ??
-    (entries.length === 1
-      ? (entries[0]?.id ?? '')
+    (unfed.length === 1
+      ? (unfed[0]?.id ?? '')
       : (() => {
           throw new ValidationError(
-            `${context}: ${entries.length} entry nodes (${entries.map((node) => node.id).join(', ')}) — name spec.root`,
+            `${context}: ${unfed.length} entry nodes (${unfed.map((node) => node.id).join(', ')}) — name spec.root`,
           )
         })())
+  // The declared root always starts the run, even when an edge feeds back INTO it — a findings
+  // route to the driver, or a cycle's closing edge, never stops the run from beginning there. A
+  // node that declares `entry: false` is spawned by another node and never entered here.
+  const declaredOut = new Set(
+    spec.nodes.filter((node) => node.entry === false).map((node) => node.id),
+  )
+  const entries = [root, ...unfed.map((node) => node.id).filter((id) => id !== root)].filter(
+    (id) => !declaredOut.has(id),
+  )
+  if (entries.length === 0) {
+    throw new ValidationError(`${context}: every entry node declares entry: false — nothing starts`)
+  }
 
   const nodes = new Map<string, CompiledNode>()
   const terminals: string[] = []
   for (const node of spec.nodes) {
     const kind = kinds.get(node.id)
     if (!kind) throw new ValidationError(`${context}: unresolved node ${node.id}`)
-    const terminal = node.terminal ?? (outbound.get(node.id) ?? []).length === 0
+    const modelFired = (inbound.get(node.id) ?? []).some((edge) => !isEngineFired(edge))
+    const terminal = node.terminal ?? (!modelFired && engineOutbound(node.id).length === 0)
     const deliverable = node.deliverable ?? (node.id === root ? spec.deliverable : undefined)
     if (terminal) terminals.push(node.id)
     nodes.set(node.id, {
@@ -253,8 +280,9 @@ export function compileGraph(
       pure: node.flags?.pure ?? false,
       terminal,
       ...(deliverable === undefined ? {} : { deliverable }),
-      inbound: inbound.get(node.id) ?? [],
+      inbound: engineInbound(node.id),
       outbound: outbound.get(node.id) ?? [],
+      modelFired,
       spec: node,
     })
   }
@@ -269,7 +297,7 @@ export function compileGraph(
   return {
     nodes,
     edges: compiledEdges,
-    entries: entries.map((node) => node.id),
+    entries,
     terminals,
     root,
     maxNodeVisits: spec.maxNodeVisits ?? DEFAULT_MAX_NODE_VISITS,
