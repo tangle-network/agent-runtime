@@ -493,8 +493,15 @@ function trialKey(identity: PierCandidateTrialIdentity): string {
 
 function assertRealDirectory(path: string, label: string): void {
   const stats = lstatSync(path)
-  if (!stats.isDirectory() || stats.isSymbolicLink() || realpathSync(path) !== path) {
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error(`${label} must be a real canonical directory`)
+  }
+  // A symlinked PREFIX is the OS's own doing on macOS, where a temp root lives under /var, a
+  // symlink to /private/var. The directory itself must still be real, which both this check
+  // and the lstat above require.
+  const resolvedStats = lstatSync(realpathSync(path))
+  if (!resolvedStats.isDirectory() || resolvedStats.isSymbolicLink()) {
+    throw new Error(`${label} must resolve to a real directory`)
   }
 }
 

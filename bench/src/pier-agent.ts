@@ -219,8 +219,12 @@ async function assertRealDirectory(path: string, label: string): Promise<void> {
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error(`${label} must be a real directory`)
   }
-  if ((await realpath(path)) !== path) {
-    throw new Error(`${label} has a symlinked path component`)
+  // A symlinked PREFIX is the OS's own doing on macOS, where a temp root lives under /var, a
+  // symlink to /private/var. The directory itself must still be real, which the lstat above
+  // and this one both require.
+  const resolvedStats = await lstat(await realpath(path))
+  if (!resolvedStats.isDirectory() || resolvedStats.isSymbolicLink()) {
+    throw new Error(`${label} must resolve to a real directory`)
   }
 }
 
