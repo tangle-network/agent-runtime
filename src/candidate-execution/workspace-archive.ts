@@ -258,20 +258,30 @@ async function materializeAgentCandidateWorkspace(input: {
 }
 
 async function captureRepository(
-  root: string,
+  requestedRoot: string,
   limits: AgentCandidateWorkspaceArchiveLimits,
 ): Promise<{
   files: Array<{ path: string; mode: number; bytes: Uint8Array }>
   repository: WorkspaceArchiveRepository
 }> {
-  const stats = await lstat(root)
-  if (!stats.isDirectory() || stats.isSymbolicLink() || (await realpath(root)) !== root) {
+  const requestedStats = await lstat(requestedRoot)
+  if (!requestedStats.isDirectory() || requestedStats.isSymbolicLink()) {
     throw new Error('candidate repository root must be a real directory')
+  }
+  // Capture the RESOLVED root. The property this guards is that capture starts at one real
+  // worktree root with no aliasing, which resolving satisfies directly — rejecting a symlinked
+  // prefix outright does not, and makes capture impossible on macOS, where the OS itself hands
+  // out temp paths under /var, a symlink to /private/var. Git reports a resolved path, so the
+  // worktree-root comparison below needs the resolved form on both sides.
+  const root = await realpath(requestedRoot)
+  const resolvedStats = await lstat(root)
+  if (!resolvedStats.isDirectory() || resolvedStats.isSymbolicLink()) {
+    throw new Error('candidate repository root must resolve to a real directory')
   }
   const topLevel = (await runCandidateGit(root, ['rev-parse', '--show-toplevel'])).stdout
     .toString('utf8')
     .trim()
-  if (resolve(topLevel) !== root) {
+  if ((await realpath(resolve(topLevel))) !== root) {
     throw new Error('candidate repository capture must start at the Git worktree root')
   }
   const gitDir = resolve(
@@ -652,12 +662,16 @@ async function streamEqualsBytes(
 async function prepareEmptyDestination(destination: string): Promise<void> {
   await mkdir(destination, { recursive: true, mode: 0o700 })
   const stats = await lstat(destination)
-  if (
-    !stats.isDirectory() ||
-    stats.isSymbolicLink() ||
-    (await realpath(destination)) !== destination
-  ) {
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error('candidate workspace destination must be a real directory')
+  }
+  // A symlinked PREFIX is the OS's own doing on macOS, where temp paths live under /var, a
+  // symlink to /private/var. What must hold is that the destination itself is a real
+  // directory, which both this check and the lstat above require.
+  const resolvedDestination = await realpath(destination)
+  const resolvedStats = await lstat(resolvedDestination)
+  if (!resolvedStats.isDirectory() || resolvedStats.isSymbolicLink()) {
+    throw new Error('candidate workspace destination must resolve to a real directory')
   }
   if ((await readdir(destination)).length > 0) {
     throw new Error('candidate workspace destination must be empty')

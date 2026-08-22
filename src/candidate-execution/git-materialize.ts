@@ -249,13 +249,20 @@ export async function assertNoGitIndirection(
     .toString('utf8')
     .trim()
   if (replacements) throw new Error(`${label} contains Git replace refs`)
-  const commonDir = resolve(
-    repositoryRoot,
-    (await runCandidateGit(repositoryRoot, ['rev-parse', '--git-common-dir'])).stdout
-      .toString('utf8')
-      .trim(),
+  // `--git-common-dir` answers relative to the worktree for an ordinary repository, so the
+  // path is resolved against a root the caller supplied and carries whatever symlinks that
+  // root carries. Read the object store through its RESOLVED path: the alternates below must
+  // be read at the real location, and a symlinked prefix is the OS's own doing on macOS,
+  // where a temp root lives under /var, a symlink to /private/var.
+  const commonDir = await realpath(
+    resolve(
+      repositoryRoot,
+      (await runCandidateGit(repositoryRoot, ['rev-parse', '--git-common-dir'])).stdout
+        .toString('utf8')
+        .trim(),
+    ),
   )
-  if ((await realpath(commonDir)) !== commonDir || commonDir.includes(':')) {
+  if (commonDir.includes(':')) {
     throw new Error(`${label} Git common directory has an unsupported path`)
   }
   for (const objectRoot of new Set([gitDir, commonDir])) {
