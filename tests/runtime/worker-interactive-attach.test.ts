@@ -353,7 +353,7 @@ function scopeOf(): Scope<unknown> {
     parentId: 'root',
     root: 'root',
     depth: 0,
-    pool: createBudgetPool(budget),
+    pool: createBudgetPool(budget, Date.now()),
     journal,
     blobs: new InMemoryResultBlobStore(),
     executors: createExecutorRegistry(),

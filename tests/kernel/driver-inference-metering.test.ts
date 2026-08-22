@@ -966,7 +966,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
   })
 
   it('marks the pool readout as an under-count once a turn goes unmeasured, without freezing the run', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, 0)
     expect(pool.readout().tokensKnown).toBe(true)
 
     pool.observe({
@@ -1078,7 +1078,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
 
 describe('budget pool — observe() debits the conserved pool for the live in-loop guard', () => {
   it('moves free → committed (invariant preserved) and drives the readout negative on overspend', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 5 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 5 }, 0)
     expect(pool.readout().tokensLeft).toBe(1000)
     expect(pool.readout().usdLeft).toBe(5)
 

@@ -109,7 +109,7 @@ function boomAgent(name: string, reason: string): Agent<unknown, unknown> {
 }
 
 async function beginScope(root = 'run') {
-  const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, () => 0)
+  const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, 0)
   const journal = new InMemorySpawnJournal()
   await journal.beginTree(root, new Date(0).toISOString())
   const scope = createScope<Outcome<unknown>>({

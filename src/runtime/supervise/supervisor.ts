@@ -345,10 +345,6 @@ function rootStartedAtMs(root: SpawnedEvent): number {
   return startedAt
 }
 
-function rootDeadline(root: SpawnedEvent): number {
-  return rootStartedAtMs(root) + (root.budget.deadlineMs ?? 0)
-}
-
 /** Child reservations whose spawn was durable but whose terminal record never landed. */
 export function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
   const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
@@ -513,12 +509,9 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         runEpochMs = rootStartedAtMs(rootEvent)
         const measured = sumMeasuredSpendFromEvents(prior)
         const uncertainReservations = uncertainSpawnBudgets(prior)
-        pool = createBudgetPool(opts.budget, now, {
+        pool = createBudgetPool(opts.budget, runEpochMs, {
           committed: addSpend(measured.childWork, measured.driverInference),
           uncertainReservations,
-          ...(rootEvent.budget.deadlineMs !== undefined
-            ? { absoluteDeadlineMs: rootDeadline(rootEvent) }
-            : {}),
         })
         // Rehydrate the committed work: the cursor-ordered `Settled[]` (from the blob store) plus the
         // tree as it stood at the recorded cursor position. The new scope's ordinal/cursor counters
@@ -541,11 +534,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           priorSpend: sumSpendFromEvents(prior),
         }
       } else {
-        pool = createBudgetPool(opts.budget, now, {
-          ...(opts.budget.deadlineMs !== undefined
-            ? { absoluteDeadlineMs: runStartedAtMs + opts.budget.deadlineMs }
-            : {}),
-        })
+        pool = createBudgetPool(opts.budget, runStartedAtMs)
         // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
         // spawn-ordinal-0 marker), so a journal-based reader — `trajectoryReport`, `replaySpawnTree`,
         // `materializeTreeView` — can reconstruct the WHOLE realized tree from a real run, not only

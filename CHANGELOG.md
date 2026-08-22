@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.172.0
+
+### The run's deadline is a wall-clock instant, taken from one expression
+
+A graph run that declared any `budget.deadlineMs` lost every child at spawn (#995). The journal showed the whole life of a worker in five milliseconds: `spawned`, `materialized status unknown`, `settled status down reason "child deadline exceeded" spent.ms 0`. The run ended `no-winner/all-children-down` about three seconds after launch. A resumed run was correct, and a run with no deadline was correct, which is why the suites stayed green.
+
+Two clock domains met inside one number. `createBudgetPool` derived its absolute deadline as `restore.absoluteDeadlineMs ?? now() + root.deadlineMs`: an instant when the caller supplied one, whatever `now()` returned plus a duration when the caller did not. `openGraphRun` passed a RUN-RELATIVE clock (`args.now() - runEpochMs`, which starts at ~0) and supplied `absoluteDeadlineMs` only on the resume path. So a fresh pool read `10800000` where the scope reads an epoch instant — `1970-01-01T03:00:00Z`, long past — and `armDeadlineTimer` fired at delay `0` for every child. Dropping the CHILD deadline changed nothing, because `boundedChildDeadlineAt` returns the parent bound when the child bound is absent and `Math.min(parent, child)` when both are present: the mis-scaled parent won either way.
+
+`createBudgetPool(root, runStartedAtMs, restore?)` now takes the run's start INSTANT in place of a clock, and derives `runStartedAtMs + root.deadlineMs` (or `0` for a root that declares no deadline). One expression serves the fresh path and the resume path, so the two cannot disagree. `BudgetPoolRestore.absoluteDeadlineMs` is deleted: a resumed pool passes the ORIGINAL root instant, which is what "restart never slides the deadline" always meant, and the pool now holds no clock at all — a caller cannot hand it a run-relative one and read a duration back where an instant is expected. A non-finite or negative instant is refused at construction.
+
+**Breaking for a direct `createBudgetPool` caller**: pass an instant (`Date.now()`) where a clock (`Date.now`) was passed, and drop `restore.absoluteDeadlineMs`.
+
 ## 0.171.0
 
 ### Code mode over the coordination verbs — the pattern, and an honest boundary

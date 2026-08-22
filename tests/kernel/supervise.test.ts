@@ -120,7 +120,7 @@ const tokensOnly = (input: number, output: number, iterations = 1): UsageEvent[]
 }
 
 function scopeArgs(over: Partial<Parameters<typeof createScope>[0]> = {}) {
-  const pool = over.pool ?? createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, () => 0)
+  const pool = over.pool ?? createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, 0)
   const journal = over.journal ?? new InMemorySpawnJournal()
   const root = over.root ?? 'run'
   return {
@@ -160,11 +160,28 @@ describe('conserved budget pool', () => {
     { maxIterations: 1, maxTokens: 100, maxUsd: Number.POSITIVE_INFINITY },
     { maxIterations: 1, maxTokens: 100, deadlineMs: -1 },
   ] as Budget[])('rejects a malformed root budget before it can create capacity', (invalid) => {
-    expect(() => createBudgetPool(invalid, () => 0)).toThrow(/non-negative/)
+    expect(() => createBudgetPool(invalid, 0)).toThrow(/non-negative/)
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])(
+    'rejects a run start instant that is not a wall-clock reading',
+    (runStartedAtMs) => {
+      expect(() =>
+        createBudgetPool({ maxIterations: 1, maxTokens: 100, deadlineMs: 10 }, runStartedAtMs),
+      ).toThrow(/runStartedAtMs must be a non-negative finite number/)
+    },
+  )
+
+  it('derives the deadline as an absolute instant from the run start', () => {
+    const pool = createBudgetPool(
+      { maxIterations: 1, maxTokens: 100, deadlineMs: 10_800_000 },
+      1_787_420_924_772,
+    )
+    expect(pool.readout().deadlineMs).toBe(1_787_431_724_772)
   })
 
   it('rejects a negative reservation without changing the root balance', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, 0)
     expect(() => pool.reserve({ maxIterations: -10, maxTokens: -100 })).toThrow(/non-negative/)
     expect(pool.readout()).toMatchObject({
       tokensLeft: 100,
@@ -174,7 +191,7 @@ describe('conserved budget pool', () => {
   })
 
   it('reserve fails closed when the pool cannot cover the child', () => {
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, 0)
     const a = pool.reserve({ maxIterations: 2, maxTokens: 600, label: '' } as Budget)
     expect(a.ok).toBe(true)
     // 600 reserved, 400 free; a 500-token child must fail closed (never overcommit).
@@ -187,7 +204,7 @@ describe('conserved budget pool', () => {
   it('names an UNBUDGETED dollar channel separately from an exhausted one', () => {
     // The root budgets no dollars, so a child naming maxUsd is unsatisfiable at ANY amount.
     // Reporting that as `budget-exhausted` invites a caller to retry smaller forever.
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000 }, 0)
     const big = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 5, label: '' } as Budget)
     expect(big).toEqual({ ok: false, reason: 'usd-unbudgeted' })
     // Shrinking the ask cannot help — the same refusal, which is the point of the distinct reason.
@@ -203,7 +220,7 @@ describe('conserved budget pool', () => {
   })
 
   it('still reports an exhausted dollar balance as budget-exhausted when the root budgets dollars', () => {
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 1 }, 0)
     expect(
       pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.75, label: '' } as Budget).ok,
     ).toBe(true)
@@ -212,7 +229,7 @@ describe('conserved budget pool', () => {
   })
 
   it('refunds the unspent remainder on reconcile (Σ conservation)', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 800, label: '' } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(pool.readout().tokensLeft).toBe(200)
@@ -229,7 +246,7 @@ describe('conserved budget pool', () => {
   })
 
   it('records actual overspend and refuses later work instead of clamping telemetry', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 20 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 20 }, 0)
     const first = pool.reserve({ maxIterations: 1, maxTokens: 10 })
     if (!first.ok) throw new Error('reserve should have succeeded')
 
@@ -253,7 +270,7 @@ describe('conserved budget pool', () => {
   })
 
   it('fails loud on a double reconcile (no silent double refund)', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 800, label: '' } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     const spend: Spend = { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 }
@@ -262,7 +279,7 @@ describe('conserved budget pool', () => {
   })
 
   it('assertNoOpenTickets is the leak detector — throws while a ticket is open, passes once reconciled', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, 0)
     expect(() => pool.assertNoOpenTickets()).not.toThrow()
     const r = pool.reserve({ maxIterations: 1, maxTokens: 100, label: '' } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
@@ -272,7 +289,7 @@ describe('conserved budget pool', () => {
   })
 
   it('a usd request against an uncapped root is unsatisfiable (fail closed)', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000 }, 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 10, maxUsd: 0.5, label: '' } as Budget)
     // Refused as before; the REASON now separates "never budgeted" from "ran out", because only
     // one of the two can be cleared by asking for less.
@@ -283,7 +300,7 @@ describe('conserved budget pool', () => {
     // Regression: a real priced leaf reports usd via estimateCost. With no root usd ceiling
     // (the common case — usd is observed, not budgeted), reconcile must COMMIT that spend, not
     // fail-close as if $0 were reserved. The earlier bug killed every real priced child here.
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 500, label: '' } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(r.ticket.reserved.usd).toBe(0)
@@ -301,7 +318,7 @@ describe('conserved budget pool', () => {
   })
 
   it('preserves unknown dollar telemetry under an uncapped root without blocking admission', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 500 })
     if (!r.ok) throw new Error('reserve should have succeeded')
 
@@ -319,7 +336,7 @@ describe('conserved budget pool', () => {
   })
 
   it('marks restored in-doubt dollar telemetry unknown even without a dollar limit', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0, {
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, 0, {
       uncertainReservations: [{ maxIterations: 1, maxTokens: 500 }],
     })
 
@@ -333,7 +350,7 @@ describe('conserved budget pool', () => {
 
   it('refuses malformed committed spend during restore instead of restoring it as zero', () => {
     expect(() =>
-      createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0, {
+      createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, 0, {
         committed: {
           iterations: 1,
           tokens: { input: -1, output: 0 },
@@ -376,7 +393,7 @@ describe('conserved budget pool', () => {
       /observed spend\.tokens cache classes must sum to input/,
     ],
   ] as const)('refuses %s at the spend boundary', (_description, spend, error) => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, 0)
     expect(() => pool.observe(spend as unknown as Spend)).toThrow(error)
   })
 
@@ -386,7 +403,7 @@ describe('conserved budget pool', () => {
     // dollar allocation, which is NOT the same as a declared ceiling of $0: its real dollars
     // are observed spend, debited from the root's balance. Reading the $0 as a ceiling made a
     // successful priced child fail its own reconcile and strand its reservation.
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, 0)
     const r = pool.reserve({ maxIterations: 2, maxTokens: 500, label: '' } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(r.ticket.reserved).toMatchObject({ usd: 0, usdBudgeted: false })
@@ -413,7 +430,7 @@ describe('conserved budget pool', () => {
     // The debit above is what keeps the cap enforceable: nothing reserved those dollars, so the
     // only thing standing between an unbudgeted child and an unbounded bill is the free balance
     // falling through zero and `reserve` failing closed.
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1000, maxUsd: 1 }, 0)
     const first = pool.reserve({ maxIterations: 1, maxTokens: 100, label: '' } as Budget)
     if (!first.ok) throw new Error('reserve should have succeeded')
     pool.reconcile(first.ticket, {
@@ -434,7 +451,7 @@ describe('conserved budget pool', () => {
   it('still fails loud when a child that DECLARED a dollar ceiling exceeds it', () => {
     // The relaxation above is scoped to an UNDECLARED ceiling. A child that named `maxUsd` and
     // blew through it is a clamp bug in the caller and stays fail-loud — while still settling.
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1000, maxUsd: 10 }, 0)
     const r = pool.reserve({ maxIterations: 2, maxTokens: 500, maxUsd: 0.5 } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(r.ticket.reserved).toMatchObject({ usd: 0.5, usdBudgeted: true })
@@ -454,7 +471,7 @@ describe('conserved budget pool', () => {
     // below throws; each must still release its reservation and close its ticket, because the
     // caller (`Scope.runChild`) marks the child reconciled BEFORE calling and never retries.
     const overspend = (spent: Spend, root: Budget, child: Budget) => {
-      const pool = createBudgetPool(root, () => 0)
+      const pool = createBudgetPool(root, 0)
       const r = pool.reserve(child)
       if (!r.ok) throw new Error('reserve should have succeeded')
       expect(() => pool.reconcile(r.ticket, spent)).toThrow()
@@ -484,7 +501,7 @@ describe('conserved budget pool', () => {
   })
 
   it('never interprets explicitly unknown dollar cost as $0 under a dollar limit', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 500, maxUsd: 1 } as Budget)
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(() =>
@@ -509,7 +526,7 @@ describe('conserved budget pool', () => {
   })
 
   it('never interprets explicitly unknown token usage as zero', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000 }, 0)
     const r = pool.reserve({ maxIterations: 1, maxTokens: 500 })
     if (!r.ok) throw new Error('reserve should have succeeded')
     // The turn happened with an unreported count: it settles (no strand) and the readout marks the
@@ -530,7 +547,7 @@ describe('conserved budget pool', () => {
   })
 
   it('refuses to observe unknown manager dollar cost under a dollar cap', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 1000, maxUsd: 1 }, 0)
     expect(() =>
       pool.observe({
         iterations: 1,
@@ -577,7 +594,7 @@ describe('conserved budget pool', () => {
 
     expect(spendFromUsageEvents(events)).toEqual(expected)
 
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100 }, 0)
     const stream = (async function* (): AsyncIterable<UsageEvent> {
       yield* events
     })()
@@ -585,7 +602,7 @@ describe('conserved budget pool', () => {
   })
 
   it('keeps a dollar limit unusable after a concurrent known reservation refunds', () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100, maxUsd: 1 }, 0)
     const unknown = pool.reserve({ maxIterations: 1, maxTokens: 50, maxUsd: 0.5 } as Budget)
     const known = pool.reserve({ maxIterations: 1, maxTokens: 50, maxUsd: 0.5 } as Budget)
     if (!unknown.ok || !known.ok) throw new Error('both reservations should have succeeded')
@@ -619,7 +636,7 @@ describe('conserved budget pool', () => {
 
 describe('conserved budget pool: the token charge counts each token once', () => {
   it('charges only the newly-presented tokens when the spend is mostly cache reads', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 1_000_000 })
     if (!r.ok) throw new Error('reserve should have succeeded')
 
@@ -649,7 +666,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   it('charges a prefix once no matter how many turns read it back', () => {
     const prefix = 100_000
     const reads = 40
-    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 1_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 1_000_000 }, 0)
 
     // Turn 1 authors the prefix; turns 2..N re-present the identical content from cache.
     const events: UsageEvent[] = [
@@ -687,7 +704,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   it('a cache-heavy child no longer overdraws a cap it declared honestly', () => {
     // Same numbers as the fleet's `arena-v9c1-q36-structure-b`: a 2M cap, ~4.01M rolled-up prompt
     // total, ~79k of it new. Charging the roll-up killed the run; charging new work does not.
-    const pool = createBudgetPool({ maxIterations: 30, maxTokens: 2_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 30, maxTokens: 2_000_000 }, 0)
     const r = pool.reserve({ maxIterations: 30, maxTokens: 2_000_000 })
     if (!r.ok) throw new Error('reserve should have succeeded')
 
@@ -710,7 +727,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   })
 
   it('keeps charging the rolled-up total when the split is missing, and says the balance is a bound', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 500_000 })
     if (!r.ok) throw new Error('reserve should have succeeded')
 
@@ -731,7 +748,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   })
 
   it('marks the balance a bound for an explicit cacheBreakdownKnown: false, and never clears it', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     pool.observe({
       iterations: 1,
       tokens: { input: 10, output: 5, cacheBreakdownKnown: false },
@@ -751,7 +768,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   })
 
   it('separates an unknown COUNT from an unknown COMPOSITION', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     pool.observe({
       iterations: 1,
       tokens: { input: 0, output: 0, tokensKnown: false },
@@ -765,7 +782,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   })
 
   it('charges restored committed spend in the same unit', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0, {
       committed: {
         iterations: 2,
         tokens: {
@@ -786,7 +803,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   })
 
   it('a restored uncertain reservation charges its ceiling without claiming a cache misread', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0, {
       uncertainReservations: [{ maxIterations: 1, maxTokens: 500_000 }],
     })
     // The ceiling charge is already reported as a ceiling by `tokensKnown`; a declared ceiling
@@ -799,7 +816,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   })
 
   it('still throws when the cache classes do not partition the prompt total', () => {
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     const r = pool.reserve({ maxIterations: 5, maxTokens: 500_000 })
     if (!r.ok) throw new Error('reserve should have succeeded')
     expect(() =>
@@ -822,7 +839,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
   it('accepts an incomplete split that covers only part of the prompt total, and still rejects one that exceeds it', () => {
     // A spend that declares its split incomplete reports classes for part of `input`. Demanding an
     // exact partition rejected that shape and killed a resumed pool at construction.
-    const restored = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+    const restored = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0, {
       committed: {
         iterations: 2,
         tokens: {
@@ -844,7 +861,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
 
     // The classes may still never exceed the total they partition, incomplete or not.
     expect(() =>
-      createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0, {
+      createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0, {
         committed: {
           iterations: 1,
           tokens: {
@@ -866,7 +883,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
     // One classified turn (100 new of 1000 prompt) and one turn the provider never classified.
     // The charge has to be additive: the unclassified 10 is charged in full, and the 900 reported
     // cache reads stay credited. A whole-aggregate fallback would charge 1010 and wipe out the fix.
-    const perTurn = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const perTurn = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     perTurn.observe({
       iterations: 1,
       tokens: { input: 1_000, output: 0, freshInput: 100, cacheRead: 900, cacheWrite: 0 },
@@ -875,7 +892,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
     })
     perTurn.observe({ iterations: 1, tokens: { input: 10, output: 0 }, usd: 0, ms: 0 })
 
-    const folded = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, () => 0)
+    const folded = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000 }, 0)
     folded.observe(
       spendFromUsageEvents([
         { kind: 'iteration' },
@@ -904,11 +921,11 @@ describe('conserved budget pool: the token charge counts each token once', () =>
     }
     const plain = { kind: 'tokens' as const, input: 100, output: 0 }
 
-    const perTurn = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    const perTurn = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, 0)
     perTurn.observe(spendFromUsageEvents([overflowing]))
     perTurn.observe(spendFromUsageEvents([plain]))
 
-    const folded = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    const folded = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, 0)
     folded.observe(spendFromUsageEvents([overflowing, plain]))
 
     expect(folded.readout().tokensLeft).toBe(perTurn.readout().tokensLeft)
@@ -917,7 +934,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
 
   it('never charges less than the output tokens, whatever the cache report claims', () => {
     // The floor that makes the subtraction safe: a credit can never exceed the prompt total.
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, 0)
     pool.observe(
       spendFromUsageEvents([
         { kind: 'tokens', input: 0, output: 7, freshInput: 0, cacheRead: 1, cacheWrite: 0 },
@@ -929,7 +946,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
 
   it('credits nothing when a reported cache class exceeds the prompt total it partitions', () => {
     // Bad telemetry may over-charge; it may never buy free tokens.
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000 }, 0)
     pool.observe({
       iterations: 1,
       tokens: { input: 10, output: 0, cacheRead: 4_000 },
@@ -941,7 +958,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
 
   it('charges nothing for prompt tokens when the prompt total is zero', () => {
     // A stray class field on a zero-prompt observation must not invent a charge.
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 100 }, 0)
     pool.observe({ iterations: 1, tokens: { input: 0, output: 1, freshInput: 5 }, usd: 0, ms: 0 })
     expect(pool.readout().tokensLeft).toBe(99)
   })
@@ -950,7 +967,7 @@ describe('conserved budget pool: the token charge counts each token once', () =>
     // The worker-pool refusal in #831 came from the two ends disagreeing: a child reserved a
     // ceiling in declared tokens and settled against a rolled-up prompt total. Both ends now use
     // the same charge, so a child whose NEW work fits its ceiling never overdraws the pool.
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 200_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 200_000 }, 0)
     const first = pool.reserve({ maxIterations: 2, maxTokens: 100_000 })
     if (!first.ok) throw new Error('reserve should have succeeded')
 
@@ -1010,7 +1027,7 @@ describe('equal-k by construction', () => {
   })
 
   it('closes a dollar-limited reservation after unknown cost and refuses further spend', async () => {
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 100, maxUsd: 1 }, 0)
     const { scope } = await beginScope({ pool })
     const spawned = scope.spawn(
       leafAgent('unknown-priced-child', {
@@ -1068,7 +1085,7 @@ describe('equal-k by construction', () => {
       cell.declaresUsd ? 'that declares maxUsd' : 'with no declared maxUsd'
     } settles done and leaks no reservation`
     it(name, async () => {
-      const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000, maxUsd: 10 }, () => 0)
+      const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000, maxUsd: 10 }, 0)
       const { scope } = await beginScope({ pool })
       const events: UsageEvent[] = [
         { kind: 'iteration' },
@@ -1124,7 +1141,7 @@ describe('equal-k by construction', () => {
     // channel is tainted and admission closes — the child goes `down` and later reservations
     // are refused. Only the leak is a defect; this refusal is the designed behavior. The
     // child declares no `maxUsd` here, which is the shape a live supervisor spawns.
-    const pool = createBudgetPool({ maxIterations: 12, maxTokens: 400_000, maxUsd: 2 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 12, maxTokens: 400_000, maxUsd: 2 }, 0)
     const { scope } = await beginScope({ pool })
     const spawned = scope.spawn(
       leafAgent('unknown-priced-leaf', {
@@ -1160,7 +1177,7 @@ describe('equal-k by construction', () => {
     // observed, never budgeted. The settlement records them without a reservation channel, so
     // `usdLeft` stays 0 with `usdCapped: false` (a readout of "not budgeted", not "exhausted")
     // and a known dollar amount leaves `tokensKnown` alone.
-    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, 0)
     const { scope } = await beginScope({ pool })
     const spawned = scope.spawn(
       leafAgent('priced-uncapped', {
@@ -1442,7 +1459,7 @@ describe('reactive scope', () => {
 
   it('spawn fails closed on budget-exhausted', async () => {
     const { scope } = await beginScope({
-      pool: createBudgetPool({ maxIterations: 1, maxTokens: 10 }, () => 0),
+      pool: createBudgetPool({ maxIterations: 1, maxTokens: 10 }, 0),
     })
     const ok = scope.spawn(leafAgent('a', { out: 1, events: tokensOnly(1, 1) }), 'task', {
       budget: { maxIterations: 1, maxTokens: 10 },

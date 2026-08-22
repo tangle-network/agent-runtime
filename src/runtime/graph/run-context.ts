@@ -94,19 +94,17 @@ export async function openGraphRun(args: {
     })
   }
 
-  const elapsed = () => args.now() - runEpochMs
   const measured = resuming ? sumMeasuredSpendFromEvents([...prior]) : undefined
+  // `runEpochMs` is this run's root instant — the fresh clock read, or the journaled root's
+  // timestamp on a resume — so the pool's deadline anchors to the same instant either way.
   const pool = createBudgetPool(
     rootBudget,
-    elapsed,
+    runEpochMs,
     measured === undefined
-      ? undefined
+      ? {}
       : {
           committed: addSpend(measured.childWork, measured.driverInference),
           uncertainReservations: uncertainSpawnBudgets([...prior]),
-          ...(rootBudget.deadlineMs !== undefined
-            ? { absoluteDeadlineMs: runEpochMs + rootBudget.deadlineMs }
-            : {}),
         },
   )
   const abort = new AbortController()

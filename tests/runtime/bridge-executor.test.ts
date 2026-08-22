@@ -671,7 +671,7 @@ describe('bridgeExecutor over node:http', () => {
 
     // The profile cap is a per-completion request field. The conserved Runtime budget still meters
     // the actual two-turn usage against its independently authored aggregate ceiling.
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 50 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 50 }, 0)
     const reservation = pool.reserve({ maxIterations: 2, maxTokens: 50 })
     if (!reservation.ok) throw new Error('aggregate budget reservation should succeed')
     const spent = await pool.spendFrom(events)
@@ -744,7 +744,7 @@ describe('bridgeExecutor over node:http', () => {
     const scope = createScope({
       parentId: root,
       root,
-      pool: createBudgetPool({ maxIterations: 1, maxTokens: 100 }, Date.now),
+      pool: createBudgetPool({ maxIterations: 1, maxTokens: 100 }, Date.now()),
       journal,
       blobs: new InMemoryResultBlobStore(),
       executors: createExecutorRegistry(),

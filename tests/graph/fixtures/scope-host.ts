@@ -9,7 +9,7 @@ import { createExecutorRegistry } from '../../../src/runtime/supervise/runtime'
 import { createScope } from '../../../src/runtime/supervise/scope'
 
 export async function scopeHost() {
-  const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, () => 0)
+  const pool = createBudgetPool({ maxIterations: 100, maxTokens: 100_000 }, 0)
   const journal = new InMemorySpawnJournal()
   await journal.beginTree('run', new Date(0).toISOString())
   const scope = createScope<unknown>({

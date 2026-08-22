@@ -199,7 +199,7 @@ describe('router-tools executor drains the inbox', () => {
       usd: 0,
       usdKnown: false,
     })
-    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 10, maxUsd: 1 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 2, maxTokens: 10, maxUsd: 1 }, 0)
     const reservation = pool.reserve({ maxIterations: 1, maxTokens: 2, maxUsd: 1 })
     if (!reservation.ok) throw new Error('reservation should fit')
     expect(() => pool.reconcile(reservation.ticket, result.spent)).toThrow(/unknown dollar cost/)

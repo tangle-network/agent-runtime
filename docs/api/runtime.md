@@ -10817,12 +10817,6 @@ while the public readout remains explicitly unknown.
 
 > `readonly` `optional` **uncertainReservations?**: readonly [`Budget`](index.md#budget-4)[]
 
-##### absoluteDeadlineMs?
-
-> `readonly` `optional` **absoluteDeadlineMs?**: `number`
-
-Original absolute deadline from the first process. It may never slide on restart.
-
 ***
 
 ### BudgetPool
@@ -27603,13 +27597,14 @@ Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
 
 ### createBudgetPool()
 
-> **createBudgetPool**(`root`, `now?`, `restore?`): [`BudgetPool`](#budgetpool)
+> **createBudgetPool**(`root`, `runStartedAtMs`, `restore?`): [`BudgetPool`](#budgetpool)
 
-Create a conserved reservation pool from a root `Budget`. `now()` is injected so the
-deadline readout is deterministic; defaults to `Date.now` for non-test callers. The
-absolute deadline for a fresh pool is fixed at construction (`now() + budget.deadlineMs`). A
-restored pool instead retains `restore.absoluteDeadlineMs`, so restart never slides the original
-wall-clock limit. The readout is an absolute instant, not a shrinking remainder.
+Create a conserved reservation pool from a root `Budget`. `runStartedAtMs` is the WALL-CLOCK
+instant the run's root was recorded, and it is the only input the deadline is derived from:
+`runStartedAtMs + root.deadlineMs`, or `0` when the root declares no deadline. The pool holds no
+clock, so a caller cannot hand it a run-relative one and get a duration back where an instant is
+expected. A resumed pool passes the ORIGINAL root instant, so restart never slides the limit.
+The readout is an absolute instant, not a shrinking remainder.
 
 #### Parameters
 
@@ -27617,9 +27612,9 @@ wall-clock limit. The readout is an absolute instant, not a shrinking remainder.
 
 [`Budget`](index.md#budget-4)
 
-##### now?
+##### runStartedAtMs
 
-() => `number`
+`number`
 
 ##### restore?
 
