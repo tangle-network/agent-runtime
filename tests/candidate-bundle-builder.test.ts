@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
@@ -27,6 +26,7 @@ import {
   createCandidateExecutionFixture,
   emptyCandidateSnapshot,
 } from './helpers/candidate-execution-fixture'
+import { makeTempRoot } from './helpers/temp-root'
 
 const temporaryRoots: string[] = []
 
@@ -414,7 +414,7 @@ function simpleProfile(): AgentProfile {
 }
 
 function temporaryRoot(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix))
+  const root = makeTempRoot(prefix)
   temporaryRoots.push(root)
   return root
 }

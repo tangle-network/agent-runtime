@@ -1,6 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { rmSync } from 'node:fs'
 
 import { InMemoryTraceStore, minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import {
@@ -26,6 +24,7 @@ import {
   emptyCandidateSnapshot,
   redigestCandidateBundle,
 } from './candidate-execution-fixture'
+import { makeTempRoot } from './temp-root'
 
 const roots: string[] = []
 
@@ -207,7 +206,7 @@ export async function executeCandidateExperimentInput(
 }
 
 function temporaryRoot(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix))
+  const root = makeTempRoot(prefix)
   roots.push(root)
   return root
 }

@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { CostLedger, makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
 import {
@@ -16,6 +15,7 @@ import type { ImprovementEditBatch, ImprovementProposalSource } from '../src/ana
 import type { CandidateGenerator } from '../src/improvement/improvement-driver'
 import { improvementDriver } from '../src/improvement/improvement-driver'
 import { reflectiveGenerator } from '../src/improvement/reflective-generator'
+import { makeTempRoot } from './helpers/temp-root'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -23,7 +23,7 @@ function git(args: string[], cwd: string): string {
 
 let repoRoot: string
 beforeEach(() => {
-  repoRoot = mkdtempSync(join(tmpdir(), 'analyst-repo-'))
+  repoRoot = makeTempRoot('analyst-repo-')
   git(['init', '-q', '-b', 'main'], repoRoot)
   git(['config', 'user.email', 'test@test.dev'], repoRoot)
   git(['config', 'user.name', 'Test'], repoRoot)

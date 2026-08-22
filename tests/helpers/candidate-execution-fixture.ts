@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   sealCandidateBenchmarkSuite,
@@ -29,6 +28,7 @@ import type {
   AgentCandidateTaskExecution,
   ResolvedAgentCandidateContainer,
 } from '../../src/candidate-execution/types'
+import { makeTempRoot } from './temp-root'
 
 const roots: string[] = []
 
@@ -41,7 +41,7 @@ export function cleanupCandidateFixtures(): void {
 }
 
 function temporaryRoot(prefix: string): string {
-  const root = mkdtempSync(join(tmpdir(), prefix))
+  const root = makeTempRoot(prefix)
   roots.push(root)
   return root
 }
