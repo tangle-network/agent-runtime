@@ -5576,7 +5576,7 @@ SDK contract — re-invoking with the same ids returns the same outcome.
 
 ### LocalHarness
 
-> **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"opencode"`\>
+> **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"opencode"` \| `"pi"`\>
 
 Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType`
 vocabulary, NOT a private spelling of it. The harness id is `claude-code`; `claude` is the
