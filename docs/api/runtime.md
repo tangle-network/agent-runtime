@@ -11117,6 +11117,58 @@ Transport/session configuration shared by every spawned exact profile.
 
 ***
 
+### CodeModeRunner
+
+Where model-written code runs. THE isolation boundary — see the module doc: this runtime ships
+ no default, so a caller chooses trusted-in-process or a real jail deliberately.
+
+#### Methods
+
+##### run()
+
+> **run**(`args`): `Promise`\<\{ `result`: `unknown`; `logs`: readonly `string`[]; \}\>
+
+###### Parameters
+
+###### args
+
+###### code
+
+`string`
+
+###### bindings
+
+`Readonly`\<`Record`\<`string`, (`args`) => `Promise`\<`unknown`\>\>\>
+
+The granted operations, already deadline-gated and result-detached by the caller. The
+ runner exposes these to the program as `api.<name>` and adds nothing else reachable.
+
+###### signal
+
+`AbortSignal`
+
+Aborts when the whole-program deadline passes or the manager scope cancels.
+
+###### Returns
+
+`Promise`\<\{ `result`: `unknown`; `logs`: readonly `string`[]; \}\>
+
+***
+
+### CodeModeOptions
+
+#### Properties
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Whole-program deadline per `execute` call. Default 60_000. After it passes, the running
+ program's next `api` call fails closed, so a runaway loop cannot keep spawning workers the
+ model can no longer see.
+
+***
+
 ### DeliverableSpec
 
 The deployable completion oracle passed to [gateOnDeliverable](#gateondeliverable): a `check` that
@@ -16778,6 +16830,39 @@ Assignment identity within the parent manager; absent only for the root.
 ##### verbs
 
 > `readonly` **verbs**: [`CoordinationVerbs`](#coordinationverbs)
+
+##### coordinationTools
+
+> `readonly` **coordinationTools**: () => readonly [`CoordinationToolFace`](#coordinationtoolface)[]
+
+The static face (name / description / inputSchema) of every coordination tool mounted on
+ THIS manager — the same objects that define the tools, so a product surface rendered from
+ them (code mode's `search`) can never drift from the grant. Late-bound like `verbs`: a call
+ before the coordination tools exist throws instead of answering an empty grant.
+
+###### Returns
+
+readonly [`CoordinationToolFace`](#coordinationtoolface)[]
+
+***
+
+### CoordinationToolFace
+
+One mounted coordination tool's static face; the handler is deliberately absent.
+
+#### Properties
+
+##### name
+
+> `readonly` **name**: `string`
+
+##### description?
+
+> `readonly` `optional` **description?**: `string`
+
+##### inputSchema?
+
+> `readonly` `optional` **inputSchema?**: `unknown`
 
 ***
 
@@ -27592,6 +27677,55 @@ Session-owning worker factory for graph continuity.
 #### Returns
 
 [`MakeWorkerAgent`](#makeworkeragent)
+
+***
+
+### unsafeInProcessRunner()
+
+> **unsafeInProcessRunner**(): [`CodeModeRunner`](#codemoderunner)
+
+An in-process runner for TRUSTED model output ONLY. NOT a security boundary.
+
+It runs the program in a `node:vm` context whose globals are the bindings (`api`) and a
+capturing `console`, with code generation disabled and inherited properties stripped. Those are
+capability discipline, not containment: `node:vm` shares the host realm, and a host function's
+`.constructor` is the host `Function`, so code that WANTS out can get out
+(`api.<binding>.constructor('return process')()`). Use this for your own eval harness, offline
+tests, or a model you trust; for untrusted output supply a jailed `CodeModeRunner` instead.
+
+#### Returns
+
+[`CodeModeRunner`](#codemoderunner)
+
+***
+
+### codeModeSupervisorTools()
+
+> **codeModeSupervisorTools**(`runner`, `options?`): [`ResolveSupervisorTools`](#resolvesupervisortools-2)
+
+Put a supervisor in code mode: its product tool surface becomes exactly `search` and `execute`.
+
+`runner` is REQUIRED and has no default — this runtime ships no isolate, so the execution
+boundary is the caller's explicit choice (see the module doc). Use [unsafeInProcessRunner](#unsafeinprocessrunner)
+for trusted output; a jailed runner for untrusted models.
+
+Pass the result as `SuperviseOptions.resolveSupervisorTools` (which `runGraph` forwards to its
+root supervisor). The graph engine's `supervisorKind` does not accept it yet, so a graph
+supervisor node cannot be put in code mode through node config today.
+
+#### Parameters
+
+##### runner
+
+[`CodeModeRunner`](#codemoderunner)
+
+##### options?
+
+[`CodeModeOptions`](#codemodeoptions) = `{}`
+
+#### Returns
+
+[`ResolveSupervisorTools`](#resolvesupervisortools-2)
 
 ***
 

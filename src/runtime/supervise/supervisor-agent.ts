@@ -254,6 +254,18 @@ export interface CoordinationVerbs {
 export interface SupervisorToolInvocationContext extends SupervisorNodeContext {
   readonly signal: AbortSignal
   readonly verbs: CoordinationVerbs
+  /** The static face (name / description / inputSchema) of every coordination tool mounted on
+   *  THIS manager — the same objects that define the tools, so a product surface rendered from
+   *  them (code mode's `search`) can never drift from the grant. Late-bound like `verbs`: a call
+   *  before the coordination tools exist throws instead of answering an empty grant. */
+  readonly coordinationTools: () => ReadonlyArray<CoordinationToolFace>
+}
+
+/** One mounted coordination tool's static face; the handler is deliberately absent. */
+export interface CoordinationToolFace {
+  readonly name: string
+  readonly description?: string
+  readonly inputSchema?: unknown
 }
 
 /**
@@ -267,6 +279,7 @@ export interface SupervisorToolInvocationContext extends SupervisorNodeContext {
  */
 interface VerbSlot {
   readonly verbs: CoordinationVerbs
+  readonly descriptors: () => ReadonlyArray<CoordinationToolFace>
   bind(tools: ReadonlyArray<McpToolDescriptor>): void
 }
 
@@ -298,6 +311,22 @@ function createVerbSlot(): VerbSlot {
       answerQuestion: verb('answer_question'),
       runAnalyst: verb('run_analyst'),
     }),
+    descriptors(): ReadonlyArray<CoordinationToolFace> {
+      if (bound === undefined) {
+        throw new ValidationError(
+          "supervisorAgent: coordinationTools() was called before this manager's coordination tools were bound",
+        )
+      }
+      return Object.freeze(
+        bound.map(({ name, description, inputSchema }) =>
+          Object.freeze({
+            name,
+            ...(description === undefined ? {} : { description }),
+            ...(inputSchema === undefined ? {} : { inputSchema }),
+          }),
+        ),
+      )
+    },
     bind(tools): void {
       bound = tools
     },
@@ -898,6 +927,7 @@ async function bindSupervisorTools(
     ...context,
     signal,
     verbs: slot.verbs,
+    coordinationTools: slot.descriptors,
   })
   const names = new Set<string>(coordinationVerbNames)
   return Object.freeze(

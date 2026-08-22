@@ -1,15 +1,14 @@
 /**
- * The ONE lint over model-authored source, and the fence extractor beside it.
+ * The ONE lint over model-authored source.
  *
  * Two features have a model write code the runtime then runs: `authorStrategy` (an authored
- * optimization strategy, since 0.60) and the graph engine's `codemode` node (0.169.0). Both need
- * the same refusals; 0.169.0 shipped them as two byte-near copies that could drift independently,
- * which an audit flagged. This module is the single copy both import.
+ * optimization strategy, since 0.60) and code mode's `execute` (a program over the coordination
+ * verbs). Both need the same refusals; this module is the single copy both import.
  *
- * A LINT, NOT A SANDBOX — it reads text and cannot constrain what running code does. Its job is
- * refusing the obvious escapes in the authored source so a bad program is rejected before
- * anything executes. Isolation, where required, is the execution boundary's job (a jailed
- * `codeRunner`, a sandboxed loader), never this check's.
+ * A LINT, NOT A SANDBOX — it reads text and cannot constrain what running code does, and trivial
+ * concatenation defeats any token match. Its only job is refusing the obvious escapes so a typo or
+ * a lazy model does not run; it is never the security boundary. Isolation, where required, is the
+ * execution boundary's job (a jailed runner, a sandboxed loader), never this check's.
  */
 import { ValidationError } from '../errors'
 
@@ -18,7 +17,7 @@ export interface AuthoredCodeOptions {
    *  specifier admits ANY import form of that module (named, namespace, default) — the lint
    *  gates WHICH module, not the syntax used to reach it. */
   readonly allowedImports?: ReadonlyArray<string>
-  /** Names the refusal, e.g. `codemode "planner"`. Defaults to `authored code`. */
+  /** Names the refusal, e.g. `code mode (node-1)`. Defaults to `authored code`. */
   readonly context?: string
 }
 
@@ -54,12 +53,4 @@ export function assertAuthoredCode(code: string, options: AuthoredCodeOptions = 
   for (const [pattern, what] of banned) {
     if (pattern.test(code)) throw new ValidationError(`${context} rejected: ${what}`)
   }
-}
-
-/** Pull the first fenced block out of a model reply; the whole reply if it carries no fence. */
-export function extractCodeBlock(reply: string): string {
-  const fenced = /```(?:[a-zA-Z]*)\n([\s\S]*?)```/u.exec(reply)
-  const code = (fenced?.[1] ?? reply).trim()
-  if (code.length === 0) throw new ValidationError('authored code: the model returned no code')
-  return code
 }
