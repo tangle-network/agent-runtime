@@ -79,7 +79,13 @@ describe('mcpServeVerifier — boot-and-probe', () => {
     })
     const res = await verify(dir)
     expect(res.ok).toBe(false)
-    expect(res.feedback).toContain('writing to MCP server stdin failed')
+    // How the host reports a server that took its own stdin away depends on the libuv build.
+    // `closeSync(0)` is the only way a Node child can drop the read end of that pipe, and libuv
+    // asserts `fd > STDERR_FILENO` in `uv__close`, so on some builds the child dies of SIGABRT
+    // before the parent's next write can fail. Measured on macOS: Node 26 reports the failed
+    // write, Node 22 and 24 report the abort. Both prove the verifier FAILED the candidate
+    // instead of hanging or passing it, which is what this case is for.
+    expect(res.feedback).toMatch(/writing to MCP server stdin failed|exited .* before serving/)
   })
 
   it('fails (does not hang) a server that never answers, via timeout', async () => {
