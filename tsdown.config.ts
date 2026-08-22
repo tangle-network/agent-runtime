@@ -9,6 +9,7 @@ export default defineConfig({
     'tool-loop': 'src/tool-loop.ts',
     intelligence: 'src/intelligence/index.ts',
     kernel: 'src/runtime/index.ts',
+    graph: 'src/runtime/graph/index.ts',
     'environment-provider': 'src/runtime/environment-provider.ts',
     'analyst-loop': 'src/analyst-loop/index.ts',
     knowledge: 'src/knowledge/index.ts',

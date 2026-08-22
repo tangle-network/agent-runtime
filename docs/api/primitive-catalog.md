@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.161.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.162.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1243,6 +1243,36 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
 **Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CoordinationMcpHandle`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarvestCorpusOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `EdgeDeliveryOutcome`, `GraphEdge`, `InboxMessage`, `LoopTraceEvent`, `MakeWorkerAgent`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `UsageEvent`, `WorkspaceCommit`.
+
+### Graph engine — node kinds, registries, host effects; the four core kinds
+
+Import from `@tangle-network/agent-runtime/graph` — 28 exports.
+
+| Symbol | Kind | Summary |
+|---|---|---|
+| `agentKind` | function | One profile, one run: the kernel's leaf, exactly as `supervise()` derives it from `backend`. |
+| `createGraphEngine` | function | Build one engine: a kind registry seeded with the core kinds plus the host's, and the host's |
+| `createRegistry` | function | Create a registry. Per-instance by construction: two engines in one process may hold |
+| `formatRegistryHandle` | function | `<id>/v<n>` — the only spelling a handle has on the wire, in a journal, or in an error. |
+| `kindHandle` | function | The handle a graph writes to name this kind. |
+| `narrowEffects` | function | Narrow a host's effect table to exactly what one kind declared. Anything the kind did not |
+| `parseRegistryHandle` | function | Parse the wire spelling back. Refuses anything that is not exactly `<id>/v<n>`. |
+| `scriptKind` | function | Caller code as a node. The one kind with no kernel primitive behind it: the kernel has no |
+| `subgraphKind` | function | A node carrying its own graph: the constraint on what a supervisor may spawn at depth>1. Its |
+| `supervisorKind` | function | The thing that DECIDES: a nested `supervisorAgent` with the coordination verbs. Its children |
+| `validateNodeKind` | function | Validate a kind declaration at registration — so a malformed kind is refused by name once, |
+| `NodeFlags` | interface | Per-node flags a graph author sets; they are node properties, not kinds (agent-runtime#970). |
+| `NodeKind` | interface | The validated declaration every kind provides. `Config` is the per-node config shape; |
+| `PortSpec` | interface | One declared port on a node. Ports are how a `data` edge binds one node's output to another's |
+| `Registered` | interface | Anything a registry holds carries its own handle, so the table cannot drift from the entry. |
+| `RegistryHandle` | interface | A versioned name: what a graph writes and what a host registers. |
+| `BudgetMode` | type | Whether a kind's spend enters the conserved pool. `'metered'`: the executor reports `Spend` and |
+| `EffectName` | type | What a kind declares it needs from the host. The engine never imports a host capability; it |
+| `JsonSchema` | type | A JSON Schema document as the kernel already spells it: an opaque record, validated by the |
+| `OnCrash` | type | What happens to a node that was IN FLIGHT when the process died. A settled node is never a |
+| `ScriptBody` | type | The caller code a `script` node runs. Receives the resolved inputs; returns the output. |
+
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `GraphEngine`, `GraphEngineOptions`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `EffectContext`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

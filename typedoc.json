@@ -8,6 +8,7 @@
     "src/tool-loop.ts",
     "src/intelligence/index.ts",
     "src/runtime/index.ts",
+    "src/runtime/graph/index.ts",
     "src/runtime/environment-provider.ts",
     "src/analyst-loop/index.ts",
     "src/knowledge/index.ts",

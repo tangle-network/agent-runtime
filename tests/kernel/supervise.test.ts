@@ -1581,23 +1581,27 @@ describe('open executor registry', () => {
     },
   )
 
-  it('scope validates a child before honoring a BYO executor or executor factory', async () => {
+  it('scope validates a child before honoring an executor factory, and admits a verbatim executor on an authored profile', async () => {
     let factoryCalls = 0
     let executeCalls = 0
-    const executor = mockExecutor({ out: 'must-not-run', events: [] })
+    const executor = mockExecutor({ out: 'ran', events: [] })
     const execute = executor.execute.bind(executor)
     executor.execute = (task, signal) => {
       executeCalls += 1
       return execute(task, signal)
     }
     const { scope } = await beginScope()
-    const spawn = (name: string, route: Pick<AgentSpec, 'executor' | 'executorFactory'>) =>
+    const spawn = (
+      name: string,
+      route: Pick<AgentSpec, 'executor' | 'executorFactory'>,
+      profile: unknown = { name },
+    ) =>
       scope.spawn(
         {
           name,
           act: async () => 'must-not-run',
           executorSpec: {
-            profile: { name } as AgentProfile,
+            profile: profile as AgentProfile,
             harness: null,
             ...route,
           },
@@ -1606,7 +1610,8 @@ describe('open executor registry', () => {
         { budget: { maxIterations: 1, maxTokens: 10 }, label: name },
       )
 
-    expect(() => spawn('byo-executor', { executor })).toThrow(/AgentProfile\.harness/)
+    // A factory reads the profile when it builds, so the profile must be an executable identity
+    // before the factory is ever called.
     expect(() =>
       spawn('byo-factory', {
         executorFactory: () => {
@@ -1617,6 +1622,44 @@ describe('open executor registry', () => {
     ).toThrow(/AgentProfile\.harness/)
     expect(factoryCalls).toBe(0)
     expect(executeCalls).toBe(0)
+
+    // A verbatim executor never sees the profile, so the profile need only parse: a leaf whose
+    // authority is code (a graph script) names no harness or model, honestly.
+    expect(() => spawn('byo-invalid', { executor }, { name: 42 })).toThrow()
+    expect(executeCalls).toBe(0)
+    const admitted = spawn('byo-executor', { executor })
+    expect(admitted.ok).toBe(true)
+    const settled = await scope.next()
+    expect(settled?.kind).toBe('done')
+    expect(executeCalls).toBe(1)
+  })
+
+  it('an executor that settles without a Spend goes down by name and its reservation is released', async () => {
+    const { scope, pool } = await beginScope()
+    const before = pool.readout()
+    const breach = {
+      runtime: 'router',
+      execute: async () => ({ outRef: 'x', out: 'x' }),
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => ({ outRef: 'x', out: 'x' }),
+    } as unknown as Executor<unknown>
+    const spawned = scope.spawn(
+      {
+        name: 'breach',
+        act: async () => 'x',
+        executorSpec: { profile: testAgentProfile('breach'), harness: null, executor: breach },
+      } as Agent<unknown, unknown> & { executorSpec: AgentSpec },
+      'task',
+      { budget: { maxIterations: 1, maxTokens: 100 }, label: 'breach' },
+    )
+    expect(spawned.ok).toBe(true)
+    const settled = await scope.next()
+    expect(settled?.kind).toBe('down')
+    if (settled?.kind !== 'down') return
+    expect(settled.reason).toMatch(/executor settled without a Spend/)
+    // The reservation returns and nothing is charged, but the unreported remainder is never
+    // reinterpreted as zero: the pool is sealed unknown, as on any crash.
+    expect(pool.readout()).toEqual({ ...before, tokensKnown: false, usdKnown: false })
   })
 
   it('passes a detached deeply frozen profile snapshot to a custom executor factory', async () => {
@@ -1658,16 +1701,25 @@ describe('open executor registry', () => {
     await scope.next()
   })
 
-  it('the built-in registry validates before honoring a BYO executor directly', () => {
+  it('the built-in registry parses the profile before honoring a BYO executor, and requires an executable identity only when it must resolve one', () => {
     const registry = createExecutorRegistry()
-    const executor = mockExecutor({ out: 'must-not-run', events: [] })
+    const executor = mockExecutor({ out: 'ran', events: [] })
     expect(() =>
       registry.resolve({
-        profile: { name: 'invalid-byo' } as AgentProfile,
+        profile: { name: 42 } as unknown as AgentProfile,
         harness: null,
         executor,
       }),
+    ).toThrow()
+    expect(() =>
+      registry.resolve({ profile: { name: 'bare' } as AgentProfile, harness: null }),
     ).toThrow(/AgentProfile\.harness/)
+    const r = registry.resolve({
+      profile: { name: 'bare' } as AgentProfile,
+      harness: null,
+      executor,
+    })
+    expect(r.succeeded).toBe(true)
   })
 
   it('resolves a BYO executor verbatim (highest precedence)', () => {

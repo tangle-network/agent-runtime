@@ -414,10 +414,13 @@ export type Runtime = 'router' | 'inline' | 'sandbox' | 'cli' | (string & {})
 
 /**
  * `AgentProfile` is the complete execution authority. Scope parses and snapshots it before calling
- * any registry, including one that resolves caller-supplied executors and factories. The default
- * registry enforces the same rule when called directly. `AgentSpec.harness` records routing for one
- * concrete run; where a backend consumes both fields, it must agree with `AgentProfile.harness` and
- * cannot fill or override it.
+ * any registry, including one that resolves caller-supplied factories. The default registry
+ * enforces the same rule when called directly. One spec is exempt from the harness-and-model
+ * requirement, never from parsing: a verbatim `executor`, which receives only the task and a
+ * signal and so can be filled from nothing. Its profile names the node and still digests into the
+ * node identity; a leaf whose authority is code (a graph script) carries no model, honestly.
+ * `AgentSpec.harness` records routing for one concrete run; where a backend consumes both fields,
+ * it must agree with `AgentProfile.harness` and cannot fill or override it.
  *
  * Resolution (in `runtime.ts`):
  *  - `executorFactory` present → BYO: build it after admission with the live context.
