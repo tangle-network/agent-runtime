@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.158.0
+
+### A declared graph can mount the product tools `supervise()` mounts
+
+`RunGraphOptions` accepts `resolveSupervisorTools` and forwards it to the root's `supervise()` verbatim. Without it a graph root mounted only the coordination MCP, so a run whose lead was supposed to reach a product tool found nothing and wrote its output somewhere no ledger could grade — measured on a live declared-graph run where five claims landed inline in a findings file and zero reached the claim ledger.
+
+The field's type is `SuperviseOptions['resolveSupervisorTools']`, so the graph option cannot drift from the option it forwards. Omit it and nothing changes: coordination verbs only.
+
 ## 0.157.0
 
 ### The bridge reasoning check refused runs it should have admitted
