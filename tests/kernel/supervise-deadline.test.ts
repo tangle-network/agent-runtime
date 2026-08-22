@@ -178,7 +178,7 @@ async function beginScope(budget: Budget): Promise<{ scope: Scope<unknown> }> {
     scope: createScope({
       parentId: 'deadline-scope',
       root: 'deadline-scope',
-      pool: createBudgetPool(budget, Date.now),
+      pool: createBudgetPool(budget, Date.now()),
       journal,
       blobs: new InMemoryResultBlobStore(),
       executors: createExecutorRegistry(),

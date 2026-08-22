@@ -14,7 +14,7 @@ function spend(over: Partial<Spend> = {}): Spend {
 
 /** An uncapped pool — the shape 286 of 292 fleet runs use, since they set no `maxUsd`. */
 function uncappedPool() {
-  return createBudgetPool({ maxIterations: 100, maxTokens: 10_000_000 }, () => 0)
+  return createBudgetPool({ maxIterations: 100, maxTokens: 10_000_000 }, 0)
 }
 
 describe('pricing work that carried no provider receipt', () => {
@@ -159,7 +159,7 @@ describe('the estimated part may never be read as billed spend', () => {
     // A catalog price can exceed a child's declared dollar ceiling. Reporting that as an
     // overspend would assert the child spent dollars a provider billed, which is the exact
     // confusion this field exists to prevent.
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000, maxUsd: 100 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000, maxUsd: 100 }, 0)
     const reserved = pool.reserve({ maxIterations: 2, maxTokens: 1_000, maxUsd: 0.001 })
     expect(reserved.ok).toBe(true)
     if (!reserved.ok) return
@@ -176,10 +176,7 @@ describe('the estimated part may never be read as billed spend', () => {
   it('still refuses unknown dollars under a dollar-capped root', () => {
     // Pricing an estimate does not open a dollar cap. A capped root refuses work whose dollars
     // are not measured, exactly as before, because the estimate rides `usdKnown: false`.
-    const capped = createBudgetPool(
-      { maxIterations: 10, maxTokens: 1_000_000, maxUsd: 100 },
-      () => 0,
-    )
+    const capped = createBudgetPool({ maxIterations: 10, maxTokens: 1_000_000, maxUsd: 100 }, 0)
     const priced = priceUnreceiptedWork({ inputTokens: 10_000, outputTokens: 2_000, model: MODEL })
     expect(() =>
       capped.observe(spend({ usd: priced.usd, usdEstimated: priced.usd, usdKnown: false })),

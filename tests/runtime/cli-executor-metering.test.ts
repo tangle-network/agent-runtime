@@ -47,7 +47,7 @@ describe('cli backend reports unmetered work as unknown, never as measured zero'
   })
 
   it('taints a budget pool’s readout so a token ceiling cannot read as enforced', async () => {
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1_000 })
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1_000 }, Date.now())
     const reservation = pool.reserve({ maxIterations: 1, maxTokens: 100 })
     if (!reservation.ok) throw new Error(`reservation rejected: ${reservation.reason}`)
     const executor = createExecutor({ backend: 'cli', bin: 'cat' })(spec, context)
@@ -62,7 +62,7 @@ describe('cli backend reports unmetered work as unknown, never as measured zero'
   })
 
   it('marks unknown dollars so a dollar-capped pool refuses an unmetered CLI result', async () => {
-    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1_000, maxUsd: 5 })
+    const pool = createBudgetPool({ maxIterations: 4, maxTokens: 1_000, maxUsd: 5 }, Date.now())
     const reservation = pool.reserve({ maxIterations: 1, maxTokens: 100, maxUsd: 1 })
     if (!reservation.ok) throw new Error(`reservation rejected: ${reservation.reason}`)
     const executor = createExecutor({ backend: 'cli', bin: 'cat' })(spec, context)

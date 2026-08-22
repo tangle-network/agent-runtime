@@ -225,7 +225,7 @@ describe('spawn journal replay identity', () => {
       const scope = createScope<unknown>({
         parentId: root,
         root,
-        pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, () => 0),
+        pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, 0),
         journal,
         blobs,
         executors: createExecutorRegistry(),
@@ -313,7 +313,7 @@ describe('spawn journal replay identity', () => {
       const scope = createScope<unknown>({
         parentId: root,
         root,
-        pool: createBudgetPool({ maxIterations: 1, maxTokens: 10 }, () => 0),
+        pool: createBudgetPool({ maxIterations: 1, maxTokens: 10 }, 0),
         journal,
         blobs,
         executors: createExecutorRegistry(),

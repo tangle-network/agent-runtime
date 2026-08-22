@@ -26,8 +26,8 @@
  * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
  * against a provider that misreports its own usage.
  *
- * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
- * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
+ * Pure and deterministic: the run's start instant is supplied, there is no I/O, and no
+ * wall-clock or RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
  * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always
  * closes it: a fail-loud condition settles the reservation first and throws afterwards, so no
  * error path can strand a reservation past the join barrier's `assertNoOpenTickets`.
@@ -122,8 +122,6 @@ export type ReservationRejection = 'budget-exhausted' | 'usd-unbudgeted'
 export interface BudgetPoolRestore {
   readonly committed?: Spend
   readonly uncertainReservations?: ReadonlyArray<Budget>
-  /** Original absolute deadline from the first process. It may never slide on restart. */
-  readonly absoluteDeadlineMs?: number
 }
 
 /** Reject malformed ceilings before they can mint capacity through negative reservations. */
@@ -324,23 +322,21 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
 }
 
 /**
- * Create a conserved reservation pool from a root `Budget`. `now()` is injected so the
- * deadline readout is deterministic; defaults to `Date.now` for non-test callers. The
- * absolute deadline for a fresh pool is fixed at construction (`now() + budget.deadlineMs`). A
- * restored pool instead retains `restore.absoluteDeadlineMs`, so restart never slides the original
- * wall-clock limit. The readout is an absolute instant, not a shrinking remainder.
+ * Create a conserved reservation pool from a root `Budget`. `runStartedAtMs` is the WALL-CLOCK
+ * instant the run's root was recorded, and it is the only input the deadline is derived from:
+ * `runStartedAtMs + root.deadlineMs`, or `0` when the root declares no deadline. The pool holds no
+ * clock, so a caller cannot hand it a run-relative one and get a duration back where an instant is
+ * expected. A resumed pool passes the ORIGINAL root instant, so restart never slides the limit.
+ * The readout is an absolute instant, not a shrinking remainder.
  */
 export function createBudgetPool(
   root: Budget,
-  now: () => number = Date.now,
+  runStartedAtMs: number,
   restore: BudgetPoolRestore = {},
 ): BudgetPool {
   assertValidBudget(root, 'root budget')
-  if (
-    restore.absoluteDeadlineMs !== undefined &&
-    (!Number.isFinite(restore.absoluteDeadlineMs) || restore.absoluteDeadlineMs < 0)
-  ) {
-    throw new Error('budget restore.absoluteDeadlineMs must be a non-negative finite number')
+  if (!Number.isFinite(runStartedAtMs) || runStartedAtMs < 0) {
+    throw new Error('budget runStartedAtMs must be a non-negative finite number')
   }
   // free + reserved + committed ≡ root totals, per channel, always.
   let freeTokens = root.maxTokens
@@ -373,8 +369,7 @@ export function createBudgetPool(
   let reservedIterations = 0
   let committedIterations = 0
 
-  const absoluteDeadlineMs =
-    restore.absoluteDeadlineMs ?? (root.deadlineMs !== undefined ? now() + root.deadlineMs : 0)
+  const absoluteDeadlineMs = root.deadlineMs === undefined ? 0 : runStartedAtMs + root.deadlineMs
 
   let nextTicketId = 0
   const open = new Set<number>()

@@ -388,8 +388,11 @@ function makeNestedScopeSeam(
     ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
     journalRoot: args.root,
     mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown> {
+      // One clock read anchors both halves: the remaining duration is measured from the same
+      // instant the nested pool derives its absolute deadline from.
+      const mountedAtMs = now()
       const deadlineMs =
-        childDeadlineAtMs === undefined ? undefined : Math.max(0, childDeadlineAtMs - now())
+        childDeadlineAtMs === undefined ? undefined : Math.max(0, childDeadlineAtMs - mountedAtMs)
       const nestedBudget = {
         ...childBudget,
         ...(deadlineMs !== undefined ? { deadlineMs } : {}),
@@ -397,7 +400,7 @@ function makeNestedScopeSeam(
       return createScope<unknown>({
         parentId: childNodeId,
         root: nestedRoot,
-        pool: createBudgetPool(nestedBudget, now),
+        pool: createBudgetPool(nestedBudget, mountedAtMs),
         journal: args.journal,
         blobs: args.blobs,
         executors: args.executors,

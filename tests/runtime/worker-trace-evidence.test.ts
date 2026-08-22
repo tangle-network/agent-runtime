@@ -45,7 +45,7 @@ function makeScope(root: string, journal: SpawnJournal, blobs: ResultBlobStore) 
   return createScope<unknown>({
     parentId: root,
     root,
-    pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, () => 0),
+    pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, 0),
     journal,
     blobs,
     executors: createExecutorRegistry(),

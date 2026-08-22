@@ -105,7 +105,7 @@ async function dispatchUnderRule(scores: readonly number[], rule: StopRule) {
   // the budget's. `deadlineMs` is left unset: this arm tests the progress bound, not the clock.
   const pool = createBudgetPool(
     { maxIterations: scores.length * 4, maxTokens: scores.length * WORKER_TOKENS * 2 },
-    () => 0,
+    0,
   )
   const scope = createScope<unknown>({
     parentId: root,
@@ -311,7 +311,7 @@ describe('a plateaued tree stops before its token ceiling — and a progressing 
     const blobs = new InMemoryResultBlobStore()
     const root = 'ceiling-run'
     await journal.beginTree(root, new Date(0).toISOString())
-    const pool = createBudgetPool({ maxIterations: 100, maxTokens: WORKER_TOKENS * 3 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 100, maxTokens: WORKER_TOKENS * 3 }, 0)
     const scope = createScope<unknown>({
       parentId: root,
       root,
@@ -485,7 +485,7 @@ describe('ProgressView reads the live worker feed off the scope', () => {
     const blobs = new InMemoryResultBlobStore()
     const root = 'live-view'
     await journal.beginTree(root, new Date(0).toISOString())
-    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 10_000 }, () => 0)
+    const pool = createBudgetPool({ maxIterations: 10, maxTokens: 10_000 }, 0)
     const scope: Scope<unknown> = createScope<unknown>({
       parentId: root,
       root,
