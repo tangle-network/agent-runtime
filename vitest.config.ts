@@ -23,7 +23,16 @@ export default defineConfig({
     ],
   },
   test: {
-    exclude: ['**/node_modules/**', 'dist/**', 'bench/**', '**/.claude/worktrees/**'],
+    // `_wt/` is where this repo's agents park git worktrees for other branches. A worktree
+    // holds a full checkout, so leaving it collectable runs another branch's tests against
+    // THIS branch's source and reports their failures as ours.
+    exclude: [
+      '**/node_modules/**',
+      'dist/**',
+      'bench/**',
+      '**/.claude/worktrees/**',
+      '**/_wt/**',
+    ],
     // Several suites drive real candidate-experiment fixtures + canonical digests.
     // In isolation each such test runs in well under a second, but under the full
     // parallel pool on a saturated CI runner their wall time inflates ~10x and the
