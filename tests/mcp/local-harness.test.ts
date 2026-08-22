@@ -1161,11 +1161,11 @@ describe('runLocalHarness', () => {
       cwd: '/tmp/wt',
       // The prompt-only fallback path would emit ['-p','go'] — the override wins exactly.
       taskPrompt: 'go',
-      invocation: { command: 'claude', args: ['-p', 'sys\n\ngo', '-m', 'deepseek'] },
+      invocation: { command: 'claude', args: ['-p', 'sys\n\ngo', '--model', 'deepseek'] },
       spawn: spawnSpy,
     })
     expect(spawnSpy.mock.calls[0][0]).toBe('claude')
-    expect(spawnSpy.mock.calls[0][1]).toEqual(['-p', 'sys\n\ngo', '-m', 'deepseek'])
+    expect(spawnSpy.mock.calls[0][1]).toEqual(['-p', 'sys\n\ngo', '--model', 'deepseek'])
   })
 })
 
@@ -1190,11 +1190,13 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it("maps the authored model to whatever selector flag the harness's row declares", () => {
-    // The flag is a per-harness FIELD, not a constant: claude-code, codex and opencode take
-    // `-m`, pi takes `--model`. Asserting one literal here would forbid adding a harness whose
-    // CLI spells it differently, which is exactly what the invocation table exists to allow.
+    // The flag is a per-harness FIELD, not a constant: codex and opencode take `-m`,
+    // claude-code and pi take `--model`. Asserting one literal here would forbid adding a
+    // harness whose CLI spells it differently, which is exactly what the table exists to allow.
+    // claude-code is NOT a style choice: Claude Code 2.1.239 exits 1 on `-m` with
+    // `error: unknown option '-m'`, so `-m` here made every model-bearing run fail to launch.
     const selectors = {
-      'claude-code': '-m',
+      'claude-code': '--model',
       codex: '-m',
       opencode: '-m',
       pi: '--model',
@@ -1212,9 +1214,21 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('omits the model flag when Eval delegates model selection to the harness', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
-      const inv = harnessInvocation(harness, profileWith(undefined, HARNESS_NATIVE_MODEL), 'go')
-      expect(inv.args).not.toContain('-m')
+    // Assert the absence of the flag each harness actually emits. Checking one literal would
+    // pass vacuously for a harness that spells its selector differently.
+    const selectors = {
+      'claude-code': '--model',
+      codex: '-m',
+      opencode: '-m',
+      pi: '--model',
+    } as const
+    for (const [harness, flag] of Object.entries(selectors)) {
+      const inv = harnessInvocation(
+        harness as keyof typeof selectors,
+        profileWith(undefined, HARNESS_NATIVE_MODEL),
+        'go',
+      )
+      expect(inv.args).not.toContain(flag)
       expect(inv.args).not.toContain(HARNESS_NATIVE_MODEL)
     }
   })
@@ -1222,7 +1236,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   it('threads BOTH systemPrompt and model together', () => {
     const inv = harnessInvocation('claude-code', profileWith('SYS', 'kimi-k2.7'), 'task')
     expect(inv.command).toBe('claude')
-    expect(inv.args).toEqual(['-p', 'SYS\n\ntask', '-m', 'kimi-k2.7'])
+    expect(inv.args).toEqual(['-p', 'SYS\n\ntask', '--model', 'kimi-k2.7'])
   })
 
   it('composes systemPrompt, every authored instruction, then the task in order', () => {

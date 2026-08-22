@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### `claude-code` gets the model flag its CLI actually accepts
+
+`HARNESS_INVOCATIONS['claude-code'].modelArgs` emitted `-m <model>`.
+Claude Code removed that short form.
+Measured on 2.1.239:
+
+```
+$ claude -p "hi" -m sonnet ; echo "exit=$?"
+error: unknown option '-m'
+exit=1
+$ claude --help | grep -- --model
+  --model <model>                       Model for the current session. Provide
+```
+
+Every delegation that carried an authored model therefore exited 1 before it read the prompt, and the run surfaced as an empty patch rather than as a bad flag.
+A profile with no model was unaffected, which is why the suite stayed green: the flag is only emitted when `profile.model.default` is set.
+
+The row now emits `--model`, the spelling the `pi` row already used.
+The long form is the safe value across the table: `codex` 0.142.5 (`-m, --model <MODEL>`) and `opencode` 1.18.21 (`-m, --model`) accept both, while `claude-code` and `pi` accept only `--model`.
+`codex` and `opencode` keep `-m`, which is measured working, so only the broken value changed.
+The two remaining `-m` literals in `local-harness.ts` sit inside Codex-only functions and stay correct.
+
+**What a consumer must do differently:** nothing, unless you asserted the exact argv of a `claude-code` invocation that carries a model, or passed a hand-built `invocation.args` using `-m` to `runLocalHarness` with `harness: 'claude-code'`.
+Both must now spell it `--model`.
+
 ### A multi-turn bridge session survives its own token counters (`bridgeExecutor`)
 
 cli-bridge's pi backend writes per-turn traffic and token counters into the profile-materialization receipt under `inference.observation` (`requests`, `generationRequests`, `usageReceipts`, and the `usage` token totals).

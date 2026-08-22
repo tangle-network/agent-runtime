@@ -242,10 +242,11 @@ describe('createWorktreeCliExecutor', () => {
     expect(promptArg).toBe(
       'You are a careful refactorer. Keep diffs minimal.\n\nfix the off-by-one',
     )
-    // ... and the authored model reaches the harness `-m` selector.
+    // ... and the authored model reaches the harness selector, which for claude-code is
+    // `--model` — the CLI rejects `-m` outright.
     const args = seen?.invocation?.args ?? []
     expect(args).toContain('--dangerously-skip-permissions')
-    const mIdx = args.indexOf('-m')
+    const mIdx = args.indexOf('--model')
     expect(mIdx).toBeGreaterThanOrEqual(0)
     expect(args[mIdx + 1]).toBe('deepseek/deepseek-v4-flash')
   })
