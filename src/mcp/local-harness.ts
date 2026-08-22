@@ -131,7 +131,8 @@ interface HarnessInvocationSpec {
  * Default per-harness command + arg shape. `buildArgs` takes ONLY the task prompt and
  * emits the prompt-only invocation (no model, no system prompt) — the safe default shape
  * the in-process executor's `streamPrompt` drives. `modelArgs` maps a resolved model to
- * the harness's selector flag (every supported harness takes `-m <model>`). The §1.5
+ * the harness's selector flag, which each harness spells for itself: codex and opencode
+ * take `-m <model>`, claude-code and pi take `--model <model>`. The §1.5
  * profile-aware mapper `harnessInvocation` composes these to thread the full
  * supervisor-authored profile (systemPrompt + model) into argv.
  *
@@ -145,7 +146,10 @@ const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = {
     // `-p` IS headless/print mode; the old `--headless` flag was removed from the CLI.
     // Permission bypass is an explicit per-run opt-in below, never the public default.
     buildArgs: (taskPrompt) => ['-p', taskPrompt],
-    modelArgs: (model) => ['-m', model],
+    // `--model` is the ONLY spelling the CLI accepts. Claude Code 2.1.239 exits 1 with
+    // `error: unknown option '-m'`; `--help` lists `--model <model>` and no short alias.
+    // The long form is also accepted by codex and opencode, so it is the safe spelling.
+    modelArgs: (model) => ['--model', model],
     reasoning: {
       levels: CLAUDE_CODE_REASONING_LEVELS,
       args: (level) => ['--effort', level],
