@@ -55,7 +55,7 @@ export { CodexExecutionDiagnosticError } from './codex-diagnostics'
  * lets a `LocalHarness` be handed straight to the profile materializer and the capability table
  * with no translation step.
  */
-export type LocalHarness = Extract<HarnessType, 'claude-code' | 'codex' | 'opencode'>
+export type LocalHarness = Extract<HarnessType, 'claude-code' | 'codex' | 'opencode' | 'pi'>
 
 /**
  * Canonical reasoning effort → the native level string a harness's own control accepts.
@@ -92,6 +92,16 @@ const CLAUDE_CODE_REASONING_LEVELS: NativeReasoningLevels = {
  *  `ultracode` maps to `max`. Thinking-off is expressed by omitting the flag, not by a variant
  *  named `none`, so `none` has no entry. */
 const OPENCODE_REASONING_LEVELS: NativeReasoningLevels = {
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  ultracode: 'max',
+}
+
+/** pi's own thinking scale, which happens to match the shared effort names one-for-one. */
+const PI_REASONING_LEVELS: NativeReasoningLevels = {
   minimal: 'minimal',
   low: 'low',
   medium: 'medium',
@@ -165,7 +175,26 @@ const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = {
       levels: OPENCODE_REASONING_LEVELS,
       args: (level) => ['--variant', level],
     },
-    // `opencode run` is non-interactive and has no approval gate to bypass.
+    // `opencode run` DOES gate permissions: without this it denies writes outside the
+    // working directory and phrases the refusal as "The user rejected permission", which
+    // reads as an agent that gave up rather than a harness that was never granted rights.
+    // Measured: three unattended worktree runs produced empty patches for exactly this.
+    permissionBypassArgs: () => ['--auto'],
+  },
+  pi: {
+    command: 'pi',
+    // `--print` IS the non-interactive mode: process the prompt and exit.
+    buildArgs: (taskPrompt) => ['--print', taskPrompt],
+    // pi takes a pattern that accepts `provider/id`, so a routed id passes through whole.
+    modelArgs: (model) => ['--model', model],
+    reasoning: {
+      levels: PI_REASONING_LEVELS,
+      args: (level) => ['--thinking', level],
+    },
+    // `--approve` trusts project-local files for this run, which is what an unattended
+    // run in a throwaway worktree needs. It grants no OS-level escape: unlike a full
+    // sandbox bypass, the blast radius stays the working directory.
+    permissionBypassArgs: () => ['--approve'],
   },
 }
 

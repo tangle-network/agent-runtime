@@ -1104,7 +1104,7 @@ describe('runLocalHarness', () => {
     const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) =>
       makeFakeChild({ exitCode: 0 }),
     )
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
       await runLocalHarness({ harness, cwd: '/tmp/wt', taskPrompt: 'go', spawn: spawnSpy })
     }
     const calls = spawnSpy.mock.calls
@@ -1155,7 +1155,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('threads the authored systemPrompt into the prompt channel for every harness', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
       const inv = harnessInvocation(
         harness,
         profileWith('You are a careful refactorer.'),
@@ -1167,17 +1167,30 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     }
   })
 
-  it('maps the authored model to the harness -m selector', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
-      const inv = harnessInvocation(harness, profileWith(undefined, 'deepseek/deepseek-v4'), 'go')
-      const mIdx = inv.args.indexOf('-m')
+  it("maps the authored model to whatever selector flag the harness's row declares", () => {
+    // The flag is a per-harness FIELD, not a constant: claude-code, codex and opencode take
+    // `-m`, pi takes `--model`. Asserting one literal here would forbid adding a harness whose
+    // CLI spells it differently, which is exactly what the invocation table exists to allow.
+    const selectors = {
+      'claude-code': '-m',
+      codex: '-m',
+      opencode: '-m',
+      pi: '--model',
+    } as const
+    for (const [harness, flag] of Object.entries(selectors)) {
+      const inv = harnessInvocation(
+        harness as keyof typeof selectors,
+        profileWith(undefined, 'deepseek/deepseek-v4'),
+        'go',
+      )
+      const mIdx = inv.args.indexOf(flag)
       expect(mIdx).toBeGreaterThanOrEqual(0)
       expect(inv.args[mIdx + 1]).toBe('deepseek/deepseek-v4')
     }
   })
 
   it('omits the model flag when Eval delegates model selection to the harness', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
       const inv = harnessInvocation(harness, profileWith(undefined, HARNESS_NATIVE_MODEL), 'go')
       expect(inv.args).not.toContain('-m')
       expect(inv.args).not.toContain(HARNESS_NATIVE_MODEL)
@@ -1395,15 +1408,28 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     expect(harnessInvocation('codex', { name: 'x' }, 'go', bypass).args).not.toContain(
       '--dangerously-bypass-approvals-and-sandbox',
     )
-    // `opencode run` is non-interactive and declares no bypass argv, so asking for one is a no-op
-    // rather than a silently dropped request for a flag that does not exist.
-    expect(harnessInvocation('opencode', { name: 'x' }, 'go', bypass).args).toEqual(['run', 'go'])
+    // `opencode run --auto` auto-approves permissions it is not explicitly denied. Without it an
+    // unattended run denies writes outside the working directory and reports "The user rejected
+    // permission", which reads as an agent that gave up rather than one never granted rights.
+    expect(harnessInvocation('opencode', { name: 'x' }, 'go', bypass).args).toEqual([
+      'run',
+      'go',
+      '--auto',
+    ])
+    // pi's `--approve` trusts project-local files for the run without surrendering the OS sandbox.
+    expect(harnessInvocation('pi', { name: 'x' }, 'go', bypass).args).toEqual([
+      '--print',
+      'go',
+      '--approve',
+    ])
+    expect(harnessInvocation('pi', { name: 'x' }, 'go').args).toEqual(['--print', 'go'])
   })
 
   it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
     expect(harnessInvocation('claude-code', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
     expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['exec', 'go'])
     expect(harnessInvocation('opencode', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
+    expect(harnessInvocation('pi', { name: 'x' }, 'go').args).toEqual(['--print', 'go'])
   })
 
   it('adds Claude permission bypass only when an isolated worktree explicitly opts in', () => {
