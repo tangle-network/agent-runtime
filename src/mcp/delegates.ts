@@ -96,10 +96,10 @@ export type UiAuditorDelegate = (
 export interface CoderReview {
   /** Gate: only approved candidates are eligible to win. */
   approved: boolean
-  /** Reviewer's recommendation — surfaced in traces. */
-  recommendation: 'ship' | 'approve-with-nits' | 'changes-requested' | 'reject'
   /** Readiness 0..1, used by the `highest-readiness` winner-selection strategy. */
   readiness: number
+  /** The reviewer's own words. Selection reads `approved` and `readiness`; anything a reviewer
+   *  wants a caller to READ belongs here, because nothing else on this type is surfaced. */
   notes?: string
 }
 

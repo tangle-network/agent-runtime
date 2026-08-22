@@ -332,7 +332,6 @@ type PreSeqSettled =
       kind: 'down'
       reason: string
       infra: boolean
-      restartCount: number
       trace: WorkerTraceEvidence
       providerModel?: import('./types').ProviderModelExecutionEvidence
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
@@ -1214,7 +1213,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             kind: 'down',
             reason: resolution.reason,
             infra: false,
-            restartCount: 0,
             trace: { status: 'unavailable', reason: 'not-an-executor' },
           }
         }
@@ -1234,7 +1232,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           kind: 'down',
           reason: errMessage(err),
           infra: true,
-          restartCount: 0,
           trace: { status: 'unavailable', reason: 'not-an-executor' },
         }
       })
@@ -1825,7 +1822,6 @@ async function finalizeSettlement<Out>(
           reason: settlement.reason,
           infra: settlement.infra,
           spent: child.spent,
-          restartCount: settlement.restartCount,
           ...settledNodeEvidence(child, settlement, settledAt),
         },
       },
@@ -1836,7 +1832,6 @@ async function finalizeSettlement<Out>(
       handle,
       reason: settlement.reason,
       infra: settlement.infra,
-      restartCount: settlement.restartCount,
       ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
       trace: settlement.trace,
       settledAt,
@@ -1977,7 +1972,6 @@ async function finalizeWait<Out>(
       handle,
       reason: settlement.reason,
       infra: settlement.infra,
-      restartCount: settlement.restartCount,
       trace: settlement.trace,
       settledAt,
       seq,
@@ -2505,7 +2499,6 @@ function downRecord(
     kind: 'down',
     reason,
     infra,
-    restartCount: 0,
     trace,
     ...(providerModel ? { providerModel } : {}),
     ...(metered ? { metered } : {}),

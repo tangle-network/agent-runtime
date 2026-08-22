@@ -967,7 +967,6 @@ export type {
   ProfileMaterializationReceipt,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
-  Restart,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,

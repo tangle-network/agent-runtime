@@ -11324,13 +11324,16 @@ git worktree through a pluggable `CandidateGenerator`.
 
 ### ImproveSurface
 
-> **ImproveSurface** = `"prompt"` \| `"skills"` \| `"tools"` \| `"mcp"` \| `"hooks"` \| `"subagents"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
+> **ImproveSurface** = `Exclude`\<`AgentImprovementSurface`, `"knowledge"`\>
 
-The executable agent lever `improve` optimizes. Profile fields remain
-portable AgentProfile coordinates; implementation and orchestration files
-use the code surface so a winner can be sealed into an exact candidate.
-`rollout-policy` is the inference-time structuralRollout dials
-(`profile.extensions['structural-rollout']`).
+The executable agent lever `improve` optimizes — every surface a proposal can name
+(`AgentImprovementSurface`) except `knowledge`, which the corpus lane owns and `improve`
+does not produce. Deriving it means every surface `improve` produces can also be reported, which
+is the property that lets a result reach a review or a gate.
+
+Profile fields remain portable AgentProfile coordinates; implementation and orchestration files
+use the code surface so a winner can be sealed into an exact candidate. `rollout-policy` is the
+inference-time structuralRollout dials (`profile.extensions['structural-rollout']`).
 
 ***
 
@@ -12046,7 +12049,7 @@ Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
 
 ### Settled
 
-> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
+> **Settled**\<`Out`\> = \{ `kind`: `"done"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `out`: `Out`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `settledAt?`: `number`; `seq`: `number`; \} \| \{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 A settled child, delivered by `scope.next()`. `seq` is the monotonic cursor order
 `next()` yielded this settlement (B2) — NOT wall-clock — and replay delivers strictly
@@ -12114,7 +12117,7 @@ Epoch ms parsed from the durable settlement record when available.
 
 ##### Type Literal
 
-\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `restartCount`: `number`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
+\{ `kind`: `"down"`; `handle`: [`Handle`](runtime.md#handle-3)\<`Out`\>; `reason`: `string`; `infra`: `boolean`; `trace`: [`WorkerTraceEvidence`](#workertraceevidence); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `settledAt?`: `number`; `seq`: `number`; \}
 
 ###### kind
 
@@ -12133,10 +12136,6 @@ Epoch ms parsed from the durable settlement record when available.
 > **infra**: `boolean`
 
 True = infrastructure failure (excluded from merge `n` / equal-k), not a bad result.
-
-###### restartCount
-
-> **restartCount**: `number`
 
 ###### trace
 

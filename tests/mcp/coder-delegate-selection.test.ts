@@ -71,7 +71,6 @@ const codexWorker = workerProfile('codex')
 // Reviewer that approves both but rates the BIG candidate more ready.
 const readinessReviewer: CoderReviewer = (output) => ({
   approved: true,
-  recommendation: 'ship',
   readiness: output.branch === 'big' ? 0.9 : 0.4,
 })
 
@@ -102,7 +101,6 @@ describe('detachedSessionDelegate — reviewer gate + winner selection', () => {
   it('rejects when the reviewer approves nothing (fails loud, no winner)', async () => {
     const rejectAll: CoderReviewer = (): CoderReview => ({
       approved: false,
-      recommendation: 'changes-requested',
       readiness: 0,
     })
     const delegate = detachedSessionDelegate({

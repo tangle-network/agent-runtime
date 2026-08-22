@@ -47,6 +47,15 @@ function respondBridgeCapabilities(req: IncomingMessage, res: ServerResponse): b
   return true
 }
 
+/**
+ * What cli-bridge 0.3.0 really puts in `reasoningEffort.applied`, transcribed from the argv
+ * builders that spawn each CLI and NOT from `nativeReasoningControl`. Reading the shared table
+ * here would make this test assert that the runtime agrees with itself, which is how a stale
+ * codex expectation survived long enough to refuse three of the seven rungs in production.
+ *
+ * A harness with no case plumbs no thinking flag, so its receipt carries `null` — gemini derives
+ * its budget from the model, and the rest read no reasoning effort at all.
+ */
 function appliedReasoning(harness: string, requested: ReasoningEffort | null): string | null {
   if (requested === null) return null
   if (harness === 'pi') {
@@ -57,18 +66,15 @@ function appliedReasoning(harness: string, requested: ReasoningEffort | null): s
     if (requested === 'none' || requested === 'minimal') return 'low'
     return requested === 'ultracode' ? 'max' : requested
   }
-  if (harness === 'codex') {
-    if (requested === 'none') return 'minimal'
-    return requested === 'xhigh' || requested === 'ultracode' ? 'high' : requested
-  }
+  if (harness === 'codex') return requested === 'ultracode' ? 'ultra' : requested
   if (harness === 'kimi-code') {
     if (requested === 'medium') return null
     return requested === 'none' || requested === 'minimal' || requested === 'low'
       ? '--no-thinking'
       : '--thinking'
   }
-  if (harness === 'gemini') return null
-  return requested
+  if (harness === 'opencode') return requested
+  return null
 }
 
 function bridgeProfileReceipt(body: Record<string, unknown>): Record<string, unknown> {

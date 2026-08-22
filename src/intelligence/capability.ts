@@ -129,7 +129,9 @@ export type DeliveryBinding =
   | { kind: 'process-on-infra'; host: HostSpec; inner: DeliveryBinding }
   // INFRA class — deliver = a provisioned store + a connection (standing cost).
   | { kind: 'rag-index'; index: ContentRef; embedModel: string; topK?: number }
-  | { kind: 'memory-store'; provision: 'sqlite' | 'neo4j' | 'vector'; seed?: ContentRef }
+  // `sqlite` is the only backend a manifest may name: nothing provisions another, and the whole
+  // arm is refused at resolve time until it clears the E3 admission bar.
+  | { kind: 'memory-store'; provision: 'sqlite'; seed?: ContentRef }
   // EXTENSION POINTS — future arms, additive and agent-invisible.
   | { kind: 'wasm'; module: ContentRef; exports: string[] }
   | { kind: 'a2a'; endpoint: string; card: ContentRef; auth?: CapabilityAuth }

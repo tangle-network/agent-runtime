@@ -17257,10 +17257,6 @@ Opaque seams the registry threads through; a built-in narrows what it needs.
 Manager-scoped semantic assignment identity. Unlike `key`, this names every spawn, including
 unkeyed siblings, so product traces can join authorization, node, and backend execution.
 
-##### restart?
-
-> `readonly` `optional` **restart?**: [`Restart`](#restart)
-
 ##### shutdown?
 
 > `readonly` `optional` **shutdown?**: `number` \| `"brutalKill"` \| `"infinity"`
@@ -19749,7 +19745,11 @@ idle-drop. Applies to the default fresh-box path too, not only when
 
 ##### kind
 
-> **kind**: `"sibling"` \| `"fleet"`
+> **kind**: `"sibling"` \| `"fleet"` \| `"in-process"`
+
+`in-process` is a local harness CLI in the caller's own process tree — no sandbox, no fleet.
+ It is a placement in its own right so a cost or latency breakdown split by placement does not
+ count local runs in the sandbox bucket.
 
 ##### sandboxId?
 
@@ -19915,7 +19915,7 @@ they write lands on it directly.
 
 ##### placement
 
-> **placement**: `"sibling"` \| `"fleet"`
+> **placement**: `"sibling"` \| `"fleet"` \| `"in-process"`
 
 ##### sandboxId?
 
@@ -22199,14 +22199,6 @@ construction args without pre-instantiating; it never bypasses exact-profile val
 #### Returns
 
 [`Executor`](index.md#executor-2)\<`Out`\>
-
-***
-
-### Restart
-
-> **Restart** = `"temporary"` \| `"transient"` \| `"permanent"`
-
-OTP child-spec restart class.
 
 ***
 

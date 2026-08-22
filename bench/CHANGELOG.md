@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.23
+
+### Interface 1.6.0 cohort
+
+The Interface catalog range becomes `^1.6.0`, matching the Runtime cohort. Bench resolves Interface through the catalog, so its published manifest states the new range. Nothing in bench changes behavior.
+
+A consumer that pins Interface itself must move it with this package.
+
 ## 0.8.22
 
 ### Eval 0.163.2 and Knowledge 10.7.0 cohort

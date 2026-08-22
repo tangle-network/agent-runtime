@@ -239,11 +239,6 @@ export type {
 } from './with-intelligence'
 export { withIntelligence } from './with-intelligence'
 
-/** Usage class for billing. Base-stream tokens bill `'inference'`; every
- *  intelligence spawn (analyst, corpus, loop) bills `'intelligence'`. The
- *  billing line falls on the spawn line. */
-export type UsageClass = 'inference' | 'intelligence'
-
 /**
  * The per-class cost split carried by every trace and outcome. `off` ⇒
  * `intelligenceUsd: 0` by construction — there is no intelligence spawn to

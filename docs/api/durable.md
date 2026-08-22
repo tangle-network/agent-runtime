@@ -650,7 +650,7 @@ entries sum to `inclusive` by construction.
 
 ##### status
 
-> `readonly` **status**: [`PursuitRunStatus`](#pursuitrunstatus)
+> `readonly` **status**: [`PursuitStatus`](#pursuitstatus)
 
 ##### settledAt?
 
@@ -750,7 +750,7 @@ The runner that executed this node — the executor's own name, not a harness gu
 
 ##### status
 
-> `readonly` **status**: [`PursuitNodeStatus`](#pursuitnodestatus)
+> `readonly` **status**: [`PursuitStatus`](#pursuitstatus)
 
 ##### settledAt?
 
@@ -865,10 +865,6 @@ Content-addressed pointer to this node's persisted tool trace, or why there is n
 ##### infra?
 
 > `readonly` `optional` **infra?**: `boolean`
-
-##### restartCount?
-
-> `readonly` `optional` **restartCount?**: `number`
 
 ##### wait?
 
@@ -1807,9 +1803,13 @@ already knowing the root node or coordination run id stored inside it.
 
 ***
 
-### PursuitRunStatus
+### PursuitStatus
 
-> **PursuitRunStatus** = `"running"` \| `"done"` \| `"failed"`
+> **PursuitStatus** = `"running"` \| `"done"` \| `"down"`
+
+One settled projection status, shared by runs and nodes. `down` is the journal's own word for a
+failure (a settlement is journaled as `kind: 'down'`, cancellation included), so a consumer can
+join run rows to node rows on `status` and read one failure population instead of two.
 
 ***
 
@@ -1828,12 +1828,6 @@ rest; `unknown` = nothing priced it, so `usd` is a floor and never the cost.
 > **PursuitNodePlacement** = `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>\>
 
 Where and how a node's execution was placed, read off its execution-binding receipt.
-
-***
-
-### PursuitNodeStatus
-
-> **PursuitNodeStatus** = `"running"` \| `"done"` \| `"down"`
 
 ## Functions
 

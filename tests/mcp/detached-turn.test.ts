@@ -383,7 +383,7 @@ describe('settleDetachedCoderTurn', () => {
           task: coderTaskFromArgs(codeArgs),
           sessionId: 's',
           signal: new AbortController().signal,
-          reviewer: () => ({ approved: false, recommendation: 'reject', readiness: 0 }),
+          reviewer: () => ({ approved: false, readiness: 0 }),
         },
       ),
     ).rejects.toThrow(/validation \+ review/)

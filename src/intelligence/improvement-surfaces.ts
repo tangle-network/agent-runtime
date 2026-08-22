@@ -24,6 +24,10 @@ import {
   omitUndefinedObjectFields,
   parseExactAgentProfile,
 } from '../candidate-execution/profile'
+import {
+  ROLLOUT_POLICY_EXTENSION,
+  structuralRolloutPolicyFromProfile,
+} from '../improvement/rollout-policy'
 
 const changedSurfaceOrder: readonly AgentImprovementSurface[] = [
   'prompt',
@@ -36,6 +40,7 @@ const changedSurfaceOrder: readonly AgentImprovementSurface[] = [
   'memory',
   'code',
   'knowledge',
+  'rollout-policy',
 ]
 
 /** Agent improvement surfaces delivered as exact `AgentProfileDiff` replacements. */
@@ -737,6 +742,7 @@ function improvementSurfaceValues(
     },
     code: bundle.code,
     knowledge: bundle.knowledge ?? null,
+    'rollout-policy': structuralRolloutPolicyFromProfile(profile) ?? null,
   }
 }
 
@@ -747,9 +753,13 @@ function opaqueProfileSlice(profile: AgentProfile): unknown {
     mcp: _mcp,
     hooks: _hooks,
     subagents: _subagents,
+    extensions,
     resources,
     ...opaqueProfile
   } = profile
+  // The rollout policy is its own surface, so it must not also ride in this slice: one edit to it
+  // would otherwise report two changed surfaces.
+  const { [ROLLOUT_POLICY_EXTENSION]: _rolloutPolicy, ...opaqueExtensions } = extensions ?? {}
   const {
     instructions: _instructions,
     skills: _skills,
@@ -759,6 +769,7 @@ function opaqueProfileSlice(profile: AgentProfile): unknown {
   } = resources ?? {}
   return {
     ...opaqueProfile,
+    ...(Object.keys(opaqueExtensions).length > 0 ? { extensions: opaqueExtensions } : {}),
     ...(Object.keys(opaqueResources).length > 0 ? { resources: opaqueResources } : {}),
   }
 }

@@ -49,13 +49,12 @@ export {
   type PursuitNodeCost,
   type PursuitNodePlacement,
   type PursuitNodeProjection,
-  type PursuitNodeStatus,
   type PursuitNodeTiming,
   type PursuitNodeUsage,
   type PursuitProjection,
   type PursuitRunProjection,
-  type PursuitRunStatus,
   type PursuitRunTotals,
+  type PursuitStatus,
   projectPursuit,
 } from './observer-projection'
 export {

@@ -431,7 +431,10 @@ export interface LoopLineageOptions {
 
 /** @stable */
 export interface LoopSandboxPlacement {
-  kind: 'sibling' | 'fleet'
+  /** `in-process` is a local harness CLI in the caller's own process tree — no sandbox, no fleet.
+   *  It is a placement in its own right so a cost or latency breakdown split by placement does not
+   *  count local runs in the sandbox bucket. */
+  kind: 'sibling' | 'fleet' | 'in-process'
   sandboxId?: string
   fleetId?: string
   machineId?: string
@@ -530,7 +533,7 @@ export interface LoopIterationStartedPayload {
 export interface LoopIterationDispatchPayload {
   iterationIndex: number
   agentRunName: string
-  placement: 'sibling' | 'fleet'
+  placement: 'sibling' | 'fleet' | 'in-process'
   /** Set on every placement. Lets analyst loops correlate per-iteration logs. */
   sandboxId?: string
   /** Set only when `placement === 'fleet'`. */

@@ -274,9 +274,11 @@ describe('projectPursuit', () => {
       first.digest,
     )
 
+    // The hook payload above spells the failure `failed`; the projection spells every settled
+    // failure `down`, so run rows and node rows join on one vocabulary.
     expect(projectPursuit([first, second]).runs[0]).toMatchObject({
       runId: 'run:failed',
-      status: 'failed',
+      status: 'down',
       settledAt: 20,
       error: 'driver crashed',
     })

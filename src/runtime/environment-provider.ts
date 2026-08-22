@@ -1698,7 +1698,9 @@ function placementInfoFromLoopPlacement(
 ): PlacementInfo {
   if (!placement) return { kind: 'sandbox', sandboxId: String(box.id) }
   return {
-    kind: placement.kind === 'fleet' ? 'fleet' : 'sandbox',
+    // `in-process` runs in the caller's own process tree, which `PlacementInfo` names `local`.
+    kind:
+      placement.kind === 'fleet' ? 'fleet' : placement.kind === 'in-process' ? 'local' : 'sandbox',
     ...(placement.sandboxId ? { sandboxId: placement.sandboxId } : { sandboxId: String(box.id) }),
     ...(placement.fleetId ? { fleetId: placement.fleetId } : {}),
     ...(placement.machineId ? { machineId: placement.machineId } : {}),

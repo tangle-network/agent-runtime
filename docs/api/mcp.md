@@ -811,14 +811,6 @@ Structured review verdict over a coder candidate.
 
 Gate: only approved candidates are eligible to win.
 
-##### recommendation
-
-> **recommendation**: `"ship"` \| `"reject"` \| `"approve-with-nits"` \| `"changes-requested"`
-
-**`Experimental`**
-
-Reviewer's recommendation — surfaced in traces.
-
 ##### readiness
 
 > **readiness**: `number`
@@ -832,6 +824,9 @@ Readiness 0..1, used by the `highest-readiness` winner-selection strategy.
 > `optional` **notes?**: `string`
 
 **`Experimental`**
+
+The reviewer's own words. Selection reads `approved` and `readiness`; anything a reviewer
+ wants a caller to READ belongs here, because nothing else on this type is surfaced.
 
 ***
 
@@ -2007,9 +2002,13 @@ Which harness handled this delegation.
 
 ##### kind
 
-> **kind**: `"sibling"` \| `"fleet"`
+> **kind**: `"sibling"` \| `"fleet"` \| `"in-process"`
 
 **`Experimental`**
+
+`in-process` is a local harness CLI in the caller's own process tree — no sandbox, no fleet.
+ It is a placement in its own right so a cost or latency breakdown split by placement does not
+ count local runs in the sandbox bucket.
 
 ###### Inherited from
 
@@ -4547,7 +4546,7 @@ Best-effort hint — coder loops can take minutes-to-hours.
 
 ##### sources?
 
-> `optional` **sources?**: [`ResearchSource`](#researchsource)[]
+> `optional` **sources?**: [`ResearchSource`](profiles.md#researchsource)[]
 
 **`Experimental`**
 
@@ -5639,14 +5638,6 @@ The synchronous result the `delegate` tool returns to the calling agent: the del
 ### DelegationStatus
 
 > **DelegationStatus** = `"pending"` \| `"running"` \| `"completed"` \| `"failed"` \| `"cancelled"`
-
-**`Experimental`**
-
-***
-
-### ResearchSource
-
-> **ResearchSource** = `"web"` \| `"corpus"` \| `"twitter"` \| `"github"` \| `"docs"`
 
 **`Experimental`**
 
@@ -7673,3 +7664,9 @@ Re-exports [WorkerSpawnContext](runtime.md#workerspawncontext)
 ### WorkerWatchOptions
 
 Re-exports [WorkerWatchOptions](runtime.md#workerwatchoptions)
+
+***
+
+### ResearchSource
+
+Re-exports [ResearchSource](profiles.md#researchsource)

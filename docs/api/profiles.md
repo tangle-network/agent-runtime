@@ -952,7 +952,8 @@ Optional judge commentary (debug / triage aid).
 
 **`Experimental`**
 
-Source families a researcher profile may prefer for a task.
+Source families a researcher profile may prefer for a task. One owner: the delegation
+ vocabulary (`DelegateResearchArgs.sources`) re-exports this type rather than restating it.
 
 ***
 

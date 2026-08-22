@@ -13,27 +13,25 @@ import type {
   SelfImproveOptions,
   SelfImproveResult,
 } from '@tangle-network/agent-eval/contract'
-import type { AgentProfile, AgentProfileDiff, Sha256Digest } from '@tangle-network/agent-interface'
+import type {
+  AgentImprovementSurface,
+  AgentProfile,
+  AgentProfileDiff,
+  Sha256Digest,
+} from '@tangle-network/agent-interface'
 import type { AgenticGeneratorExecutorForWorktree, Verifier } from './agentic-generator'
 import type { CandidateGenerator } from './improvement-driver'
 import type { ReadonlyAgentProfile } from './profile-types'
 
-/** The executable agent lever `improve` optimizes. Profile fields remain
- * portable AgentProfile coordinates; implementation and orchestration files
- * use the code surface so a winner can be sealed into an exact candidate.
- * `rollout-policy` is the inference-time structuralRollout dials
- * (`profile.extensions['structural-rollout']`). */
-export type ImproveSurface =
-  | 'prompt'
-  | 'skills'
-  | 'tools'
-  | 'mcp'
-  | 'hooks'
-  | 'subagents'
-  | 'agent-profile'
-  | 'memory'
-  | 'code'
-  | 'rollout-policy'
+/** The executable agent lever `improve` optimizes — every surface a proposal can name
+ * (`AgentImprovementSurface`) except `knowledge`, which the corpus lane owns and `improve`
+ * does not produce. Deriving it means every surface `improve` produces can also be reported, which
+ * is the property that lets a result reach a review or a gate.
+ *
+ * Profile fields remain portable AgentProfile coordinates; implementation and orchestration files
+ * use the code surface so a winner can be sealed into an exact candidate. `rollout-policy` is the
+ * inference-time structuralRollout dials (`profile.extensions['structural-rollout']`). */
+export type ImproveSurface = Exclude<AgentImprovementSurface, 'knowledge'>
 
 export type ImproveProfileSurface = Exclude<ImproveSurface, 'code'>
 
