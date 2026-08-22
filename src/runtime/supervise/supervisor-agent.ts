@@ -468,6 +468,10 @@ export interface SupervisorAgentDeps {
    *  wire id; is it already at admission capacity). `supervise` derives one automatically for a
    *  bridge backend; see `CoordinationToolsOptions.preflightSpawn`. */
   readonly preflightSpawn?: SpawnPreflight
+  /** Pre-journal profile resolution for `preflightSpawn`: the authored profile → the profile that
+   *  will run, so the gate judges the canonical profile. See
+   *  `CoordinationToolsOptions.resolveSpawnProfile`. */
+  readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` post office
    *  beside the coordination MCP and mint each spawn a capability URL on
    *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
@@ -651,6 +655,7 @@ function buildSupervisorAgent(
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
+        ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
         ...(deps.stopRule ? { stopRule: deps.stopRule } : {}),
         ...(deps.onProgressStop ? { onProgressStop: deps.onProgressStop } : {}),
         ...(deps.maxTurns !== undefined ? { maxTurns: deps.maxTurns } : {}),
@@ -789,6 +794,7 @@ function buildSupervisorAgent(
         ...(onEvent ? { onEvent } : {}),
         ...(deps.replaySettlements ? { replaySettlements: true } : {}),
         ...(deps.preflightSpawn ? { preflightSpawn: deps.preflightSpawn } : {}),
+        ...(deps.resolveSpawnProfile ? { resolveSpawnProfile: deps.resolveSpawnProfile } : {}),
         ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
         ...(priorCoordination?.questions.length
           ? { priorQuestions: priorCoordination.questions }

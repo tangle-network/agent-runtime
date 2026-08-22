@@ -16002,6 +16002,25 @@ When `driverBackend` is absent, whether an external-harness ROOT may default to 
  — sets `false`, so an external root without an explicit `driverBackend` is refused before any
  compute rather than silently driven from the worker placement.
 
+##### resolveSpawnProfile?
+
+> `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
+
+Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
+ the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
+ sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
+ canonical profile. Identity-free and synchronous; throw to refuse.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](#driveharness-2)
@@ -17197,6 +17216,24 @@ OPT-IN async gate run before every spawn mints an assignment or reserves budget 
  pre-journal point that may ask the backend a question (does this bridge route the child's
  wire id; is it already at admission capacity). `supervise` derives one automatically for a
  bridge backend; see `CoordinationToolsOptions.preflightSpawn`.
+
+##### resolveSpawnProfile?
+
+> `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
+
+Pre-journal profile resolution for `preflightSpawn`: the authored profile → the profile that
+ will run, so the gate judges the canonical profile. See
+ `CoordinationToolsOptions.resolveSpawnProfile`.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
 
 ##### peerMail?
 
@@ -27630,6 +27667,13 @@ capability. Loopback plus an unguessable path is what this layer can honestly en
 OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
  pre-journal point that may ask the backend a question. See
  `CoordinationToolsOptions.preflightSpawn`.
+
+###### resolveSpawnProfile?
+
+(`profile`) => `AgentProfile`
+
+Pre-journal profile resolution for `preflightSpawn`; see
+ `CoordinationToolsOptions.resolveSpawnProfile`.
 
 ###### onCoordinationTools?
 

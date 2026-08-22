@@ -1100,6 +1100,11 @@ export interface SuperviseOptions {
    *  — sets `false`, so an external root without an explicit `driverBackend` is refused before any
    *  compute rather than silently driven from the worker placement. */
   readonly rootDriverFromBackend?: boolean
+  /** Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
+   *  the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
+   *  sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
+   *  canonical profile. Identity-free and synchronous; throw to refuse. */
+  readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
   /** Run an external-harness supervisor explicitly. Required for a remote sandbox; optional as a
    *  caller-owned override for a local bridge. */
   readonly driveHarness?: DriveHarness
@@ -1364,6 +1369,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     analysts,
     makeWorkerAgent,
     makeLeafAgent,
+    resolveSpawnProfile,
     blobs,
     journal,
     probes,
@@ -1451,6 +1457,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(capturedAnalysts === undefined ? {} : { analysts: capturedAnalysts }),
     ...(makeWorkerAgent === undefined ? {} : { makeWorkerAgent }),
     ...(makeLeafAgent === undefined ? {} : { makeLeafAgent }),
+    ...(resolveSpawnProfile === undefined ? {} : { resolveSpawnProfile }),
     ...(blobs === undefined ? {} : { blobs }),
     ...(journal === undefined ? {} : { journal }),
     ...(probes === undefined ? {} : { probes }),
@@ -2135,6 +2142,12 @@ function superviseInternal(
             ? { continuityByProfile: options.continuityByProfile }
             : {}),
           ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
+          ...(options.resolveSpawnProfile
+            ? { resolveSpawnProfile: options.resolveSpawnProfile }
+            : {}),
+          ...(options.resolveSpawnProfile
+            ? { resolveSpawnProfile: options.resolveSpawnProfile }
+            : {}),
           ...(options.peerMail ? { peerMail: options.peerMail } : {}),
           ...(options.stopRule ? { stopRule: options.stopRule } : {}),
           ...(options.onProgressStop ? { onProgressStop: options.onProgressStop } : {}),
@@ -2210,6 +2223,7 @@ function superviseInternal(
       ...(finalizer ? { finalizer } : {}),
       ...(options.coordination ? { coordination: options.coordination } : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
+      ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(options.router ? { router: options.router } : {}),

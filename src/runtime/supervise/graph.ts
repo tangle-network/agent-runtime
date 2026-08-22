@@ -212,6 +212,7 @@ export class GraphEdgeCapError extends Error {
 /** The graph derives these from the `AgentGraph` itself; a caller value would be overwritten. */
 const GRAPH_OWNED_SUPERVISE_OPTIONS = [
   'rootDriverFromBackend',
+  'resolveSpawnProfile',
   'budget',
   'deliverable',
   'makeWorkerAgent',
@@ -850,6 +851,19 @@ function runGraphInternal(
           },
         }
   }
+  // The pre-journal gate (a bridge backend's route/admission check) must judge the profile that
+  // will run, not the `{ name }` stub — otherwise every graph spawn over a bridge is refused
+  // `model-route` before the graph ever pins it. This resolver is PURE: it answers "which node"
+  // without ledgering, because the gate may refuse and nothing may be journaled for a refusal.
+  const resolveSpawnProfile = (authored: AgentProfile): AgentProfile => {
+    const requested = typeof authored.name === 'string' ? authored.name : undefined
+    const node =
+      (requested !== undefined ? workers.get(requested) : undefined) ??
+      (requested !== undefined ? analystNodes.get(requested) : undefined)
+    // Unknown names fall through to authorizeSpawn, which refuses them with the full message and
+    // a ledger row; the gate just sees the stub and lets that later refusal speak.
+    return node?.profile ?? authored
+  }
   // Graph authority first, then the caller's: a product authorizing spawns sees the CANONICAL
   // node profile (what will actually run), never the driver's `{ name }` stub.
   const graphAuthorizeSpawn: NonNullable<SuperviseOptions['authorizeSpawn']> = (input) => {
@@ -1109,6 +1123,7 @@ function runGraphInternal(
       budget: graph.budget,
       deliverable: graph.deliverable,
       authorizeSpawn: graphAuthorizeSpawn,
+      resolveSpawnProfile,
       ...(opts.makeLeafAgent ? { makeLeafAgent: opts.makeLeafAgent } : {}),
       journal,
       blobs,

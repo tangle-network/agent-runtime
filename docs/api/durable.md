@@ -1300,6 +1300,29 @@ When `driverBackend` is absent, whether an external-harness ROOT may default to 
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`rootDriverFromBackend`](runtime.md#rootdriverfrombackend)
 
+##### resolveSpawnProfile?
+
+> `readonly` `optional` **resolveSpawnProfile?**: (`profile`) => `AgentProfile`
+
+Pre-journal profile resolution for the spawn pre-flight: the profile a driver authored →
+ the profile that will run (`CoordinationToolsOptions.resolveSpawnProfile`). A pinning layer
+ sets this alongside `authorizeSpawn` so the backend gate and the authorization see the same
+ canonical profile. Identity-free and synchronous; throw to refuse.
+
+###### Parameters
+
+###### profile
+
+`AgentProfile`
+
+###### Returns
+
+`AgentProfile`
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSpawnProfile`](runtime.md#resolvespawnprofile)
+
 ##### driveHarness?
 
 > `readonly` `optional` **driveHarness?**: [`DriveHarness`](runtime.md#driveharness-2)

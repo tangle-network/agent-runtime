@@ -494,6 +494,15 @@ export interface CoordinationToolsOptions {
    * pre-flight that fails open would hand back exactly the silent admission it exists to stop.
    */
   readonly preflightSpawn?: SpawnPreflight
+  /**
+   * OPT-IN pre-journal PROFILE resolution: maps the profile a driver authored to the profile that
+   * will actually run, before `preflightSpawn` asks the backend about it. A layer that pins
+   * profiles by name (an agent graph) installs this so the gate judges the canonical profile —
+   * its real model, tools and harness — never the `{ name }` stub the driver wrote. Synchronous,
+   * throw-on-refusal, identity-free: it sees only the profile, never the assignment or budget,
+   * because both are minted AFTER the pre-journal point. Omit = the authored profile is used.
+   */
+  readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
@@ -2008,7 +2017,12 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // The ONE pre-journal point that may ask the backend a question: everything below —
         // assignment, budget reservation, `Scope.spawn` — is synchronous and commits state.
         if (opts.preflightSpawn) {
-          const refusal = await opts.preflightSpawn(profile, {
+          // The gate judges the profile that will RUN. A pinning layer resolves the authored stub
+          // to its canonical profile here, so the backend is asked about the real model and tools.
+          const preflightProfile = opts.resolveSpawnProfile
+            ? detachedFrozen(opts.resolveSpawnProfile(profile))
+            : profile
+          const refusal = await opts.preflightSpawn(preflightProfile, {
             label,
             ...(key !== undefined ? { key } : {}),
             task,
