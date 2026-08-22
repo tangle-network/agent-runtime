@@ -19,6 +19,7 @@
 - [primeintellect](primeintellect.md)
 - [profiles](profiles.md)
 - [runtime/environment-provider](runtime/environment-provider.md)
+- [runtime/graph](runtime/graph.md)
 - [runtime](runtime.md)
 - [testing](testing.md)
 - [tool-loop](tool-loop.md)

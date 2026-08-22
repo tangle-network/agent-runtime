@@ -2099,6 +2099,7 @@ async function runChild<C>(
       live.spent = spend
       await executionEvidence.complete()
       artifact = executor.resultArtifact() as ExecutorResult<C>
+      assertReportedSpend(artifact.spent, `scope.spawn ${live.id}`)
       const accounting = executor.accounting?.()
       const terminalSpend = preserveUnknownTelemetry(spend, artifact.spent)
       live.spent = accounting?.reported ?? terminalSpend
@@ -2108,6 +2109,7 @@ async function runChild<C>(
       if (reconcileError !== undefined) throw reconcileError
     } else {
       const terminal = await awaitAbortable(Promise.resolve(ran), childAbort.signal)
+      assertReportedSpend(terminal.spent, `scope.spawn ${live.id}`)
       await executionEvidence.complete()
       const accounting = executor.accounting?.()
       live.spent = accounting?.reported ?? terminal.spent
@@ -2319,6 +2321,28 @@ function frozenHandle<C>(child: LiveChild): Handle<C> {
 
 /** Derive the portable identity of the exact profile and task a node will execute. Caller-owned
  * candidate/correlation fields are checked at this boundary before they enter the durable log. */
+/**
+ * An executor's terminal artifact must carry a `Spend`: the pool reconciles on it, so a missing one
+ * is a contract breach, refused by name BEFORE it can replace the live spend. The child then goes
+ * down and its reservation reconciles on what was proven so far (the stream total, else zero),
+ * exactly like a crash. A budget-exempt executor reports zero; a metered one reports what it spent
+ * or marks it unknown — it never omits it.
+ */
+function assertReportedSpend(spent: unknown, context: string): asserts spent is Spend {
+  const candidate = spent as Partial<Spend> | null | undefined
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    typeof candidate.iterations !== 'number' ||
+    typeof candidate.tokens !== 'object' ||
+    candidate.tokens === null
+  ) {
+    throw new ValidationError(
+      `${context}: executor settled without a Spend — report what was spent or mark it unknown; a budget-exempt executor reports zero`,
+    )
+  }
+}
+
 export function deriveNodeExecutionIdentity(
   spec: Pick<AgentSpec, 'profile' | 'execution'>,
   task: unknown,

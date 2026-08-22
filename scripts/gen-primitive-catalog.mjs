@@ -68,6 +68,7 @@ const ownSurfaceLabels = {
   './tool-loop': 'Bounded tool calls for browser and edge runtimes',
   './intelligence': 'Intelligence SDK — Observe + provable-OFF billing',
   './kernel': 'Execution kernel — recursive atom, supervision, executors, round-synchronous loop',
+  './graph': 'Graph engine — node kinds, registries, host effects; the four core kinds',
   './environment-provider': 'Environment provider adapters — generic sandbox/compute bridge',
   './analyst-loop': 'Analyst loop — trace findings on a running loop',
   './knowledge': 'Knowledge orchestration — supervised KB updates',

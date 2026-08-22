@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.162.0
+
+### A graph engine core: node kinds, registries, host effects (`@tangle-network/agent-runtime/graph`)
+
+`runGraph` is a prompt brief over one supervisor, not a graph: the model decides whether an edge is taken, every node is an agent, and nothing in it can be a script, a judge over traces, or a nested graph (#966). This release lands the first quarter of the runtime-native engine that replaces that framing — the vocabulary a graph is built from, as data the kernel can host and a consumer can extend by registering, never by forking (#979):
+
+- **`NodeKind`** — a declarative record: `id`/`version`, `validateConfig` (by name, no zod), typed `inputs`/`outputs` ports, declared `effects`, `onCrash` (`restart` | `resume`), `budget` (`metered` | `exempt`), and `run({ config, profile, inputs, effects })` returning the `Agent` the kernel's `Scope` spawns. `validateNodeKind` refuses implicit `out`/`trace` output ports, duplicate ports and unknown policies, naming the kind; `narrowEffects` hands a kind exactly the effects it declared, frozen, and refuses before the node runs when the host lacks one, listing what the host has.
+- **`Registry<T>`** — enumerable, per-instance, refuses an unknown handle by listing what is registered; handles print as `<id>/v<n>`. Node kinds and host effects both live in one, so a host's `integration.invoke` sits beside the core kinds with no tier.
+- **Four core kinds** — `agent` (wraps `workerFromBackend`), `supervisor` (wraps `supervisorAgent`), `script` (caller code over resolved inputs; `pure` scripts are budget-exempt and content-addressed; a metered script that reports no spend settles UNKNOWN, never free) and `subgraph` (validates and registers; running it waits for the scheduler, #980). `createGraphEngine({ coreKinds, kinds, effects })` seeds one registry with them and reports `missingEffects()` so a host learns what it owes before the first node runs. The engine source names no host-only kind — a test greps for it.
+
+One kernel intake change makes a code leaf honest. `scope.spawn` required every `AgentSpec.profile` to select a harness and a concrete model, including a spec carrying a verbatim `executor` — which receives only the task and a signal, so nothing could fill it from ambient config anyway. A graph script runs no model; forcing it to claim one would have put a lie in the journal's identity. **A verbatim `executor` now needs a parsed profile, not an executable one**; the profile still digests into the node identity, and the script kind adds `execution.correlation.nodeKind` (`script/v1`) so two kinds sharing a node name never share an identity. Factories, harnesses and the router keep the full requirement, and the executor registry follows the same line.
+
+A second kernel fix surfaced by the engine's budget contract: an executor whose terminal artifact carried no `Spend` crashed the child with a raw `TypeError` and **leaked its reservation** — the reconcile ran on the undefined spend and failed, so the tokens stayed reserved for the life of the run. `scope.spawn` now refuses such an artifact by name (`executor settled without a Spend`) before it can replace the live spend; the child goes down, its reservation reconciles on what was proven (the stream total, else zero), and the pool is sealed unknown exactly as on any crash. A metered node kind that forgets to report is therefore an engine error, never a free node.
+
 ## 0.161.0
 
 ### A graph node can be a supervisor
