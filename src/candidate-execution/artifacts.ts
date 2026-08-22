@@ -171,13 +171,20 @@ async function scanWorkspace(
   manifest: AgentCandidateWorkspaceManifestMaterial
   files: Array<{ path: string; mode: number; bytes: Uint8Array }>
 }> {
-  const absoluteRoot = resolve(root)
-  const rootStats = await lstat(absoluteRoot)
+  // Scan the RESOLVED root. The property this guards is that every captured path lies under
+  // one real directory with no aliasing, which resolving satisfies directly — rejecting a
+  // symlinked prefix outright does not, and makes the scan impossible on macOS, where the
+  // OS itself hands out temp paths under /var, a symlink to /private/var. Symlinks INSIDE
+  // the workspace are still refused entry by entry below, with O_NOFOLLOW on every open.
+  const requestedRoot = resolve(root)
+  const rootStats = await lstat(requestedRoot)
   if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) {
     throw new Error('workspace root must be a real directory')
   }
-  if ((await realpath(absoluteRoot)) !== absoluteRoot) {
-    throw new Error('workspace root has a symlinked path component')
+  const absoluteRoot = await realpath(requestedRoot)
+  const resolvedStats = await lstat(absoluteRoot)
+  if (!resolvedStats.isDirectory() || resolvedStats.isSymbolicLink()) {
+    throw new Error('workspace root must resolve to a real directory')
   }
   const capturedFiles: Array<{ path: string; mode: number; bytes: Uint8Array }> = []
   let totalBytes = 0

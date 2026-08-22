@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -69,8 +70,31 @@ async function waitForFile(path: string, timeoutMs: number): Promise<void> {
   }
 }
 
-function makeStaticElfFixture(directory: string): string {
+/**
+ * A file the vendor check accepts on THIS host.
+ *
+ * Reproducible mode verifies the binary's own header, so the fixture must be the format the
+ * host vendors: a static musl ELF on linux, a Mach-O executable on darwin. A fixture pinned to
+ * one format is why these cases could only ever run on Linux.
+ */
+function makeVendoredCodexFixture(directory: string): string {
   const path = join(directory, 'codex-static-fixture')
+  writeFileSync(path, process.platform === 'darwin' ? machO64Fixture() : staticElfFixture())
+  chmodSync(path, 0o700)
+  return path
+}
+
+/** 64-bit Mach-O header for this architecture; the loader never runs it, the check only reads it. */
+function machO64Fixture(): Buffer {
+  const macho = Buffer.alloc(120)
+  macho.writeUInt32LE(0xfeedfacf, 0)
+  macho.writeUInt32LE(process.arch === 'x64' ? 0x01000007 : 0x0100000c, 4)
+  macho.writeUInt32LE(2, 12)
+  return macho
+}
+
+/** Static ELF: PT_LOAD only, no PT_INTERP, so the dynamic-link rejection stays exercised. */
+function staticElfFixture(): Buffer {
   const elf = Buffer.alloc(120)
   Buffer.from([0x7f, 0x45, 0x4c, 0x46]).copy(elf)
   elf[4] = 2
@@ -82,9 +106,7 @@ function makeStaticElfFixture(directory: string): string {
   elf.writeUInt16LE(56, 54)
   elf.writeUInt16LE(1, 56)
   elf.writeUInt32LE(1, 64)
-  writeFileSync(path, elf)
-  chmodSync(path, 0o700)
-  return path
+  return elf
 }
 
 async function captureReproducibleCodexFailure(opts: {
@@ -100,7 +122,7 @@ async function captureReproducibleCodexFailure(opts: {
   const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-failure-'))
   const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
   writeFileSync(join(authHome, 'auth.json'), JSON.stringify(opts.auth ?? {}))
-  const staticCodex = makeStaticElfFixture(cwd)
+  const staticCodex = makeVendoredCodexFixture(cwd)
   const invocation = harnessInvocation(
     'codex',
     { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
@@ -168,7 +190,7 @@ async function runCodexPromptEvidenceFixture(
   const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-prompt-'))
   const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
   writeFileSync(join(authHome, 'auth.json'), '{}')
-  const staticCodex = makeStaticElfFixture(cwd)
+  const staticCodex = makeVendoredCodexFixture(cwd)
   const profile: AgentProfile = {
     name: 'reproducible',
     model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
@@ -265,10 +287,10 @@ describe('runLocalHarness', () => {
   })
 
   it('isolates Codex, proves the effective prompt, and captures terminal JSONL usage', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
     const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
     writeFileSync(join(authHome, 'auth.json'), '{}')
-    const staticCodex = makeStaticElfFixture(cwd)
+    const staticCodex = makeVendoredCodexFixture(cwd)
     const deniedGold = '/usr/lib/python3/dist-packages/oauthlib'
     const profile: AgentProfile = {
       name: 'reproducible',
@@ -436,10 +458,10 @@ describe('runLocalHarness', () => {
   })
 
   it('rejects a reproducible Codex result without exactly one terminal usage event', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
     const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
     writeFileSync(join(authHome, 'auth.json'), '{}')
-    const staticCodex = makeStaticElfFixture(cwd)
+    const staticCodex = makeVendoredCodexFixture(cwd)
     const profile: AgentProfile = {
       name: 'reproducible',
       model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' },
@@ -572,7 +594,7 @@ describe('runLocalHarness', () => {
   })
 
   it('rejects caller read-denial paths outside reproducible Codex mode', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
     const spawnSpy = vi.fn(() => makeFakeChild({ exitCode: 0 }))
     await expect(
       runLocalHarness({
@@ -588,7 +610,7 @@ describe('runLocalHarness', () => {
   })
 
   it('rejects relative caller read-denial paths before spawning Codex', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
     const invocation = harnessInvocation(
       'codex',
       { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
@@ -614,8 +636,8 @@ describe('runLocalHarness', () => {
   })
 
   it('requires file-based Codex auth so credentials never enter the process environment', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
-    const staticCodex = makeStaticElfFixture(cwd)
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
+    const staticCodex = makeVendoredCodexFixture(cwd)
     const invocation = harnessInvocation(
       'codex',
       { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
@@ -641,7 +663,7 @@ describe('runLocalHarness', () => {
   })
 
   it('rejects a dynamically linked executable before any Codex probe or model call', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
     const invocation = harnessInvocation(
       'codex',
       { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
@@ -659,15 +681,15 @@ describe('runLocalHarness', () => {
         resolveCodexExecutable: async () => '/bin/true',
         spawn: spawnSpy,
       }),
-    ).rejects.toThrow(/statically linked Linux Codex ELF/)
+    ).rejects.toThrow(/requires the vendored native Codex build/)
     expect(spawnSpy).not.toHaveBeenCalled()
     expect(existsSync(join(cwd, '.agent-runtime-bin'))).toBe(false)
     rmSync(cwd, { recursive: true, force: true })
   })
 
   it('does not overwrite or remove a candidate-owned .agent-runtime-bin directory', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-'))
-    const staticCodex = makeStaticElfFixture(cwd)
+    const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'agent-runtime-codex-test-')))
+    const staticCodex = makeVendoredCodexFixture(cwd)
     const stagedDirectory = join(cwd, '.agent-runtime-bin')
     const marker = join(stagedDirectory, 'candidate-owned')
     mkdirSync(stagedDirectory)
@@ -944,7 +966,7 @@ describe('runLocalHarness', () => {
     const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-probe-abort-'))
     const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
     writeFileSync(join(authHome, 'auth.json'), '{}')
-    const staticCodex = makeStaticElfFixture(cwd)
+    const staticCodex = makeVendoredCodexFixture(cwd)
     const invocation = harnessInvocation(
       'codex',
       { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
@@ -1011,7 +1033,7 @@ describe('runLocalHarness', () => {
     const authHome = mkdtempSync(join(tmpdir(), 'agent-runtime-codex-auth-'))
     const pidFile = join(cwd, 'probe-grandchild.pid')
     writeFileSync(join(authHome, 'auth.json'), '{}')
-    const staticCodex = makeStaticElfFixture(cwd)
+    const staticCodex = makeVendoredCodexFixture(cwd)
     const invocation = harnessInvocation(
       'codex',
       { model: { default: 'gpt-5.4', reasoningEffort: 'xhigh' } },
@@ -1104,7 +1126,7 @@ describe('runLocalHarness', () => {
     const spawnSpy = vi.fn((_cmd: string, _args: ReadonlyArray<string>) =>
       makeFakeChild({ exitCode: 0 }),
     )
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
       await runLocalHarness({ harness, cwd: '/tmp/wt', taskPrompt: 'go', spawn: spawnSpy })
     }
     const calls = spawnSpy.mock.calls
@@ -1155,7 +1177,7 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
   })
 
   it('threads the authored systemPrompt into the prompt channel for every harness', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
       const inv = harnessInvocation(
         harness,
         profileWith('You are a careful refactorer.'),
@@ -1167,17 +1189,30 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     }
   })
 
-  it('maps the authored model to the harness -m selector', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
-      const inv = harnessInvocation(harness, profileWith(undefined, 'deepseek/deepseek-v4'), 'go')
-      const mIdx = inv.args.indexOf('-m')
+  it("maps the authored model to whatever selector flag the harness's row declares", () => {
+    // The flag is a per-harness FIELD, not a constant: claude-code, codex and opencode take
+    // `-m`, pi takes `--model`. Asserting one literal here would forbid adding a harness whose
+    // CLI spells it differently, which is exactly what the invocation table exists to allow.
+    const selectors = {
+      'claude-code': '-m',
+      codex: '-m',
+      opencode: '-m',
+      pi: '--model',
+    } as const
+    for (const [harness, flag] of Object.entries(selectors)) {
+      const inv = harnessInvocation(
+        harness as keyof typeof selectors,
+        profileWith(undefined, 'deepseek/deepseek-v4'),
+        'go',
+      )
+      const mIdx = inv.args.indexOf(flag)
       expect(mIdx).toBeGreaterThanOrEqual(0)
       expect(inv.args[mIdx + 1]).toBe('deepseek/deepseek-v4')
     }
   })
 
   it('omits the model flag when Eval delegates model selection to the harness', () => {
-    for (const harness of ['claude-code', 'codex', 'opencode'] as const) {
+    for (const harness of ['claude-code', 'codex', 'opencode', 'pi'] as const) {
       const inv = harnessInvocation(harness, profileWith(undefined, HARNESS_NATIVE_MODEL), 'go')
       expect(inv.args).not.toContain('-m')
       expect(inv.args).not.toContain(HARNESS_NATIVE_MODEL)
@@ -1395,15 +1430,28 @@ describe('harnessInvocation (the §1.5 profile-aware mapper)', () => {
     expect(harnessInvocation('codex', { name: 'x' }, 'go', bypass).args).not.toContain(
       '--dangerously-bypass-approvals-and-sandbox',
     )
-    // `opencode run` is non-interactive and declares no bypass argv, so asking for one is a no-op
-    // rather than a silently dropped request for a flag that does not exist.
-    expect(harnessInvocation('opencode', { name: 'x' }, 'go', bypass).args).toEqual(['run', 'go'])
+    // `opencode run --auto` auto-approves permissions it is not explicitly denied. Without it an
+    // unattended run denies writes outside the working directory and reports "The user rejected
+    // permission", which reads as an agent that gave up rather than one never granted rights.
+    expect(harnessInvocation('opencode', { name: 'x' }, 'go', bypass).args).toEqual([
+      'run',
+      'go',
+      '--auto',
+    ])
+    // pi's `--approve` trusts project-local files for the run without surrendering the OS sandbox.
+    expect(harnessInvocation('pi', { name: 'x' }, 'go', bypass).args).toEqual([
+      '--print',
+      'go',
+      '--approve',
+    ])
+    expect(harnessInvocation('pi', { name: 'x' }, 'go').args).toEqual(['--print', 'go'])
   })
 
   it('an empty/absent profile yields exactly the legacy prompt-only shape (byte-identical)', () => {
     expect(harnessInvocation('claude-code', { name: 'x' }, 'go').args).toEqual(['-p', 'go'])
     expect(harnessInvocation('codex', { name: 'x' }, 'go').args).toEqual(['exec', 'go'])
     expect(harnessInvocation('opencode', { name: 'x' }, 'go').args).toEqual(['run', 'go'])
+    expect(harnessInvocation('pi', { name: 'x' }, 'go').args).toEqual(['--print', 'go'])
   })
 
   it('adds Claude permission bypass only when an isolated worktree explicitly opts in', () => {

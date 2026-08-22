@@ -55,7 +55,7 @@ export { CodexExecutionDiagnosticError } from './codex-diagnostics'
  * lets a `LocalHarness` be handed straight to the profile materializer and the capability table
  * with no translation step.
  */
-export type LocalHarness = Extract<HarnessType, 'claude-code' | 'codex' | 'opencode'>
+export type LocalHarness = Extract<HarnessType, 'claude-code' | 'codex' | 'opencode' | 'pi'>
 
 /**
  * Canonical reasoning effort → the native level string a harness's own control accepts.
@@ -92,6 +92,16 @@ const CLAUDE_CODE_REASONING_LEVELS: NativeReasoningLevels = {
  *  `ultracode` maps to `max`. Thinking-off is expressed by omitting the flag, not by a variant
  *  named `none`, so `none` has no entry. */
 const OPENCODE_REASONING_LEVELS: NativeReasoningLevels = {
+  minimal: 'minimal',
+  low: 'low',
+  medium: 'medium',
+  high: 'high',
+  xhigh: 'xhigh',
+  ultracode: 'max',
+}
+
+/** pi's own thinking scale, which happens to match the shared effort names one-for-one. */
+const PI_REASONING_LEVELS: NativeReasoningLevels = {
   minimal: 'minimal',
   low: 'low',
   medium: 'medium',
@@ -165,7 +175,26 @@ const HARNESS_INVOCATIONS: Record<LocalHarness, HarnessInvocationSpec> = {
       levels: OPENCODE_REASONING_LEVELS,
       args: (level) => ['--variant', level],
     },
-    // `opencode run` is non-interactive and has no approval gate to bypass.
+    // `opencode run` DOES gate permissions: without this it denies writes outside the
+    // working directory and phrases the refusal as "The user rejected permission", which
+    // reads as an agent that gave up rather than a harness that was never granted rights.
+    // Measured: three unattended worktree runs produced empty patches for exactly this.
+    permissionBypassArgs: () => ['--auto'],
+  },
+  pi: {
+    command: 'pi',
+    // `--print` IS the non-interactive mode: process the prompt and exit.
+    buildArgs: (taskPrompt) => ['--print', taskPrompt],
+    // pi takes a pattern that accepts `provider/id`, so a routed id passes through whole.
+    modelArgs: (model) => ['--model', model],
+    reasoning: {
+      levels: PI_REASONING_LEVELS,
+      args: (level) => ['--thinking', level],
+    },
+    // `--approve` trusts project-local files for this run, which is what an unattended
+    // run in a throwaway worktree needs. It grants no OS-level escape: unlike a full
+    // sandbox bypass, the blast radius stays the working directory.
+    permissionBypassArgs: () => ['--approve'],
   },
 }
 
@@ -568,8 +597,11 @@ export async function runLocalHarness(
   if (options.codexReproducible && harness !== 'codex') {
     throw new Error('runLocalHarness: codexReproducible requires the Codex harness')
   }
-  if (options.codexReproducible && process.platform !== 'linux') {
-    throw new Error('runLocalHarness: codexReproducible currently requires Linux')
+  if (options.codexReproducible && !isSupportedCodexPlatform()) {
+    throw new Error(
+      `runLocalHarness: codexReproducible does not support ${process.platform}/${process.arch};` +
+        ' supported: linux and darwin on x64 or arm64',
+    )
   }
   if (options.codexReadDeniedPaths !== undefined && !options.codexReproducible) {
     throw new Error('runLocalHarness: codexReadDeniedPaths requires codexReproducible')
@@ -1239,9 +1271,10 @@ async function isolateCodexHome(opts: {
       )
     }
     const nativeExecutable = await opts.resolveExecutable(opts.command, opts.baseEnv)
-    if (!(await isStaticElfExecutable(nativeExecutable))) {
+    if (!(await isVendoredCodexExecutable(nativeExecutable))) {
       throw new Error(
-        'runLocalHarness: reproducible Codex mode requires a statically linked Linux Codex ELF',
+        'runLocalHarness: reproducible Codex mode requires the vendored native Codex build' +
+          ' (a static musl ELF on linux, a Mach-O executable on darwin), not a PATH wrapper',
       )
     }
     const sourceExecutableSha256 = await sha256File(nativeExecutable)
@@ -1261,7 +1294,7 @@ async function isolateCodexHome(opts: {
     const executableSha256 = await sha256File(stagedExecutable)
     if (
       executableSha256 !== sourceExecutableSha256 ||
-      !(await isStaticElfExecutable(stagedExecutable))
+      !(await isVendoredCodexExecutable(stagedExecutable))
     ) {
       throw new Error('runLocalHarness: staged Codex executable digest mismatch')
     }
@@ -1459,7 +1492,7 @@ async function resolveCodexNativeExecutable(
     }
     if (seen.has(resolved)) continue
     seen.add(resolved)
-    if (await isStaticElfExecutable(resolved)) return resolved
+    if (await isVendoredCodexExecutable(resolved)) return resolved
     const packageRoot = await findCodexPackageRoot(resolved)
     if (!packageRoot) continue
     const bundled = await findBundledCodexExecutable(packageRoot)
@@ -1488,7 +1521,7 @@ async function findCodexPackageRoot(file: string): Promise<string | undefined> {
 }
 
 async function findBundledCodexExecutable(packageRoot: string): Promise<string | undefined> {
-  const target = linuxCodexTarget()
+  const target = codexTarget()
   const candidates = [
     join(
       packageRoot,
@@ -1503,69 +1536,127 @@ async function findBundledCodexExecutable(packageRoot: string): Promise<string |
     join(packageRoot, 'vendor', target.triple, 'bin', 'codex'),
   ]
   for (const executable of candidates) {
-    if (await isStaticElfExecutable(executable)) return executable
+    if (await isVendoredCodexExecutable(executable)) return executable
   }
   return undefined
 }
 
-function linuxCodexTarget(): { packageName: string; triple: string } {
-  if (process.platform !== 'linux') {
-    throw new Error('runLocalHarness: reproducible Codex mode requires Linux')
+/**
+ * The vendored Codex build for this host.
+ *
+ * `@openai/codex` ships a per-platform binary for linux, darwin and win32 on x64 and arm64.
+ * Reproducible mode needs the vendored native executable rather than a PATH wrapper, so the
+ * table maps host to package name plus Rust target triple. Linux vendors static musl builds;
+ * darwin vendors Mach-O against the system libc, which is why the executable check below is
+ * per-format rather than ELF-only.
+ */
+function codexTarget(): { packageName: string; triple: string } {
+  const targets: Record<string, { packageName: string; triple: string }> = {
+    'linux-x64': { packageName: 'codex-linux-x64', triple: 'x86_64-unknown-linux-musl' },
+    'linux-arm64': { packageName: 'codex-linux-arm64', triple: 'aarch64-unknown-linux-musl' },
+    'darwin-x64': { packageName: 'codex-darwin-x64', triple: 'x86_64-apple-darwin' },
+    'darwin-arm64': { packageName: 'codex-darwin-arm64', triple: 'aarch64-apple-darwin' },
   }
-  if (process.arch === 'x64') {
-    return { packageName: 'codex-linux-x64', triple: 'x86_64-unknown-linux-musl' }
+  const target = targets[`${process.platform}-${process.arch}`]
+  if (!target) {
+    throw new Error(
+      `runLocalHarness: reproducible Codex mode does not support ${process.platform}/${process.arch}`,
+    )
   }
-  if (process.arch === 'arm64') {
-    return { packageName: 'codex-linux-arm64', triple: 'aarch64-unknown-linux-musl' }
-  }
-  throw new Error(`runLocalHarness: unsupported Linux architecture ${process.arch}`)
+  return target
 }
 
-async function isStaticElfExecutable(path: string): Promise<boolean> {
+/** Hosts with a vendored Codex build reproducible mode can verify and run. */
+function isSupportedCodexPlatform(): boolean {
+  return (
+    (process.platform === 'linux' || process.platform === 'darwin') &&
+    (process.arch === 'x64' || process.arch === 'arm64')
+  )
+}
+
+/**
+ * Is this the vendored native Codex build for this host?
+ *
+ * Reproducible mode must run the vendored binary, never a shell wrapper that could re-enter
+ * a different toolchain, so the check reads the file's own header rather than trusting its
+ * path. The two vendor formats differ: linux ships a STATIC musl ELF (an interpreter segment
+ * would mean a dynamic build, which is rejected), darwin ships Mach-O linked against the
+ * system libc, where dynamic linkage is normal and not a signal of the wrong artifact.
+ */
+async function isVendoredCodexExecutable(path: string): Promise<boolean> {
   let handle: Awaited<ReturnType<typeof open>> | undefined
   try {
     await access(path, constants.X_OK)
     handle = await open(path, 'r')
     const header = Buffer.alloc(64)
     const { bytesRead } = await handle.read(header, 0, header.length, 0)
-    if (
-      bytesRead !== header.length ||
-      !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
-      header[4] !== 2 ||
-      header[5] !== 1
-    ) {
-      return false
-    }
-    const programHeaderOffset = Number(header.readBigUInt64LE(32))
-    const programHeaderSize = header.readUInt16LE(54)
-    const programHeaderCount = header.readUInt16LE(56)
-    const expectedMachine = process.arch === 'x64' ? 62 : process.arch === 'arm64' ? 183 : -1
-    if (
-      ![2, 3].includes(header.readUInt16LE(16)) ||
-      header.readUInt16LE(18) !== expectedMachine ||
-      !Number.isSafeInteger(programHeaderOffset) ||
-      programHeaderOffset < 64 ||
-      programHeaderSize < 56 ||
-      programHeaderSize > 1024 ||
-      programHeaderCount === 0 ||
-      programHeaderCount > 1024
-    ) {
-      return false
-    }
-    const tableSize = programHeaderSize * programHeaderCount
-    const table = Buffer.alloc(tableSize)
-    const tableRead = await handle.read(table, 0, tableSize, programHeaderOffset)
-    if (tableRead.bytesRead !== tableSize) return false
-    for (let index = 0; index < programHeaderCount; index += 1) {
-      const type = table.readUInt32LE(index * programHeaderSize)
-      if (type === 3) return false
-    }
-    return true
+    if (bytesRead !== header.length) return false
+    if (process.platform === 'darwin') return isMachOExecutable(header)
+    return await isStaticElf(header, handle)
   } catch {
     return false
   } finally {
     await handle?.close()
   }
+}
+
+/**
+ * A 64-bit Mach-O executable for this architecture, or a universal binary containing one.
+ *
+ * Magics: 0xfeedfacf is a little-endian 64-bit Mach-O; 0xcafebabe/0xbebafeca is a fat header,
+ * whose slices are checked by the loader at exec time rather than here.
+ */
+function isMachOExecutable(header: Buffer): boolean {
+  const magic = header.readUInt32LE(0)
+  const MH_MAGIC_64 = 0xfeedfacf
+  const MH_CIGAM_64 = 0xcffaedfe
+  const FAT_MAGIC = 0xbebafeca
+  const FAT_CIGAM = 0xcafebabe
+  if (magic === FAT_MAGIC || magic === FAT_CIGAM) return true
+  if (magic !== MH_MAGIC_64 && magic !== MH_CIGAM_64) return false
+  const cpuType = magic === MH_MAGIC_64 ? header.readUInt32LE(4) : header.readUInt32BE(4)
+  const CPU_TYPE_X86_64 = 0x01000007
+  const CPU_TYPE_ARM64 = 0x0100000c
+  const expected = process.arch === 'x64' ? CPU_TYPE_X86_64 : CPU_TYPE_ARM64
+  return cpuType === expected
+}
+
+/** A statically linked ELF for this architecture: no PT_INTERP segment (type 3). */
+async function isStaticElf(
+  header: Buffer,
+  handle: Awaited<ReturnType<typeof open>>,
+): Promise<boolean> {
+  if (
+    !header.subarray(0, 4).equals(Buffer.from([0x7f, 0x45, 0x4c, 0x46])) ||
+    header[4] !== 2 ||
+    header[5] !== 1
+  ) {
+    return false
+  }
+  const programHeaderOffset = Number(header.readBigUInt64LE(32))
+  const programHeaderSize = header.readUInt16LE(54)
+  const programHeaderCount = header.readUInt16LE(56)
+  const expectedMachine = process.arch === 'x64' ? 62 : process.arch === 'arm64' ? 183 : -1
+  if (
+    ![2, 3].includes(header.readUInt16LE(16)) ||
+    header.readUInt16LE(18) !== expectedMachine ||
+    !Number.isSafeInteger(programHeaderOffset) ||
+    programHeaderOffset < 64 ||
+    programHeaderSize < 56 ||
+    programHeaderSize > 1024 ||
+    programHeaderCount === 0 ||
+    programHeaderCount > 1024
+  ) {
+    return false
+  }
+  const tableSize = programHeaderSize * programHeaderCount
+  const table = Buffer.alloc(tableSize)
+  const tableRead = await handle.read(table, 0, tableSize, programHeaderOffset)
+  if (tableRead.bytesRead !== tableSize) return false
+  for (let index = 0; index < programHeaderCount; index += 1) {
+    if (table.readUInt32LE(index * programHeaderSize) === 3) return false
+  }
+  return true
 }
 
 function sha256File(path: string): Promise<string> {
