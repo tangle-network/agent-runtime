@@ -28,11 +28,12 @@ A script that reaches those verbs over HTTP bypasses the budget pool and the jou
 An operation that costs money must run where the runtime meters it; do not wrap metered work in a script that hides the spend.
 The lint on authored code refuses imports, `process`, and network access; it is a lint, not a sandbox, so treat generated code you did not review as untrusted.
 
-## Router-Brained Agents
+## Router-Brained Supervisors
 
-A raw chat model has no shell, so this policy does not apply to it directly.
-Give such a node a code action space with the graph engine's `codemode` kind: an `operations` table projects the API the model sees, a host `codeRunner` executes, and each operation's spend reaches the settlement.
-A supervisor that only needs one small computation can carry an `extraTools` entry instead of a codemode node.
+A raw chat model has no shell, so give it the runtime's code mode: pass `codeModeSupervisorTools()` as `resolveSupervisorTools` and the supervisor's tool surface becomes `search` and `execute`.
+`search` answers a TypeScript API generated from the live coordination grant; `execute` runs the model's program through a caller-supplied runner, and every `api.spawn_agent` call crosses the kernel's pool, authorization, and journal.
+Supply a jailed runner for an untrusted model: the in-process runner is not an isolation boundary.
+The lifecycle verbs (`submit_result`, `stop`, `ask_parent`) stay model tools: the program does the mechanics, the model keeps the judgment.
 
 ## Common Mistakes
 

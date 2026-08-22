@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.171.0
+
+### Code mode over the coordination verbs — the pattern, and an honest boundary
+
+Replaces the router-only CodeAct node from 0.169/0.170 with code mode as Cloudflare ("Code Mode") and Anthropic ("code execution with MCP") define it: generate a typed API from the tools' schemas, expose exactly two tools (`search`, `execute`), and let the model write one program instead of paying a round trip per call.
+
+`codeModeSupervisorTools(runner, options?)` (new, `/kernel`) returns a `ResolveSupervisorTools` that puts a supervisor in code mode:
+
+- **`search`** answers TypeScript declarations GENERATED from the live grant — `context.coordinationTools()` (new on `SupervisorToolInvocationContext`) exposes the static face of the same descriptor objects the verbs are served from, so the API cannot drift from what is mounted. Progressive disclosure: seven verb schemas leave the model's context; an optional `query` filters.
+- **`execute`** lints the program and runs it through the `runner`. Every `api.<verb>(args)` call dispatches through `context.verbs` — the IDENTICAL kernel path an MCP verb crosses (authorization, the conserved pool, the journal; "there is no second spawn path"). Results are detached (JSON round-trip, the same copy the MCP transport makes) before they re-enter the program, so in-code calls cannot mutate live coordination state. A test proves the kernel path off the journal: ONE `execute` call spawns two workers, and two `spawned` + two `settled` child records appear in the run's tree. This is the coordination surface as a **dynamic workflow system** — the model authors the workflow as code at runtime and the kernel meters and records every edge.
+- **The lifecycle verbs are not in the API, and `search` says why**: `submit_result`, `stop`, `ask_parent` stay model tools — a program that could settle the run would be a second brain.
+
+**The execution boundary is a required, deliberate choice — not a fake default.** The sources isolate execution in a real boundary (Cloudflare a V8 isolate, Anthropic out of process); this is what makes "let the model write code" safe. This runtime ships no isolate, so `codeModeSupervisorTools` REQUIRES a `CodeModeRunner` — there is no silent default. `unsafeInProcessRunner()` is provided for TRUSTED output only (an eval harness, an offline test, a model you control) and is named for what it is: `node:vm` shares the host realm, so `api.<binding>.constructor` reaches the host `Function` — it is not a security boundary, and a test asserts that escape rather than hiding it. A whole-program deadline gates further `api` calls after it fires, but in-process code cannot be interrupted (a pure-microtask loop starves any timer), which is the same reason the sources isolate. For untrusted models, supply a jailed runner. An earlier draft shipped `vmCodeRunner` as the silent default and claimed the sandbox's only capability was the bindings; an adversarial audit proved that false, so the default was removed and the claim corrected.
+
+`examples/code-mode/` runs the whole thing offline ($0) with `unsafeInProcessRunner()`: 3 model turns where the tool-calling shape pays 6+, journal excerpt printed as proof.
+
+**Deleted:** `codemodeKind`, `CodeOperation`, `CodeAuthor`, `CodeRunner` (graph), `inlineCodeRunner`, `renderCodeApi`, the `RunGraphNodeOut` family, and `extractCodeBlock` (dead after the node's deletion), with their test and example. `assertAuthoredCode` stays exported from `./graph` (sourced from `runtime/authored-code`); its module doc no longer names the removed node. The graph engine's `supervisorKind` does not accept `resolveSupervisorTools` yet — `runGraph` forwards it to the root supervisor as a top-level option, but a node-kind config that throws would be worse than an honest gap.
+
 ## 0.170.0
 
 ### Code mode, mapped to what the ecosystem means by it

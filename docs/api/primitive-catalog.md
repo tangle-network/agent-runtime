@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.170.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.171.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 841 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -591,6 +591,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `claimsAuthority` | function | True when `text` carries a phrase reserved for the run's authority. Case-insensitive, because |
 | `classifyDriverFailure` | function | Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal; |
 | `closingWorkerNote` | function | The worker's closing commentary off a local harness run: the TAIL of its |
+| `codeModeSupervisorTools` | function | Put a supervisor in code mode: its product tool surface becomes exactly `search` and `execute`. |
 | `collectAgentTurn` | function | Drain a `streamAgentTurn` stream (or any `RuntimeStreamEvent` stream that |
 | `compareCheckOutcomes` | function | The selection order: crash < ran; then official pass-fraction; authored guesses only |
 | `completionAuthorizes` | function | Decide whether a `CompletionVerdict` may end the node under the policy: authority scales with the verdict's determinism, and probabilistic verdicts must clear `minConfidence`. |
@@ -780,6 +781,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `supervisorWorkersDir` | function | The directory holding every per-worker file of one run (inboxes and control-event logs). |
 | `timerAt` | function | Build a `timer` spec from a DURATION. The instant is resolved once, at arm time — a resumed |
 | `trajectoryReport` | function | Reconstruct the whole spawn tree for `root` with per-node + rolled-up `Spend`. Reads the |
+| `unsafeInProcessRunner` | function | An in-process runner for TRUSTED model output ONLY. NOT a security boundary. |
 | `validateWaitSpec` | function | Structural validation, independent of the run. Returns null when the spec is usable. |
 | `verify` | function | `verify(spec)` — an IMPLEMENT child produces a candidate, then a SEPARATE VERIFIER child grades |
 | `visibleCheckScore` | function | Display scalar for receipts/reports (the rigs' `visibleScore` shape): crash = -1, |
@@ -889,6 +891,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `ClaimRetainedInteractiveControlOptions` | interface | Input for acquiring write authority over one exact interactive process. |
 | `CliSeam` | interface | UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn. |
 | `CliWorktreeSeam` | interface | cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI |
+| `CodeModeRunner` | interface | Where model-written code runs. THE isolation boundary — see the module doc: this runtime ships |
 | `CollectedAgentTurn` | interface | A drained turn: the terminal summary plus every event the stream yielded. |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
@@ -899,6 +902,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `CoordinationBinding` | interface | Where the coordination MCP binds. Omit = an ephemeral port on `127.0.0.1` (the local-harness |
 | `CoordinationLog` | interface | The durable coordination side-log seam. `append` records one bus event (kinds it does not |
 | `CoordinationStats` | interface | Bus throughput plus the pre-flight's own refusal ledger. |
+| `CoordinationToolFace` | interface | One mounted coordination tool's static face; the handler is deliberately absent. |
 | `CoordinationVerbs` | interface | The coordination verbs THIS manager serves, callable in code from a product tool handler. |
 | `Corpus` | interface | The durable cross-run corpus — the learning-flywheel store. DISTINCT from `SpawnJournal` |
 | `CorpusFilter` | interface | A corpus query filter — every field is an AND-narrowing; an omitted field does not constrain. |
@@ -1242,11 +1246,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 | `WorktreeCheckRunner` | type | The single shell-command-in-worktree runner seam (replaces the per-executor copies). |
 | `WorktreePatchArtifact` | type | Terminal artifact of one worktree-CLI run — the canonical worktree-harness result (the captured |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CoordinationMcpHandle`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarvestCorpusOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `EdgeDeliveryOutcome`, `GraphEdge`, `InboxMessage`, `LoopTraceEvent`, `MakeWorkerAgent`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `UsageEvent`, `WorkspaceCommit`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AcquireOptions`, `AgentEnvironment`, `AgentEnvironmentCapabilities`, `AgentEnvironmentEvent`, `AgentEnvironmentProvider`, `AgentEnvironmentQuery`, `AgentEnvironmentSummary`, `AgentGraph`, `AgenticOptions`, `AgenticRunResult`, `AgenticTask`, `AgenticTool`, `AgentSession`, `AgentSessionRef`, `AgentTurnInput`, `AgentTurnResult`, `AllWorkersStalledOptions`, `AnalystRegistry`, `AnytimeReport`, `AnytimeStrategySummary`, `AnytimeTaskCurve`, `ArtifactHandle`, `AuditIntentInput`, `AuditIntentOptions`, `AuthoredHarness`, `AuthoredStrategy`, `AuthorStrategyOptions`, `BenchmarkConfig`, `BenchmarkLift`, `BenchmarkStrategySummary`, `BenchmarkTaskRow`, `BudgetPool`, `BusStats`, `ChampionPick`, `CheckpointRef`, `CheckpointRequest`, `CheckRunContext`, `CliWorktreeBridgeSeam`, `CodeModeOptions`, `CoordinationMcpHandle`, `CopyOptions`, `CorpusReadbackOptions`, `CreateAgentEnvironmentInput`, `CreateTangleSandboxExactProcessProviderOptions`, `DefinedLeaderboard`, `DispatchReport`, `Driver`, `EvolutionArchiveNode`, `EvolutionAuthor`, `EvolutionBandInfo`, `EvolutionCandidate`, `EvolutionGeneration`, `EvolutionReport`, `ExecRequest`, `ExecResult`, `ExecutorResultMapping`, `ForkRequest`, `GitWorkspaceOptions`, `GraphResult`, `HarvestCorpusOptions`, `HarvestFailure`, `HarvestReport`, `Inbox`, `InProcessSandboxClientOptions`, `IntentAudit`, `Iteration`, `Leaderboard`, `LeaderboardOptions`, `LocalSandboxClientOptions`, `LoopDecisionPayload`, `LoopDispatchOptions`, `LoopEndedPayload`, `LoopIterationEndedPayload`, `LoopIterationStartedPayload`, `LoopPlanDescription`, `LoopResult`, `LoopSandboxPlacement`, `LoopStartedPayload`, `LoopTraceEmitter`, `LoopWinner`, `MaterializeLocalMcpOptions`, `McpEnvironmentOptions`, `McpToolDescriptor`, `NodeSnapshot`, `NoProgressForOptions`, `Observation`, `ObserveInput`, `ObserveOptions`, `OpenSandboxRunOptions`, `PairwiseOptions`, `PatchDeliverableOptions`, `PeerMailbox`, `PeerMailboxOptions`, `PeerMailSendInput`, `PlacementInfo`, `PlateauOptions`, `ProgressTrackerOptions`, `PromotionGateOptions`, `PromotionVerdict`, `PublishOptions`, `ReproductionCheck`, `ResolveSandboxClientOptions`, `ResourceRequest`, `RollingDispatchOptions`, `RunAgenticOptions`, `RunAgentRoundsOptions`, `SandboxRun`, `ShotSpec`, `SpawnOpts`, `StdioMcpConnection`, `StdioMcpServerSpec`, `SteerableSandboxArgs`, `Strategy`, `StrategyEvolutionConfig`, `StrategyResult`, `StreamAgentTurnOptions`, `StructuralRolloutConfig`, `SuperviseOptions`, `SuperviseSurfaceOptions`, `SupervisorAgentDeps`, `SupervisorOpts`, `SupervisorSpanOptions`, `SupervisorSpanRecorder`, `SurfaceScore`, `ToolSpec`, `ToolStepInput`, `TraceSource`, `TrajectoryAnalysis`, `UntrackedCopyStats`, `ValidationCtx`, `Validator`, `VerifierEnvironmentOptions`, `WatchTraceOptions`, `WaterfallCollector`, `WaterfallReport`, `WaterfallSpan`, `WorkerEvidenceInput`, `Workspace`, `WorkspaceRequest`, `WorkspaceRun`, `WorktreeCliExecutorOptions`, `WorktreeFanoutOptions`, `AgentEnvironmentStatus`, `AgentSessionStatus`, `ChampionPolicy`, `EdgeDeliveryOutcome`, `GraphEdge`, `InboxMessage`, `LoopTraceEvent`, `MakeWorkerAgent`, `PeerMailOutcome`, `RepairStop`, `SandboxControlClient`, `UsageEvent`, `WorkspaceCommit`.
 
 ### Graph engine — node kinds, registries, host effects; the four core kinds
 
-Import from `@tangle-network/agent-runtime/graph` — 103 exports.
+Import from `@tangle-network/agent-runtime/graph` — 94 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1256,7 +1260,6 @@ Import from `@tangle-network/agent-runtime/graph` — 103 exports.
 | `applyProjection` | function | Apply a validated projection to an admitted payload. Collection operators over a non-array |
 | `assembleGraphResult` | function | Turn a finished run into its result: rehydrate, reduce the terminals, classify a no-winner. |
 | `assertAuthoredCode` | function | Refuse the obvious escapes in authored source. See the module doc for what this is NOT. |
-| `codemodeKind` | function | A node that asks a model for a program and runs it. Declares the two effects it cannot supply |
 | `compileGraph` | function | Lower an authored graph against an engine's kind registry into the schedulable form, refusing |
 | `createEdgeLedger` | function | Open a ledger for one run; its ordinals continue past whatever a prior process recorded. |
 | `createGraphEngine` | function | Build one engine: a kind registry seeded with the core kinds plus the host's, and the host's |
@@ -1265,11 +1268,9 @@ Import from `@tangle-network/agent-runtime/graph` — 103 exports.
 | `decideJoin` | function | Decide whether a node's gating edges release it, and which of them the release consumes. |
 | `emptyFoldState` | function | The reducer's zero: every node unvisited, every edge pending, nothing suspended. |
 | `evaluateCondition` | function | Walk a validated condition over a context to a boolean. Never throws on data shape. |
-| `extractCodeBlock` | function | Pull the first fenced block out of a model reply; the whole reply if it carries no fence. |
 | `foldGraphJournal` | function | Fold a loaded journal (append order) into scheduler state. |
 | `formatRegistryHandle` | function | `<id>/v<n>` — the only spelling a handle has on the wire, in a journal, or in an error. |
 | `graphFromRunGraph` | function | Compile an `AgentGraph` into the engine graph that describes it. Pure: nothing runs, nothing is |
-| `inlineCodeRunner` | function | An in-process `codeRunner`: builds the authored body as a function with the granted API in |
 | `isEngineFired` | function | `delegates` is the one MODEL-fired edge kind (agent-runtime#971): its payload is a directive and |
 | `isSuspensionRequest` | function | Whether a node's output is a park request rather than its result. |
 | `kindHandle` | function | The handle a graph writes to name this kind. |
@@ -1278,7 +1279,6 @@ Import from `@tangle-network/agent-runtime/graph` — 103 exports.
 | `narrowEffects` | function | Narrow a host's effect table to exactly what one kind declared. Anything the kind did not |
 | `openGraphRun` | function | Begin or resume a run's journaled tree, pool, scope and folded state. |
 | `parseRegistryHandle` | function | Parse the wire spelling back. Refuses anything that is not exactly `<id>/v<n>`. |
-| `renderCodeApi` | function | The API doc the model is shown — generated from the grant, so the two cannot disagree. |
 | `runEngineGraph` | function | Run a graph to its result: `createGraphRun` awaited — the one-call form for a run that needs no |
 | `schemaAccepts` | function | Bounded structural acceptance: does a value of `source`'s shape fit `target`? Schemas with no |
 | `scriptKind` | function | Caller code as a node. The one kind with no kernel primitive behind it: the kernel has no |
@@ -1296,10 +1296,6 @@ Import from `@tangle-network/agent-runtime/graph` — 103 exports.
 | `JOIN_RULES` | const | Which gating-edge outcomes release a node (adopted from ADC, agent-runtime#968). |
 | `MAX_MAX_NODE_VISITS` | const | The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach. |
 | `RUN_GRAPH_ROOT_KIND` | const | The kind id the root node carries: a supervisor holding the whole `AgentGraph`. |
-| `CodeAuthor` | interface | What a host's `model` effect must do: answer one prompt with text. |
-| `CodeOperation` | interface | One operation the authored program may call, and the line the model is shown about it. |
-| `CodeOperationResult` | interface | An operation's answer. `spend` is optional; an operation that costs nothing omits it. |
-| `CodeRunner` | interface | What a host's `codeRunner` effect must do: run authored source with `api` in scope, and answer |
 | `GraphEdgeTraversal` | interface | One ledgered edge firing (or refusal) — the run's observable data flow. |
 | `GraphHost` | interface | What a nesting kind needs from its host: run one graph, on the host's own kinds and effects. |
 | `GraphNodeSettle` | interface | One node settlement as the graph result reports it. |
@@ -1318,7 +1314,7 @@ Import from `@tangle-network/agent-runtime/graph` — 103 exports.
 | `OnCrash` | type | What happens to a node that was IN FLIGHT when the process died. A settled node is never a |
 | `ScriptBody` | type | The caller code a `script` node runs. Receives the resolved inputs; returns the output. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `AuthoredCodeOptions`, `CodeModeConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EdgeLedger`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GatingEdge`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunContext`, `GraphRunOptions`, `JoinDecision`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `EffectName`, `FinalizerChoice`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `AuthoredCodeOptions`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EdgeLedger`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GatingEdge`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunContext`, `GraphRunOptions`, `JoinDecision`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `EffectName`, `FinalizerChoice`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

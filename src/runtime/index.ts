@@ -597,6 +597,12 @@ export {
   chatWorkerSeam,
   createChatSessionStore,
 } from './supervise/chat-transport-executor'
+export {
+  type CodeModeOptions,
+  type CodeModeRunner,
+  codeModeSupervisorTools,
+  unsafeInProcessRunner,
+} from './supervise/code-mode'
 // The completion-oracle: settled ⟺ DELIVERED. `gateOnDeliverable` wraps an executor so its
 // settlement `valid` reflects a deployable deliverable check (a test/judge), never self-report.
 export {
@@ -900,6 +906,7 @@ export { createRootHandle, createSupervisor } from './supervise/supervisor'
 export {
   assertCoordinationBinding,
   type CoordinationBinding,
+  type CoordinationToolFace,
   type CoordinationVerbs,
   type DriveHarness,
   type DriveHarnessOwnerContext,
