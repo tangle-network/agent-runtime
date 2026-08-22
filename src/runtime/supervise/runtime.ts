@@ -2006,7 +2006,10 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         },
         onProfileMaterialization: (receipt) => {
           if (acknowledged !== undefined) {
-            if (JSON.stringify(acknowledged) !== JSON.stringify(receipt)) {
+            if (
+              JSON.stringify(stripMaterializationObservation(acknowledged)) !==
+              JSON.stringify(stripMaterializationObservation(receipt))
+            ) {
               throw new ValidationError(
                 'bridgeExecutor: profile materialization changed across session turns',
               )
@@ -3662,6 +3665,25 @@ function assertBridgeProfileMaterialization(
     files: Object.freeze(files),
     unsupported: Object.freeze(unsupported),
   })
+}
+
+/**
+ * Remove `inference.observation` — and ONLY that — before the cross-turn identity comparison.
+ * cli-bridge's pi backend writes per-turn traffic and token counters into the receipt's
+ * `inference.observation` block (`requests`, `generationRequests`, `usageReceipts`, the `usage`
+ * token totals): a fresh measurement on every turn BY DESIGN, not profile identity, so two honest
+ * receipts from the same session are never byte-equal and the raw compare refused every
+ * multi-turn pi session at the end of turn 2. Every identity field stays compared: schema,
+ * effectiveProfileDigest, harness, provider, model, reasoningEffort, workspacePlanDigest, files,
+ * unsupported, and the stable inference identity (`effectiveEndpoint`, `apiMode`, `transport`,
+ * `appliedMaxTokens`).
+ */
+function stripMaterializationObservation(
+  receipt: BridgeProfileMaterializationReceipt,
+): BridgeProfileMaterializationReceipt {
+  if (receipt.inference === undefined) return receipt
+  const { observation: _observation, ...inferenceIdentity } = receipt.inference
+  return { ...receipt, inference: inferenceIdentity }
 }
 
 function parseBridgeInferenceReceipt(value: unknown): BridgeInferenceReceipt {
