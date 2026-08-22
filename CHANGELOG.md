@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### A multi-turn bridge session survives its own token counters (`bridgeExecutor`)
+
+cli-bridge's pi backend writes per-turn traffic and token counters into the profile-materialization receipt under `inference.observation` (`requests`, `generationRequests`, `usageReceipts`, and the `usage` token totals).
+The bridge executor compared whole receipts across session turns with `JSON.stringify`, so two honest receipts from one session were never byte-equal: **every multi-turn pi worker died at the end of turn 2** with `bridgeExecutor: profile materialization changed across session turns`.
+Measured on the live pair from worker `mitten` s0 (2026-08-22), the two receipts differ ONLY in that block — `requests` 34 vs 9, `usage.inputTokens` 1,313,406 vs 553,971 — while every identity field is equal.
+
+The cross-turn comparison now removes `inference.observation`, and only that block, from both sides.
+Everything that states identity is still compared: `schema`, `effectiveProfileDigest`, `harness`, `provider`, `model`, `reasoningEffort`, `workspacePlanDigest`, `files`, `unsupported`, and the stable inference identity (`effectiveEndpoint`, `apiMode`, `transport`, `appliedMaxTokens`).
+A bridge that moves its model transport mid-session is refused exactly as before.
+The within-run replay comparison is unchanged: a replayed event carries the recorded receipt, so it stays byte-compared.
+
 ## 0.165.0
 
 ### Kill it anywhere: journal fold, replay, suspensions (`@tangle-network/agent-runtime/graph`)

@@ -1627,3 +1627,159 @@ describe('bridgeExecutor harness control rides the profile, not argv', () => {
     expect(Object.keys(bodies[0] ?? {})).not.toContain('args')
   })
 })
+
+describe('bridgeExecutor cross-turn materialization identity', () => {
+  let server: Server | undefined
+  afterEach(async () => {
+    if (server) await new Promise((resolve) => server?.close(resolve))
+    server = undefined
+  })
+
+  /** Per-turn traffic and token counters, shaped like the live `mitten` s0 receipt pair
+   *  (2026-08-22): turn 1 measured 34 requests / 1,313,406 input tokens, turn 2 measured
+   *  9 / 553,971. cli-bridge's pi backend re-measures this block on EVERY turn by design. */
+  function mittenObservation(turn: number): Record<string, unknown> {
+    const first = turn === 1
+    return {
+      requests: first ? 34 : 9,
+      generationRequests: first ? 21 : 6,
+      auxiliaryRequests: first ? 13 : 3,
+      usageReceipts: first ? 21 : 6,
+      rejectedRequests: 0,
+      failedRequests: 0,
+      inFlightRequests: 0,
+      accountingMatched: true,
+      usage: {
+        inputTokens: first ? 1_313_406 : 553_971,
+        cacheReadInputTokens: first ? 1_201_882 : 490_027,
+        outputTokens: first ? 24_118 : 9_804,
+        costKnown: false,
+      },
+    }
+  }
+
+  /** Two-turn bridge stub: turn 1 delivers a steer so the executor re-calls the same session,
+   *  and each turn acknowledges with a caller-built receipt. */
+  async function runTwoTurnSession(
+    receiptForTurn: (requestBody: Record<string, unknown>, turn: number) => Record<string, unknown>,
+  ): Promise<{ turns: number; failure: unknown; executor: ReturnType<typeof makeExecutor> }> {
+    let turns = 0
+    let deliver: (message: unknown) => void = () => {}
+    server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
+        string,
+        unknown
+      >
+      turns += 1
+      if (turns === 1) deliver({ steer: 'check the edge case too' })
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        ...durableRunHeaders(String(requestBody.run_id)),
+      })
+      const frames = [
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: `turn-${turns}` } }],
+          usage: { prompt_tokens: 5, completion_tokens: 2, cost_known: false },
+        })}`,
+        `data: ${JSON.stringify({ profile_materialization: receiptForTurn(requestBody, turns) })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n')
+      res.end(numberSseDataFrames(frames))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+    deliver = (message) => executor.deliver?.(message)
+    const failure = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    return { turns, failure, executor }
+  }
+
+  function inferenceBlock(turn: number, overrides: Record<string, unknown> = {}) {
+    return {
+      effectiveEndpoint: 'http://127.0.0.1:39117/v1',
+      apiMode: 'openai-completions',
+      transport: 'scoped-loopback',
+      appliedMaxTokens: 32_768,
+      observation: mittenObservation(turn),
+      ...overrides,
+    }
+  }
+
+  it('accepts receipts that differ ONLY in inference.observation across turns', async () => {
+    // cli-bridge re-measures `inference.observation` on every turn, so two honest receipts from
+    // the same session are never byte-equal; the identity compare must not read that block.
+    const { turns, failure, executor } = await runTwoTurnSession((requestBody, turn) => ({
+      ...bridgeProfileReceipt(requestBody),
+      inference: inferenceBlock(turn),
+    }))
+    expect(failure).toBeUndefined()
+    expect(turns).toBe(2)
+    expect(runtimeOwnedExecutorMaterialization(executor)).toBeDefined()
+  })
+
+  it('still refuses a cross-turn change to a stable inference identity field', async () => {
+    // Only `observation` is excluded: `effectiveEndpoint` is model-transport identity, and a
+    // bridge that moves it mid-session must keep hitting the same drift refusal.
+    const { failure } = await runTwoTurnSession((requestBody, turn) => ({
+      ...bridgeProfileReceipt(requestBody),
+      inference: inferenceBlock(
+        turn,
+        turn === 2 ? { effectiveEndpoint: 'http://127.0.0.1:39118/v1' } : {},
+      ),
+    }))
+    expect(String(failure)).toMatch(/profile materialization changed across session turns/u)
+  })
+
+  it('still refuses a cross-turn change to workspacePlanDigest', async () => {
+    // Format-valid digests pass the per-receipt validator, so the cross-turn compare is the
+    // only guard that sees the drift.
+    const { failure } = await runTwoTurnSession((requestBody, turn) => ({
+      ...bridgeProfileReceipt(requestBody),
+      ...(turn === 2 ? { workspacePlanDigest: `sha256:${'c'.repeat(64)}` } : {}),
+      inference: inferenceBlock(turn),
+    }))
+    expect(String(failure)).toMatch(/profile materialization changed across session turns/u)
+  })
+
+  it('still refuses a tampered model before the cross-turn compare is reached', async () => {
+    // The per-receipt validator pins `model` to the wire model on EVERY turn, so a model swap
+    // fails closed one layer earlier than the cross-turn compare.
+    const { failure } = await runTwoTurnSession((requestBody, turn) => ({
+      ...bridgeProfileReceipt(requestBody),
+      ...(turn === 2 ? { model: 'pi/tangle-router/other-model' } : {}),
+      inference: inferenceBlock(turn),
+    }))
+    expect(String(failure)).toMatch(/bridge materialized model/u)
+  })
+
+  it('keeps receipts without any inference block byte-compared as before', async () => {
+    const { turns, failure } = await runTwoTurnSession((requestBody) =>
+      bridgeProfileReceipt(requestBody),
+    )
+    expect(failure).toBeUndefined()
+    expect(turns).toBe(2)
+  })
+
+  it('accepts identical receipts whose inference block carries no observation', async () => {
+    const { turns, failure } = await runTwoTurnSession((requestBody) => ({
+      ...bridgeProfileReceipt(requestBody),
+      inference: {
+        effectiveEndpoint: 'http://127.0.0.1:39117/v1',
+        apiMode: 'openai-completions',
+        transport: 'scoped-loopback',
+        appliedMaxTokens: 32_768,
+      },
+    }))
+    expect(failure).toBeUndefined()
+    expect(turns).toBe(2)
+  })
+})
