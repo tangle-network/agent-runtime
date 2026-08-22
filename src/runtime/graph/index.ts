@@ -6,6 +6,31 @@
  * fold and kill-anywhere replay), #982 (the `runGraph` preset).
  */
 
+export {
+  type CompiledEdge,
+  type CompiledGraph,
+  type CompiledNode,
+  compileGraph,
+  schemaAccepts,
+} from './compile'
+export {
+  CONDITION_OPS,
+  type Condition,
+  type ConditionLeaf,
+  type ConditionOp,
+  evaluateCondition,
+  validateCondition,
+} from './condition'
+export {
+  DEFAULT_MAX_NODE_VISITS,
+  type EngineGraphEdge,
+  type EngineGraphNode,
+  type EngineGraphSpec,
+  type GraphEdgeKind,
+  JOIN_RULES,
+  type JoinRule,
+  MAX_MAX_NODE_VISITS,
+} from './definition'
 export { createGraphEngine, type GraphEngine, type GraphEngineOptions } from './engine'
 export {
   type BudgetMode,
@@ -30,6 +55,7 @@ export {
   subgraphKind,
   supervisorKind,
 } from './kinds'
+export { applyProjection, type Projection, validateProjection } from './projection'
 export {
   createRegistry,
   formatRegistryHandle,
@@ -38,3 +64,12 @@ export {
   type Registry,
   type RegistryHandle,
 } from './registry'
+export {
+  admitPayload,
+  type GraphEdgeTraversal,
+  type GraphNodeSettle,
+  type GraphRunOptions,
+  type GraphRunReason,
+  type GraphRunResult,
+  runEngineGraph,
+} from './scheduler'

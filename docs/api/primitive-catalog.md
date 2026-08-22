@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.162.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.163.0` and `@tangle-network/agent-eval@0.163.2` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1246,21 +1246,35 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 
 ### Graph engine — node kinds, registries, host effects; the four core kinds
 
-Import from `@tangle-network/agent-runtime/graph` — 28 exports.
+Import from `@tangle-network/agent-runtime/graph` — 57 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `admitPayload` | function | Admission for every value crossing an edge (#971): JSON round-trip, `undefined` stripped, a |
 | `agentKind` | function | One profile, one run: the kernel's leaf, exactly as `supervise()` derives it from `backend`. |
+| `applyProjection` | function | Apply a validated projection to an admitted payload. Collection operators over a non-array |
+| `compileGraph` | function | Lower an authored graph against an engine's kind registry into the schedulable form, refusing |
 | `createGraphEngine` | function | Build one engine: a kind registry seeded with the core kinds plus the host's, and the host's |
 | `createRegistry` | function | Create a registry. Per-instance by construction: two engines in one process may hold |
+| `evaluateCondition` | function | Walk a validated condition over a context to a boolean. Never throws on data shape. |
 | `formatRegistryHandle` | function | `<id>/v<n>` — the only spelling a handle has on the wire, in a journal, or in an error. |
 | `kindHandle` | function | The handle a graph writes to name this kind. |
 | `narrowEffects` | function | Narrow a host's effect table to exactly what one kind declared. Anything the kind did not |
 | `parseRegistryHandle` | function | Parse the wire spelling back. Refuses anything that is not exactly `<id>/v<n>`. |
+| `runEngineGraph` | function | Run a graph: host every node instance on one kernel `Scope`, resolve joins over guarded edges, |
+| `schemaAccepts` | function | Bounded structural acceptance: does a value of `source`'s shape fit `target`? Schemas with no |
 | `scriptKind` | function | Caller code as a node. The one kind with no kernel primitive behind it: the kernel has no |
 | `subgraphKind` | function | A node carrying its own graph: the constraint on what a supervisor may spawn at depth>1. Its |
 | `supervisorKind` | function | The thing that DECIDES: a nested `supervisorAgent` with the coordination verbs. Its children |
+| `validateCondition` | function | Validate shape, bounds, and per-leaf path/operator rules; returns the input for chaining. |
 | `validateNodeKind` | function | Validate a kind declaration at registration — so a malformed kind is refused by name once, |
+| `validateProjection` | function | Validate a projection: exactly one known operator, its argument well-formed. |
+| `CONDITION_OPS` | const | The leaf comparison operators; `exists`/`truthy` are unary, the rest compare against `value`. |
+| `DEFAULT_MAX_NODE_VISITS` | const | ADC-compatible visit backstop: nothing may be ENTERED more than this many times. |
+| `JOIN_RULES` | const | Which gating-edge outcomes release a node (adopted from ADC, agent-runtime#968). |
+| `MAX_MAX_NODE_VISITS` | const | The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach. |
+| `GraphEdgeTraversal` | interface | One ledgered edge firing (or refusal) — the run's observable data flow. |
+| `GraphNodeSettle` | interface | One node settlement as the graph result reports it. |
 | `NodeFlags` | interface | Per-node flags a graph author sets; they are node properties, not kinds (agent-runtime#970). |
 | `NodeKind` | interface | The validated declaration every kind provides. `Config` is the per-node config shape; |
 | `PortSpec` | interface | One declared port on a node. Ports are how a `data` edge binds one node's output to another's |
@@ -1272,7 +1286,7 @@ Import from `@tangle-network/agent-runtime/graph` — 28 exports.
 | `OnCrash` | type | What happens to a node that was IN FLIGHT when the process died. A settled node is never a |
 | `ScriptBody` | type | The caller code a `script` node runs. Receives the resolved inputs; returns the output. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `GraphEngine`, `GraphEngineOptions`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `EffectContext`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `GraphEngine`, `GraphEngineOptions`, `GraphRunOptions`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `GraphEdgeKind`, `GraphRunReason`, `GraphRunResult`, `JoinRule`, `Projection`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 
