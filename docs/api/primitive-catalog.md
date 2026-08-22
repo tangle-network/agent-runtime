@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.166.1` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.167.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1246,7 +1246,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 836 exports.
 
 ### Graph engine — node kinds, registries, host effects; the four core kinds
 
-Import from `@tangle-network/agent-runtime/graph` — 96 exports.
+Import from `@tangle-network/agent-runtime/graph` — 91 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1265,7 +1265,7 @@ Import from `@tangle-network/agent-runtime/graph` — 96 exports.
 | `evaluateCondition` | function | Walk a validated condition over a context to a boolean. Never throws on data shape. |
 | `foldGraphJournal` | function | Fold a loaded journal (append order) into scheduler state. |
 | `formatRegistryHandle` | function | `<id>/v<n>` — the only spelling a handle has on the wire, in a journal, or in an error. |
-| `graphFromRunGraph` | function | Compile an `AgentGraph` into the engine graph that represents it: the supervisor root, one |
+| `graphFromRunGraph` | function | Compile an `AgentGraph` into the engine graph that describes it. Pure: nothing runs, nothing is |
 | `isEngineFired` | function | `delegates` is the one MODEL-fired edge kind (agent-runtime#971): its payload is a directive and |
 | `isSuspensionRequest` | function | Whether a node's output is a park request rather than its result. |
 | `kindHandle` | function | The handle a graph writes to name this kind. |
@@ -1275,12 +1275,9 @@ Import from `@tangle-network/agent-runtime/graph` — 96 exports.
 | `openGraphRun` | function | Begin or resume a run's journaled tree, pool, scope and folded state. |
 | `parseRegistryHandle` | function | Parse the wire spelling back. Refuses anything that is not exactly `<id>/v<n>`. |
 | `runEngineGraph` | function | Run a graph to its result: `createGraphRun` awaited — the one-call form for a run that needs no |
-| `runGraphEngine` | function | An engine with the preset kind registered beside the core `agent` kind the workers use. |
-| `runGraphKind` | function | The node kind behind the preset. Its executor runs the graph and reports the run's own measured |
-| `runGraphThroughEngine` | function | Run an `AgentGraph` through the engine: compile it with {@link graphFromRunGraph}, schedule it, |
 | `schemaAccepts` | function | Bounded structural acceptance: does a value of `source`'s shape fit `target`? Schemas with no |
 | `scriptKind` | function | Caller code as a node. The one kind with no kernel primitive behind it: the kernel has no |
-| `subgraphKind` | function | A node carrying its own graph: the constraint on what a supervisor may spawn at depth>1. Its |
+| `subgraphKind` | function | A node carrying its own graph: it runs as a full engine run on the host's kinds and effects. |
 | `supervisorKind` | function | The thing that DECIDES: a nested `supervisorAgent` with the coordination verbs. Its children |
 | `suspended` | function | Build a suspension request. `wait` never expires; `fail` settles the node down at its deadline; |
 | `suspensionNodeId` | function | The journal id one suspension's `waiting`/`woken` pair shares. |
@@ -1293,8 +1290,9 @@ Import from `@tangle-network/agent-runtime/graph` — 96 exports.
 | `ENGINE_WOKEN_SEQ_BASE` | const | Engine-appended `woken` ordinals start here — far above any kernel cursor counter, so the two |
 | `JOIN_RULES` | const | Which gating-edge outcomes release a node (adopted from ADC, agent-runtime#968). |
 | `MAX_MAX_NODE_VISITS` | const | The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach. |
-| `RUN_GRAPH_KIND` | const | The preset's root kind: one node whose body is the graph's supervise run. |
+| `RUN_GRAPH_ROOT_KIND` | const | The kind id the root node carries: a supervisor holding the whole `AgentGraph`. |
 | `GraphEdgeTraversal` | interface | One ledgered edge firing (or refusal) — the run's observable data flow. |
+| `GraphHost` | interface | What a nesting kind needs from its host: run one graph, on the host's own kinds and effects. |
 | `GraphNodeSettle` | interface | One node settlement as the graph result reports it. |
 | `GraphRunHandle` | interface | A live run: await `done`; deliver host wakes through `resume`/`expire` (#976). |
 | `NodeFlags` | interface | Per-node flags a graph author sets; they are node properties, not kinds (agent-runtime#970). |
@@ -1302,19 +1300,15 @@ Import from `@tangle-network/agent-runtime/graph` — 96 exports.
 | `PortSpec` | interface | One declared port on a node. Ports are how a `data` edge binds one node's output to another's |
 | `Registered` | interface | Anything a registry holds carries its own handle, so the table cannot drift from the entry. |
 | `RegistryHandle` | interface | A versioned name: what a graph writes and what a host registers. |
-| `RunGraphCapture` | interface | Where the run body's raw failure is kept. A node's output crosses the edge-admission boundary |
-| `RunGraphNodeConfig` | interface | What the root node carries: the authored graph, the caller's options, and the run body. |
+| `SubgraphKindConfig` | interface | Config for a nesting node: the inner graph, and the pool the inner run is given. |
 | `SuspensionRequest` | interface | What a kind's executor returns to park its node until a host wakes it. |
 | `BudgetMode` | type | Whether a kind's spend enters the conserved pool. `'metered'`: the executor reports `Spend` and |
-| `EffectName` | type | What a kind declares it needs from the host. The engine never imports a host capability; it |
 | `GraphRunReason` | type | Result vocabulary shared by the scheduler and the fold (agent-runtime#973, #974, #976). |
 | `JsonSchema` | type | A JSON Schema document as the kernel already spells it: an opaque record, validated by the |
 | `OnCrash` | type | What happens to a node that was IN FLIGHT when the process died. A settled node is never a |
-| `RunGraphBody` | type | The graph supervise run, injected rather than imported: the preset describes the graph, and |
-| `RunGraphNodeOut` | type | The run's outcome as the root node's output: never a throw, so a typed failure (an exhausted |
 | `ScriptBody` | type | The caller code a `script` node runs. Receives the resolved inputs; returns the output. |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EdgeLedger`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GatingEdge`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunContext`, `GraphRunOptions`, `JoinDecision`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `FinalizerChoice`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `AgentKindConfig`, `CompiledEdge`, `CompiledGraph`, `CompiledNode`, `ConditionLeaf`, `EdgeLedger`, `EngineGraphEdge`, `EngineGraphNode`, `EngineGraphSpec`, `FoldEdge`, `FoldInstance`, `FoldNode`, `FoldSuspension`, `GatingEdge`, `GraphEngine`, `GraphEngineOptions`, `GraphFoldState`, `GraphRunContext`, `GraphRunOptions`, `JoinDecision`, `Registry`, `ScriptKindConfig`, `SupervisorKindConfig`, `Condition`, `ConditionOp`, `EffectContext`, `EffectName`, `FinalizerChoice`, `FoldEdgeState`, `FoldInstanceStatus`, `GraphEdgeKind`, `GraphRunResult`, `JoinRule`, `Projection`.
 
 ### Environment provider adapters — generic sandbox/compute bridge
 

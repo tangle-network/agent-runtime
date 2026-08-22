@@ -621,6 +621,51 @@ by `traceRef`); only an `analyzes` edge may bind `trace`.
 
 ***
 
+### GraphHost
+
+What a nesting kind needs from its host: run one graph, on the host's own kinds and effects.
+ Declared here (not imported from the scheduler) so the contract module stays dependency-free.
+
+#### Methods
+
+##### runNested()
+
+> **runNested**(`graph`, `task`, `options`): `Promise`\<\{ `kind`: `string`; `out?`: `unknown`; \}\>
+
+###### Parameters
+
+###### graph
+
+`unknown`
+
+###### task
+
+`string`
+
+###### options
+
+###### budget
+
+`unknown`
+
+###### perNode?
+
+`unknown`
+
+###### runId
+
+`string`
+
+###### signal?
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<\{ `kind`: `string`; `out?`: `unknown`; \}\>
+
+***
+
 ### NodeKind
 
 The validated declaration every kind provides. `Config` is the per-node config shape;
@@ -753,6 +798,13 @@ kind needs it (a supervisor kind threads it into `nodeContext`).
 
 [`WorkerSpawnContext`](../runtime.md#workerspawncontext)
 
+###### host?
+
+[`GraphHost`](#graphhost)
+
+The engine hosting this node, for a kind that runs a graph of its own (`subgraph`). The
+ scheduler supplies it; a kind that does not nest ignores it.
+
 ###### Returns
 
 [`Agent`](../runtime.md#agent-2)\<`unknown`, `unknown`\>
@@ -843,6 +895,28 @@ For a metered script: what it spent. Omit on a pure script. A metered script tha
 
 ***
 
+### SubgraphKindConfig
+
+Config for a nesting node: the inner graph, and the pool the inner run is given.
+
+#### Properties
+
+##### graph
+
+> `readonly` **graph**: `unknown`
+
+##### budget?
+
+> `readonly` `optional` **budget?**: `unknown`
+
+The inner run's conserved pool. Its spend is the inner pool's, never re-charged here.
+
+##### perNode?
+
+> `readonly` `optional` **perNode?**: `unknown`
+
+***
+
 ### EdgeLedger
 
 #### Properties
@@ -878,49 +952,6 @@ For a metered script: what it spent. Omit on a pure script. A metered script tha
 ###### Returns
 
 `Promise`\<`void`\>
-
-***
-
-### RunGraphCapture
-
-Where the run body's raw failure is kept. A node's output crosses the edge-admission boundary
- (JSON round-trip), which would reduce an `Error` to a plain object and a typed
- `GraphEdgeCapError` to an untyped one. The error therefore travels beside the output, by
- reference, and the preset rethrows the ORIGINAL object.
-
-#### Properties
-
-##### error?
-
-> `optional` **error?**: `unknown`
-
-***
-
-### RunGraphNodeConfig
-
-What the root node carries: the authored graph, the caller's options, and the run body.
-
-#### Properties
-
-##### graph
-
-> `readonly` **graph**: [`AgentGraph`](../runtime.md#agentgraph)
-
-##### options
-
-> `readonly` **options**: [`RunGraphOptions`](../runtime.md#rungraphoptions)
-
-##### run
-
-> `readonly` **run**: [`RunGraphBody`](#rungraphbody)
-
-##### capture
-
-> `readonly` **capture**: [`RunGraphCapture`](#rungraphcapture)
-
-##### brain?
-
-> `readonly` `optional` **brain?**: [`ToolLoopChat`](../runtime.md#toolloopchat)
 
 ***
 
@@ -1408,11 +1439,6 @@ A JSON Schema document as the kernel already spells it: an opaque record, valida
 
 > **EffectName** = `string`
 
-What a kind declares it needs from the host. The engine never imports a host capability; it
-knows only that a kind SAID it needs something under this name and the host PROVIDED something
-under it. The context a kind receives is narrowed to exactly its declaration — an undeclared
-effect is `undefined`, never a service locator.
-
 ***
 
 ### EffectContext
@@ -1467,56 +1493,6 @@ The caller code a `script` node runs. Receives the resolved inputs; returns the 
 #### Returns
 
 `Promise`\<`unknown`\> \| `unknown`
-
-***
-
-### RunGraphBody
-
-> **RunGraphBody** = (`graph`, `options`, `brain?`) => `Promise`\<[`GraphResult`](../runtime.md#graphresult)\>
-
-The graph supervise run, injected rather than imported: the preset describes the graph, and
- `runGraph` supplies the body, so this module never imports its caller at runtime.
-
-#### Parameters
-
-##### graph
-
-[`AgentGraph`](../runtime.md#agentgraph)
-
-##### options
-
-[`RunGraphOptions`](../runtime.md#rungraphoptions)
-
-##### brain?
-
-[`ToolLoopChat`](../runtime.md#toolloopchat)
-
-#### Returns
-
-`Promise`\<[`GraphResult`](../runtime.md#graphresult)\>
-
-***
-
-### RunGraphNodeOut
-
-> **RunGraphNodeOut** = \{ `ok`: `true`; `result`: [`GraphResult`](../runtime.md#graphresult); \} \| \{ `ok`: `false`; `error`: `string`; \}
-
-The run's outcome as the root node's output: never a throw, so a typed failure (an exhausted
- delegates cap) reaches the caller as the exact error object rather than a settle reason.
-
-#### Union Members
-
-##### Type Literal
-
-\{ `ok`: `true`; `result`: [`GraphResult`](../runtime.md#graphresult); \}
-
-***
-
-##### Type Literal
-
-\{ `ok`: `false`; `error`: `string`; \}
-
-The message only; the raw error rides in [RunGraphCapture](#rungraphcapture).
 
 ***
 
@@ -1657,11 +1633,11 @@ The hard ceiling an author's `maxVisits`/`maxNodeVisits` override may reach.
 
 ***
 
-### RUN\_GRAPH\_KIND
+### RUN\_GRAPH\_ROOT\_KIND
 
-> `const` **RUN\_GRAPH\_KIND**: `"run-graph.supervisor"` = `'run-graph.supervisor'`
+> `const` **RUN\_GRAPH\_ROOT\_KIND**: `"supervisor/v1"` = `'supervisor/v1'`
 
-The preset's root kind: one node whose body is the graph's supervise run.
+The kind id the root node carries: a supervisor holding the whole `AgentGraph`.
 
 ***
 
@@ -2077,16 +2053,13 @@ any other node.
 
 ### subgraphKind()
 
-> **subgraphKind**(): [`NodeKind`](#nodekind)\<\{ `graph`: `unknown`; \}\>
+> **subgraphKind**(): [`NodeKind`](#nodekind)\<[`SubgraphKindConfig`](#subgraphkindconfig)\>
 
-A node carrying its own graph: the constraint on what a supervisor may spawn at depth>1. Its
-executor is a nested engine run; that needs the scheduler (#980), so until then this kind is
-registered and REFUSES at run time by name rather than being absent — a graph that names it
-compiles, and the refusal says exactly what is missing.
+A node carrying its own graph: it runs as a full engine run on the host's kinds and effects.
 
 #### Returns
 
-[`NodeKind`](#nodekind)\<\{ `graph`: `unknown`; \}\>
+[`NodeKind`](#nodekind)\<[`SubgraphKindConfig`](#subgraphkindconfig)\>
 
 ***
 
@@ -2122,38 +2095,15 @@ Open a ledger for one run; its ordinals continue past whatever a prior process r
 
 ***
 
-### runGraphKind()
-
-> **runGraphKind**(): [`NodeKind`](#nodekind)\<[`RunGraphNodeConfig`](#rungraphnodeconfig)\>
-
-The node kind behind the preset. Its executor runs the graph and reports the run's own measured
-spend, so the engine pool debits what the graph actually used, never a second copy of it.
-
-#### Returns
-
-[`NodeKind`](#nodekind)\<[`RunGraphNodeConfig`](#rungraphnodeconfig)\>
-
-***
-
-### runGraphEngine()
-
-> **runGraphEngine**(): [`GraphEngine`](#graphengine)
-
-An engine with the preset kind registered beside the core `agent` kind the workers use.
-
-#### Returns
-
-[`GraphEngine`](#graphengine)
-
-***
-
 ### graphFromRunGraph()
 
-> **graphFromRunGraph**(`graph`, `options`, `run`, `capture?`, `brain?`): [`EngineGraphSpec`](#enginegraphspec)
+> **graphFromRunGraph**(`graph`, `options`): [`EngineGraphSpec`](#enginegraphspec)
 
-Compile an `AgentGraph` into the engine graph that represents it: the supervisor root, one
-pinned `agent` node per worker, and every authored edge. Pure — nothing runs, so a caller can
-inspect, diff, or extend the result before handing it to the engine.
+Compile an `AgentGraph` into the engine graph that describes it. Pure: nothing runs, nothing is
+registered, no executor is built. A `delegates` edge is MODEL-fired (#971) — its target is
+spawned by the supervisor through the coordination protocol — so every worker node is marked
+`entry: false`, which is exactly what the engine's scheduler would honour if this graph were
+handed to it.
 
 #### Parameters
 
@@ -2164,55 +2114,10 @@ inspect, diff, or extend the result before handing it to the engine.
 ##### options
 
 [`RunGraphOptions`](../runtime.md#rungraphoptions)
-
-##### run
-
-[`RunGraphBody`](#rungraphbody)
-
-##### capture?
-
-[`RunGraphCapture`](#rungraphcapture) = `{}`
-
-##### brain?
-
-[`ToolLoopChat`](../runtime.md#toolloopchat)
 
 #### Returns
 
 [`EngineGraphSpec`](#enginegraphspec)
-
-***
-
-### runGraphThroughEngine()
-
-> **runGraphThroughEngine**(`graph`, `options`, `run`, `brain?`): `Promise`\<[`GraphResult`](../runtime.md#graphresult)\<`unknown`\>\>
-
-Run an `AgentGraph` through the engine: compile it with [graphFromRunGraph](#graphfromrungraph), schedule it,
-and answer the caller in `runGraph`'s own vocabulary. A typed failure the graph threw — an
-exhausted delegates cap — is rethrown as the exact error object it was, never flattened into a
-settle reason.
-
-#### Parameters
-
-##### graph
-
-[`AgentGraph`](../runtime.md#agentgraph)
-
-##### options
-
-[`RunGraphOptions`](../runtime.md#rungraphoptions)
-
-##### run
-
-[`RunGraphBody`](#rungraphbody)
-
-##### brain?
-
-[`ToolLoopChat`](../runtime.md#toolloopchat)
-
-#### Returns
-
-`Promise`\<[`GraphResult`](../runtime.md#graphresult)\<`unknown`\>\>
 
 ***
 

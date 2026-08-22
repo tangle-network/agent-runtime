@@ -50,6 +50,21 @@ export interface PortSpec {
  * under it. The context a kind receives is narrowed to exactly its declaration — an undeclared
  * effect is `undefined`, never a service locator.
  */
+/** What a nesting kind needs from its host: run one graph, on the host's own kinds and effects.
+ *  Declared here (not imported from the scheduler) so the contract module stays dependency-free. */
+export interface GraphHost {
+  runNested(
+    graph: unknown,
+    task: string,
+    options: {
+      readonly budget: unknown
+      readonly perNode?: unknown
+      readonly runId: string
+      readonly signal?: AbortSignal
+    },
+  ): Promise<{ readonly kind: string; readonly out?: unknown }>
+}
+
 export type EffectName = string
 
 export type EffectContext<Effects extends ReadonlyArray<EffectName>> = Readonly<{
@@ -109,6 +124,9 @@ export interface NodeKind<
     readonly inputs: Readonly<Record<string, unknown>>
     readonly effects: EffectContext<Effects>
     readonly spawn?: WorkerSpawnContext
+    /** The engine hosting this node, for a kind that runs a graph of its own (`subgraph`). The
+     *  scheduler supplies it; a kind that does not nest ignores it. */
+    readonly host?: GraphHost
   }) => Agent<unknown, unknown>
 }
 

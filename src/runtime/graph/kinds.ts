@@ -266,7 +266,16 @@ function scriptAgent(
  * registered and REFUSES at run time by name rather than being absent — a graph that names it
  * compiles, and the refusal says exactly what is missing.
  */
-export function subgraphKind(): NodeKind<{ readonly graph: unknown }> {
+/** Config for a nesting node: the inner graph, and the pool the inner run is given. */
+export interface SubgraphKindConfig {
+  readonly graph: unknown
+  /** The inner run's conserved pool. Its spend is the inner pool's, never re-charged here. */
+  readonly budget?: unknown
+  readonly perNode?: unknown
+}
+
+/** A node carrying its own graph: it runs as a full engine run on the host's kinds and effects. */
+export function subgraphKind(): NodeKind<SubgraphKindConfig> {
   return {
     id: 'subgraph',
     version: 1,
@@ -276,7 +285,11 @@ export function subgraphKind(): NodeKind<{ readonly graph: unknown }> {
       if (config.graph === undefined) {
         throw new ValidationError(`${context}: subgraph config.graph is required`)
       }
-      return { graph: config.graph }
+      return {
+        graph: config.graph,
+        ...(config.budget === undefined ? {} : { budget: config.budget }),
+        ...(config.perNode === undefined ? {} : { perNode: config.perNode }),
+      }
     },
     configSchema: {
       type: 'object',
@@ -288,10 +301,46 @@ export function subgraphKind(): NodeKind<{ readonly graph: unknown }> {
     effects: [],
     onCrash: 'restart',
     budget: 'metered',
-    run: ({ profile }) => {
-      throw new ValidationError(
-        `subgraph kind: node ${JSON.stringify(profile.name)} cannot run yet — the scheduler that executes a nested graph lands in agent-runtime#980`,
-      )
+    run: ({ config, profile, host }) => {
+      const name = profile.name ?? 'subgraph'
+      if (!host) {
+        throw new ValidationError(
+          `subgraph kind: node ${JSON.stringify(name)} needs its hosting engine; run it through the scheduler, which supplies one`,
+        )
+      }
+      let artifact: ExecutorResult<unknown> | undefined
+      const executor: Executor<unknown> = {
+        runtime: 'inline',
+        async execute(_task, signal): Promise<ExecutorResult<unknown>> {
+          // The inner run is a FULL engine run on the host's kinds and effects: its own scope,
+          // pool and journal tree, nested under this node's id so the two never collide.
+          const inner = await host.runNested(config.graph, name, {
+            budget: config.budget ?? { maxIterations: 1, maxTokens: 0 },
+            ...(config.perNode === undefined ? {} : { perNode: config.perNode }),
+            runId: `${name}:subgraph`,
+            signal,
+          })
+          const out = { kind: inner.kind, out: inner.out }
+          artifact = {
+            outRef: contentAddress(out),
+            out,
+            // The inner run debits the pool it was given; this node reports the wall clock only.
+            spent: { iterations: 1, tokens: { input: 0, output: 0 }, usd: 0, ms: 0 },
+          }
+          return artifact
+        },
+        teardown: () => Promise.resolve({ destroyed: true }),
+        resultArtifact: () => {
+          if (!artifact)
+            throw new ValidationError(`subgraph: resultArtifact() read before execute()`)
+          return artifact
+        },
+      }
+      return {
+        name,
+        act: () => Promise.reject(new ValidationError('subgraph: act() is not the execution path')),
+        executorSpec: { profile, harness: null, executor } as AgentSpec,
+      } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     },
   }
 }

@@ -246,6 +246,24 @@ async function runGraphLoop(
       profile: { name: node.id, ...(node.spec.profile ?? {}) },
       inputs: envelope.inputs,
       effects: narrowEffects(node.kind.effects, engine.effects, `runEngineGraph: node ${node.id}`),
+      // A nesting kind (`subgraph`) runs its inner graph on THIS engine — same kinds, same
+      // effects — with its own scope, pool and journal tree under a derived run id.
+      host: {
+        runNested: (inner, task, opts) =>
+          runEngineGraph(engine, inner as EngineGraphSpec, task, {
+            budget: opts.budget as Budget,
+            ...(opts.perNode === undefined ? {} : { perNode: opts.perNode as Budget }),
+            journal,
+            blobs,
+            ...(options.prompts === undefined ? {} : { prompts: options.prompts }),
+            runId: `${runId}:${opts.runId}`,
+            ...(opts.signal === undefined ? {} : { signal: opts.signal }),
+            now,
+          }).then((result) => ({
+            kind: result.kind,
+            ...(result.kind === 'winner' ? { out: result.out } : {}),
+          })),
+      },
     })
     const budget = node.spec.budget ?? (options.perNode as Budget)
     const spawned = scope.spawn(agent, envelope.task, { label, budget })
