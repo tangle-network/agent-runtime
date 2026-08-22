@@ -350,7 +350,7 @@ function rootDeadline(root: SpawnedEvent): number {
 }
 
 /** Child reservations whose spawn was durable but whose terminal record never landed. */
-function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
+export function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
   const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
   return events
     .filter(
@@ -362,7 +362,7 @@ function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
 
 /** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
  *  first new ordinal/seq is 0 — the same start a fresh scope uses). */
-function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): number {
+export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): number {
   let max = -1
   for (const ev of events) if (pred(ev) && ev.seq > max) max = ev.seq
   return max
@@ -1328,7 +1328,7 @@ function sumSpendFromEvents(events: SpawnEvent[]): { childWork: Spend; driverInf
   return totals
 }
 
-function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
+export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
 } {

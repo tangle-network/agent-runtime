@@ -54,6 +54,17 @@ export type WaitSpec =
       readonly untilMs: number
     }
   | {
+      /** A graph-engine suspension: the host holds the content-addressed token and wakes it via
+       *  `resume`/`expire`; the engine owns the transition table (agent-runtime#976). */
+      readonly kind: 'token'
+      readonly token: string
+      /** Absent ⇒ `onExpire: 'wait'` (never expires). */
+      readonly expiresAtMs?: number
+      readonly onExpire: 'wait' | 'fail' | 'default'
+      /** `onExpire: 'default'`: the pre-admitted payload the expiry resolves with. */
+      readonly defaultRef?: string
+    }
+  | {
       readonly kind: 'poll'
       /** Name of the predicate in the run's `WaitProbeRegistry`. Named (not a closure) so a
        *  resumed process can re-resolve it — see the module header. */
@@ -166,15 +177,22 @@ export interface PendingWait {
 /** Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape. */
 export type WaitRejection = 'invalid-spec' | 'unknown-probe' | 'deadline-exceeded'
 
-/** The absolute instant a spec is bounded by, or `undefined` for an unbounded poll. */
+/** The absolute instant a spec is bounded by, or `undefined` for an unbounded wait. */
 export function waitUntil(spec: WaitSpec): number | undefined {
-  return spec.kind === 'timer' ? spec.untilMs : spec.timeoutAtMs
+  if (spec.kind === 'timer') return spec.untilMs
+  if (spec.kind === 'token') return spec.expiresAtMs
+  return spec.timeoutAtMs
 }
 
 /** Structural validation, independent of the run. Returns null when the spec is usable. */
 export function validateWaitSpec(spec: WaitSpec): string | null {
   if (spec.kind === 'timer') {
     return Number.isFinite(spec.untilMs) ? null : 'timer.untilMs must be a finite epoch-ms instant'
+  }
+  if (spec.kind === 'token') {
+    // A token wait's transitions belong to the graph engine (`resume`/`expire`); the kernel's live
+    // wait runner never schedules one, so reaching it through `Scope.wait` is a mis-route.
+    return 'token waits are graph-engine-owned; deliver them through engine resume/expire'
   }
   if (typeof spec.probe !== 'string' || spec.probe.length === 0) {
     return 'poll.probe must be a non-empty probe name'
@@ -238,6 +256,14 @@ export async function runWait(args: RunWaitArgs): Promise<WaitResolution> {
       kind: 'woke',
       outcome: outcome('timer', 'fired', label, spec.untilMs, armedAt, now(), 0, 0, resumed),
     }
+  }
+
+  if (spec.kind === 'token') {
+    // Admission already refuses token specs (`validateWaitSpec`); this guard keeps the runner's
+    // narrowing honest if one ever reaches it another way.
+    throw new ValidationError(
+      `wait '${label}': token waits are graph-engine-owned; deliver them through engine resume/expire`,
+    )
   }
 
   const probe = args.probes?.resolve(spec.probe)

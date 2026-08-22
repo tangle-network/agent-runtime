@@ -33,6 +33,18 @@ export {
 } from './definition'
 export { createGraphEngine, type GraphEngine, type GraphEngineOptions } from './engine'
 export {
+  applyGraphFoldEvent,
+  emptyFoldState,
+  type FoldEdge,
+  type FoldEdgeState,
+  type FoldInstance,
+  type FoldInstanceStatus,
+  type FoldNode,
+  type FoldSuspension,
+  foldGraphJournal,
+  type GraphFoldState,
+} from './fold'
+export {
   type BudgetMode,
   type EffectContext,
   type EffectName,
@@ -66,10 +78,15 @@ export {
 } from './registry'
 export {
   admitPayload,
+  createGraphRun,
+  ENGINE_WOKEN_SEQ_BASE,
   type GraphEdgeTraversal,
   type GraphNodeSettle,
+  type GraphRunHandle,
   type GraphRunOptions,
   type GraphRunReason,
   type GraphRunResult,
   runEngineGraph,
+  type SuspensionRequest,
+  suspended,
 } from './scheduler'

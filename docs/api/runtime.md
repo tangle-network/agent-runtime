@@ -18831,7 +18831,7 @@ Tag for `isWaitOutcome` — a wait outcome arrives on the same cursor as worker 
 
 ##### kind
 
-> `readonly` **kind**: `"poll"` \| `"timer"`
+> `readonly` **kind**: `"token"` \| `"poll"` \| `"timer"`
 
 ##### settled
 
@@ -22898,7 +22898,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-4); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-5); `label`: `string`; `runtime`: [`Runtime`](#runtime-4); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -23107,6 +23107,148 @@ Structured tool evidence. Optional only for journals written before trace captur
 
 ##### Type Literal
 
+\{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"node-inputs-resolved"`
+
+GRAPH ENGINE fold input: the exact inputs one node instance was given, pinned by content
+ address BEFORE the instance spawns. `onCrash: 'restart'` re-runs from this ref, never
+ through a transform someone has since changed. Kernel replay skips it.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+The engine instance label (`<node>#<visit>`), which the matching `spawned` also carries.
+
+###### node
+
+> **node**: `string`
+
+###### instance
+
+> **instance**: `string`
+
+###### inputRef
+
+> **inputRef**: `string`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-5); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"edge-verdict"`
+
+GRAPH ENGINE fold input: what the scheduler DECIDED about one edge on one source
+ completion — distinct from `edge`, which stays delivery observability. Kernel replay
+ skips it; the engine fold consumes it as authority (never re-judged through changed
+ guard code).
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+###### edge
+
+> **edge**: `string`
+
+###### fired
+
+> **fired**: `boolean`
+
+satisfied ⇒ true; dead or failed ⇒ false, with `sourceStatus` distinguishing.
+
+###### sourceStatus
+
+> **sourceStatus**: `"done"` \| `"down"` \| `"invalid"`
+
+###### capped?
+
+> `optional` **capped?**: `boolean`
+
+A consumption the traversal cap refused: the edge stays satisfied, the target may block.
+
+###### inputRef?
+
+> `optional` **inputRef?**: `string`
+
+###### toInstance?
+
+> `optional` **toInstance?**: `string`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-5); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"join-state"`
+
+GRAPH ENGINE fold input: one join release — which gating edges produced it and which
+ in-flight edges were consumed-once by the wave. Kernel replay skips it.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-5)
+
+###### node
+
+> **node**: `string`
+
+###### rule
+
+> **rule**: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`
+
+###### satisfiedBy
+
+> **satisfiedBy**: `ReadonlyArray`\<`string`\>
+
+###### consumedPending
+
+> **consumedPending**: `ReadonlyArray`\<`string`\>
+
+###### instance
+
+> **instance**: `string`
+
+The instance this release entered (`<node>#<visit>`).
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
 \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
@@ -23150,7 +23292,7 @@ A wait-state node was ARMED. Lives in the SPAWN-ORDINAL namespace (`seq` is the 
 
 ##### Type Literal
 
-\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -23167,7 +23309,11 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ###### by
 
-> **by**: `"fired"` \| `"timeout"` \| `"cancelled"`
+> **by**: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`
+
+`expired`: a graph suspension whose `onExpire: 'fail'` deadline passed — distinct from
+ `timeout` (a poll wait's own deadline), so a consumer can tell "the human never
+ answered" from "the probe never fired".
 
 ###### outRef?
 
@@ -23417,7 +23563,7 @@ Out-of-band message to a running root. Open by intent — a client extends it.
 
 ### WaitSpec
 
-> **WaitSpec** = \{ `kind`: `"timer"`; `untilMs`: `number`; \} \| \{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
+> **WaitSpec** = \{ `kind`: `"timer"`; `untilMs`: `number`; \} \| \{ `kind`: `"token"`; `token`: `string`; `expiresAtMs?`: `number`; `onExpire`: `"wait"` \| `"fail"` \| `"default"`; `defaultRef?`: `string`; \} \| \{ `kind`: `"poll"`; `probe`: `string`; `intervalMs`: `number`; `timeoutAtMs?`: `number`; `args?`: `Record`\<`string`, `unknown`\>; \}
 
 What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants so a wait
  re-armed by a later process keeps the deadline the first process set.
@@ -23437,6 +23583,39 @@ What a wait node is waiting for. Both variants carry ABSOLUTE epoch-ms instants 
 > `readonly` **untilMs**: `number`
 
 Absolute epoch ms to wake at. A past instant fires immediately.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"token"`; `token`: `string`; `expiresAtMs?`: `number`; `onExpire`: `"wait"` \| `"fail"` \| `"default"`; `defaultRef?`: `string`; \}
+
+###### kind
+
+> `readonly` **kind**: `"token"`
+
+A graph-engine suspension: the host holds the content-addressed token and wakes it via
+ `resume`/`expire`; the engine owns the transition table (agent-runtime#976).
+
+###### token
+
+> `readonly` **token**: `string`
+
+###### expiresAtMs?
+
+> `readonly` `optional` **expiresAtMs?**: `number`
+
+Absent ⇒ `onExpire: 'wait'` (never expires).
+
+###### onExpire
+
+> `readonly` **onExpire**: `"wait"` \| `"fail"` \| `"default"`
+
+###### defaultRef?
+
+> `readonly` `optional` **defaultRef?**: `string`
+
+`onExpire: 'default'`: the pre-admitted payload the expiry resolves with.
 
 ***
 
@@ -29727,7 +29906,7 @@ Narrow a settlement's `out` to a wait outcome — a wait settles on the SAME cur
 
 > **waitUntil**(`spec`): `number` \| `undefined`
 
-The absolute instant a spec is bounded by, or `undefined` for an unbounded poll.
+The absolute instant a spec is bounded by, or `undefined` for an unbounded wait.
 
 #### Parameters
 
