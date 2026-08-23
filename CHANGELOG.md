@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.173.0
+
+### `cli-in-place`: a local coding CLI on the worktree you hand it
+
+`agenticGenerator` asks for one thing from `executorForWorktree(worktreePath)`: compute that edits **that** directory. The whole multi-shot loop rests on it — a shot that dirties the tree but fails `verify` feeds the failure into the next shot, and the next shot resumes on top of its own broken edits because the worktree persisted. Until now no published placement did that for a local coding CLI, which a consumer measured backend by backend:
+
+| backend | measured behaviour |
+|---|---|
+| `cli` | refused at admission — "streamAgentTurn: exact executor did not materialize a known model identity" |
+| `cli-worktree` | cuts a worktree of its **own** under the path it is handed; the author's edits never reach the supplied directory, so every shot reads as an empty tree |
+| `bridge` | the documented in-place placement, but it needs a running cli-bridge |
+| `provider` | the open extension point, and it does declare a model — but `harnessInvocation` and `runLocalHarness` are exported from no entry point, so the mapping cannot be built outside this package |
+
+`createExecutor({ backend: 'cli-in-place', workspacePath })` closes it. It runs claude-code / codex / opencode / pi in the directory it is given: the edits **are** that directory, and they are still there for the next spawn. `createInPlaceCliExecutor` is the same leaf as a direct `Executor`.
+
+- **`cli-worktree` is unchanged.** Cutting its own worktree is correct for a fanout of candidate authors that must not clobber each other, and for a caller whose deliverable is the patch. This is a second placement beside it, not a change to it. The two share one physical act — the same profile materializer, the same `harnessInvocation` mapper, the same spawn — so neither re-derives argv.
+- **The workspace holds the author's edits and nothing else.** Because the directory persists, so would the profile inputs materialized into it, and an untracked settings file would read as an author edit. They are removed before the call returns, whether the run succeeded, threw, or was cancelled. `existingFiles: 'reject'` is what makes that removal safe: a plan file whose path is already occupied refuses the run before the harness starts, so nothing removed can be a file the caller put there. A directory the harness put its own work in is kept.
+- **The admission check is untouched.** A raw `cli` placement is still refused for declaring no model identity. This leaf declares its concrete profile model, so it satisfies the same check and the shot receipt names the harness, provider and model that ran. Its `Spend` marks `tokensKnown: false`, because a harness CLI reports no usage receipt and `{0,0}` is a floor, not a measurement.
+- **`agenticGenerator` checks the binding before it spends.** A `cli-in-place` placement whose `workspacePath` is not the candidate worktree is refused, the way a `bridge` placement with the wrong `cwd` already was. Both comparisons now resolve the two paths first, so a macOS `/var` → `/private/var` symlink is not a false mismatch.
+- **No reproducible-Codex mode here.** That mode stages an executable and a write probe into its working directory, which a caller-owned workspace is not the place for; use `cli-worktree` with `codexReproducible` for the isolated, metered Codex run.
+
 ## 0.172.0
 
 ### The run's deadline is a wall-clock instant, taken from one expression
