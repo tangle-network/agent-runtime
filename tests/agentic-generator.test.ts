@@ -6,7 +6,6 @@ import { CostLedger, makeProposalFinding, type ProposalFinding } from '@tangle-n
 import { gitWorktreeAdapter } from '@tangle-network/agent-eval/campaign'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { LocalHarnessResult, RunLocalHarnessOptions } from '../src/mcp/local-harness'
 import {
   type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorShotDisposition,
@@ -15,6 +14,7 @@ import {
   agenticGenerator,
   commandVerifier,
 } from '../src/improvement'
+import type { LocalHarnessResult, RunLocalHarnessOptions } from '../src/mcp/local-harness'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -545,7 +545,7 @@ describe('agenticGenerator on a cli-in-place placement', () => {
     } as LocalHarnessResult
   }
 
-  it('resumes each shot atop the last shot\'s edits until the tree verifies', async () => {
+  it("resumes each shot atop the last shot's edits until the tree verifies", async () => {
     const prompts: string[] = []
     const treeSeenByHarness: string[] = []
     let shot = 0

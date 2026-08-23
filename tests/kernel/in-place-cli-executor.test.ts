@@ -6,7 +6,14 @@
  * top of them.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
@@ -14,8 +21,8 @@ import { describe, expect, it } from 'vitest'
 import type { LocalHarnessResult, RunLocalHarnessOptions } from '../../src/mcp/local-harness'
 import { createInPlaceCliExecutor } from '../../src/runtime/supervise/in-place-cli-executor'
 import {
-  runtimeOwnedExecutorMaterialization,
   runtimeOwnedExecutorExecutionBinding,
+  runtimeOwnedExecutorMaterialization,
 } from '../../src/runtime/supervise/materialization'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
 
@@ -83,7 +90,9 @@ describe('createInPlaceCliExecutor', () => {
     expect(realpathSync(seen[0]?.cwd ?? '')).toBe(workspacePath)
     expect(seen[0]?.invocation?.command).toBe('claude')
     expect(seen[0]?.invocation?.args).toContain('test/author-model')
-    expect(readFileSync(join(workspacePath, 'program.mjs'), 'utf8')).toBe('export const version = 1\n')
+    expect(readFileSync(join(workspacePath, 'program.mjs'), 'utf8')).toBe(
+      'export const version = 1\n',
+    )
     expect(result.out.workspacePath).toBe(workspacePath)
     expect(result.out.harness.name).toBe('claude-code')
     expect(result.out.harness.exitCode).toBe(0)
@@ -98,7 +107,7 @@ describe('createInPlaceCliExecutor', () => {
     expect(existsSync(join(workspacePath, 'program.mjs'))).toBe(true)
   })
 
-  it('a second placement on the same workspace sees the first one\'s edits', async () => {
+  it("a second placement on the same workspace sees the first one's edits", async () => {
     const workspacePath = scaffoldWorkspace()
 
     await createInPlaceCliExecutor({
