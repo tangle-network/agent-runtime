@@ -4936,7 +4936,9 @@ Complete author identity. Harness, provider, model, prompt, tools, and resources
 > **executorForWorktree**: [`AgenticGeneratorExecutorForWorktree`](#agenticgeneratorexecutorforworktree)
 
 Place the exact profile on compute that can edit this existing worktree.
-A Pi author normally returns `{ backend:'bridge', cwd: worktreePath, ...transport }`.
+A local coding CLI returns `{ backend:'cli-in-place', workspacePath: worktreePath }`; a Pi
+author over cli-bridge returns `{ backend:'bridge', cwd: worktreePath, ...transport }`. Both
+are checked against the supplied path before the first shot spends.
 
 ##### onShotCompleted?
 

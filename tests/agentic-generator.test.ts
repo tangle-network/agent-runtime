@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CostLedger, makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
@@ -14,6 +14,7 @@ import {
   agenticGenerator,
   commandVerifier,
 } from '../src/improvement'
+import type { LocalHarnessResult, RunLocalHarnessOptions } from '../src/mcp/local-harness'
 
 function git(args: string[], cwd: string): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
@@ -506,6 +507,163 @@ describe('agenticGenerator exact Runtime execution', () => {
     expect(
       readFileSync(join(worktreePath, '.improve', 'raw-trace-diagnosis.md'), 'utf8'),
     ).toContain(TRACE_PATH)
+  })
+})
+
+/**
+ * The placement a local coding CLI actually uses. `cli-worktree` cuts a worktree of its own, so
+ * the candidate directory stays clean and every shot reads as "you changed nothing";
+ * `cli-in-place` runs the harness in the candidate directory itself, which is what makes the
+ * multi-shot loop work at all — a failing shot's edits are still there for the next one.
+ */
+describe('agenticGenerator on a cli-in-place placement', () => {
+  const inPlaceProfile: AgentProfile = {
+    name: 'in-place-code-author',
+    harness: 'claude-code',
+    model: { provider: 'anthropic', default: 'test/author-model' },
+    prompt: { systemPrompt: 'AUTHOR SYSTEM' },
+  }
+
+  function inPlaceExecutor(
+    runHarness: (options: RunLocalHarnessOptions) => Promise<LocalHarnessResult>,
+  ): AgenticGeneratorExecutorForWorktree {
+    return (worktreePath) => ({
+      backend: 'cli-in-place' as const,
+      workspacePath: worktreePath,
+      runHarness,
+    })
+  }
+
+  function harnessOk(): LocalHarnessResult {
+    return {
+      exitCode: 0,
+      stdout: 'done',
+      stderr: '',
+      killedBySignal: null,
+      durationMs: 1,
+      timedOut: false,
+    } as LocalHarnessResult
+  }
+
+  it("resumes each shot atop the last shot's edits until the tree verifies", async () => {
+    const prompts: string[] = []
+    const treeSeenByHarness: string[] = []
+    let shot = 0
+    const generator = agenticGenerator({
+      profile: inPlaceProfile,
+      executorForWorktree: inPlaceExecutor(async (options) => {
+        shot += 1
+        prompts.push(options.taskPrompt)
+        const target = join(options.cwd, 'app.ts')
+        treeSeenByHarness.push(readFileSync(target, 'utf8'))
+        // Shot 1 changes nothing, shot 2 writes a tree the verifier rejects, shot 3 edits the
+        // broken file it can only see because the worktree persisted.
+        if (shot === 2) writeFileSync(target, 'export const x = broken\n')
+        if (shot === 3) {
+          const broken = readFileSync(target, 'utf8')
+          writeFileSync(target, broken.replace('broken', '2'))
+        }
+        return harnessOk()
+      }),
+      buildPrompt,
+      verify: (worktreePath) =>
+        readFileSync(join(worktreePath, 'app.ts'), 'utf8').includes('broken')
+          ? { ok: false, feedback: 'TypeScript: cannot find name broken' }
+          : { ok: true },
+    })
+    const worktreePath = await candidateWorktree('in-place-resume')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 3))
+
+    expect(result.applied).toBe(true)
+    expect(shot).toBe(3)
+    // The dirty check saw a real tree, so shot 2 was NOT retried as an empty one.
+    expect(prompts[1]).toContain('left the working tree unchanged')
+    expect(prompts[2]).not.toContain('left the working tree unchanged')
+    expect(prompts[2]).toContain('cannot find name broken')
+    // The persistence property: shot 3 opened the file shot 2 broke.
+    expect(treeSeenByHarness).toEqual([
+      'export const x = 1\n',
+      'export const x = 1\n',
+      'export const x = broken\n',
+    ])
+    // The edits are in the candidate directory the driver commits, not in a returned patch.
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 2\n')
+  })
+
+  it('records the harness, model and profile that ran on every shot', async () => {
+    const receipts: AgenticGeneratorShotReceipt[] = []
+    const generator = agenticGenerator({
+      profile: inPlaceProfile,
+      executorForWorktree: inPlaceExecutor(async (options) => {
+        writeFileSync(join(options.cwd, 'app.ts'), 'export const x = 2\n')
+        return harnessOk()
+      }),
+      buildPrompt,
+      onShotCompleted: (receipt) => receipts.push(receipt),
+    })
+    const worktreePath = await candidateWorktree('in-place-receipt')
+
+    const result = await generator.generate(generateArgs(worktreePath))
+
+    // Admission is what a raw `cli` placement fails: it declares no model identity, so it never
+    // gets to spend. This placement declares one, so the shot runs and the receipt names it.
+    expect(result.applied).toBe(true)
+    expect(receipts).toHaveLength(1)
+    expect(receipts[0]).toMatchObject({
+      harness: 'claude-code',
+      provider: 'anthropic',
+      model: 'test/author-model',
+      status: 'completed',
+      error: null,
+    })
+    // An unmetered CLI run reports its tokens as unknown rather than as a measured zero.
+    expect(receipts[0]?.usage?.tokensKnown).toBe(false)
+  })
+
+  it('refuses a placement bound to a directory other than the candidate worktree', async () => {
+    let harnessRan = false
+    const generator = agenticGenerator({
+      profile: inPlaceProfile,
+      executorForWorktree: () => ({
+        backend: 'cli-in-place' as const,
+        workspacePath: repoRoot,
+        runHarness: async () => {
+          harnessRan = true
+          return harnessOk()
+        },
+      }),
+      buildPrompt,
+    })
+    const worktreePath = await candidateWorktree('in-place-wrong-directory')
+
+    await expect(generator.generate(generateArgs(worktreePath))).rejects.toThrow(
+      /workspacePath must equal the candidate worktree/,
+    )
+    expect(harnessRan).toBe(false)
+  })
+
+  it('accepts a placement whose path resolves to the candidate worktree through a symlink', async () => {
+    const generator = agenticGenerator({
+      profile: inPlaceProfile,
+      executorForWorktree: (worktreePath) => ({
+        backend: 'cli-in-place' as const,
+        // macOS reports the system temporary directory as `/var/...` and resolves it to
+        // `/private/var/...`. Both name the same directory, and the guard compares directories.
+        workspacePath: realpathSync(worktreePath),
+        runHarness: async (options) => {
+          writeFileSync(join(options.cwd, 'app.ts'), 'export const x = 2\n')
+          return harnessOk()
+        },
+      }),
+      buildPrompt,
+    })
+    const worktreePath = await candidateWorktree('in-place-symlinked')
+
+    const result = await generator.generate(generateArgs(worktreePath))
+
+    expect(result.applied).toBe(true)
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 2\n')
   })
 })
 

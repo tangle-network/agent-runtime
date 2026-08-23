@@ -310,7 +310,8 @@ function workerTraceUnpropagatedDeclaration(
 
 /**
  * NOT a harness-name test — `ExecutorConfig.backend` is a discriminated-union TAG naming HOW a
- * profile is materialized (bridge / sandbox / cli-worktree / router / cli / provider), which is a
+ * profile is materialized (bridge / sandbox / cli-worktree / cli-in-place / router / cli /
+ * provider), which is a
  * different axis from WHICH CLI runs. An exhaustive switch on a closed union tag is the correct
  * shape and must stay: it is what makes a new executor kind a compile error here rather than a
  * silently weaker materialization contract. Every other `backend.backend === …` in this file and
@@ -324,6 +325,8 @@ function backendProfileMaterialization(backend: ExecutorConfig): ProfileMaterial
       return fullProfileMaterialization
     case 'cli-worktree':
       return backend.bridge ? fullProfileMaterialization : worktreeCliProfileMaterialization
+    case 'cli-in-place':
+      return worktreeCliProfileMaterialization
     case 'router':
     case 'router-tools':
       return promptModelProfileMaterialization

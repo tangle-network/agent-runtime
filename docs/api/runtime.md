@@ -1783,6 +1783,127 @@ Verification signals derived in the live worktree (present only when commands we
 
 ***
 
+### InPlaceHarnessResult
+
+The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch:
+ the caller supplied the workspace and reads it directly.
+
+#### Properties
+
+##### workspacePath
+
+> **workspacePath**: `string`
+
+The directory the harness ran in, exactly as supplied.
+
+##### profileMaterialization
+
+> **profileMaterialization**: [`WorktreeProfileMaterializationReceipt`](#worktreeprofilematerializationreceipt)
+
+Exact profile materialization applied before the harness launched, and removed after it.
+
+##### harness
+
+> **harness**: `object`
+
+The harness subprocess outcome.
+
+###### name
+
+> **name**: [`LocalHarness`](mcp.md#localharness) \| `"bridge"`
+
+###### exitCode
+
+> **exitCode**: `number` \| `null`
+
+###### timedOut
+
+> **timedOut**: `boolean`
+
+###### killedBySignal
+
+> **killedBySignal**: `Signals` \| `null`
+
+###### durationMs
+
+> **durationMs**: `number`
+
+###### stdout
+
+> **stdout**: `string`
+
+###### stderr
+
+> **stderr**: `string`
+
+###### usage?
+
+> `optional` **usage?**: [`CodexTokenUsage`](mcp.md#codextokenusage)
+
+Exact Codex JSONL usage when reproducible mode is enabled.
+
+###### cliVersion?
+
+> `optional` **cliVersion?**: `string`
+
+Installed CLI version captured immediately before execution.
+
+###### executableSha256?
+
+> `optional` **executableSha256?**: `string`
+
+SHA-256 of the native Codex executable staged read-only in the candidate worktree.
+
+###### requestedPromptSha256?
+
+> `optional` **requestedPromptSha256?**: `string`
+
+SHA-256 of the exact composed prompt argument proved present in Codex's rendered prompt.
+
+###### effectivePromptSha256?
+
+> `optional` **effectivePromptSha256?**: `string`
+
+SHA-256 of `codex debug prompt-input` output for the exact isolated prompt.
+
+###### nonPromptArgsSha256?
+
+> `optional` **nonPromptArgsSha256?**: `string`
+
+SHA-256 of the exact executable + argv with prompt content replaced by `<PROMPT>`.
+
+###### controlledConfigSha256?
+
+> `optional` **controlledConfigSha256?**: `string`
+
+SHA-256 of the isolated config that fixes permissions and shell environment.
+
+###### readDeniedPathsSha256?
+
+> `optional` **readDeniedPathsSha256?**: `string`
+
+SHA-256 of the normalized caller-supplied host read-denial paths.
+
+###### readDeniedPaths?
+
+> `optional` **readDeniedPaths?**: `string`[]
+
+Sorted normalized caller-supplied host read-denial paths.
+
+###### readDeniedPathCount?
+
+> `optional` **readDeniedPathCount?**: `number`
+
+Number of normalized caller-supplied host read-denial paths.
+
+###### executionPolicy?
+
+> `optional` **executionPolicy?**: [`CodexExecutionPolicy`](mcp.md#codexexecutionpolicy)
+
+Explicit isolation claims checked before model execution.
+
+***
+
 ### AnytimeTaskCurve
 
 #### Properties
@@ -12977,6 +13098,92 @@ Edge ids whose traversal cap was hit — analyzes exhaustion included (observabl
 
 ***
 
+### InPlaceCliExecutorOptions
+
+**`Experimental`**
+
+#### Properties
+
+##### workspacePath
+
+> **workspacePath**: `string`
+
+**`Experimental`**
+
+Absolute path to the EXISTING directory the harness edits. The caller owns its lifecycle:
+ this leaf never creates it, never cleans it, and never removes it at teardown.
+
+##### profile
+
+> **profile**: `AgentProfile`
+
+**`Experimental`**
+
+The supervisor-authored prompt/model plus materializable structural resources.
+`model.default` selects the one-shot model. Routing-only model hints, placement concerns,
+provider extensions, and `resources.failOnError` fail before execution because this path
+cannot honor them. Harness-specific values the materializer cannot preserve also fail closed.
+
+##### taskPrompt?
+
+> `optional` **taskPrompt?**: `string`
+
+**`Experimental`**
+
+Default instruction for direct `execute(undefined, signal)` calls. An execution-time task
+ is authoritative. Omit when the caller always supplies the task to `execute`.
+
+##### harnessTimeoutMs?
+
+> `optional` **harnessTimeoutMs?**: `number`
+
+**`Experimental`**
+
+Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default).
+
+##### runHarness?
+
+> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
+
+**`Experimental`**
+
+Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`.
+
+**`Experimental`**
+
+Spawn a local coding harness CLI as a subprocess + collect its output.
+
+NOT responsible for parsing the harness's output or extracting a diff —
+the in-process executor's `streamPrompt` orchestrates `git diff` against
+the worktree after this resolves. This function is intentionally narrow:
+spawn, wait, capture, return.
+
+Fails loud — throws when:
+  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
+  - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
+
+Does NOT throw when:
+  - the subprocess exits non-zero (`result.exitCode` carries the code)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
+
+###### Parameters
+
+###### options
+
+[`RunLocalHarnessOptions`](mcp.md#runlocalharnessoptions)
+
+###### Returns
+
+`Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
+
+***
+
 ### AuthorityInboxMessage
 
 A message from the run's AUTHORITY — the parent driver. These two kinds carry instruction.
@@ -14612,6 +14819,93 @@ Test seam — forwarded to worktree helpers.
 > `optional` **runCommand?**: [`WorktreeCheckRunner`](index.md#worktreecheckrunner)
 
 Test seam — forwarded to verification checks.
+
+***
+
+### CliInPlaceSeam
+
+cli-in-place seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
+(claude-code / codex / opencode / pi) on a workspace the CALLER supplies — the leaf
+`createInPlaceCliExecutor` named as data. `workspacePath` is transport data;
+`AgentProfile.harness` selects the CLI, and the authored `profile.prompt.systemPrompt` +
+`profile.model.default` reach the harness via the §1.5 `harnessInvocation` mapper.
+
+READ THIS BEFORE CHOOSING BETWEEN THIS AND `cli-worktree`. They differ in ONE thing, and it is
+the thing that decides which one a caller wants:
+
+  - `cli-worktree` cuts a git worktree of its OWN off `repoRoot`, runs the harness there,
+    returns the captured patch, and removes the worktree at teardown. The directory it was
+    given is never edited. That is correct for a fanout of N candidate authors that must not
+    clobber each other, and for a caller whose deliverable IS the patch.
+  - `cli-in-place` runs the harness in `workspacePath` itself. The edits stay in that directory
+    after the call, so the NEXT call sees them. That is what a caller needs when the workspace
+    has to persist between calls — a multi-shot author resuming on top of its own edits
+    (`agenticGenerator`), or a candidate directory the caller commits itself.
+
+Because the workspace persists, so would the profile inputs this path materializes into it. They
+are removed before the call returns, so the directory a caller inspects afterwards holds the
+harness's own edits and nothing else, and a `git status` over it answers "did the author change
+anything" rather than "did Runtime write a settings file".
+
+There is no reproducible-Codex mode here: that mode stages an executable and a write probe INTO
+its working directory, which a caller-owned workspace is not the place for. Use `cli-worktree`
+with `codexReproducible` when the isolated, metered Codex run is what you want.
+
+#### Properties
+
+##### workspacePath
+
+> **workspacePath**: `string`
+
+Absolute path to the EXISTING directory the harness edits. Runtime never creates, cleans, or
+ removes it.
+
+##### taskPrompt?
+
+> `optional` **taskPrompt?**: `string`
+
+##### harnessTimeoutMs?
+
+> `optional` **harnessTimeoutMs?**: `number`
+
+##### runHarness?
+
+> `optional` **runHarness?**: (`options`) => `Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
+
+Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`.
+
+**`Experimental`**
+
+Spawn a local coding harness CLI as a subprocess + collect its output.
+
+NOT responsible for parsing the harness's output or extracting a diff —
+the in-process executor's `streamPrompt` orchestrates `git diff` against
+the worktree after this resolves. This function is intentionally narrow:
+spawn, wait, capture, return.
+
+Fails loud — throws when:
+  - `cwd` doesn't exist (subprocess emits ENOENT; surfaced as Error)
+  - the harness binary is not on PATH (ENOENT)
+  - the caller signal was already aborted before process launch
+
+Does NOT throw when:
+  - the subprocess exits non-zero (`result.exitCode` carries the code)
+  - a non-reproducible subprocess is aborted / timed out (`result.aborted` /
+    `result.timedOut` carries the reason even when a TERM-aware child exits zero)
+
+Reproducible Codex additionally requires a terminal usage event. If cancellation
+prevents that event, this rejects with `CodexExecutionDiagnosticError` instead of
+returning an incomplete reproducibility receipt.
+
+###### Parameters
+
+###### options
+
+[`RunLocalHarnessOptions`](mcp.md#runlocalharnessoptions)
+
+###### Returns
+
+`Promise`\<[`LocalHarnessResult`](mcp.md#localharnessresult)\>
 
 ***
 
@@ -16807,7 +17101,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-15)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-16)
 
 ##### task
 
@@ -22449,7 +22743,7 @@ The stores a supervised run needs, in-memory or file-backed. `InMemoryRunContext
 
 ### ExecutorConfig
 
-> **ExecutorConfig** = `object` & [`RouterSeam`](#routerseam) \| `object` & [`RouterToolsSeam`](#routertoolsseam) \| `object` & [`BridgeSeam`](#bridgeseam) \| `object` & [`CliSeam`](#cliseam) \| `object` & [`CliWorktreeSeam`](#cliworktreeseam) \| `object` & [`ProviderSeam`](#providerseam) \| `object` & [`SandboxSeam`](#sandboxseam)
+> **ExecutorConfig** = `object` & [`RouterSeam`](#routerseam) \| `object` & [`RouterToolsSeam`](#routertoolsseam) \| `object` & [`BridgeSeam`](#bridgeseam) \| `object` & [`CliSeam`](#cliseam) \| `object` & [`CliWorktreeSeam`](#cliworktreeseam) \| `object` & [`CliInPlaceSeam`](#cliinplaceseam) \| `object` & [`ProviderSeam`](#providerseam) \| `object` & [`SandboxSeam`](#sandboxseam)
 
 Config for [createExecutor](#createexecutor): the backend is DATA — the cost dial a profile,
 an experiment config, or a replay journal can name — not an import choice. Each
@@ -24229,6 +24523,17 @@ The pass branch of the dumb steering control — see [dumbContinuationFailPrompt
 The leaf `createWorktreeCliExecutor` as a backend-as-data factory: a supervisor-authored
 `AgentProfile` driving claude / codex / opencode on its own worktree. `budgetExempt` like
 the other CLI leaves; the authored systemPrompt + model reach the harness via §1.5.
+
+***
+
+### cliInPlaceExecutor
+
+> `const` **cliInPlaceExecutor**: [`ExecutorFactory`](#executorfactory)\<`unknown`\>
+
+The leaf `createInPlaceCliExecutor` as a backend-as-data factory: a supervisor-authored
+`AgentProfile` driving a local coding CLI in the workspace the caller supplied, so its edits are
+still there for the next spawn. `budgetExempt` like the other CLI leaves; the authored
+systemPrompt + model reach the harness via §1.5.
 
 ***
 
@@ -28331,6 +28636,33 @@ traversal is ledgered and journaled.
 #### Returns
 
 `Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
+
+***
+
+### createInPlaceCliExecutor()
+
+> **createInPlaceCliExecutor**(`options`): [`Executor`](index.md#executor-2)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
+
+**`Experimental`**
+
+Build an in-place CLI leaf `Executor`. Per-spawn, but NOT per-workspace: repeated spawns against
+the same `workspacePath` run in the same directory on purpose, each seeing what the last one
+wrote.
+
+Fail-loud: an empty `workspacePath`, an incomplete/unsupported profile, a separate harness
+override, or an explicitly empty `taskPrompt` throws at construction. A `workspacePath` that is
+not an existing directory throws before the harness launches. `resultArtifact()` before
+`execute()` resolves throws.
+
+#### Parameters
+
+##### options
+
+[`InPlaceCliExecutorOptions`](#inplacecliexecutoroptions)
+
+#### Returns
+
+[`Executor`](index.md#executor-2)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
 
 ***
 
