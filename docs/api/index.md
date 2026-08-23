@@ -4792,8 +4792,15 @@ so trace stitching survives nested orchestration.
 
 ### VerifyResult
 
-Outcome of verifying a candidate worktree. `feedback` (compiler errors,
- failing test output) is fed into the next shot when `ok` is false.
+Outcome of verifying a candidate worktree.
+
+`ok` answers "is this tree shippable". `keepGoing` answers "should the budget
+stop here", and `score` ranks this tree against the other trees the same
+candidate produced — three separate questions, so a verifier can pass a tree
+and still spend the shots it was given.
+
+`feedback` (compiler errors, failing test output, or the reason a passing
+tree is being sent back) is fed into the next shot.
 
 #### Properties
 
@@ -4804,6 +4811,28 @@ Outcome of verifying a candidate worktree. `feedback` (compiler errors,
 ##### feedback?
 
 > `optional` **feedback?**: `string`
+
+##### keepGoing?
+
+> `optional` **keepGoing?**: `boolean`
+
+Spend the remaining shots instead of returning this tree now.
+
+Read only when `ok` is true: a failed verification already spends the next
+shot. Omitted means the first passing tree ends the candidate.
+
+##### score?
+
+> `optional` **score?**: `number`
+
+How good this tree is, for ranking it against the other passing trees of
+this candidate. Higher wins; a tie keeps the LATER tree, which is the one
+already on disk and the one the author refined last.
+
+Only a passing tree is ranked — a tree that failed verification is never a
+candidate, whatever it scored. Score every passing tree or none of them: a
+scored tree cannot be ranked against an unscored one, and mixing the two
+fails the run rather than guessing an order.
 
 ***
 
@@ -5020,8 +5049,10 @@ readonly `ProposalFinding`[]
 Verify the worktree after each dirtying shot. When set, a candidate that
  fails verification is NOT returned — the failure feeds the next shot
  (verify-in-session), up to `maxShots`; a candidate that never verifies is
- discarded (`applied:false`), never shipped. Omitted means the first dirty
- shot is the candidate. See `commandVerifier`.
+ discarded (`applied:false`), never shipped. A verifier that returns
+ `keepGoing` passes a tree AND spends the remaining shots, and the
+ best-scoring tree is the one that ships. Omitted means the first dirty
+ shot is the candidate. See `commandVerifier` and `VerifyResult`.
 
 ##### isDirty?
 
@@ -11297,11 +11328,89 @@ Runtime's exact terminal turn plus its complete normalized event stream.
 
 ### AgenticGeneratorShotDisposition
 
-> **AgenticGeneratorShotDisposition** = \{ `kind`: `"clean"`; `worktreePath`: `string`; \} \| \{ `kind`: `"rejected"`; `worktreePath`: `string`; `stage`: `"raw-trace-evidence"` \| `"verification"`; `feedback`: `string` \| `null`; \} \| \{ `kind`: `"accepted"`; `worktreePath`: `string`; `verified`: `boolean`; \} \| \{ `kind`: `"setup-error"`; `worktreePath`: `string`; `stage`: `"worktree-inspection"` \| `"raw-trace-evidence"` \| `"verification"`; `error`: \{ `name`: `string`; `message`: `string`; \}; \}
+> **AgenticGeneratorShotDisposition** = \{ `kind`: `"clean"`; `worktreePath`: `string`; \} \| \{ `kind`: `"rejected"`; `worktreePath`: `string`; `stage`: `"raw-trace-evidence"` \| `"verification"`; `feedback`: `string` \| `null`; \} \| \{ `kind`: `"kept"`; `worktreePath`: `string`; `score`: `number` \| `null`; `best`: `boolean`; `feedback`: `string` \| `null`; \} \| \{ `kind`: `"accepted"`; `worktreePath`: `string`; `verified`: `boolean`; `restoredFromShot`: `number` \| `null`; \} \| \{ `kind`: `"setup-error"`; `worktreePath`: `string`; `stage`: `"worktree-inspection"` \| `"raw-trace-evidence"` \| `"verification"`; `error`: \{ `name`: `string`; `message`: `string`; \}; \}
 
 Worktree decision emitted before a completed shot is retried, accepted, or
  discarded. The callback runs while `worktreePath` is still available, so
  callers can persist the exact diff.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"clean"`; `worktreePath`: `string`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"rejected"`; `worktreePath`: `string`; `stage`: `"raw-trace-evidence"` \| `"verification"`; `feedback`: `string` \| `null`; \}
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"kept"`; `worktreePath`: `string`; `score`: `number` \| `null`; `best`: `boolean`; `feedback`: `string` \| `null`; \}
+
+###### kind
+
+> `readonly` **kind**: `"kept"`
+
+The tree passed verification and the verifier asked for another shot,
+ so it was snapshotted and the budget continues.
+
+###### worktreePath
+
+> `readonly` **worktreePath**: `string`
+
+###### score
+
+> `readonly` **score**: `number` \| `null`
+
+The rank the verifier gave this tree, or null when it scored nothing.
+
+###### best
+
+> `readonly` **best**: `boolean`
+
+Whether this tree is now the best one this candidate has produced.
+
+###### feedback
+
+> `readonly` **feedback**: `string` \| `null`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"accepted"`; `worktreePath`: `string`; `verified`: `boolean`; `restoredFromShot`: `number` \| `null`; \}
+
+###### kind
+
+> `readonly` **kind**: `"accepted"`
+
+###### worktreePath
+
+> `readonly` **worktreePath**: `string`
+
+###### verified
+
+> `readonly` **verified**: `boolean`
+
+###### restoredFromShot
+
+> `readonly` **restoredFromShot**: `number` \| `null`
+
+One-based shot whose tree was put back into the worktree because it
+ outranked the tree on disk; null when the tree on disk is the one that
+ ships. Non-null is the record that best-of-n moved bytes rather than
+ only ranking them.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"setup-error"`; `worktreePath`: `string`; `stage`: `"worktree-inspection"` \| `"raw-trace-evidence"` \| `"verification"`; `error`: \{ `name`: `string`; `message`: `string`; \}; \}
 
 ***
 

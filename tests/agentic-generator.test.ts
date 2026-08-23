@@ -1,5 +1,13 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CostLedger, makeProposalFinding, type ProposalFinding } from '@tangle-network/agent-eval'
@@ -663,6 +671,305 @@ describe('agenticGenerator on a cli-in-place placement', () => {
     const result = await generator.generate(generateArgs(worktreePath))
 
     expect(result.applied).toBe(true)
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 2\n')
+  })
+})
+
+/**
+ * Spending the whole shot budget and shipping the best tree.
+ *
+ * `ok` used to answer two questions at once — "this tree is shippable" and
+ * "stop now" — so a caller who wanted best-of-n had to reject every shot but
+ * the last and write the winning tree back into the worktree itself.
+ * `keepGoing` and `score` separate the two, and the loop owns the restore.
+ */
+describe('agenticGenerator best-of-n over the shot budget', () => {
+  /** Write a distinct tree per shot, and record the prompt each shot was given. */
+  function authorPerShot(
+    prompts: string[],
+    write: (worktreePath: string, shot: number) => void,
+  ): AgenticGeneratorExecutorForWorktree {
+    return routedExecutor(({ worktreePath, body, call }) => {
+      prompts.push(
+        String(messages(body).findLast((message) => message.role === 'user')?.content ?? ''),
+      )
+      write(worktreePath, call)
+    })
+  }
+
+  it('COMPATIBILITY: a verifier returning todays shape still stops at the first passing tree', async () => {
+    const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, shot) => {
+        writeFileSync(join(worktreePath, 'app.ts'), `export const x = ${shot + 1}\n`)
+      }),
+      buildPrompt,
+      // Today's shape byte for byte: one boolean, and an optional string on failure.
+      verify: () => ({ ok: true }),
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('compatibility-first-acceptance')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 3))
+
+    expect(result.applied).toBe(true)
+    // One of three shots fired: the first passing tree still ends the candidate.
+    expect(prompts).toHaveLength(1)
+    expect(dispositions).toEqual([
+      { kind: 'accepted', worktreePath, verified: true, restoredFromShot: null },
+    ])
+    // The tree the accepted shot left is the tree that ships. Nothing was restored.
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 2\n')
+  })
+
+  it('COMPATIBILITY: a failing verifier still feeds the next shot and never ships', async () => {
+    const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, shot) => {
+        writeFileSync(join(worktreePath, 'app.ts'), `export const x = broken${shot}\n`)
+      }),
+      buildPrompt,
+      verify: () => ({ ok: false, feedback: 'cannot find name broken' }),
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('compatibility-never-verifies')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 3))
+
+    expect(result.applied).toBe(false)
+    expect(prompts).toHaveLength(3)
+    expect(prompts[1]).toContain('verification FAILED')
+    expect(prompts[1]).toContain('cannot find name broken')
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual([
+      'rejected',
+      'rejected',
+      'rejected',
+    ])
+  })
+
+  it('spends every shot when a passing verifier asks to keep going', async () => {
+    const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, shot) => {
+        writeFileSync(join(worktreePath, 'app.ts'), `export const x = ${shot + 1}\n`)
+      }),
+      buildPrompt,
+      verify: () => ({ ok: true, keepGoing: true, score: 1, feedback: 'it played 300 turns' }),
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('spends-every-shot')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 3))
+
+    expect(result.applied).toBe(true)
+    // Three of three shots fired, each one reading the passing note.
+    expect(prompts).toHaveLength(3)
+    expect(prompts[0]).not.toContain('verification PASSED')
+    expect(prompts[1]).toContain('verification PASSED')
+    expect(prompts[1]).toContain('it played 300 turns')
+    expect(prompts[2]).toContain('verification PASSED')
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual([
+      'kept',
+      'kept',
+      'kept',
+      'accepted',
+    ])
+    expect(dispositions[0]).toMatchObject({ kind: 'kept', score: 1, best: true })
+    // Every tree tied, so the LAST one wins and nothing had to be put back.
+    expect(dispositions.at(-1)).toEqual({
+      kind: 'accepted',
+      worktreePath,
+      verified: true,
+      restoredFromShot: null,
+    })
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 4\n')
+  })
+
+  it('restores the best tree when the best shot is not the last', async () => {
+    const prompts: string[] = []
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const scores = [1, 5, 2]
+    let shot = 0
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, call) => {
+        writeFileSync(join(worktreePath, 'app.ts'), `export const x = ${call + 1}\n`)
+        // Shot 2's tree also adds a file; shot 3's adds a different one. Only
+        // the winner's extra file may survive the restore.
+        if (call === 2) writeFileSync(join(worktreePath, 'best.ts'), 'export const best = true\n')
+        if (call === 3) writeFileSync(join(worktreePath, 'worse.ts'), 'export const worse = true\n')
+      }),
+      buildPrompt,
+      verify: () => {
+        const score = scores[shot]
+        shot += 1
+        return { ok: true, keepGoing: true, score }
+      },
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('restores-the-best-tree')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 3))
+
+    expect(result.applied).toBe(true)
+    expect(prompts).toHaveLength(3)
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual([
+      'kept',
+      'kept',
+      'kept',
+      'accepted',
+    ])
+    expect(dispositions[1]).toMatchObject({ kind: 'kept', score: 5, best: true })
+    expect(dispositions[2]).toMatchObject({ kind: 'kept', score: 2, best: false })
+    expect(dispositions.at(-1)).toEqual({
+      kind: 'accepted',
+      worktreePath,
+      verified: true,
+      restoredFromShot: 2,
+    })
+    // Shot 2's exact tree ships: its content, its file, and none of shot 3's.
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 3\n')
+    expect(readFileSync(join(worktreePath, 'best.ts'), 'utf8')).toBe('export const best = true\n')
+    expect(existsSync(join(worktreePath, 'worse.ts'))).toBe(false)
+  })
+
+  it('ships the banked tree when the last shot breaks the change', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const prompts: string[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, call) => {
+        writeFileSync(
+          join(worktreePath, 'app.ts'),
+          call === 1 ? 'export const x = 2\n' : 'export const x = broken\n',
+        )
+      }),
+      buildPrompt,
+      verify: (candidatePath) =>
+        readFileSync(join(candidatePath, 'app.ts'), 'utf8').includes('broken')
+          ? { ok: false, feedback: 'cannot find name broken' }
+          : { ok: true, keepGoing: true, score: 3 },
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('last-shot-regresses')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 2))
+
+    expect(result.applied).toBe(true)
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual([
+      'kept',
+      'rejected',
+      'accepted',
+    ])
+    // The rejection's own evidence survives; the verified tree still ships.
+    expect(dispositions[1]).toMatchObject({
+      kind: 'rejected',
+      stage: 'verification',
+      feedback: 'cannot find name broken',
+    })
+    expect(dispositions.at(-1)).toMatchObject({ kind: 'accepted', restoredFromShot: 1 })
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 2\n')
+  })
+
+  it('ships nothing when no shot of the budget ever verifies', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const prompts: string[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, call) => {
+        writeFileSync(join(worktreePath, 'app.ts'), `export const x = broken${call}\n`)
+      }),
+      buildPrompt,
+      // The floor: a tree that never played is refused at every shot, last included.
+      verify: () => ({ ok: false, feedback: 'the program never played' }),
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('nothing-ever-verifies')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 3))
+
+    expect(result.applied).toBe(false)
+    expect(result.summary).toBe('')
+    expect(prompts).toHaveLength(3)
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual([
+      'rejected',
+      'rejected',
+      'rejected',
+    ])
+  })
+
+  it('refuses a budget whose passing trees cannot be ordered', async () => {
+    const prompts: string[] = []
+    let shot = 0
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, call) => {
+        writeFileSync(join(worktreePath, 'app.ts'), `export const x = ${call + 1}\n`)
+      }),
+      buildPrompt,
+      verify: () => {
+        shot += 1
+        return shot === 1 ? { ok: true, keepGoing: true, score: 4 } : { ok: true, keepGoing: true }
+      },
+    })
+    const worktreePath = await candidateWorktree('unorderable-scores')
+
+    await expect(generator.generate(generateArgs(worktreePath, FINDINGS, 2))).rejects.toThrow(
+      /cannot be ranked against an unscored one/,
+    )
+  })
+
+  it('refuses a non-finite score', async () => {
+    const prompts: string[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath) => {
+        writeFileSync(join(worktreePath, 'app.ts'), 'export const x = 2\n')
+      }),
+      buildPrompt,
+      verify: () => ({ ok: true, keepGoing: true, score: Number.NaN }),
+    })
+    const worktreePath = await candidateWorktree('non-finite-score')
+
+    await expect(generator.generate(generateArgs(worktreePath, FINDINGS, 2))).rejects.toThrow(
+      /non-finite score/,
+    )
+  })
+
+  it('ships the banked tree when the last shot reverts every edit', async () => {
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const prompts: string[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: authorPerShot(prompts, (worktreePath, call) => {
+        // Shot 2 puts the worktree back to its base state, so the dirty check
+        // reads it as an empty tree.
+        writeFileSync(
+          join(worktreePath, 'app.ts'),
+          call === 1 ? 'export const x = 2\n' : 'export const x = 1\n',
+        )
+      }),
+      buildPrompt,
+      verify: () => ({ ok: true, keepGoing: true, score: 7 }),
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree('last-shot-reverts')
+
+    const result = await generator.generate(generateArgs(worktreePath, FINDINGS, 2))
+
+    expect(result.applied).toBe(true)
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual([
+      'kept',
+      'clean',
+      'accepted',
+    ])
+    expect(dispositions.at(-1)).toMatchObject({ kind: 'accepted', restoredFromShot: 1 })
     expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 2\n')
   })
 })

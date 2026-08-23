@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.174.0
+
+### `keepGoing` and `score`: spend the whole shot budget, ship the best tree
+
+`agenticGenerator`'s `Verifier` answered one boolean, and `ok` carried two meanings at once — "this tree is shippable" and "stop now". The shot loop returned inside `if (result.ok)` and `AgenticGeneratorOptions` exposed no field to override it, so ordinary best-of-n could not be expressed: a caller who wanted to spend the shots it was given and keep the best tree had no way to say so.
+
+A consumer building best-of-n hit exactly that and encoded it by hand (agent-lab's playproof study, `projects/playproof/verify-budget.ts`): reject every shot but the last whatever it measured, score each tree as it is produced, and physically write the best program back into the worktree just before the last shot is accepted — because with only one boolean, "ship the best tree" has to mean "make the best tree BE the worktree". Their measured runs are why it matters. Under first-acceptance-wins, 1 shot of 3 fired and the program that shipped was never once run by its author. Under the workaround, 3 of 3 fired and every shot ran its own program.
+
+`VerifyResult` gains two optional fields, so three separate questions get three separate answers:
+
+| field | question | omitted |
+|---|---|---|
+| `ok` | is this tree shippable | unchanged |
+| `keepGoing` | should the budget stop here | the first passing tree ends the candidate, exactly as before |
+| `score` | how does this tree rank against the other passing trees | every passing tree ties, so the later one wins |
+
+- **The loop owns the restore, and that is the point.** A passing tree whose verifier asks for another shot is snapshotted as a Git tree object (staged into a private index, so the index the driver commits from is untouched). When the budget ends, the highest-scoring tree is put back into the worktree — content, added files, and the removal of files only a losing shot wrote — and the restore is proved by re-snapshotting and comparing tree ids before the candidate is returned. The caller ranks; the runtime moves the bytes. Without this half, every caller wanting best-of-n still hand-rolls the write-back, which is the thing being fixed.
+- **Compatibility is an explicit gate, not a claim.** `tests/agentic-generator.test.ts` drives the real `agenticGenerator` with a verifier returning today's shape and asserts today's behaviour: 1 of 3 shots fires, the disposition stream is exactly `['accepted']` with `restoredFromShot: null`, and the accepted shot's own tree is what lands. A second gate holds the failure path — a verifier that never passes still feeds `verification FAILED` into the next shot and still ships nothing.
+- **A last shot that breaks or reverts the change no longer costs the candidate.** A banked tree passed verification, so it ships even when the final shot ends on a broken or empty tree. The failing shot's own `rejected` disposition is still emitted first, so its evidence survives. The invariant is intact: a tree that failed verification is never what ships.
+- **A tie keeps the LATER tree.** It is already on disk, so no restore is needed, and it is the author's own refinement of the tree it tied with.
+- **A set of trees that cannot be ordered fails the run.** Scoring one passing tree and not another throws rather than guessing an order, and a non-finite score throws. A tree that FAILED verification is never ranked, whatever it scored.
+- **`onShotDisposition` gains `kept`**, the shot that passed and was sent back: it carries the `score`, whether the tree `best`s the candidate so far, and the verifier's `feedback`. `accepted` gains `restoredFromShot` — non-null is the record that best-of-n moved bytes rather than only ranking them.
+- **The next-shot note is new text for a new state.** A passing tree sent back is told `verification PASSED`, that shots remain, and that the best version it produces is the one that ships — not the `verification FAILED` note, which would be a lie.
+- **`cli-worktree`, `cli-in-place` and `commandVerifier` are unchanged.** This is the verify/shot-loop contract only; `commandVerifier` still answers `{ok:true}` / `{ok:false, feedback}` and still stops at the first passing tree.
+
 ## 0.173.0
 
 ### `cli-in-place`: a local coding CLI on the worktree you hand it
