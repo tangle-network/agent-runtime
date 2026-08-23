@@ -231,7 +231,7 @@ Import from `@tangle-network/agent-runtime` — 440 exports.
 | `SpendGap` | interface | One journaled node whose usage accounting is incomplete — the named gap behind a `false` |
 | `SqlAdapter` | interface | Minimal SQL driver shape. Implementations forward to whichever client the |
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
-| `VerifyResult` | interface | Outcome of verifying a candidate worktree. `feedback` (compiler errors, |
+| `VerifyResult` | interface | Outcome of verifying a candidate worktree. |
 | `AgentCandidateBundleInput` | type | Exact candidate wire shape before the runtime computes its canonical digest. |
 | `AgentCandidateCodeSource` | type | Explicit control/no-op code or one finalized CodeSurface whose bytes must still verify. |
 | `AgentCandidateExecutionClaimResult` | type | Result of atomically claiming one execution attempt. |

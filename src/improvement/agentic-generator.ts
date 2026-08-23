@@ -23,9 +23,19 @@
  *       (the worktree persists, so the harness RESUMES atop its own failing
  *       edits with the error in hand — no session-specific retry path needed)
  *   - dirty + `verify` ok (or no verifier configured) → return the candidate
+ *   - dirty + `verify` ok + `keepGoing` → bank the tree and spend the next shot
  * A candidate that never verifies within `maxShots` is discarded (`applied:
  * false`), never shipped — if you configured a verifier, a non-passing tree is
  * not a candidate. With no verifier, the first dirty shot is the candidate.
+ *
+ * BEST-OF-N is the `keepGoing` path, and the loop owns it end to end. A
+ * verifier that passes a tree and asks for another shot has its tree
+ * snapshotted as a Git tree object; when the budget ends, the highest-`score`
+ * tree is RESTORED into the worktree and returned as the candidate. So the
+ * caller ranks and the loop moves the bytes — a caller never has to write a
+ * passing tree back itself. The budget ends on the last shot, or earlier on a
+ * `keepGoing`-less pass, and a last shot that broke or reverted the change does
+ * not cost the candidate the verified tree an earlier shot produced.
  *
  * @stable
  */
@@ -62,16 +72,44 @@ import { createExecutor, type ExecutorConfig } from '../runtime/supervise/runtim
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import type { CandidateGenerator } from './improvement-driver'
 import { optimizerMethod } from './optimizer-prompt'
+import { restoreWorktreeTree, snapshotWorktreeTree } from './worktree-tree'
 
 const RAW_TRACE_ANALYST_ID = 'raw-trace-distiller'
 const RAW_TRACE_AREA = 'raw-trace-context'
 const RAW_TRACE_DIAGNOSIS_PATH = '.improve/raw-trace-diagnosis.md'
 
-/** Outcome of verifying a candidate worktree. `feedback` (compiler errors,
- *  failing test output) is fed into the next shot when `ok` is false. */
+/**
+ * Outcome of verifying a candidate worktree.
+ *
+ * `ok` answers "is this tree shippable". `keepGoing` answers "should the budget
+ * stop here", and `score` ranks this tree against the other trees the same
+ * candidate produced — three separate questions, so a verifier can pass a tree
+ * and still spend the shots it was given.
+ *
+ * `feedback` (compiler errors, failing test output, or the reason a passing
+ * tree is being sent back) is fed into the next shot.
+ */
 export interface VerifyResult {
   ok: boolean
   feedback?: string
+  /**
+   * Spend the remaining shots instead of returning this tree now.
+   *
+   * Read only when `ok` is true: a failed verification already spends the next
+   * shot. Omitted means the first passing tree ends the candidate.
+   */
+  keepGoing?: boolean
+  /**
+   * How good this tree is, for ranking it against the other passing trees of
+   * this candidate. Higher wins; a tie keeps the LATER tree, which is the one
+   * already on disk and the one the author refined last.
+   *
+   * Only a passing tree is ranked — a tree that failed verification is never a
+   * candidate, whatever it scored. Score every passing tree or none of them: a
+   * scored tree cannot be ranked against an unscored one, and mixing the two
+   * fails the run rather than guessing an order.
+   */
+  score?: number
 }
 
 /** Verifies the edited worktree. Sync or async; throws only on a setup fault
@@ -130,9 +168,25 @@ export type AgenticGeneratorShotDisposition =
       readonly feedback: string | null
     }
   | {
+      /** The tree passed verification and the verifier asked for another shot,
+       *  so it was snapshotted and the budget continues. */
+      readonly kind: 'kept'
+      readonly worktreePath: string
+      /** The rank the verifier gave this tree, or null when it scored nothing. */
+      readonly score: number | null
+      /** Whether this tree is now the best one this candidate has produced. */
+      readonly best: boolean
+      readonly feedback: string | null
+    }
+  | {
       readonly kind: 'accepted'
       readonly worktreePath: string
       readonly verified: boolean
+      /** One-based shot whose tree was put back into the worktree because it
+       *  outranked the tree on disk; null when the tree on disk is the one that
+       *  ships. Non-null is the record that best-of-n moved bytes rather than
+       *  only ranking them. */
+      readonly restoredFromShot: number | null
     }
   | {
       readonly kind: 'setup-error'
@@ -173,8 +227,10 @@ export interface AgenticGeneratorOptions {
   /** Verify the worktree after each dirtying shot. When set, a candidate that
    *  fails verification is NOT returned — the failure feeds the next shot
    *  (verify-in-session), up to `maxShots`; a candidate that never verifies is
-   *  discarded (`applied:false`), never shipped. Omitted means the first dirty
-   *  shot is the candidate. See `commandVerifier`. */
+   *  discarded (`applied:false`), never shipped. A verifier that returns
+   *  `keepGoing` passes a tree AND spends the remaining shots, and the
+   *  best-scoring tree is the one that ships. Omitted means the first dirty
+   *  shot is the candidate. See `commandVerifier` and `VerifyResult`. */
   verify?: Verifier
   /** Test seam — inject the worktree-dirty check (defaults to `git status`). */
   isDirty?: (worktreePath: string) => boolean
@@ -241,9 +297,46 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
       const shots = Math.max(1, maxShots)
       // Feedback appended to the base prompt for the NEXT shot — empty on shot 0.
       let attemptNote = ''
+      // The best tree this candidate has produced, and where it lives. Only a
+      // verifier that returns `keepGoing` can put more than one tree here: a
+      // passing tree that ends the budget is banked and shipped in one step.
+      let best: BankedTree | null = null
+      // Whether the verifier scores its trees. Set by the first passing tree;
+      // a later tree that disagrees cannot be ranked and fails the run.
+      let scored: boolean | null = null
+      let lastReceipt: AgenticGeneratorShotReceipt | null = null
+
+      /** Ship the best tree this candidate produced, restoring it when a later
+       *  shot wrote over it. */
+      const shipBankedTree = async (
+        receipt: AgenticGeneratorShotReceipt,
+        banked: BankedTree,
+      ): Promise<ReturnType<typeof acceptedCandidate>> => {
+        const restoredFromShot = banked.onDisk ? null : banked.shot
+        if (!banked.onDisk) {
+          if (banked.tree === null) {
+            throw new Error(
+              `agenticGenerator: shot ${banked.shot} produced the best tree but it was never snapshotted`,
+            )
+          }
+          restoreWorktreeTree(worktreePath, banked.tree)
+          banked.onDisk = true
+        }
+        signal.throwIfAborted()
+        await emitShotDisposition(opts.onShotDisposition, receipt, {
+          kind: 'accepted',
+          worktreePath,
+          verified: true,
+          restoredFromShot,
+        })
+        signal.throwIfAborted()
+        return acceptedCandidate(findings)
+      }
 
       for (let shot = 0; shot < shots; shot++) {
         signal.throwIfAborted()
+        // This shot may write over whatever the worktree held.
+        if (best) best.onDisk = false
         const taskPrompt = attemptNote ? `${basePrompt}\n\n${attemptNote}` : basePrompt
         const startedAt = new Date()
         let turn: CollectedAgentTurn | null = null
@@ -317,6 +410,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
           costReceipt,
           error: shotError,
         })
+        lastReceipt = receipt
         await emitShotReceipt(opts.onShotCompleted, receipt, execution, shotError)
         signal.throwIfAborted()
 
@@ -386,6 +480,7 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
             kind: 'accepted',
             worktreePath,
             verified: false,
+            restoredFromShot: null,
           })
           signal.throwIfAborted()
           return acceptedCandidate(findings)
@@ -406,14 +501,39 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
           )
         }
         if (result.ok) {
+          const score = admittedScore(result, scored, shot)
+          scored = score !== null
+          const previousBest = best
+          let banked: BankedTree
+          // A tie keeps the LATER tree: it is already on disk, and it is the
+          // author's own refinement of the tree it tied with. `admittedScore`
+          // refuses a mix of scored and unscored trees, so an unscored set is a
+          // flat 0 and this rule reduces to "the later tree wins".
+          if (previousBest === null || (score ?? 0) >= (previousBest.score ?? 0)) {
+            banked = { shot: shot + 1, score, tree: null, onDisk: true }
+          } else {
+            banked = previousBest
+          }
+          const becomesBest = banked !== previousBest
+          best = banked
+          if (result.keepGoing !== true) {
+            signal.throwIfAborted()
+            return await shipBankedTree(receipt, banked)
+          }
+          // Shots remain, so a later one can write over this tree. Bank the
+          // bytes now, while they are still on disk.
+          if (becomesBest && shot < shots - 1) banked.tree = snapshotWorktreeTree(worktreePath)
           signal.throwIfAborted()
           await emitShotDisposition(opts.onShotDisposition, receipt, {
-            kind: 'accepted',
+            kind: 'kept',
             worktreePath,
-            verified: true,
+            score,
+            best: becomesBest,
+            feedback: result.feedback ?? null,
           })
           signal.throwIfAborted()
-          return acceptedCandidate(findings)
+          attemptNote = keptNote(result.feedback)
+          continue
         }
         signal.throwIfAborted()
         await emitShotDisposition(opts.onShotDisposition, receipt, {
@@ -427,10 +547,50 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
         attemptNote = failureNote(result.feedback)
       }
 
-      // Shots exhausted: no verified candidate (or, sans verifier, no edits).
+      // Shots exhausted. A banked tree passed verification, so it ships even
+      // though the last shot did not end the budget on it — discarding paid,
+      // verified work because a later shot broke or reverted it is the loss
+      // best-of-n exists to prevent.
+      if (best !== null) {
+        if (!lastReceipt) {
+          throw new Error('agenticGenerator: a tree was banked without a shot receipt')
+        }
+        return await shipBankedTree(lastReceipt, best)
+      }
+      // No verified candidate (or, sans verifier, no edits).
       return { applied: false, summary: '' }
     },
   }
+}
+
+/** A tree that passed verification, and whether the worktree still holds it. */
+interface BankedTree {
+  /** One-based shot that produced it. */
+  readonly shot: number
+  /** Its rank, or null when the verifier scores nothing. */
+  readonly score: number | null
+  /** Its Git tree id, written only while a later shot can still overwrite it. */
+  tree: string | null
+  onDisk: boolean
+}
+
+/** The rank a passing tree carries, refusing a set of trees that cannot be ordered. */
+function admittedScore(result: VerifyResult, scored: boolean | null, shot: number): number | null {
+  const has = result.score !== undefined
+  if (scored !== null && has !== scored) {
+    throw new Error(
+      `agenticGenerator: verify ${has ? 'scored' : 'did not score'} the tree from shot ${shot + 1} and ${
+        scored ? 'scored' : 'did not score'
+      } an earlier passing tree; a scored tree cannot be ranked against an unscored one`,
+    )
+  }
+  if (!has) return null
+  if (typeof result.score !== 'number' || !Number.isFinite(result.score)) {
+    throw new Error(
+      `agenticGenerator: verify returned a non-finite score (${String(result.score)}) for shot ${shot + 1}`,
+    )
+  }
+  return result.score
 }
 
 async function emitShotReceipt(
@@ -645,6 +805,19 @@ function failureNote(feedback?: string): string {
   return [
     'NOTE: your edits are in the working tree but verification FAILED.',
     'Fix the problem in place — build on your existing edits, do not revert them.',
+    detail ? `Verifier output:\n${truncate(detail, 4000)}` : 'No verifier detail was captured.',
+  ].join('\n')
+}
+
+/** Next-shot feedback when the worktree PASSED and the verifier asked for
+ *  another shot. The passing tree is banked, so the author is told to improve
+ *  it rather than protect it — a worse tree cannot cost it the candidate. */
+function keptNote(feedback?: string): string {
+  const detail = feedback?.trim()
+  return [
+    'NOTE: your edits are in the working tree and verification PASSED.',
+    'Shots remain in this budget — keep improving the change in place, do not revert it.',
+    'The best version you produce is the one that ships.',
     detail ? `Verifier output:\n${truncate(detail, 4000)}` : 'No verifier detail was captured.',
   ].join('\n')
 }
