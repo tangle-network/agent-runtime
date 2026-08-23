@@ -708,6 +708,14 @@ export {
   runGraph,
   type TraversalContinuity,
 } from './supervise/graph'
+// The in-place CLI leaf executor: the same authored AgentProfile on the same local harness CLI,
+// running in a workspace the CALLER supplies, so the edits stay in that directory for the next
+// spawn. `createExecutor({ backend: 'cli-in-place', workspacePath })` routes to this leaf.
+export {
+  createInPlaceCliExecutor,
+  type InPlaceCliExecutorOptions,
+  type InPlaceHarnessResult,
+} from './supervise/in-place-cli-executor'
 // The down-leg receive end: a per-worker inbox an executor exposes as `Executor.deliver`; the loop
 // drains it at the step boundary + before settle (queued) or aborts the turn (forceful interrupt).
 export {
@@ -839,9 +847,11 @@ export {
 export {
   type BridgeModelCredential,
   type BridgeSeam,
+  type CliInPlaceSeam,
   type CliSeam,
   type CliWorktreeBridgeSeam,
   type CliWorktreeSeam,
+  cliInPlaceExecutor,
   cliWorktreeExecutor,
   createExecutor,
   createExecutorRegistry,

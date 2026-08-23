@@ -34,7 +34,6 @@ import {
   type AgentProfile,
   type AgentProfileMcpServer,
   type AgentProfileResourceRef,
-  AgentTurnInputSchema,
   agentProfileSchema,
   canonicalAgentProfileDigest,
   harnessTypeSchema,
@@ -42,7 +41,6 @@ import {
   profileMaterializationAxes,
   REASONING_EFFORTS,
   type ReasoningEffort,
-  renderInputPartsAsText,
 } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import {
@@ -50,6 +48,7 @@ import {
   defineProfileMaterializationContract,
 } from '../../agent/profile-materialization'
 import { BackendTransportError, ValidationError } from '../../errors'
+import type { runLocalHarness } from '../../mcp/local-harness'
 import { mergeTraceEnv } from '../../mcp/trace-propagation'
 import {
   captureWorktreeDiff,
@@ -111,6 +110,7 @@ import {
 import { linkAbort } from './abortable'
 import { priceUnreceiptedWork } from './cost-estimate'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
+import { createInPlaceCliExecutor } from './in-place-cli-executor'
 import { createInbox, type Inbox } from './inbox'
 import {
   attestRuntimeOwnedExecutor,
@@ -142,6 +142,7 @@ import {
 } from './progress'
 import { createSteerableSandboxSession, type SandboxSteeringOptions } from './sandbox-session'
 import { detachedSnapshot } from './snapshot'
+import { taskToPrompt } from './task-prompt'
 import {
   createPushTraceSource,
   decodeOpenAiPart,
@@ -323,6 +324,44 @@ export interface CliWorktreeSeam {
   runCommand?: WorktreeCheckRunner
 }
 
+/**
+ * cli-in-place seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI
+ * (claude-code / codex / opencode / pi) on a workspace the CALLER supplies — the leaf
+ * `createInPlaceCliExecutor` named as data. `workspacePath` is transport data;
+ * `AgentProfile.harness` selects the CLI, and the authored `profile.prompt.systemPrompt` +
+ * `profile.model.default` reach the harness via the §1.5 `harnessInvocation` mapper.
+ *
+ * READ THIS BEFORE CHOOSING BETWEEN THIS AND `cli-worktree`. They differ in ONE thing, and it is
+ * the thing that decides which one a caller wants:
+ *
+ *   - `cli-worktree` cuts a git worktree of its OWN off `repoRoot`, runs the harness there,
+ *     returns the captured patch, and removes the worktree at teardown. The directory it was
+ *     given is never edited. That is correct for a fanout of N candidate authors that must not
+ *     clobber each other, and for a caller whose deliverable IS the patch.
+ *   - `cli-in-place` runs the harness in `workspacePath` itself. The edits stay in that directory
+ *     after the call, so the NEXT call sees them. That is what a caller needs when the workspace
+ *     has to persist between calls — a multi-shot author resuming on top of its own edits
+ *     (`agenticGenerator`), or a candidate directory the caller commits itself.
+ *
+ * Because the workspace persists, so would the profile inputs this path materializes into it. They
+ * are removed before the call returns, so the directory a caller inspects afterwards holds the
+ * harness's own edits and nothing else, and a `git status` over it answers "did the author change
+ * anything" rather than "did Runtime write a settings file".
+ *
+ * There is no reproducible-Codex mode here: that mode stages an executable and a write probe INTO
+ * its working directory, which a caller-owned workspace is not the place for. Use `cli-worktree`
+ * with `codexReproducible` when the isolated, metered Codex run is what you want.
+ */
+export interface CliInPlaceSeam {
+  /** Absolute path to the EXISTING directory the harness edits. Runtime never creates, cleans, or
+   *  removes it. */
+  workspacePath: string
+  taskPrompt?: string
+  harnessTimeoutMs?: number
+  /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
+  runHarness?: typeof runLocalHarness
+}
+
 export interface CliWorktreeBridgeSeam {
   bridgeUrl: string
   bridgeBearer: string
@@ -448,6 +487,7 @@ const bridgeModelBaseUrlHeader = 'x-cli-bridge-model-base-url'
 const bridgeProfileMaterializationSchema = 'cli-bridge.profile-materialization.v2'
 const bridgeUsageCostSchema = 'cli-bridge.usage-cost.v1'
 const cliWorktreeSeamKey = 'cli-worktree'
+const cliInPlaceSeamKey = 'cli-in-place'
 const providerSeamKey = 'provider'
 
 function isLoopbackBridgeHost(hostname: string): boolean {
@@ -4513,6 +4553,31 @@ export const cliWorktreeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   }) as Executor<unknown>
 }
 
+// ── cli-in-place executor (authored profile → harness CLI on a supplied workspace) ──
+
+/**
+ * The leaf `createInPlaceCliExecutor` as a backend-as-data factory: a supervisor-authored
+ * `AgentProfile` driving a local coding CLI in the workspace the caller supplied, so its edits are
+ * still there for the next spawn. `budgetExempt` like the other CLI leaves; the authored
+ * systemPrompt + model reach the harness via §1.5.
+ */
+export const cliInPlaceExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
+  const seam = readSeam<CliInPlaceSeam>(ctx, cliInPlaceSeamKey, 'cli-in-place')
+  if (!seam.workspacePath) {
+    throw new ValidationError('cliInPlaceExecutor: CliInPlaceSeam.workspacePath required')
+  }
+  const effectiveProfile = agentProfileSchema.parse(spec.profile)
+  assertExecutableAgentProfile(effectiveProfile, 'cliInPlaceExecutor')
+  return createInPlaceCliExecutor({
+    workspacePath: seam.workspacePath,
+    profile: effectiveProfile,
+    ...(seam.taskPrompt !== undefined ? { taskPrompt: seam.taskPrompt } : {}),
+    ...(seam.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: seam.harnessTimeoutMs } : {}),
+    ...(seam.runHarness ? { runHarness: seam.runHarness } : {}),
+    ...(ctx.node?.attemptId !== undefined ? { executionAttemptId: ctx.node.attemptId } : {}),
+  }) as Executor<unknown>
+}
+
 // ── createExecutor: the ONE built-in factory (backend as data) ──────────────────
 
 /**
@@ -4526,6 +4591,7 @@ export type ExecutorConfig =
   | ({ backend: 'bridge' } & BridgeSeam)
   | ({ backend: 'cli' } & CliSeam)
   | ({ backend: 'cli-worktree' } & CliWorktreeSeam)
+  | ({ backend: 'cli-in-place' } & CliInPlaceSeam)
   | ({ backend: 'provider' } & ProviderSeam)
   | ({ backend: 'sandbox' } & SandboxSeam)
 
@@ -4581,6 +4647,19 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         ...snapshot,
         ...(runGit === undefined ? {} : { runGit }),
         ...(runCommand === undefined ? {} : { runCommand }),
+      })
+    }
+    case 'cli-in-place': {
+      assertExactConfigKeys(
+        config as unknown as Readonly<Record<string, unknown>>,
+        new Set(['backend', 'harnessTimeoutMs', 'runHarness', 'taskPrompt', 'workspacePath']),
+        'createExecutor cli-in-place config',
+      )
+      const { runHarness, ...decisionData } = config
+      const snapshot = detachedSnapshot(decisionData, 'createExecutor cli-in-place config')
+      return Object.freeze({
+        ...snapshot,
+        ...(runHarness === undefined ? {} : { runHarness }),
       })
     }
     case 'provider': {
@@ -4731,6 +4810,7 @@ export function bindReusableExecutorExecutionId(
     case 'router':
     case 'router-tools':
     case 'cli':
+    case 'cli-in-place':
     case 'provider':
     case 'sandbox':
       return captured
@@ -4763,6 +4843,8 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
         return cliExecutor(spec, seamed)
       case 'cli-worktree':
         return cliWorktreeExecutor(spec, seamed)
+      case 'cli-in-place':
+        return cliInPlaceExecutor(spec, seamed)
       case 'provider': {
         const providerSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
         const provider = resolveAgentEnvironmentProvider(
@@ -4976,25 +5058,6 @@ function readOptionalMcpAttachments(
     )
   }
   return value as Record<string, AgentProfileMcpServer>
-}
-
-/** A leaf task is opaque (`unknown`). A string is the prompt verbatim; an object
- *  with a `prompt`/`content`/`task` string field uses it; otherwise it serializes.
- *  Module-exported (not package surface) so sibling leaf executors read a task
- *  identically instead of re-deriving the rule. */
-export function taskToPrompt(task: unknown): string {
-  if (typeof task === 'string') return task
-  if (task && typeof task === 'object') {
-    const obj = task as Record<string, unknown>
-    for (const k of ['prompt', 'content', 'task', 'message']) {
-      if (typeof obj[k] === 'string') return obj[k] as string
-    }
-    if (Array.isArray(obj.parts)) {
-      const parsed = AgentTurnInputSchema.safeParse({ parts: obj.parts })
-      if (parsed.success && parsed.data.parts) return renderInputPartsAsText(parsed.data.parts)
-    }
-  }
-  return JSON.stringify(task)
 }
 
 interface RouterProfileExecution {

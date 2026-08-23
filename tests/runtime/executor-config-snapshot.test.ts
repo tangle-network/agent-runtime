@@ -293,7 +293,7 @@ describe('createExecutor config intake', () => {
     // returns undefined, createExecutor hands back a working-looking factory, and the failure
     // lands one call later as a TypeError that never mentions the backend.
     expect(() => createExecutor({ backend: 'bridge-worktree' } as never)).toThrow(
-      /no backend named "bridge-worktree"; supported backends are bridge, cli, cli-worktree, provider, router, router-tools, sandbox/,
+      /no backend named "bridge-worktree"; supported backends are bridge, cli, cli-in-place, cli-worktree, provider, router, router-tools, sandbox/,
     )
   })
 })

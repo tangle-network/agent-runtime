@@ -21,6 +21,8 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { rm, rmdir, stat } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import {
   applyWorkspacePlan,
@@ -275,40 +277,25 @@ export async function runWorktreeHarness(
     })
 
   try {
-    const applied = applyWorkspacePlan(plan, worktree.path, { existingFiles: 'reject' })
-    if (applied.unsupported.length > 0) {
-      throw new Error('runWorktreeHarness: applied profile unexpectedly retained unsupported rows')
-    }
-
-    // §1.5: the authored prompt + model reach the harness directly. Resource instructions use
-    // the same explicit channel because reproducible Codex deliberately disables native project
-    // instructions; the workspace projection therefore omits both prompt sources.
-    const invocationProfile = profileWithResourceInstructions(profile, resourceInstructions)
-    const { command, args } = harnessInvocation(opts.harness, invocationProfile, opts.taskPrompt, {
+    const applied = applyProfilePlan(plan, worktree.path, 'runWorktreeHarness')
+    const harnessResult = await spawnProfiledHarness({
+      workspacePath: worktree.path,
+      profile,
+      harness: opts.harness,
+      taskPrompt: opts.taskPrompt,
+      applied,
+      resourceInstructions,
       // This helper created the candidate worktree above; autonomous edits are permitted only
       // inside that isolated checkout. Which argv (if any) expresses that is the harness row's
       // business — the workspace being disposable is what decides it here.
       dangerouslySkipPermissions: true,
       ...(opts.codexReproducible ? { codexReproducible: true } : {}),
-    })
-    const harnessResult: LocalHarnessResult = await runHarness({
-      harness: opts.harness,
-      cwd: worktree.path,
-      taskPrompt: opts.taskPrompt,
-      invocation: { command, args: [...args, ...applied.flags.map(publicPlanString)] },
-      env: { ...process.env, ...resolvePublicPlanEnv(applied.env) },
-      ...(opts.codexReproducible ? { codexReproducible: true } : {}),
       ...(opts.codexReadDeniedPaths ? { codexReadDeniedPaths: opts.codexReadDeniedPaths } : {}),
-      ...(opts.harnessTimeoutMs !== undefined ? { timeoutMs: opts.harnessTimeoutMs } : {}),
+      ...(opts.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: opts.harnessTimeoutMs } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
+      runHarness,
+      context: 'runWorktreeHarness',
     })
-
-    if (harnessResult.aborted || opts.signal?.aborted) {
-      throw new Error('runWorktreeHarness: harness was cancelled by the caller', {
-        cause: opts.signal?.reason,
-      })
-    }
-    opts.signal?.throwIfAborted()
 
     // Diff BEFORE checks — the patch is the harness's output, not whatever a test run left behind.
     const diff = await captureWorktreeDiff({
@@ -334,30 +321,7 @@ export async function runWorktreeHarness(
       patch: diff.patch,
       stats: diff.stats,
       profileMaterialization: profileMaterializationReceipt(applied, resourceInstructions),
-      harness: {
-        name: opts.harness,
-        exitCode: harnessResult.exitCode,
-        timedOut: harnessResult.timedOut,
-        killedBySignal: harnessResult.killedBySignal,
-        durationMs: harnessResult.durationMs,
-        stdout: harnessResult.stdout,
-        stderr: harnessResult.stderr,
-        ...(harnessResult.usage ? { usage: harnessResult.usage } : {}),
-        ...(harnessResult.evidence
-          ? {
-              cliVersion: harnessResult.evidence.cliVersion,
-              executableSha256: harnessResult.evidence.executableSha256,
-              requestedPromptSha256: harnessResult.evidence.requestedPromptSha256,
-              effectivePromptSha256: harnessResult.evidence.effectivePromptSha256,
-              nonPromptArgsSha256: harnessResult.evidence.nonPromptArgsSha256,
-              controlledConfigSha256: harnessResult.evidence.controlledConfigSha256,
-              readDeniedPaths: [...harnessResult.evidence.readDeniedPaths],
-              readDeniedPathsSha256: harnessResult.evidence.readDeniedPathsSha256,
-              readDeniedPathCount: harnessResult.evidence.readDeniedPathCount,
-              executionPolicy: harnessResult.evidence.policy,
-            }
-          : {}),
-      },
+      harness: harnessRunRecord(opts.harness, harnessResult),
       ...(checks ? { checks } : {}),
     }
     return { worktree, result, cleanup }
@@ -374,6 +338,113 @@ export async function runWorktreeHarness(
   }
 }
 
+/** @experimental */
+export interface RunInPlaceHarnessOptions {
+  /** Absolute path to the EXISTING directory the harness edits. The caller owns its lifecycle. */
+  workspacePath: string
+  /**
+   * Supervisor-authored prompt/model plus structural resources materialized into the workspace.
+   * `model.default` selects the one-shot model. Routing-only model hints and
+   * `resources.failOnError` are rejected because this path cannot honor them.
+   */
+  profile: AgentProfile
+  /** Local harness for this run. This explicit choice overrides `profile.harness`. */
+  harness: LocalHarness
+  /** The per-task instruction handed to the harness (composed under the system prompt). */
+  taskPrompt: string
+  /** Wall-clock cap per harness subprocess (ms). */
+  harnessTimeoutMs?: number
+  /** Abort signal — linked into the harness subprocess. */
+  signal?: AbortSignal
+  /** Resource fetch options. GitHub-backed profile resources resolve before the harness launches. */
+  resourceResolution?: ResolveAgentProfileResourcesOptions
+  /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
+  runHarness?: typeof runLocalHarness
+}
+
+/** The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch:
+ *  the caller supplied the workspace and reads it directly. */
+export interface InPlaceHarnessResult {
+  /** The directory the harness ran in, exactly as supplied. */
+  workspacePath: string
+  /** Exact profile materialization applied before the harness launched, and removed after it. */
+  profileMaterialization: WorktreeProfileMaterializationReceipt
+  /** The harness subprocess outcome. */
+  harness: WorktreeHarnessResult['harness']
+}
+
+/**
+ * Run the one worktree-harness operation against a workspace the CALLER supplies, so the harness
+ * edits that exact directory and its edits stay there after the call.
+ *
+ * The profile inputs this path materializes are removed again before it returns, whether the run
+ * succeeded, threw, or was cancelled. That is what keeps the invariant a caller reads the directory
+ * for: after the call the workspace holds the harness's own edits and nothing else, so a
+ * `git status` over it answers "did the author change anything" and not "did Runtime write a
+ * settings file". A harness edit to a materialized input is removed with it, exactly as
+ * `runWorktreeHarness` excludes those paths from its captured patch.
+ *
+ * The workspace is NOT created, cleaned, or removed here: its lifecycle belongs to the caller,
+ * which is the whole point of the placement.
+ */
+export async function runInPlaceHarness(
+  opts: RunInPlaceHarnessOptions,
+): Promise<InPlaceHarnessResult> {
+  opts.signal?.throwIfAborted()
+  const runHarness = opts.runHarness ?? runLocalHarness
+  if (!opts.workspacePath) {
+    throw new Error('runInPlaceHarness: workspacePath required')
+  }
+
+  // Admission is a pure decision, taken before the workspace is touched and before any external
+  // process starts, so a refused profile leaves the caller's directory exactly as it was.
+  assertSupportedWorktreeProfile(opts.profile, opts.harness)
+  assertSafeProfileResourcePaths(opts.profile)
+  const profile = await resolveAgentProfileResources(
+    opts.profile,
+    resourceResolutionOptions(opts.resourceResolution, opts.signal),
+  )
+  opts.signal?.throwIfAborted()
+  const { plan, resourceInstructions } = prepareWorktreeProfile(profile, opts.harness)
+
+  const workspace = await stat(opts.workspacePath).catch(() => undefined)
+  if (!workspace?.isDirectory()) {
+    throw new Error(
+      `runInPlaceHarness: workspacePath is not an existing directory: ${opts.workspacePath}`,
+    )
+  }
+
+  // `existingFiles: 'reject'` is what makes the removal below safe: a plan file whose path is
+  // already occupied refuses the run, so nothing this function deletes can be a file the caller
+  // (or a previous shot) put there.
+  const applied = applyProfilePlan(plan, opts.workspacePath, 'runInPlaceHarness')
+  try {
+    const harnessResult = await spawnProfiledHarness({
+      workspacePath: opts.workspacePath,
+      profile,
+      harness: opts.harness,
+      taskPrompt: opts.taskPrompt,
+      applied,
+      resourceInstructions,
+      // The caller supplied this directory as the author's workspace, so an unattended run may
+      // edit it without an interactive approval gate. The bypass argv grants no OS-level escape:
+      // the blast radius stays the supplied directory.
+      dangerouslySkipPermissions: true,
+      ...(opts.harnessTimeoutMs !== undefined ? { harnessTimeoutMs: opts.harnessTimeoutMs } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+      runHarness,
+      context: 'runInPlaceHarness',
+    })
+    return {
+      workspacePath: opts.workspacePath,
+      profileMaterialization: profileMaterializationReceipt(applied, resourceInstructions),
+      harness: harnessRunRecord(opts.harness, harnessResult),
+    }
+  } finally {
+    await removeAppliedPlanFiles(opts.workspacePath, applied.written)
+  }
+}
+
 /** Compute the same plan identity `runWorktreeHarness` consumes, with no repository or process IO. */
 export function worktreeProfileExecutionPlan(
   profile: AgentProfile,
@@ -385,6 +456,139 @@ export function worktreeProfileExecutionPlan(
     harness: plan.harness,
     resourceInstructions: resourceInstructionReceipt(resourceInstructions),
   })
+}
+
+/** Write the profile inputs into a workspace. A plan that could not be fully expressed, or whose
+ *  path is already occupied, fails here — before any external process starts. */
+function applyProfilePlan(
+  plan: WorkspacePlan,
+  workspacePath: string,
+  context: string,
+): WorkspacePlanReceipt {
+  const applied = applyWorkspacePlan(plan, workspacePath, { existingFiles: 'reject' })
+  if (applied.unsupported.length > 0) {
+    throw new Error(`${context}: applied profile unexpectedly retained unsupported rows`)
+  }
+  return applied
+}
+
+/**
+ * The ONE profile-to-process step both placements share: §1.5 prompt/model delivery through
+ * `harnessInvocation`, the materializer's flags and environment, and the `runLocalHarness` spawn
+ * in `workspacePath`. Neither placement re-derives argv, so a harness capability added to the
+ * invocation table reaches both.
+ */
+async function spawnProfiledHarness(args: {
+  workspacePath: string
+  profile: AgentProfile
+  harness: LocalHarness
+  taskPrompt: string
+  applied: WorkspacePlanReceipt
+  resourceInstructions: string | undefined
+  dangerouslySkipPermissions: boolean
+  harnessTimeoutMs?: number
+  codexReproducible?: boolean
+  codexReadDeniedPaths?: ReadonlyArray<string>
+  signal?: AbortSignal
+  runHarness: typeof runLocalHarness
+  context: string
+}): Promise<LocalHarnessResult> {
+  // §1.5: the authored prompt + model reach the harness directly. Resource instructions use
+  // the same explicit channel because reproducible Codex deliberately disables native project
+  // instructions; the workspace projection therefore omits both prompt sources.
+  const invocationProfile = profileWithResourceInstructions(args.profile, args.resourceInstructions)
+  const { command, args: invocationArgs } = harnessInvocation(
+    args.harness,
+    invocationProfile,
+    args.taskPrompt,
+    {
+      dangerouslySkipPermissions: args.dangerouslySkipPermissions,
+      ...(args.codexReproducible ? { codexReproducible: true } : {}),
+    },
+  )
+  const harnessResult: LocalHarnessResult = await args.runHarness({
+    harness: args.harness,
+    cwd: args.workspacePath,
+    taskPrompt: args.taskPrompt,
+    invocation: {
+      command,
+      args: [...invocationArgs, ...args.applied.flags.map(publicPlanString)],
+    },
+    env: { ...process.env, ...resolvePublicPlanEnv(args.applied.env) },
+    ...(args.codexReproducible ? { codexReproducible: true } : {}),
+    ...(args.codexReadDeniedPaths ? { codexReadDeniedPaths: args.codexReadDeniedPaths } : {}),
+    ...(args.harnessTimeoutMs !== undefined ? { timeoutMs: args.harnessTimeoutMs } : {}),
+    ...(args.signal ? { signal: args.signal } : {}),
+  })
+  if (harnessResult.aborted || args.signal?.aborted) {
+    throw new Error(`${args.context}: harness was cancelled by the caller`, {
+      cause: args.signal?.reason,
+    })
+  }
+  args.signal?.throwIfAborted()
+  return harnessResult
+}
+
+/** Project one `LocalHarnessResult` onto the harness record both placements report. */
+function harnessRunRecord(
+  name: LocalHarness,
+  harnessResult: LocalHarnessResult,
+): WorktreeHarnessResult['harness'] {
+  return {
+    name,
+    exitCode: harnessResult.exitCode,
+    timedOut: harnessResult.timedOut,
+    killedBySignal: harnessResult.killedBySignal,
+    durationMs: harnessResult.durationMs,
+    stdout: harnessResult.stdout,
+    stderr: harnessResult.stderr,
+    ...(harnessResult.usage ? { usage: harnessResult.usage } : {}),
+    ...(harnessResult.evidence
+      ? {
+          cliVersion: harnessResult.evidence.cliVersion,
+          executableSha256: harnessResult.evidence.executableSha256,
+          requestedPromptSha256: harnessResult.evidence.requestedPromptSha256,
+          effectivePromptSha256: harnessResult.evidence.effectivePromptSha256,
+          nonPromptArgsSha256: harnessResult.evidence.nonPromptArgsSha256,
+          controlledConfigSha256: harnessResult.evidence.controlledConfigSha256,
+          readDeniedPaths: [...harnessResult.evidence.readDeniedPaths],
+          readDeniedPathsSha256: harnessResult.evidence.readDeniedPathsSha256,
+          readDeniedPathCount: harnessResult.evidence.readDeniedPathCount,
+          executionPolicy: harnessResult.evidence.policy,
+        }
+      : {}),
+  }
+}
+
+/** Remove the profile inputs written into a caller-owned workspace, plus the directories that
+ *  application created and this removal empties. A file the harness deleted itself is already
+ *  gone, and a directory that still holds anything is left alone. */
+async function removeAppliedPlanFiles(
+  workspacePath: string,
+  written: ReadonlyArray<string>,
+): Promise<void> {
+  const root = resolve(workspacePath)
+  const prunable = new Set<string>()
+  for (const relPath of written) {
+    const absolute = resolve(root, relPath)
+    await rm(absolute, { force: true })
+    let parent = dirname(absolute)
+    while (parent.length > root.length && parent.startsWith(`${root}/`)) {
+      prunable.add(parent)
+      parent = dirname(parent)
+    }
+  }
+  // Deepest first, so a directory whose only content was another emptied directory is pruned too.
+  for (const directory of [...prunable].sort((a, b) => b.length - a.length)) {
+    try {
+      await rmdir(directory)
+    } catch (error) {
+      // A directory the harness put its own work in is not empty, and keeping that work is the
+      // point. Any other failure is a real one and propagates.
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOTEMPTY' && code !== 'ENOENT' && code !== 'EEXIST') throw error
+    }
+  }
 }
 
 function prepareWorktreeProfile(

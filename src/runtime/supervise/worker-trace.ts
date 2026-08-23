@@ -61,7 +61,8 @@
  *                     bridge stamps them into the harness child's environment at spawn.
  *   - `router`,
  *     `router-tools`  NO — a direct model HTTP call. There is no worker process to inherit anything.
- *   - `cli-worktree`  NO — the work is dispatched through a local harness transport that exposes
+ *   - `cli-worktree`,
+ *     `cli-in-place`  NO — the work is dispatched through a local harness transport that exposes
  *                     no environment channel. Wiring it means adding that channel to the transport
  *                     first; until then it is honestly unpropagated.
  *   - `provider`      NO — `AgentEnvironmentProvider` has no environment field on its port.
@@ -86,6 +87,7 @@ export const WORKER_TRACE_PROPAGATION = {
   'router-tools': false,
   bridge: true,
   'cli-worktree': false,
+  'cli-in-place': false,
   provider: false,
 } as const satisfies Record<ExecutorConfig['backend'], boolean>
 

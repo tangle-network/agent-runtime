@@ -8,9 +8,12 @@
  *
  * Every paid shot enters Runtime through `createExecutor` + `streamAgentTurn`.
  * The caller supplies the exact `AgentProfile` and a worktree-aware executor
- * placement; Runtime validates and records the profile that actually ran. A
- * cli-bridge placement sets `cwd` to the supplied worktree so Pi and other
- * supported harnesses edit the existing candidate directly.
+ * placement; Runtime validates and records the profile that actually ran. Two
+ * built-in placements edit the supplied worktree itself: `{ backend:'cli-in-place',
+ * workspacePath: worktreePath }` runs a local coding CLI (claude-code / codex /
+ * opencode / pi) in that directory, and `{ backend:'bridge', cwd: worktreePath }`
+ * runs a cli-bridge session there. `cli-worktree` is NOT one of them — it cuts a
+ * worktree of its own, so every shot would read as an empty tree.
  *
  * `maxShots` is the DEPTH dial — a multi-shot verify-in-session loop, NOT the
  * kernel `runAgentRounds`. Each shot runs one full harness session in the (persistent)
@@ -29,8 +32,8 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type {
   CostReceipt,
   CostReceiptInput,
@@ -144,7 +147,9 @@ export interface AgenticGeneratorOptions {
   /** Complete author identity. Harness, provider, model, prompt, tools, and resources all come from here. */
   profile: AgentProfile
   /** Place the exact profile on compute that can edit this existing worktree.
-   * A Pi author normally returns `{ backend:'bridge', cwd: worktreePath, ...transport }`. */
+   * A local coding CLI returns `{ backend:'cli-in-place', workspacePath: worktreePath }`; a Pi
+   * author over cli-bridge returns `{ backend:'bridge', cwd: worktreePath, ...transport }`. Both
+   * are checked against the supplied path before the first shot spends. */
   executorForWorktree: AgenticGeneratorExecutorForWorktree
   /** Awaited once for every attempted author shot, including execution failures.
    * The second argument is Runtime's exact terminal turn and event stream.
@@ -218,9 +223,17 @@ export function agenticGenerator(opts: AgenticGeneratorOptions): CandidateGenera
         throw new Error('agenticGenerator: buildPrompt must return a non-empty string')
       }
       const executorConfig = opts.executorForWorktree(worktreePath)
-      if (executorConfig.backend === 'bridge' && executorConfig.cwd !== worktreePath) {
+      if (executorConfig.backend === 'bridge' && !samePath(executorConfig.cwd, worktreePath)) {
         throw new Error(
           'agenticGenerator: bridge executor cwd must equal the candidate worktree path',
+        )
+      }
+      if (
+        executorConfig.backend === 'cli-in-place' &&
+        !samePath(executorConfig.workspacePath, worktreePath)
+      ) {
+        throw new Error(
+          'agenticGenerator: cli-in-place executor workspacePath must equal the candidate worktree path',
         )
       }
       const factory = createExecutor(executorConfig)
@@ -790,6 +803,26 @@ function truncate(s: string, n: number): string {
  *  something is genuinely broken (git missing, corrupt index, killed mid-run).
  *  Folding that into `false` would silently discard a candidate and mask the
  *  real failure — forbidden by the no-silent-fallbacks doctrine. */
+/** Do two names address the same directory? An in-place placement is only in-place if it names the
+ *  worktree the driver created, and a byte comparison answers that wrongly on a platform whose
+ *  temporary directory is a symlink: macOS reports `/var/folders/...` where the resolved path is
+ *  `/private/var/folders/...`, and both are the same directory. */
+function samePath(candidate: string | undefined, worktreePath: string): boolean {
+  if (typeof candidate !== 'string' || candidate.length === 0) return false
+  if (candidate === worktreePath) return true
+  return canonicalPath(candidate) === canonicalPath(worktreePath)
+}
+
+/** The resolved path, or the lexically absolute one when the name does not exist — a name that
+ *  cannot be resolved is a mismatch the caller is told about, not an error to swallow. */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    return resolve(path)
+  }
+}
+
 function worktreeDirty(worktreePath: string): boolean {
   return worktreeChangedPaths(worktreePath).length > 0
 }
