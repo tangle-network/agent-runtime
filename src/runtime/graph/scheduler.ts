@@ -752,9 +752,16 @@ async function runGraphLoop(
     })
   }
   rearmWakeSignal()
+  // An abort must reach a PARKED run too: nothing is live, no wake is coming, and the host is
+  // shutting the run down — the wait ends now and the loop exits on the aborted signal.
+  const abortWake = new Promise<void>((fire) => {
+    if (abort.signal.aborted) fire()
+    else abort.signal.addEventListener('abort', () => fire(), { once: true })
+  })
 
   let pendingNext: Promise<Settled<unknown> | null> | undefined
   while (!failure) {
+    if (abort.signal.aborted) break
     if (await expireDue()) continue
     if (wakes.length > 0) {
       await drainWakes()
@@ -768,7 +775,7 @@ async function runGraphLoop(
       if (parked.length === 0) break // stuck or complete: `assembleGraphResult` classifies it
       if (options.waitForWakes) {
         rearmWakeSignal()
-        await wakeSignal
+        await Promise.race([wakeSignal, abortWake])
         continue
       }
       // Offline (#976): no host will answer, so a `default` suspension resolves now; `wait` and a
