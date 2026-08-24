@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.174.1
+
+Two graph-engine resume fixes, exposed by running agent-dev-container's real `pr-review-with-approval` workflow template on the engine (#1011).
+
+- **A resume released the pool from dead children.** A spawned child that never settled kept its budget reservation across a restart. An `inline` executor runs inside the process that spawned it, so the process death proves the child dead; `uncertainSpawnBudgets` now charges only runtimes that can re-attach (bridge, sandbox). Before the fix, a restart after a mid-flight crash could refuse the next metered node `budget-exhausted` and end the run `unreachable-terminal` — invisible to the all-pure replay test, whose nodes reserve nothing.
+- **Abort reaches a parked run.** A run suspended under `waitForWakes` waited only for a wake, so a host could never shut it down. The wait now races the abort signal, and the run ends `no-winner: aborted`.
+- **The ADC substrate spike ships as an executable proof** (`tests/graph/adc-workflow-spike.test.ts`): the real template lowered to an `EngineGraphSpec`, approve and timeout paths, the human park across a process restart, kill-anywhere replay at every journal boundary over metered HOST kinds, the conserved pool as `maxRunCostUsd`, and the engine settles projected onto the `actionResults` shape the ADC run detail reads.
+
 ## 0.174.0
 
 ### `keepGoing` and `score`: spend the whole shot budget, ship the best tree
