@@ -351,7 +351,14 @@ export function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
   return events
     .filter(
       (event): event is SpawnedEvent =>
-        event.kind === 'spawned' && event.parent !== undefined && !terminal.has(event.id),
+        event.kind === 'spawned' &&
+        event.parent !== undefined &&
+        !terminal.has(event.id) &&
+        // An `inline` executor runs inside the process that spawned it, so a resume can prove it
+        // dead rather than in-doubt: holding its reservation would charge the pool for work no
+        // process can ever finish. Only a runtime that can re-attach across a process boundary
+        // (bridge, sandbox) keeps its reservation charged as uncertain.
+        event.runtime !== 'inline',
     )
     .map((event) => event.budget)
 }
