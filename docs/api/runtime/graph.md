@@ -480,6 +480,16 @@ The admitted source payload this state reflects (the source settle's outRef).
 
 > `optional` **settle?**: [`GraphNodeSettle`](#graphnodesettle)
 
+##### waveConsumed?
+
+> `optional` **waveConsumed?**: `boolean`
+
+Whether this instance's release consumed its wave — the `join-state` the
+scheduler journals AFTER the envelope pin. A restart that finds a
+released instance without it completes the half-journaled release rather
+than leaving the gating edges satisfied, which would release the node a
+second time and execute it twice.
+
 ***
 
 ### FoldSuspension

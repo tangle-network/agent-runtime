@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.174.2
+
+### A release killed between its two journal events no longer runs its node twice
+
+`release()` journals the envelope pin (`node-inputs-resolved`) and then the wave consumption (`join-state`). A process killed between them left an instance pinned while its gating edges still read satisfied, so the restart both re-entered the pinned instance AND released a second one — the node executed twice in one resumed segment. A consumer's external effect fired twice through that window (agent-dev-container's workflow scheduler, which now refuses to resume non-idempotent actions through the same window).
+
+The fold records wave consumption on the instance, and a restart that finds a released instance without it journals the missing `join-state` before spawning — re-deriving the SAME decision the crashed process made, because its gating edges are folded exactly as they were when it released. `tests/graph/replay.test.ts` kills at the pin and asserts the node runs exactly once.
+
 ## 0.174.1
 
 Two graph-engine resume fixes, exposed by running agent-dev-container's real `pr-review-with-approval` workflow template on the engine (#1011).
