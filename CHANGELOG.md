@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.174.2
+## 0.175.0
 
 ### A release killed between its two journal events no longer runs its node twice
 
