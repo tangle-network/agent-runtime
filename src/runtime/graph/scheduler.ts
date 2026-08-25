@@ -25,7 +25,7 @@ import { type CompiledGraph, compileGraph, isEngineFired } from './compile'
 import { evaluateCondition } from './condition'
 import type { EngineGraphSpec } from './definition'
 import type { GraphEngine } from './engine'
-import { applyGraphFoldEvent, type FoldSuspension } from './fold'
+import { applyGraphFoldEvent, type FoldInstance, type FoldSuspension } from './fold'
 import { decideJoin, type GatingEdge } from './join'
 import { narrowEffects } from './kind'
 import { createEdgeLedger } from './ledger'
@@ -406,6 +406,37 @@ async function runGraphLoop(
     await spawnInstance(label)
   }
 
+  /**
+   * Journal the `join-state` a crashed release never wrote. The consuming set
+   * is re-derived from the SAME decision the crashed process made: its gating
+   * edges are still folded exactly as they were when it released (their
+   * verdicts were journaled first), so `decideJoin` answers identically.
+   */
+  const consumeWaveAfterCrash = async (instance: FoldInstance): Promise<void> => {
+    const node = compiled.nodes.get(instance.node)
+    if (!node) return
+    const gating: GatingEdge[] = node.inbound.map((edge) => ({
+      edge,
+      folded: state.edges.get(edge.id),
+    }))
+    const decision = decideJoin(node.join, gating)
+    if (!decision.release) return
+    const consumedPending = gating
+      .filter((entry) => entry.folded?.state === 'pending')
+      .map((entry) => entry.edge.id)
+    await emit({
+      kind: 'join-state',
+      id: instance.instance,
+      node: instance.node,
+      rule: node.join,
+      satisfiedBy: decision.consuming.map(({ edge }) => edge.id),
+      consumedPending,
+      instance: instance.instance,
+      seq: engineSeq++,
+      at: stamp(),
+    })
+  }
+
   const tryRelease = async (nodeId: string): Promise<void> => {
     const node = compiled.nodes.get(nodeId)
     const folded = state.nodes.get(nodeId)
@@ -677,6 +708,12 @@ async function runGraphLoop(
   async function reenterAfterCrash(): Promise<void> {
     for (const instance of [...state.instances.values()]) {
       if (instance.status === 'released') {
+        // The envelope was pinned but the wave consumption may not have been
+        // journaled — the crash window between the two events. Finish that
+        // release first: its gating edges stay satisfied otherwise, and the
+        // catch-up `tryRelease` below would release the node a SECOND time
+        // and execute it twice.
+        if (instance.waveConsumed !== true) await consumeWaveAfterCrash(instance)
         await spawnInstance(instance.instance)
         continue
       }

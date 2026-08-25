@@ -42,6 +42,14 @@ export interface FoldInstance {
   inputRef?: string
   status: FoldInstanceStatus
   settle?: GraphNodeSettle
+  /**
+   * Whether this instance's release consumed its wave — the `join-state` the
+   * scheduler journals AFTER the envelope pin. A restart that finds a
+   * released instance without it completes the half-journaled release rather
+   * than leaving the gating edges satisfied, which would release the node a
+   * second time and execute it twice.
+   */
+  waveConsumed?: boolean
 }
 
 export interface FoldSuspension {
@@ -195,6 +203,8 @@ export function applyGraphFoldEvent(
       return
     }
     case 'join-state': {
+      const released = instanceOf(state, ev.instance)
+      if (released) released.waveConsumed = true
       // A release consumes its wave: delivered consumptions count a traversal and re-arm; every
       // gating edge still pending is consumed-once.
       for (const edgeId of ev.satisfiedBy) {

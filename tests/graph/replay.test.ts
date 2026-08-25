@@ -201,6 +201,55 @@ describe('kill-anywhere replay — fold, never checkpoint', () => {
   }, 120_000)
 })
 
+describe('a release killed between its two events runs its node once (#1013)', () => {
+  it('completes the half-journaled release on restart instead of releasing the node twice', async () => {
+    const path = journalPath()
+    const blobs = new InMemoryResultBlobStore()
+    const runs = new Map<string, number>()
+    const spec = chain(runs)
+
+    // Kill at the append that follows the second node's envelope pin — the
+    // window in which the wave consumption (`join-state`) is not yet durable.
+    let killed = false
+    const killAfterPin: SpawnJournal = {
+      loadTree: (root) => inner.loadTree(root),
+      beginTree: (root, at) => inner.beginTree(root, at),
+      appendEvent: async (root, ev) => {
+        if (killed) throw new KillError('killed after the envelope pin')
+        if (ev.kind === 'node-inputs-resolved' && ev.instance === 'double#1') {
+          killed = true
+        }
+        return inner.appendEvent(root, ev)
+      },
+    }
+    const inner = new FileSpawnJournal(path)
+    await expect(
+      runEngineGraph(engine(), spec, 'go', {
+        budget,
+        perNode,
+        journal: killAfterPin,
+        blobs,
+        runId: 'half-release',
+      }),
+    ).rejects.toBeInstanceOf(KillError)
+    expect(runs.get('double') ?? 0, 'the killed node never ran').toBe(0)
+
+    const resumed = await runEngineGraph(engine(), spec, 'go', {
+      budget,
+      perNode,
+      journal: new FileSpawnJournal(path),
+      blobs,
+      runId: 'half-release',
+      resume: true,
+    })
+    expect(resumed.kind).toBe('winner')
+    // THE invariant: the re-entered node executed exactly once. Before the
+    // fix the catch-up release fired a second instance and it ran twice.
+    expect(runs.get('double')).toBe(1)
+    expect(runs.get('sink')).toBe(1)
+  })
+})
+
 describe('suspensions survive restart (#976)', () => {
   it('a parked node returns suspended with a recomputable token; resume after restart settles it and the payload flows on', async () => {
     const path = journalPath()
