@@ -640,7 +640,7 @@ Test-only — number of in-flight (non-terminal) records.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-5)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -666,7 +666,7 @@ shape against the structural `FleetHandle` contract.
 
 ###### client
 
-[`SandboxClient`](runtime.md#sandboxclient-5)
+[`SandboxClient`](runtime.md#sandboxclient-6)
 
 ###### fleetId
 
@@ -849,7 +849,7 @@ one or the other, not both.
 
 ##### sandboxClient?
 
-> `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-5)
+> `optional` **sandboxClient?**: [`SandboxClient`](runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -1407,7 +1407,7 @@ The SDK's cached AgentExecutionResult-shape record for the turn.
 
 ##### client
 
-> **client**: [`SandboxClient`](runtime.md#sandboxclient-5)
+> **client**: [`SandboxClient`](runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -1626,7 +1626,7 @@ profile's gate — the queue settles the record as failed with that error.
 
 ##### client
 
-> `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-5)
+> `readonly` **client**: [`SandboxClient`](runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -1668,7 +1668,7 @@ Best-effort one-liner used in stderr boot logs and diagnostics.
 
 ##### client
 
-> **client**: [`SandboxClient`](runtime.md#sandboxclient-5)
+> **client**: [`SandboxClient`](runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -2012,7 +2012,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-16)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-17)
 
 ##### sandboxId?
 
@@ -4158,6 +4158,33 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 ###### Returns
 
 `Promise`\<`void`\>
+
+##### steerWorker()
+
+> **steerWorker**(`workerId`, `instruction`, `options?`): `Promise`\<[`DownMessageEvent`](runtime.md#downmessageevent)\>
+
+Authorize, durably record, and attempt one external steer through the same down-leg used by
+`steer_agent`. The returned outcome is exact and is never inferred from queue admission.
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### instruction
+
+`string`
+
+###### options?
+
+###### interrupt?
+
+`boolean`
+
+###### Returns
+
+`Promise`\<[`DownMessageEvent`](runtime.md#downmessageevent)\>
 
 ##### abortWorker()
 

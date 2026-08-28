@@ -268,7 +268,7 @@ Options for running a provider as a supervise-mode executor.
 
 ##### runtime?
 
-> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-4)
+> `optional` **runtime?**: [`Runtime`](../runtime.md#runtime-5)
 
 **`Experimental`**
 
@@ -382,7 +382,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 ### providerAsSandboxClient()
 
-> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-5)
+> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -400,7 +400,7 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 
 #### Returns
 
-[`SandboxClient`](../runtime.md#sandboxclient-5)
+[`SandboxClient`](../runtime.md#sandboxclient-6)
 
 ***
 
@@ -411,12 +411,14 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 **`Experimental`**
 
 Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
+The provider declares the public SDK contract before it creates an environment.
+Each environment exposes interactive methods only when its deployment declares every required capability.
 
 #### Parameters
 
 ##### client
 
-[`SandboxClient`](../runtime.md#sandboxclient-5)
+[`SandboxClient`](../runtime.md#sandboxclient-6)
 
 ##### options?
 

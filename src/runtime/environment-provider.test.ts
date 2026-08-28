@@ -387,6 +387,54 @@ describe('environment provider adapters', () => {
     expect(createCalls).toBe(0)
   })
 
+  it('preserves Sandbox 0.34 all-secret selection through the neutral adapter', async () => {
+    let created: unknown
+    const provider: AgentEnvironmentProvider = {
+      name: 'fake-provider',
+      capabilities: () => fakeCapabilities(),
+      async create(input) {
+        created = input
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {},
+        })
+      },
+    }
+
+    await providerAsSandboxClient(provider).create({
+      backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+      secrets: 'all',
+    })
+
+    expect(created).toMatchObject({
+      providerOptions: { sandboxCreateOptions: { secrets: 'all' } },
+    })
+    expect(created).not.toHaveProperty('secrets')
+  })
+
+  it('forwards Sandbox 0.34 all-secret selection from provider passthrough options', async () => {
+    let createOptions: CreateSandboxOptions | undefined
+    const box = {
+      id: 'sandbox-all-secrets',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
+        createOptions = options
+        return box
+      },
+    }
+
+    await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+      providerOptions: { sandboxCreateOptions: { secrets: 'all' } },
+    })
+
+    expect(createOptions).toMatchObject({ secrets: 'all' })
+  })
+
   it.each([
     ['a record', { API_TOKEN: 'secret-value' }],
     ['an object in an array', [{ API_TOKEN: 'secret-value' }]],

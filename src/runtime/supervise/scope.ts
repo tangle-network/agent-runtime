@@ -34,6 +34,7 @@ import {
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
+import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
 import { abortError } from './abortable'
@@ -53,6 +54,10 @@ import {
 } from './deadline'
 import { freeSlots } from './dispatch'
 import { executableAgentSpecSnapshot } from './executable-spec'
+import {
+  interactiveAdmissionSeamKey,
+  writeWorkerInteractiveAdmission,
+} from './interactive-admission'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -125,6 +130,7 @@ import {
   type WaitRejection,
   type WaitSpec,
 } from './wait'
+import { writeWorkerInteractiveBinding } from './worker-interactive'
 import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
@@ -186,6 +192,8 @@ export interface ScopeArgs {
     readonly backend: string
     readonly reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
   }
+  /** Durable run directory that receives exact worker interactive bindings. */
+  readonly interactiveBindingDir?: string
   /** @internal Trusted root-adapter publication channel. It is never exposed as a Scope method. */
   readonly ownerMaterialization?: {
     readonly runtime: NodeSnapshot['runtime']
@@ -289,6 +297,8 @@ interface LiveChild {
   readonly readTraceSource?: () => TraceSource | undefined
   /** The executor's optional interactive process, captured at spawn — backs `scope.interactive`. */
   readonly readInteractive?: () => WorkerInteractiveSession
+  /** Async readiness for an executor that creates its interactive process during `execute`. */
+  readonly readInteractiveReady?: () => Promise<WorkerInteractiveSession>
   /** The executor's optional cancellation operation, captured at spawn — backs `scope.cancel`. */
   readonly requestCancel?: (request: ExecutorCancellationRequest) => Promise<ExecutorCancellation>
   /** Abort this child's own signal — the local half of `scope.cancel`. */
@@ -419,6 +429,9 @@ function makeNestedScopeSeam(
         ...(args.workerTraceUnpropagated
           ? { workerTraceUnpropagated: args.workerTraceUnpropagated }
           : {}),
+        ...(args.interactiveBindingDir
+          ? { interactiveBindingDir: args.interactiveBindingDir }
+          : {}),
         ...(deferredOwner.ownerMaterialization === undefined
           ? {}
           : { ownerMaterialization: deferredOwner.ownerMaterialization }),
@@ -430,6 +443,7 @@ function makeNestedScopeSeam(
 /** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const children = new Map<NodeId, LiveChild>()
+  const interactiveBindingDir = args.interactiveBindingDir
   const liveWorkerCapacity: LiveWorkerCapacityState = args.liveWorkerCapacity ?? {
     max: normalizeLiveWorkerLimit(args.maxLiveWorkers),
     live: 0,
@@ -451,6 +465,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
   let waitOrdinal = args.resumeFrom ? args.resumeFrom.maxWaitOrdinal + 1 : 0
   let meterSeq = 0
+  let progressSeq = 0
   const now = args.now ?? Date.now
   // Waits the journal shows as armed but never woken, keyed by label. `wait` RE-ADOPTS one instead
   // of arming a fresh countdown — that is what makes a resumed deadline the ORIGINAL deadline.
@@ -690,6 +705,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             deferredOwner,
           ),
           ...(workerTrace ? { [workerTraceSeamKey]: workerTrace } : {}),
+          ...(interactiveBindingDir
+            ? {
+                [interactiveAdmissionSeamKey]: (admission: RetainedInteractiveAdmission) =>
+                  Promise.resolve(
+                    writeWorkerInteractiveAdmission(interactiveBindingDir, id, admission, now),
+                  ).then(() => undefined),
+              }
+            : {}),
         },
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
@@ -739,6 +762,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
         ...(executor.interactive ? { readInteractive: executor.interactive.bind(executor) } : {}),
+        ...(executor.interactiveReady
+          ? { readInteractiveReady: executor.interactiveReady.bind(executor) }
+          : {}),
         ...(executor.cancel ? { requestCancel: executor.cancel.bind(executor) } : {}),
         abortChild: (reason?: string): void => controller.abort(reason),
       }
@@ -979,7 +1005,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // Drive the executor to settlement off to the side; `next()` awaits the resulting
       // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
       // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
-      const settled = runChild(
+      const childRun = runChild(
         live,
         executor,
         controller,
@@ -989,6 +1015,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         reservation.ticket,
         args.blobs,
         now,
+        args.journal,
+        args.root,
+        () => progressSeq++,
         materializationCommitted,
         {
           complete: async () => pendingEvidence?.complete(),
@@ -996,9 +1025,59 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
         childDeadlineAtMs,
       )
-        .then((s) => {
-          live.resolved = s
-          return s
+      const interactiveBindingCommitted = spawnCommitted.then(async () => {
+        if (args.interactiveBindingDir === undefined) return
+        const immediate = readInteractiveSession(live)
+        if (
+          immediate.status === 'available' ||
+          immediate.reason !== 'interactive-session-not-started' ||
+          live.readInteractiveReady === undefined
+        ) {
+          writeWorkerInteractiveBinding(
+            args.interactiveBindingDir,
+            id,
+            opts.label,
+            args.root,
+            immediate,
+            now,
+          )
+          return
+        }
+        const ready = await readInteractiveReadyUntilWorkerEnds(
+          live.readInteractiveReady,
+          childRun,
+          controller.signal,
+        )
+        if (
+          ready !== undefined &&
+          (ready.status === 'available' || ready.reason !== 'interactive-session-not-started')
+        ) {
+          writeWorkerInteractiveBinding(
+            args.interactiveBindingDir,
+            id,
+            opts.label,
+            args.root,
+            ready,
+            now,
+          )
+        }
+      })
+      const settled = childRun
+        .then(async (s) => {
+          let resolution = s
+          try {
+            await interactiveBindingCommitted
+          } catch {
+            resolution = downRecord(
+              'interactive worker binding persistence failed',
+              true,
+              s.trace,
+              s.metered,
+              s.providerModel,
+            )
+          }
+          live.resolved = resolution
+          return resolution
         })
         .finally(() => {
           if (live.cleanupConfirmed) permit.release()
@@ -1320,21 +1399,18 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (child.wait || child.executorDone || isTerminalNodeStatus(child.status)) {
       return noInteractiveSession('not-live')
     }
-    if (!child.readInteractive)
-      return noInteractiveSession('executor-exposes-no-interactive-session')
-    let reported: WorkerInteractiveSession
-    try {
-      reported = child.readInteractive()
-    } catch {
-      // A throwing read is an executor that cannot produce a session, not a reason to break the
-      // operator's attach path.
-      return noInteractiveSession('executor-exposes-no-interactive-session')
+    const session = readInteractiveSession(child)
+    if (args.interactiveBindingDir !== undefined && session.status === 'available') {
+      writeWorkerInteractiveBinding(
+        args.interactiveBindingDir,
+        child.id,
+        child.label,
+        args.root,
+        session,
+        now,
+      )
     }
-    // The executor answers for its own runner, so its reason is kept. A malformed answer is not
-    // an attachment: it degrades to the honest omission reason rather than reaching a caller.
-    if (reported?.status === 'unavailable' && reported.reason) return reported
-    if (reported?.status === 'available' && reported.handle) return reported
-    return noInteractiveSession('executor-exposes-no-interactive-session')
+    return session
   }
 
   async function meterInternal(
@@ -2038,6 +2114,9 @@ async function runChild<C>(
   ticket: ReservationTicket,
   blobs: ResultBlobStore,
   now: () => number,
+  journal: SpawnJournal,
+  journalRoot: NodeId,
+  nextProgressSeq: () => number,
   executionReady: Promise<void>,
   executionEvidence: {
     complete: () => Promise<void>
@@ -2093,9 +2172,16 @@ async function runChild<C>(
       // concurrent `scope.progress(id)` sees a worker mid-flight rather than a zeroed row.
       const spend = await foldStream(
         ran,
-        (running) => {
+        async (running) => {
           live.spent = running
           live.lastActivityAt = now()
+          await journal.appendEvent(journalRoot, {
+            kind: 'progress',
+            id: live.id,
+            spend: running,
+            seq: nextProgressSeq(),
+            at: new Date(now()).toISOString(),
+          })
         },
         childAbort.signal,
       )
@@ -2416,7 +2502,7 @@ function freezeCorrelation(
  */
 async function foldStream(
   stream: AsyncIterable<UsageEvent>,
-  onProgress?: (running: Spend) => void,
+  onProgress?: (running: Spend) => void | Promise<void>,
   signal?: AbortSignal,
 ): Promise<Spend> {
   const totals = newUsageTotals()
@@ -2429,7 +2515,7 @@ async function foldStream(
       if (next.done) break
       const ev = next.value
       meterUsageEvent(totals, ev)
-      onProgress?.({
+      await onProgress?.({
         iterations: totals.iterations,
         tokens: cloneTokenUsage(totals.tokens),
         ...(totals.tokensKnown ? {} : { tokensKnown: false }),
@@ -2537,6 +2623,52 @@ function noInteractiveSession(
   reason: WorkerInteractiveUnavailableReason,
 ): WorkerInteractiveSession {
   return Object.freeze({ status: 'unavailable' as const, reason })
+}
+
+/** Read one executor's declared interactive capability without letting a malformed port escape. */
+function readInteractiveSession(child: LiveChild): WorkerInteractiveSession {
+  if (!child.readInteractive) {
+    return noInteractiveSession('executor-exposes-no-interactive-session')
+  }
+  let reported: WorkerInteractiveSession
+  try {
+    reported = child.readInteractive()
+  } catch {
+    return noInteractiveSession('executor-exposes-no-interactive-session')
+  }
+  if (reported?.status === 'unavailable' && reported.reason) return reported
+  if (reported?.status === 'available' && reported.handle) return reported
+  return noInteractiveSession('executor-exposes-no-interactive-session')
+}
+
+/** Stop waiting for optional readiness when the worker settles or its lifetime is cancelled. */
+async function readInteractiveReadyUntilWorkerEnds(
+  readReady: () => Promise<WorkerInteractiveSession>,
+  workerEnded: Promise<unknown>,
+  signal: AbortSignal,
+): Promise<WorkerInteractiveSession | undefined> {
+  if (signal.aborted) return undefined
+  let resolveAborted!: () => void
+  const aborted = new Promise<void>((resolve) => {
+    resolveAborted = resolve
+  })
+  const onAbort = () => resolveAborted()
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const outcome = await Promise.race([
+      Promise.resolve()
+        .then(readReady)
+        .then((session) => ({ kind: 'ready' as const, session })),
+      workerEnded.then(
+        () => ({ kind: 'ended' as const }),
+        () => ({ kind: 'ended' as const }),
+      ),
+      aborted.then(() => ({ kind: 'ended' as const })),
+    ])
+    return outcome.kind === 'ready' ? outcome.session : undefined
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

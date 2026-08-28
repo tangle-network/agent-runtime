@@ -31,7 +31,7 @@ import {
   resolveCapabilities,
   sha256OfFile,
 } from './lib/conformance-manifest.mjs'
-import { sandboxCompatibilityVersions, sandboxPeerRange } from './lib/packed-package-test.mjs'
+import { sandboxCompatibilityVersions, sandboxPeerRange } from './lib/dependency-contract.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const { values } = parseArgs({

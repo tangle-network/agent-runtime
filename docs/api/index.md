@@ -8427,7 +8427,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-4)
+> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-5)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -8529,6 +8529,17 @@ reads as `executor-exposes-no-interactive-session`, never as an empty handle.
 ###### Returns
 
 [`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
+
+##### interactiveReady()?
+
+> `optional` **interactiveReady**(): `Promise`\<[`WorkerInteractiveSession`](runtime.md#workerinteractivesession)\>
+
+Optional readiness signal for an executor whose exact interactive handle is created inside
+`execute`. It resolves once to an available handle or a terminal unavailable reason.
+
+###### Returns
+
+`Promise`\<[`WorkerInteractiveSession`](runtime.md#workerinteractivesession)\>
 
 ##### cancel()?
 
@@ -8705,7 +8716,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### runtime
 
-[`Runtime`](runtime.md#runtime-4)
+[`Runtime`](runtime.md#runtime-5)
 
 ###### factory
 

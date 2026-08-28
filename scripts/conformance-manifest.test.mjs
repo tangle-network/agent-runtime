@@ -16,6 +16,7 @@ import {
   sha256OfFile,
   verifyConformanceManifest,
 } from './lib/conformance-manifest.mjs'
+import { sandboxCompatibilityVersions, sandboxPeerRange } from './lib/dependency-contract.mjs'
 
 const capabilityMap = {
   schemaVersion: 'agent-runtime/conformance-capabilities/v1',
@@ -56,7 +57,10 @@ function manifestOf(results = passingResults) {
       buildIdentity: { capabilityMap: 'a'.repeat(64), packageManager: 'pnpm@11.17.0' },
     },
     cohort: cohort(),
-    sandboxVersions: { peerRange: '>=0.31.0 <0.32.0', verified: ['0.31.0'] },
+    sandboxVersions: {
+      peerRange: sandboxPeerRange,
+      verified: [...sandboxCompatibilityVersions],
+    },
     environment: { node: 'v22.0.0', platform: 'linux-x64' },
     capabilities: resolveCapabilities(capabilityMap, results, fileDigest),
     verifiedBy: { tool: 'scripts/verify-conformance-manifest.mjs', version: '0.143.0' },

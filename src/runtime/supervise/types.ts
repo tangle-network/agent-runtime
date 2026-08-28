@@ -158,6 +158,9 @@ export interface Executor<Out> {
    * reads as `executor-exposes-no-interactive-session`, never as an empty handle.
    */
   interactive?(): WorkerInteractiveSession
+  /** Optional readiness signal for an executor whose exact interactive handle is created inside
+   * `execute`. It resolves once to an available handle or a terminal unavailable reason. */
+  interactiveReady?(): Promise<WorkerInteractiveSession>
   /**
    * Optional provider-neutral CANCELLATION, distinct from `teardown`: it asks the backend to stop
    * the work and reports what the backend acknowledged, so a caller never has to read a local
@@ -241,6 +244,13 @@ export type WorkerInteractiveUnavailableReason =
    *  answers with it. No first-party executor emits it yet: the sandbox arm must first ask its
    *  provider whether it supports control, which agent-runtime#773 tracks. */
   | 'interactive-session-not-started'
+  /** A durable worker exists, but its process predates the exact binding contract or failed to
+   *  publish one. Runtime never guesses a provider session from conversation metadata. */
+  | 'interactive-binding-not-found'
+  /** The exact durable reference no longer resolves to a running provider process. */
+  | 'interactive-binding-stale'
+  /** The binding names a provider that this process did not register. */
+  | 'interactive-provider-not-registered'
 
 /**
  * One worker's attachable process, or the named reason there is none.
@@ -1203,6 +1213,17 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** A live worker's cumulative metered spend, published while its stream is still running.
+       * This is observation only: it never settles a node and never enters cost totals. The next
+       * terminal `settled` event replaces it in read models, so a live snapshot can show movement
+       * without charging the same spend twice. */
+      kind: 'progress'
+      id: NodeId
+      spend: Spend
+      seq: number
+      at: string
+    }
+  | {
       /** A settled child whose executor teardown was never acknowledged: the run cannot prove the
        *  resource is gone, so its capacity slot stays charged for the rest of the run. Recorded so
        *  the leak is durable evidence about the EXECUTOR rather than a cause of run failure.
@@ -1382,6 +1403,9 @@ export interface SupervisorOpts {
     readonly backend: string
     readonly reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
   }
+  /** Durable supervisor-run directory that receives exact worker interactive bindings.
+   * `supervise({ runDir })` wires this automatically. Direct kernel callers omit it. */
+  readonly interactiveBindingDir?: string
 }
 
 /** Provider-observed model identity for the root manager's settled inference turns.

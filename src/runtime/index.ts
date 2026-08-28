@@ -725,6 +725,20 @@ export {
   type InboxMessage,
   type PeerInboxMessage,
 } from './supervise/inbox'
+export {
+  readWorkerInteractiveAdmissions,
+  type WorkerInteractiveAdmission,
+  workerInteractiveAdmissionFile,
+} from './supervise/interactive-admission'
+/** Provider-backed native interactive workers. Runtime owns admission and control identity; the
+ * provider owns the environment and process. */
+export {
+  type InteractiveWorkerEnvironment,
+  type InteractiveWorkerKeyInput,
+  type InteractiveWorkerOptions,
+  type InteractiveWorkerResult,
+  workerFromInteractiveProvider,
+} from './supervise/interactive-worker'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
 export { assertModelAllowed, assertProfileModelsAllowed } from './supervise/model-policy'
 // OPT-IN OTLP tracing for a supervised tree: a pure `RuntimeHooks` observer that turns the
@@ -796,6 +810,16 @@ export {
   type RegisteredPrompt,
   supervisorPolicyPrompt,
 } from './supervise/prompt-registry'
+// One-call durable Runtime owner for external clients that need a real root, one interactive worker,
+// the worker control acknowledger, and an exact cleanup receipt. Braid consumes this surface and
+// never writes `.agent/supervisor` itself.
+export {
+  type ProvisionedSupervisor,
+  type ProvisionSupervisorConnection,
+  type ProvisionSupervisorRequest,
+  provisionSupervisor,
+  type SupervisorCleanupReceipt,
+} from './supervise/provision-supervisor'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
@@ -824,6 +848,7 @@ export {
   readRunCancelRequest,
   readWorkerCancellation,
   readWorkerCancelRequests,
+  readWorkerSteerAcknowledgement,
   readWorkerSteerRequests,
   runCancellationFile,
   runCancelRequestFile,
@@ -833,13 +858,20 @@ export {
   supervisorWorkersDir,
   type WorkerCancellation,
   type WorkerCancelRequest,
+  type WorkerSteerAcknowledgement,
   type WorkerSteerRequest,
+  type WriteWorkerSteerOptions,
   workerCancellationFile,
   workerCancellationsDir,
   workerCancelRequestsFile,
   workerControlLogFile,
   workerInboxFile,
   workerInboxFileFromEventDir,
+  workerSteerAcknowledgementFile,
+  workerSteerAcknowledgementsDir,
+  workerSteerRequestFile,
+  workerSteerRequestsDir,
+  workerSteersDir,
   writeWorkerSteer,
 } from './supervise/run-layout'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
@@ -1056,6 +1088,17 @@ export {
   VERIFY_TAIL_CHARS,
   type WorkerEvidenceInput,
 } from './supervise/worker-evidence'
+// Exact cross-process attachment to a provider-retained worker process. The durable binding is
+// Runtime-owned and keyed by the supervised worker id; callers never inspect provider state.
+export {
+  type AttachWorkerOptions,
+  attachWorker,
+  readWorkerInteractiveBinding,
+  type WorkerInteractiveBinding,
+  type WorkerInteractiveProviderSource,
+  workerInteractiveBindingFile,
+  workerInteractiveBindingsDir,
+} from './supervise/worker-interactive'
 // The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
 // id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
 // package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans

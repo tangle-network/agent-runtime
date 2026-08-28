@@ -776,6 +776,7 @@ const outsideCursorNamespaceKinds = [
   'metered',
   'materialized',
   'execution-bound',
+  'progress',
   'edge',
   'teardown-unconfirmed',
   'trace-unpropagated',
@@ -868,6 +869,7 @@ export async function replaySpawnTree(
     if (ev.kind === 'spawned') continue
     if (ev.kind === 'waiting') continue // arms a wait node; `woken` is its settlement
     if (ev.kind === 'metered') continue // a spend record, not a settlement — irrelevant to replay
+    if (ev.kind === 'progress') continue // live observation, not a settlement — irrelevant to replay
     if (ev.kind === 'materialized') continue // wire receipt, not a settlement
     if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
     if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement

@@ -824,7 +824,7 @@ Canonical agent profile — the same one the prod chat turn uses.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-5)
+> **sandboxClient**: [`SandboxClient`](runtime.md#sandboxclient-6)
 
 Sandbox client used to boot the per-run sandbox.
 

@@ -39,6 +39,7 @@ import {
   type CoordinationEvent,
   coordinationVerbNames,
   createCoordinationTools,
+  type DownMessageEvent,
   type MakeWorkerAgent,
   normalizeAnalyzeOnSettle,
   type SettledWorker,
@@ -68,15 +69,21 @@ import { createInbox, type Inbox } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
 import {
+  claimWorkerSteerDelivery,
   type RunCancellation,
   readRunCancellation,
   readRunCancelRequest,
   readWorkerCancellation,
   readWorkerCancelRequests,
+  readWorkerSteerAcknowledgement,
+  readWorkerSteerRequests,
   type WorkerCancellation,
   type WorkerCancelRequest,
+  type WorkerSteerAcknowledgement,
+  type WorkerSteerRequest,
   writeRunCancellation,
   writeWorkerCancellation,
+  writeWorkerSteerAcknowledgement,
 } from './run-layout'
 import { meterRuntimeOwnedProviderAttempt } from './scope'
 import { createProgressTracker, progressStop, type StopRule } from './stop-rules'
@@ -382,6 +389,115 @@ interface CancelAcknowledgerDeps {
   readonly abortRun?: (reason: string) => void
 }
 
+interface SteerAcknowledgerDeps {
+  readonly dir: string
+  readonly coord: {
+    steerWorker(
+      workerId: string,
+      instruction: string,
+      options?: { readonly interrupt?: boolean },
+    ): Promise<DownMessageEvent>
+  }
+  readonly now: () => number
+  readonly ownerId: string
+}
+
+/**
+ * Apply externally admitted steers once from the owning manager's turn loop.
+ *
+ * The `unknown` acknowledgement lands before authorization or delivery. A crash after that write
+ * can lose this steer, but a restarted manager never delivers it again. This is the same
+ * at-most-once crash boundary as coordination instruction receipts: no duplicate instruction is
+ * safer than replaying a mutation whose first delivery may already have succeeded.
+ */
+export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
+  pass(phase: 'turn' | 'final'): Promise<void>
+} {
+  const iso = () => new Date(deps.now()).toISOString()
+  const directChildId = (ref: string): boolean =>
+    ref.startsWith(`${deps.ownerId}:s`) && /^s\d+$/.test(ref.slice(deps.ownerId.length + 1))
+
+  const base = (
+    request: WorkerSteerRequest,
+  ): Omit<WorkerSteerAcknowledgement, 'effect' | 'observedAt' | 'detail'> => ({
+    schemaVersion: 1,
+    operationId: request.operationId,
+    requestDigest: request.requestDigest,
+    worker: request.worker,
+    requestedAt: request.at,
+  })
+
+  return {
+    async pass(phase): Promise<void> {
+      for (const request of readWorkerSteerRequests(deps.dir)) {
+        if (!directChildId(request.worker)) continue
+        if (readWorkerSteerAcknowledgement(deps.dir, request.operationId) !== undefined) continue
+        if (phase === 'final') {
+          writeWorkerSteerAcknowledgement(deps.dir, {
+            ...base(request),
+            effect: 'not_live',
+            observedAt: iso(),
+            detail: 'run ended before the steer was applied',
+          })
+          continue
+        }
+        const claimed = claimWorkerSteerDelivery(deps.dir, {
+          ...base(request),
+          effect: 'unknown',
+          observedAt: iso(),
+          detail: 'delivery admitted; outcome not yet known',
+        })
+        if (!claimed) continue
+        try {
+          const outcome = await deps.coord.steerWorker(request.worker, request.message, {
+            interrupt: request.interrupt,
+          })
+          const effect: WorkerSteerAcknowledgement['effect'] = outcome.delivered
+            ? 'delivered'
+            : outcome.outcome === 'runtime-has-no-inbox'
+              ? 'unsupported'
+              : outcome.outcome === 'unknown-worker' ||
+                  outcome.outcome === 'already-settled' ||
+                  outcome.outcome === 'scope-stopped'
+                ? 'not_live'
+                : 'unknown'
+          writeWorkerSteerAcknowledgement(deps.dir, {
+            ...base(request),
+            effect,
+            observedAt: iso(),
+            detail: steerAcknowledgementDetail(outcome),
+          })
+        } catch (error) {
+          void error
+          writeWorkerSteerAcknowledgement(deps.dir, {
+            ...base(request),
+            effect: 'unknown',
+            observedAt: iso(),
+            detail: 'delivery outcome is unknown after a runtime error',
+          })
+        }
+      }
+    },
+  }
+}
+
+function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
+  switch (outcome.outcome) {
+    case 'delivered':
+      return 'the owning manager delivered the steer to the exact live worker'
+    case 'runtime-has-no-inbox':
+      return 'the exact worker does not expose a steer inbox'
+    case 'unknown-worker':
+      return 'the owning manager does not know the exact worker'
+    case 'already-settled':
+      return 'the exact worker settled before delivery'
+    case 'scope-stopped':
+      return 'the owning manager stopped before delivery'
+    case 'runtime-error':
+      return 'delivery outcome is unknown after a runtime error'
+  }
+}
+
 /**
  * The worker-cancel ACKNOWLEDGER — the runtime-side half of `run-layout`'s `cancelWorker`
  * contract, run from the coordination driver's turn loop (one cancellation-inbox read per turn,
@@ -406,7 +522,7 @@ interface CancelAcknowledgerDeps {
  * Idempotency is a lookup, in-process and across processes: an operation with a durable
  * acknowledgement is returned as-is and never re-applied.
  */
-function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
+export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
   /** `'turn'` = a driver turn boundary (the only phase that APPLIES a request); `'final'` = the
    *  post-drain pass, which only reconciles records the run already wrote. */
   pass(phase: 'turn' | 'final'): void
@@ -798,6 +914,15 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
               controlScope: opts.controlScope ?? 'run',
               ...(opts.abortRun ? { abortRun: opts.abortRun } : {}),
             })
+      const steerAcknowledger =
+        opts.controlDir === undefined
+          ? undefined
+          : createSteerAcknowledger({
+              dir: opts.controlDir,
+              coord,
+              now,
+              ownerId: scope.view.root,
+            })
       // Resume-first: re-establish the prior process's supervision state BEFORE the first brain
       // turn — its armed-but-never-woken waits become live again on their ORIGINAL deadlines
       // (they settle through the same cursor `await_event` drains). Fail loud on a wait that
@@ -1028,7 +1153,8 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         // that can no longer spawn (pool starved) or has run past the deadline stops here instead of
         // burning turns. Checked before each inference turn.
         hooks: {
-          beforeTurn: (_turn, messages) => {
+          beforeTurn: async (_turn, messages) => {
+            await steerAcknowledger?.pass('turn')
             acknowledger?.pass('turn')
             const pending = inbox.drain()
             if (pending.length > 0) {
@@ -1075,6 +1201,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // Then expiry: run end closes every owned request that is still open (`not_live` never
       // applied, `unknown` issued-but-unproven) — a reader can tell run-over from in-progress,
       // and no pending request survives to abort a future spawn that matches by label.
+      await steerAcknowledger?.pass('final')
       acknowledger?.pass('final')
       acknowledger?.finish()
       // Direct work is eligible only through `submit_result`, after the same injected independent

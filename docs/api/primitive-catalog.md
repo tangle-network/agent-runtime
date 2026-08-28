@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.175.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.176.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 874 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -574,6 +574,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `assertSandboxServedModel` | function | Fail the execution when the platform reports serving a model other than the exact one asked for. |
 | `assertStrategyContract` | function | Static CONTRACT lint over an authored strategy module — the module-boundary |
 | `assessAuthoredProfile` | function | OBSERVE one authored `AgentProfile` and score its richness (no judge verdict is read). The task |
+| `attachWorker` | function | Reconstruct the exact provider-owned interactive process bound to one supervised worker. |
 | `auditIntent` | function | The route-rigor analyst: compare declared vs revealed vs user intent over a trajectory and return aligned / drifting / diverged with evidence and one recommended intervention. |
 | `authorStrategy` | function | Author + load a strategy from losses. Throws when the author emits no loadable module; |
 | `bestSoFar` | function | The best-so-far fold — the ONE definition of "how good was the run after k results", shared by |
@@ -709,13 +710,17 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `promptHandle` | function | Parse `'<surface>/v<n>'` into a {@link PromptHandle}. The shorthand for authoring a graph edge: |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
+| `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
 | `readWorkerCancelRequests` | function | Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped. |
+| `readWorkerInteractiveAdmissions` | function | Read all durable admissions for one worker, oldest phase first. |
+| `readWorkerInteractiveBinding` | function | Read and validate one exact durable worker binding. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
-| `readWorkerSteerRequests` | function | Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. |
+| `readWorkerSteerAcknowledgement` | function | Read one runtime steer acknowledgement, or `undefined` while no manager has answered. |
+| `readWorkerSteerRequests` | function | Read every atomically admitted request for one exact worker id, in admission order. |
 | `readWorkerTraceContext` | function | Read the inherited trace context off an `ExecutorContext`, or `undefined` when the run records no |
 | `reconnectRetainedInteractiveRun` | function | Rebuild controls for one exact provider-owned coding-agent process. |
 | `reconnectRetainedRun` | function | Rebuild a retained-run client without retaining any object from the starter. |
@@ -795,13 +800,22 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `workerCancelRequestsFile` | function | The durable cancel-request inbox of one run — one NDJSON line per {@link WorkerCancelRequest}. |
 | `workerControlLogFile` | function | The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
+| `workerFromInteractiveProvider` | function | Build a `MakeWorkerAgent` that starts one exact provider-owned native TUI per worker. |
 | `workerInboxFile` | function | The durable inbox file for one worker of one run. |
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
+| `workerInteractiveAdmissionFile` | function | Return the exact credential-free admission file for one worker and phase. |
+| `workerInteractiveBindingFile` | function | Exact durable binding file for one worker id. |
+| `workerInteractiveBindingsDir` | function | Directory containing exact per-worker interactive binding records. |
+| `workerSteerAcknowledgementFile` | function | Runtime acknowledgement file for one caller-owned steer operation id. |
+| `workerSteerAcknowledgementsDir` | function | Directory containing one runtime acknowledgement per steer operation. |
+| `workerSteerRequestFile` | function | Canonical request file for one caller-owned steer operation id. |
+| `workerSteerRequestsDir` | function | Directory containing one canonical request file per steer operation. |
+| `workerSteersDir` | function | Directory containing atomically admitted steer requests and runtime acknowledgements. |
 | `workerTraceAnalysisStore` | function | Rehydrate exact persisted spans through agent-eval's one bounded trace-analysis adapter. |
 | `workerTraceEnv` | function | The trace env to merge into a worker's environment — `TRACEPARENT` plus the legacy |
 | `workerTraceHeaders` | function | The trace request headers for a worker dispatched over the cli-bridge HTTP transport — W3C |
 | `worktreeFanout` | function | Build the worktree fanout combinator. Run it with `runPersonified({ persona, shape, task, budget })` |
-| `writeWorkerSteer` | function | Durably append one steer request to a worker's inbox and log the delivery attempt. |
+| `writeWorkerSteer` | function | Admit one steer exactly once under a caller-owned operation id. |
 | `adaptiveRefine` | const | A NEW strategy, authored from the steps (~20 lines): refine, but when a steered shot |
 | `analyzesFindingsReportPrompt` | const | Default ANALYZES-edge directive: what the RECEIVING node should do with an analyst's findings. |
 | `assertTraceDerivedFindings` | const | Reject analyst findings derived from evaluation scores instead of execution traces. |
@@ -866,6 +880,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `AnalystFinding` | interface | Unified envelope every analyst emits. Schema-versioned so renderers |
 | `AnalystFindingEvent` | interface | A trace-analyst result re-entered as a message on the bus (the `finding` event kind). |
 | `AnalyzeOnSettleRoute` | interface | One analyst-on-settle ROUTE: which lens runs (`kind`), over WHICH settled workers (`over`), |
+| `AttachWorkerOptions` | interface | Options for reconstructing one worker's exact retained interactive process. |
 | `AuthorityInboxMessage` | interface | A message from the run's AUTHORITY — the parent driver. These two kinds carry instruction. |
 | `AuthorizedDownMessage` | interface | Product-authorized continuation bytes. Returning a narrowed instruction replaces the proposed |
 | `AuthorizedSpawn` | interface | The product-authorized result for one complete spawn request. Attribution is never accepted |
@@ -956,6 +971,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `InMemoryRunContextOptions` | interface | Options for a supervised run context. |
 | `InPlaceHarnessResult` | interface | The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch: |
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
+| `InteractiveWorkerKeyInput` | interface | Stable input available to key and holder functions. |
+| `InteractiveWorkerOptions` | interface | Configuration shared by every worker produced by `workerFromInteractiveProvider`. |
+| `InteractiveWorkerResult` | interface | Native interactive worker output. Provider usage is intentionally not fabricated. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
 | `KeyProvider` | interface | Resolve named secrets. The ONE seam every secret store adapts to. |
 | `LeaderboardBenchmarkAdapter` | interface | Structurally `BenchmarkAdapter` (bench registry shape): `name`, |
@@ -1010,6 +1028,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
+| `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
+| `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
+| `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
 | `ReconnectRetainedInteractiveRunOptions` | interface | Reconstruct one exact provider-owned native coding-agent process. |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
 | `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |
@@ -1099,6 +1120,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `SuperviseRegistryTable` | interface | A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry` |
 | `SuperviseSurfaceResult` | interface | The deployable outcome of a supervised surface run. |
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
+| `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
 | `SupervisorNodeContext` | interface | Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot |
 | `SupervisorSpanOutcome` | interface | How the supervised run ended, as `finish()` records it on the root span. |
 | `SupervisorToolDescriptor` | interface | One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies |
@@ -1130,13 +1152,15 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `WorkerProgress` | interface | The full live view of one worker, as `observe_agent` returns it mid-flight. |
 | `WorkerResumeContext` | interface | The resume lineage a `'resume'` spawn hands the executor seam |
 | `WorkerSpawnContext` | interface | Immutable task, allocation, identity attribution, and semantic key supplied while a manager's |
-| `WorkerSteerRequest` | interface | One durable down-leg request appended to a worker's inbox file. |
+| `WorkerSteerAcknowledgement` | interface | Runtime acknowledgement for one exact steer operation. |
+| `WorkerSteerRequest` | interface | One atomically admitted down-leg request for an exact worker id. |
 | `WorkerToolTraceArtifact` | interface | Bytes stored under `WorkerTraceEvidence.traceRef`. |
 | `WorkerTraceSeamCarrier` | interface | What the two readers below need off an `ExecutorContext` — its seam bag, and nothing else. |
 | `WorkerWatchOptions` | interface | Online-detector wiring for spawned workers (`CoordinationToolsOptions.watchWorkers`). |
 | `WorktreeCommandResult` | interface | Outcome of one verification command run in the worktree (test or typecheck). |
 | `WorktreeHarnessResult` | interface | The canonical result of one worktree-harness run, projected by each port to its own shape. |
 | `WorktreeProfileMaterializationReceipt` | interface | Proof of the profile inputs delivered before the worker process started. |
+| `WriteWorkerSteerOptions` | interface | Caller input for one retry-safe steer operation. |
 | `AgentEnvironmentProviderRef` | type | Provider object or registry name accepted by runtime provider adapters. |
 | `AgentProfileRef` | type | Portable profile reference: inline profile or provider catalog id. |
 | `AgentTurnBackend` | type | The execution substrate one turn runs on — a closed discriminated union over |
@@ -1170,6 +1194,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `FlatWidenGate` | type | The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall |
 | `GroupOf` | type | The axis (matrix column) a record contributes to — default the scenario group. |
 | `InProcessOnPrompt` | type | The user callback: given a prompt and its round, produce the box's event |
+| `InteractiveWorkerEnvironment` | type | Environment fields supplied to every interactive worker after Runtime adds the exact profile. |
 | `LoopOptionsForDispatch` | type | runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). |
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
@@ -1242,6 +1267,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 846 exports.
 | `Widen` | type | `widen(spec)` — build the streaming progressive-widening combinator. |
 | `WidenDecision` | type | A widening decision: extend one lineage by one child, or stop widening. `flatWidenGate` |
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
+| `WorkerInteractiveAdmission` | type | The credential-free record written for one interactive admission phase. |
+| `WorkerInteractiveBinding` | type | Durable exact-process binding or capability decision for one supervised worker. |
+| `WorkerInteractiveProviderSource` | type | Provider lookup accepted by {@link attachWorker}. |
 | `WorkerInteractiveSession` | type | One worker's attachable process, or the named reason there is none. |
 | `WorkerInteractiveUnavailableReason` | type | Why Runtime cannot hand a caller the exact interactive process one worker runs in. |
 | `WorkerTraceEvidence` | type | Durable proof of a worker's structured tool trace, or the exact reason it is unavailable. |
@@ -1701,15 +1729,20 @@ Import from `@tangle-network/agent-runtime/mcp` — 213 exports.
 
 ### Supervisor TUI — live terminal view over the on-disk run layout
 
-Import from `@tangle-network/agent-runtime/tui` — 22 exports.
+Import from `@tangle-network/agent-runtime/tui` — 27 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `loadTopSnapshot` | function | Read every supervisor run under one workspace into a single point-in-time snapshot. |
+| `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `renderTopFrame` | function | Render one snapshot to an ANSI frame. Use this when nothing needs to be clickable. |
 | `renderTopFrameWithLayout` | function | Render one snapshot, returning the frame together with the row→entity map a mouse click resolves |
 | `renderTopOnce` | function | Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a |
 | `runTopApp` | function | Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`; |
+| `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
+| `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
+| `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
+| `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
 | `TopSnapshot` | interface | The read side of the supervisor-run TUI: turn the on-disk run layout into one `TopSnapshot`, and |
 | `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
 

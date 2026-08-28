@@ -157,6 +157,20 @@ try {
       return [name, requiredPackedDevelopmentDependency(packageJson, name)]
     }),
   )
+  const consumerTypeScriptAlias = packageJson.devDependencies?.['typescript-consumer']
+  const consumerTypeScriptPrefix = 'npm:typescript@'
+  if (
+    typeof consumerTypeScriptAlias !== 'string' ||
+    !consumerTypeScriptAlias.startsWith(consumerTypeScriptPrefix)
+  ) {
+    throw new Error('packed consumer requires an exact typescript-consumer alias')
+  }
+  const consumerTypeScriptVersion = consumerTypeScriptAlias.slice(
+    consumerTypeScriptPrefix.length,
+  )
+  if (!/^\d+\.\d+\.\d+$/.test(consumerTypeScriptVersion)) {
+    throw new Error('packed consumer requires an exact TypeScript version')
+  }
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -170,7 +184,7 @@ try {
         },
         devDependencies: {
           '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
-          typescript: requiredPackedDevelopmentDependency(packageJson, 'typescript'),
+          typescript: consumerTypeScriptVersion,
         },
         overrides: {
           '@tangle-network/agent-knowledge': '$@tangle-network/agent-knowledge',
@@ -212,7 +226,15 @@ try {
       // @ts-expect-error Arbitrary driver construction is confined to the testing entrypoint.
       import type { DriverAgentOptions as ForbiddenDriverAgentOptions } from '@tangle-network/agent-runtime/kernel'
       // The caller-brain seam is production: ToolLoopChat resolves from /kernel (issue 694 option A).
-      import type { ToolLoopChat as KernelToolLoopChat } from '@tangle-network/agent-runtime/kernel'
+      import {
+        attachWorker,
+        readWorkerSteerAcknowledgement,
+        type ToolLoopChat as KernelToolLoopChat,
+        type WorkerInteractiveBinding,
+        type WorkerSteerAcknowledgement,
+        type WriteWorkerSteerOptions,
+        writeWorkerSteer,
+      } from '@tangle-network/agent-runtime/kernel'
       import {
         deriveExecutionId,
         handleChatTurn,
@@ -273,6 +295,12 @@ try {
       })
       const durableTurnHandler: typeof handleChatTurn = handleChatTurn
       declare const durableTurnResult: ChatTurnResult
+      declare const workerBinding: WorkerInteractiveBinding
+      declare const steerAcknowledgement: WorkerSteerAcknowledgement
+      const steerOptions: WriteWorkerSteerOptions = {
+        operationId: 'packed-consumer-steer',
+        message: 'continue with the exact failing test',
+      }
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -363,6 +391,12 @@ try {
       void durableExecutionId
       void durableTurnHandler
       void durableTurnResult
+      void workerBinding
+      void steerAcknowledgement
+      void steerOptions
+      void attachWorker
+      void readWorkerSteerAcknowledgement
+      void writeWorkerSteer
       void driverAgent
       void (undefined as unknown as DriverAgentOptions)
       void (undefined as unknown as ToolLoopChat)
@@ -433,7 +467,11 @@ try {
       '--eval',
       `
         const root = await import('@tangle-network/agent-runtime')
+        const kernel = await import('@tangle-network/agent-runtime/kernel')
         const toolLoop = await import('@tangle-network/agent-runtime/tool-loop')
+        for (const name of ['attachWorker', 'readWorkerSteerAcknowledgement', 'writeWorkerSteer']) {
+          if (typeof kernel[name] !== 'function') throw new Error('missing kernel export ' + name)
+        }
         for (const name of ['runToolLoop', 'streamToolLoop']) {
           if (typeof toolLoop[name] !== 'function') throw new Error('missing tool-loop export ' + name)
           if (name in root) throw new Error('tool-loop export leaked through broad package root: ' + name)
@@ -763,6 +801,25 @@ try {
         ]
         for (const name of expectedProvider) {
           if (typeof provider[name] !== 'function') throw new Error('missing environment-provider export ' + name)
+        }
+        const capabilities = await provider.sandboxClientAsProvider({
+          async create() { throw new Error('packed capability check must not create') },
+          async get() { return null },
+        }).capabilities()
+        const interactive = capabilities.interactiveAgent
+        const requiredInteractive = [
+          'start',
+          'control',
+          'status',
+          'attach',
+          'reattach',
+          'sendPrompt',
+          'input',
+          'resize',
+          'stop',
+        ]
+        if (!interactive || requiredInteractive.some((name) => interactive[name] !== true)) {
+          throw new Error('packed Sandbox provider omits exact interactive capability')
         }
       `,
     ],

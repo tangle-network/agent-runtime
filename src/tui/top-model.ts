@@ -187,6 +187,14 @@ export type TopJournalEvent =
       readonly kind: 'metered'
       readonly id: string
       readonly spend?: unknown
+      readonly accountingOnly?: boolean
+      readonly seq?: number
+      readonly at?: string
+    }
+  | {
+      readonly kind: 'progress'
+      readonly id: string
+      readonly spend?: unknown
       readonly seq?: number
       readonly at?: string
     }
@@ -419,6 +427,9 @@ function buildSupervisorView(
       const verdict = describeVerdict(event.verdict)
       if (verdict) worker.verdict = verdict
       worker.spend = addSpend(worker.spend, parseSpend(event.spent))
+      // Live progress is cumulative observation. The terminal spend replaces it, so do not add
+      // the two channels or a worker's final cost would be counted twice.
+      worker.metered = emptySpend
       continue
     }
 
@@ -434,11 +445,18 @@ function buildSupervisorView(
     if (event.kind === 'metered') {
       const spend = parseSpend(event.spend)
       if (isRoot(event.id)) {
-        driverSpend = addSpend(driverSpend, spend)
+        if (event.accountingOnly !== true) driverSpend = addSpend(driverSpend, spend)
       } else {
         const worker = ensureWorker(workers, event.id, event.id)
-        worker.metered = addSpend(worker.metered, spend)
+        if (event.accountingOnly !== true) worker.metered = addSpend(worker.metered, spend)
       }
+      continue
+    }
+
+    if (event.kind === 'progress') {
+      if (isRoot(event.id)) continue
+      const worker = ensureWorker(workers, event.id, event.id)
+      worker.metered = parseSpend(event.spend)
     }
   }
 
@@ -449,6 +467,7 @@ function buildSupervisorView(
       const tail =
         workerEventTails.get(worker.label) ??
         workerEventTails.get(safeWorkerFile(worker.label)) ??
+        workerEventTails.get(safeWorkerFile(worker.id)) ??
         workerEventTails.get(worker.id)
       worker.liveTail = tail?.lines ?? []
       if (tail?.file) worker.eventFile = tail.file
@@ -942,6 +961,10 @@ function renderJournalTail(supervisor: SupervisorView, width: number, color: boo
       const spend = parseSpend(event.spend)
       return `  ${at} ${paint('meter', 'cyan', color)}  ${pad(event.id, 18)} ${formatMoney(spend.usd)} ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}`
     }
+    if (event.kind === 'progress') {
+      const spend = parseSpend(event.spend)
+      return `  ${at} ${paint('live', 'blue', color)}   ${pad(event.id, 18)} ${formatMoney(spend.usd)} ${formatTokens(spend.tokensInput)}/${formatTokens(spend.tokensOutput)}`
+    }
     return `  ${at} ${paint('cancel', 'red', color)} ${pad(event.id, 18)} ${compact(event.reason ?? '', width - 32)}`
   })
 }
@@ -1189,7 +1212,8 @@ function isSpawnEvent(value: Record<string, unknown>): value is TopJournalEvent 
     (value.kind === 'spawned' && typeof value.id === 'string') ||
     (value.kind === 'settled' && typeof value.id === 'string') ||
     (value.kind === 'cancelled' && typeof value.id === 'string') ||
-    (value.kind === 'metered' && typeof value.id === 'string')
+    (value.kind === 'metered' && typeof value.id === 'string') ||
+    (value.kind === 'progress' && typeof value.id === 'string')
   )
 }
 

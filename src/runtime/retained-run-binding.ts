@@ -159,9 +159,12 @@ interface ExactCancelOptions {
 }
 
 export class RetainedRunProviderContractError extends Error {
-  constructor(message: string) {
-    super(message)
+  readonly code: string
+
+  constructor(message: string, options: { readonly code?: string; readonly cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause })
     this.name = 'RetainedRunProviderContractError'
+    this.code = options.code ?? 'RETAINED_RUN_PROVIDER_CONTRACT_ERROR'
   }
 }
 

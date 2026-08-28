@@ -445,6 +445,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       hooks,
       workerTrace,
       workerTraceUnpropagated,
+      interactiveBindingDir,
     } = opts
     const input = detachedSnapshot(
       {
@@ -460,6 +461,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(withinMs === undefined ? {} : { withinMs }),
           ...(childSettleGraceMs === undefined ? {} : { childSettleGraceMs }),
           ...(resume === undefined ? {} : { resume }),
+          ...(interactiveBindingDir === undefined ? {} : { interactiveBindingDir }),
         },
       },
       'supervisor.run',
@@ -475,6 +477,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       ...(hooks === undefined ? {} : { hooks }),
       ...(workerTrace === undefined ? {} : { workerTrace }),
       ...(workerTraceUnpropagated === undefined ? {} : { workerTraceUnpropagated }),
+      ...(interactiveBindingDir === undefined ? {} : { interactiveBindingDir }),
     })
     task = input.task
     const rootAct = root.act.bind(root)
@@ -653,6 +656,9 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         ...(opts.workerTrace ? { workerTrace: opts.workerTrace } : {}),
         ...(opts.workerTraceUnpropagated
           ? { workerTraceUnpropagated: opts.workerTraceUnpropagated }
+          : {}),
+        ...(opts.interactiveBindingDir
+          ? { interactiveBindingDir: opts.interactiveBindingDir }
           : {}),
         ...(resumeFrom ? { resumeFrom } : {}),
       })

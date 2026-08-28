@@ -874,7 +874,10 @@ describe('retained runtime run control', () => {
       identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
     })
 
-    await expect(run.result()).rejects.toThrow('another retained session')
+    await expect(run.result()).rejects.toMatchObject({
+      code: 'RETAINED_RESULT_BINDING_INVALID',
+      message: expect.stringContaining('another retained session'),
+    })
   })
 
   it('requires exact run and execution coordinates on reconnect and result', async () => {
@@ -921,7 +924,10 @@ describe('retained runtime run control', () => {
         controlRef: { ...controlRef, runId: 'another-run', executionId: 'another-execution' },
       }),
     ).rejects.toThrow('different retained session')
-    await expect(run.result()).rejects.toThrow('another retained execution')
+    await expect(run.result()).rejects.toMatchObject({
+      code: 'RETAINED_RESULT_BINDING_INVALID',
+      message: expect.stringContaining('another retained execution'),
+    })
   })
 
   it('acknowledges cancellation by operation id and never repeats its effect', async () => {
