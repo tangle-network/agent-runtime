@@ -802,6 +802,25 @@ try {
         for (const name of expectedProvider) {
           if (typeof provider[name] !== 'function') throw new Error('missing environment-provider export ' + name)
         }
+        const capabilities = await provider.sandboxClientAsProvider({
+          async create() { throw new Error('packed capability check must not create') },
+          async get() { return null },
+        }).capabilities()
+        const interactive = capabilities.interactiveAgent
+        const requiredInteractive = [
+          'start',
+          'control',
+          'status',
+          'attach',
+          'reattach',
+          'sendPrompt',
+          'input',
+          'resize',
+          'stop',
+        ]
+        if (!interactive || requiredInteractive.some((name) => interactive[name] !== true)) {
+          throw new Error('packed Sandbox provider omits exact interactive capability')
+        }
       `,
     ],
     appDir,

@@ -411,6 +411,8 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 **`Experimental`**
 
 Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
+The provider declares the public SDK contract before it creates an environment.
+Each environment exposes interactive methods only when its deployment declares every required capability.
 
 #### Parameters
 

@@ -2,12 +2,19 @@ import { randomUUID } from 'node:crypto'
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
+  type AgentInteractiveSession,
+  type AgentInteractiveSessionRef,
+  AgentInteractiveSessionRefSchema,
+  type AgentInteractiveSessionStart,
+  AgentInteractiveSessionStartSchema,
   type AgentProfile,
   type AgentProfileValidationResult,
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type AgentRunControlRef,
+  agentInteractiveSessionRefMatchesStart,
+  canonicalCandidateDigest,
   harnessSystemPromptIntents,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
@@ -39,12 +46,14 @@ import type {
 import type {
   BackendType,
   CreateSandboxOptions,
+  InteractiveSessionHandle,
   PromptInputPart,
   PromptOptions,
   PromptResult,
   SandboxEvent,
   ExecResult as SandboxExecResult,
   SandboxInstance,
+  SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
 import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
 import {
@@ -65,6 +74,7 @@ import {
   enforceTokenLimits,
   profileModelExecutionSettings,
 } from './supervise/model-policy'
+import { detachedSnapshot } from './supervise/snapshot'
 import type {
   Executor,
   ExecutorCancellation,
@@ -278,25 +288,33 @@ export interface SandboxClientProviderOptions {
   mapCreateInput?: (input: CreateAgentEnvironmentInput) => CreateSandboxOptions
 }
 
-/** Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
+/**
+ * Adapt a `SandboxClient` into the shared `AgentEnvironmentProvider` contract.
+ * The provider declares the public SDK contract before it creates an environment.
+ * Each environment exposes interactive methods only when its deployment declares every required capability.
  * @experimental */
 export function sandboxClientAsProvider(
   client: SandboxClient,
   options: SandboxClientProviderOptions = {},
 ): AgentEnvironmentProvider {
   const providerName = options.name ?? 'tangle-sandbox'
+  const providerCapabilities = async (): Promise<AgentEnvironmentCapabilities> => {
+    const capabilities = options.capabilities
+      ? typeof options.capabilities === 'function'
+        ? options.capabilities()
+        : options.capabilities
+      : defaultTangleSandboxCapabilities({
+          namedProfiles: options.resolveProfile !== undefined,
+          rediscover: hasGet(client),
+        })
+    const resolved = await capabilities
+    if (hasGet(client)) return resolved
+    const { interactiveAgent: _interactiveAgent, ...withoutInteractive } = resolved
+    return withoutInteractive
+  }
   return {
     name: providerName,
-    capabilities: async () => {
-      if (options.capabilities) {
-        return typeof options.capabilities === 'function'
-          ? options.capabilities()
-          : options.capabilities
-      }
-      return defaultTangleSandboxCapabilities({
-        namedProfiles: options.resolveProfile !== undefined,
-      })
-    },
+    capabilities: providerCapabilities,
     ...(options.validateProfile ? { validateProfile: options.validateProfile } : {}),
     async create(input: CreateAgentEnvironmentInput): Promise<AgentEnvironment> {
       const createOptions =
@@ -306,17 +324,21 @@ export function sandboxClientAsProvider(
           options.defaultBackend ?? 'opencode',
           options.resolveProfile,
         ))
+      const capabilities = await providerCapabilities()
       const box = await client.create(
         createOptions,
         input.signal === undefined ? undefined : { signal: input.signal },
       )
-      return sandboxInstanceAsEnvironment(box, providerName, client)
+      return sandboxInstanceAsEnvironment(box, providerName, client, capabilities)
     },
     ...(hasGet(client)
       ? {
           async get(id: string): Promise<AgentEnvironment | null> {
+            const capabilities = await providerCapabilities()
             const box = await client.get(id)
-            return box ? sandboxInstanceAsEnvironment(box, providerName, client) : null
+            return box
+              ? sandboxInstanceAsEnvironment(box, providerName, client, capabilities)
+              : null
           },
         }
       : {}),
@@ -828,14 +850,18 @@ function environmentAsSandboxInstance(
   return box as unknown as SandboxInstance
 }
 
-function sandboxInstanceAsEnvironment(
+async function sandboxInstanceAsEnvironment(
   box: SandboxInstance,
   providerName: string,
   client: SandboxClient,
-): AgentEnvironment {
+  providerCapabilities: AgentEnvironmentCapabilities,
+): Promise<AgentEnvironment> {
+  const capabilities = await sandboxEnvironmentCapabilities(box, providerCapabilities)
+  const interactiveAgent = capabilities.interactiveAgent
   const environment: AgentEnvironment = {
     id: String(box.id),
     provider: providerName,
+    capabilities,
     ...(typeof box.name === 'string' ? { name: box.name } : {}),
     ...(readBoxMetadata(box) ? { metadata: readBoxMetadata(box) } : {}),
     async status(): Promise<AgentEnvironmentStatus> {
@@ -877,6 +903,73 @@ function sandboxInstanceAsEnvironment(
           },
         }
       : {}),
+    ...(interactiveAgent
+      ? {
+          async startInteractive(
+            request: AgentInteractiveSessionStart,
+            options?: { signal?: AbortSignal },
+          ): Promise<AgentInteractiveSessionRef> {
+            const exactRequest = AgentInteractiveSessionStartSchema.parse(request)
+            assertSandboxInteractiveBinding(exactRequest.run, box, providerName)
+            const result = await box
+              .session(exactRequest.run.sessionId)
+              .interactive()
+              .start(exactRequest, options)
+            if (result.state !== 'running') {
+              throw new ValidationError('sandbox interactive process settled before attachment')
+            }
+            const ref = detachedSnapshot(
+              AgentInteractiveSessionRefSchema.parse(result.ref),
+              'sandbox interactive start reference',
+            )
+            if (!agentInteractiveSessionRefMatchesStart(exactRequest, ref)) {
+              throw new ValidationError(
+                'sandbox interactive start returned a different exact process',
+              )
+            }
+            return ref
+          },
+          interactive(ref: AgentInteractiveSessionRef): AgentInteractiveSession {
+            const exactRef = detachedSnapshot(
+              AgentInteractiveSessionRefSchema.parse(ref),
+              'sandbox interactive reference',
+            )
+            assertSandboxInteractiveBinding(exactRef.run, box, providerName)
+            const session = box.session(exactRef.run.sessionId).interactive({ ref: exactRef })
+            const controlledSessions = new Map<string, InteractiveSessionHandle>()
+            const controlledSession = (
+              control: Parameters<AgentInteractiveSession['attach']>[0]['control'],
+            ) => {
+              const key = canonicalCandidateDigest(control)
+              const existing = controlledSessions.get(key)
+              if (existing) return existing
+              const created = box
+                .session(exactRef.run.sessionId)
+                .interactive({ ref: exactRef, control })
+              controlledSessions.set(key, created)
+              return created
+            }
+            return {
+              ref: exactRef,
+              claimControl: (request, options) => session.claimControl(request, options),
+              async status(options) {
+                const status = await session.status(options)
+                if (status === null) {
+                  throw new ValidationError(
+                    `sandbox interactive session "${exactRef.run.sessionId}" is unavailable`,
+                  )
+                }
+                return status
+              },
+              attach: (request, options) =>
+                controlledSession(request.control).attachAgentTerminal(request, options),
+              sendPrompt: (command, options) =>
+                controlledSession(command.control).sendPrompt(command, options),
+              stop: (command, options) => controlledSession(command.control).stop(command, options),
+            }
+          },
+        }
+      : {}),
     ...(hasRead(box) ? { read: box.read.bind(box) } : {}),
     ...(hasWrite(box) ? { write: box.write.bind(box) } : {}),
     ...(hasExec(box)
@@ -903,7 +996,7 @@ function sandboxInstanceAsEnvironment(
         ...(options?.name ? { name: options.name } : {}),
         ...(options?.metadata ? { metadata: options.metadata } : {}),
       })
-      return sandboxInstanceAsEnvironment(forked, providerName, client)
+      return sandboxInstanceAsEnvironment(forked, providerName, client, providerCapabilities)
     },
     async placement(): Promise<PlacementInfo> {
       return placementInfoFromLoopPlacement(client.describePlacement?.(box), box)
@@ -1707,8 +1800,70 @@ function placementInfoFromLoopPlacement(
   }
 }
 
+type InteractiveAgentCapabilities = NonNullable<AgentEnvironmentCapabilities['interactiveAgent']>
+
+const completeInteractiveAgentCapabilities: InteractiveAgentCapabilities = {
+  start: true,
+  control: true,
+  status: true,
+  attach: true,
+  reattach: true,
+  sendPrompt: true,
+  input: true,
+  resize: true,
+  stop: true,
+}
+
+async function sandboxEnvironmentCapabilities(
+  box: SandboxInstance,
+  providerCapabilities: AgentEnvironmentCapabilities,
+): Promise<AgentEnvironmentCapabilities> {
+  const { interactiveAgent: providerInteractive, ...baseCapabilities } = providerCapabilities
+  if (!hasCompleteInteractiveAgentCapabilities(providerInteractive)) return baseCapabilities
+  let deployed: SandboxRuntimeCapabilities | null
+  try {
+    deployed = await box.capabilities()
+  } catch {
+    return baseCapabilities
+  }
+  if (!hasCompleteInteractiveAgentCapabilities(deployed?.interactiveAgent)) {
+    return baseCapabilities
+  }
+  return {
+    ...baseCapabilities,
+    interactiveAgent: { ...completeInteractiveAgentCapabilities },
+  }
+}
+
+function hasCompleteInteractiveAgentCapabilities(
+  value: Partial<InteractiveAgentCapabilities> | undefined,
+): value is InteractiveAgentCapabilities {
+  return (
+    value?.start === true &&
+    value.control === true &&
+    value.status === true &&
+    value.attach === true &&
+    value.reattach === true &&
+    value.sendPrompt === true &&
+    value.input === true &&
+    value.resize === true &&
+    value.stop === true
+  )
+}
+
+function assertSandboxInteractiveBinding(
+  run: { provider: string; environmentId: string },
+  box: SandboxInstance,
+  providerName: string,
+): void {
+  if (run.provider !== providerName || run.environmentId !== String(box.id)) {
+    throw new ValidationError('sandbox interactive request targets another environment')
+  }
+}
+
 function defaultTangleSandboxCapabilities(options: {
   namedProfiles: boolean
+  rediscover: boolean
 }): AgentEnvironmentCapabilities {
   return {
     profile: {
@@ -1736,6 +1891,9 @@ function defaultTangleSandboxCapabilities(options: {
     sessions: { continue: true, list: true, messages: true },
     workspace: { read: true, write: true, exec: true, git: true, upload: true, download: true },
     branching: { checkpoint: true, fork: true },
+    ...(options.rediscover
+      ? { interactiveAgent: { ...completeInteractiveAgentCapabilities } }
+      : {}),
     placement: true,
     usage: true,
     confidential: true,
