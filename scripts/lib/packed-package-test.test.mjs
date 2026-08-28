@@ -3,11 +3,17 @@ import {
   assertFirstPartyRangeSpecs,
   assertPeerMatchesDevelopmentDependency,
   cohortRange,
+  currentMinorPeerRange,
   isExactVersionSpec,
   rangeAdmits,
-  sandboxCompatibilityVersions,
-  sandboxPeerRange,
 } from './packed-package-test.mjs'
+import { sandboxCompatibilityVersions, sandboxPeerRange } from './dependency-contract.mjs'
+
+const sandboxVersion = sandboxCompatibilityVersions[0]
+if (sandboxVersion === undefined) throw new Error('Sandbox compatibility version is missing')
+const [sandboxMajor, sandboxMinor] = sandboxVersion.split('.').map(Number)
+const priorSandboxVersion = `${sandboxMajor}.${sandboxMinor - 1}.0`
+const nextSandboxVersion = `${sandboxMajor}.${sandboxMinor + 1}.0`
 
 describe('isExactVersionSpec', () => {
   it('reads a bare version as exact', () => {
@@ -53,10 +59,9 @@ describe('rangeAdmits', () => {
   it('admits the published Eval and Sandbox cohorts', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.149.0')).toBe(true)
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.32.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.33.1')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.33.2')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.34.0')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, priorSandboxVersion)).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, sandboxVersion)).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, nextSandboxVersion)).toBe(false)
   })
 
   it('refuses an exact specifier, which states no range', () => {
@@ -109,12 +114,14 @@ describe('assertFirstPartyRangeSpecs', () => {
 })
 
 describe('compatibility peer ranges', () => {
-  it('accepts Sandbox 0.34 with the exact development pin', () => {
+  const priorSandboxRange = currentMinorPeerRange(priorSandboxVersion)
+
+  it('accepts the current Sandbox cohort with the exact development pin', () => {
     expect(() =>
       assertPeerMatchesDevelopmentDependency(
         {
           name: '@tangle-network/agent-runtime',
-          devDependencies: { '@tangle-network/sandbox': '0.34.0' },
+          devDependencies: { '@tangle-network/sandbox': sandboxVersion },
           peerDependencies: { '@tangle-network/sandbox': sandboxPeerRange },
         },
         '@tangle-network/sandbox',
@@ -126,20 +133,20 @@ describe('compatibility peer ranges', () => {
     ).not.toThrow()
   })
 
-  it('rejects a compatibility range that drops Sandbox 0.34', () => {
+  it('rejects a compatibility range that drops the current Sandbox cohort', () => {
     expect(() =>
       assertPeerMatchesDevelopmentDependency(
         {
           name: '@tangle-network/agent-runtime',
-          devDependencies: { '@tangle-network/sandbox': '0.34.0' },
-          peerDependencies: { '@tangle-network/sandbox': '>=0.33.0 <0.34.0' },
+          devDependencies: { '@tangle-network/sandbox': sandboxVersion },
+          peerDependencies: { '@tangle-network/sandbox': priorSandboxRange },
         },
         '@tangle-network/sandbox',
         {
-          expectedRange: '>=0.33.0 <0.34.0',
+          expectedRange: priorSandboxRange,
           admittedVersions: sandboxCompatibilityVersions,
         },
       ),
-    ).toThrow(/does not admit 0\.34\.0/)
+    ).toThrow(new RegExp(`does not admit ${sandboxVersion.replaceAll('.', '\\.')}`))
   })
 })

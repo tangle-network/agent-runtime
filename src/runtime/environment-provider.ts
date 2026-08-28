@@ -602,7 +602,9 @@ function createInputFromSandboxOptions(
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
-    ...(options?.secrets ? { secrets: options.secrets } : {}),
+    // Sandbox 0.34 adds the provider-owned "all" selector. Keep it in the
+    // passthrough options below because the neutral input contract accepts names only.
+    ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
     ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
@@ -645,9 +647,12 @@ async function sandboxOptionsFromCreateInput(
   }
 }
 
-function assertSandboxSecretNames(secrets: unknown): asserts secrets is string[] | undefined {
+function assertSandboxSecretNames(
+  secrets: unknown,
+): asserts secrets is string[] | 'all' | undefined {
   if (
     secrets !== undefined &&
+    secrets !== 'all' &&
     (!Array.isArray(secrets) ||
       secrets.some((secret) => typeof secret !== 'string' || secret.trim().length === 0))
   ) {

@@ -1,7 +1,8 @@
+import { sandboxCompatibilityVersions, sandboxPeerRange } from './dependency-contract.mjs'
+
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
 
-export const sandboxPeerRange = '>=0.34.0 <0.35.0'
-export const sandboxCompatibilityVersions = Object.freeze(['0.34.0'])
+export { sandboxCompatibilityVersions, sandboxPeerRange }
 
 export function assertPublishableDependencySpecs(packageJson) {
   const packageName =

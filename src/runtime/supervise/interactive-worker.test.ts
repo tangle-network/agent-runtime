@@ -425,6 +425,38 @@ describe('provisionSupervisor', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('uses timeoutMs for the live lifecycle after worker admission', async () => {
+    const fixture = interactiveProviderFixture()
+    const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-deadline-'))
+    try {
+      const provisioned = await provisionSupervisor({
+        invocationId: 'provision-lifecycle-deadline-1',
+        workspaceDir: root,
+        timeoutMs: 2_000,
+        pollMs: 2,
+        profile,
+        connection: { provider: fixture.provider },
+      })
+
+      expect(fixture.stats.stops).toHaveLength(0)
+      await waitForAsync(
+        () => fixture.stats.stops.length === 1,
+        'full supervisor lifecycle deadline',
+        1_500,
+      )
+      expect(fixture.stats.stops[0]?.status).toBe('accepted')
+      expect(fixture.stats.destroyCalls).toBe(1)
+
+      await expect(provisioned.cleanup()).resolves.toMatchObject({
+        workerStatus: 'down',
+        resourcesReleased: true,
+        remainingResources: [],
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
 
 type AgentWithExecutorSpec = ReturnType<ReturnType<typeof workerFromInteractiveProvider>> & {
@@ -491,8 +523,12 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   throw new Error('fixture condition did not become true')
 }
 
-async function waitForAsync(predicate: () => boolean, label: string): Promise<void> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
+async function waitForAsync(
+  predicate: () => boolean,
+  label: string,
+  maxAttempts = 500,
+): Promise<void> {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     if (predicate()) return
     await new Promise<void>((resolve) => setTimeout(resolve, 2))
   }

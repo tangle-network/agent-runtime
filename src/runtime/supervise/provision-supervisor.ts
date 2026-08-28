@@ -10,7 +10,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -29,6 +29,7 @@ import { createCoordinationTools } from '../../mcp/tools/coordination'
 import { sandboxClientAsProvider } from '../environment-provider'
 import type { SandboxClient } from '../types'
 import { createCancelAcknowledger, createSteerAcknowledger } from './coordination-driver'
+import { writeAtomicDurableFile } from './durable-file'
 import { workerFromInteractiveProvider } from './interactive-worker'
 import { createFileRunContext } from './run-context'
 import { supervisorRunDir } from './run-layout'
@@ -70,7 +71,7 @@ export interface ProvisionSupervisorRequest {
   readonly environment?: Readonly<Record<string, string>>
   /** Root directory for Runtime-owned `.agent/supervisor` state. */
   readonly workspaceDir?: string
-  /** Maximum time to wait for worker admission and terminal readiness. */
+  /** Maximum wall-clock time for the complete supervisor lifecycle, including cleanup. */
   readonly timeoutMs?: number
   /** Poll cadence for lifecycle/control readiness. */
   readonly pollMs?: number
@@ -411,6 +412,7 @@ function supervisorIdFor(invocationId: string): string {
   return `runtime-supervisor-${digest.slice('sha256:'.length)}`
 }
 
+/** The root deadline covers the complete supervisor lifecycle from run start through cleanup. */
 function rootBudget(timeoutMs: number): Budget {
   return {
     maxIterations: ROOT_MAX_ITERATIONS,
@@ -740,23 +742,5 @@ function unavailable(message: string, cause?: unknown): SupervisorProvisionUnava
 
 function writeState(path: string, state: MutableState): void {
   mkdirSync(dirname(path), { recursive: true })
-  const temporary = `${path}.${randomUUID()}.tmp`
-  writeFileSync(temporary, `${JSON.stringify(state)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-    flag: 'wx',
-  })
-  const file = openSync(temporary, 'r')
-  try {
-    fsyncSync(file)
-  } finally {
-    closeSync(file)
-  }
-  renameSync(temporary, path)
-  const directory = openSync(dirname(path), 'r')
-  try {
-    fsyncSync(directory)
-  } finally {
-    closeSync(directory)
-  }
+  writeAtomicDurableFile(path, `${JSON.stringify(state)}\n`, { mode: 0o600 })
 }

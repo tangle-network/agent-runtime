@@ -1,16 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import type { AgentInteractiveSessionRef } from '@tangle-network/agent-interface'
 import {
@@ -21,6 +10,7 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { FileSpawnJournal, loadSpawnForest } from '../../durable/spawn-journal'
 import type { AgentEnvironmentProviderRegistry } from '../environment-provider'
 import { reconnectRetainedInteractiveRun } from '../retained-interactive'
+import { publishExclusiveDurableFile } from './durable-file'
 import type { WorkerInteractiveSession, WorkerInteractiveUnavailableReason } from './types'
 
 const WORKER_BINDING_SCHEMA_VERSION = 1 as const
@@ -138,25 +128,15 @@ export function writeWorkerInteractiveBinding(
     assertSameBinding(existing, binding)
     return existing
   }
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeDurableFile(tmp, `${JSON.stringify(binding, null, 2)}\n`)
-  try {
-    linkSync(tmp, file)
-    syncDirectory(dirname(file))
+  if (publishExclusiveDurableFile(file, `${JSON.stringify(binding, null, 2)}\n`)) {
     return binding
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error
-    const winner = readWorkerInteractiveBinding(eventDir, id)
-    if (winner === undefined) throw error
-    assertSameBinding(winner, binding)
-    return winner
-  } finally {
-    try {
-      unlinkSync(tmp)
-    } catch {
-      // The linked target is durable. A failed temporary-file cleanup does not alter it.
-    }
   }
+  const winner = readWorkerInteractiveBinding(eventDir, id)
+  if (winner === undefined) {
+    throw new Error(`worker interactive binding publication lost its winner`)
+  }
+  assertSameBinding(winner, binding)
+  return winner
 }
 
 /**
@@ -347,34 +327,6 @@ function stableText(value: string, label: string): string {
   const text = value.trim()
   if (!text) throw new Error(`${label} is empty`)
   return text
-}
-
-function writeDurableFile(path: string, content: string): void {
-  writeFileSync(path, content, { encoding: 'utf8', flag: 'wx' })
-  const fd = openSync(path, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function syncDirectory(path: string): void {
-  const fd = openSync(path, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'EEXIST'
-  )
 }
 
 function isUnsupportedProvider(error: unknown): boolean {

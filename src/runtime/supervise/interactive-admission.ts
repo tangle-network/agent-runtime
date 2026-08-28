@@ -7,19 +7,7 @@
  * create material.
  */
 
-import { randomUUID } from 'node:crypto'
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
   type AgentInteractiveSessionRef,
@@ -27,6 +15,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
+import { publishExclusiveDurableFile } from './durable-file'
 import { workerInteractiveBindingsDir } from './worker-interactive'
 
 /** The Scope seam key used by `workerFromInteractiveProvider`. */
@@ -138,25 +127,15 @@ export function writeWorkerInteractiveAdmission(
     return existing
   }
 
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeDurableFile(tmp, `${JSON.stringify(record, null, 2)}\n`)
-  try {
-    linkSync(tmp, file)
-    syncDirectory(dirname(file))
+  if (publishExclusiveDurableFile(file, `${JSON.stringify(record, null, 2)}\n`)) {
     return record
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error
-    const winner = readWorkerInteractiveAdmission(eventDir, id, record.phase)
-    if (winner === undefined) throw error
-    assertSameAdmission(winner, record)
-    return winner
-  } finally {
-    try {
-      unlinkSync(tmp)
-    } catch {
-      // The linked target is durable. Temporary cleanup does not change it.
-    }
   }
+  const winner = readWorkerInteractiveAdmission(eventDir, id, record.phase)
+  if (winner === undefined) {
+    throw new Error(`interactive admission publication for '${record.phase}' lost its winner`)
+  }
+  assertSameAdmission(winner, record)
+  return winner
 }
 
 function credentialFreeAdmission(
@@ -402,34 +381,6 @@ function stableText(value: string, label: string): string {
   const text = value.trim()
   if (!text) throw new Error(`${label} is empty`)
   return text
-}
-
-function writeDurableFile(path: string, content: string): void {
-  writeFileSync(path, content, { encoding: 'utf8', flag: 'wx' })
-  const fd = openSync(path, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function syncDirectory(path: string): void {
-  const fd = openSync(path, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'EEXIST'
-  )
 }
 
 function assertNoSymlinkDescendant(root: string, target: string): void {
