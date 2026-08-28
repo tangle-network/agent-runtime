@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.175.1
+## 0.176.0
 
 ### Durable provider-backed workers use exact terminal replay
 
