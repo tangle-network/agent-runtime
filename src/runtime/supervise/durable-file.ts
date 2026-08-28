@@ -13,6 +13,7 @@ import {
   closeSync,
   existsSync,
   fchmodSync,
+  constants as fsConstants,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -88,7 +89,12 @@ export function appendDurableFile(
   content: string,
   options: DurableFileOptions = {},
 ): void {
-  const fd = openSync(filePath, 'a', options.mode ?? 0o600)
+  const flags =
+    fsConstants.O_APPEND |
+    fsConstants.O_CREAT |
+    fsConstants.O_WRONLY |
+    (typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0)
+  const fd = openSync(filePath, flags, options.mode ?? 0o600)
   try {
     if (process.platform !== 'win32') fchmodSync(fd, options.mode ?? 0o600)
     const expectedBytes = Buffer.byteLength(content, 'utf8')

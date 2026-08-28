@@ -393,9 +393,12 @@ describe('provisionSupervisor', () => {
         effect: 'cancelled',
       })
       expect(cancellation?.terminated).toContain(provisioned.workerId)
-      expect(cancelWorker(eventDir, provisioned.workerId, 'provision-cancel-1')).toEqual(
-        cancellation,
-      )
+      expect(
+        cancelWorker(eventDir, provisioned.workerId, 'provision-cancel-1', {
+          reason: 'provision test cleanup',
+          source: 'provision-test',
+        }),
+      ).toEqual(cancellation)
       await expect(
         provisionSupervisor({
           invocationId: 'provision-lifecycle-1',

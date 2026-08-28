@@ -139,7 +139,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     // `cancelled`, and repeating the operation is a pure lookup.
     const record = readRunCancellation(dir, 'op-run')
     expect(record?.effect).toBe('cancelled')
-    expect(cancelRun(dir, 'op-run')).toEqual(record)
+    expect(cancelRun(dir, 'op-run', { reason: 'operator', source: 'test' })).toEqual(record)
   })
 
   it('a run that settles on its own despite the request reads not_live, never success', async () => {
@@ -200,7 +200,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     cancelRun(dir, 'op-first', { source: 'test' })
     expect(() => cancelRun(dir, 'op-second', { source: 'test' })).toThrow(/already pending/u)
     // The first operation still reads as itself.
-    expect(cancelRun(dir, 'op-first').operationId).toBe('op-first')
+    expect(cancelRun(dir, 'op-first', { source: 'test' }).operationId).toBe('op-first')
   })
 
   it('the TUI run-cancel key writes the same acknowledged request the runtime reads', async () => {

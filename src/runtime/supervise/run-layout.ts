@@ -612,7 +612,7 @@ export function cancelWorker(
   const candidate = {
     operationId: opId,
     worker: ref,
-    ...(options.source === undefined ? {} : { source: options.source }),
+    source: options.source ?? 'human',
     ...(options.reason === undefined ? {} : { reason: options.reason }),
   }
   if (pending !== undefined) assertSameWorkerCancelRequest(pending, candidate)
@@ -761,7 +761,7 @@ export function cancelRun(
   }
   const candidate = {
     operationId: opId,
-    ...(options.source === undefined ? {} : { source: options.source }),
+    source: options.source ?? 'human',
     ...(options.reason === undefined ? {} : { reason: options.reason }),
   }
   if (pending !== undefined) assertSameRunCancelRequest(pending, candidate)
@@ -811,13 +811,13 @@ export function cancelRun(
 type WorkerCancelRequestCandidate = {
   readonly operationId: string
   readonly worker: string
-  readonly source?: string
+  readonly source: string
   readonly reason?: string
 }
 
 type RunCancelRequestCandidate = {
   readonly operationId: string
-  readonly source?: string
+  readonly source: string
   readonly reason?: string
 }
 
@@ -834,13 +834,13 @@ function assertSameWorkerCancelRequest(
         `(worker '${existing.worker}' != '${candidate.worker}')`,
     )
   }
-  if (candidate.source !== undefined && existing.source !== candidate.source) {
+  if (existing.source !== candidate.source) {
     throw new Error(
       `cancelWorker: operation '${candidate.operationId}' conflicts with its admitted request ` +
         `(source '${existing.source}' != '${candidate.source}')`,
     )
   }
-  if (candidate.reason !== undefined && existing.reason !== candidate.reason) {
+  if (existing.reason !== candidate.reason) {
     throw new Error(
       `cancelWorker: operation '${candidate.operationId}' conflicts with its admitted request ` +
         `(reason differs)`,
@@ -858,7 +858,7 @@ function assertWorkerCancellationMatchesCandidate(
         `(worker '${existing.worker}' != '${candidate.worker}')`,
     )
   }
-  if (candidate.reason !== undefined && existing.reason !== candidate.reason) {
+  if (existing.reason !== candidate.reason) {
     throw new Error(
       `cancelWorker: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
         `(reason differs)`,
@@ -873,13 +873,13 @@ function assertSameRunCancelRequest(
   if (existing.operationId !== candidate.operationId) {
     throw new Error(`cancelRun: operation '${candidate.operationId}' has an id collision`)
   }
-  if (candidate.source !== undefined && existing.source !== candidate.source) {
+  if (existing.source !== candidate.source) {
     throw new Error(
       `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request ` +
         `(source '${existing.source}' != '${candidate.source}')`,
     )
   }
-  if (candidate.reason !== undefined && existing.reason !== candidate.reason) {
+  if (existing.reason !== candidate.reason) {
     throw new Error(
       `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request ` +
         `(reason differs)`,
@@ -891,7 +891,7 @@ function assertRunCancellationMatchesCandidate(
   existing: RunCancellation,
   candidate: RunCancelRequestCandidate,
 ): void {
-  if (candidate.reason !== undefined && existing.reason !== candidate.reason) {
+  if (existing.reason !== candidate.reason) {
     throw new Error(
       `cancelRun: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
         `(reason differs)`,
