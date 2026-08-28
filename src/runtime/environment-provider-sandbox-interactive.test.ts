@@ -123,6 +123,15 @@ describe('Sandbox interactive environment adapter', () => {
     expect(fixture.provider.get).toBeUndefined()
   })
 
+  it('disables interactive controls when the SDK lacks the exact terminal adapter', async () => {
+    const fixture = interactiveSandboxFixture({ exactTerminalAdapter: false })
+    const environment = await fixture.provider.create({ profile })
+
+    expect(environment.capabilities?.interactiveAgent).toBeUndefined()
+    expect(environment.startInteractive).toBeUndefined()
+    expect(environment.interactive).toBeUndefined()
+  })
+
   it('does not publish a process that settled during start', async () => {
     const fixture = interactiveSandboxFixture({ settledOnStart: true })
 
@@ -139,6 +148,7 @@ describe('Sandbox interactive environment adapter', () => {
 
 function interactiveSandboxFixture(
   options: {
+    exactTerminalAdapter?: boolean
     hangAttach?: boolean
     rediscover?: boolean
     settledOnStart?: boolean
@@ -296,6 +306,12 @@ function interactiveSandboxFixture(
         : options.deploymentCapabilities
     },
     session(sessionId: string) {
+      if (options.exactTerminalAdapter === false) {
+        return {
+          id: sessionId,
+          interactive: () => ({}),
+        }
+      }
       return {
         id: sessionId,
         interactive(handleOptions = {}) {

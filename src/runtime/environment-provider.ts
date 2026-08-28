@@ -3,12 +3,10 @@ import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
   type AgentInteractiveSession,
-  type AgentInteractiveSessionAttach,
   type AgentInteractiveSessionRef,
   AgentInteractiveSessionRefSchema,
   type AgentInteractiveSessionStart,
   AgentInteractiveSessionStartSchema,
-  type AgentInteractiveTerminalSession,
   type AgentProfile,
   type AgentProfileValidationResult,
   type AgentRunCancellationAcknowledgement,
@@ -20,8 +18,6 @@ import {
   harnessSystemPromptIntents,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
-  type TerminalOutputEvent,
-  TerminalSessionRefSchema,
   type TokenUsage,
 } from '@tangle-network/agent-interface'
 import type {
@@ -58,7 +54,6 @@ import type {
   ExecResult as SandboxExecResult,
   SandboxInstance,
   SandboxRuntimeCapabilities,
-  TerminalStreamHandlers,
 } from '@tangle-network/sandbox'
 import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
 import {
@@ -303,7 +298,6 @@ export function sandboxClientAsProvider(
   options: SandboxClientProviderOptions = {},
 ): AgentEnvironmentProvider {
   const providerName = options.name ?? 'tangle-sandbox'
-  const terminalReplay = new Map<string, SandboxTerminalReplayState>()
   const providerCapabilities = async (): Promise<AgentEnvironmentCapabilities> => {
     const capabilities = options.capabilities
       ? typeof options.capabilities === 'function'
@@ -335,7 +329,7 @@ export function sandboxClientAsProvider(
         createOptions,
         input.signal === undefined ? undefined : { signal: input.signal },
       )
-      return sandboxInstanceAsEnvironment(box, providerName, client, capabilities, terminalReplay)
+      return sandboxInstanceAsEnvironment(box, providerName, client, capabilities)
     },
     ...(hasGet(client)
       ? {
@@ -343,13 +337,7 @@ export function sandboxClientAsProvider(
             const capabilities = await providerCapabilities()
             const box = await client.get(id)
             return box
-              ? sandboxInstanceAsEnvironment(
-                  box,
-                  providerName,
-                  client,
-                  capabilities,
-                  terminalReplay,
-                )
+              ? sandboxInstanceAsEnvironment(box, providerName, client, capabilities)
               : null
           },
         }
@@ -867,7 +855,6 @@ async function sandboxInstanceAsEnvironment(
   providerName: string,
   client: SandboxClient,
   providerCapabilities: AgentEnvironmentCapabilities,
-  terminalReplay: Map<string, SandboxTerminalReplayState>,
 ): Promise<AgentEnvironment> {
   const capabilities = await sandboxEnvironmentCapabilities(box, providerCapabilities)
   const interactiveAgent = capabilities.interactiveAgent
@@ -950,7 +937,6 @@ async function sandboxInstanceAsEnvironment(
             assertSandboxInteractiveBinding(exactRef.run, box, providerName)
             const session = box.session(exactRef.run.sessionId).interactive({ ref: exactRef })
             const controlledSessions = new Map<string, InteractiveSessionHandle>()
-            const attachedTerminals = new Map<string, Promise<AgentInteractiveTerminalSession>>()
             const controlledSession = (
               control: Parameters<AgentInteractiveSession['attach']>[0]['control'],
             ) => {
@@ -976,22 +962,15 @@ async function sandboxInstanceAsEnvironment(
                 return status
               },
               attach: (request, options) => {
-                const key = canonicalCandidateDigest(request.control)
-                const existing = attachedTerminals.get(key)
-                if (existing) return existing
-                const pending = attachSandboxInteractiveTerminal(
-                  controlledSession(request.control),
-                  exactRef,
-                  request,
-                  options,
-                  terminalReplay,
-                  () => attachedTerminals.delete(key),
-                )
-                attachedTerminals.set(key, pending)
-                pending.catch(() => {
-                  if (attachedTerminals.get(key) === pending) attachedTerminals.delete(key)
-                })
-                return pending
+                const controlled = controlledSession(request.control)
+                if (typeof controlled.attachAgentTerminal !== 'function') {
+                  return Promise.reject(
+                    new ValidationError(
+                      'sandbox interactive session does not expose the exact terminal adapter',
+                    ),
+                  )
+                }
+                return controlled.attachAgentTerminal(request, options)
               },
               sendPrompt: (command, options) =>
                 controlledSession(command.control).sendPrompt(command, options),
@@ -1026,13 +1005,7 @@ async function sandboxInstanceAsEnvironment(
         ...(options?.name ? { name: options.name } : {}),
         ...(options?.metadata ? { metadata: options.metadata } : {}),
       })
-      return sandboxInstanceAsEnvironment(
-        forked,
-        providerName,
-        client,
-        providerCapabilities,
-        terminalReplay,
-      )
+      return sandboxInstanceAsEnvironment(forked, providerName, client, providerCapabilities)
     },
     async placement(): Promise<PlacementInfo> {
       return placementInfoFromLoopPlacement(client.describePlacement?.(box), box)
@@ -1042,246 +1015,9 @@ async function sandboxInstanceAsEnvironment(
     },
     async destroy(): Promise<void> {
       await destroyBox(box)
-      for (const [key, state] of terminalReplay) {
-        if (state.environmentId === String(box.id)) terminalReplay.delete(key)
-      }
     },
   }
   return environment
-}
-
-interface SandboxTerminalReplayState {
-  environmentId: string
-  nextSequence: number
-  attachCount: number
-}
-
-interface SandboxTerminalReadyInfo {
-  connectionId: string
-  sessionId: string
-  restored: boolean
-  detachTimeoutMs: number
-  cursors?: { earliest: number; latest: number }
-}
-
-interface SandboxTerminalStream {
-  readonly connectionId: string
-  readonly ready?: SandboxTerminalReadyInfo
-  readonly isOpen: boolean
-  write(data: string | Uint8Array): void
-  resize(cols: number, rows: number): void
-  close(): Promise<void>
-}
-
-interface SandboxTerminalEventHandlers extends TerminalStreamHandlers {
-  /** Compatibility hook used by older in-process Sandbox test hosts. */
-  onOutput?: (sequence: number, bytes: Uint8Array) => void
-}
-
-interface SandboxTerminalEventWaiter {
-  resolve(): void
-  reject(error: unknown): void
-}
-
-async function attachSandboxInteractiveTerminal(
-  session: InteractiveSessionHandle,
-  exactRef: AgentInteractiveSessionRef,
-  request: AgentInteractiveSessionAttach,
-  options: { signal?: AbortSignal } | undefined,
-  terminalReplay: Map<string, SandboxTerminalReplayState>,
-  onClosed: () => void,
-): Promise<AgentInteractiveTerminalSession> {
-  const replayKey = canonicalCandidateDigest(exactRef)
-  const state = terminalReplay.get(replayKey) ?? {
-    environmentId: exactRef.run.environmentId,
-    nextSequence: 0,
-    attachCount: 0,
-  }
-  terminalReplay.set(replayKey, state)
-
-  const localEvents: TerminalOutputEvent[] = []
-  const waiters: SandboxTerminalEventWaiter[] = []
-  const decoder = new TextDecoder()
-  let closed = false
-  let readyInfo: SandboxTerminalReadyInfo | undefined
-  let detached = false
-
-  const notify = () => {
-    const pending = waiters.splice(0)
-    for (const waiter of pending) waiter.resolve()
-  }
-  const append = (event: TerminalOutputEvent) => {
-    localEvents.push(event)
-    notify()
-  }
-  const closeLocal = () => {
-    if (closed) return
-    closed = true
-    onClosed()
-    notify()
-  }
-  const handlers: SandboxTerminalEventHandlers = {
-    onReady: (info) => {
-      readyInfo = info
-      append({ type: 'ready' })
-    },
-    onData: (data) => {
-      state.nextSequence += 1
-      append({
-        type: 'output',
-        seq: state.nextSequence,
-        data: decoder.decode(data),
-      })
-    },
-    onOutput: (sequence, bytes) => {
-      state.nextSequence = Math.max(state.nextSequence, sequence)
-      append({
-        type: 'output',
-        seq: sequence,
-        data: decoder.decode(bytes),
-      })
-    },
-    onExit: (info) => {
-      append({ type: 'exit', ...info })
-      closeLocal()
-    },
-    onError: (error) => append({ type: 'error', message: error.message }),
-    onClose: () => closeLocal(),
-  }
-
-  const attachRequest = {
-    ...request,
-    handlers,
-  }
-  const stream = (await session.attach(attachRequest, options)) as unknown as SandboxTerminalStream
-  if (readyInfo === undefined) readyInfo = stream.ready
-  if (readyInfo === undefined) {
-    await stream.close().catch(() => undefined)
-    throw new ValidationError('sandbox interactive terminal did not return a ready handshake')
-  }
-
-  state.attachCount += 1
-  const terminalRef = sandboxTerminalRef(exactRef, request, stream, readyInfo, state)
-  const connectionId = readyInfo.connectionId || stream.connectionId
-
-  return {
-    ref: terminalRef,
-    control: request.control,
-    cursors: {
-      earliest: Math.max(0, state.nextSequence - 1024),
-      latest: state.nextSequence,
-    },
-    async input(input, inputOptions) {
-      inputOptions?.signal?.throwIfAborted()
-      stream.write(input.data)
-    },
-    async resize(resize, resizeOptions) {
-      resizeOptions?.signal?.throwIfAborted()
-      stream.resize(resize.cols, resize.rows)
-    },
-    async detach(detachOptions) {
-      detachOptions?.signal?.throwIfAborted()
-      await stream.close()
-      detached = true
-      closeLocal()
-      return {
-        status: 'detached',
-        terminalSessionId: terminalRef.terminalSessionId,
-        ...(connectionId ? { connectionId } : {}),
-      }
-    },
-    async close(closeOptions) {
-      closeOptions?.signal?.throwIfAborted()
-      await stream.close()
-      closeLocal()
-      return {
-        status: 'closed',
-        terminalSessionId: terminalRef.terminalSessionId,
-      }
-    },
-    async *events(eventOptions) {
-      eventOptions?.signal?.throwIfAborted()
-      const since = eventOptions?.since
-      let index = 0
-      while (true) {
-        while (index < localEvents.length) {
-          const event = localEvents[index++]!
-          if (event.type === 'ready' && since !== undefined && since > 0) continue
-          if (event.type === 'output' && since !== undefined && event.seq <= since) continue
-          yield event
-        }
-        if (closed || detached) return
-        await waitForSandboxTerminalEvent(waiters, eventOptions?.signal)
-      }
-    },
-  }
-}
-
-function sandboxTerminalRef(
-  exactRef: AgentInteractiveSessionRef,
-  request: AgentInteractiveSessionAttach,
-  stream: SandboxTerminalStream,
-  ready: SandboxTerminalReadyInfo,
-  state: SandboxTerminalReplayState,
-): AgentInteractiveTerminalSession['ref'] {
-  const now = Date.now()
-  const expiresAtMs = exactRef.preparationReceipt.expiresAtMs
-  const expiresAt = Number.isFinite(expiresAtMs)
-    ? new Date(expiresAtMs).toISOString()
-    : new Date(now + 5 * 60 * 1000).toISOString()
-  const terminalSessionId = ready.sessionId || stream.connectionId
-  return TerminalSessionRefSchema.parse({
-    terminalSessionId,
-    parentExecutionId: exactRef.run.executionId,
-    name: 'Sandbox interactive terminal',
-    shell: '/bin/sh',
-    command: exactRef.preparationReceipt.harness,
-    cwd: '/workspace',
-    cols: request.cols ?? 120,
-    rows: request.rows ?? 40,
-    ...(ready.connectionId || stream.connectionId
-      ? { connectionId: ready.connectionId || stream.connectionId }
-      : {}),
-    createdAt: exactRef.startedAt,
-    lastActivityAt: new Date(now).toISOString(),
-    expiresAt,
-    isRunning: stream.isOpen,
-    attachCount: state.attachCount,
-  })
-}
-
-async function waitForSandboxTerminalEvent(
-  waiters: SandboxTerminalEventWaiter[],
-  signal: AbortSignal | undefined,
-): Promise<void> {
-  signal?.throwIfAborted()
-  await new Promise<void>((resolve, reject) => {
-    let settled = false
-    const onAbort = (): void => {
-      if (settled) return
-      settled = true
-      const index = waiters.indexOf(waiter)
-      if (index >= 0) waiters.splice(index, 1)
-      signal?.removeEventListener('abort', onAbort)
-      reject(signal?.reason ?? new Error('sandbox terminal events aborted'))
-    }
-    const waiter: SandboxTerminalEventWaiter = {
-      resolve: () => {
-        if (settled) return
-        settled = true
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
-      },
-      reject: (error) => {
-        if (settled) return
-        settled = true
-        signal?.removeEventListener('abort', onAbort)
-        reject(error)
-      },
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-    waiters.push(waiter)
-  })
 }
 
 function sandboxSessionAsAgentSession(
@@ -2102,9 +1838,23 @@ async function sandboxEnvironmentCapabilities(
   if (!hasCompleteInteractiveAgentCapabilities(deployed?.interactiveAgent)) {
     return baseCapabilities
   }
+  if (!hasExactInteractiveTerminalAdapter(box)) return baseCapabilities
   return {
     ...baseCapabilities,
     interactiveAgent: { ...completeInteractiveAgentCapabilities },
+  }
+}
+
+function hasExactInteractiveTerminalAdapter(box: SandboxInstance): boolean {
+  if (!hasSession(box)) return false
+  try {
+    const session = box.session('__runtime-capability-probe__')
+    const interactive = (session as { interactive?: (options?: unknown) => unknown }).interactive
+    if (typeof interactive !== 'function') return false
+    const handle = interactive.call(session)
+    return typeof (handle as { attachAgentTerminal?: unknown }).attachAgentTerminal === 'function'
+  } catch {
+    return false
   }
 }
 
