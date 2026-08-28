@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto'
 import {
   closeSync,
   existsSync,
+  fchmodSync,
   fsyncSync,
   linkSync,
   lstatSync,
@@ -19,6 +20,7 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 
@@ -78,6 +80,29 @@ export function syncDurableFile(filePath: string): void {
   } finally {
     closeSync(fd)
   }
+}
+
+/** Append one record with O_APPEND, then fsync the file and containing directory. */
+export function appendDurableFile(
+  filePath: string,
+  content: string,
+  options: DurableFileOptions = {},
+): void {
+  const fd = openSync(filePath, 'a', options.mode ?? 0o600)
+  try {
+    if (process.platform !== 'win32') fchmodSync(fd, options.mode ?? 0o600)
+    const expectedBytes = Buffer.byteLength(content, 'utf8')
+    const writtenBytes = writeSync(fd, content, undefined, 'utf8')
+    if (writtenBytes !== expectedBytes) {
+      throw new Error(
+        `durable append wrote ${writtenBytes} of ${expectedBytes} bytes to '${filePath}'`,
+      )
+    }
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+  syncDurableDirectory(dirname(filePath))
 }
 
 /** Reject a path that escapes its run directory or traverses a symbolic link. */

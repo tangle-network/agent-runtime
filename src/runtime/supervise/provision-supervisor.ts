@@ -466,7 +466,7 @@ async function resolveProvider(
   const endpoint = connection.endpoint?.trim()
   if (!apiKey || !endpoint) {
     throw unavailable(
-      'Runtime supervisor needs a provider/client or both connection.endpoint and connection.apiKey; opaque credential references are not resolved by Runtime',
+      'Runtime supervisor needs a provider/client or both connection.endpoint and connection.apiKey',
     )
   }
   let module: typeof import('@tangle-network/sandbox')
