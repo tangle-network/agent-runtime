@@ -1,7 +1,7 @@
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
 
-export const sandboxPeerRange = '>=0.33.1 <0.34.0'
-export const sandboxCompatibilityVersions = Object.freeze(['0.33.1'])
+export const sandboxPeerRange = '>=0.33.2 <0.34.0'
+export const sandboxCompatibilityVersions = Object.freeze(['0.33.2'])
 
 export function assertPublishableDependencySpecs(packageJson) {
   const packageName =

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.175.1
+
+### Durable provider-backed workers use exact terminal replay
+
+Provider-backed supervisor workers now delegate terminal attach and replay to Sandbox's exact session handle.
+
+Runtime preserves server-issued cursors, completion, disconnect and reconnect, duplicate-event, cancellation, and restart semantics without reimplementing the Sandbox contract.
+
+This release requires `@tangle-network/sandbox >=0.33.2 <0.34.0`.
+
 ## 0.175.0
 
 ### A release killed between its two journal events no longer runs its node twice

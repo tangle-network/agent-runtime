@@ -54,7 +54,8 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.149.0')).toBe(true)
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
     expect(rangeAdmits(sandboxPeerRange, '0.32.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.33.1')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.33.1')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.33.2')).toBe(true)
     expect(rangeAdmits(sandboxPeerRange, '0.34.0')).toBe(false)
   })
 
@@ -108,12 +109,12 @@ describe('assertFirstPartyRangeSpecs', () => {
 })
 
 describe('compatibility peer ranges', () => {
-  it('accepts Sandbox 0.33 with a 0.33 development pin', () => {
+  it('accepts Sandbox 0.33 with the exact development pin', () => {
     expect(() =>
       assertPeerMatchesDevelopmentDependency(
         {
           name: '@tangle-network/agent-runtime',
-          devDependencies: { '@tangle-network/sandbox': '0.33.1' },
+          devDependencies: { '@tangle-network/sandbox': '0.33.2' },
           peerDependencies: { '@tangle-network/sandbox': sandboxPeerRange },
         },
         '@tangle-network/sandbox',
@@ -139,6 +140,6 @@ describe('compatibility peer ranges', () => {
           admittedVersions: sandboxCompatibilityVersions,
         },
       ),
-    ).toThrow(/does not admit 0\.33\.1/)
+    ).toThrow(/does not admit 0\.33\.2/)
   })
 })
