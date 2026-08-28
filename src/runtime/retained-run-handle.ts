@@ -111,9 +111,32 @@ export function createRetainedRunHandle(
     events: (options) =>
       retainedRunEvents(session, copyControlRef(activeControlRef), options, clock),
     result: async () => {
-      const result = AgentTurnResultSchema.parse(await exactSessionResult(session))
-      assertResultBinding(activeControlRef, result)
-      return structuredClone(result)
+      let candidate: unknown
+      try {
+        candidate = await exactSessionResult(session)
+      } catch (error) {
+        if (error instanceof RetainedRunProviderContractError) throw error
+        throw new RetainedRunProviderContractError(
+          error instanceof Error ? error.message : 'provider retained result read failed',
+          { code: 'RETAINED_RESULT_READ_FAILED', cause: error },
+        )
+      }
+      const parsed = AgentTurnResultSchema.safeParse(candidate)
+      if (!parsed.success) {
+        throw new RetainedRunProviderContractError('provider returned an invalid retained result', {
+          code: 'RETAINED_RESULT_SCHEMA_INVALID',
+          cause: parsed.error,
+        })
+      }
+      try {
+        assertResultBinding(activeControlRef, parsed.data)
+      } catch (error) {
+        throw new RetainedRunProviderContractError(
+          error instanceof Error ? error.message : 'provider returned an unbound retained result',
+          { code: 'RETAINED_RESULT_BINDING_INVALID', cause: error },
+        )
+      }
+      return structuredClone(parsed.data)
     },
     async respondToInteraction(command, options): Promise<InteractionAcknowledgement> {
       const exactCommand = InteractionResponseCommandSchema.parse(command)

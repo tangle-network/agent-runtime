@@ -157,6 +157,20 @@ try {
       return [name, requiredPackedDevelopmentDependency(packageJson, name)]
     }),
   )
+  const consumerTypeScriptAlias = packageJson.devDependencies?.['typescript-consumer']
+  const consumerTypeScriptPrefix = 'npm:typescript@'
+  if (
+    typeof consumerTypeScriptAlias !== 'string' ||
+    !consumerTypeScriptAlias.startsWith(consumerTypeScriptPrefix)
+  ) {
+    throw new Error('packed consumer requires an exact typescript-consumer alias')
+  }
+  const consumerTypeScriptVersion = consumerTypeScriptAlias.slice(
+    consumerTypeScriptPrefix.length,
+  )
+  if (!/^\d+\.\d+\.\d+$/.test(consumerTypeScriptVersion)) {
+    throw new Error('packed consumer requires an exact TypeScript version')
+  }
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -170,7 +184,7 @@ try {
         },
         devDependencies: {
           '@types/node': requiredPackedDevelopmentDependency(packageJson, '@types/node'),
-          typescript: requiredPackedDevelopmentDependency(packageJson, 'typescript'),
+          typescript: consumerTypeScriptVersion,
         },
         overrides: {
           '@tangle-network/agent-knowledge': '$@tangle-network/agent-knowledge',

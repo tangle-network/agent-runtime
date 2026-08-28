@@ -168,6 +168,7 @@
     "typedoc": "0.28.20",
     "typedoc-plugin-markdown": "4.12.0",
     "typescript": "catalog:",
+    "typescript-consumer": "npm:typescript@7.0.2",
     "vitest": "^4.1.10",
     "wrangler": "4.114.0",
     "yaml": "2.9.0"
@@ -180,7 +181,7 @@
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.163.2 <0.171.0",
     "@tangle-network/agent-interface": "^1.6.0",
-    "@tangle-network/sandbox": ">=0.31.0 <0.32.0"
+    "@tangle-network/sandbox": ">=0.33.1 <0.34.0"
   },
   "peerDependenciesMeta": {
     "@tangle-network/sandbox": {

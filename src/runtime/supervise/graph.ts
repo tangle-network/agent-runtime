@@ -302,6 +302,17 @@ const everySuperviseOptionIsClassified: UnclassifiedSuperviseOption extends neve
   : UnclassifiedSuperviseOption = true
 void everySuperviseOptionIsClassified
 
+/** `backend` and `driverBackend` keep graph-specific documentation below.
+ *
+ * Do not inherit and redeclare them through an indexed access type.
+ * TypeScript 7 correctly treats `SuperviseOptions['backend']` as including `undefined`, which makes
+ * that redeclaration wider than the exact optional property inherited from `SuperviseOptions`.
+ */
+type GraphInheritedSuperviseOption = Exclude<
+  (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number],
+  'backend' | 'driverBackend'
+>
+
 /** Copy every forwarded option the caller actually set. Absent stays absent: `supervise()` and the
  *  graph must not disagree about what "unset" means. */
 function forwardedSuperviseOptions(
@@ -323,12 +334,11 @@ function forwardedSuperviseOptions(
  * graph semantics differ are declared below; everything else inherits its type AND its
  * documentation from `SuperviseOptions`, which is the one owner of both.
  */
-export interface RunGraphOptions
-  extends Pick<SuperviseOptions, (typeof GRAPH_FORWARDED_SUPERVISE_OPTIONS)[number]> {
+export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSuperviseOption> {
   /** WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
    *  `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
    *  becomes a nested supervisor instead, whose own leaves are derived the same way. */
-  readonly backend?: SuperviseOptions['backend']
+  readonly backend?: Exclude<SuperviseOptions['backend'], undefined>
   /** WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim (see
    *  `SuperviseOptions.driverBackend`). Needed when the root node's profile declares an external
    *  harness (`codex`, `claude-code`, `opencode`): that root is driven by the harness, not by the
@@ -336,7 +346,7 @@ export interface RunGraphOptions
    *  does NOT default to `backend`: a graph's `backend` places WORKER nodes, so the root driver
    *  is selected only by this field. Omit = no harness driver, which is correct for a root whose
    *  `profile.harness` is omitted or `cli-base` (that root runs on the router brain). */
-  readonly driverBackend?: SuperviseOptions['driverBackend']
+  readonly driverBackend?: Exclude<SuperviseOptions['driverBackend'], undefined>
   /** Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
    *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
    *  Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node

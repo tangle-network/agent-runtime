@@ -15,6 +15,7 @@ import {
   assertSequence,
   assertStableText,
   awaitAbortable,
+  RetainedRunProviderContractError,
 } from './retained-run-binding'
 import type { RetainedRunEventOptions } from './retained-run-types'
 import { extractTransportEventIdentity, parseCanonicalTransportEvent } from './sandbox-events'
@@ -101,7 +102,11 @@ export async function* retainedRunEvents(
       }
       throw abortError(options.signal.reason)
     }
-    throw error
+    if (error instanceof RetainedRunProviderContractError) throw error
+    throw new RetainedRunProviderContractError(
+      error instanceof Error ? error.message : 'provider retained event stream failed',
+      { code: 'RETAINED_EVENT_STREAM_INVALID', cause: error },
+    )
   } finally {
     if (!options?.signal?.aborted) await iterator.return?.()
   }

@@ -53,9 +53,9 @@ describe('rangeAdmits', () => {
   it('admits the published Eval and Sandbox cohorts', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.149.0')).toBe(true)
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.30.0')).toBe(false)
-    expect(rangeAdmits(sandboxPeerRange, '0.31.0')).toBe(true)
     expect(rangeAdmits(sandboxPeerRange, '0.32.0')).toBe(false)
+    expect(rangeAdmits(sandboxPeerRange, '0.33.1')).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, '0.34.0')).toBe(false)
   })
 
   it('refuses an exact specifier, which states no range', () => {
@@ -108,12 +108,12 @@ describe('assertFirstPartyRangeSpecs', () => {
 })
 
 describe('compatibility peer ranges', () => {
-  it('accepts Sandbox 0.31 with a 0.31 development pin', () => {
+  it('accepts Sandbox 0.33 with a 0.33 development pin', () => {
     expect(() =>
       assertPeerMatchesDevelopmentDependency(
         {
           name: '@tangle-network/agent-runtime',
-          devDependencies: { '@tangle-network/sandbox': '0.31.0' },
+          devDependencies: { '@tangle-network/sandbox': '0.33.1' },
           peerDependencies: { '@tangle-network/sandbox': sandboxPeerRange },
         },
         '@tangle-network/sandbox',
@@ -125,20 +125,20 @@ describe('compatibility peer ranges', () => {
     ).not.toThrow()
   })
 
-  it('rejects a compatibility range that drops Sandbox 0.31', () => {
+  it('rejects a compatibility range that drops Sandbox 0.33', () => {
     expect(() =>
       assertPeerMatchesDevelopmentDependency(
         {
           name: '@tangle-network/agent-runtime',
-          devDependencies: { '@tangle-network/sandbox': '0.31.0' },
-          peerDependencies: { '@tangle-network/sandbox': '>=0.32.0 <0.33.0' },
+          devDependencies: { '@tangle-network/sandbox': '0.34.0' },
+          peerDependencies: { '@tangle-network/sandbox': '>=0.34.0 <0.35.0' },
         },
         '@tangle-network/sandbox',
         {
-          expectedRange: '>=0.32.0 <0.33.0',
+          expectedRange: '>=0.34.0 <0.35.0',
           admittedVersions: sandboxCompatibilityVersions,
         },
       ),
-    ).toThrow(/does not admit 0\.31\.0/)
+    ).toThrow(/does not admit 0\.33\.1/)
   })
 })
