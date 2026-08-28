@@ -725,6 +725,20 @@ export {
   type InboxMessage,
   type PeerInboxMessage,
 } from './supervise/inbox'
+export {
+  readWorkerInteractiveAdmissions,
+  type WorkerInteractiveAdmission,
+  workerInteractiveAdmissionFile,
+} from './supervise/interactive-admission'
+/** Provider-backed native interactive workers. Runtime owns admission and control identity; the
+ * provider owns the environment and process. */
+export {
+  type InteractiveWorkerEnvironment,
+  type InteractiveWorkerKeyInput,
+  type InteractiveWorkerOptions,
+  type InteractiveWorkerResult,
+  workerFromInteractiveProvider,
+} from './supervise/interactive-worker'
 // The fail-loud model-subset guard the front doors call: restrict a run to a chosen set of models.
 export { assertModelAllowed, assertProfileModelsAllowed } from './supervise/model-policy'
 // OPT-IN OTLP tracing for a supervised tree: a pure `RuntimeHooks` observer that turns the

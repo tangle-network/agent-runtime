@@ -8427,7 +8427,7 @@ own agent (mastra/agno/raw HTTP/anything) is first-class by implementing this in
 
 ##### runtime
 
-> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-4)
+> `readonly` **runtime**: [`Runtime`](runtime.md#runtime-5)
 
 Stable runtime tag for traces + the equal-k exemption check.
 
@@ -8716,7 +8716,7 @@ Register a factory for a named runtime. Throws on a duplicate name (fail loud).
 
 ###### runtime
 
-[`Runtime`](runtime.md#runtime-4)
+[`Runtime`](runtime.md#runtime-5)
 
 ###### factory
 

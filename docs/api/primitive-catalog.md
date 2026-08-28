@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 861 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 869 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -715,6 +715,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 861 exports.
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
 | `readWorkerCancelRequests` | function | Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped. |
+| `readWorkerInteractiveAdmissions` | function | Read all durable admissions for one worker, oldest phase first. |
 | `readWorkerInteractiveBinding` | function | Read and validate one exact durable worker binding. |
 | `readWorkerProgress` | function | Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the |
 | `readWorkerSteerAcknowledgement` | function | Read one runtime steer acknowledgement, or `undefined` while no manager has answered. |
@@ -798,8 +799,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 861 exports.
 | `workerCancelRequestsFile` | function | The durable cancel-request inbox of one run — one NDJSON line per {@link WorkerCancelRequest}. |
 | `workerControlLogFile` | function | The best-effort control-event log for one worker (`workers/<label>.ndjson`) — delivery |
 | `workerFromBackend` | function | Build the worker seam from a backend (WHERE workers run) + an optional completion oracle (the |
+| `workerFromInteractiveProvider` | function | Build a `MakeWorkerAgent` that starts one exact provider-owned native TUI per worker. |
 | `workerInboxFile` | function | The durable inbox file for one worker of one run. |
 | `workerInboxFileFromEventDir` | function | Same, addressed from an already-known run directory (the reader's usual entry point). |
+| `workerInteractiveAdmissionFile` | function | Return the exact credential-free admission file for one worker and phase. |
 | `workerInteractiveBindingFile` | function | Exact durable binding file for one worker id. |
 | `workerInteractiveBindingsDir` | function | Directory containing exact per-worker interactive binding records. |
 | `workerSteerAcknowledgementFile` | function | Runtime acknowledgement file for one caller-owned steer operation id. |
@@ -967,6 +970,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 861 exports.
 | `InMemoryRunContextOptions` | interface | Options for a supervised run context. |
 | `InPlaceHarnessResult` | interface | The canonical result of one in-place harness run. The edits are the DIRECTORY, not a patch: |
 | `InProcessPromptCtx` | interface | Context handed to each `onPrompt` call. |
+| `InteractiveWorkerKeyInput` | interface | Stable input available to key and holder functions. |
+| `InteractiveWorkerOptions` | interface | Configuration shared by every worker produced by `workerFromInteractiveProvider`. |
+| `InteractiveWorkerResult` | interface | Native interactive worker output. Provider usage is intentionally not fabricated. |
 | `Interval` | interface | A 95%-by-default confidence interval. |
 | `KeyProvider` | interface | Resolve named secrets. The ONE seam every secret store adapts to. |
 | `LeaderboardBenchmarkAdapter` | interface | Structurally `BenchmarkAdapter` (bench registry shape): `name`, |
@@ -1183,6 +1189,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 861 exports.
 | `FlatWidenGate` | type | The flat default `ScopeWidenGate` factory contract — never widens, keeping the R2 firewall |
 | `GroupOf` | type | The axis (matrix column) a record contributes to — default the scenario group. |
 | `InProcessOnPrompt` | type | The user callback: given a prompt and its round, produce the box's event |
+| `InteractiveWorkerEnvironment` | type | Environment fields supplied to every interactive worker after Runtime adds the exact profile. |
 | `LoopOptionsForDispatch` | type | runAgentRounds options minus the `ctx` (loopDispatch builds the ctx). |
 | `LoopShape` | type | A reusable act-body factory. Given the persona's content + seams (`ShapeContext`), it |
 | `LoopUntil` | type | `loopUntil(spec)` — build the iterative-deepening combinator. `seed` is the initial state. |
@@ -1255,6 +1262,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 861 exports.
 | `Widen` | type | `widen(spec)` — build the streaming progressive-widening combinator. |
 | `WidenDecision` | type | A widening decision: extend one lineage by one child, or stop widening. `flatWidenGate` |
 | `WinnerStrategy` | type | Built-in valid-only winner strategies for `selectValidWinner` (selector≠judge): best gated-valid |
+| `WorkerInteractiveAdmission` | type | The credential-free record written for one interactive admission phase. |
 | `WorkerInteractiveBinding` | type | Durable exact-process binding or capability decision for one supervised worker. |
 | `WorkerInteractiveProviderSource` | type | Provider lookup accepted by {@link attachWorker}. |
 | `WorkerInteractiveSession` | type | One worker's attachable process, or the named reason there is none. |

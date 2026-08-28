@@ -34,6 +34,7 @@ import {
 import { contentAddress } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
+import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
 import { abortError } from './abortable'
@@ -53,6 +54,10 @@ import {
 } from './deadline'
 import { freeSlots } from './dispatch'
 import { executableAgentSpecSnapshot } from './executable-spec'
+import {
+  interactiveAdmissionSeamKey,
+  writeWorkerInteractiveAdmission,
+} from './interactive-admission'
 import {
   authoredProfileDigest,
   knownExecutionBindingReceipt,
@@ -438,6 +443,7 @@ function makeNestedScopeSeam(
 /** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const children = new Map<NodeId, LiveChild>()
+  const interactiveBindingDir = args.interactiveBindingDir
   const liveWorkerCapacity: LiveWorkerCapacityState = args.liveWorkerCapacity ?? {
     max: normalizeLiveWorkerLimit(args.maxLiveWorkers),
     live: 0,
@@ -698,6 +704,14 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             deferredOwner,
           ),
           ...(workerTrace ? { [workerTraceSeamKey]: workerTrace } : {}),
+          ...(interactiveBindingDir
+            ? {
+                [interactiveAdmissionSeamKey]: (admission: RetainedInteractiveAdmission) =>
+                  Promise.resolve(
+                    writeWorkerInteractiveAdmission(interactiveBindingDir, id, admission, now),
+                  ).then(() => undefined),
+              }
+            : {}),
         },
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
