@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 869 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 874 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -710,6 +710,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 869 exports.
 | `promptHandle` | function | Parse `'<surface>/v<n>'` into a {@link PromptHandle}. The shorthand for authoring a graph edge: |
 | `providerAsExecutor` | function | Adapt an environment provider into an `ExecutorFactory` for `createExecutor`. |
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
+| `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
@@ -1027,6 +1028,9 @@ Import from `@tangle-network/agent-runtime/kernel` — 869 exports.
 | `ProviderExecutorOptions` | interface | Options for running a provider as a supervise-mode executor. |
 | `ProviderModelAttemptEvidence` | interface | One provider/harness inference attempt. An empty observation list means the attempt started but |
 | `ProviderSeam` | interface | Generic environment provider executor config. External packages implement |
+| `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
+| `ProvisionSupervisorConnection` | interface | Caller-supplied provider or the Sandbox SDK connection used by the default resolver. |
+| `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
 | `ReconnectRetainedInteractiveRunOptions` | interface | Reconstruct one exact provider-owned native coding-agent process. |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
 | `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |
@@ -1116,6 +1120,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 869 exports.
 | `SuperviseRegistryTable` | interface | A name→value table, in this package's resolver-port shape (the same one `WaitProbeRegistry` |
 | `SuperviseSurfaceResult` | interface | The deployable outcome of a supervised surface run. |
 | `Supervisor` | interface | Owns the conserved pool, the spawn log, the abort cascade, the OTP intensity breaker, |
+| `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
 | `SupervisorNodeContext` | interface | Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot |
 | `SupervisorSpanOutcome` | interface | How the supervised run ended, as `finish()` records it on the root span. |
 | `SupervisorToolDescriptor` | interface | One product-owned tool. It reuses the canonical MCP descriptor fields while Runtime supplies |
@@ -1724,15 +1729,20 @@ Import from `@tangle-network/agent-runtime/mcp` — 213 exports.
 
 ### Supervisor TUI — live terminal view over the on-disk run layout
 
-Import from `@tangle-network/agent-runtime/tui` — 22 exports.
+Import from `@tangle-network/agent-runtime/tui` — 27 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `loadTopSnapshot` | function | Read every supervisor run under one workspace into a single point-in-time snapshot. |
+| `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `renderTopFrame` | function | Render one snapshot to an ANSI frame. Use this when nothing needs to be clickable. |
 | `renderTopFrameWithLayout` | function | Render one snapshot, returning the frame together with the row→entity map a mouse click resolves |
 | `renderTopOnce` | function | Render exactly one frame and return it. This is the non-interactive path — `--once`, a pipe, a |
 | `runTopApp` | function | Run the TUI. With a TTY on both ends and no `--once` this takes over the terminal until `q`; |
+| `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
+| `ProvisionSupervisorConnection` | interface | Caller-supplied provider or the Sandbox SDK connection used by the default resolver. |
+| `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
+| `SupervisorCleanupReceipt` | interface | Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. |
 | `TopSnapshot` | interface | The read side of the supervisor-run TUI: turn the on-disk run layout into one `TopSnapshot`, and |
 | `TopSnapshotDiagnostic` | interface | One skipped or partially read snapshot source. `path` is relative to the run directory and |
 

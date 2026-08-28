@@ -465,6 +465,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   let cursorSeq = args.resumeFrom ? args.resumeFrom.maxCursorSeq + 1 : 0
   let waitOrdinal = args.resumeFrom ? args.resumeFrom.maxWaitOrdinal + 1 : 0
   let meterSeq = 0
+  let progressSeq = 0
   const now = args.now ?? Date.now
   // Waits the journal shows as armed but never woken, keyed by label. `wait` RE-ADOPTS one instead
   // of arming a fresh countdown — that is what makes a resumed deadline the ORIGINAL deadline.
@@ -1014,6 +1015,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         reservation.ticket,
         args.blobs,
         now,
+        args.journal,
+        args.root,
+        () => progressSeq++,
         materializationCommitted,
         {
           complete: async () => pendingEvidence?.complete(),
@@ -2110,6 +2114,9 @@ async function runChild<C>(
   ticket: ReservationTicket,
   blobs: ResultBlobStore,
   now: () => number,
+  journal: SpawnJournal,
+  journalRoot: NodeId,
+  nextProgressSeq: () => number,
   executionReady: Promise<void>,
   executionEvidence: {
     complete: () => Promise<void>
@@ -2165,9 +2172,16 @@ async function runChild<C>(
       // concurrent `scope.progress(id)` sees a worker mid-flight rather than a zeroed row.
       const spend = await foldStream(
         ran,
-        (running) => {
+        async (running) => {
           live.spent = running
           live.lastActivityAt = now()
+          await journal.appendEvent(journalRoot, {
+            kind: 'progress',
+            id: live.id,
+            spend: running,
+            seq: nextProgressSeq(),
+            at: new Date(now()).toISOString(),
+          })
         },
         childAbort.signal,
       )
@@ -2488,7 +2502,7 @@ function freezeCorrelation(
  */
 async function foldStream(
   stream: AsyncIterable<UsageEvent>,
-  onProgress?: (running: Spend) => void,
+  onProgress?: (running: Spend) => void | Promise<void>,
   signal?: AbortSignal,
 ): Promise<Spend> {
   const totals = newUsageTotals()
@@ -2501,7 +2515,7 @@ async function foldStream(
       if (next.done) break
       const ev = next.value
       meterUsageEvent(totals, ev)
-      onProgress?.({
+      await onProgress?.({
         iterations: totals.iterations,
         tokens: cloneTokenUsage(totals.tokens),
         ...(totals.tokensKnown ? {} : { tokensKnown: false }),

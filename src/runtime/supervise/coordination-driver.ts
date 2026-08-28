@@ -410,7 +410,7 @@ interface SteerAcknowledgerDeps {
  * at-most-once crash boundary as coordination instruction receipts: no duplicate instruction is
  * safer than replaying a mutation whose first delivery may already have succeeded.
  */
-function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
+export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   pass(phase: 'turn' | 'final'): Promise<void>
 } {
   const iso = () => new Date(deps.now()).toISOString()
@@ -522,7 +522,7 @@ function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
  * Idempotency is a lookup, in-process and across processes: an operation with a durable
  * acknowledgement is returned as-is and never re-applied.
  */
-function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
+export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
   /** `'turn'` = a driver turn boundary (the only phase that APPLIES a request); `'final'` = the
    *  post-drain pass, which only reconciles records the run already wrote. */
   pass(phase: 'turn' | 'final'): void

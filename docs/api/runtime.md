@@ -877,7 +877,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-14)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-15)
 
 ##### runtime
 
@@ -2965,7 +2965,7 @@ Exact base profile the axes expand over (prompt/tools/skills held fixed).
 
 ##### backends?
 
-> `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-5)) \| `undefined`\>
+> `optional` **backends?**: `Record`\<`string`, (() => [`SandboxClient`](#sandboxclient-6)) \| `undefined`\>
 
 Execution-backend registry: `--backend <name>` picks the factory that
 yields the `SandboxClient` every cell runs on. Merged over the defaults:
@@ -3486,7 +3486,7 @@ different per-create profile and provides no host isolation.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
 Sandbox client used for every cell's `runAgentRounds`. Supplied once.
 
@@ -3696,7 +3696,7 @@ Options for adapting plain agent-eval campaign scenarios into Runtime cells.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
 Sandbox client used for every campaign cell's `runAgentRounds`.
 
@@ -6079,7 +6079,7 @@ The execution transport for the driven loop.
 
 ##### sandboxClient?
 
-> `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-5)
+> `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-6)
 
 `sandbox` backend: the caller's real Sandbox-backed client. Required for that backend.
 
@@ -14439,6 +14439,186 @@ readonly [`RegisteredPrompt`](#registeredprompt)[]
 
 ***
 
+### ProvisionSupervisorConnection
+
+Caller-supplied provider or the Sandbox SDK connection used by the default resolver.
+
+#### Properties
+
+##### provider?
+
+> `readonly` `optional` **provider?**: `AgentEnvironmentProvider`
+
+A fully constructed provider. This is the preferred programmatic seam and is testable.
+
+##### client?
+
+> `readonly` `optional` **client?**: [`SandboxClient`](#sandboxclient-6)
+
+A Sandbox SDK-compatible client. Runtime adapts it to the public provider contract.
+
+##### sandboxClient?
+
+> `readonly` `optional` **sandboxClient?**: [`SandboxClient`](#sandboxclient-6)
+
+Alias for `client`, accepted so callers can pass their existing connection object.
+
+##### endpoint?
+
+> `readonly` `optional` **endpoint?**: `string`
+
+Sandbox API endpoint. Runtime never persists this value in the run receipt.
+
+##### apiKey?
+
+> `readonly` `optional` **apiKey?**: `string`
+
+Transient Sandbox API key. Runtime never persists this value.
+
+##### kind?
+
+> `readonly` `optional` **kind?**: `string`
+
+Connection kind is descriptive only and does not select a hidden implementation.
+
+##### credentialRef?
+
+> `readonly` `optional` **credentialRef?**: `string`
+
+Opaque credential reference. It is not resolved or persisted by Runtime.
+
+***
+
+### ProvisionSupervisorRequest
+
+Input to the public Runtime supervisor provisioner.
+
+#### Properties
+
+##### invocationId
+
+> `readonly` **invocationId**: `string`
+
+##### environment?
+
+> `readonly` `optional` **environment?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Braid's safe selector map. Credential values are deliberately not accepted here.
+
+##### workspaceDir?
+
+> `readonly` `optional` **workspaceDir?**: `string`
+
+Root directory for Runtime-owned `.agent/supervisor` state.
+
+##### timeoutMs?
+
+> `readonly` `optional` **timeoutMs?**: `number`
+
+Maximum time to wait for worker admission and terminal readiness.
+
+##### pollMs?
+
+> `readonly` `optional` **pollMs?**: `number`
+
+Poll cadence for lifecycle/control readiness.
+
+##### profile?
+
+> `readonly` `optional` **profile?**: `AgentProfile`
+
+Canonical worker profile. Runtime creates one when omitted.
+
+##### connection?
+
+> `readonly` `optional` **connection?**: [`ProvisionSupervisorConnection`](#provisionsupervisorconnection)
+
+Optional provider connection. Runtime resolves a Sandbox client when omitted.
+
+***
+
+### SupervisorCleanupReceipt
+
+Exact owner-scoped cleanup receipt returned after Runtime releases the run resources.
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: `"completed"`
+
+##### rootDir
+
+> `readonly` **rootDir**: `string`
+
+##### supervisorId
+
+> `readonly` **supervisorId**: `string`
+
+##### workerId
+
+> `readonly` **workerId**: `string`
+
+##### supervisorStatus
+
+> `readonly` **supervisorStatus**: `string`
+
+##### workerStatus
+
+> `readonly` **workerStatus**: `"running"` \| `"done"` \| `"down"` \| `"cancelled"`
+
+##### resourcesReleased
+
+> `readonly` **resourcesReleased**: `true`
+
+##### remainingResources
+
+> `readonly` **remainingResources**: readonly \[\]
+
+***
+
+### ProvisionedSupervisor
+
+Handles for one Runtime-owned supervisor and its first interactive worker.
+
+#### Properties
+
+##### rootDir
+
+> `readonly` **rootDir**: `string`
+
+##### supervisorId
+
+> `readonly` **supervisorId**: `string`
+
+##### workerId
+
+> `readonly` **workerId**: `string`
+
+##### providers?
+
+> `readonly` `optional` **providers?**: `AgentEnvironmentProvider`
+
+Provider source for `attachWorker`; omitted only when resolution did not produce one.
+
+##### terminalTakeover
+
+> `readonly` **terminalTakeover**: `"required"` \| `"unsupported"` \| `"unspecified"`
+
+Capability-derived terminal takeover requirement.
+
+#### Methods
+
+##### cleanup()
+
+> **cleanup**(): `Promise`\<[`SupervisorCleanupReceipt`](#supervisorcleanupreceipt)\>
+
+###### Returns
+
+`Promise`\<[`SupervisorCleanupReceipt`](#supervisorcleanupreceipt)\>
+
+***
+
 ### InMemoryRunContextOptions
 
 Options for a supervised run context.
@@ -14877,7 +15057,7 @@ checkpoint/fork.
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
 ##### loopCtx?
 
@@ -15680,7 +15860,7 @@ Ask the box to stop the running execution on this exact session and report what 
 
 ##### sandboxClient
 
-> `readonly` **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
+> `readonly` **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
 ##### inbox
 
@@ -17345,7 +17525,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-17)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-18)
 
 ##### task
 
@@ -21378,7 +21558,7 @@ Execution context for `runAgentRounds`: the sandbox client the kernel creates bo
 
 ##### sandboxClient
 
-> **sandboxClient**: [`SandboxClient`](#sandboxclient-5)
+> **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
 Sandbox SDK client — the kernel calls `.create()` per iteration.
 
@@ -23556,7 +23736,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-5); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-5); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-5); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-5); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -24022,6 +24202,37 @@ Runtime bookkeeping only; this record carries no provider inference attempt.
 > `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence)
 
 Runtime-owned provider attempt evidence for this driver's own inference turn.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](index.md#spend); `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"progress"`
+
+A live worker's cumulative metered spend, published while its stream is still running.
+This is observation only: it never settles a node and never enters cost totals. The next
+terminal `settled` event replaces it in read models, so a live snapshot can show movement
+without charging the same spend twice.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### spend
+
+> **spend**: [`Spend`](index.md#spend)
 
 ###### seq
 
@@ -25498,7 +25709,7 @@ Batch the firewalled `observe()` analyst over completed runs and accrete the tra
 
 ### inProcessSandboxClient()
 
-> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-5)
+> **inProcessSandboxClient**(`options`): [`SandboxClient`](#sandboxclient-6)
 
 **`Experimental`**
 
@@ -25515,13 +25726,13 @@ this function, so call sites stay cast-free.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ***
 
 ### inlineSandboxClient()
 
-> **inlineSandboxClient**(`factory`, `defaults?`): [`SandboxClient`](#sandboxclient-5)
+> **inlineSandboxClient**(`factory`, `defaults?`): [`SandboxClient`](#sandboxclient-6)
 
 Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
 instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
@@ -25541,7 +25752,7 @@ run once on the prompt, emit the terminal result event, tear down.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ***
 
@@ -25653,7 +25864,7 @@ Rules, all fail-closed:
 
 ### localSandboxClient()
 
-> **localSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-5)
+> **localSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-6)
 
 A same-host `SandboxClient` adapter with no process isolation. Local MCP is
 refused unless the caller explicitly supplies a policy that allows it.
@@ -25666,7 +25877,7 @@ refused unless the caller explicitly supplies a policy that allows it.
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ***
 
@@ -26561,7 +26772,7 @@ Statistical promotion decision over a holdout benchmark using the outcome-approp
 
 ### resolveSandboxClient()
 
-> **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-5)
+> **resolveSandboxClient**(`opts`): [`SandboxClient`](#sandboxclient-6)
 
 Resolve a `SandboxClient` for the chosen backend. The generic, dep-light core
 that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
@@ -26575,7 +26786,7 @@ that `resolveBenchClient` builds on — reuse this instead of hand-rolling the
 
 #### Returns
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ***
 
@@ -26950,7 +27161,7 @@ Cold-start-resilient sandbox acquisition: create by name, observe readiness from
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ##### options
 
@@ -26981,7 +27192,7 @@ promise is cached so concurrent fanout branches share one round-trip.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 #### Returns
 
@@ -27287,7 +27498,7 @@ and the lineage stays a pure function of "what this platform can do".
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ##### capabilities
 
@@ -27337,7 +27548,7 @@ kimi-code all flow through this one entrypoint with identical env/auth wiring.
 
 ##### client
 
-[`SandboxClient`](#sandboxclient-5)
+[`SandboxClient`](#sandboxclient-6)
 
 ##### options
 
@@ -29347,6 +29558,28 @@ The kernel's seeded registry: every surface the runtime's own builders derive fr
 #### Returns
 
 [`PromptRegistry`](#promptregistry)
+
+***
+
+### provisionSupervisor()
+
+> **provisionSupervisor**(`request`): `Promise`\<[`ProvisionedSupervisor`](#provisionedsupervisor)\>
+
+Provision one real provider-backed worker and keep its owning manager alive for controls.
+
+The root manager does not use a model. It runs the same coordination tools used by a driver in a
+small deterministic loop, so durable steer and cancel requests are acknowledged by the owning
+Runtime turn loop and never by a test-only shortcut.
+
+#### Parameters
+
+##### request
+
+[`ProvisionSupervisorRequest`](#provisionsupervisorrequest)
+
+#### Returns
+
+`Promise`\<[`ProvisionedSupervisor`](#provisionedsupervisor)\>
 
 ***
 

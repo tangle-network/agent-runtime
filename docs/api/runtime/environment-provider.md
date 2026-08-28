@@ -382,7 +382,7 @@ Resolve a provider instance or registry name, failing loudly when a name is unkn
 
 ### providerAsSandboxClient()
 
-> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-5)
+> **providerAsSandboxClient**(`provider`, `options?`): [`SandboxClient`](../runtime.md#sandboxclient-6)
 
 **`Experimental`**
 
@@ -400,7 +400,7 @@ Adapt a neutral environment provider to the `SandboxClient` interface used by ex
 
 #### Returns
 
-[`SandboxClient`](../runtime.md#sandboxclient-5)
+[`SandboxClient`](../runtime.md#sandboxclient-6)
 
 ***
 
@@ -418,7 +418,7 @@ Each environment exposes interactive methods only when its deployment declares e
 
 ##### client
 
-[`SandboxClient`](../runtime.md#sandboxclient-5)
+[`SandboxClient`](../runtime.md#sandboxclient-6)
 
 ##### options?
 

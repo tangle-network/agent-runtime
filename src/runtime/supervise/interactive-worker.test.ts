@@ -23,6 +23,7 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
+import { loadTopSnapshot } from '../../tui/top-model'
 import type { ToolLoopChat } from '../tool-loop'
 import {
   interactiveAdmissionSeamKey,
@@ -30,6 +31,14 @@ import {
   writeWorkerInteractiveAdmission,
 } from './interactive-admission'
 import { workerFromInteractiveProvider } from './interactive-worker'
+import { provisionSupervisor } from './provision-supervisor'
+import {
+  cancelWorker,
+  readWorkerCancellation,
+  readWorkerSteerAcknowledgement,
+  supervisorRunDir,
+  writeWorkerSteer,
+} from './run-layout'
 import { superviseWithTestBrain } from './supervise'
 import type { AgentSpec, ExecutorContext, WorkerInteractiveSession } from './types'
 import { attachWorker } from './worker-interactive'
@@ -283,6 +292,141 @@ describe('workerFromInteractiveProvider', () => {
   })
 })
 
+describe('provisionSupervisor', () => {
+  it('provisions a real root and worker, exposes controls, attaches, and cleans up exactly once', async () => {
+    const fixture = interactiveProviderFixture()
+    const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-'))
+    try {
+      const provisioned = await provisionSupervisor({
+        invocationId: 'provision-lifecycle-1',
+        workspaceDir: root,
+        timeoutMs: 5_000,
+        pollMs: 2,
+        profile,
+        connection: { provider: fixture.provider },
+      })
+      expect(provisioned.rootDir).toBe(root)
+      expect(provisioned.supervisorId).toMatch(/^runtime-supervisor-[a-f0-9]{64}$/u)
+      expect(provisioned.workerId).toBe(`${provisioned.supervisorId}:s0`)
+      expect(provisioned.providers).toBe(fixture.provider)
+      expect(provisioned.terminalTakeover).toBe('required')
+
+      const supervisor = loadTopSnapshot(root).supervisors.find(
+        (candidate) => candidate.id === provisioned.supervisorId,
+      )
+      expect(supervisor?.workers).toHaveLength(1)
+      expect(supervisor?.workers[0]).toMatchObject({
+        id: provisioned.workerId,
+        status: 'running',
+      })
+      await waitForAsync(
+        () => loadTopSnapshot(root).supervisors[0]?.workers[0]?.metered.iterations === 1,
+        'worker progress',
+      )
+
+      const eventDir = supervisorRunDir(root, provisioned.supervisorId)
+      const attached = await attachWorker(eventDir, provisioned.workerId, {
+        providers: fixture.provider,
+      })
+      expect(attached.status).toBe('available')
+      if (attached.status === 'available') {
+        const control = await claimControl(attached.handle, 'provision-lifecycle-terminal')
+        const terminal = await attached.handle.attach({ control })
+        await expect(terminal.close()).resolves.toMatchObject({ status: 'closed' })
+      }
+
+      const firstSteer = writeWorkerSteer(root, provisioned.supervisorId, provisioned.workerId, {
+        operationId: 'provision-steer-1',
+        message: 'Continue the assigned task',
+        source: 'provision-test',
+        interrupt: false,
+      })
+      const retrySteer = writeWorkerSteer(root, provisioned.supervisorId, provisioned.workerId, {
+        operationId: 'provision-steer-1',
+        message: 'Continue the assigned task',
+        source: 'provision-test',
+        interrupt: false,
+      })
+      expect(firstSteer.replayed).toBe(false)
+      expect(retrySteer.replayed).toBe(true)
+      await waitForAsync(
+        () => readWorkerSteerAcknowledgement(eventDir, 'provision-steer-1')?.effect === 'delivered',
+        'steer acknowledgement',
+      )
+      expect(fixture.stats.prompts).toHaveLength(1)
+
+      const queuedCancel = cancelWorker(eventDir, provisioned.workerId, 'provision-cancel-1', {
+        reason: 'provision test cleanup',
+        source: 'provision-test',
+      })
+      expect(queuedCancel.effect).toBe('unknown')
+      await waitForAsync(
+        () => readWorkerCancellation(eventDir, 'provision-cancel-1')?.effect === 'cancelled',
+        'cancel acknowledgement',
+      )
+      const cancellation = readWorkerCancellation(eventDir, 'provision-cancel-1')
+      expect(cancellation).toMatchObject({
+        operationId: 'provision-cancel-1',
+        worker: provisioned.workerId,
+        effect: 'cancelled',
+      })
+      expect(cancellation?.terminated).toContain(provisioned.workerId)
+      expect(cancelWorker(eventDir, provisioned.workerId, 'provision-cancel-1')).toEqual(
+        cancellation,
+      )
+      await expect(
+        provisionSupervisor({
+          invocationId: 'provision-lifecycle-1',
+          workspaceDir: root,
+          timeoutMs: 5_000,
+          pollMs: 2,
+          profile,
+          connection: { provider: fixture.provider },
+        }),
+      ).rejects.toMatchObject({ unavailable: true })
+
+      const receipt = await provisioned.cleanup()
+      expect(receipt).toEqual({
+        status: 'completed',
+        rootDir: root,
+        supervisorId: provisioned.supervisorId,
+        workerId: provisioned.workerId,
+        supervisorStatus: receipt.supervisorStatus,
+        workerStatus: 'down',
+        resourcesReleased: true,
+        remainingResources: [],
+      })
+      await expect(provisioned.cleanup()).resolves.toEqual(receipt)
+      expect(fixture.stats.destroyCalls).toBe(1)
+      const finalWorker = loadTopSnapshot(root).supervisors[0]?.workers[0]
+      expect(finalWorker?.status).toBe('down')
+      expect(finalWorker?.spend.iterations).toBe(1)
+      expect(finalWorker?.metered.iterations).toBe(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when the caller supplies a provider that cannot reconnect', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-unavailable-'))
+    try {
+      const provider = {
+        name: 'non-reconnectable-provider',
+        capabilities: () => fixtureCapabilities,
+      } as AgentEnvironmentProvider
+      await expect(
+        provisionSupervisor({
+          invocationId: 'provision-unavailable-1',
+          workspaceDir: root,
+          connection: { provider },
+        }),
+      ).rejects.toMatchObject({ unavailable: true })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 type AgentWithExecutorSpec = ReturnType<ReturnType<typeof workerFromInteractiveProvider>> & {
   executorSpec: AgentSpec
 }
@@ -345,6 +489,14 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
   }
   throw new Error('fixture condition did not become true')
+}
+
+async function waitForAsync(predicate: () => boolean, label: string): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (predicate()) return
+    await new Promise<void>((resolve) => setTimeout(resolve, 2))
+  }
+  throw new Error(`fixture condition did not become true: ${label}`)
 }
 
 async function waitForAttached(

@@ -2163,13 +2163,13 @@ function defaultTangleSandboxCapabilities(options: {
     streaming: { live: true, replay: true, detach: true, turnIdempotency: true },
     sessions: { continue: true, list: true, messages: true },
     workspace: { read: true, write: true, exec: true, git: true, upload: true, download: true },
-    branching: { checkpoint: true, fork: true },
+    branching: { checkpoint: false, fork: false },
     ...(options.rediscover
       ? { interactiveAgent: { ...completeInteractiveAgentCapabilities } }
       : {}),
     placement: true,
     usage: true,
-    confidential: true,
+    confidential: false,
   }
 }
 

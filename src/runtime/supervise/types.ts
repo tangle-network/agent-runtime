@@ -1213,6 +1213,17 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** A live worker's cumulative metered spend, published while its stream is still running.
+       * This is observation only: it never settles a node and never enters cost totals. The next
+       * terminal `settled` event replaces it in read models, so a live snapshot can show movement
+       * without charging the same spend twice. */
+      kind: 'progress'
+      id: NodeId
+      spend: Spend
+      seq: number
+      at: string
+    }
+  | {
       /** A settled child whose executor teardown was never acknowledged: the run cannot prove the
        *  resource is gone, so its capacity slot stays charged for the rest of the run. Recorded so
        *  the leak is durable evidence about the EXECUTOR rather than a cause of run failure.

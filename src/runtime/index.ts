@@ -810,6 +810,16 @@ export {
   type RegisteredPrompt,
   supervisorPolicyPrompt,
 } from './supervise/prompt-registry'
+// One-call durable Runtime owner for external clients that need a real root, one interactive worker,
+// the worker control acknowledger, and an exact cleanup receipt. Braid consumes this surface and
+// never writes `.agent/supervisor` itself.
+export {
+  type ProvisionedSupervisor,
+  type ProvisionSupervisorConnection,
+  type ProvisionSupervisorRequest,
+  provisionSupervisor,
+  type SupervisorCleanupReceipt,
+} from './supervise/provision-supervisor'
 // The one-call store bundle for a supervised run: a journal + blob store + executor registry,
 // shaped to spread straight into `SupervisorOpts`. `createInMemoryRunContext` is the default
 // (fresh, process-lifetime); `createFileRunContext(dir)` is the durable one — file-backed stores
