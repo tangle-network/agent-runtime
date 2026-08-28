@@ -2,9 +2,9 @@
 
 ## 0.8.25
 
-### Sandbox 0.33.2 cohort
+### Sandbox 0.34.0 cohort
 
-The Sandbox catalog range becomes `>=0.33.2 <0.34.0`, matching the Runtime cohort.
+The Sandbox catalog range becomes `>=0.34.0 <0.35.0`, matching the Runtime cohort.
 Bench resolves Sandbox through the catalog, so its published manifest states the new range.
 Nothing in bench changes behavior.
 
