@@ -2312,6 +2312,7 @@ function superviseInternal(
       // A traced run on a backend with NO propagation channel journals each severed hop
       // (`trace-unpropagated`) instead of silently producing disconnected child traces.
       ...(recorder && traceUnpropagated ? { workerTraceUnpropagated: traceUnpropagated } : {}),
+      ...(options.runDir === undefined ? {} : { interactiveBindingDir: resolve(options.runDir) }),
     })
     const settle = async () => {
       const result = await run

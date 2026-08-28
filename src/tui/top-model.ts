@@ -449,6 +449,7 @@ function buildSupervisorView(
       const tail =
         workerEventTails.get(worker.label) ??
         workerEventTails.get(safeWorkerFile(worker.label)) ??
+        workerEventTails.get(safeWorkerFile(worker.id)) ??
         workerEventTails.get(worker.id)
       worker.liveTail = tail?.lines ?? []
       if (tail?.file) worker.eventFile = tail.file

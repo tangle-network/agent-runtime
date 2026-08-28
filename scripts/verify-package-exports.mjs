@@ -226,7 +226,15 @@ try {
       // @ts-expect-error Arbitrary driver construction is confined to the testing entrypoint.
       import type { DriverAgentOptions as ForbiddenDriverAgentOptions } from '@tangle-network/agent-runtime/kernel'
       // The caller-brain seam is production: ToolLoopChat resolves from /kernel (issue 694 option A).
-      import type { ToolLoopChat as KernelToolLoopChat } from '@tangle-network/agent-runtime/kernel'
+      import {
+        attachWorker,
+        readWorkerSteerAcknowledgement,
+        type ToolLoopChat as KernelToolLoopChat,
+        type WorkerInteractiveBinding,
+        type WorkerSteerAcknowledgement,
+        type WriteWorkerSteerOptions,
+        writeWorkerSteer,
+      } from '@tangle-network/agent-runtime/kernel'
       import {
         deriveExecutionId,
         handleChatTurn,
@@ -287,6 +295,12 @@ try {
       })
       const durableTurnHandler: typeof handleChatTurn = handleChatTurn
       declare const durableTurnResult: ChatTurnResult
+      declare const workerBinding: WorkerInteractiveBinding
+      declare const steerAcknowledgement: WorkerSteerAcknowledgement
+      const steerOptions: WriteWorkerSteerOptions = {
+        operationId: 'packed-consumer-steer',
+        message: 'continue with the exact failing test',
+      }
 
       const executor = createExactProcessCandidateExperimentExecutor({
         provider,
@@ -377,6 +391,12 @@ try {
       void durableExecutionId
       void durableTurnHandler
       void durableTurnResult
+      void workerBinding
+      void steerAcknowledgement
+      void steerOptions
+      void attachWorker
+      void readWorkerSteerAcknowledgement
+      void writeWorkerSteer
       void driverAgent
       void (undefined as unknown as DriverAgentOptions)
       void (undefined as unknown as ToolLoopChat)
@@ -447,7 +467,11 @@ try {
       '--eval',
       `
         const root = await import('@tangle-network/agent-runtime')
+        const kernel = await import('@tangle-network/agent-runtime/kernel')
         const toolLoop = await import('@tangle-network/agent-runtime/tool-loop')
+        for (const name of ['attachWorker', 'readWorkerSteerAcknowledgement', 'writeWorkerSteer']) {
+          if (typeof kernel[name] !== 'function') throw new Error('missing kernel export ' + name)
+        }
         for (const name of ['runToolLoop', 'streamToolLoop']) {
           if (typeof toolLoop[name] !== 'function') throw new Error('missing tool-loop export ' + name)
           if (name in root) throw new Error('tool-loop export leaked through broad package root: ' + name)

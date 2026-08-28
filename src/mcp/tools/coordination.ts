@@ -587,6 +587,13 @@ export interface CoordinationTools {
    *  (mid-run, on the worker pipe) uses to tell the driver "this worker is looping/erroring" the
    *  moment it happens, instead of only at settle. Queued for `await_event` + pass-through. */
   raiseFinding(finding: AnalystFindingEvent): Promise<void>
+  /** Authorize, durably record, and attempt one external steer through the same down-leg used by
+   * `steer_agent`. The returned outcome is exact and is never inferred from queue admission. */
+  steerWorker(
+    workerId: string,
+    instruction: string,
+    options?: { readonly interrupt?: boolean },
+  ): Promise<DownMessageEvent>
   /**
    * Abort ONE live worker this manager spawned, through the worker's own per-child abort chain
    * (the scope cascades that abort into the worker's subtree and no sibling). `ref` resolves
@@ -1631,6 +1638,20 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     return down
   }
 
+  const steerWorker = async (
+    workerId: string,
+    instruction: string,
+    options: { readonly interrupt?: boolean } = {},
+  ): Promise<DownMessageEvent> => {
+    const interrupt = options.interrupt === true
+    const authorized = authorizeInstruction('steer', workerId, instruction, interrupt)
+    await recordInstruction(authorized)
+    return await attemptDelivery(authorized, {
+      steer: authorized.instruction,
+      interrupt,
+    })
+  }
+
   // Consumer projection: the wire shape the driver sees for a pulled bus event.
   const projectEvent = (ev: CoordinationEvent): Record<string, unknown> => {
     if (ev.type === 'settled') {
@@ -2211,12 +2232,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const a = obj(raw)
         const workerId = str(a.workerId, 'workerId')
         const instruction = str(a.instruction, 'instruction')
-        const interrupt = a.interrupt === true
-        const authorized = authorizeInstruction('steer', workerId, instruction, interrupt)
-        await recordInstruction(authorized)
-        const delivery = await attemptDelivery(authorized, {
-          steer: authorized.instruction,
-          interrupt,
+        const delivery = await steerWorker(workerId, instruction, {
+          interrupt: a.interrupt === true,
         })
         if (delivery.delivered) {
           return { delivered: true, progress: readProgress(workerId) ?? null }
@@ -2565,6 +2582,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       bus
         .publish({ type: 'finding', finding: canonicalFindingEvent(finding) })
         .then(() => undefined),
+    steerWorker,
     stats: () =>
       opts.preflightSpawn === undefined
         ? bus.stats()

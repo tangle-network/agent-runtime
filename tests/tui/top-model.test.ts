@@ -9,6 +9,7 @@ import {
   safeWorkerFile,
   supervisorRunDir,
   workerControlLogFile,
+  workerInboxFile,
   writeWorkerSteer,
 } from '../../src/runtime/supervise/run-layout'
 import { loadTopSnapshot, renderTopFrame, renderTopFrameWithLayout } from '../../src/tui/top-model'
@@ -418,16 +419,20 @@ describe('supervisor top model', () => {
       }),
     )
 
-    const written = writeWorkerSteer(root, 'sup-5-steer', label, 'narrow the diff', 'human')
-    expect(written.file).toBe(join(dir, 'workers', `${safeWorkerFile(label)}.inbox.ndjson`))
-    expect(readWorkerSteerRequests(dir, label).map((request) => request.message)).toEqual([
-      'narrow the diff',
-    ])
+    const written = writeWorkerSteer(root, 'sup-5-steer', 'sup-5-steer:s1', {
+      operationId: 'top-steer-1',
+      message: 'narrow the diff',
+      source: 'human',
+    })
+    expect(written.file).toContain(join(dir, 'steers', 'requests'))
+    expect(
+      readWorkerSteerRequests(dir, 'sup-5-steer:s1').map((request) => request.message),
+    ).toEqual(['narrow the diff'])
 
     const snapshot = loadTopSnapshot(root, Date.parse('2026-06-28T10:00:30.000Z'))
     const worker = snapshot.supervisors[0]?.workers[0]
     expect(worker?.label).toBe(label)
-    expect(worker?.eventFile).toBe(workerControlLogFile(dir, label))
+    expect(worker?.eventFile).toBe(workerControlLogFile(dir, 'sup-5-steer:s1'))
     // The inbox file lives in the same directory and must NOT be mistaken for a control log.
     expect(worker?.liveTail.length).toBe(1)
     expect(worker?.liveTail[0]).toContain('narrow the diff')
@@ -442,7 +447,9 @@ describe('supervisor top model', () => {
     })
     expect(frame).toContain('human steer queued delivered=false narrow the diff')
     // The inbox line itself is not a control event and must not surface as one.
-    expect(readFileSync(written.file, 'utf8')).toContain('narrow the diff')
+    expect(readFileSync(workerInboxFile(root, 'sup-5-steer', 'sup-5-steer:s1'), 'utf8')).toContain(
+      'narrow the diff',
+    )
   })
 
   it('reports no supervisors for a workspace with no run state', () => {

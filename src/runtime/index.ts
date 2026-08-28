@@ -824,6 +824,7 @@ export {
   readRunCancelRequest,
   readWorkerCancellation,
   readWorkerCancelRequests,
+  readWorkerSteerAcknowledgement,
   readWorkerSteerRequests,
   runCancellationFile,
   runCancelRequestFile,
@@ -833,13 +834,20 @@ export {
   supervisorWorkersDir,
   type WorkerCancellation,
   type WorkerCancelRequest,
+  type WorkerSteerAcknowledgement,
   type WorkerSteerRequest,
+  type WriteWorkerSteerOptions,
   workerCancellationFile,
   workerCancellationsDir,
   workerCancelRequestsFile,
   workerControlLogFile,
   workerInboxFile,
   workerInboxFileFromEventDir,
+  workerSteerAcknowledgementFile,
+  workerSteerAcknowledgementsDir,
+  workerSteerRequestFile,
+  workerSteerRequestsDir,
+  workerSteersDir,
   writeWorkerSteer,
 } from './supervise/run-layout'
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
@@ -1056,6 +1064,17 @@ export {
   VERIFY_TAIL_CHARS,
   type WorkerEvidenceInput,
 } from './supervise/worker-evidence'
+// Exact cross-process attachment to a provider-retained worker process. The durable binding is
+// Runtime-owned and keyed by the supervised worker id; callers never inspect provider state.
+export {
+  type AttachWorkerOptions,
+  attachWorker,
+  readWorkerInteractiveBinding,
+  type WorkerInteractiveBinding,
+  type WorkerInteractiveProviderSource,
+  workerInteractiveBindingFile,
+  workerInteractiveBindingsDir,
+} from './supervise/worker-interactive'
 // The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
 // id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
 // package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans

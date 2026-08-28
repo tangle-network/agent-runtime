@@ -7,6 +7,9 @@
  * therefore either returns THAT child's session, or says why there is none.
  */
 
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   type AgentInteractiveSessionAttach,
   type AgentInteractiveSessionControlClaim,
@@ -23,8 +26,13 @@ import type {
   AgentEnvironmentCapabilities,
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
-import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  FileResultBlobStore,
+  FileSpawnJournal,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/spawn-journal'
 import { startRetainedInteractiveRun } from '../../src/runtime/retained-run'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -39,9 +47,25 @@ import type {
   UsageEvent,
   WorkerInteractiveSession,
 } from '../../src/runtime/supervise/types'
+import {
+  attachWorker,
+  workerInteractiveBindingFile,
+  writeWorkerInteractiveBinding,
+} from '../../src/runtime/supervise/worker-interactive'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 50, maxTokens: 100_000 }
+const cleanups: string[] = []
+
+afterEach(() => {
+  for (const dir of cleanups.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'worker-interactive-'))
+  cleanups.push(dir)
+  return dir
+}
 
 function digest(seed: string): `sha256:${string}` {
   return `sha256:${seed.repeat(64).slice(0, 64)}`
@@ -90,6 +114,7 @@ function interactiveCapabilities(): AgentEnvironmentCapabilities {
 function interactiveProvider(name: string): AgentEnvironmentProvider {
   let ref: AgentInteractiveSessionRef | undefined
   let generation = 0
+  let running = true
   const history: TerminalOutputEvent[] = []
   const environmentId = `${name}-environment`
 
@@ -120,7 +145,10 @@ function interactiveProvider(name: string): AgentEnvironmentProvider {
         history.push({ type: 'resize', cols: resize.cols, rows: resize.rows })
       },
       detach: async () => ({ status: 'detached' as const, terminalSessionId: `${name}-terminal` }),
-      close: async () => ({ status: 'closed' as const, terminalSessionId: `${name}-terminal` }),
+      close: async () => {
+        running = false
+        return { status: 'closed' as const, terminalSessionId: `${name}-terminal` }
+      },
       events: async function* (options?: { since?: number }) {
         yield* history.slice(options?.since ?? 0)
       },
@@ -192,7 +220,15 @@ function interactiveProvider(name: string): AgentEnvironmentProvider {
           control: controlFor(ref!, generation),
         }
       },
-      status: async () => ({ state: 'running' as const, ref: ref! }),
+      status: async () =>
+        running
+          ? { state: 'running' as const, ref: ref! }
+          : {
+              state: 'exited' as const,
+              ref: ref!,
+              endedAt: '2026-08-28T00:00:00.000Z',
+              reason: 'stopped' as const,
+            },
       attach: async (request: AgentInteractiveSessionAttach) => terminal(request.control),
       sendPrompt: async (command) => ({
         operationId: command.operationId,
@@ -267,10 +303,11 @@ function gate() {
 async function interactiveWorker(
   name: string,
   pause: Promise<void>,
+  provider: AgentEnvironmentProvider = interactiveProvider(name),
 ): Promise<Agent<unknown, unknown>> {
   const profile = testAgentProfile(name, { harness: 'pi' })
   const handle = await startRetainedInteractiveRun({
-    provider: interactiveProvider(name),
+    provider,
     environment: { profile, idempotencyKey: `${name}-workspace` },
     interactiveIdempotencyKey: `${name}-native`,
     onAdmission: async () => {},
@@ -359,6 +396,24 @@ function scopeOf(): Scope<unknown> {
     executors: createExecutorRegistry(),
     signal: new AbortController().signal,
     seams: {},
+    now: Date.now,
+  })
+}
+
+async function durableScopeOf(dir: string): Promise<Scope<unknown>> {
+  const journal = new FileSpawnJournal(join(dir, 'spawn-journal.jsonl'))
+  await journal.beginTree('root', '2026-08-28T00:00:00.000Z')
+  return createScope<unknown>({
+    parentId: 'root',
+    root: 'root',
+    depth: 0,
+    pool: createBudgetPool(budget, Date.now()),
+    journal,
+    blobs: new FileResultBlobStore(join(dir, 'blobs')),
+    executors: createExecutorRegistry(),
+    signal: new AbortController().signal,
+    seams: {},
+    interactiveBindingDir: dir,
     now: Date.now,
   })
 }
@@ -456,5 +511,212 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       status: 'unavailable',
       reason: 'not-live',
     })
+  })
+
+  it('reconstructs the exact worker across a new client process boundary and fails closed after close', async () => {
+    const dir = tempDir()
+    const scope = await durableScopeOf(dir)
+    const running = gate()
+    const provider = interactiveProvider('durable-alpha')
+    const spawned = scope.spawn(
+      await interactiveWorker('durable-alpha', running.opened, provider),
+      'work',
+      {
+        budget: { maxIterations: 4, maxTokens: 1_000 },
+        label: 'durable-alpha',
+      },
+    )
+    if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
+
+    await vi.waitFor(async () => {
+      expect(existsSync(workerInteractiveBindingFile(dir, spawned.handle.id))).toBe(true)
+      await expect(
+        attachWorker(dir, spawned.handle.id, { providers: provider }),
+      ).resolves.toMatchObject({ status: 'available' })
+    })
+    const first = await attachWorker(dir, spawned.handle.id, { providers: provider })
+    if (first.status !== 'available') throw new Error(`attach failed: ${first.reason}`)
+    const control = await claim(first)
+    const terminal = await first.handle.attach({ control })
+    await terminal.input({ data: 'first process\n' })
+    await terminal.detach()
+
+    // A new caller reconstructs from the durable exact ref and sees the same ordered history.
+    const restarted = await attachWorker(dir, spawned.handle.id, { providers: provider })
+    if (restarted.status !== 'available') throw new Error(`reattach failed: ${restarted.reason}`)
+    const reattached = await restarted.handle.attach({ control: await claim(restarted) })
+    expect(await readHistory(reattached)).toEqual(['first process\n'])
+    await reattached.close()
+    await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'interactive-binding-stale',
+    })
+
+    running.open()
+    await scope.next()
+    await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'not-live',
+    })
+  })
+
+  it('persists headless and unsupported reasons and refuses corrupt or symlinked bindings', async () => {
+    const dir = tempDir()
+    const scope = await durableScopeOf(dir)
+    const pause = gate()
+    const unsupported = (
+      name: string,
+      reason: Extract<WorkerInteractiveSession, { status: 'unavailable' }>,
+    ) => {
+      const executor: Executor<unknown> = {
+        runtime: 'sandbox',
+        execute: async () => {
+          await pause.opened
+          return {
+            outRef: `out:${name}`,
+            out: name,
+            spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+          }
+        },
+        interactive: () => reason,
+        teardown: async () => ({ destroyed: true }),
+        resultArtifact: () => {
+          throw new Error('one-shot result is returned from execute')
+        },
+      }
+      const spec: AgentSpec = { profile: testAgentProfile(name), harness: null, executor }
+      return { name, act: async () => name, executorSpec: spec } as Agent<unknown, unknown> & {
+        executorSpec: AgentSpec
+      }
+    }
+    const headless = scope.spawn(
+      unsupported('headless-durable', {
+        status: 'unavailable',
+        reason: 'executor-exposes-no-interactive-session',
+      }),
+      'work',
+      { budget: { maxIterations: 2, maxTokens: 100 }, label: 'headless-durable' },
+    )
+    const unsupportedSpawn = scope.spawn(
+      unsupported('unsupported-durable', {
+        status: 'unavailable',
+        reason: 'provider-has-no-interactive-contract',
+      }),
+      'work',
+      { budget: { maxIterations: 2, maxTokens: 100 }, label: 'unsupported-durable' },
+    )
+    if (!headless.ok || !unsupportedSpawn.ok) throw new Error('spawn failed')
+    await vi.waitFor(async () => {
+      await expect(
+        attachWorker(dir, headless.handle.id, { providers: interactiveProvider('unused') }),
+      ).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'executor-exposes-no-interactive-session',
+      })
+    })
+    await vi.waitFor(async () => {
+      await expect(
+        attachWorker(dir, unsupportedSpawn.handle.id, { providers: interactiveProvider('unused') }),
+      ).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'provider-has-no-interactive-contract',
+      })
+    })
+
+    writeFileSync(workerInteractiveBindingFile(dir, headless.handle.id), '{broken', 'utf8')
+    await expect(
+      attachWorker(dir, headless.handle.id, { providers: interactiveProvider('unused') }),
+    ).rejects.toThrow()
+
+    const symlinkDir = tempDir()
+    const outside = tempDir()
+    symlinkSync(outside, join(symlinkDir, 'interactive-workers'))
+    expect(() => workerInteractiveBindingFile(symlinkDir, 'root:s0')).not.toThrow()
+    expect(() =>
+      writeWorkerInteractiveBinding(symlinkDir, 'root:s0', 'worker', 'root', {
+        status: 'unavailable',
+        reason: 'executor-exposes-no-interactive-session',
+      }),
+    ).toThrow(/symbolic link/)
+
+    pause.open()
+    await scope.next()
+    await scope.next()
+  })
+
+  it('publishes no exact binding until a delayed interactive handle is attachable', async () => {
+    const dir = tempDir()
+    const scope = await durableScopeOf(dir)
+    const provider = interactiveProvider('delayed-interactive')
+    const profile = testAgentProfile('delayed-interactive', { harness: 'pi' })
+    const retained = await startRetainedInteractiveRun({
+      provider,
+      environment: { profile, idempotencyKey: 'delayed-workspace' },
+      interactiveIdempotencyKey: 'delayed-native',
+      onAdmission: async () => {},
+    })
+    const execution = gate()
+    let current: WorkerInteractiveSession = {
+      status: 'unavailable',
+      reason: 'interactive-session-not-started',
+    }
+    let markInteractiveRead!: () => void
+    const interactiveRead = new Promise<void>((resolve) => {
+      markInteractiveRead = resolve
+    })
+    let markReady!: (session: WorkerInteractiveSession) => void
+    const ready = new Promise<WorkerInteractiveSession>((resolve) => {
+      markReady = resolve
+    })
+    const executor: Executor<unknown> = {
+      runtime: 'sandbox',
+      execute: async () => {
+        await execution.opened
+        return {
+          outRef: 'delayed-interactive',
+          out: 'done',
+          spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+        }
+      },
+      interactive: () => {
+        markInteractiveRead()
+        return current
+      },
+      interactiveReady: () => ready,
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => {
+        throw new Error('one-shot result is returned from execute')
+      },
+    }
+    const spec: AgentSpec = { profile, harness: null, executor }
+    const agent = {
+      name: 'delayed-interactive',
+      act: async () => 'done',
+      executorSpec: spec,
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const spawned = scope.spawn(agent, 'work', {
+      budget: { maxIterations: 2, maxTokens: 100 },
+      label: 'delayed-interactive',
+    })
+    if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
+
+    await interactiveRead
+    expect(existsSync(workerInteractiveBindingFile(dir, spawned.handle.id))).toBe(false)
+    await expect(attachWorker(dir, spawned.handle.id, { providers: provider })).resolves.toEqual({
+      status: 'unavailable',
+      reason: 'interactive-binding-not-found',
+    })
+
+    current = { status: 'available', handle: retained }
+    markReady(current)
+    await vi.waitFor(() => {
+      expect(existsSync(workerInteractiveBindingFile(dir, spawned.handle.id))).toBe(true)
+    })
+    await expect(
+      attachWorker(dir, spawned.handle.id, { providers: provider }),
+    ).resolves.toMatchObject({ status: 'available' })
+
+    execution.open()
+    await scope.next()
   })
 })

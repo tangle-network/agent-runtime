@@ -125,6 +125,7 @@ import {
   type WaitRejection,
   type WaitSpec,
 } from './wait'
+import { writeWorkerInteractiveBinding } from './worker-interactive'
 import { type WorkerTraceResolver, workerTraceSeamKey } from './worker-trace'
 
 /** Construction args for `createScope`. The supervisor threads the shared pool, journal,
@@ -186,6 +187,8 @@ export interface ScopeArgs {
     readonly backend: string
     readonly reason: 'no-env-channel' | 'no-worker-process' | 'caller-omitted'
   }
+  /** Durable run directory that receives exact worker interactive bindings. */
+  readonly interactiveBindingDir?: string
   /** @internal Trusted root-adapter publication channel. It is never exposed as a Scope method. */
   readonly ownerMaterialization?: {
     readonly runtime: NodeSnapshot['runtime']
@@ -289,6 +292,8 @@ interface LiveChild {
   readonly readTraceSource?: () => TraceSource | undefined
   /** The executor's optional interactive process, captured at spawn — backs `scope.interactive`. */
   readonly readInteractive?: () => WorkerInteractiveSession
+  /** Async readiness for an executor that creates its interactive process during `execute`. */
+  readonly readInteractiveReady?: () => Promise<WorkerInteractiveSession>
   /** The executor's optional cancellation operation, captured at spawn — backs `scope.cancel`. */
   readonly requestCancel?: (request: ExecutorCancellationRequest) => Promise<ExecutorCancellation>
   /** Abort this child's own signal — the local half of `scope.cancel`. */
@@ -418,6 +423,9 @@ function makeNestedScopeSeam(
         ...(args.workerTrace ? { workerTrace: args.workerTrace } : {}),
         ...(args.workerTraceUnpropagated
           ? { workerTraceUnpropagated: args.workerTraceUnpropagated }
+          : {}),
+        ...(args.interactiveBindingDir
+          ? { interactiveBindingDir: args.interactiveBindingDir }
           : {}),
         ...(deferredOwner.ownerMaterialization === undefined
           ? {}
@@ -739,6 +747,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         ...(executor.progress ? { readProgress: executor.progress.bind(executor) } : {}),
         ...(executor.traceSource ? { readTraceSource: executor.traceSource.bind(executor) } : {}),
         ...(executor.interactive ? { readInteractive: executor.interactive.bind(executor) } : {}),
+        ...(executor.interactiveReady
+          ? { readInteractiveReady: executor.interactiveReady.bind(executor) }
+          : {}),
         ...(executor.cancel ? { requestCancel: executor.cancel.bind(executor) } : {}),
         abortChild: (reason?: string): void => controller.abort(reason),
       }
@@ -793,6 +804,36 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             at: new Date(now()).toISOString(),
           })
         })
+      const interactiveBindingCommitted = spawnCommitted.then(async () => {
+        if (args.interactiveBindingDir === undefined) return
+        const immediate = readInteractiveSession(live)
+        if (
+          immediate.status === 'available' ||
+          immediate.reason !== 'interactive-session-not-started'
+        ) {
+          writeWorkerInteractiveBinding(
+            args.interactiveBindingDir,
+            id,
+            opts.label,
+            args.root,
+            immediate,
+            now,
+          )
+          return
+        }
+        if (live.readInteractiveReady === undefined) return
+        const ready = await live.readInteractiveReady()
+        if (ready.status === 'available' || ready.reason !== 'interactive-session-not-started') {
+          writeWorkerInteractiveBinding(
+            args.interactiveBindingDir,
+            id,
+            opts.label,
+            args.root,
+            ready,
+            now,
+          )
+        }
+      })
       let pendingEvidence: { complete: () => Promise<void>; fail: () => Promise<void> } | undefined
       const materializationCommitted = spawnCommitted.then(async () => {
         const profileDigest = identity?.profileDigest ?? authoredProfileDigest(spec.profile)
@@ -996,9 +1037,21 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
         childDeadlineAtMs,
       )
-        .then((s) => {
-          live.resolved = s
-          return s
+        .then(async (s) => {
+          let resolution = s
+          try {
+            await interactiveBindingCommitted
+          } catch {
+            resolution = downRecord(
+              'interactive worker binding persistence failed',
+              true,
+              s.trace,
+              s.metered,
+              s.providerModel,
+            )
+          }
+          live.resolved = resolution
+          return resolution
         })
         .finally(() => {
           if (live.cleanupConfirmed) permit.release()
@@ -1320,21 +1373,18 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (child.wait || child.executorDone || isTerminalNodeStatus(child.status)) {
       return noInteractiveSession('not-live')
     }
-    if (!child.readInteractive)
-      return noInteractiveSession('executor-exposes-no-interactive-session')
-    let reported: WorkerInteractiveSession
-    try {
-      reported = child.readInteractive()
-    } catch {
-      // A throwing read is an executor that cannot produce a session, not a reason to break the
-      // operator's attach path.
-      return noInteractiveSession('executor-exposes-no-interactive-session')
+    const session = readInteractiveSession(child)
+    if (args.interactiveBindingDir !== undefined && session.status === 'available') {
+      writeWorkerInteractiveBinding(
+        args.interactiveBindingDir,
+        child.id,
+        child.label,
+        args.root,
+        session,
+        now,
+      )
     }
-    // The executor answers for its own runner, so its reason is kept. A malformed answer is not
-    // an attachment: it degrades to the honest omission reason rather than reaching a caller.
-    if (reported?.status === 'unavailable' && reported.reason) return reported
-    if (reported?.status === 'available' && reported.handle) return reported
-    return noInteractiveSession('executor-exposes-no-interactive-session')
+    return session
   }
 
   async function meterInternal(
@@ -2537,6 +2587,22 @@ function noInteractiveSession(
   reason: WorkerInteractiveUnavailableReason,
 ): WorkerInteractiveSession {
   return Object.freeze({ status: 'unavailable' as const, reason })
+}
+
+/** Read one executor's declared interactive capability without letting a malformed port escape. */
+function readInteractiveSession(child: LiveChild): WorkerInteractiveSession {
+  if (!child.readInteractive) {
+    return noInteractiveSession('executor-exposes-no-interactive-session')
+  }
+  let reported: WorkerInteractiveSession
+  try {
+    reported = child.readInteractive()
+  } catch {
+    return noInteractiveSession('executor-exposes-no-interactive-session')
+  }
+  if (reported?.status === 'unavailable' && reported.reason) return reported
+  if (reported?.status === 'available' && reported.handle) return reported
+  return noInteractiveSession('executor-exposes-no-interactive-session')
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {

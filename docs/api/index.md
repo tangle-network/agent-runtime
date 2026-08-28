@@ -8530,6 +8530,17 @@ reads as `executor-exposes-no-interactive-session`, never as an empty handle.
 
 [`WorkerInteractiveSession`](runtime.md#workerinteractivesession)
 
+##### interactiveReady()?
+
+> `optional` **interactiveReady**(): `Promise`\<[`WorkerInteractiveSession`](runtime.md#workerinteractivesession)\>
+
+Optional readiness signal for an executor whose exact interactive handle is created inside
+`execute`. It resolves once to an available handle or a terminal unavailable reason.
+
+###### Returns
+
+`Promise`\<[`WorkerInteractiveSession`](runtime.md#workerinteractivesession)\>
+
 ##### cancel()?
 
 > `optional` **cancel**(`request`): `Promise`\<[`ExecutorCancellation`](runtime.md#executorcancellation)\>

@@ -17,8 +17,9 @@
  *
  * Layout, relative to `supervisorRunDir(root, id)`:
  *
- *   workers/<label>.inbox.ndjson   down-leg steer/answer requests for one worker (durable inbox);
- *                                  each line is a {@link WorkerSteerRequest}
+ *   steers/requests/<hash>.json    one exact, caller-idempotent {@link WorkerSteerRequest}
+ *   steers/acks/<hash>.json        runtime acknowledgement for that steer operation
+ *   workers/<id>.inbox.ndjson      best-effort readable projection of admitted steer requests
  *   workers/<label>.ndjson         best-effort per-worker control-event log (delivery bookkeeping)
  *   cancellations/requests.ndjson  worker-scoped cancel requests (durable inbox); each line is a
  *                                  {@link WorkerCancelRequest}
@@ -37,36 +38,68 @@
  * Reads are tolerant by contract: a partial trailing line (a writer mid-append) or a corrupt line
  * never poisons the rest of the file — later valid lines still matter.
  *
- * Promoted from `loops/src/supervisor-control.ts`. The one deliberate difference: the loops version
- * resolved a worker id to its label through the run journal before writing a steer; that resolution
- * stays with the caller (it is journal-format-specific), so `writeWorkerSteer` here takes the worker
- * LABEL directly.
+ * Promoted from `loops/src/supervisor-control.ts`. Steer admission now requires the exact worker id
+ * and a caller-owned operation id. One atomic request file is the durable inbox; the NDJSON file is
+ * a readable projection only and never controls idempotency.
  *
  * @experimental
  */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
+  closeSync,
   existsSync,
+  fsyncSync,
+  linkSync,
+  lstatSync,
   mkdirSync,
+  openSync,
+  readdirSync,
   readFileSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
+import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import type { RetainedRunEffect } from '../retained-run-types'
 
-/** One durable down-leg request appended to a worker's inbox file. */
+/** One atomically admitted down-leg request for an exact worker id. @stable */
 export interface WorkerSteerRequest {
-  readonly id: string
-  /** ISO timestamp of the append. */
+  readonly schemaVersion: 1
+  /** Caller-minted stable idempotency key for this operation. */
+  readonly operationId: string
+  /** Digest of operation id, worker id, message, source, and interrupt mode. */
+  readonly requestDigest: Sha256Digest
+  /** ISO timestamp of durable admission. */
   readonly at: string
   /** Who asked — 'human', a brain label, a tool name. Provenance, not authorization. */
   readonly source: string
-  /** The worker LABEL the request targets (already resolved by the caller). */
+  /** Exact supervised worker node id. */
   readonly worker: string
   readonly message: string
+  readonly interrupt: boolean
+}
+
+/** Runtime acknowledgement for one exact steer operation. @stable */
+export interface WorkerSteerAcknowledgement {
+  readonly schemaVersion: 1
+  readonly operationId: string
+  readonly requestDigest: Sha256Digest
+  readonly worker: string
+  readonly effect: 'unknown' | 'delivered' | 'not_live' | 'unsupported' | 'refused'
+  readonly requestedAt: string
+  readonly observedAt: string
+  readonly detail: string
+}
+
+/** Caller input for one retry-safe steer operation. @stable */
+export interface WriteWorkerSteerOptions {
+  readonly operationId: string
+  readonly message: string
+  readonly source?: string
+  readonly interrupt?: boolean
 }
 
 /** One durable worker-scoped cancel request appended to the run's cancellation inbox. */
@@ -228,66 +261,238 @@ export function workerControlLogFile(eventDir: string, worker: string): string {
   return join(supervisorWorkersDir(eventDir), `${safeWorkerFile(worker)}.ndjson`)
 }
 
+/** Directory containing atomically admitted steer requests and runtime acknowledgements. */
+export function workerSteersDir(eventDir: string): string {
+  return join(eventDir, 'steers')
+}
+
+/** Directory containing one canonical request file per steer operation. */
+export function workerSteerRequestsDir(eventDir: string): string {
+  return join(workerSteersDir(eventDir), 'requests')
+}
+
+/** Directory containing one runtime acknowledgement per steer operation. */
+export function workerSteerAcknowledgementsDir(eventDir: string): string {
+  return join(workerSteersDir(eventDir), 'acks')
+}
+
+/** Canonical request file for one caller-owned steer operation id. */
+export function workerSteerRequestFile(eventDir: string, operationId: string): string {
+  return join(workerSteerRequestsDir(eventDir), `${operationFileHash(operationId)}.json`)
+}
+
+/** Runtime acknowledgement file for one caller-owned steer operation id. */
+export function workerSteerAcknowledgementFile(eventDir: string, operationId: string): string {
+  return join(workerSteerAcknowledgementsDir(eventDir), `${operationFileHash(operationId)}.json`)
+}
+
 /**
- * Durably append one steer request to a worker's inbox and log the delivery attempt.
+ * Admit one steer exactly once under a caller-owned operation id.
  *
- * The inbox append is the durable act; the control-event log is best-effort bookkeeping and may
- * silently fail without voiding the steer.
+ * The per-operation request file is linked into place atomically after its bytes reach disk. A
+ * same-body retry returns the winner's request. A changed-body retry fails loud. The NDJSON inbox
+ * and control log are readable projections written only by the admission winner.
+ * @stable
  */
 export function writeWorkerSteer(
   rootDir: string,
   supervisorId: string,
   worker: string,
-  message: string,
-  source = 'human',
-): { worker: string; file: string; request: WorkerSteerRequest } {
-  const trimmed = message.trim()
+  options: WriteWorkerSteerOptions,
+): {
+  worker: string
+  file: string
+  request: WorkerSteerRequest
+  acknowledgement?: WorkerSteerAcknowledgement
+  replayed: boolean
+} {
+  const workerId = worker.trim()
+  if (!workerId) throw new Error('writeWorkerSteer: worker id is empty')
+  const operationId = options.operationId.trim()
+  if (!operationId) throw new Error('writeWorkerSteer: operationId is empty')
+  const trimmed = options.message.trim()
   if (!trimmed) throw new Error('steer message is empty')
+  const source = options.source?.trim() || 'human'
+  const interrupt = options.interrupt === true
   const dir = supervisorRunDir(rootDir, supervisorId)
-  mkdirSync(supervisorWorkersDir(dir), { recursive: true })
+  const requestDigest = workerSteerRequestDigest({
+    operationId,
+    worker: workerId,
+    message: trimmed,
+    source,
+    interrupt,
+  })
   const request: WorkerSteerRequest = {
-    id: randomUUID(),
+    schemaVersion: 1,
+    operationId,
+    requestDigest,
     at: new Date().toISOString(),
     source,
-    worker,
+    worker: workerId,
     message: trimmed,
+    interrupt,
   }
-  const file = workerInboxFile(rootDir, supervisorId, worker)
-  appendFileSync(file, `${JSON.stringify(request)}\n`, 'utf8')
-  appendWorkerControlEvent(dir, worker, {
+  const file = workerSteerRequestFile(dir, operationId)
+  assertNoSymlinkDescendant(dir, file, 'steer request')
+  mkdirSync(workerSteerRequestsDir(dir), { recursive: true })
+  assertNoSymlinkDescendant(dir, file, 'steer request')
+  const admitted = admitSteerRequest(file, request)
+  if (admitted.replayed) {
+    return {
+      worker: admitted.request.worker,
+      file,
+      request: admitted.request,
+      ...(readWorkerSteerAcknowledgement(dir, operationId) === undefined
+        ? {}
+        : { acknowledgement: readWorkerSteerAcknowledgement(dir, operationId) }),
+      replayed: true,
+    }
+  }
+  mkdirSync(supervisorWorkersDir(dir), { recursive: true })
+  const projection = workerInboxFile(rootDir, supervisorId, workerId)
+  try {
+    appendFileSync(projection, `${JSON.stringify(request)}\n`, 'utf8')
+  } catch {
+    // The atomic operation file is the queue. This projection does not control admission.
+  }
+  appendWorkerControlEvent(dir, workerId, {
     kind: 'message',
     direction: 'down',
     source,
-    requestId: request.id,
+    operationId,
+    requestDigest,
     message: trimmed,
+    interrupt,
     queued: true,
     delivered: false,
   })
-  return { worker, file, request }
+  return { worker: workerId, file, request, replayed: false }
 }
 
-/** Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped. */
-export function readWorkerSteerRequests(eventDir: string, worker: string): WorkerSteerRequest[] {
-  const file = workerInboxFileFromEventDir(eventDir, worker)
-  if (!existsSync(file)) return []
-  const out: WorkerSteerRequest[] = []
-  let raw = ''
+/** Read every atomically admitted request for one exact worker id, in admission order. @stable */
+export function readWorkerSteerRequests(eventDir: string, worker?: string): WorkerSteerRequest[] {
+  const workerId = worker?.trim()
+  if (worker !== undefined && !workerId) return []
+  let names: string[]
+  assertNoSymlinkDescendant(eventDir, workerSteerRequestsDir(eventDir), 'steer request')
   try {
-    raw = readFileSync(file, 'utf8')
+    names = readdirSync(workerSteerRequestsDir(eventDir))
   } catch {
-    return out
+    return []
   }
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
+  const out: WorkerSteerRequest[] = []
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue
     try {
-      const parsed = JSON.parse(trimmed) as Partial<WorkerSteerRequest>
-      if (isWorkerSteerRequest(parsed)) out.push(parsed)
+      const parsed = parseWorkerSteerRequest(
+        JSON.parse(readFileSync(join(workerSteerRequestsDir(eventDir), name), 'utf8')),
+      )
+      if (workerId === undefined || parsed.worker === workerId) out.push(parsed)
     } catch {
-      // Ignore partial or corrupt input lines; later valid lines still matter.
+      // One corrupt request cannot hide other independently committed operations.
     }
   }
-  return out
+  return out.sort((left, right) =>
+    left.at === right.at
+      ? left.operationId.localeCompare(right.operationId)
+      : left.at.localeCompare(right.at),
+  )
+}
+
+/** Read one runtime steer acknowledgement, or `undefined` while no manager has answered. @stable */
+export function readWorkerSteerAcknowledgement(
+  eventDir: string,
+  operationId: string,
+): WorkerSteerAcknowledgement | undefined {
+  const id = operationId.trim()
+  if (!id) throw new Error('readWorkerSteerAcknowledgement: operationId is empty')
+  const file = workerSteerAcknowledgementFile(eventDir, id)
+  assertNoSymlinkDescendant(eventDir, file, 'steer acknowledgement')
+  if (!existsSync(file)) return undefined
+  const record = parseWorkerSteerAcknowledgement(JSON.parse(readFileSync(file, 'utf8')))
+  if (record.operationId !== id) {
+    throw new Error(`steer acknowledgement '${file}' belongs to another operation`)
+  }
+  return record
+}
+
+/**
+ * Claim one steer for delivery with an atomic no-clobber acknowledgement.
+ * Returns `true` only to the process that created the pre-delivery record.
+ * @internal
+ */
+export function claimWorkerSteerDelivery(
+  eventDir: string,
+  record: WorkerSteerAcknowledgement,
+): boolean {
+  const exact = parseWorkerSteerAcknowledgement(record)
+  if (exact.effect !== 'unknown') {
+    throw new Error('steer delivery claim must use effect unknown')
+  }
+  const request = readWorkerSteerRequest(eventDir, exact.operationId)
+  if (request === undefined || request.requestDigest !== exact.requestDigest) {
+    throw new Error('steer delivery claim does not match an admitted request')
+  }
+  const dir = workerSteerAcknowledgementsDir(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'steer acknowledgement')
+  mkdirSync(dir, { recursive: true })
+  assertNoSymlinkDescendant(eventDir, dir, 'steer acknowledgement')
+  const file = workerSteerAcknowledgementFile(eventDir, exact.operationId)
+  const tmp = `${file}.${randomUUID()}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(exact, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+  syncFile(tmp)
+  try {
+    linkSync(tmp, file)
+    syncDirectory(dir)
+    return true
+  } catch (error) {
+    if (!isAlreadyExists(error)) throw error
+    const winner = readWorkerSteerAcknowledgement(eventDir, exact.operationId)
+    if (
+      winner === undefined ||
+      winner.operationId !== exact.operationId ||
+      winner.requestDigest !== exact.requestDigest
+    ) {
+      throw new Error('steer delivery claim conflicts with another operation')
+    }
+    return false
+  } finally {
+    try {
+      unlinkSync(tmp)
+    } catch {
+      // The no-clobber acknowledgement link is independent of the temporary name.
+    }
+  }
+}
+
+/** Atomically replace the runtime acknowledgement for one steer operation. @internal */
+export function writeWorkerSteerAcknowledgement(
+  eventDir: string,
+  record: WorkerSteerAcknowledgement,
+): void {
+  const exact = parseWorkerSteerAcknowledgement(record)
+  const request = readWorkerSteerRequest(eventDir, exact.operationId)
+  if (request === undefined || request.requestDigest !== exact.requestDigest) {
+    throw new Error('steer acknowledgement does not match an admitted request')
+  }
+  const dir = workerSteerAcknowledgementsDir(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'steer acknowledgement')
+  mkdirSync(dir, { recursive: true })
+  assertNoSymlinkDescendant(eventDir, dir, 'steer acknowledgement')
+  const file = workerSteerAcknowledgementFile(eventDir, exact.operationId)
+  const prior = readWorkerSteerAcknowledgement(eventDir, exact.operationId)
+  if (
+    prior !== undefined &&
+    prior.effect !== 'unknown' &&
+    canonicalCandidateDigest(prior) !== canonicalCandidateDigest(exact)
+  ) {
+    throw new Error(`steer operation '${exact.operationId}' already has a terminal acknowledgement`)
+  }
+  const tmp = `${file}.${randomUUID()}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(exact, null, 2)}\n`, 'utf8')
+  renameSync(tmp, file)
+  syncFile(file)
+  syncDirectory(dir)
 }
 
 /** The directory holding every cancellation artifact of one run (request inbox + acknowledgements). */
@@ -595,13 +800,179 @@ function appendWorkerControlEvent(
   }
 }
 
-function isWorkerSteerRequest(value: Partial<WorkerSteerRequest>): value is WorkerSteerRequest {
+function workerSteerRequestDigest(value: {
+  readonly operationId: string
+  readonly worker: string
+  readonly message: string
+  readonly source: string
+  readonly interrupt: boolean
+}): Sha256Digest {
+  return canonicalCandidateDigest({ kind: 'worker-steer-request.v1', ...value })
+}
+
+function operationFileHash(operationId: string): string {
+  const id = operationId.trim()
+  if (!id) throw new Error('steer operationId is empty')
+  return createHash('sha256').update(id).digest('hex')
+}
+
+function admitSteerRequest(
+  file: string,
+  request: WorkerSteerRequest,
+): { readonly request: WorkerSteerRequest; readonly replayed: boolean } {
+  const existing = readWorkerSteerRequestFile(file)
+  if (existing !== undefined) {
+    assertSameSteerRequest(existing, request)
+    return { request: existing, replayed: true }
+  }
+  const tmp = `${file}.${randomUUID()}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(request, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+  syncFile(tmp)
+  try {
+    linkSync(tmp, file)
+    syncDirectory(dirname(file))
+    return { request, replayed: false }
+  } catch (error) {
+    if (!isAlreadyExists(error)) throw error
+    const winner = readWorkerSteerRequestFile(file)
+    if (winner === undefined) throw error
+    assertSameSteerRequest(winner, request)
+    return { request: winner, replayed: true }
+  } finally {
+    try {
+      unlinkSync(tmp)
+    } catch {
+      // The admitted hard link is independent of the temporary name.
+    }
+  }
+}
+
+function readWorkerSteerRequest(
+  eventDir: string,
+  operationId: string,
+): WorkerSteerRequest | undefined {
+  const request = readWorkerSteerRequestFile(workerSteerRequestFile(eventDir, operationId))
+  if (request !== undefined && request.operationId !== operationId) {
+    throw new Error('steer request file belongs to another operation')
+  }
+  return request
+}
+
+function readWorkerSteerRequestFile(file: string): WorkerSteerRequest | undefined {
+  if (!existsSync(file)) return undefined
+  return parseWorkerSteerRequest(JSON.parse(readFileSync(file, 'utf8')))
+}
+
+function parseWorkerSteerRequest(value: unknown): WorkerSteerRequest {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('steer request is malformed')
+  }
+  const request = value as Partial<WorkerSteerRequest>
+  if (
+    request.schemaVersion !== 1 ||
+    typeof request.operationId !== 'string' ||
+    request.operationId.length === 0 ||
+    typeof request.requestDigest !== 'string' ||
+    typeof request.at !== 'string' ||
+    typeof request.source !== 'string' ||
+    request.source.length === 0 ||
+    typeof request.worker !== 'string' ||
+    request.worker.length === 0 ||
+    typeof request.message !== 'string' ||
+    request.message.trim().length === 0 ||
+    typeof request.interrupt !== 'boolean'
+  ) {
+    throw new Error('steer request is malformed')
+  }
+  const exact = request as WorkerSteerRequest
+  const expected = workerSteerRequestDigest({
+    operationId: exact.operationId,
+    worker: exact.worker,
+    message: exact.message,
+    source: exact.source,
+    interrupt: exact.interrupt,
+  })
+  if (exact.requestDigest !== expected) throw new Error('steer request digest does not match')
+  return exact
+}
+
+function parseWorkerSteerAcknowledgement(value: unknown): WorkerSteerAcknowledgement {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('steer acknowledgement is malformed')
+  }
+  const record = value as Partial<WorkerSteerAcknowledgement>
+  if (
+    record.schemaVersion !== 1 ||
+    typeof record.operationId !== 'string' ||
+    record.operationId.length === 0 ||
+    typeof record.requestDigest !== 'string' ||
+    typeof record.worker !== 'string' ||
+    record.worker.length === 0 ||
+    (record.effect !== 'unknown' &&
+      record.effect !== 'delivered' &&
+      record.effect !== 'not_live' &&
+      record.effect !== 'unsupported' &&
+      record.effect !== 'refused') ||
+    typeof record.requestedAt !== 'string' ||
+    typeof record.observedAt !== 'string' ||
+    typeof record.detail !== 'string'
+  ) {
+    throw new Error('steer acknowledgement is malformed')
+  }
+  return record as WorkerSteerAcknowledgement
+}
+
+function assertSameSteerRequest(existing: WorkerSteerRequest, candidate: WorkerSteerRequest): void {
+  if (existing.operationId !== candidate.operationId) {
+    throw new Error('steer operation file collision')
+  }
+  if (existing.requestDigest !== candidate.requestDigest) {
+    throw new Error(
+      `writeWorkerSteer: operation '${candidate.operationId}' conflicts with its admitted request`,
+    )
+  }
+}
+
+function syncFile(file: string): void {
+  const fd = openSync(file, 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function syncDirectory(dir: string): void {
+  const fd = openSync(dir, 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function isAlreadyExists(error: unknown): boolean {
   return (
-    typeof value.id === 'string' &&
-    typeof value.at === 'string' &&
-    typeof value.source === 'string' &&
-    typeof value.worker === 'string' &&
-    typeof value.message === 'string' &&
-    value.message.trim().length > 0
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'EEXIST'
   )
+}
+
+function assertNoSymlinkDescendant(root: string, target: string, label: string): void {
+  const base = resolve(root)
+  const exact = resolve(target)
+  const rel = relative(base, exact)
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
+    throw new Error(`${label} path escapes its run directory`)
+  }
+  let current = base
+  for (const part of rel.split(/[\\/]/u).filter(Boolean)) {
+    current = join(current, part)
+    if (!existsSync(current)) continue
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new Error(`${label} path contains a symbolic link: ${current}`)
+    }
+  }
 }

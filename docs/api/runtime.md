@@ -853,7 +853,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`id`](#id-20)
+[`NodeSnapshot`](#nodesnapshot).[`id`](#id-19)
 
 ##### parent?
 
@@ -12350,7 +12350,7 @@ documentation from `SuperviseOptions`, which is the one owner of both.
 
 #### Extends
 
-- `Pick`\<[`SuperviseOptions`](#superviseoptions), *typeof* `GRAPH_FORWARDED_SUPERVISE_OPTIONS`\[`number`\]\>
+- `Pick`\<[`SuperviseOptions`](#superviseoptions), `GraphInheritedSuperviseOption`\>
 
 #### Extended by
 
@@ -12366,10 +12366,6 @@ WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`
  `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
  becomes a nested supervisor instead, whose own leaves are derived the same way.
 
-###### Overrides
-
-[`SuperviseOptions`](#superviseoptions).[`backend`](#backend-4)
-
 ##### driverBackend?
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](#executorconfig)
@@ -12381,10 +12377,6 @@ WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim
  does NOT default to `backend`: a graph's `backend` places WORKER nodes, so the root driver
  is selected only by this field. Omit = no harness driver, which is correct for a root whose
  `profile.harness` is omitted or `cli-base` (that root runs on the router brain).
-
-###### Overrides
-
-[`SuperviseOptions`](#superviseoptions).[`driverBackend`](#driverbackend-1)
 
 ##### makeLeafAgent?
 
@@ -14345,19 +14337,33 @@ In-memory contexts have none: nothing outlives the process.
 
 ### WorkerSteerRequest
 
-One durable down-leg request appended to a worker's inbox file.
+**`Stable`**
+
+One atomically admitted down-leg request for an exact worker id.
 
 #### Properties
 
-##### id
+##### schemaVersion
 
-> `readonly` **id**: `string`
+> `readonly` **schemaVersion**: `1`
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+Caller-minted stable idempotency key for this operation.
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+Digest of operation id, worker id, message, source, and interrupt mode.
 
 ##### at
 
 > `readonly` **at**: `string`
 
-ISO timestamp of the append.
+ISO timestamp of durable admission.
 
 ##### source
 
@@ -14369,11 +14375,83 @@ Who asked — 'human', a brain label, a tool name. Provenance, not authorization
 
 > `readonly` **worker**: `string`
 
-The worker LABEL the request targets (already resolved by the caller).
+Exact supervised worker node id.
 
 ##### message
 
 > `readonly` **message**: `string`
+
+##### interrupt
+
+> `readonly` **interrupt**: `boolean`
+
+***
+
+### WorkerSteerAcknowledgement
+
+**`Stable`**
+
+Runtime acknowledgement for one exact steer operation.
+
+#### Properties
+
+##### schemaVersion
+
+> `readonly` **schemaVersion**: `1`
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### requestDigest
+
+> `readonly` **requestDigest**: `` `sha256:${string}` ``
+
+##### worker
+
+> `readonly` **worker**: `string`
+
+##### effect
+
+> `readonly` **effect**: `"unknown"` \| `"refused"` \| `"delivered"` \| `"not_live"` \| `"unsupported"`
+
+##### requestedAt
+
+> `readonly` **requestedAt**: `string`
+
+##### observedAt
+
+> `readonly` **observedAt**: `string`
+
+##### detail
+
+> `readonly` **detail**: `string`
+
+***
+
+### WriteWorkerSteerOptions
+
+**`Stable`**
+
+Caller input for one retry-safe steer operation.
+
+#### Properties
+
+##### operationId
+
+> `readonly` **operationId**: `string`
+
+##### message
+
+> `readonly` **message**: `string`
+
+##### source?
+
+> `readonly` `optional` **source?**: `string`
+
+##### interrupt?
+
+> `readonly` `optional` **interrupt?**: `boolean`
 
 ***
 
@@ -15652,6 +15730,12 @@ is untraced or the backend propagates; nothing is journaled.
 ###### reason
 
 > `readonly` **reason**: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`
+
+##### interactiveBindingDir?
+
+> `readonly` `optional` **interactiveBindingDir?**: `string`
+
+Durable run directory that receives exact worker interactive bindings.
 
 ##### resumeFrom?
 
@@ -18867,6 +18951,13 @@ a direct `createSupervisor()` caller may set it for a caller-owned executor regi
 
 > `readonly` **reason**: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`
 
+##### interactiveBindingDir?
+
+> `readonly` `optional` **interactiveBindingDir?**: `string`
+
+Durable supervisor-run directory that receives exact worker interactive bindings.
+`supervise({ runDir })` wires this automatically. Direct kernel callers omit it.
+
 ***
 
 ### NoWinnerError
@@ -19319,6 +19410,24 @@ Combined stdout+stderr of the verify/test command (already backend-capped).
 > `readonly` `optional` **reviewerNotes?**: `string`
 
 The worker's own closing commentary, when the backend surfaces one.
+
+***
+
+### AttachWorkerOptions
+
+**`Stable`**
+
+Options for reconstructing one worker's exact retained interactive process.
+
+#### Properties
+
+##### providers
+
+> `readonly` **providers**: [`WorkerInteractiveProviderSource`](#workerinteractiveprovidersource)
+
+##### signal?
+
+> `readonly` `optional` **signal?**: `AbortSignal`
 
 ***
 
@@ -22876,7 +22985,7 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### WorkerInteractiveUnavailableReason
 
-> **WorkerInteractiveUnavailableReason** = `"unknown-node"` \| `"not-live"` \| `"executor-exposes-no-interactive-session"` \| `"provider-has-no-interactive-contract"` \| `"interactive-session-not-started"`
+> **WorkerInteractiveUnavailableReason** = `"unknown-node"` \| `"not-live"` \| `"executor-exposes-no-interactive-session"` \| `"provider-has-no-interactive-contract"` \| `"interactive-session-not-started"` \| `"interactive-binding-not-found"` \| `"interactive-binding-stale"` \| `"interactive-provider-not-registered"`
 
 Why Runtime cannot hand a caller the exact interactive process one worker runs in.
 
@@ -24060,6 +24169,26 @@ than silently polling forever.
 > **WaitRejection** = `"invalid-spec"` \| `"unknown-probe"` \| `"deadline-exceeded"`
 
 Reject reasons for `Scope.wait`, mirroring `Scope.spawn`'s fail-closed admission shape.
+
+***
+
+### WorkerInteractiveBinding
+
+> **WorkerInteractiveBinding** = \{ `schemaVersion`: `1`; `workerId`: `string`; `label`: `string`; `journalRoot`: `string`; `recordedAt`: `string`; `status`: `"available"`; `ref`: `AgentInteractiveSessionRef`; `refDigest`: `` `sha256:${string}` ``; \} \| \{ `schemaVersion`: `1`; `workerId`: `string`; `label`: `string`; `journalRoot`: `string`; `recordedAt`: `string`; `status`: `"unavailable"`; `reason`: [`WorkerInteractiveUnavailableReason`](#workerinteractiveunavailablereason); \}
+
+**`Stable`**
+
+Durable exact-process binding or capability decision for one supervised worker.
+
+***
+
+### WorkerInteractiveProviderSource
+
+> **WorkerInteractiveProviderSource** = `AgentEnvironmentProvider` \| [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
+
+**`Stable`**
+
+Provider lookup accepted by [attachWorker](#attachworker).
 
 ***
 
@@ -29214,14 +29343,115 @@ the inbox: the inbox is the durable down-leg queue, this is the record of what h
 
 ***
 
+### workerSteersDir()
+
+> **workerSteersDir**(`eventDir`): `string`
+
+Directory containing atomically admitted steer requests and runtime acknowledgements.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerSteerRequestsDir()
+
+> **workerSteerRequestsDir**(`eventDir`): `string`
+
+Directory containing one canonical request file per steer operation.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerSteerAcknowledgementsDir()
+
+> **workerSteerAcknowledgementsDir**(`eventDir`): `string`
+
+Directory containing one runtime acknowledgement per steer operation.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerSteerRequestFile()
+
+> **workerSteerRequestFile**(`eventDir`, `operationId`): `string`
+
+Canonical request file for one caller-owned steer operation id.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerSteerAcknowledgementFile()
+
+> **workerSteerAcknowledgementFile**(`eventDir`, `operationId`): `string`
+
+Runtime acknowledgement file for one caller-owned steer operation id.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
 ### writeWorkerSteer()
 
-> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `message`, `source?`): `object`
+> **writeWorkerSteer**(`rootDir`, `supervisorId`, `worker`, `options`): `object`
 
-Durably append one steer request to a worker's inbox and log the delivery attempt.
+**`Stable`**
 
-The inbox append is the durable act; the control-event log is best-effort bookkeeping and may
-silently fail without voiding the steer.
+Admit one steer exactly once under a caller-owned operation id.
+
+The per-operation request file is linked into place atomically after its bytes reach disk. A
+same-body retry returns the winner's request. A changed-body retry fails loud. The NDJSON inbox
+and control log are readable projections written only by the admission winner.
 
 #### Parameters
 
@@ -29237,13 +29467,9 @@ silently fail without voiding the steer.
 
 `string`
 
-##### message
+##### options
 
-`string`
-
-##### source?
-
-`string` = `'human'`
+[`WriteWorkerSteerOptions`](#writeworkersteeroptions)
 
 #### Returns
 
@@ -29261,13 +29487,23 @@ silently fail without voiding the steer.
 
 > **request**: [`WorkerSteerRequest`](#workersteerrequest)
 
+##### acknowledgement?
+
+> `optional` **acknowledgement?**: [`WorkerSteerAcknowledgement`](#workersteeracknowledgement)
+
+##### replayed
+
+> **replayed**: `boolean`
+
 ***
 
 ### readWorkerSteerRequests()
 
-> **readWorkerSteerRequests**(`eventDir`, `worker`): [`WorkerSteerRequest`](#workersteerrequest)[]
+> **readWorkerSteerRequests**(`eventDir`, `worker?`): [`WorkerSteerRequest`](#workersteerrequest)[]
 
-Read every valid steer request in a worker's inbox. Corrupt or partial lines are skipped.
+**`Stable`**
+
+Read every atomically admitted request for one exact worker id, in admission order.
 
 #### Parameters
 
@@ -29275,13 +29511,37 @@ Read every valid steer request in a worker's inbox. Corrupt or partial lines are
 
 `string`
 
-##### worker
+##### worker?
 
 `string`
 
 #### Returns
 
 [`WorkerSteerRequest`](#workersteerrequest)[]
+
+***
+
+### readWorkerSteerAcknowledgement()
+
+> **readWorkerSteerAcknowledgement**(`eventDir`, `operationId`): [`WorkerSteerAcknowledgement`](#workersteeracknowledgement) \| `undefined`
+
+**`Stable`**
+
+Read one runtime steer acknowledgement, or `undefined` while no manager has answered.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### operationId
+
+`string`
+
+#### Returns
+
+[`WorkerSteerAcknowledgement`](#workersteeracknowledgement) \| `undefined`
 
 ***
 
@@ -30479,6 +30739,103 @@ final verdict line — written last — survives into the evidence block
 
 ***
 
+### workerInteractiveBindingsDir()
+
+> **workerInteractiveBindingsDir**(`eventDir`): `string`
+
+**`Stable`**
+
+Directory containing exact per-worker interactive binding records.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### workerInteractiveBindingFile()
+
+> **workerInteractiveBindingFile**(`eventDir`, `workerId`): `string`
+
+**`Stable`**
+
+Exact durable binding file for one worker id.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### workerId
+
+`string`
+
+#### Returns
+
+`string`
+
+***
+
+### readWorkerInteractiveBinding()
+
+> **readWorkerInteractiveBinding**(`eventDir`, `workerId`): [`WorkerInteractiveBinding`](#workerinteractivebinding) \| `undefined`
+
+**`Stable`**
+
+Read and validate one exact durable worker binding.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### workerId
+
+`string`
+
+#### Returns
+
+[`WorkerInteractiveBinding`](#workerinteractivebinding) \| `undefined`
+
+***
+
+### attachWorker()
+
+> **attachWorker**(`eventDir`, `workerId`, `options`): `Promise`\<[`WorkerInteractiveSession`](#workerinteractivesession)\>
+
+**`Stable`**
+
+Reconstruct the exact provider-owned interactive process bound to one supervised worker.
+Unknown, headless, unsupported, settled, stale, and unregistered-provider cases fail closed.
+
+#### Parameters
+
+##### eventDir
+
+`string`
+
+##### workerId
+
+`string`
+
+##### options
+
+[`AttachWorkerOptions`](#attachworkeroptions)
+
+#### Returns
+
+`Promise`\<[`WorkerInteractiveSession`](#workerinteractivesession)\>
+
+***
+
 ### readWorkerTraceContext()
 
 > **readWorkerTraceContext**(`ctx`): [`TraceContext`](mcp.md#tracecontext-2) \| `undefined`
@@ -30609,7 +30966,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-28), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-29), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

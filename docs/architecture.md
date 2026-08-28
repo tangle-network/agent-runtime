@@ -407,7 +407,10 @@ Two facts make this the whole game:
   A nested driver partitions only its reserved allocation, then reconciles the whole subtree once, so `Σk(treatment) ≡ Σk(blind)` by construction — no arm can buy more compute (`supervise/budget.ts`).
 - `next()` is the only path that consumes a child's terminal result.
   Live observation is explicit and read-only through `progress` and `traceSource`; neither can manufacture a settlement.
-  `interactive(nodeId)` is the one write-capable live edge: it returns the exact process that child runs in when its executor holds an interactive session, and a named reason otherwise, so a headless worker is never presented as an attachable terminal.
+  `interactive(nodeId)` is the in-process write-capable live edge: it returns the exact process that child runs in when its executor holds an interactive session, and a named reason otherwise, so a headless worker is never presented as an attachable terminal.
+  With a file-backed run, Runtime writes the exact retained reference only after the executor makes it attachable.
+  `attachWorker(eventDir, nodeId, { providers })` reloads that reference after restart, verifies the node is still live, and asks the named provider to reconstruct the same process.
+  It never derives a provider session from a label, conversation, or native-session hint.
 
 The ask/answer edges of the question/command hierarchy are **built** — `ask_parent` up and `answer_question` down (`src/mcp/tools/coordination.ts`), priority-queued on the event bus.
 Every steer/answer authorization receipt is committed before delivery and retained as restart evidence, but Runtime never auto-delivers that old instruction to a replacement worker.

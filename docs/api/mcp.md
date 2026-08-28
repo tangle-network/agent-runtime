@@ -4159,6 +4159,33 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 `Promise`\<`void`\>
 
+##### steerWorker()
+
+> **steerWorker**(`workerId`, `instruction`, `options?`): `Promise`\<[`DownMessageEvent`](runtime.md#downmessageevent)\>
+
+Authorize, durably record, and attempt one external steer through the same down-leg used by
+`steer_agent`. The returned outcome is exact and is never inferred from queue admission.
+
+###### Parameters
+
+###### workerId
+
+`string`
+
+###### instruction
+
+`string`
+
+###### options?
+
+###### interrupt?
+
+`boolean`
+
+###### Returns
+
+`Promise`\<[`DownMessageEvent`](runtime.md#downmessageevent)\>
+
 ##### abortWorker()
 
 > **abortWorker**(`ref`, `reason?`): \{ `id`: `string`; `label`: `string`; \} \| `undefined`
