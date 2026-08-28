@@ -48,22 +48,21 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
-  closeSync,
   existsSync,
-  fsyncSync,
-  linkSync,
-  lstatSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   renameSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import type { RetainedRunEffect } from '../retained-run-types'
+import {
+  assertNoSymlinkDescendant,
+  publishExclusiveDurableFile,
+  writeAtomicDurableFile,
+} from './durable-file'
 
 /** One atomically admitted down-leg request for an exact worker id. @stable */
 export interface WorkerSteerRequest {
@@ -439,31 +438,18 @@ export function claimWorkerSteerDelivery(
   mkdirSync(dir, { recursive: true })
   assertNoSymlinkDescendant(eventDir, dir, 'steer acknowledgement')
   const file = workerSteerAcknowledgementFile(eventDir, exact.operationId)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(exact, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
-  syncFile(tmp)
-  try {
-    linkSync(tmp, file)
-    syncDirectory(dir)
+  if (publishExclusiveDurableFile(file, `${JSON.stringify(exact, null, 2)}\n`)) {
     return true
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error
-    const winner = readWorkerSteerAcknowledgement(eventDir, exact.operationId)
-    if (
-      winner === undefined ||
-      winner.operationId !== exact.operationId ||
-      winner.requestDigest !== exact.requestDigest
-    ) {
-      throw new Error('steer delivery claim conflicts with another operation')
-    }
-    return false
-  } finally {
-    try {
-      unlinkSync(tmp)
-    } catch {
-      // The no-clobber acknowledgement link is independent of the temporary name.
-    }
   }
+  const winner = readWorkerSteerAcknowledgement(eventDir, exact.operationId)
+  if (
+    winner === undefined ||
+    winner.operationId !== exact.operationId ||
+    winner.requestDigest !== exact.requestDigest
+  ) {
+    throw new Error('steer delivery claim conflicts with another operation')
+  }
+  return false
 }
 
 /** Atomically replace the runtime acknowledgement for one steer operation. @internal */
@@ -489,11 +475,7 @@ export function writeWorkerSteerAcknowledgement(
   ) {
     throw new Error(`steer operation '${exact.operationId}' already has a terminal acknowledgement`)
   }
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(exact, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
-  syncFile(file)
-  syncDirectory(dir)
+  writeAtomicDurableFile(file, `${JSON.stringify(exact, null, 2)}\n`)
 }
 
 /** The directory holding every cancellation artifact of one run (request inbox + acknowledgements). */
@@ -826,26 +808,15 @@ function admitSteerRequest(
     assertSameSteerRequest(existing, request)
     return { request: existing, replayed: true }
   }
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(request, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
-  syncFile(tmp)
-  try {
-    linkSync(tmp, file)
-    syncDirectory(dirname(file))
+  if (publishExclusiveDurableFile(file, `${JSON.stringify(request, null, 2)}\n`)) {
     return { request, replayed: false }
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error
-    const winner = readWorkerSteerRequestFile(file)
-    if (winner === undefined) throw error
-    assertSameSteerRequest(winner, request)
-    return { request: winner, replayed: true }
-  } finally {
-    try {
-      unlinkSync(tmp)
-    } catch {
-      // The admitted hard link is independent of the temporary name.
-    }
   }
+  const winner = readWorkerSteerRequestFile(file)
+  if (winner === undefined) {
+    throw new Error('steer request publication lost its winner')
+  }
+  assertSameSteerRequest(winner, request)
+  return { request: winner, replayed: true }
 }
 
 function readWorkerSteerRequest(
@@ -933,52 +904,5 @@ function assertSameSteerRequest(existing: WorkerSteerRequest, candidate: WorkerS
     throw new Error(
       `writeWorkerSteer: operation '${candidate.operationId}' conflicts with its admitted request`,
     )
-  }
-}
-
-function syncFile(file: string): void {
-  const fd = openSync(file, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function syncDirectory(dir: string): void {
-  const fd = openSync(dir, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'code' in error &&
-    (error as { code?: unknown }).code === 'EEXIST'
-  )
-}
-
-function assertNoSymlinkDescendant(root: string, target: string, label: string): void {
-  const base = resolve(root)
-  const exact = resolve(target)
-  const rel = relative(base, exact)
-  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
-    throw new Error(`${label} path escapes its run directory`)
-  }
-  if (existsSync(base) && lstatSync(base).isSymbolicLink()) {
-    throw new Error(`${label} path contains a symbolic link: ${base}`)
-  }
-  let current = base
-  for (const part of rel.split(/[\\/]/u).filter(Boolean)) {
-    current = join(current, part)
-    if (!existsSync(current)) continue
-    if (lstatSync(current).isSymbolicLink()) {
-      throw new Error(`${label} path contains a symbolic link: ${current}`)
-    }
   }
 }

@@ -11,14 +11,16 @@
 import { randomUUID } from 'node:crypto'
 import {
   closeSync,
+  existsSync,
   fsyncSync,
   linkSync,
+  lstatSync,
   openSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 
 export interface DurableFileOptions {
   readonly mode?: number
@@ -68,6 +70,37 @@ export function syncDurableDirectory(directoryPath: string): void {
   }
 }
 
+/** Fsync one durable file after its contents reach stable storage. */
+export function syncDurableFile(filePath: string): void {
+  const fd = openSync(filePath, 'r')
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/** Reject a path that escapes its run directory or traverses a symbolic link. */
+export function assertNoSymlinkDescendant(root: string, target: string, label = 'path'): void {
+  const base = resolve(root)
+  const exact = resolve(target)
+  const rel = relative(base, exact)
+  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
+    throw new Error(`${label} path escapes its run directory`)
+  }
+  if (existsSync(base) && lstatSync(base).isSymbolicLink()) {
+    throw new Error(`${label} path contains a symbolic link: ${base}`)
+  }
+  let current = base
+  for (const part of rel.split(/[\\/]/u).filter(Boolean)) {
+    current = join(current, part)
+    if (!existsSync(current)) continue
+    if (lstatSync(current).isSymbolicLink()) {
+      throw new Error(`${label} path contains a symbolic link: ${current}`)
+    }
+  }
+}
+
 /** Write, fsync, atomically replace, and fsync one Runtime-owned state file. */
 export function writeAtomicDurableFile(
   filePath: string,
@@ -96,15 +129,6 @@ export function writeAtomicDurableFile(
   if (cleanupError !== undefined) throw cleanupError
 }
 
-function syncDurableFile(filePath: string): void {
-  const fd = openSync(filePath, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
-}
-
 function writeExclusiveDurableFile(
   filePath: string,
   content: string,
@@ -118,7 +142,7 @@ function writeExclusiveDurableFile(
   syncDurableFile(filePath)
 }
 
-function isAlreadyExistsError(error: unknown): boolean {
+export function isAlreadyExistsError(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === 'object' &&

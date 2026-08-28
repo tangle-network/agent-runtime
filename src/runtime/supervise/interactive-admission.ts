@@ -7,15 +7,15 @@
  * create material.
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import {
   type AgentInteractiveSessionRef,
   AgentInteractiveSessionRefSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
-import { publishExclusiveDurableFile } from './durable-file'
+import { assertNoSymlinkDescendant, publishExclusiveDurableFile } from './durable-file'
 import { workerInteractiveBindingsDir } from './worker-interactive'
 
 /** The Scope seam key used by `workerFromInteractiveProvider`. */
@@ -70,7 +70,7 @@ export function workerInteractiveAdmissionFile(
 ): string {
   const dir = workerInteractiveBindingsDir(eventDir)
   const id = stableText(workerId, 'worker id')
-  assertNoSymlinkDescendant(eventDir, dir)
+  assertNoSymlinkDescendant(eventDir, dir, 'interactive admission')
   const stem = canonicalCandidateDigest({ workerId: id }).slice('sha256:'.length).slice(0, 32)
   return join(dir, `${stem}.${phase}.admission.json`)
 }
@@ -117,9 +117,9 @@ export function writeWorkerInteractiveAdmission(
   const id = stableText(workerId, 'worker id')
   const record = credentialFreeAdmission(id, admission, now)
   const file = workerInteractiveAdmissionFile(eventDir, id, record.phase)
-  assertNoSymlinkDescendant(eventDir, file)
+  assertNoSymlinkDescendant(eventDir, file, 'interactive admission')
   mkdirSync(dirname(file), { recursive: true })
-  assertNoSymlinkDescendant(eventDir, file)
+  assertNoSymlinkDescendant(eventDir, file, 'interactive admission')
 
   const existing = readWorkerInteractiveAdmission(eventDir, id, record.phase)
   if (existing !== undefined) {
@@ -381,24 +381,4 @@ function stableText(value: string, label: string): string {
   const text = value.trim()
   if (!text) throw new Error(`${label} is empty`)
   return text
-}
-
-function assertNoSymlinkDescendant(root: string, target: string): void {
-  const base = resolve(root)
-  const exact = resolve(target)
-  const rel = relative(base, exact)
-  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
-    throw new Error('interactive admission path escapes its run directory')
-  }
-  if (existsSync(base) && lstatSync(base).isSymbolicLink()) {
-    throw new Error(`interactive admission path contains a symbolic link: ${base}`)
-  }
-  let current = base
-  for (const part of rel.split(/[\\/]/u).filter(Boolean)) {
-    current = join(current, part)
-    if (!existsSync(current)) continue
-    if (lstatSync(current).isSymbolicLink()) {
-      throw new Error(`interactive admission path contains a symbolic link: ${current}`)
-    }
-  }
 }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { AgentInteractiveSessionRef } from '@tangle-network/agent-interface'
 import {
   AgentInteractiveSessionRefSchema,
@@ -10,7 +10,7 @@ import type { AgentEnvironmentProvider } from '@tangle-network/agent-interface/e
 import { FileSpawnJournal, loadSpawnForest } from '../../durable/spawn-journal'
 import type { AgentEnvironmentProviderRegistry } from '../environment-provider'
 import { reconnectRetainedInteractiveRun } from '../retained-interactive'
-import { publishExclusiveDurableFile } from './durable-file'
+import { assertNoSymlinkDescendant, publishExclusiveDurableFile } from './durable-file'
 import type { WorkerInteractiveSession, WorkerInteractiveUnavailableReason } from './types'
 
 const WORKER_BINDING_SCHEMA_VERSION = 1 as const
@@ -68,7 +68,7 @@ export function readWorkerInteractiveBinding(
 ): WorkerInteractiveBinding | undefined {
   const id = stableText(workerId, 'worker id')
   const file = workerInteractiveBindingFile(eventDir, id)
-  assertNoSymlinkDescendant(eventDir, file)
+  assertNoSymlinkDescendant(eventDir, file, 'worker interactive')
   if (!existsSync(file)) return undefined
   const binding = parseBinding(JSON.parse(readFileSync(file, 'utf8')))
   if (binding.workerId !== id) {
@@ -120,9 +120,9 @@ export function writeWorkerInteractiveBinding(
           reason: session.reason,
         }
   const file = workerInteractiveBindingFile(eventDir, id)
-  assertNoSymlinkDescendant(eventDir, file)
+  assertNoSymlinkDescendant(eventDir, file, 'worker interactive')
   mkdirSync(dirname(file), { recursive: true })
-  assertNoSymlinkDescendant(eventDir, file)
+  assertNoSymlinkDescendant(eventDir, file, 'worker interactive')
   const existing = readWorkerInteractiveBinding(eventDir, id)
   if (existing !== undefined) {
     assertSameBinding(existing, binding)
@@ -349,24 +349,4 @@ function isUnavailableReason(value: unknown): value is WorkerInteractiveUnavaila
     value === 'interactive-binding-stale' ||
     value === 'interactive-provider-not-registered'
   )
-}
-
-function assertNoSymlinkDescendant(root: string, target: string): void {
-  const base = resolve(root)
-  const exact = resolve(target)
-  const rel = relative(base, exact)
-  if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
-    throw new Error('worker interactive path escapes its run directory')
-  }
-  if (existsSync(base) && lstatSync(base).isSymbolicLink()) {
-    throw new Error(`worker interactive path contains a symbolic link: ${base}`)
-  }
-  let current = base
-  for (const part of rel.split(/[\\/]/u).filter(Boolean)) {
-    current = join(current, part)
-    if (!existsSync(current)) continue
-    if (lstatSync(current).isSymbolicLink()) {
-      throw new Error(`worker interactive path contains a symbolic link: ${current}`)
-    }
-  }
 }

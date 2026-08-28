@@ -3,8 +3,8 @@
  *
  * This is intentionally a thin owner of existing Runtime primitives. The supervisor owns the
  * root abort channel and join barrier, Scope owns worker admission and lifecycle, and the provider
- * owns the environment and interactive process. Braid receives identifiers and opaque handles; it
- * does not receive a second supervisor protocol or a copy of provider state.
+ * owns the environment and interactive process. External clients receive identifiers and opaque
+ * handles; they do not receive a second supervisor protocol or a copy of provider state.
  *
  * @experimental
  */
@@ -18,7 +18,6 @@ import {
   agentProfileSchema,
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
-  harnessTypeSchema,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironmentCapabilities,
@@ -30,7 +29,10 @@ import { sandboxClientAsProvider } from '../environment-provider'
 import type { SandboxClient } from '../types'
 import { createCancelAcknowledger, createSteerAcknowledger } from './coordination-driver'
 import { writeAtomicDurableFile } from './durable-file'
-import { workerFromInteractiveProvider } from './interactive-worker'
+import {
+  type InteractiveWorkerEnvironment,
+  workerFromInteractiveProvider,
+} from './interactive-worker'
 import { createFileRunContext } from './run-context'
 import { supervisorRunDir } from './run-layout'
 import { createRootHandle, createSupervisor } from './supervisor'
@@ -43,10 +45,8 @@ const ROOT_MAX_ITERATIONS = 100
 const ROOT_MAX_TOKENS = 100_000
 const WORKER_MAX_ITERATIONS = 25
 const WORKER_MAX_TOKENS = 25_000
-const DEFAULT_SANDBOX_ENDPOINT = 'https://sandbox.tangle.tools'
-const WORKER_TASK = 'Start the assigned interactive worker and remain available for supervision.'
 
-/** Caller-supplied provider or the Sandbox SDK connection used by the default resolver. */
+/** Caller-supplied provider or Sandbox SDK connection for one supervisor run. */
 export interface ProvisionSupervisorConnection {
   /** A fully constructed provider. This is the preferred programmatic seam and is testable. */
   readonly provider?: AgentEnvironmentProvider
@@ -54,9 +54,9 @@ export interface ProvisionSupervisorConnection {
   readonly client?: SandboxClient
   /** Alias for `client`, accepted so callers can pass their existing connection object. */
   readonly sandboxClient?: SandboxClient
-  /** Sandbox API endpoint. Runtime never persists this value in the run receipt. */
+  /** Sandbox API endpoint used only when Runtime constructs the SDK client. */
   readonly endpoint?: string
-  /** Transient Sandbox API key. Runtime never persists this value. */
+  /** Transient Sandbox API key used only when Runtime constructs the SDK client. */
   readonly apiKey?: string
   /** Connection kind is descriptive only and does not select a hidden implementation. */
   readonly kind?: string
@@ -67,18 +67,20 @@ export interface ProvisionSupervisorConnection {
 /** Input to the public Runtime supervisor provisioner. */
 export interface ProvisionSupervisorRequest {
   readonly invocationId: string
-  /** Braid's safe selector map. Credential values are deliberately not accepted here. */
-  readonly environment?: Readonly<Record<string, string>>
+  /** Caller-owned task assigned to the first interactive worker. */
+  readonly task: string
+  /** Canonical profile assigned to the first interactive worker. */
+  readonly profile: AgentProfile
+  /** Generic provider create fields forwarded to the interactive worker. */
+  readonly workerEnvironment?: InteractiveWorkerEnvironment
   /** Root directory for Runtime-owned `.agent/supervisor` state. */
   readonly workspaceDir?: string
   /** Maximum wall-clock time for the complete supervisor lifecycle, including cleanup. */
   readonly timeoutMs?: number
   /** Poll cadence for lifecycle/control readiness. */
   readonly pollMs?: number
-  /** Canonical worker profile. Runtime creates one when omitted. */
-  readonly profile?: AgentProfile
-  /** Optional provider connection. Runtime resolves a Sandbox client when omitted. */
-  readonly connection?: ProvisionSupervisorConnection
+  /** Explicit provider, client, or endpoint and API key for one provider connection. */
+  readonly connection: ProvisionSupervisorConnection
 }
 
 /** Exact owner-scoped cleanup receipt returned after Runtime releases the run resources. */
@@ -137,7 +139,8 @@ interface Deferred<T> {
  *
  * The root manager does not use a model. It runs the same coordination tools used by a driver in a
  * small deterministic loop, so durable steer and cancel requests are acknowledged by the owning
- * Runtime turn loop and never by a test-only shortcut.
+ * Runtime turn loop and never by a test-only shortcut. The caller owns profile, task, and provider
+ * connection selection; Runtime does not infer them from process environment variables.
  */
 export async function provisionSupervisor(
   request: ProvisionSupervisorRequest,
@@ -146,7 +149,7 @@ export async function provisionSupervisor(
   const provider = await resolveProvider(input)
   const capabilities = await readCapabilities(provider)
   const terminalTakeover = terminalCapability(capabilities)
-  const profile = resolveProfile(input)
+  const profile = input.profile
   const rootDir = resolve(input.workspaceDir ?? makeWorkspaceDir())
   mkdirSync(rootDir, { recursive: true })
   const supervisorId = supervisorIdFor(input.invocationId)
@@ -171,7 +174,7 @@ export async function provisionSupervisor(
   const state: MutableState = {
     id: supervisorId,
     status: 'running',
-    task: WORKER_TASK,
+    task: input.task,
     workspaceDir: rootDir,
     budget: ROOT_MAX_TOKENS,
     ...(profile.model?.default === undefined ? {} : { workerModel: profile.model.default }),
@@ -186,14 +189,13 @@ export async function provisionSupervisor(
   const workerRunning = deferred<void>()
   const workerProfile = profile
   const workerEnvironment = {
+    ...(input.workerEnvironment ?? {}),
     metadata: {
+      ...(input.workerEnvironment?.metadata ?? {}),
       runtime: 'agent-runtime',
       invocationId: input.invocationId,
-      ...(input.environment?.BRAID_SUPERVISOR_WORKSPACE === undefined
-        ? {}
-        : { requestedWorkspace: input.environment.BRAID_SUPERVISOR_WORKSPACE }),
     },
-    name: `runtime-${supervisorId}`,
+    name: input.workerEnvironment?.name ?? `runtime-${supervisorId}`,
   }
   const makeWorkerAgent = workerFromInteractiveProvider(provider, {
     environment: workerEnvironment,
@@ -214,7 +216,7 @@ export async function provisionSupervisor(
       const spawn = findTool(coord.tools, 'spawn_agent')
       const result = await spawn.handler({
         profile: workerProfile,
-        task: WORKER_TASK,
+        task: input.task,
         label: 'interactive-worker',
       })
       const childId = workerIdFromSpawn(result)
@@ -276,11 +278,11 @@ export async function provisionSupervisor(
   let runError: unknown
   let runSettled = false
   const runPromise = supervisor
-    .run(rootAgent, WORKER_TASK, {
+    .run(rootAgent, input.task, {
       budget: runBudget,
       rootIdentity: {
         profileDigest: canonicalAgentProfileDigest(profile),
-        taskDigest: canonicalCandidateDigest(WORKER_TASK),
+        taskDigest: canonicalCandidateDigest(input.task),
       },
       runId: supervisorId,
       ...context,
@@ -385,15 +387,25 @@ export async function provisionSupervisor(
   })
 }
 
-function normalizeRequest(
-  request: ProvisionSupervisorRequest,
-): Required<Pick<ProvisionSupervisorRequest, 'invocationId' | 'timeoutMs' | 'pollMs'>> &
-  ProvisionSupervisorRequest {
+function normalizeRequest(request: ProvisionSupervisorRequest): ProvisionSupervisorRequest & {
+  readonly invocationId: string
+  readonly task: string
+  readonly timeoutMs: number
+  readonly pollMs: number
+  readonly profile: AgentProfile
+  readonly connection: ProvisionSupervisorConnection
+} {
   const invocationId = request.invocationId.trim()
   if (!invocationId) throw new SupervisorProvisionUnavailableError('invocationId is required')
+  const task = request.task.trim()
+  if (!task) throw new SupervisorProvisionUnavailableError('task is required')
+  const profile = resolveProfile(request.profile)
+  if (request.connection === undefined) {
+    throw new SupervisorProvisionUnavailableError('provider connection is required')
+  }
   const timeoutMs = positiveNumber(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 'timeoutMs')
   const pollMs = positiveNumber(request.pollMs ?? DEFAULT_POLL_MS, 'pollMs')
-  return { ...request, invocationId, timeoutMs, pollMs }
+  return { ...request, invocationId, task, timeoutMs, pollMs, profile }
 }
 
 function positiveNumber(value: number, name: string): number {
@@ -428,48 +440,35 @@ function workerBudget(): Budget {
   }
 }
 
-function resolveProfile(request: ProvisionSupervisorRequest): AgentProfile {
-  if (request.profile !== undefined) {
-    const parsed = agentProfileSchema.safeParse(request.profile)
-    if (!parsed.success) {
-      throw unavailable(
-        `Runtime supervisor profile is invalid: ${parsed.error.issues
-          .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
-          .join('; ')}`,
-      )
-    }
-    return parsed.data
+function resolveProfile(profile: AgentProfile): AgentProfile {
+  const parsed = agentProfileSchema.safeParse(profile)
+  if (!parsed.success) {
+    throw unavailable(
+      `Runtime supervisor profile is invalid: ${parsed.error.issues
+        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .join('; ')}`,
+    )
   }
-  const environment = request.environment ?? {}
-  const runner =
-    environment.BRAID_SUPERVISOR_RUNNER?.trim() ||
-    process.env.BRAID_SUPERVISOR_RUNNER?.trim() ||
-    'opencode'
-  const parsedRunner = harnessTypeSchema.safeParse(runner)
-  if (!parsedRunner.success)
-    throw unavailable(`Runtime supervisor runner '${runner}' is unsupported`)
-  const model =
-    environment.BRAID_SUPERVISOR_MODEL?.trim() || process.env.BRAID_SUPERVISOR_MODEL?.trim()
-  return agentProfileSchema.parse({
-    name: 'runtime-provisioned-worker',
-    harness: parsedRunner.data,
-    ...(model === undefined ? {} : { model: { default: model } }),
-  })
+  return parsed.data
 }
 
 async function resolveProvider(
   request: ProvisionSupervisorRequest,
 ): Promise<AgentEnvironmentProvider> {
   const connection = request.connection
+  if (connection === undefined) {
+    throw unavailable('Runtime supervisor provider connection is required')
+  }
   if (connection?.provider !== undefined) return requireReconnectProvider(connection.provider)
   const client = connection?.client ?? connection?.sandboxClient
   if (client !== undefined) {
     return requireReconnectProvider(sandboxClientAsProvider(client))
   }
-  const apiKey = connection?.apiKey?.trim() || process.env.TANGLE_API_KEY?.trim()
-  if (!apiKey) {
+  const apiKey = connection.apiKey?.trim()
+  const endpoint = connection.endpoint?.trim()
+  if (!apiKey || !endpoint) {
     throw unavailable(
-      'Runtime supervisor needs a provider or TANGLE_API_KEY; opaque credential references are not resolved by Runtime',
+      'Runtime supervisor needs a provider/client or both connection.endpoint and connection.apiKey; opaque credential references are not resolved by Runtime',
     )
   }
   let module: typeof import('@tangle-network/sandbox')
@@ -480,11 +479,6 @@ async function resolveProvider(
   }
   const SandboxCtor = (module as { Sandbox?: new (config: unknown) => SandboxClient }).Sandbox
   if (SandboxCtor === undefined) throw unavailable('Sandbox SDK does not export a Sandbox client')
-  const endpoint =
-    connection?.endpoint?.trim() ||
-    request.environment?.BRAID_SUPERVISOR_ENDPOINT?.trim() ||
-    process.env.SANDBOX_BASE_URL?.trim() ||
-    DEFAULT_SANDBOX_ENDPOINT
   const provider = sandboxClientAsProvider(new SandboxCtor({ apiKey, baseUrl: endpoint }))
   return requireReconnectProvider(provider)
 }

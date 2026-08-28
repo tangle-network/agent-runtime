@@ -14441,7 +14441,7 @@ readonly [`RegisteredPrompt`](#registeredprompt)[]
 
 ### ProvisionSupervisorConnection
 
-Caller-supplied provider or the Sandbox SDK connection used by the default resolver.
+Caller-supplied provider or Sandbox SDK connection for one supervisor run.
 
 #### Properties
 
@@ -14467,13 +14467,13 @@ Alias for `client`, accepted so callers can pass their existing connection objec
 
 > `readonly` `optional` **endpoint?**: `string`
 
-Sandbox API endpoint. Runtime never persists this value in the run receipt.
+Sandbox API endpoint used only when Runtime constructs the SDK client.
 
 ##### apiKey?
 
 > `readonly` `optional` **apiKey?**: `string`
 
-Transient Sandbox API key. Runtime never persists this value.
+Transient Sandbox API key used only when Runtime constructs the SDK client.
 
 ##### kind?
 
@@ -14499,11 +14499,23 @@ Input to the public Runtime supervisor provisioner.
 
 > `readonly` **invocationId**: `string`
 
-##### environment?
+##### task
 
-> `readonly` `optional` **environment?**: `Readonly`\<`Record`\<`string`, `string`\>\>
+> `readonly` **task**: `string`
 
-Braid's safe selector map. Credential values are deliberately not accepted here.
+Caller-owned task assigned to the first interactive worker.
+
+##### profile
+
+> `readonly` **profile**: `AgentProfile`
+
+Canonical profile assigned to the first interactive worker.
+
+##### workerEnvironment?
+
+> `readonly` `optional` **workerEnvironment?**: [`InteractiveWorkerEnvironment`](#interactiveworkerenvironment)
+
+Generic provider create fields forwarded to the interactive worker.
 
 ##### workspaceDir?
 
@@ -14523,17 +14535,11 @@ Maximum wall-clock time for the complete supervisor lifecycle, including cleanup
 
 Poll cadence for lifecycle/control readiness.
 
-##### profile?
+##### connection
 
-> `readonly` `optional` **profile?**: `AgentProfile`
+> `readonly` **connection**: [`ProvisionSupervisorConnection`](#provisionsupervisorconnection)
 
-Canonical worker profile. Runtime creates one when omitted.
-
-##### connection?
-
-> `readonly` `optional` **connection?**: [`ProvisionSupervisorConnection`](#provisionsupervisorconnection)
-
-Optional provider connection. Runtime resolves a Sandbox client when omitted.
+Explicit provider, client, or endpoint and API key for one provider connection.
 
 ***
 
@@ -17533,7 +17539,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-23)
+[`SupervisorNodeContext`](#supervisornodecontext).[`task`](#task-24)
 
 ##### signal
 
@@ -29569,7 +29575,8 @@ Provision one real provider-backed worker and keep its owning manager alive for 
 
 The root manager does not use a model. It runs the same coordination tools used by a driver in a
 small deterministic loop, so durable steer and cancel requests are acknowledged by the owning
-Runtime turn loop and never by a test-only shortcut.
+Runtime turn loop and never by a test-only shortcut. The caller owns profile, task, and provider
+connection selection; Runtime does not infer them from process environment variables.
 
 #### Parameters
 

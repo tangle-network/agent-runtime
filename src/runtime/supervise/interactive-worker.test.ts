@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -22,6 +22,7 @@ import {
   agentInteractiveSessionStopRequestDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import type { CreateAgentEnvironmentInput } from '@tangle-network/agent-interface/environment-provider'
 import { describe, expect, it } from 'vitest'
 import { loadTopSnapshot } from '../../tui/top-model'
 import type { ToolLoopChat } from '../tool-loop'
@@ -299,6 +300,11 @@ describe('provisionSupervisor', () => {
     try {
       const provisioned = await provisionSupervisor({
         invocationId: 'provision-lifecycle-1',
+        task: 'Inspect the assigned workspace',
+        workerEnvironment: {
+          workspace: { cwd: '/workspace' },
+          metadata: { purpose: 'provision-test' },
+        },
         workspaceDir: root,
         timeoutMs: 5_000,
         pollMs: 2,
@@ -310,6 +316,22 @@ describe('provisionSupervisor', () => {
       expect(provisioned.workerId).toBe(`${provisioned.supervisorId}:s0`)
       expect(provisioned.providers).toBe(fixture.provider)
       expect(provisioned.terminalTakeover).toBe('required')
+      expect(fixture.stats.createInputs[0]).toMatchObject({
+        workspace: { cwd: '/workspace' },
+        metadata: {
+          purpose: 'provision-test',
+          runtime: 'agent-runtime',
+          invocationId: 'provision-lifecycle-1',
+        },
+      })
+      expect(
+        JSON.parse(
+          readFileSync(
+            join(supervisorRunDir(root, provisioned.supervisorId), 'state.json'),
+            'utf8',
+          ),
+        ),
+      ).toMatchObject({ task: 'Inspect the assigned workspace' })
 
       const supervisor = loadTopSnapshot(root).supervisors.find(
         (candidate) => candidate.id === provisioned.supervisorId,
@@ -377,6 +399,7 @@ describe('provisionSupervisor', () => {
       await expect(
         provisionSupervisor({
           invocationId: 'provision-lifecycle-1',
+          task: 'Inspect the assigned workspace',
           workspaceDir: root,
           timeoutMs: 5_000,
           pollMs: 2,
@@ -417,8 +440,27 @@ describe('provisionSupervisor', () => {
       await expect(
         provisionSupervisor({
           invocationId: 'provision-unavailable-1',
+          task: 'Inspect the assigned workspace',
           workspaceDir: root,
+          profile,
           connection: { provider },
+        }),
+      ).rejects.toMatchObject({ unavailable: true })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('requires an explicit provider connection instead of process defaults', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-connection-'))
+    try {
+      await expect(
+        provisionSupervisor({
+          invocationId: 'provision-connection-required-1',
+          task: 'Inspect the assigned workspace',
+          workspaceDir: root,
+          profile,
+          connection: undefined as never,
         }),
       ).rejects.toMatchObject({ unavailable: true })
     } finally {
@@ -432,6 +474,7 @@ describe('provisionSupervisor', () => {
     try {
       const provisioned = await provisionSupervisor({
         invocationId: 'provision-lifecycle-deadline-1',
+        task: 'Inspect the assigned workspace',
         workspaceDir: root,
         timeoutMs: 2_000,
         pollMs: 2,
@@ -573,6 +616,7 @@ function interactiveProviderFixture(): {
   stats: {
     readonly prompts: FixturePrompt[]
     readonly stops: FixtureStop[]
+    readonly createInputs: CreateAgentEnvironmentInput[]
     createCalls: number
     createEffects: number
     getCalls: number
@@ -584,6 +628,7 @@ function interactiveProviderFixture(): {
   const stats = {
     prompts: [] as FixturePrompt[],
     stops: [] as FixtureStop[],
+    createInputs: [] as CreateAgentEnvironmentInput[],
     createCalls: 0,
     createEffects: 0,
     getCalls: 0,
@@ -593,6 +638,7 @@ function interactiveProviderFixture(): {
     name: 'fixture-provider',
     capabilities: () => fixtureCapabilities,
     async create(input) {
+      stats.createInputs.push(structuredClone(input))
       stats.createCalls += 1
       const key = input.idempotencyKey ?? `unkeyed-${stats.createCalls}`
       const prior = environments.get(key)
