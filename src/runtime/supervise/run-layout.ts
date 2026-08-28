@@ -45,14 +45,13 @@
  * @experimental
  */
 
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import {
   appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
   writeFileSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -549,8 +548,8 @@ export function readWorkerCancellation(
 }
 
 /**
- * Durably write one acknowledgement record. Write-then-rename, so a concurrent reader sees the
- * prior complete record or the new complete record, never a partial file.
+ * Durably write one acknowledgement record. The shared writer fsyncs the file and containing
+ * directory, so a concurrent reader sees the prior complete record or the new complete record.
  *
  * @internal The runtime acknowledger is the only intended writer; clients read via
  * {@link readWorkerCancellation} or {@link cancelWorker}.
@@ -559,9 +558,7 @@ export function writeWorkerCancellation(eventDir: string, record: WorkerCancella
   const dir = workerCancellationsDir(eventDir)
   mkdirSync(dir, { recursive: true })
   const file = workerCancellationFile(eventDir, record.operationId)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
+  writeAtomicDurableFile(file, `${JSON.stringify(record, null, 2)}\n`)
 }
 
 /**
@@ -668,8 +665,8 @@ export function readRunCancellation(
 }
 
 /**
- * Durably write the run-scoped acknowledgement. Write-then-rename, so a concurrent reader sees the
- * prior complete record or the new complete record, never a partial file.
+ * Durably write the run-scoped acknowledgement. The shared writer fsyncs the file and containing
+ * directory, so a concurrent reader sees the prior complete record or the new complete record.
  *
  * @internal The runtime is the only intended writer; clients read via {@link readRunCancellation}
  * or {@link cancelRun}.
@@ -678,9 +675,7 @@ export function writeRunCancellation(eventDir: string, record: RunCancellation):
   const dir = workerCancellationsDir(eventDir)
   mkdirSync(dir, { recursive: true })
   const file = runCancellationFile(eventDir)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
+  writeAtomicDurableFile(file, `${JSON.stringify(record, null, 2)}\n`)
 }
 
 /**

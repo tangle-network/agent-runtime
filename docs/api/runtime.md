@@ -14481,12 +14481,6 @@ Transient Sandbox API key used only when Runtime constructs the SDK client.
 
 Connection kind is descriptive only and does not select a hidden implementation.
 
-##### credentialRef?
-
-> `readonly` `optional` **credentialRef?**: `string`
-
-Opaque credential reference. It is not resolved or persisted by Runtime.
-
 ***
 
 ### ProvisionSupervisorRequest

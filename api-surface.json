@@ -1364,7 +1364,7 @@
       "ProviderModelAttemptEvidence": "type 9c62f347cffb",
       "ProviderModelExecutionEvidence": "type d66858ac77d4",
       "ProviderSeam": "type a74dd746f89f",
-      "ProvisionSupervisorConnection": "type b76e33dada11",
+      "ProvisionSupervisorConnection": "type 6ec505a0554d",
       "ProvisionSupervisorRequest": "type 2a36ae0118e3",
       "ProvisionedSupervisor": "type c4fd2b077b63",
       "PublishOptions": "type 7eaa6111fd39",
@@ -2268,7 +2268,7 @@
     "./tui": {
       "BudgetStats": "type 000eb872c78c",
       "Distribution": "type a50f33a6130f",
-      "ProvisionSupervisorConnection": "type b76e33dada11",
+      "ProvisionSupervisorConnection": "type 6ec505a0554d",
       "ProvisionSupervisorRequest": "type 2a36ae0118e3",
       "ProvisionedSupervisor": "type c4fd2b077b63",
       "RenderOptions": "type ac829f0113f6",
