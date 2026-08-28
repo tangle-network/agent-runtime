@@ -104,6 +104,7 @@ import {
   promptOptionsFromAgentTurnInput,
   providerMessageText,
 } from './turn-input'
+import { addTokenUsage, zeroTokenUsage } from './util'
 
 /**
  * The execution substrate one turn runs on — a closed discriminated union over
@@ -419,6 +420,7 @@ interface TurnAccumulator {
   input: number
   output: number
   costUsd: number
+  sawCost: boolean
   estimatedCostUsd: number
   sawEstimatedCost: boolean
   promptCache: Record<string, number | string>
@@ -518,6 +520,7 @@ async function* streamAgentTurnInternal(
     input: 0,
     output: 0,
     costUsd: 0,
+    sawCost: false,
     estimatedCostUsd: 0,
     sawEstimatedCost: false,
     promptCache: {},
@@ -939,21 +942,33 @@ async function* driveExecutorTurn(
   declaredModel: string | undefined,
 ): AsyncGenerator<RuntimeStreamEvent> {
   const taskValue = executorTaskValue(input)
-  const run = executor.execute(taskValue, signal)
   let result: ExecutorResult<unknown>
-  if (isAsyncIterable(run)) {
-    for await (const _usage of abortableValues(run, signal)) {
-      throwIfAborted(signal)
+  const observed = createObservedExecutorUsage()
+  try {
+    const run = executor.execute(taskValue, signal)
+    if (isAsyncIterable(run)) {
+      for await (const usage of abortableValues(run, signal)) {
+        observeExecutorUsage(observed, usage)
+        throwIfAborted(signal)
+      }
+      result = executor.resultArtifact()
+    } else {
+      result = await awaitAbortable(run, signal)
     }
-    result = executor.resultArtifact()
-  } else {
-    result = await awaitAbortable(run, signal)
+  } catch (error) {
+    // A streaming executor may report measured usage and then reject on a terminal failure. Keep
+    // that observed subtotal on the Runtime failure event; dropping it makes a paid failed turn
+    // appear free. A recursive executor can provide the same subtotal through its existing
+    // metered() receipt when it has no usage stream to drain.
+    applyExecutorFailureSpend(acc, observed, executor.metered?.())
+    throw error
   }
   acc.result = result
   acc.terminalText = executorResultText(result.out)
   acc.input = result.spent.tokens.input
   acc.output = result.spent.tokens.output
   acc.costUsd = result.spent.usd
+  acc.sawCost = true
   const estimatedCostUsd = executorResultEstimatedCost(result.out)
   if (estimatedCostUsd !== undefined) {
     acc.estimatedCostUsd = estimatedCostUsd
@@ -1009,6 +1024,86 @@ async function* driveExecutorTurn(
       ...(result.verdict ? { verdict: result.verdict } : {}),
     },
     timestamp: nowIso(),
+  }
+}
+
+interface ObservedExecutorUsage {
+  tokens: ReturnType<typeof zeroTokenUsage>
+  tokensKnown: boolean
+  usd: number
+  usdEstimated: number
+  usdKnown: boolean
+  sawTokens: boolean
+  sawCost: boolean
+  sawEstimatedCost: boolean
+}
+
+function createObservedExecutorUsage(): ObservedExecutorUsage {
+  return {
+    tokens: zeroTokenUsage(),
+    tokensKnown: true,
+    usd: 0,
+    usdEstimated: 0,
+    usdKnown: true,
+    sawTokens: false,
+    sawCost: false,
+    sawEstimatedCost: false,
+  }
+}
+
+function observeExecutorUsage(observed: ObservedExecutorUsage, event: UsageEvent): void {
+  if (event.kind === 'tokens') {
+    observed.sawTokens = true
+    addTokenUsage(observed.tokens, event)
+    if (event.tokensKnown === false) observed.tokensKnown = false
+  } else if (event.kind === 'cost') {
+    observed.sawCost = true
+    observed.usd += event.usd
+    if (event.usdEstimated !== undefined) {
+      observed.usdEstimated += event.usdEstimated
+      observed.sawEstimatedCost = true
+    }
+    if (event.usdKnown === false) observed.usdKnown = false
+  }
+}
+
+function applyExecutorFailureSpend(
+  acc: TurnAccumulator,
+  observed: ObservedExecutorUsage,
+  spend: ExecutorResult<unknown>['spent'] | undefined,
+): void {
+  if (observed.sawTokens) {
+    acc.input = observed.tokens.input
+    acc.output = observed.tokens.output
+    acc.tokensKnown = observed.tokensKnown
+    if (observed.tokens.freshInput !== undefined) {
+      acc.promptCache.freshInput = observed.tokens.freshInput
+    }
+    if (observed.tokens.cacheRead !== undefined) {
+      acc.promptCache.readTokens = observed.tokens.cacheRead
+    }
+    if (observed.tokens.cacheWrite !== undefined) {
+      acc.promptCache.writeTokens = observed.tokens.cacheWrite
+    }
+  } else if (spend !== undefined) {
+    acc.input = spend.tokens.input
+    acc.output = spend.tokens.output
+    acc.tokensKnown = spend.tokensKnown !== false
+  }
+  if (observed.sawCost) {
+    acc.costUsd = observed.usd
+    acc.sawCost = true
+    acc.usdKnown = observed.usdKnown
+  } else if (spend !== undefined) {
+    acc.costUsd = spend.usd
+    acc.sawCost = true
+    acc.usdKnown = spend.usdKnown !== false
+  }
+  acc.sawLlmCall = observed.sawTokens || observed.sawCost || spend !== undefined
+  const estimatedCostUsd = observed.sawEstimatedCost ? observed.usdEstimated : spend?.usdEstimated
+  if (estimatedCostUsd !== undefined) {
+    acc.estimatedCostUsd = estimatedCostUsd
+    acc.sawEstimatedCost = true
   }
 }
 
@@ -1165,6 +1260,7 @@ function foldEvent(
     acc.input += event.tokensIn ?? 0
     acc.output += event.tokensOut ?? 0
     acc.costUsd += event.costUsd ?? 0
+    if (event.costUsd !== undefined) acc.sawCost = true
     if (event.estimatedCostUsd !== undefined) {
       acc.estimatedCostUsd += event.estimatedCostUsd
       acc.sawEstimatedCost = true
@@ -1208,7 +1304,8 @@ function buildFinalEvent(
     metadata: {
       tokenUsage: { input: acc.input, output: acc.output },
       ...(acc.tokensKnown ? {} : { tokensKnown: false }),
-      ...(acc.usdKnown ? { costUsd: acc.costUsd } : { usdKnown: false }),
+      ...(acc.sawCost ? { costUsd: acc.costUsd } : {}),
+      ...(acc.usdKnown ? {} : { usdKnown: false }),
       ...(acc.sawEstimatedCost ? { estimatedCostUsd: acc.estimatedCostUsd } : {}),
       ...(Object.keys(acc.promptCache).length > 0 ? { promptCache: acc.promptCache } : {}),
       ...(acc.reasoningTokens !== undefined ? { reasoningTokens: acc.reasoningTokens } : {}),

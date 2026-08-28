@@ -1519,11 +1519,16 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
 
   try {
     const result = await runAgentRounds(loopOptions)
+    const failure = failedRound(result)
+    if (failure) {
+      // The executor stream is allowed to yield the measured subtotal before the terminal error.
+      // Consumers such as streamAgentTurn can then retain usage on the failed final event.
+      yield* sandboxUsageEvents(result)
+      throw failure
+    }
     // Fail loud on a round that produced nothing: the worker settles `down`
     // carrying the loop's own reason (a rejected profile, a box that would not
     // provision) rather than an artifact it never produced.
-    const failure = failedRound(result)
-    if (failure) throw failure
     const out = result.winner?.output ?? { events: [] }
     const verdict = result.winner?.verdict ?? leafVerdict(result)
     const tokensKnown = result.tokenUsage.tokensKnown !== false
@@ -1549,33 +1554,56 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       ...(verdict ? { verdict } : {}),
       spent,
     })
-    for (let i = 0; i < result.iterations.length; i += 1) yield { kind: 'iteration' }
-    if (result.iterations.length > 0 || result.tokenUsage.input || result.tokenUsage.output) {
-      yield {
-        kind: 'tokens',
-        input: result.tokenUsage.input,
-        output: result.tokenUsage.output,
-        ...(tokensKnown ? {} : { tokensKnown: false }),
-        ...(result.tokenUsage.freshInput !== undefined
-          ? { freshInput: result.tokenUsage.freshInput }
-          : {}),
-        ...(result.tokenUsage.cacheRead !== undefined
-          ? { cacheRead: result.tokenUsage.cacheRead }
-          : {}),
-        ...(result.tokenUsage.cacheWrite !== undefined
-          ? { cacheWrite: result.tokenUsage.cacheWrite }
-          : {}),
-        ...(result.tokenUsage.cacheBreakdownKnown === false
-          ? { cacheBreakdownKnown: false as const }
-          : {}),
-      }
-    }
-    if (result.iterations.length > 0 || result.costUsd) {
-      yield { kind: 'cost', usd: result.costUsd, ...(usdKnown ? {} : { usdKnown: false }) }
-    }
+    yield* sandboxUsageEvents(result)
   } finally {
     args.signal.removeEventListener('abort', cascadeExternal)
     args.controller.signal.removeEventListener('abort', cascadeScope)
+  }
+}
+
+function* sandboxUsageEvents(result: {
+  iterations: ReadonlyArray<unknown>
+  tokenUsage: {
+    input: number
+    output: number
+    tokensKnown?: false
+    freshInput?: number
+    cacheRead?: number
+    cacheWrite?: number
+    cacheBreakdownKnown?: false
+  }
+  costUsd: number
+  costUsdKnown?: false
+  estimatedCostUsd?: number
+}): Generator<UsageEvent> {
+  for (let i = 0; i < result.iterations.length; i += 1) yield { kind: 'iteration' }
+  if (result.iterations.length > 0 || result.tokenUsage.input || result.tokenUsage.output) {
+    yield {
+      kind: 'tokens',
+      input: result.tokenUsage.input,
+      output: result.tokenUsage.output,
+      ...(result.tokenUsage.tokensKnown === false ? { tokensKnown: false } : {}),
+      ...(result.tokenUsage.freshInput !== undefined
+        ? { freshInput: result.tokenUsage.freshInput }
+        : {}),
+      ...(result.tokenUsage.cacheRead !== undefined
+        ? { cacheRead: result.tokenUsage.cacheRead }
+        : {}),
+      ...(result.tokenUsage.cacheWrite !== undefined
+        ? { cacheWrite: result.tokenUsage.cacheWrite }
+        : {}),
+      ...(result.tokenUsage.cacheBreakdownKnown === false
+        ? { cacheBreakdownKnown: false as const }
+        : {}),
+    }
+  }
+  if (result.iterations.length > 0 || result.costUsd) {
+    yield {
+      kind: 'cost',
+      usd: result.costUsd,
+      ...(result.costUsdKnown === false ? { usdKnown: false } : {}),
+      ...(result.estimatedCostUsd !== undefined ? { usdEstimated: result.estimatedCostUsd } : {}),
+    }
   }
 }
 

@@ -1,7 +1,9 @@
+import { interactionRequestDigest } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
   assertSandboxServedModel,
+  classifySandboxEventWaitState,
   extractLlmCallEvent,
   mapSandboxEvent,
   sandboxEventFailure,
@@ -219,6 +221,142 @@ describe('the event decoders stay pure so a failed run can still be read', () =>
 
   it('sumSandboxUsage still meters the spend of a turn that ended in failure', () => {
     expect(sumSandboxUsage(failedTurn)).toEqual({ input: 100, output: 40, costUsd: 0.01 })
+  })
+
+  it('conserves usage when the terminal event itself reports failure', () => {
+    const events: SandboxEvent[] = [
+      { type: 'llm_call', data: { tokensIn: 17, tokensOut: 3, costUsd: 0.004 } } as SandboxEvent,
+      {
+        type: 'done',
+        data: { status: 'success', success: false, error: 'provider rejected token=secret' },
+      } as SandboxEvent,
+    ]
+    expect(sumSandboxUsage(events)).toEqual({ input: 17, output: 3, costUsd: 0.004 })
+  })
+})
+
+describe('classifySandboxEventWaitState — terminal waits remain artifacts', () => {
+  const interactionMaterial = {
+    id: 'interaction-1',
+    kind: 'question',
+    title: 'Choose a value',
+    answerSpec: { fields: [{ type: 'text' as const, name: 'answer', label: 'Answer' }] },
+    binding: {
+      runId: 'run-1',
+      provider: 'sandbox',
+      environmentId: 'environment-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      interactionId: 'interaction-1',
+    },
+  }
+  const plan = {
+    id: 'plan-1',
+    revision: 1,
+    body: 'Inspect the repository and report the result.',
+    submittedAt: '2026-08-19T00:00:00.000Z',
+  }
+
+  it('recognizes canonical interaction and plan events through the existing decoder', () => {
+    expect(
+      classifySandboxEventWaitState({
+        type: 'interaction',
+        data: {
+          normalized: {
+            type: 'interaction',
+            request: {
+              ...interactionMaterial,
+              requestDigest: interactionRequestDigest(interactionMaterial),
+            },
+          },
+        },
+      } as SandboxEvent),
+    ).toBe('interaction')
+    expect(
+      classifySandboxEventWaitState({
+        type: 'plan.submitted',
+        data: { normalized: { type: 'plan.submitted', plan } },
+      } as SandboxEvent),
+    ).toBe('plan')
+  })
+
+  it('recognizes established terminal wait statuses, including nested status fields', () => {
+    expect(
+      classifySandboxEventWaitState({
+        type: 'result',
+        data: { success: false, status: 'blocked-on-approval' },
+      } as SandboxEvent),
+    ).toBe('interaction')
+    expect(
+      classifySandboxEventWaitState({
+        type: 'result',
+        data: { success: false, status: 'success', result: { status: 'awaiting_question' } },
+      } as SandboxEvent),
+    ).toBe('interaction')
+    expect(
+      classifySandboxEventWaitState({
+        type: 'result',
+        data: { success: false, outcome: { type: 'awaiting_plan_decision', plan } },
+      } as SandboxEvent),
+    ).toBe('plan')
+  })
+
+  it('recognizes the nested failed-tool approval marker without persisting its provider text', () => {
+    const event = {
+      type: 'result',
+      data: {
+        success: false,
+        toolInvocations: [
+          {
+            isError: true,
+            result: { provider: { error: { nested: { code: 'HUB_APPROVAL_REQUIRED' } } } },
+          },
+        ],
+      },
+    } as SandboxEvent
+    expect(classifySandboxEventWaitState(event)).toBe('interaction')
+    expect(sandboxEventFailure(event)).toBeUndefined()
+  })
+
+  it('is cycle-safe and fail-closed for malformed or genuine failures', () => {
+    const cyclicInvocation: Record<string, unknown> = { isError: true, result: {} }
+    cyclicInvocation.self = cyclicInvocation
+    const cyclic = {
+      type: 'result',
+      data: { success: false, toolInvocations: [cyclicInvocation] },
+    } as SandboxEvent
+    expect(() => classifySandboxEventWaitState(cyclic)).not.toThrow()
+    expect(classifySandboxEventWaitState(cyclic)).toBeUndefined()
+    expect(sandboxEventFailure(cyclic)).toBe('sandbox execution failed')
+
+    const malformed = {
+      type: 'result',
+      data: {
+        success: false,
+        toolInvocations: [
+          { isError: 'true', result: { error: { code: 'HUB_APPROVAL_REQUIRED' } } },
+        ],
+      },
+    } as SandboxEvent
+    expect(classifySandboxEventWaitState(malformed)).toBeUndefined()
+    expect(sandboxEventFailure(malformed)).toBe('sandbox execution failed')
+
+    const misleadingText = {
+      type: 'result',
+      data: {
+        success: false,
+        toolInvocations: [{ isError: true, result: { message: 'HUB_APPROVAL_REQUIRED' } }],
+      },
+    } as SandboxEvent
+    expect(classifySandboxEventWaitState(misleadingText)).toBeUndefined()
+    expect(sandboxEventFailure(misleadingText)).toBe('sandbox execution failed')
+
+    const invalidPlan = {
+      type: 'result',
+      data: { success: false, plan: { id: 'plan-1', revision: 1, body: '' } },
+    } as SandboxEvent
+    expect(classifySandboxEventWaitState(invalidPlan)).toBeUndefined()
+    expect(sandboxEventFailure(invalidPlan)).toBe('sandbox execution failed')
   })
 })
 

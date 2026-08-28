@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.142.4
+
+### Sandbox waits and failed spend remain truthful
+
+Sandbox approval, question, and plan waits now remain resumable artifacts instead of failed turns.
+Failed Sandbox turns retain observed tokens and cost, including mixed streamed and metered reports.
+Wait marker parsing validates canonical shapes and bounds hostile nested payloads.
+
 ## 0.142.3
 
 ### Sandbox 0.29 and 0.30 compatibility

@@ -106,7 +106,11 @@ Five mechanisms continue interrupted work; choose by what died:
 
 ## Truthfulness before value
 
-Runtime's release gates prove that the declared profile reaches the selected backend, provider identity is read back when available, in-band failures cannot settle as empty success, budgets reconcile, resume identity is stable, and packed consumers can install the supported package cohort.
+Runtime's release checks prove that the declared profile reaches the selected backend.
+They read the actual provider identity when available.
+In-band failures cannot settle as empty success.
+Approval, question, and plan waits remain resumable, while failed turns keep observed spend.
+Budgets reconcile, resume identity is stable, and packed consumers install the supported package cohort.
 
 Those are **integration proofs**, not benchmark-value proofs.
 

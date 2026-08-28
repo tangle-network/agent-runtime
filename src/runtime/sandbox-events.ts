@@ -12,7 +12,7 @@
  * Both live here so the empirically-observed `type` vocabulary has one home.
  */
 
-import type { StreamEvent } from '@tangle-network/agent-interface'
+import { DurablePlanSchema, type StreamEvent } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
 import { parseCanonicalTransportEvent } from './sandbox-transport-events'
@@ -97,6 +97,119 @@ function copyPlainSpine(value: unknown, seen: WeakMap<object, unknown>): unknown
  *  verdict on the whole execution only here; on any other event it describes that event. */
 const TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set(['done', 'result', 'final'])
 
+/** The kind of durable response a Sandbox execution is waiting for. */
+export type SandboxEventWaitState = 'interaction' | 'plan'
+
+const WAITING_STATUS: ReadonlyMap<string, SandboxEventWaitState> = new Map([
+  ['blocked_on_approval', 'interaction'],
+  ['awaiting_question', 'interaction'],
+  ['awaiting_plan_decision', 'plan'],
+])
+
+const HUB_APPROVAL_REQUIRED = 'HUB_APPROVAL_REQUIRED'
+const MAX_WAIT_STATE_SCAN_DEPTH = 32
+const MAX_WAIT_STATE_SCAN_NODES = 4096
+
+/**
+ * Classify a Sandbox event that leaves a turn waiting for a response.
+ *
+ * Canonical interaction and plan events are validated by the existing transport decoder. The
+ * terminal result shapes are checked only for their established status, plan, and approval
+ * markers. The marker walk is bounded and cycle-safe because provider payloads are untrusted.
+ * No provider error text enters this result.
+ */
+export function classifySandboxEventWaitState(
+  event: SandboxEvent,
+): SandboxEventWaitState | undefined {
+  try {
+    const canonical = canonicalStreamEventFromSandboxEvent(event)
+    if (canonical?.type === 'interaction') return 'interaction'
+    if (canonical?.type === 'plan.submitted') return 'plan'
+
+    if (!event || typeof event !== 'object') return undefined
+    const data = plainRecord(event.data)
+    if (!data) return undefined
+
+    const waitingStatus = firstWaitingStatus(
+      data.status,
+      plainRecord(data.outcome)?.type,
+      plainRecord(data.outcome)?.status,
+      plainRecord(data.result)?.status,
+    )
+    if (waitingStatus !== undefined) return waitingStatus
+
+    if (
+      isDurablePlan(data.plan) ||
+      isDurablePlan(plainRecord(data.outcome)?.plan) ||
+      isDurablePlan(plainRecord(data.result)?.plan)
+    ) {
+      return 'plan'
+    }
+
+    if (hasHubApprovalMarker(data)) return 'interaction'
+  } catch {
+    // Malformed provider payloads must remain ordinary failures, never become implicit waits.
+  }
+  return undefined
+}
+
+function normalizeWaitingStatus(value: string | undefined): SandboxEventWaitState | undefined {
+  if (value === undefined) return undefined
+  return WAITING_STATUS.get(value.trim().toLowerCase().replaceAll('-', '_'))
+}
+
+function firstWaitingStatus(...values: unknown[]): SandboxEventWaitState | undefined {
+  for (const value of values) {
+    if (typeof value !== 'string') continue
+    const state = normalizeWaitingStatus(value)
+    if (state !== undefined) return state
+  }
+  return undefined
+}
+
+function isDurablePlan(value: unknown): boolean {
+  return DurablePlanSchema.safeParse(value).success
+}
+
+function hasHubApprovalMarker(value: unknown): boolean {
+  const seen = new WeakSet<object>()
+  const pending: Array<{
+    value: unknown
+    depth: number
+    approvalResult: boolean
+    errorField: boolean
+  }> = [{ value, depth: 0, approvalResult: false, errorField: false }]
+  let visited = 0
+
+  while (pending.length > 0 && visited < MAX_WAIT_STATE_SCAN_NODES) {
+    const current = pending.pop()!
+    if (current.depth > MAX_WAIT_STATE_SCAN_DEPTH) continue
+    if (typeof current.value === 'string') continue
+    if (current.value === null || typeof current.value !== 'object') continue
+    if (seen.has(current.value)) continue
+    seen.add(current.value)
+    visited += 1
+
+    let entries: [string, unknown][]
+    try {
+      entries = Object.entries(current.value)
+    } catch {
+      continue
+    }
+    const failedTool = entries.some(([key, entry]) => key === 'isError' && entry === true)
+    for (const [key, entry] of entries) {
+      if (current.errorField && key === 'code' && entry === HUB_APPROVAL_REQUIRED) return true
+      pending.push({
+        value: entry,
+        depth: current.depth + 1,
+        approvalResult: current.approvalResult || (failedTool && key === 'result'),
+        errorField: current.errorField || (current.approvalResult && key === 'error'),
+      })
+    }
+  }
+  return false
+}
+
 /**
  * Return the terminal failure carried by one Sandbox event.
  *
@@ -114,6 +227,7 @@ const TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set(['done', 'result', 'fi
  */
 export function sandboxEventFailure(event: SandboxEvent): string | undefined {
   if (!event || typeof event !== 'object') return undefined
+  if (classifySandboxEventWaitState(event) !== undefined) return undefined
   const type = String(event.type ?? '')
   const data =
     event.data && typeof event.data === 'object'

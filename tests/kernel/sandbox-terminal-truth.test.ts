@@ -1,5 +1,6 @@
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
+import { collectAgentTurn, streamAgentTurn } from '../../src/runtime/stream-agent-turn'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
 import type { AgentSpec, ExecutorContext, UsageEvent } from '../../src/runtime/supervise/types'
 import { testAgentProfile } from './test-agent-profile'
@@ -83,6 +84,26 @@ function run(events: readonly SandboxEvent[], steering?: { maxTurns: number }): 
   return drain(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
 }
 
+async function executeArtifact(events: readonly SandboxEvent[]) {
+  const executor = createExecutor({
+    backend: 'sandbox',
+    sandboxClient: sandboxClientEmitting(events),
+  })(spec, ctx())
+  await drain(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
+  return executor.resultArtifact()
+}
+
+function collect(events: readonly SandboxEvent[], steering?: { maxTurns: number }) {
+  const factory = createExecutor({
+    backend: 'sandbox',
+    sandboxClient: sandboxClientEmitting(events),
+    ...(steering ? { steering } : {}),
+  })
+  return collectAgentTurn(
+    streamAgentTurn({ kind: 'executor', factory, profile: spec.profile }, { prompt: 'task' }),
+  )
+}
+
 describe('sandbox terminal truth', () => {
   it('fails the single-shot sandbox leaf on the SDK error event', async () => {
     await expect(run(failedEvents)).rejects.toThrow(/No API key found for anthropic/)
@@ -114,6 +135,109 @@ describe('sandbox terminal truth', () => {
         { type: 'done', data: { tokenUsage: { inputTokens: 4, outputTokens: 2 } } },
       ] as readonly SandboxEvent[]),
     ).resolves.toBeUndefined()
+  })
+
+  it('keeps a blocked approval as a terminal artifact instead of an execution failure', async () => {
+    const events = [
+      {
+        type: 'result',
+        data: {
+          success: false,
+          toolInvocations: [
+            { isError: true, result: { error: { code: 'HUB_APPROVAL_REQUIRED' } } },
+          ],
+        },
+      } as SandboxEvent,
+    ]
+    const artifact = await executeArtifact(events)
+    expect((artifact.out as { events: readonly SandboxEvent[] }).events).toEqual(events)
+    await expect(collect(events)).resolves.toMatchObject({ status: 'blocked' })
+  })
+
+  it.each([
+    [
+      'question',
+      [
+        {
+          type: 'interaction',
+          data: {
+            request: {
+              id: 'question-1',
+              kind: 'question',
+              title: 'Choose a target',
+              answerSpec: {
+                fields: [{ type: 'text', name: 'target', label: 'Which target?' }],
+              },
+            },
+          },
+        } as SandboxEvent,
+        { type: 'done', data: { success: false, status: 'awaiting_question' } } as SandboxEvent,
+      ],
+    ],
+    [
+      'plan',
+      [
+        {
+          type: 'plan.submitted',
+          data: {
+            plan: {
+              id: 'plan-1',
+              revision: 1,
+              body: 'Inspect, implement, and verify.',
+              submittedAt: '2026-08-20T00:00:00.000Z',
+            },
+          },
+        } as SandboxEvent,
+        {
+          type: 'done',
+          data: {
+            success: false,
+            outcome: {
+              type: 'awaiting_plan_decision',
+              plan: {
+                id: 'plan-1',
+                revision: 1,
+                body: 'Inspect, implement, and verify.',
+                submittedAt: '2026-08-20T00:00:00.000Z',
+              },
+            },
+          },
+        } as SandboxEvent,
+      ],
+    ],
+  ] as const)(
+    'settles a Sandbox %s wait as blocked through the executor',
+    async (_kind, events) => {
+      await expect(collect(events)).resolves.toMatchObject({ status: 'blocked' })
+    },
+  )
+
+  it('retains observed usage when a later terminal result fails', async () => {
+    const turn = await collect([
+      { type: 'llm_call', data: { tokensIn: 17, tokensOut: 3, costUsd: 0.004 } } as SandboxEvent,
+      {
+        type: 'done',
+        data: { status: 'success', success: false, error: 'provider rejected token=secret' },
+      } as SandboxEvent,
+    ])
+    expect(turn.status).toBe('failed')
+    expect(turn.usage).toMatchObject({ input: 17, output: 3, costUsd: 0.004 })
+    expect(turn.error?.message).toContain('provider rejected token=secret')
+  })
+
+  it('retains observed usage through the steerable sandbox session', async () => {
+    const turn = await collect(
+      [
+        { type: 'llm_call', data: { tokensIn: 17, tokensOut: 3, costUsd: 0.004 } } as SandboxEvent,
+        {
+          type: 'done',
+          data: { status: 'success', success: false, error: 'provider rejected token=secret' },
+        } as SandboxEvent,
+      ],
+      { maxTurns: 1 },
+    )
+    expect(turn.status).toBe('failed')
+    expect(turn.usage).toMatchObject({ input: 17, output: 3, usdKnown: false })
   })
 })
 

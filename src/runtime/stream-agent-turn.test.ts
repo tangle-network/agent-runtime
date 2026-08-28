@@ -14,7 +14,7 @@ import { inProcessSandboxClient } from './in-process-sandbox-client'
 import { collectAgentTurn, streamAgentTurn, streamObservedAgentTurn } from './stream-agent-turn'
 import { attestRuntimeOwnedExecutor } from './supervise/materialization'
 import { createExecutor } from './supervise/runtime'
-import type { Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
+import type { Executor, ExecutorFactory, ExecutorResult, UsageEvent } from './supervise/types'
 
 const TEST_PROFILE = {
   name: 'stream-agent-turn-test',
@@ -85,6 +85,109 @@ describe('streamAgentTurn: box backend', () => {
       'llm_call',
       'final',
     ])
+  })
+
+  it('fails a direct box turn whose terminal event reports failure', async () => {
+    const box = await makeBox([
+      { type: 'llm_call', data: { tokensIn: 8, tokensOut: 3, costUsd: 0.01 } },
+      {
+        type: 'done',
+        data: { success: false, status: 'failed', error: 'provider rejected the request' },
+      },
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'fail honestly' }),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.error?.message).toContain('provider rejected the request')
+    expect(turn.usage).toMatchObject({ input: 8, output: 3, costUsd: 0.01 })
+  })
+
+  it.each([
+    [
+      'question',
+      [
+        {
+          type: 'interaction',
+          data: {
+            request: {
+              id: 'question-1',
+              kind: 'question',
+              title: 'Choose a target',
+              answerSpec: {
+                fields: [{ type: 'text', name: 'target', label: 'Which target?' }],
+              },
+            },
+          },
+        },
+        { type: 'done', data: { success: false, status: 'awaiting_question' } },
+      ],
+    ],
+    [
+      'plan',
+      [
+        {
+          type: 'plan.submitted',
+          data: {
+            plan: {
+              id: 'plan-1',
+              revision: 1,
+              body: 'Inspect, implement, and verify.',
+              submittedAt: '2026-08-20T00:00:00.000Z',
+            },
+          },
+        },
+        {
+          type: 'done',
+          data: {
+            success: false,
+            outcome: {
+              type: 'awaiting_plan_decision',
+              plan: {
+                id: 'plan-1',
+                revision: 1,
+                body: 'Inspect, implement, and verify.',
+                submittedAt: '2026-08-20T00:00:00.000Z',
+              },
+            },
+          },
+        },
+      ],
+    ],
+    [
+      'approval',
+      [
+        {
+          type: 'result',
+          data: {
+            success: false,
+            status: 'blocked_on_approval',
+            toolInvocations: [
+              {
+                toolName: 'gmail_send',
+                isError: true,
+                result: {
+                  structuredContent: {
+                    code: 'HUB_APPROVAL_REQUIRED',
+                    details: { approval: { id: 'approval-1', connectionId: 'gmail-1' } },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    ],
+  ] as const)('ends a direct box %s wait as blocked', async (_kind, events) => {
+    const box = await makeBox(events as unknown as SandboxEvent[])
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'pause for the user' }),
+    )
+
+    expect(turn.status).toBe('blocked')
+    expect(turn.events.at(-1)).toMatchObject({ type: 'final', status: 'blocked' })
   })
 
   it('surfaces a throwing box as backend_error + final failed (never throws)', async () => {
@@ -797,6 +900,72 @@ describe('streamAgentTurn: executor backend', () => {
     expect(turn.status).toBe('aborted')
     expect(turn.error?.message).toBe('caller cancelled')
     expect(toreDown).toBe(1)
+  })
+
+  it('combines streamed tokens with metered cost when an executor fails', async () => {
+    const factory: ExecutorFactory<unknown> = (spec, ctx) => {
+      const attemptId = ctx.node?.attemptId ?? 'partial-spend-attempt'
+      return attestRuntimeOwnedExecutor(
+        {
+          runtime: 'partial-spend',
+          async *execute(): AsyncGenerator<UsageEvent> {
+            yield {
+              kind: 'tokens',
+              input: 5,
+              output: 2,
+              freshInput: 3,
+              cacheRead: 2,
+              cacheWrite: 0,
+            }
+            throw new Error('executor failed after reporting tokens')
+          },
+          metered: () => ({
+            iterations: 1,
+            tokens: { input: 5, output: 2 },
+            usd: 0.25,
+            usdKnown: false,
+            usdEstimated: 0.2,
+            ms: 3,
+          }),
+          async teardown() {
+            return { destroyed: true }
+          },
+          resultArtifact() {
+            throw new Error('failed executor has no terminal artifact')
+          },
+        },
+        {
+          effectiveProfile: spec.profile,
+          backend: 'inline-test',
+          model: { status: 'known', id: 'offline-test-model' },
+          execution: { kind: 'request', id: attemptId },
+          materializer: 'offline-test-executor',
+          plan: { kind: 'offline-test' },
+        },
+        {
+          attemptId,
+          binding: { kind: 'offline-test', attemptId },
+          descriptor: { kind: 'offline-test', transport: 'in-process' },
+        },
+      )
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory, profile: TEST_PROFILE },
+        { prompt: 'fail after partial spend' },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.usage).toMatchObject({
+      input: 5,
+      output: 2,
+      costUsd: 0.25,
+      usdKnown: false,
+      estimatedCostUsd: 0.2,
+      promptCache: { freshInput: 3, readTokens: 2, writeTokens: 0 },
+    })
   })
 
   it('enforces its deadline when an executor promise ignores cancellation', async () => {

@@ -758,11 +758,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         iterationIndex: args.item.index,
         agentRunName: slot.agentRunName,
       })
-      // One terminal truth boundary for the single-shot leaf, applied after the event is kept
-      // and observed: an in-band SDK failure, or a box serving a different model, ends the
-      // iteration instead of settling as an empty success.
-      assertSandboxEventSucceeded(event)
-      assertSandboxServedModel(event, requested)
       const llmCall = extractLlmCallEvent(event, slot.agentRunName)
       if (llmCall) {
         sawLlmCall = true
@@ -786,6 +781,11 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         })
         args.ctx.runHandle?.observe(llmCall)
       }
+      // One terminal truth boundary for the single-shot leaf, applied after the event is kept
+      // and observed: an in-band SDK failure, or a box serving a different model, ends the
+      // iteration instead of settling as an empty success.
+      assertSandboxEventSucceeded(event)
+      assertSandboxServedModel(event, requested)
     }
     if (!sawLlmCall) {
       slot.tokenUsage.tokensKnown = false

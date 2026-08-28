@@ -234,39 +234,40 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           }
           for await (const event of events) {
             recordEvent(event)
+            const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
+            if (call) {
+              sawLlmCall = true
+              const callTokensKnown =
+                call.tokensKnown !== false &&
+                typeof call.tokensIn === 'number' &&
+                typeof call.tokensOut === 'number'
+              if (!callTokensKnown) tokensKnown = false
+              const input = call.tokensIn ?? 0
+              const output = call.tokensOut ?? 0
+              if (input || output || !callTokensKnown) {
+                const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
+                  kind: 'tokens',
+                  input,
+                  output,
+                  ...(callTokensKnown ? {} : { tokensKnown: false }),
+                  // Classify against THIS call's own prompt total, so the classes partition the
+                  // number they belong to rather than a running sum from other calls.
+                  ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
+                }
+                addTokenUsage(tokens, usage)
+                yield usage
+              }
+              if (typeof call.costUsd === 'number' && call.costUsd > 0) {
+                usd += call.costUsd
+                // Numeric sandbox cost has no billing-provenance/completeness receipt.
+                yield { kind: 'cost', usd: call.costUsd, usdKnown: false }
+              }
+            }
             // The same terminal truth boundary the single-shot leaf applies, after the event is
             // recorded: an in-band SDK failure, or a box serving a model other than the one the
             // exact profile asked for, ends the turn instead of settling it as an empty success.
             assertSandboxEventSucceeded(event)
             assertSandboxServedModel(event, requested)
-            const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
-            if (!call) continue
-            sawLlmCall = true
-            const callTokensKnown =
-              call.tokensKnown !== false &&
-              typeof call.tokensIn === 'number' &&
-              typeof call.tokensOut === 'number'
-            if (!callTokensKnown) tokensKnown = false
-            const input = call.tokensIn ?? 0
-            const output = call.tokensOut ?? 0
-            if (input || output || !callTokensKnown) {
-              const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
-                kind: 'tokens',
-                input,
-                output,
-                ...(callTokensKnown ? {} : { tokensKnown: false }),
-                // Classify against THIS call's own prompt total, so the classes partition the
-                // number they belong to rather than a running sum from other calls.
-                ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
-              }
-              addTokenUsage(tokens, usage)
-              yield usage
-            }
-            if (typeof call.costUsd === 'number' && call.costUsd > 0) {
-              usd += call.costUsd
-              // Numeric sandbox cost has no billing-provenance/completeness receipt.
-              yield { kind: 'cost', usd: call.costUsd, usdKnown: false }
-            }
           }
         } catch (e) {
           cleanup()
