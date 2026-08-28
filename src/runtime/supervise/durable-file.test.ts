@@ -12,7 +12,9 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { publishExclusiveDurableFile, writeAtomicDurableFile } from './durable-file'
 import {
+  cancelRun,
   readRunCancellation,
+  readRunCancelRequest,
   readWorkerCancellation,
   writeRunCancellation,
   writeWorkerCancellation,
@@ -89,5 +91,19 @@ describe('durable file helpers', () => {
 
     expect(readRunCancellation(root, second.operationId)).toEqual(second)
     expect(readdirSync(join(root, 'cancellations'))).toEqual(['run.json'])
+  })
+
+  it('writes run cancellation requests through the durable replacement path', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    expect(cancelRun(root, 'run-request', { source: 'test', reason: 'stop now' }).effect).toBe(
+      'unknown',
+    )
+    expect(readRunCancelRequest(root)).toMatchObject({
+      operationId: 'run-request',
+      source: 'test',
+      reason: 'stop now',
+    })
+    expect(readdirSync(join(root, 'cancellations'))).toEqual(['run.request.json'])
   })
 })

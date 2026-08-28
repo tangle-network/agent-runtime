@@ -46,14 +46,7 @@
  */
 
 import { createHash } from 'node:crypto'
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import type { RetainedRunEffect } from '../retained-run-types'
@@ -720,7 +713,7 @@ export function cancelRun(
   }
   if (pending === undefined) {
     mkdirSync(workerCancellationsDir(eventDir), { recursive: true })
-    writeFileSync(runCancelRequestFile(eventDir), `${JSON.stringify(request, null, 2)}\n`, 'utf8')
+    writeAtomicDurableFile(runCancelRequestFile(eventDir), `${JSON.stringify(request, null, 2)}\n`)
     appendWorkerControlEvent(eventDir, 'run', {
       kind: 'run-cancel-request',
       operationId: opId,
