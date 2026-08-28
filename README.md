@@ -118,6 +118,10 @@ The same boundary applies to trace analysts, Prime Agent RLM, and DSPy RLM: Runt
 
 Each release candidate carries one manifest beside its packed archive: `agent-runtime-conformance-manifest.json`, uploaded with the `.tgz` by `publish.yml`.
 
+`release/cohort.json` is the single source for the exact Interface, Eval, and Knowledge source releases used by CI and publication.
+Update each version and full source commit together when the dependency cohort changes.
+The packed-cohort check rejects an archive whose package version or source commit differs from this file.
+
 The manifest names, for this exact archive, what its own conformance tests proved:
 
 - the package name, version, source commit, and packed-archive sha256;

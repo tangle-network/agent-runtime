@@ -28,6 +28,7 @@ import {
   sandboxCompatibilityVersions,
   sandboxPeerRange,
 } from './lib/packed-package-test.mjs'
+import { assertReleaseCohortArtifacts, readReleaseCohort } from './release-cohort.mjs'
 
 const PACKAGES = {
   agentInterface: '@tangle-network/agent-interface',
@@ -46,6 +47,7 @@ const { values } = parseArgs({
     'agent-eval-repo': { type: 'string' },
     'agent-knowledge-repo': { type: 'string' },
     'agent-runtime-repo': { type: 'string' },
+    'cohort-manifest': { type: 'string' },
     'keep-temp': { type: 'boolean', default: false },
     report: { type: 'string' },
     help: { type: 'boolean', short: 'h', default: false },
@@ -63,6 +65,7 @@ if (values.help) {
       '  --agent-eval-repo <path>       Clean agent-eval Git checkout',
       '  --agent-knowledge-repo <path>  Clean agent-knowledge Git checkout',
       '  --agent-runtime-repo <path>    Clean agent-runtime Git checkout',
+      '  --cohort-manifest <path>       Require dependency versions and commits from this manifest',
       '  --keep-temp                    Retain the generated archives and consumer',
       '  --report <path>                Also write the verified cohort report to this file',
       '',
@@ -132,6 +135,10 @@ try {
   })
   registerArtifact(agentRuntime)
   artifacts.push(agentRuntime)
+
+  if (values['cohort-manifest']) {
+    assertReleaseCohortArtifacts(artifacts, readReleaseCohort(values['cohort-manifest']))
+  }
 
   assertCohortPackageContracts({
     agentInterface,

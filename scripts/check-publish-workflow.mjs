@@ -2,20 +2,16 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseDocument } from 'yaml'
+import { readReleaseCohort, releaseCohortOutputKey } from './release-cohort.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const workflowPath = process.argv[2]
   ? resolve(process.argv[2])
   : resolve(repoRoot, '.github/workflows/publish.yml')
-const document = parseDocument(readFileSync(workflowPath, 'utf8'))
-
-if (document.errors.length > 0) {
-  throw new Error(`publish workflow is invalid YAML: ${document.errors.join('; ')}`)
-}
-
-const workflow = document.toJS()
+const workflow = readWorkflow(workflowPath, 'publish')
 const jobs = workflow.jobs
 if (!jobs || typeof jobs !== 'object') throw new Error('publish workflow has no jobs')
+const releaseCohort = readReleaseCohort()
 
 const publishJobs = {
   'publish-npm': 'verify',
@@ -94,7 +90,55 @@ for (const jobName of ['verify', 'verify-agent-bench']) {
   }
 }
 
+assertCohortJob(workflow, 'verify', releaseCohort)
+assertCohortJob(
+  readWorkflow(resolve(repoRoot, '.github/workflows/ci.yml'), 'CI'),
+  'packed-cohort',
+  releaseCohort,
+)
+
 process.stdout.write('Publish workflow keeps package creation separate from npm authority.\n')
+
+function readWorkflow(path, label) {
+  const document = parseDocument(readFileSync(path, 'utf8'))
+  if (document.errors.length > 0) {
+    throw new Error(`${label} workflow is invalid YAML: ${document.errors.join('; ')}`)
+  }
+  return document.toJS()
+}
+
+function assertCohortJob(targetWorkflow, jobName, cohort) {
+  const job = targetWorkflow.jobs?.[jobName]
+  if (!job || typeof job !== 'object') throw new Error(`workflow is missing job ${jobName}`)
+  const steps = requireSteps(jobName, job)
+  const readers = steps.filter((step) => step.id === 'cohort')
+  assertEqual(readers.length, 1, `${jobName} cohort reader count`)
+  assertEqual(
+    readers[0].run,
+    'node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"',
+    `${jobName} cohort reader command`,
+  )
+
+  for (const [key, entry] of Object.entries(cohort.packages)) {
+    const checkouts = steps.filter(
+      (step) =>
+        typeof step.uses === 'string' &&
+        step.uses.startsWith('actions/checkout@') &&
+        step.with?.repository === entry.repository,
+    )
+    assertEqual(checkouts.length, 1, `${jobName} ${entry.name} checkout count`)
+    assertEqual(
+      checkouts[0].with?.ref,
+      `\${{ steps.cohort.outputs.${releaseCohortOutputKey(key, 'ref')} }}`,
+      `${jobName} ${entry.name} ref`,
+    )
+  }
+
+  const commands = steps.map((step) => step.run ?? '').join('\n')
+  if (!commands.includes('--cohort-manifest release/cohort.json')) {
+    throw new Error(`${jobName} does not verify the declared release cohort`)
+  }
+}
 
 function requireJob(name) {
   const job = jobs[name]

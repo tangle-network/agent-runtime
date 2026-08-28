@@ -28,6 +28,10 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
           persist-credentials: false
 
+      - name: Read exact first-party cohort
+        id: cohort
+        run: node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"
+
       - name: Verify release source and version
         id: release
         env:
@@ -135,7 +139,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-sdk
-          ref: 57a073cf53bbdd44ddc97855a60aa78afb522f5c # @tangle-network/agent-interface@1.6.0
+          ref: ${{ steps.cohort.outputs.agent_interface_ref }}
           path: .cohort/agent-sdk
           persist-credentials: false
 
@@ -143,7 +147,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-eval
-          ref: 2e001002539f53bf62d7ce4ad0c1c78031be9fa1 # @tangle-network/agent-eval@0.163.2
+          ref: ${{ steps.cohort.outputs.agent_eval_ref }}
           path: .cohort/agent-eval
           persist-credentials: false
 
@@ -151,7 +155,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: tangle-network/agent-knowledge
-          ref: 0775b82336ce33dcdd0bde8ace2aa4c16af18e83 # @tangle-network/agent-knowledge@10.7.0
+          ref: ${{ steps.cohort.outputs.agent_knowledge_ref }}
           path: .cohort/agent-knowledge
           persist-credentials: false
 
@@ -161,6 +165,7 @@ jobs:
           --agent-interface-repo .cohort/agent-sdk
           --agent-eval-repo .cohort/agent-eval
           --agent-knowledge-repo .cohort/agent-knowledge
+          --cohort-manifest release/cohort.json
           --report "$RUNNER_TEMP/cohort-report.json"
 
       - name: Verify packed Runtime with official GEPA and SkillOpt
