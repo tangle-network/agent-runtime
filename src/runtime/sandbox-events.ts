@@ -102,9 +102,7 @@ export function extractLlmCallEvent(
   // `tokenUsage` (not `usage`) and the cost is top-level — neither matched the
   // branches above, so an in-process loopDispatch run reported {0,0} and the
   // backend-integrity guard misread a real run as a stub. Reasoning tokens are
-  // billed output (reasoning models), so they fold into the output count. The prompt-cache
-  // counters are read off the SAME `tokenUsage` record rather than re-derived, because only
-  // that record states what the provider billed.
+  // billed output (reasoning models), so they fold into the output count.
   if (type === 'done') {
     const usage = data.tokenUsage as Record<string, unknown> | undefined
     if (!usage || typeof usage !== 'object') return undefined
@@ -112,14 +110,12 @@ export function extractLlmCallEvent(
     const reasoning = pickFiniteNumber(usage, ['reasoningTokens'])
     const mergedOut =
       out !== undefined || reasoning !== undefined ? (out ?? 0) + (reasoning ?? 0) : undefined
-    const cache = readPromptCacheUsage(usage)
     return buildLlmCall(
       {
         inputTokens: usage.inputTokens,
         outputTokens: mergedOut,
         totalCostUsd: data.totalCostUsd,
         model: data.model ?? usage.model,
-        ...(cache !== undefined ? { promptCache: cache } : {}),
       },
       agentRunName,
     )
@@ -206,7 +202,7 @@ function buildLlmCall(
   const catalogEstimate =
     costProvenance === 'catalog-estimate' ? (explicitEstimate ?? reportedCostUsd) : explicitEstimate
   const costUsd = costProvenance === 'catalog-estimate' ? undefined : reportedCostUsd
-  const promptCache = readPromptCacheUsage(data)
+  const promptCache = finiteMetadata(data.promptCache ?? data.prompt_cache)
   const tokensKnown =
     explicitTokensKnown !== false && tokensIn !== undefined && tokensOut !== undefined
   // Sandbox's canonical terminal `totalCostUsd` is already the provider-reported receipt. The
@@ -242,118 +238,6 @@ function buildLlmCall(
   if (catalogEstimate !== undefined) event.estimatedCostUsd = catalogEstimate
   if (promptCache !== undefined) event.promptCache = promptCache
   return event
-}
-
-/**
- * Every wire spelling of a prompt-cache READ counter, in precedence order: the canonical name
- * first, then the spellings observed on the paths that reach this extractor — the sandbox terminal
- * `tokenUsage` record, the cli-bridge OpenAI-compatible usage object (which normalizes every
- * backend to Anthropic's `cache_read_input_tokens`), Anthropic verbatim, OpenAI's
- * `prompt_tokens_details.cached_tokens`, and DeepSeek's `prompt_cache_hit_tokens`.
- */
-const PROMPT_CACHE_READ_KEYS = [
-  'readTokens',
-  'read_tokens',
-  'cacheReadInputTokens',
-  'cache_read_input_tokens',
-  'cacheRead',
-  'cache_read',
-  'cachedInputTokens',
-  'cachedTokens',
-  'cached_tokens',
-  'prompt_cache_hit_tokens',
-]
-
-/**
- * Every wire spelling of a prompt-cache WRITE counter. OpenAI reports no write counter at all, so
- * an OpenAI-shaped usage record matches nothing here and the write stays absent — which is the
- * point: absent is not zero.
- */
-const PROMPT_CACHE_WRITE_KEYS = [
-  'writeTokens',
-  'write_tokens',
-  'cacheWriteInputTokens',
-  'cache_write_input_tokens',
-  'cacheCreationInputTokens',
-  'cache_creation_input_tokens',
-  'cacheWrite',
-  'cache_write',
-]
-
-const PROMPT_CACHE_MISS_KEYS = ['missTokens', 'miss_tokens', 'prompt_cache_miss_tokens']
-
-const PROMPT_CACHE_SAVINGS_KEYS = ['readSavingsUsd', 'read_savings_usd']
-
-/**
- * Read the provider's own prompt-cache accounting off one usage-bearing event payload, in the
- * `PromptCacheUsage` vocabulary the router, driver, and chat-client paths already speak.
- *
- * Two sources, one record. A payload that already carries a `promptCache` / `prompt_cache` object
- * is forwarded VERBATIM — those fields are the provider's own report, and an unrecognized one must
- * stay visible rather than be bucketed away. On top of that, flat provider counters are translated
- * to the canonical names, filling only the names the verbatim object did not already define.
- *
- * A counter the payload does not carry is left out. Defaulting it to zero would assert the provider
- * measured no cache, which is a different fact from a provider that reported nothing — and it is
- * the fact the budget reads to decide whether its charge is a measurement or a bound.
- */
-function readPromptCacheUsage(
-  data: Record<string, unknown>,
-): Record<string, number | string> | undefined {
-  const declared = finiteMetadata(data.promptCache ?? data.prompt_cache)
-  const nested = plainRecord(data.promptCache) ?? plainRecord(data.prompt_cache)
-  const details = plainRecord(data.prompt_tokens_details)
-  const sources = [nested, data, details].filter(
-    (s): s is Record<string, unknown> => s !== undefined,
-  )
-
-  const canonical: Record<string, number | string> = {}
-  const readTokens = pickTokenCount(sources, PROMPT_CACHE_READ_KEYS)
-  const writeTokens = pickTokenCount(sources, PROMPT_CACHE_WRITE_KEYS)
-  const missTokens = pickTokenCount(sources, PROMPT_CACHE_MISS_KEYS)
-  const readSavingsUsd = pickNonNegativeNumber(sources, PROMPT_CACHE_SAVINGS_KEYS)
-  const status =
-    nested !== undefined && typeof nested.status === 'string' ? nested.status : undefined
-  if (readTokens !== undefined) canonical.readTokens = readTokens
-  if (writeTokens !== undefined) canonical.writeTokens = writeTokens
-  if (missTokens !== undefined) canonical.missTokens = missTokens
-  if (readSavingsUsd !== undefined) canonical.readSavingsUsd = readSavingsUsd
-  if (status !== undefined) canonical.status = status
-
-  const merged = { ...canonical, ...declared }
-  return Object.keys(merged).length > 0 ? merged : undefined
-}
-
-function plainRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function pickTokenCount(
-  sources: readonly Record<string, unknown>[],
-  keys: readonly string[],
-): number | undefined {
-  for (const key of keys) {
-    for (const source of sources) {
-      const value = source[key]
-      if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value
-    }
-  }
-  return undefined
-}
-
-function pickNonNegativeNumber(
-  sources: readonly Record<string, unknown>[],
-  keys: readonly string[],
-): number | undefined {
-  for (const key of keys) {
-    for (const source of sources) {
-      const value = source[key]
-      if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
-    }
-  }
-  return undefined
 }
 
 function finiteMetadata(value: unknown): Record<string, number | string> | undefined {

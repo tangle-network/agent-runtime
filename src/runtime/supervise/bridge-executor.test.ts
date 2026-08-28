@@ -1,6 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { estimateCost } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   canonicalAgentProfileDigest,
@@ -372,32 +371,6 @@ describe('bridgeExecutor upstream-error propagation', () => {
       ),
     ).rejects.toThrow(/completed without cli-bridge\.profile-materialization\.v2/u)
     expect(() => executor.resultArtifact()).toThrow(/before stream drained/u)
-  })
-
-  it('reports the bridge error, not the missing receipt, when the bridge refused the profile', async () => {
-    // A bridge that refuses a profile at setup fails before it can retain a receipt, so the
-    // absence is downstream of the refusal. The refusal message is the only actionable text on
-    // the wire and it names the fix; reporting the absence instead renames a fixable profile
-    // defect as a broken transport.
-    const body = [
-      `data: ${JSON.stringify({
-        error: {
-          message:
-            'backend opencode cannot replace its harness’s system prompt: agent_profile.prompt.systemPrompt deletes the harness’s own prompt, and this backend has no control that does that. Use agent_profile.prompt.appendSystemPrompt',
-        },
-      })}`,
-      'data: [DONE]',
-      '',
-    ].join('\n\n')
-    const stub = await startBridgeStub(body, { protocol: false })
-    server = stub.server
-    const executor = makeExecutor(stub.url)
-
-    await expect(
-      drain(
-        executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
-      ),
-    ).rejects.toThrow(/appendSystemPrompt/u)
   })
 
   it('rejects a terminal profile acknowledgement with the wrong effective profile digest', async () => {
@@ -889,7 +862,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(requestBody?.messages).toEqual([{ role: 'user', content: 'design the experiment' }])
   })
 
-  it('prices a turn the bridge reported no price for, and keeps the dollars unknown', async () => {
+  it('marks dollar cost unknown when the bridge reports no price', async () => {
     const stub = await startBridgeStub(
       `data: ${JSON.stringify({ usage: { prompt_tokens: 3, completion_tokens: 2 } })}\n\ndata: [DONE]\n\n`,
     )
@@ -898,55 +871,13 @@ describe('bridgeExecutor upstream-error propagation', () => {
     const events = await drain(
       executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
     )
-    // glm rates over this turn's own 3 in / 2 out. The dollars reach the channel instead of a
-    // zero, and they carry the marker that says the catalog priced them.
-    const priced = estimateCost(3, 2, 'pi/tangle-router/glm-5.2')
-    expect(priced).toBeGreaterThan(0)
-    expect(events).toContainEqual({
-      kind: 'cost',
-      usd: priced,
-      usdKnown: false,
-      usdEstimated: priced,
-    })
-    const spend = spendFromUsageEvents(events)
-    expect(spend.usdKnown).toBe(false)
-    expect(spend.usd).toBe(priced)
-    expect(spend.usdEstimated).toBe(priced)
+    expect(events).toContainEqual({ kind: 'cost', usd: 0, usdKnown: false })
+    expect(spendFromUsageEvents(events).usdKnown).toBe(false)
     expect(executor.resultArtifact().spent).toMatchObject({
       tokens: { input: 3, output: 2 },
-      usd: priced,
-      usdEstimated: priced,
+      usd: 0,
       usdKnown: false,
     })
-  })
-
-  it('reports no dollars for an unpriced model rather than inventing a rate', async () => {
-    const stub = await startBridgeStub(
-      `data: ${JSON.stringify({ usage: { prompt_tokens: 3, completion_tokens: 2 } })}\n\ndata: [DONE]\n\n`,
-    )
-    server = stub.server
-    const executor = bridgeExecutor(
-      {
-        profile: {
-          name: 'bridge-test-worker',
-          harness: 'pi',
-          model: { provider: 'in-house', default: 'no-such-model-family' },
-        },
-        harness: null,
-      },
-      {
-        signal: new AbortController().signal,
-        seams: { bridge: { bridgeUrl: stub.url, bridgeBearer: 'test-bearer' } },
-      },
-    )
-    const events = await drain(
-      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
-    )
-    expect(events).toContainEqual({ kind: 'cost', usd: 0, usdKnown: false })
-    const spend = spendFromUsageEvents(events)
-    expect(spend.usd).toBe(0)
-    expect(spend.usdKnown).toBe(false)
-    expect(spend.usdEstimated).toBeUndefined()
   })
 
   it('lets a trusted terminal total supersede an earlier incomplete cost chunk', async () => {
@@ -980,39 +911,6 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(events).toContainEqual({ kind: 'cost', usd: 0.012 })
     expect(executor.resultArtifact().spent).toMatchObject({ usd: 0.012 })
     expect(executor.resultArtifact().spent.usdKnown).not.toBe(false)
-  })
-
-  it('takes a claude invocation receipt as measured dollars, with no estimated part', async () => {
-    // The EXACT usage object cli-bridge emits for a claude turn carrying `total_cost_usd`
-    // (drewstone/cli-bridge#159), captured off `deltaToOpenAIChunk`. Tokens and the receipt
-    // arrive in ONE frame, which is the shape that must not be re-priced.
-    const body = `data: ${JSON.stringify({
-      choices: [{ delta: {}, finish_reason: 'stop' }],
-      usage: {
-        prompt_tokens: 12_000,
-        completion_tokens: 900,
-        total_tokens: 12_900,
-        cost: 0.0731,
-        cost_known: true,
-        cost_provenance: 'provider-receipt',
-        cost_scope: 'total',
-      },
-    })}\n\ndata: [DONE]\n\n`
-    const stub = await startBridgeStub(body)
-    server = stub.server
-    const executor = makeExecutor(stub.url)
-
-    const events = await drain(
-      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
-    )
-
-    expect(events).toContainEqual({ kind: 'cost', usd: 0.0731 })
-    const spent = executor.resultArtifact().spent
-    expect(spent).toMatchObject({ tokens: { input: 12_000, output: 900 }, usd: 0.0731 })
-    // A receipt is a measurement, and a turn holding one is never catalog-priced on top.
-    expect(spent.usdKnown).not.toBe(false)
-    expect(spent.usdEstimated).toBeUndefined()
-    expect(spendFromUsageEvents(events).usdEstimated).toBeUndefined()
   })
 
   it('preserves absent prompt-cache fields instead of inventing zeroes', async () => {
@@ -1084,11 +982,6 @@ describe('bridgeExecutor upstream-error propagation', () => {
       cacheRead: 7,
       cacheWrite: 0,
     })
-    // The artifact's own cache report must speak the `PromptCacheUsage` vocabulary. Every consumer
-    // of `out.promptCache` reads `readTokens` / `writeTokens`; a private dialect reaches them as no
-    // cache report at all, and the cost receipt then charges the re-read prefix in full.
-    const out = executor.resultArtifact().out as { promptCache?: Record<string, number> }
-    expect(out.promptCache).toEqual({ freshInput: 13, readTokens: 7, writeTokens: 0 })
   })
 
   it('keeps dollar cost unknown when a later completed turn omits price', async () => {
@@ -1132,14 +1025,10 @@ describe('bridgeExecutor upstream-error propagation', () => {
     )
 
     expect(requests).toBe(2)
-    // Turn 1 billed a real $0.01. Turn 2 sent no receipt, so only turn 2's own 4 in / 1 out is
-    // priced — the receipt and the estimate stay separable in the settled spend.
-    const turn2 = estimateCost(4, 1, 'pi/tangle-router/glm-5.2')
     expect(executor.resultArtifact().spent).toMatchObject({
       iterations: 2,
       tokens: { input: 7, output: 3 },
-      usd: 0.01 + turn2,
-      usdEstimated: turn2,
+      usd: 0.01,
       usdKnown: false,
     })
   })
@@ -1386,16 +1275,12 @@ describe('bridgeExecutor upstream-error propagation', () => {
         content: expect.stringContaining('stop and use the corrected method'),
       },
     ])
-    // The interrupted turn presented 5 in / 2 out and billed nothing, so it is priced. The
-    // resumed turn carried a real $0.01 receipt and is not priced on top of it.
-    const interruptedTurn = estimateCost(5, 2, 'pi/tangle-router/glm-5.2')
     expect(executor.resultArtifact()).toMatchObject({
       out: { content: 'corrected answer' },
       spent: {
         iterations: 2,
         tokens: { input: 8, output: 3 },
-        usd: 0.01 + interruptedTurn,
-        usdEstimated: interruptedTurn,
+        usd: 0.01,
         usdKnown: false,
       },
     })

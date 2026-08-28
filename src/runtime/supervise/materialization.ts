@@ -48,13 +48,7 @@ const runtimeOwnedExecutorMaterializations = new WeakMap<
 const runtimeOwnedScopeOwners = new WeakMap<object, Runtime>()
 const runtimeOwnedExecutorProviderEvidenceState = new WeakMap<
   object,
-  {
-    readonly attempts: Array<{
-      readonly observations: string[]
-      identityConflict?: boolean
-      providerDispatch?: 'not_started'
-    }>
-  }
+  { readonly attempts: Array<{ readonly observations: string[]; identityConflict?: boolean }> }
 >()
 const runtimeOwnedDriveHarnessProviderEvidenceState = new WeakMap<
   object,
@@ -176,11 +170,7 @@ export function inheritRuntimeOwnedExecutorAttestation<In, Out>(
 }
 
 function ensureProviderEvidenceState<Out>(executor: Executor<Out>): {
-  readonly attempts: Array<{
-    readonly observations: string[]
-    identityConflict?: boolean
-    providerDispatch?: 'not_started'
-  }>
+  readonly attempts: Array<{ readonly observations: string[]; identityConflict?: boolean }>
 } {
   const existing = runtimeOwnedExecutorProviderEvidenceState.get(executor as object)
   if (existing !== undefined) return existing
@@ -250,26 +240,6 @@ export function recordRuntimeOwnedProviderAttemptStart<Out>(executor: Executor<O
   state.attempts.push({ observations: [] })
 }
 
-/** Mark the current attempt as rejected before provider dispatch.
- *
- * The caller may use this only after consuming the Router-owned
- * `provider_dispatch: "not_started"` fact. Any other error stays an empty,
- * unknown attempt and must not be upgraded here.
- */
-export function recordRuntimeOwnedProviderDispatchNotStarted<Out>(executor: Executor<Out>): void {
-  const state = ensureProviderEvidenceState(executor)
-  const attempt = state.attempts.at(-1)
-  if (attempt === undefined) {
-    throw new ValidationError('provider dispatch rejection arrived before an attempt started')
-  }
-  if (attempt.observations.length > 0 || attempt.identityConflict === true) {
-    throw new ValidationError(
-      'provider dispatch rejection arrived after provider identity evidence was observed',
-    )
-  }
-  attempt.providerDispatch = 'not_started'
-}
-
 /** Record a trusted served model on the current provider attempt. */
 export function recordRuntimeOwnedProviderModel<Out>(executor: Executor<Out>, model: string): void {
   const state = runtimeOwnedExecutorProviderEvidenceState.get(executor as object)
@@ -291,20 +261,14 @@ export function runtimeOwnedExecutorProviderEvidence<Out>(
       Object.freeze({
         observations: Object.freeze([...attempt.observations]),
         ...(attempt.identityConflict ? { identityConflict: true } : {}),
-        ...(attempt.providerDispatch === 'not_started'
-          ? { providerDispatch: 'not_started' as const }
-          : {}),
       }),
     ),
   )
   const models = Object.freeze([...new Set(attempts.flatMap((attempt) => attempt.observations))])
-  const missing = attempts.some(
-    (attempt) => attempt.observations.length === 0 && attempt.providerDispatch !== 'not_started',
-  )
+  const missing = attempts.some((attempt) => attempt.observations.length === 0)
   const conflict = attempts.some((attempt) => attempt.identityConflict === true)
-  const served = attempts.some((attempt) => attempt.observations.length > 0)
   return Object.freeze(
-    missing || conflict || !served
+    missing || conflict
       ? {
           status: 'unknown' as const,
           attempts,
@@ -340,15 +304,12 @@ export function recordRuntimeOwnedDriveHarnessProviderEvidence(
   }
   const attempts = Object.freeze([...prior.attempts, ...evidence.attempts])
   const models = Object.freeze([...new Set([...prior.models, ...evidence.models])])
-  const missing = attempts.some(
-    (attempt) => attempt.observations.length === 0 && attempt.providerDispatch !== 'not_started',
-  )
+  const missing = attempts.some((attempt) => attempt.observations.length === 0)
   const conflict = attempts.some((attempt) => attempt.identityConflict === true)
-  const served = attempts.some((attempt) => attempt.observations.length > 0)
   runtimeOwnedDriveHarnessProviderEvidenceState.set(
     owner,
     Object.freeze(
-      missing || conflict || !served
+      missing || conflict
         ? {
             status: 'unknown' as const,
             attempts,

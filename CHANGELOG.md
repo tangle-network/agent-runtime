@@ -1,45 +1,5 @@
 # Changelog
 
-## 0.134.4
-
-- Consume Core 0.8.0, Eval 0.145.11, Interface 0.52.0, Knowledge 7.2.6, Profile Materialize 0.14.2, and Sandbox 0.26.1 as one compatible dependency set.
-- Use Sandbox 0.26's live `branch(count)` API for shared-context fanout while retaining the legacy checkpoint path for custom clients.
-- Preserve the router's usage-limit result and accounted input tokens in signed model-settlement evidence required by Interface 0.52.
-
-## 0.134.3
-
-- Bridge terminal accounting no longer creates a second empty provider attempt when the billed dollar amount is unknown.
-- Consumers that inspect `SpawnEvent` must ignore `metered` events with `accountingOnly: true` when counting provider executions.
-- Continue rejecting genuine provider attempts without a provider model identity; this release does not weaken that check.
-
-## 0.134.2
-
-- Make the supervised token charge additive: `input - cacheRead + output`, which equals `freshInput + cacheWrite + output` under a complete cache split. A spend that folded a classified turn together with an unclassified one previously fell back to the rolled-up prompt total for the whole aggregate, so one unreported turn re-charged every cached prefix beside it.
-- Credit no cache read whose reported classes do not fit inside the prompt total they partition, at the record AND in the fold: `addTokenUsage` no longer accumulates the classes of a turn that overflowed its own `input`, because the accumulator's larger total would otherwise absorb the overflow and charge the aggregate less than its records. The charge is never below the output tokens, and a zero prompt total charges no prompt tokens.
-- The token channel trusts a reported cache read the same way it trusts a reported `input`. It is an accounting unit, not a trust boundary against a provider that misreports its own usage.
-- Accept a `Spend` whose cache classes cover only part of `input` when it carries `cacheBreakdownKnown: false`. Requiring an exact partition there rejected the shape aggregation produces, and a resumed pool restored from such a record failed at construction. Classes that EXCEED `input` are still refused, and a spend claiming a complete split must still partition `input` exactly.
-- `equalKOnCost` now rates a rolled-up arm at what the pool charged it, including trees where one node reported no cache split.
-
-## 0.134.1
-
-- Preserve a cli-bridge root's known profile materialization when Runtime exhausts the token budget after the bridge emits its terminal receipt.
-- An accepted `submit_result` winner and the original budget diagnostic now survive together.
-- Consumers that read failed-run trees must keep using a known materialization receipt when the result is `budget-exhausted`; they must not replace it with `unknown`.
-
-## 0.134.0
-
-- BEHAVIOR CHANGE: the supervised token budget now charges each token once, when it first enters the context — `freshInput + cacheWrite + output`. It previously charged the rolled-up prompt total, which counts a cached prefix again on every turn that reads it.
-- Your existing `maxTokens` numbers are unchanged, but the unit they measure is not. On a 299-run fleet cache was 98.2% of the counted prompt total, so a run that died at about 1.8% of its declared budget now gets the budget it declared.
-- Migration: a caller who lowered `maxTokens` to compensate for the old inflation will get much longer runs. Re-derive that ceiling from newly-presented tokens before the next campaign.
-- `BudgetReadout` and `Scope.budget` gain `cacheBreakdownKnown`. It reads false once the pool charged a spend whose cache split it could not read; `tokensLeft` is then an upper bound on newly-presented work, not a measurement. A provider that reports no split still spends against the cap, exactly as an unreported token count does.
-- `equalKOnCost` compares arms on the same charged unit, so two arms doing identical new work no longer read as unequal compute because their cache hit rates differed.
-- The token cap no longer bounds the cost of cache reads. Dollars are bounded only by `maxUsd`, which is optional and unset on nearly every run today — budget it explicitly when cost matters.
-
-## 0.133.8
-
-- Stop an external supervisor's active harness after `submit_result` accepts a result or `stop` declares completion.
-- Custom `DriveHarness` implementations should honor the new `stopSignal` so they stop provider work after completion.
-
 ## 0.133.7
 
 - Preserve cli-bridge profile materialization receipts when a terminal provider error follows the receipt.

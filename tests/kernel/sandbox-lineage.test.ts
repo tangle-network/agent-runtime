@@ -47,10 +47,6 @@ interface StreamCall {
 
 interface FakeClientOpts {
   criuAvailable: boolean
-  /** Whether boxes expose the current live branch(count) API. */
-  branchAvailable?: boolean
-  /** Return fewer live children than requested to exercise cleanup. */
-  branchResultCount?: number
   /**
    * Whether boxes expose `session(id).status()`. `'live'` ⇒ status resolves a
    * SessionInfo (the platform honored the id); `'dead'` ⇒ status resolves null
@@ -73,13 +69,11 @@ function createFakeClient(opts: FakeClientOpts) {
   const streamCalls: StreamCall[] = []
   const created: string[] = []
   const forked: string[] = []
-  const branched: string[] = []
   const deleted: string[] = []
   const peakFork = { value: 0 }
   let forkInFlight = 0
   let boxSeq = 0
   let forkSeq = 0
-  let branchSeq = 0
   let checkpointSeq = 0
 
   function makeBox(id: string): SandboxInstance {
@@ -111,18 +105,6 @@ function createFakeClient(opts: FakeClientOpts) {
         forkInFlight -= 1
         return child
       },
-      ...(opts.branchAvailable
-        ? {
-            async branch(count: number): Promise<SandboxInstance[]> {
-              const resultCount = opts.branchResultCount ?? count
-              const children = Array.from({ length: resultCount }, () =>
-                makeBox(`branch-${branchSeq++}`),
-              )
-              branched.push(...children.map((child) => child.id as string))
-              return children
-            },
-          }
-        : {}),
       async delete() {
         deleted.push(id)
       },
@@ -153,7 +135,7 @@ function createFakeClient(opts: FakeClientOpts) {
       return { available: opts.criuAvailable }
     },
   }
-  return { client, streamCalls, created, forked, branched, deleted, peakFork }
+  return { client, streamCalls, created, forked, deleted, peakFork }
 }
 
 /** A planner that replays a fixed sequence of topology moves. */
@@ -271,58 +253,6 @@ describe('runAgentRounds lineage — sessionContinuity ON', () => {
 })
 
 describe('runAgentRounds lineage — forkFanout', () => {
-  it('branches the live parent when the current Sandbox API is available', async () => {
-    const { client, streamCalls, created, forked, branched } = createFakeClient({
-      criuAvailable: false,
-      branchAvailable: true,
-    })
-    const planner = scriptedPlanner([
-      { kind: 'refine', task: { goal: 'seed' } },
-      { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }, { goal: 'c' }] },
-      { kind: 'stop' },
-    ])
-    await runAgentRounds({
-      driver: scriptedDriver<Task, Out>({ planner, maxFanout: 3 }),
-      agentRuns: [spec('a'), spec('b'), spec('c')],
-      output,
-      task: { goal: 'seed' },
-      ctx: { sandboxClient: client },
-      lineage: { forkFanout: true },
-    })
-    expect(streamCalls).toHaveLength(4)
-    expect(created).toHaveLength(1)
-    expect(forked).toHaveLength(0)
-    expect(branched).toHaveLength(3)
-    expect(streamCalls.slice(1).every((call) => call.boxId.startsWith('branch-'))).toBe(true)
-  })
-
-  it('reaps partial live branches before rejecting the fanout', async () => {
-    const { client, deleted, branched } = createFakeClient({
-      criuAvailable: false,
-      branchAvailable: true,
-      branchResultCount: 1,
-    })
-    const planner = scriptedPlanner([
-      { kind: 'refine', task: { goal: 'seed' } },
-      { kind: 'fanout', tasks: [{ goal: 'a' }, { goal: 'b' }] },
-      { kind: 'stop' },
-    ])
-
-    await expect(
-      runAgentRounds({
-        driver: scriptedDriver<Task, Out>({ planner, maxFanout: 2 }),
-        agentRuns: [spec('a'), spec('b')],
-        output,
-        task: { goal: 'seed' },
-        ctx: { sandboxClient: client },
-        lineage: { forkFanout: true },
-      }),
-    ).rejects.toThrow(/returned 1 of 2 requested children/)
-
-    expect(branched).toEqual(['branch-0'])
-    expect(deleted.sort()).toEqual(['box-0', 'branch-0'])
-  })
-
   it('forks the parent checkpoint when criuStatus.available', async () => {
     const { client, streamCalls, created, forked } = createFakeClient({ criuAvailable: true })
     // refine (seed a parent), then a 3-way fanout descending from it, then stop.

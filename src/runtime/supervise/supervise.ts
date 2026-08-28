@@ -87,7 +87,6 @@ import {
 } from './runtime'
 import {
   deriveNodeExecutionIdentity,
-  meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
   recordScopeOwnerMaterialization,
   scopeOwnerExecutorNodeContext,
@@ -115,8 +114,6 @@ import type {
   Budget,
   Executor,
   ExecutorContext,
-  ExecutorExecutionBinding,
-  ExecutorMaterialization,
   NodeExecutionIdentity,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
@@ -275,12 +272,6 @@ function assertBackendProfileMaterialization(
  * `resources.instructions`), and the resolved model id (`model.default`); the remaining model
  * fields are either applied by the profile-bound Router adapter or refused. Every behavioral axis
  * the Router brain cannot materialize fails before compute.
- *
- * `resourceFailOnError` is carried by the router arm itself. A strict root fails closed on an
- * instruction resource the arm cannot fetch, which is the policy the profile declares. A
- * best-effort root is refused, because the arm reports no skipped resource. Dropping the field
- * would instead force an edit to a champion profile before it can be re-seated as a supervisor
- * root, and that edit changes the profile's canonical identity.
  */
 const routerSupervisorProfileMaterialization = defineProfileMaterializationContract({
   name: 'router-supervisor-execution',
@@ -292,7 +283,6 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
     'systemPrompt',
     'instructions',
     'resourceInstructions',
-    'resourceFailOnError',
     'modelDefault',
     'modelProvider',
     'modelReasoningEffort',
@@ -400,18 +390,14 @@ function driveHarnessFromBackend(
       }
       const observations = Object.freeze([...attempt.observations])
       const models = Object.freeze([...new Set(observations)])
-      const providerDispatch = attempt.providerDispatch
       return Object.freeze(
-        attempt.identityConflict === true ||
-          providerDispatch === 'not_started' ||
-          (providerDispatch !== 'not_started' && observations.length === 0)
+        attempt.identityConflict === true || observations.length === 0
           ? {
               status: 'unknown' as const,
               attempts: Object.freeze([
                 Object.freeze({
                   observations,
                   ...(attempt.identityConflict === true ? { identityConflict: true } : {}),
-                  ...(providerDispatch === 'not_started' ? { providerDispatch } : {}),
                 }),
               ]),
               models,
@@ -464,61 +450,60 @@ function driveHarnessFromBackend(
       }
     }
 
-    const pending = runtimeOwnedPendingExecutorMaterialization(executor)
     let failed = false
     let failure: unknown
-    let ownerMaterializationPublished = false
-    const ownerDeclaration = (
-      exactDeclaration: ExecutorMaterialization,
-    ): ExecutorMaterialization => ({
-      ...exactDeclaration,
-      // The coordination MCP is a Runtime-owned platform attachment, not authored behavior.
-      effectiveProfile: canonicalDriverProfile,
-      platformAttachments: {
-        [coordinationMcpAlias]: {
-          kind: 'coordination-mcp',
-          transport: 'http',
-          tools: stableCoordinationTools,
-        },
-      },
-    })
-    const publishMaterialization = async (
-      exactDeclaration: ExecutorMaterialization,
-      exactBinding: ExecutorExecutionBinding,
-    ): Promise<void> => {
-      await recordScopeOwnerMaterialization(
-        scope,
-        executor.runtime,
-        ownerDeclaration(exactDeclaration),
-        {
-          ...exactBinding,
-          binding: {
-            stableBinding: exactBinding.binding,
-            platformAttachments: {
-              [coordinationMcpAlias]: {
-                transport: 'http',
-                url: coordinationMcpUrl,
-              },
-            },
-          },
-          descriptor: {
-            ...exactBinding.descriptor,
-            coordination: true,
-          },
-        },
-      )
-    }
     try {
       // Construction transfers cleanup ownership immediately. Even a rejected receipt or an
       // unmetered runtime reaches the single bounded teardown path below.
       const declaration = runtimeOwnedExecutorMaterialization(executor)
       const executionBinding = runtimeOwnedExecutorExecutionBinding(executor)
+      const pending = runtimeOwnedPendingExecutorMaterialization(executor)
       const authoredProfileFromDriverExecution = (profile: AgentProfile): AgentProfile => {
         const mcp = profile.mcp ?? {}
         const { [coordinationMcpAlias]: _runtimeAttachment, ...authoredMcp } = mcp
         const { mcp: _mcp, ...withoutMcp } = profile
         return agentProfileSchema.parse(
           Object.keys(authoredMcp).length > 0 ? { ...withoutMcp, mcp: authoredMcp } : withoutMcp,
+        )
+      }
+      const ownerDeclaration = (
+        exactDeclaration: NonNullable<typeof declaration>,
+      ): NonNullable<typeof declaration> => ({
+        ...exactDeclaration,
+        // The coordination MCP is a Runtime-owned platform attachment, not authored behavior.
+        effectiveProfile: canonicalDriverProfile,
+        platformAttachments: {
+          [coordinationMcpAlias]: {
+            kind: 'coordination-mcp',
+            transport: 'http',
+            tools: stableCoordinationTools,
+          },
+        },
+      })
+      const publishMaterialization = async (
+        exactDeclaration: NonNullable<typeof declaration>,
+        exactBinding: NonNullable<typeof executionBinding>,
+      ) => {
+        await recordScopeOwnerMaterialization(
+          scope,
+          executor.runtime,
+          ownerDeclaration(exactDeclaration),
+          {
+            ...exactBinding,
+            binding: {
+              stableBinding: exactBinding.binding,
+              platformAttachments: {
+                [coordinationMcpAlias]: {
+                  transport: 'http',
+                  url: coordinationMcpUrl,
+                },
+              },
+            },
+            descriptor: {
+              ...exactBinding.descriptor,
+              coordination: true,
+            },
+          },
         )
       }
       if (pending === undefined && (declaration === undefined || executionBinding === undefined)) {
@@ -571,7 +556,7 @@ function driveHarnessFromBackend(
         // A stream carries increments, while its terminal artifact says whether either accounting
         // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
         if (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false) {
-          await meterRuntimeOwnedAccounting(
+          await meterRuntimeOwnedProviderAttempt(
             scope,
             {
               iterations: 0,
@@ -581,6 +566,7 @@ function driveHarnessFromBackend(
               ...(artifact.spent.usdKnown === false ? { usdKnown: false } : {}),
               ms: 0,
             },
+            providerEvidenceForNextMeter(),
             { role: 'driver', runtime: executor.runtime, telemetry: 'unknown' },
           )
         }
@@ -603,33 +589,12 @@ function driveHarnessFromBackend(
           )
         }
         await publishMaterialization(acknowledged, acknowledgedBinding)
-        ownerMaterializationPublished = true
       }
       completed = true
     } catch (error) {
       failed = true
       failure = error
     } finally {
-      // The bridge can return its terminal receipt, then Runtime metering can fail before normal
-      // publication (for example, after an accepted submit_result exceeds the token budget).
-      // The executor attestation is the trusted receipt; publish it before teardown destroys the
-      // bridge-owned state. If no receipt exists, leave the owner unknown and preserve the
-      // original failure instead of inventing evidence or replacing its diagnostic.
-      if (pending !== undefined && !ownerMaterializationPublished) {
-        const acknowledged = runtimeOwnedExecutorMaterialization(executor)
-        const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
-        if (acknowledged !== undefined && acknowledgedBinding !== undefined) {
-          try {
-            await publishMaterialization(acknowledged, acknowledgedBinding)
-            ownerMaterializationPublished = true
-          } catch (error) {
-            if (!failed) {
-              failed = true
-              failure = error
-            }
-          }
-        }
-      }
       // Capture provider evidence before teardown destroys the executor-owned observation state.
       // This is independent from terminal materialization: an aborted paid turn still needs its
       // served identity, while a plan-only receipt must never be used as a substitute.
@@ -1226,28 +1191,6 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
 }
 
 /** A quarter of token and optional dollar capacity per worker; nested managers partition again. */
-/** A per-child budget may not exceed the conserved pool it is reserved from. */
-function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
-  const over = (child: number, total: number, field: string): string | null =>
-    child > total
-      ? `supervise perWorker.${field} (${child}) exceeds budget.${field} (${total})`
-      : null
-  const problems = [
-    over(perWorker.maxTokens, pool.maxTokens, 'maxTokens'),
-    over(perWorker.maxIterations, pool.maxIterations, 'maxIterations'),
-    perWorker.maxUsd !== undefined && pool.maxUsd !== undefined
-      ? over(perWorker.maxUsd, pool.maxUsd, 'maxUsd')
-      : null,
-  ].filter((x): x is string => x !== null)
-  if (problems.length > 0) {
-    throw new ValidationError(
-      `${problems.join('; ')} — a per-child ceiling cannot exceed the pool it draws from, and ` +
-        'accepting it silently leaves the caller believing a knob is in effect when the ' +
-        'reservation still clamps the child.',
-    )
-  }
-}
-
 function defaultPerWorker(budget: Budget): Budget {
   return {
     maxIterations: Math.max(1, Math.floor(budget.maxIterations / 4)),
@@ -1487,13 +1430,6 @@ function superviseInternal(
   const blobs = options.blobs ?? ctx.blobs
   const perWorker = options.perWorker ?? defaultPerWorker(options.budget)
   assertValidBudget(perWorker, 'supervise perWorker')
-  // A per-child ceiling larger than the pool it draws from cannot be honored, so accepting it
-  // silently misleads the caller: the child is capped by the reservation instead and dies with
-  // "ticket N spent X tokens > reserved Y", which reads as a budget outcome rather than a
-  // misconfiguration. Observed in the field with perWorker.maxTokens = 3_200_000_000 against a
-  // 200_000_000 pool, where children were still clamped at 700_000 and the caller had no way to
-  // tell the knob was inert. Refuse at construction, where the caller can still fix it.
-  assertPerWorkerWithinPool(perWorker, options.budget)
   const journal = options.journal ?? ctx.journal
   const runId = options.runId ?? 'supervise'
   const runNamespace = supervisionRunNamespace(options.runDir, runId)

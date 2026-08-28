@@ -31,13 +31,7 @@ import type {
   SpawnJournal,
   Spend,
 } from '../supervise/types'
-import {
-  addTokenUsage,
-  chargedTokens,
-  cloneTokenUsage,
-  usdEstimatedOf,
-  zeroTokenUsage,
-} from '../util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import type {
   EqualKArm,
   EqualKOnCostOptions,
@@ -165,11 +159,6 @@ export async function trajectoryReport(
  * within-tolerance when the per-channel spread (max − min across arms) over the median is
  * `≤ tolerance`. Pure over the reports — no I/O. Fails loud on an empty arm list (nothing to
  * compare) so a vacuous "equal" is never returned.
- *
- * The token channel uses `chargedTokens`, the same unit the conserved pool spends, so the cross-run
- * check and the within-run pool cannot disagree about what an arm cost. Charging the rolled-up
- * prompt total instead would rate an arm by how often it re-read a cached prefix: two arms given
- * identical work would read as unequal compute whenever their cache hit rates differed.
  */
 export function equalKOnCost(
   arms: ReadonlyArray<EqualKArm>,
@@ -182,7 +171,7 @@ export function equalKOnCost(
 
   const armCosts = arms.map((arm) => ({
     label: arm.label,
-    tokens: chargedTokens(arm.report.total.tokens),
+    tokens: arm.report.total.tokens.input + arm.report.total.tokens.output,
     usd: arm.report.total.usd,
     iterations: arm.report.total.iterations,
   }))
@@ -312,7 +301,6 @@ function addNodeSpend(a: Spend, b: Spend): Spend {
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
   }
 }
@@ -324,7 +312,6 @@ function cloneSpend(spend: Spend): Spend {
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
-    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
     ms: spend.ms,
   }
 }
@@ -336,8 +323,6 @@ function addSpend(acc: Spend, delta: Spend): void {
   if (delta.tokensKnown === false) acc.tokensKnown = false
   acc.usd += delta.usd
   if (delta.usdKnown === false) acc.usdKnown = false
-  if (delta.usdEstimated !== undefined)
-    acc.usdEstimated = (acc.usdEstimated ?? 0) + delta.usdEstimated
   acc.ms += delta.ms
 }
 

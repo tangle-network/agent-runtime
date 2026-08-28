@@ -89,10 +89,8 @@ import type {
   Iteration,
   OutputAdapter,
   SandboxClient,
-  Validator,
 } from '../types'
 import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
-import { priceUnreceiptedWork } from './cost-estimate'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInbox, type Inbox } from './inbox'
 import {
@@ -101,7 +99,6 @@ import {
   finalizeRuntimeOwnedPendingExecutor,
   newExecutionAttemptId,
   recordRuntimeOwnedProviderAttemptStart,
-  recordRuntimeOwnedProviderDispatchNotStarted,
   recordRuntimeOwnedProviderIdentityConflict,
   recordRuntimeOwnedProviderModel,
   runtimeOwnedExecutorExecutionBinding,
@@ -157,15 +154,6 @@ export interface RouterSeam {
   tools?: ReadonlyArray<ToolSpec>
 }
 
-/**
- * Materialization contract for one direct Router turn.
- *
- * `resourceFailOnError` is carried: this executor has no workspace, so it inlines resource content
- * into the system prompt and applies the profile's own resource-failure policy while it does so
- * (`renderRouterProfilePrompt`). No value of the field is dropped — a strict profile fails closed
- * on a resource that cannot be inlined, and a best-effort profile is refused because this path has
- * no way to report a skipped resource.
- */
 const routerTurnProfileMaterialization = defineProfileMaterializationContract({
   name: 'router-profile-turn',
   axes: [
@@ -187,7 +175,6 @@ const routerTurnProfileMaterialization = defineProfileMaterializationContract({
     'resourceAgents',
     'commands',
     'resourceInstructions',
-    'resourceFailOnError',
     'metadata',
   ],
 })
@@ -208,22 +195,6 @@ export interface SandboxSeam {
   /** Hard cap on the composed loop's iterations. The budget pool reserves against
    *  the spawn `Budget.maxIterations`; this is the leaf's own ceiling. Default 1. */
   maxIterations?: number
-  /**
-   * OPT-IN executable score for this worker. Forwarded to the composed
-   * `runAgentRounds` as its `validator`, so the kernel calls `validate` while the
-   * iteration's box is still alive: `ValidationCtx.box` is a LIVE `SandboxInstance`
-   * and the check can run commands or read files in the container it is scoring.
-   * Every other supervised hook fires after teardown and can only read the artifact.
-   *
-   * The resulting verdict becomes the winner's verdict, which this executor already
-   * surfaces on its `ExecutorResult`. Absent, nothing changes: the loop runs
-   * unscored and the leaf falls back to its own settle verdict.
-   *
-   * Not representable with `steering` — a steerable session is a multi-turn session
-   * on one box, not a `runAgentRounds` composition, so the pair is rejected instead
-   * of silently dropping the score.
-   */
-  validator?: Validator<SandboxLeafOut>
   /**
    * OPT-IN: run this worker as a multi-turn, STEERABLE session instead of the historical
    * single-shot `runAgentRounds` composition. Setting it gives the sandbox worker an `Executor.deliver`
@@ -1349,11 +1320,6 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   // inbox, so a driver's steer has a turn boundary to be folded into. This is the path that
   // makes `Scope.send` return `true` for the DEFAULT cloud worker.
   if (seam.steering) {
-    if (seam.validator) {
-      throw new ValidationError(
-        'sandboxExecutor: validator is not representable with steering — the steerable session is not a runAgentRounds composition, so the score would be silently dropped',
-      )
-    }
     const inbox = createInbox()
     const session = createSteerableSandboxSession({
       controller,
@@ -1420,7 +1386,6 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           maxIterations,
           controller,
           loopCtx: seam.loopCtx,
-          ...(seam.validator ? { validator: seam.validator } : {}),
           traceEnv,
           onArtifact: (a) => {
             artifact = a
@@ -1445,9 +1410,7 @@ export const sandboxExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
   )
 }
 
-/** Parsed output of the sandbox leaf: the iteration's raw event stream. What a
- *  `SandboxSeam.validator` receives as its `output` argument. */
-export interface SandboxLeafOut {
+interface SandboxLeafOut {
   events: SandboxEvent[]
 }
 
@@ -1461,8 +1424,6 @@ interface StreamSandboxArgs {
   driver: Driver<unknown, SandboxLeafOut, string>
   maxIterations: number
   controller: AbortController
-  /** Forwarded to the composed loop, which scores each iteration against its LIVE box. */
-  validator?: Validator<SandboxLeafOut>
   loopCtx?: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>>
   /** Inherited `TRACE_ID` / `PARENT_SPAN_ID` for the box; empty when tracing is off. */
   traceEnv: Record<string, string>
@@ -1499,7 +1460,6 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     driver: args.driver,
     agentRun,
     output: args.output,
-    ...(args.validator ? { validator: args.validator } : {}),
     task: args.task,
     maxIterations: args.maxIterations,
     maxConcurrency: 1,
@@ -1994,7 +1954,6 @@ export const bridgeExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
           trace.record(step)
         },
         onProviderAttemptStart: () => recordRuntimeOwnedProviderAttemptStart(executor),
-        onProviderDispatchNotStarted: () => recordRuntimeOwnedProviderDispatchNotStarted(executor),
         onProviderModel: (model) => recordRuntimeOwnedProviderModel(executor, model),
         onProviderIdentityConflict: () => recordRuntimeOwnedProviderIdentityConflict(executor),
         onArtifact: (a) => {
@@ -2059,7 +2018,6 @@ interface StreamBridgeArgs {
   observation: BridgeObservation
   record: (step: ToolStepInput) => void
   onProviderAttemptStart: () => void
-  onProviderDispatchNotStarted: () => void
   onProviderModel: (model: string) => void
   onProviderIdentityConflict: () => void
   onArtifact: (a: ExecutorResult<unknown>) => void
@@ -2303,9 +2261,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let tokensKnown = true
   let usd = 0
   let usdKnown = true
-  // The part of `usd` this runtime priced from the catalog. `usd - estimatedUsdCharged` is what a
-  // provider is known to have billed.
-  let estimatedUsdCharged = 0
   let estimatedUsd = 0
   let sawEstimatedUsd = false
   let turns = 0
@@ -2314,11 +2269,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   let observedModel: string | undefined
   let observedSystemFingerprint: string | undefined
   const toolCalls: string[] = []
-  // Keyed by the `PromptCacheUsage` vocabulary, not the SSE parse shape. Every consumer of an
-  // artifact's `promptCache` reads `readTokens` / `writeTokens` — `profile-chat-client.ts`,
-  // `improvement/agentic-generator.ts`, and `readPromptCache` — so a private dialect here reaches
-  // them as no cache report at all, and the cost receipt then charges a re-read prefix in full.
-  const promptCache: { freshInput?: number; readTokens?: number; writeTokens?: number } = {}
+  const promptCache: { freshInput?: number; readInput?: number; writeInput?: number } = {}
 
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
@@ -2401,10 +2352,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     let turnUsdKnown = true
     let turnKnownCostSubtotal = 0
     let turnEstimatedCostSubtotal = 0
-    // This turn's own token totals, kept apart from the run-wide `tokens` so an unreceipted turn
-    // is priced on what IT presented rather than on the running sum of every turn before it.
-    let turnInputTokens = 0
-    let turnOutputTokens = 0
     let interrupted = false
     let profileMaterializationPublished = false
     const publishProfileMaterialization = (): void => {
@@ -2483,8 +2430,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         if (chunk.usage) {
           sawTurnTokenUsage = true
           if (!chunk.usage.known) turnTokensKnown = false
-          turnInputTokens += chunk.usage.input
-          turnOutputTokens += chunk.usage.output
           const usageEvent: Extract<UsageEvent, { kind: 'tokens' }> = {
             kind: 'tokens',
             input: chunk.usage.input,
@@ -2508,12 +2453,12 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
                 (promptCache.freshInput ?? 0) + chunk.usage.promptCache.freshInput
             }
             if (chunk.usage.promptCache.readInput !== undefined) {
-              promptCache.readTokens =
-                (promptCache.readTokens ?? 0) + chunk.usage.promptCache.readInput
+              promptCache.readInput =
+                (promptCache.readInput ?? 0) + chunk.usage.promptCache.readInput
             }
             if (chunk.usage.promptCache.writeInput !== undefined) {
-              promptCache.writeTokens =
-                (promptCache.writeTokens ?? 0) + chunk.usage.promptCache.writeInput
+              promptCache.writeInput =
+                (promptCache.writeInput ?? 0) + chunk.usage.promptCache.writeInput
             }
           }
         }
@@ -2554,9 +2499,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       publishProfileMaterialization()
     } catch (error) {
       publishProfileMaterialization()
-      if (isTrustedPreProviderRejection(error)) {
-        args.onProviderDispatchNotStarted()
-      }
       // A forceful steer first detaches this HTTP reader, then explicitly cancels
       // the durable run and waits for terminal proof. Starting the resume turn
       // before that acknowledgement would race two harness processes against one
@@ -2595,24 +2537,9 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) {
-      // Missing billing proof is not a free turn. Price what the turn presented, so the dollar
-      // channel carries a number instead of a zero that reads as a measured free turn. The event
-      // is always `usdKnown: false`, and the priced part rides `usdEstimated`.
-      //
-      // Only a turn that billed NOTHING is priced. A turn holding a partial receipt already put
-      // real dollars on the channel, and a whole-turn catalog price on top would charge the same
-      // tokens twice.
-      const priced =
-        turnKnownCostSubtotal === 0
-          ? priceUnreceiptedWork({
-              inputTokens: turnInputTokens,
-              outputTokens: turnOutputTokens,
-              model: observedModel ?? seam.providerModel,
-            })
-          : { kind: 'cost' as const, usd: 0, usdKnown: false as const }
-      if (priced.usdEstimated !== undefined) estimatedUsdCharged += priced.usdEstimated
-      usd += priced.usd
-      yield priced
+      // Missing billing proof is not a free turn. Emit it explicitly so Scope's budget fold
+      // cannot default the observed dollar subtotal to known $0.
+      yield { kind: 'cost', usd: 0, usdKnown: false }
     }
     yield { kind: 'iteration' }
     if (!interrupted && turnText) lastText = turnText
@@ -2640,7 +2567,6 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
-    ...(estimatedUsdCharged > 0 ? { usdEstimated: estimatedUsdCharged } : {}),
     ms: Date.now() - started,
   }
   const out = {
@@ -2689,7 +2615,7 @@ async function* streamDurableBridgeRun(
 ): AsyncIterable<BridgeStreamChunk> {
   await assertBridgeExecutionCapabilities(args.seam, args.signal)
   let reconnects = 0
-  let pendingUpstreamError: Error | undefined
+  let pendingUpstreamError: ValidationError | undefined
 
   for (;;) {
     let res: BridgeResponse
@@ -2723,11 +2649,9 @@ async function* streamDurableBridgeRun(
       // the upstream status — a 502 from a dying harness is recoverable, a 401 is not. Typing this
       // as a validation failure made every bridge fault look like a deliberate refusal.
       const body = (await res.text()).slice(0, 300)
-      const providerDispatch = providerDispatchFromErrorBody(body)
       throw new BackendTransportError('bridge', `bridgeExecutor: bridge ${res.status}: ${body}`, {
         status: res.status,
         body,
-        ...(providerDispatch === 'not_started' ? { providerDispatch } : {}),
       })
     }
     if (!res.body) {
@@ -2782,21 +2706,11 @@ async function* streamDurableBridgeRun(
 
     if (sawDone) {
       if (args.run.profileMaterialization === undefined) {
-        // The bridge said WHY. Prefer its diagnostic over the missing-receipt inference: a bridge
-        // that refuses a profile at setup fails before it can retain a receipt, so the absence is
-        // a CONSEQUENCE of the reported error, not independent evidence of anything. Reporting the
-        // absence instead discards the only actionable message on the wire and renames a fixable
-        // profile defect as a broken transport — an opencode arm that refused
-        // `prompt.systemPrompt` and named `prompt.appendSystemPrompt` as the fix was read as a
-        // dead seat and abandoned after 12 attempts. This mirrors the no-DONE path below, which
-        // has preserved the provider's actual diagnostic since it was written.
-        if (pendingUpstreamError) throw pendingUpstreamError
         // Also TRANSPORT: a bridge that advertises the capability emits this receipt on every
-        // healthy turn, so its absence WITH NO REPORTED ERROR means the turn did not survive to
-        // send it — the same mid-stream death as above, arriving as a missing field instead of an
-        // error frame. Typed as validation it read as a permanently broken bridge and the
-        // root-driver retry refused to re-enter; one arm of a six-arm wave was lost to exactly
-        // this.
+        // healthy turn, so its absence means the turn did not survive to send it — the same
+        // mid-stream death as above, arriving as a missing field instead of an error frame.
+        // Typed as validation it read as a permanently broken bridge and the root-driver retry
+        // refused to re-enter; one arm of a six-arm wave was lost to exactly this.
         throw new BackendTransportError(
           'bridge',
           `bridgeExecutor: run ${args.run.id} completed without ${bridgeProfileMaterializationSchema}`,
@@ -3166,40 +3080,6 @@ async function cancelBridgeRunToTerminal(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-/** Only Router's exact one-sided fact proves that provider dispatch did not start. */
-function isTrustedPreProviderRejection(error: unknown): error is BackendTransportError {
-  return error instanceof BackendTransportError && error.providerDispatch === 'not_started'
-}
-
-/** Read only the Router-owned one-sided field from an error body. */
-function providerDispatchFromErrorBody(body: string): 'not_started' | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(body)
-  } catch {
-    return undefined
-  }
-  if (typeof parsed !== 'object' || parsed === null) return undefined
-  const error = (parsed as { error?: unknown }).error
-  if (typeof error !== 'object' || error === null) return undefined
-  return (error as { provider_dispatch?: unknown }).provider_dispatch === 'not_started'
-    ? 'not_started'
-    : undefined
-}
-
-function bridgeUpstreamError(
-  error: { message?: string; type?: string; provider_dispatch?: unknown },
-  prefix: string,
-): BackendTransportError {
-  const providerDispatch =
-    error.provider_dispatch === 'not_started' ? ('not_started' as const) : undefined
-  return new BackendTransportError(
-    'bridge',
-    `${prefix}: ${error.message ?? error.type ?? 'unknown'}`,
-    providerDispatch === undefined ? undefined : { providerDispatch },
-  )
 }
 
 interface BridgeStreamChunk {
@@ -3707,7 +3587,7 @@ function decodeBridgeToolCalls(raw: unknown): ToolStepInput[] {
 }
 
 type BridgeSseEvent =
-  | { kind: 'event'; id: number; chunk?: BridgeStreamChunk; error?: Error }
+  | { kind: 'event'; id: number; chunk?: BridgeStreamChunk; error?: ValidationError }
   | { kind: 'done' }
 
 /**
@@ -3760,16 +3640,16 @@ function parseSseStreamTail(buf: string): BridgeSseEvent | undefined {
   if (!tail) return undefined
   const framed = parseSseFrame(tail)
   if (framed !== undefined) return framed
-  let parsed: {
-    error?: { message?: string; type?: string; provider_dispatch?: unknown }
-  }
+  let parsed: { error?: { message?: string; type?: string } }
   try {
     parsed = JSON.parse(tail)
   } catch {
     return undefined
   }
   if (parsed.error) {
-    throw bridgeUpstreamError(parsed.error, 'bridgeExecutor: bridge upstream error')
+    throw new ValidationError(
+      `bridgeExecutor: bridge upstream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
+    )
   }
   return undefined
 }
@@ -3810,7 +3690,7 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
       }
       message?: { content?: string | null }
     }>
-    error?: { message?: string; type?: string; provider_dispatch?: unknown }
+    error?: { message?: string; type?: string }
     usage?: {
       prompt_tokens?: unknown
       completion_tokens?: unknown
@@ -3851,7 +3731,10 @@ function parseSseFrame(frame: string): BridgeSseEvent | undefined {
     return {
       kind: 'event',
       id,
-      error: bridgeUpstreamError(parsed.error, 'bridgeExecutor: bridge stream error'),
+      error: new BackendTransportError(
+        'bridge',
+        `bridgeExecutor: bridge stream error: ${parsed.error.message ?? parsed.error.type ?? 'unknown'}`,
+      ),
     }
   }
   const out: BridgeStreamChunk = {}
@@ -4370,27 +4253,13 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
     case 'sandbox': {
       assertExactConfigKeys(
         config as unknown as Readonly<Record<string, unknown>>,
-        new Set([
-          'backend',
-          'lineage',
-          'loopCtx',
-          'maxIterations',
-          'sandboxClient',
-          'steering',
-          'validator',
-        ]),
+        new Set(['backend', 'lineage', 'loopCtx', 'maxIterations', 'sandboxClient', 'steering']),
         'createExecutor sandbox config',
       )
-      // `validator` is an executable port like `sandboxClient`: retained live by reference,
-      // never cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
-      const { sandboxClient, loopCtx, validator, ...decisionData } = config
-      const port = {
-        sandboxClient,
-        ...(validator === undefined ? {} : { validator }),
-      }
+      const { sandboxClient, loopCtx, ...decisionData } = config
       if (loopCtx === undefined) {
         const snapshot = detachedSnapshot(decisionData, 'createExecutor sandbox config')
-        return Object.freeze({ ...snapshot, ...port })
+        return Object.freeze({ ...snapshot, sandboxClient })
       }
       const { hooks, traceEmitter, onSandboxEvent, runHandle, ...loopDecisionData } = loopCtx
       const snapshot = detachedSnapshot(
@@ -4400,7 +4269,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       const loopSnapshot = snapshot.loopCtx
       return Object.freeze({
         ...snapshot,
-        ...port,
+        sandboxClient,
         loopCtx: Object.freeze({
           ...loopSnapshot,
           ...(hooks === undefined ? {} : { hooks }),
@@ -4823,14 +4692,6 @@ function exactRouterModel(profile: AgentProfile, context: string): string {
   return concreteProfileModel(profile)!
 }
 
-/**
- * Render the profile prompt plus every resource this executor can inline.
- *
- * The profile's `resources.failOnError` policy decides what happens to a resource that cannot be
- * inlined. Strict (`true` or absent) is the canonical default and fails closed. Best-effort
- * (`false`) asks for the supported subset plus a warning about the rest; this executor has no
- * channel to carry that warning, so it refuses the value instead of silently running strict.
- */
 function renderRouterProfilePrompt(profile: AgentProfile): string {
   const sections: string[] = [
     profile.prompt?.systemPrompt,
@@ -4838,13 +4699,6 @@ function renderRouterProfilePrompt(profile: AgentProfile): string {
   ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
   const resources = profile.resources
   if (!resources) return sections.join('\n')
-  if (resources.failOnError === false) {
-    throw new ValidationError(
-      'routerInlineExecutor: resources.failOnError: false requests a best-effort resource subset; ' +
-        'the direct Router executor always fails closed on a resource it cannot inline and reports ' +
-        'no skipped resource, so the best-effort policy is refused rather than applied as strict',
-    )
-  }
 
   if (typeof resources.instructions === 'string') {
     if (resources.instructions.trim()) sections.push(resources.instructions)

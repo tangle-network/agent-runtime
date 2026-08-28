@@ -44,7 +44,7 @@ import {
   replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
-import { addTokenUsage, cloneTokenUsage, usdEstimatedOf, zeroTokenUsage } from '../util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../util'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
 import { runTree } from './finalizer'
@@ -1325,7 +1325,6 @@ function accumulate(a: Spend, b: Spend): void {
   if (b.tokensKnown === false) a.tokensKnown = false
   a.usd += b.usd
   if (b.usdKnown === false) a.usdKnown = false
-  if (b.usdEstimated !== undefined) a.usdEstimated = (a.usdEstimated ?? 0) + b.usdEstimated
   a.ms += b.ms
 }
 
@@ -1342,7 +1341,6 @@ function addSpend(a: Spend, b: Spend): Spend {
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
   }
 }

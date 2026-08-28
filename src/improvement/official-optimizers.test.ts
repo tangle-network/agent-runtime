@@ -650,16 +650,8 @@ describe('official optimizer methods', () => {
       status: 'unavailable',
       reason: 'optimizer-did-not-report-candidate-lineage',
     })
-    expect(JSON.parse(readFileSync(observedResponsePath, 'utf8'))).toMatchObject({
-      score: 0,
-      info: {
-        status: 'failed',
-        scenarioId: 'train',
-        error: {
-          stage: 'dispatch',
-          message: expect.stringContaining('not valid JSON'),
-        },
-      },
+    expect(JSON.parse(readFileSync(observedResponsePath, 'utf8'))).toEqual({
+      error: 'evaluation failed',
     })
   })
 
@@ -860,11 +852,10 @@ describe('official optimizer methods', () => {
           },
         },
       ),
-    ).rejects.toThrow(/selected profile surface contains fields that may carry private values/)
+    ).rejects.toThrow(/callback failed: 500/)
     expect(agentCalls).toBe(0)
     expect(reviewed).toEqual([
       { isBaseline: true, command: undefined, sensitivePaths: ['$'] },
-      { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
       { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
     ])
   })

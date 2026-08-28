@@ -301,14 +301,6 @@ function collectProviderModels(
   const canonical = new Set<string>()
   const observedRaw = new Set<string>()
   for (const attempt of evidence.attempts) {
-    if (attempt.providerDispatch === 'not_started') {
-      // Router proved that this attempt stopped at admission. It contributes no served
-      // identity, but it must not poison a different attempt that did reach a provider.
-      if (attempt.observations.length > 0 || attempt.identityConflict === true) {
-        return { kind: 'unknown' }
-      }
-      continue
-    }
     // An attempt entry is created immediately before provider execution. Empty means that
     // execution started but no trusted served model arrived, including an abort after spend.
     if (

@@ -926,15 +926,10 @@ describe('environment provider adapters', () => {
       },
     })
     expect(usage).toEqual([
-      // Turn 1 claims 11 cache-read tokens against a 2-token prompt total. A class set that does
-      // not fit inside the total it says it partitions buys no credit, so nothing is classified
-      // and the split is declared unknown.
-      { kind: 'tokens', input: 2, output: 7, cacheBreakdownKnown: false },
+      { kind: 'tokens', input: 2, output: 7 },
       { kind: 'cost', usd: 0.1, usdKnown: false },
       { kind: 'iteration' },
-      // Turn 3 reports a cache WRITE and no read. The measured write is carried; the rest of the
-      // prompt stays unclassified, so the split is incomplete rather than completed with a zero.
-      { kind: 'tokens', input: 5, output: 13, cacheWrite: 2, cacheBreakdownKnown: false },
+      { kind: 'tokens', input: 5, output: 13 },
       { kind: 'cost', usd: 0.2, usdKnown: false },
       { kind: 'iteration' },
       { kind: 'cost', usd: 0, usdKnown: false },

@@ -5101,7 +5101,7 @@ readonly `AnalystFinding`[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -6316,7 +6316,7 @@ Stable provider environment identifier used by `provider.get`.
 
 > `readonly` **idempotencyKey**: `string`
 
-Original environment key. The provider must return the matching retained metadata.
+Original environment key retained for deterministic run identity and recovery records.
 
 ##### turn
 
@@ -6807,7 +6807,7 @@ through them when the driver plans N tasks. Mutually exclusive with
 
 ##### validator?
 
-> `optional` **validator?**: [`Validator`](#validator-2)\<`Output`, `DefaultVerdict`\>
+> `optional` **validator?**: [`Validator`](#validator-1)\<`Output`, `DefaultVerdict`\>
 
 ##### task
 
@@ -6900,9 +6900,9 @@ a planner sees an arbitrary branch's filesystem — pair it with refine.
 Opt-in box-lineage controls. Default OFF — unset means every iteration
 acquires a fresh box, streams once, and tears it down (today's behavior,
 byte-identical). With `sessionContinuity` on, a refine round continues the
-parent iteration's session on its live box; with `forkFanout` on, a fanout
-round branches the parent's live box so the branches share a context prefix.
-The lineage owns every box it starts or
+parent iteration's session on its live box; with `forkFanout` on (and a
+fork-capable platform), a fanout round forks the parent's checkpoint so the
+branches share a context prefix. The lineage owns every box it starts or
 forks and tears them all down at loop end — so these paths are mutually
 exclusive with `onWorkerBox`, which claims the same box-ownership channel.
 
@@ -6985,8 +6985,9 @@ Sleep override for deterministic tests.
 **`Experimental`**
 
 What the loop kernel is allowed to know about a sandbox backend: a single
-capability bit, never the backend's identity. `canFork` gates the legacy
-checkpoint+fork fanout path; current live branching is detected on the box.
+capability bit, never the backend's identity. `canFork` gates the
+checkpoint+fork fanout path; everything else (session continuation) is a
+universal SDK feature that needs no probe.
 
 #### Properties
 
@@ -6996,9 +6997,9 @@ checkpoint+fork fanout path; current live branching is detected on the box.
 
 **`Experimental`**
 
-True only when `client.criuStatus()` returned `{ available: true }`.
-Current live `branch(count)` boxes do not need this bit. When both paths
-are absent, a fork-enabled fanout degrades to independent fresh boxes.
+True only when `client.criuStatus()` returned `{ available: true }`. When
+false, a fork-enabled fanout degrades to independent fresh boxes — same
+result, no shared context prefix.
 
 ***
 
@@ -7083,8 +7084,7 @@ The owned, running sandbox this handle drives.
 Stable session id threaded through this box's `streamPrompt` calls. Minted
 by the lineage on `start`; reused on `continue` so the server continues the
 same conversation. A forked handle starts a fresh session on its new box —
-the shared context comes from the live branch or legacy checkpoint, not a
-shared session id.
+the shared context comes from the checkpoint, not a shared session id.
 
 ***
 
@@ -7168,13 +7168,11 @@ of a contextless turn the caller mistakes for a real continuation.
 
 **`Experimental`**
 
-Branch `count` children from `parent`. When the platform exposes live
-branching, each child inherits the parent's running state — and therefore
-the parent's IMAGE and PROFILE: under a real fork `specs[i]` does NOT
-re-select a per-branch
+Branch `count` children from `parent`. When the platform can fork, each
+child inherits `parent`'s checkpoint — and therefore the parent's IMAGE and
+PROFILE: under a real fork `specs[i]` does NOT re-select a per-branch
 profile (the SDK forks the running box, it can't swap the image). `specs[i]`
-picks the per-branch profile ONLY on the degraded fresh-box path (no branch
-or legacy fork support).
+picks the per-branch profile ONLY on the degraded fresh-box path (no CRIU).
 A heterogeneous-profile fanout therefore homogenizes to the parent's profile
 when fork is available — pass a single shared spec for forked fanouts, or
 use `random@k` (no fork) when branches must differ. Each child's first turn
@@ -7273,41 +7271,11 @@ without importing sandbox-backend specifics.
 
 ***
 
-### BranchCapableBox
-
-**`Experimental`**
-
-Loop-side view of the current Sandbox SDK's live branch method.
-
-#### Properties
-
-##### branch?
-
-> `optional` **branch?**: (`count`, `options?`) => `Promise`\<`SandboxInstance`[]\>
-
-**`Experimental`**
-
-###### Parameters
-
-###### count
-
-`number`
-
-###### options?
-
-`BranchOptions`
-
-###### Returns
-
-`Promise`\<`SandboxInstance`[]\>
-
-***
-
 ### ForkCapableBox
 
 **`Experimental`**
 
-Loop-side widening of the legacy checkpoint fork method.
+Loop-side widening of the box's optional fork method.
 
 #### Properties
 
@@ -12455,24 +12423,6 @@ PR #150 `RunAgentRoundsOptions.lineage` passthrough — opaque; forwarded, not p
 Hard cap on the composed loop's iterations. The budget pool reserves against
  the spawn `Budget.maxIterations`; this is the leaf's own ceiling. Default 1.
 
-##### validator?
-
-> `optional` **validator?**: [`Validator`](#validator-2)\<[`SandboxLeafOut`](#sandboxleafout), `DefaultVerdict`\>
-
-OPT-IN executable score for this worker. Forwarded to the composed
-`runAgentRounds` as its `validator`, so the kernel calls `validate` while the
-iteration's box is still alive: `ValidationCtx.box` is a LIVE `SandboxInstance`
-and the check can run commands or read files in the container it is scoring.
-Every other supervised hook fires after teardown and can only read the artifact.
-
-The resulting verdict becomes the winner's verdict, which this executor already
-surfaces on its `ExecutorResult`. Absent, nothing changes: the loop runs
-unscored and the leaf falls back to its own settle verdict.
-
-Not representable with `steering` — a steerable session is a multi-turn session
-on one box, not a `runAgentRounds` composition, so the pair is rejected instead
-of silently dropping the score.
-
 ##### steering?
 
 > `optional` **steering?**: [`SandboxSteeringOptions`](#sandboxsteeringoptions)
@@ -13026,19 +12976,6 @@ Online observer of each tool step — the seam a `DetectorMonitor` taps to watch
 ###### Returns
 
 `void`
-
-***
-
-### SandboxLeafOut
-
-Parsed output of the sandbox leaf: the iteration's raw event stream. What a
- `SandboxSeam.validator` receives as its `output` argument.
-
-#### Properties
-
-##### events
-
-> **events**: `SandboxEvent`[]
 
 ***
 
@@ -16387,7 +16324,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -17552,13 +17489,13 @@ Prompt tokens newly processed by the provider, when every prompt class is known.
 
 > `optional` **cacheRead?**: `number`
 
-Prompt tokens the provider reported serving from its cache.
+Prompt tokens served from a provider cache, when every prompt class is known.
 
 ##### cacheWrite?
 
 > `optional` **cacheWrite?**: `number`
 
-Prompt tokens the provider reported writing to its cache.
+Prompt tokens written to a provider cache, when every prompt class is known.
 
 ##### cacheBreakdownKnown?
 
@@ -17890,11 +17827,11 @@ the kernel falls back to `{ placement: 'sibling', sandboxId: box.id }`.
 
 **`Experimental`**
 
-Optional legacy CRIU capability probe. When present and it resolves
-`{ available: true }`, the loop's `lineage.fork` seam may checkpoint and fork
-a parent box when live `branch(count)` is unavailable. Current Sandbox boxes
-expose live branching directly. The kernel reads this ONLY through the
-capability probe — it never branches on backend kind.
+Optional CRIU capability probe. When present and it resolves
+`{ available: true }`, the loop's `lineage.fork` seam may checkpoint+fork a
+parent box so a fanout's branches inherit a shared context prefix; absent or
+`false`, the fanout degrades to independent fresh boxes. The kernel reads
+this ONLY through the capability probe — it never branches on backend kind.
 The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
 (⇒ `canFork = false`).
 
@@ -17923,8 +17860,8 @@ round can reach after each round, so the live set tracks the active frontier.
 When the driver authors its own branch point (`describePlan().parentIndex`),
 it may descend from any prior
 iteration, so no box is pruned and the live-box count rises to the total
-iterations across all rounds. Size `forkFanout` runs accordingly. Live branch
-children use copy-on-write, but each is still a live box until loop end.
+iterations across all rounds. Size `forkFanout` runs accordingly (CRIU forks
+are copy-on-write, but each is still a live box until loop end).
 
 #### Properties
 
@@ -17953,10 +17890,10 @@ proves the session EXISTS server-side, not that prior turns replay into it.
 
 **`Experimental`**
 
-When true, a fanout round (N planned tasks) descending from a prior round
-branches the parent's live box so all N branches inherit its context prefix.
-If live branching is unavailable, the lineage uses legacy CRIU when its
-probe is positive. Otherwise it degrades to N fresh boxes with no prefix.
+When true AND the platform reports CRIU fork support, a fanout round (N
+planned tasks) descending from a prior round FORKS the parent iteration's
+checkpoint so all N branches inherit a shared context prefix. Without fork
+support it degrades to N independent fresh boxes (same result, no prefix).
 Round 0 always starts fresh. NEVER set this for a `random@k` control arm —
 forking would couple the independent samples.
 
@@ -19639,7 +19576,7 @@ What the supervisor AUTHORS per sub-task: one complete canonical profile whose n
 
 ### BudgetReadout
 
-> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
@@ -19970,7 +19907,7 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \} \| \{ `kind`: `"iteration"`; \}
 
 Normalized usage event — the single channel every executor reports through, so the
 conserved pool meters all runtimes identically. `tokens` carries `LoopTokenUsage`'s
@@ -20015,28 +19952,25 @@ Newly processed prompt tokens. Present only with a complete cache split.
 
 > `optional` **cacheRead?**: `number`
 
-Prompt tokens the provider reported reading from cache.
+Prompt tokens read from cache. Present only with a complete cache split.
 
 ###### cacheWrite?
 
 > `optional` **cacheWrite?**: `number`
 
-Prompt tokens the provider reported writing to cache.
+Prompt tokens written to cache. Present only with a complete cache split.
 
 ###### cacheBreakdownKnown?
 
 > `optional` **cacheBreakdownKnown?**: `false`
 
-False when this observation cannot classify all positive prompt tokens — including a
-provider that reports a read with no write counter. The measured counters are still
-carried; the marker says the remaining prompt tokens are unclassified, so a charge over
-them is an upper bound. A counter the provider did not report is absent, never zero.
+False when this observation cannot classify all positive prompt tokens.
 
 ***
 
 ##### Type Literal
 
-\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; `usdEstimated?`: `number`; \}
+\{ `kind`: `"cost"`; `usdKnown?`: `false`; `usd`: `number`; \}
 
 ###### kind
 
@@ -20051,17 +19985,6 @@ Known dollar subtotal. When false, `usd` must not be treated as total cost.
 ###### usd
 
 > **usd**: `number`
-
-###### usdEstimated?
-
-> `optional` **usdEstimated?**: `number`
-
-The part of `usd` this runtime priced from a model catalog because no provider receipt
-covered the work. Requires `usdKnown: false` — a catalog price approximates what a
-provider would bill and never measures what it did.
-
-Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
-is what says whether a dollar figure is measured.
 
 ***
 
@@ -20246,7 +20169,7 @@ adoption state; none of the built-ins can today.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](index.md#budget-4); `runtime`: [`Runtime`](#runtime-4); `ownedTreeRoot?`: [`NodeId`](#nodeid-5); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-5); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-5); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-5); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](index.md#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-5); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-5); `parent?`: [`NodeId`](#nodeid-5); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-5); `by`: `"fired"` \| `"timeout"` \| `"cancelled"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-5); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"`; `from`: `string`; `to`: `string`; `directive`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-5); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -20524,7 +20447,7 @@ A wait-state node SETTLED — the cursor-namespace twin of `settled`, kept disti
 
 ##### Type Literal
 
-\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \}
+\{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-5); `spend`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \}
 
 ###### kind
 
@@ -20545,12 +20468,6 @@ A driver's OWN inference spend, journaled separately from spawned-child work —
 ###### spend
 
 > **spend**: [`Spend`](index.md#spend)
-
-###### accountingOnly?
-
-> `optional` **accountingOnly?**: `true`
-
-Runtime bookkeeping only; this record carries no provider inference attempt.
 
 ###### providerModel?
 
@@ -22798,11 +22715,6 @@ within-tolerance when the per-channel spread (max − min across arms) over the 
 `≤ tolerance`. Pure over the reports — no I/O. Fails loud on an empty arm list (nothing to
 compare) so a vacuous "equal" is never returned.
 
-The token channel uses `chargedTokens`, the same unit the conserved pool spends, so the cross-run
-check and the within-run pool cannot disagree about what an arm cost. Charging the rolled-up
-prompt total instead would rate an arm by how often it re-read a cached prefix: two arms given
-identical work would read as unequal compute whenever their cache hit rates differed.
-
 #### Parameters
 
 ##### arms
@@ -24903,7 +24815,7 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 #### Returns
 

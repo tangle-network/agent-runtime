@@ -520,43 +520,6 @@ describe('aggregateProviderModelEvidence', () => {
     expect(bareOnly).toMatchObject({ status: 'unknown', reason: 'provider-model-missing' })
   })
 
-  it('does not let a typed pre-provider rejection poison a served identity', () => {
-    const root = 'forest-preprovider'
-    const served = 'tangle-router/deepseek-v4-flash@fp_a'
-    const evidence: NodeSnapshot['providerModel'] = {
-      status: 'known',
-      attempts: [{ observations: [], providerDispatch: 'not_started' }, { observations: [served] }],
-      models: [served],
-    }
-    const result = aggregateProviderModelEvidence(
-      forestFixture([{ root, events: [metered(root, evidence)] }], [forestNode(root, root)]),
-    )
-    expect(result).toEqual(evidence)
-
-    const ambiguous = aggregateProviderModelEvidence(
-      forestFixture(
-        [
-          {
-            root: `${root}-ambiguous`,
-            events: [
-              metered(`${root}-ambiguous`, {
-                status: 'unknown',
-                attempts: [
-                  { observations: [], providerDispatch: 'not_started' },
-                  { observations: [] },
-                ],
-                models: [],
-                reason: 'provider-model-missing',
-              }),
-            ],
-          },
-        ],
-        [forestNode(`${root}-ambiguous`, `${root}-ambiguous`)],
-      ),
-    )
-    expect(ambiguous).toMatchObject({ status: 'unknown', reason: 'provider-model-missing' })
-  })
-
   it('refuses missing, mixed, in-doubt, and paid-but-unidentified evidence', () => {
     const root = 'forest-invalid'
     const known = providerEvidence([['deepseek-v4-flash@fp_a']])

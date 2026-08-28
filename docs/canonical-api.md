@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.134.4.**
+> **Version 0.133.7.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.145.11 <0.146.0`.
-> `sandbox` must satisfy `>=0.26.1 <0.27.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.52.0 <0.53.0`.
+> `agent-eval` must satisfy `>=0.145.2 <0.146.0`.
+> `sandbox` must satisfy `>=0.21.1 <0.22.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `>=0.47.0 <0.48.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -113,7 +113,6 @@ A general "loop" primitive is the single most common modelling error in this rep
 |---|---|---|
 | Run one product chat turn with streamed events, ordered persistence hooks, and stable execution/turn identity | `handleChatTurn(...)` + `deriveExecutionId(...)`: `/durable`; pass the derived id as both `executionId` and `turnId` on initial dispatch | importing the broad package entry from an edge worker, treating `executionId` alone as dispatch idempotency, or rebuilding framing and persistence ordering in the product |
 | Run a supervisor toward a goal with default setup | `supervise(profile, task, { budget, backend? })`: `/kernel` | hand-wiring `createSupervisor().run` + `blobs`/`perWorker`/`journal`/`executors`; reaching for lower-level calls before you need a specific counterparty |
-| Score a supervised sandbox worker by an executable check **against its live box** | `supervise(..., { backend: { backend: 'sandbox', sandboxClient, validator } })`: `/kernel` — the leaf forwards it to the composed `runAgentRounds`, which calls `validate(output, ctx)` with `ctx.box` still alive, and the verdict lands on the worker's settle | a post-settle hook (the box is destroyed by then), a second scoring loop beside `depthStrategy`, or pairing `validator` with `steering` (refused: a steerable session composes no loop to score) |
 | Run a static root, workers, and analysts as reviewable `AgentProfile` nodes with versioned edge directives | `runGraph(graph, options)`: `/kernel` | a second graph executor, prompt-only roles, or pretending a static graph can discover new nodes while running |
 | **Supervise agents to solve a graded `AgenticSurface` task** (workers `runAgentic` the surface, settle on its own check, driver self-improves from the failing tests) | `superviseSurface(profile, task, { surface, worker })`: `/kernel` | a worker-seam + a "self-improving supervisor" wrapper around `supervise()`; passing a custom `makeWorkerAgent` that runs `runAgentic` |
 | Run a profile through a topology shape over the keystone Supervisor, end-to-end | `runPersonified({ persona, shape, task, budget })`: `/kernel` | a hand-rolled `createSupervisor().run` + seam-wiring helper |
@@ -142,7 +141,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Run **agent-eval fixture folders** through Runtime `runAgentRounds` | agent-eval fixture loading/planning, then `loopCampaignDispatch(...)`: `/kernel`; it starts the Runtime cell inside Eval's paid-call lifecycle | a one-off `runCampaign` dispatch, or attaching a completed `LoopResult` after paid work already ran |
 | Run a **recursive `supervise()` tree** through an agent-eval profile matrix | `superviseDispatch({ toTask, toSuperviseOptions, ... })`: `/kernel`; it admits the tree through Eval before Runtime spends, then records its receipt only when Runtime proves one model. Mixed or unknown trees fail instead of being relabelled. | a Lab receipt mapper, a second scheduler, or attaching a completed `SupervisedResult` after paid work already ran |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)`: `/kernel` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
-| Start a retry-safe detached run in a new environment, or a fresh harness chat in one existing environment | `startRetainedRun(...)` or `startRetainedRunInEnvironment(...)`: `/kernel`; both persist exact coordinates before and after dispatch; the existing-environment path also verifies its retained key through provider metadata; only `continueNative(...)` may claim same-chat continuity | calling `provider.create/get/dispatch` directly, reusing an environment as proof of chat continuity, or appending to an unverified native session |
+| Start a retry-safe detached run in a new environment, or a fresh harness chat in one existing environment | `startRetainedRun(...)` or `startRetainedRunInEnvironment(...)`: `/kernel`; both persist exact coordinates before and after dispatch, while only `continueNative(...)` may claim same-chat continuity | calling `provider.create/get/dispatch` directly, reusing an environment as proof of chat continuity, or appending to an unverified native session |
 | Run **ONE agent turn** on any substrate: box (`streamPrompt`), cli-bridge/router `Executor`, or in-process chat backend: as ONE normalized `RuntimeStreamEvent` stream with a guaranteed terminal result+usage event; opt into in-stream `tool_call`/`tool_result` with `preserveToolParts`, or tap the raw sandbox events with `onRawEvent` | `streamAgentTurn(backend, prompt, { signal, timeoutMs, preserveToolParts?, onRawEvent? })` + `collectAgentTurn(stream)`: `/kernel` | a per-provider stream→event mapper zoo, a hand-faked box around a non-box executor, or raw fetch leaking through the turn abstraction |
 | Use an exact profile and Runtime executor where `runAgentTaskStream` or a conversation expects an `AgentExecutionBackend` | `createProfileExecutionBackend({ profile, executor: createExecutor(config) })`: root `.`; the adapter preserves conversation authorization, recursion-depth, and trace headers | a provider-specific backend constructor or an adapter that reads a second model/prompt configuration |
 | Pick the **execution transport a driven loop runs on** (`sandbox` box / cli-bridge / router) from a product flag | `resolveSandboxClient({ backend })`: `/kernel` | a per-product `if (backend === 'router') …` branch re-wiring `createExecutor` + `inlineSandboxClient` |

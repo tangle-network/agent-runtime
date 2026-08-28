@@ -1,6 +1,6 @@
 {
   "changedSurfaces": ["prompt"],
-  "digest": "sha256:d2d6182c025514f3b869aa762e70df06254b69b07311f23f1d82538e56d8197e",
+  "digest": "sha256:dd3e1c5770a5e309e1bcf627988f8a929f48cb9579239c27be3e0e8ea0928c0b",
   "evaluation": {
     "decision": {
       "contributingChecks": [
@@ -285,7 +285,7 @@
     "measurements": [
       {
         "baseline": {
-          "digest": "sha256:ba741906ba8b2585ad2354c97ff5f80829ad0e22a483c27ea24fd727b898cc8d",
+          "digest": "sha256:c7069d949d1b7393015f0b1ccdea0ffa7fa8014f61a5081687ee968bc7ed04be",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -538,7 +538,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:fadeed55988e4930da2909c814e5176a32abab9a78945f33ece010b6d0927bc7",
+            "digest": "sha256:d74e7d9710e3c8ab65dbfdae044994b73ae3a5a9990316e003a3f8dc5ae1491d",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:f9fca193aa7310e916d98461201f5235355c342485ab79947d1a1a7a6698997a",
             "executorCapture": {
@@ -557,15 +557,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/d6d2e26423514fb6da67d2286a16dd476da75223d9380d3fdff8e9d9404d8cd2",
+                  "key": "model-settlement/de41b9e5c7177a84dce05330ca9a87546d505cd273aa0e4136127469f3459b49",
                   "kind": "s3"
                 },
-                "sha256": "sha256:d6d2e26423514fb6da67d2286a16dd476da75223d9380d3fdff8e9d9404d8cd2"
+                "sha256": "sha256:de41b9e5c7177a84dce05330ca9a87546d505cd273aa0e4136127469f3459b49"
               },
-              "digest": "sha256:d6d2e26423514fb6da67d2286a16dd476da75223d9380d3fdff8e9d9404d8cd2",
+              "digest": "sha256:de41b9e5c7177a84dce05330ca9a87546d505cd273aa0e4136127469f3459b49",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -589,8 +589,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:6f737053241d6f6c4d1443e543e587fe6e579688c9899185cb224a586e226acb",
@@ -653,7 +652,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:b75fe2112b0e25c7ba4dbeed0b61c457f4ca301ff25db0f51b3198cbe73339b0",
+          "digest": "sha256:b357b2445d3c6c1ab2b859d66b2ced4c7e5770988c299d34f07b7e536c7a0784",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -934,7 +933,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:28e589e14e8ed2c1f329d9227e58e7c7f599ee77725a097217d30249bc83aefe",
+            "digest": "sha256:b944568cbf59671d4ead0fe2a66f0c420da4bb815f11da79c00442daeede5361",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:ab47d989ef65673c99766817a2c193a835edc084828331c4dc6880895e57f78c",
             "executorCapture": {
@@ -953,15 +952,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/ab256397be669aad03b37c370e8e0b56557a289413c27a6210dbe031bf48d8cf",
+                  "key": "model-settlement/26102d74d799e7c2138ddfb60591dc2fbe037aecfb49ad6c1f4a69c456a5c4ce",
                   "kind": "s3"
                 },
-                "sha256": "sha256:ab256397be669aad03b37c370e8e0b56557a289413c27a6210dbe031bf48d8cf"
+                "sha256": "sha256:26102d74d799e7c2138ddfb60591dc2fbe037aecfb49ad6c1f4a69c456a5c4ce"
               },
-              "digest": "sha256:ab256397be669aad03b37c370e8e0b56557a289413c27a6210dbe031bf48d8cf",
+              "digest": "sha256:26102d74d799e7c2138ddfb60591dc2fbe037aecfb49ad6c1f4a69c456a5c4ce",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -985,8 +984,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:bed2f84678f5192f0f2829c54d45a3146ffb444892eff0616448ba747e507f5f",
@@ -1051,7 +1049,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:b5e342102bb535abdbf159db8a399a4490841ed5fecb20b0d0d77a5589fd1abf",
+          "digest": "sha256:1087e6a5ea92813dffd7ac4c24ab3b32638bd67ebb3a871bb19224656be46b38",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1304,7 +1302,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:e8209e4a6a7c736b4bafe686147918c6fe086718df647609ac100ad5fdc98824",
+            "digest": "sha256:8866c9d559f3ffdab16b2dfdc2ba50e35e747e63f53bb86eb24e42cc8e80d657",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:fc6a11b56bb73ea9960c33a67ae2569314119ad48662238a8c19cde5fdb638f4",
             "executorCapture": {
@@ -1323,15 +1321,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/3d6c4c0eaf389cb2ed0ff5ea94c683bce8f64170900dd48b2b0681ea38090032",
+                  "key": "model-settlement/efdc6971b2106d91143ac8079ee1aa2644c2d1144d7ca97e936de5c223b4e452",
                   "kind": "s3"
                 },
-                "sha256": "sha256:3d6c4c0eaf389cb2ed0ff5ea94c683bce8f64170900dd48b2b0681ea38090032"
+                "sha256": "sha256:efdc6971b2106d91143ac8079ee1aa2644c2d1144d7ca97e936de5c223b4e452"
               },
-              "digest": "sha256:3d6c4c0eaf389cb2ed0ff5ea94c683bce8f64170900dd48b2b0681ea38090032",
+              "digest": "sha256:efdc6971b2106d91143ac8079ee1aa2644c2d1144d7ca97e936de5c223b4e452",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -1355,8 +1353,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:4579997f425142e49ad5f7841280783259b87b4e8913e3fe831ceecc6757a946",
@@ -1419,7 +1416,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:32896e6bb060964bc75d025a8b9c90b18fcdc9c63dc6761e2f6bb0f022659e5e",
+          "digest": "sha256:4a3e7a7b18f2601294c4f0a786e5ce924feae0a69e16edd8d785ea528c990e10",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -1700,7 +1697,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:30a961881654952f84623efc61e38d3f5980ca2d5c3180f7afab117522b012e1",
+            "digest": "sha256:881b0bd00d824a260f4cd8d05b6acf61adf10ac5a5096851667fd9b52f9e7589",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:de21c216d858d02cdf57f6007ec52d452e19e6a78f759e934e53016aa7e788a1",
             "executorCapture": {
@@ -1719,15 +1716,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/f97cb326247e02b5d3cf01220da6e02a7987953194343283a44df1226d93583c",
+                  "key": "model-settlement/55c1e80d4f9b3ef9de697d6f7b5fdc55e735aa34ca399a2b9e31e1e533bc10f1",
                   "kind": "s3"
                 },
-                "sha256": "sha256:f97cb326247e02b5d3cf01220da6e02a7987953194343283a44df1226d93583c"
+                "sha256": "sha256:55c1e80d4f9b3ef9de697d6f7b5fdc55e735aa34ca399a2b9e31e1e533bc10f1"
               },
-              "digest": "sha256:f97cb326247e02b5d3cf01220da6e02a7987953194343283a44df1226d93583c",
+              "digest": "sha256:55c1e80d4f9b3ef9de697d6f7b5fdc55e735aa34ca399a2b9e31e1e533bc10f1",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -1751,8 +1748,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:566ca015262b04dd6cf655d8e12f97af58116ffbdb33a304922f92276fc5b1db",
@@ -1817,7 +1813,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:0356dbe903b7566dfd40fa8aa4cd4c5115b5224b2de341f5d84b820a25c9ccca",
+          "digest": "sha256:349f7c288fe3cdd30e82181df444e24a144a0244bb5054063f9e069dad80f9e1",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2070,7 +2066,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:f5e4848795724e527015e9ad8df3796f5145eb33fcb72e2a3bdd84b3617db5ed",
+            "digest": "sha256:dd399bddfd3c4748a8ed061510c80923cea2c3f3dc10b76cd9239ce2ad16a8a2",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:fbd79649eb888559f388898c5ac5ad49cba75eb9dacc47bdda7aa350336ad6fa",
             "executorCapture": {
@@ -2089,15 +2085,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/25e47159d0d3374e3f8852019451d64fffb4f89ecf2cfeae1da69230fa61b0cb",
+                  "key": "model-settlement/9b01ece464aeac9b35710d45d6a754ad09cb610a55e20bf1beeca09f3d324471",
                   "kind": "s3"
                 },
-                "sha256": "sha256:25e47159d0d3374e3f8852019451d64fffb4f89ecf2cfeae1da69230fa61b0cb"
+                "sha256": "sha256:9b01ece464aeac9b35710d45d6a754ad09cb610a55e20bf1beeca09f3d324471"
               },
-              "digest": "sha256:25e47159d0d3374e3f8852019451d64fffb4f89ecf2cfeae1da69230fa61b0cb",
+              "digest": "sha256:9b01ece464aeac9b35710d45d6a754ad09cb610a55e20bf1beeca09f3d324471",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -2121,8 +2117,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:3bba0176569cb2f6693c01723b41e8bea4abbdce9c33d566e5790f83fdbf7753",
@@ -2185,7 +2180,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:357262c86889e55d767dbc504a0ce1b8df224eae0907031a0ccfc2a0c8cd2aef",
+          "digest": "sha256:0df77fe605339691ec8f0615445069c363b461ee853473b4d50fa091d2388109",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2466,7 +2461,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:a9a6c1400a330c2c98305f4f875a83503298fc672fb6c11ee3e5099e8ab890b1",
+            "digest": "sha256:42e03ef75af59ebb2d6d6bbd0624b864d45354e0f56cd8b4e4e68a6af3639cd7",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:0446656d74500d99e7434eb1391a8e3e654997ff71416e835cfcaeb5d79fe8de",
             "executorCapture": {
@@ -2485,15 +2480,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/6599ee6a2da8305c4e6e1b158ccf2d39bbee41424399f261a2d9dc60f8dbff95",
+                  "key": "model-settlement/1eaaac5858a9318661b2b05c2f5a9d69e3bbfd401fabf9a9bdc52971c32d6df3",
                   "kind": "s3"
                 },
-                "sha256": "sha256:6599ee6a2da8305c4e6e1b158ccf2d39bbee41424399f261a2d9dc60f8dbff95"
+                "sha256": "sha256:1eaaac5858a9318661b2b05c2f5a9d69e3bbfd401fabf9a9bdc52971c32d6df3"
               },
-              "digest": "sha256:6599ee6a2da8305c4e6e1b158ccf2d39bbee41424399f261a2d9dc60f8dbff95",
+              "digest": "sha256:1eaaac5858a9318661b2b05c2f5a9d69e3bbfd401fabf9a9bdc52971c32d6df3",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -2517,8 +2512,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:04b339ddeee438e2ded127731d1c08670181969779ee3d9dde60e1834d54ac90",
@@ -2583,7 +2577,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:a009a2426b3618077a28a68e527a98e44526d41303cb43839fb41dc256ed6f67",
+          "digest": "sha256:1195d45820e8409c7ccd991d395fa0fe79d60c41bebc7d95190477e4ab812563",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -2836,7 +2830,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:c87b8fc18289503225d79d718eee1a928d22fa22a97bc0c700902aabc840daaa",
+            "digest": "sha256:576f86aed283312d24ae12668ba7b5d0a2de86a9f7a9693fdffd174e2f26e0f1",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:29a968e2758e1c2b91eea27a7a0dc8402ad7de21b7294c2c065015cf7462c9c0",
             "executorCapture": {
@@ -2855,15 +2849,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/8ab998f3bc20277a139a2e3ea2ed5a10c5de857c192ea94d4434088610c9eb72",
+                  "key": "model-settlement/cf457da20b59eb3d187449e0e5ca612836f71d2d2a89d49a69c5f210515c7c2f",
                   "kind": "s3"
                 },
-                "sha256": "sha256:8ab998f3bc20277a139a2e3ea2ed5a10c5de857c192ea94d4434088610c9eb72"
+                "sha256": "sha256:cf457da20b59eb3d187449e0e5ca612836f71d2d2a89d49a69c5f210515c7c2f"
               },
-              "digest": "sha256:8ab998f3bc20277a139a2e3ea2ed5a10c5de857c192ea94d4434088610c9eb72",
+              "digest": "sha256:cf457da20b59eb3d187449e0e5ca612836f71d2d2a89d49a69c5f210515c7c2f",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -2887,8 +2881,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:cb39378336001dd9dd1af16cb9784eef7cf15226a3ff38d9b5e9ef9dc1fd2bdc",
@@ -2951,7 +2944,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:e330874d950ed38dd73217e23ccc8df86b8a37371f2f4bf43bdceabc45897239",
+          "digest": "sha256:f08f4f1d6b9daf284f9ca86076e6dcd73cb310d7afa3f807549ee57f7ef41889",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -3232,7 +3225,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:50d1f0afbc8ca988f7bd6636275282a18656435827dd5c4b2149dfe4baa88c6f",
+            "digest": "sha256:f339a77f43d73b83faa392f0758a738b3f56a5a5154bf79323e5cbb78882c54f",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:ef2e2d33a65e201654f55167905633e8360e2ff3375267248eaa710cadbd3486",
             "executorCapture": {
@@ -3251,15 +3244,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/52cb458ee135f63eeb9b563c3f1d1b771536cd7835b94b268ca6d6843687fb8f",
+                  "key": "model-settlement/badb327758efd85ae21cd2a1b9a8b90c9171b6dea67c903f80b5c1cdea0f4290",
                   "kind": "s3"
                 },
-                "sha256": "sha256:52cb458ee135f63eeb9b563c3f1d1b771536cd7835b94b268ca6d6843687fb8f"
+                "sha256": "sha256:badb327758efd85ae21cd2a1b9a8b90c9171b6dea67c903f80b5c1cdea0f4290"
               },
-              "digest": "sha256:52cb458ee135f63eeb9b563c3f1d1b771536cd7835b94b268ca6d6843687fb8f",
+              "digest": "sha256:badb327758efd85ae21cd2a1b9a8b90c9171b6dea67c903f80b5c1cdea0f4290",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -3283,8 +3276,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:d968f1968675052465154296cde24b9e665b4e07e3dbf580bcffd8c6186b07f0",
@@ -3349,7 +3341,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:3cc8a5c33a34406322268f4067e94ed3cdf9685d021e4423bad3397abfcc2b2f",
+          "digest": "sha256:156d28a9ad3a9402630d5ad0ecb14950b909c366d908aab1cc54cdbbb7ebf9bd",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -3602,7 +3594,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:505625c4615478e45c93f60017e2c6a4f45067d752b08377e53724c931fa43a0",
+            "digest": "sha256:6d13dc016a054758486c7b1f5015f8022c41b353f03690547777aa3896385b15",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:6d897a2fc35fbf1878989a348bce7aaf8a600d4f81a5c187a62ea4200f396994",
             "executorCapture": {
@@ -3621,15 +3613,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/9f31bc1f615c0c88028507cc88d59832d907a963b96f1c0e81fe7e3c366656a5",
+                  "key": "model-settlement/8876d0d5b3bcb6528f23cf723370043cc85da7f2eec33c8584268a16aa242a4b",
                   "kind": "s3"
                 },
-                "sha256": "sha256:9f31bc1f615c0c88028507cc88d59832d907a963b96f1c0e81fe7e3c366656a5"
+                "sha256": "sha256:8876d0d5b3bcb6528f23cf723370043cc85da7f2eec33c8584268a16aa242a4b"
               },
-              "digest": "sha256:9f31bc1f615c0c88028507cc88d59832d907a963b96f1c0e81fe7e3c366656a5",
+              "digest": "sha256:8876d0d5b3bcb6528f23cf723370043cc85da7f2eec33c8584268a16aa242a4b",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -3653,8 +3645,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:397d09846a0d77f221028ef6d0b7c26334797c29fc8bea64080fac04867ea398",
@@ -3717,7 +3708,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:1fa2ecfd42bcba54d8321314cb487fa9b0852d8b2a81983bc288d60dc67bf911",
+          "digest": "sha256:b55b58b1677b734bca206606a278332745f7be844da243b09bb9a81e3adbaec5",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -3998,7 +3989,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:3c05b89c0ac06e1cb8c01c78ac26b1b266ae12f1b4a9d56405e96d2b95647edc",
+            "digest": "sha256:233b1e655eab6aa77895920b85a8d07d78242cf6d68010e56acabdbfb7761d49",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:e247492e04c77a23efb2c86c1f54012bbe29d0e64021b19dbe85df01255fa1f4",
             "executorCapture": {
@@ -4017,15 +4008,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/295c6a80cafec9fbe31a36c366f4379920d4197b3157b013759dd19130f2f6d9",
+                  "key": "model-settlement/e44ea0408fdb9f9ee7af5e624b92e9c9d2c617948b66d12d5f3acb552c63e015",
                   "kind": "s3"
                 },
-                "sha256": "sha256:295c6a80cafec9fbe31a36c366f4379920d4197b3157b013759dd19130f2f6d9"
+                "sha256": "sha256:e44ea0408fdb9f9ee7af5e624b92e9c9d2c617948b66d12d5f3acb552c63e015"
               },
-              "digest": "sha256:295c6a80cafec9fbe31a36c366f4379920d4197b3157b013759dd19130f2f6d9",
+              "digest": "sha256:e44ea0408fdb9f9ee7af5e624b92e9c9d2c617948b66d12d5f3acb552c63e015",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -4049,8 +4040,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:250d3989e4d77d5ab312a8a1faf533422420835c5ddfb44a333b6a0863779903",
@@ -4115,7 +4105,7 @@
       },
       {
         "baseline": {
-          "digest": "sha256:58e813bb744a21527898c33dac36d5a57a44a34772f904cc54b62d5d5aacfc3c",
+          "digest": "sha256:e5a30dc7c1da7c9e651bc69f5e778019d3fc294d00e8837474c7f028bea40ac9",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -4368,7 +4358,7 @@
               }
             },
             "bundleDigest": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
-            "digest": "sha256:0c1ef5ae995784992706a464bd5b2635dfa086787d51b5c79e2221f81fc3a9e2",
+            "digest": "sha256:5019a45e8f46af9071b119ab7dee26842d7b842b0ab8e7bc707a8b2b0d21ee0f",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:6b79027badda87871cf34254865de9996b4a60bdb73db1913ec7dc9f96b24b15",
             "executorCapture": {
@@ -4387,15 +4377,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/ebe8303cd651584781fc5ff09e0a6d357b531ba33bc151469e3378ab4a7e5195",
+                  "key": "model-settlement/fd6faa433f4d5789e008e9687b6f051903084bcd9a68059f8b819d7bf55d6796",
                   "kind": "s3"
                 },
-                "sha256": "sha256:ebe8303cd651584781fc5ff09e0a6d357b531ba33bc151469e3378ab4a7e5195"
+                "sha256": "sha256:fd6faa433f4d5789e008e9687b6f051903084bcd9a68059f8b819d7bf55d6796"
               },
-              "digest": "sha256:ebe8303cd651584781fc5ff09e0a6d357b531ba33bc151469e3378ab4a7e5195",
+              "digest": "sha256:fd6faa433f4d5789e008e9687b6f051903084bcd9a68059f8b819d7bf55d6796",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -4419,8 +4409,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:06d5cb3c9439757eca3d2d91d236ba96bd1f3b1d89697e3e67bec4a46e762541",
@@ -4483,7 +4472,7 @@
           }
         },
         "candidate": {
-          "digest": "sha256:b8f4787a6cfb9572a53fc0d1bd1d51b2a0578d125f5659468841a36c00d4e2aa",
+          "digest": "sha256:f7846c0b86e6252031b94d7ef394dd1f41757e61a83328c75375d76004c4d45a",
           "kind": "agent-candidate-execution-evidence",
           "materializationReceipt": {
             "benchmark": {
@@ -4764,7 +4753,7 @@
               }
             },
             "bundleDigest": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
-            "digest": "sha256:7ca7b180aa83b3793c82c43952b4642063f25a8f1eac47a06e74c3d717851861",
+            "digest": "sha256:1f989657ce29a8fd82a5fcfac7fc57310b985f491f55cad4ce70f3c21df0905c",
             "digestAlgorithm": "rfc8785-sha256",
             "executionPlanDigest": "sha256:cc4e8f626257eb614658d63483c00c094035cfebffc26aa22f88984eba8de512",
             "executorCapture": {
@@ -4783,15 +4772,15 @@
             },
             "modelSettlement": {
               "artifact": {
-                "byteLength": 668,
+                "byteLength": 643,
                 "locator": {
                   "bucket": "candidate-test-artifacts",
-                  "key": "model-settlement/97ef589043171ebfc284dcc722c9ca31e3f220fb1c1996299669ff98136b386d",
+                  "key": "model-settlement/bec47b973ec51b672cd426042c605e696232640101a58d70af4406fe93682d18",
                   "kind": "s3"
                 },
-                "sha256": "sha256:97ef589043171ebfc284dcc722c9ca31e3f220fb1c1996299669ff98136b386d"
+                "sha256": "sha256:bec47b973ec51b672cd426042c605e696232640101a58d70af4406fe93682d18"
               },
-              "digest": "sha256:97ef589043171ebfc284dcc722c9ca31e3f220fb1c1996299669ff98136b386d",
+              "digest": "sha256:bec47b973ec51b672cd426042c605e696232640101a58d70af4406fe93682d18",
               "kind": "agent-candidate-model-settlement",
               "material": {
                 "calls": [],
@@ -4815,8 +4804,7 @@
                   "modelCalls": 0,
                   "outputTokens": 0,
                   "reasoningTokens": 0
-                },
-                "usageWithinLimits": true
+                }
               }
             },
             "runCellDigest": "sha256:dd1c9d5514f18776e82222ff1a6f57d5bd2741ebf8d3b90535d701469504f514",
@@ -4882,7 +4870,7 @@
     ],
     "metadata": {
       "fixture": "agent-improvement-proposal",
-      "runtimeVersion": "0.134.4"
+      "runtimeVersion": "0.133.7"
     },
     "objectives": [
       {
@@ -4993,8 +4981,8 @@
       "baselineContentHash": "sha256:5c21ee53e513fc604cb09754e21c392b24a424da0ef37dbf8f1ee4a8a0b08f09",
       "candidateContentHash": "sha256:60fcbb1c728194bd51d7d19cb732d1c3f1881dce7e0a6266b41c8b98cfd65693",
       "kind": "agent-eval-loop",
-      "recordDigest": "sha256:bf0a32b65a5557ec3da98c4f5575991462180e2fee8857100215f03dcd5351d8",
-      "runId": "agent-runtime-0.134.4-proposal-fixture",
+      "recordDigest": "sha256:d9a7fed49f117de78530dd56e4f03c34b3ce08e017bf5c6f7812c93d97297492",
+      "runId": "agent-runtime-0.133.7-proposal-fixture",
       "schema": "agent-candidate-experiment"
     }
   },
@@ -5021,5 +5009,5 @@
   ],
   "kind": "agent-improvement-proposal",
   "proposedAt": "2026-07-10T01:00:00.000Z",
-  "runId": "agent-runtime-0.134.4-proposal-fixture"
+  "runId": "agent-runtime-0.133.7-proposal-fixture"
 }

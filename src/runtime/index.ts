@@ -402,7 +402,6 @@ export {
   sumSandboxUsage,
 } from './sandbox-events'
 export {
-  type BranchCapableBox,
   type CheckpointCapableBox,
   createSandboxLineage,
   type ForkCapableBox,
@@ -760,7 +759,6 @@ export {
   type ProviderSeam,
   type RouterSeam,
   type RouterToolsSeam,
-  type SandboxLeafOut,
   type SandboxSeam,
   type ToolSpec,
 } from './supervise/runtime'

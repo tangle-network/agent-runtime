@@ -121,9 +121,9 @@ export interface LoopTokenUsage {
   tokensKnown?: false
   /** Prompt tokens newly processed by the provider, when every prompt class is known. */
   freshInput?: number
-  /** Prompt tokens the provider reported serving from its cache. */
+  /** Prompt tokens served from a provider cache, when every prompt class is known. */
   cacheRead?: number
-  /** Prompt tokens the provider reported writing to its cache. */
+  /** Prompt tokens written to a provider cache, when every prompt class is known. */
   cacheWrite?: number
   /**
    * False when any positive-input observation omitted or contradicted the prompt-cache split.
@@ -336,11 +336,11 @@ export interface SandboxClient {
   create(options?: CreateSandboxOptions): Promise<SandboxInstance>
   describePlacement?(box: SandboxInstance): LoopSandboxPlacement
   /**
-   * Optional legacy CRIU capability probe. When present and it resolves
-   * `{ available: true }`, the loop's `lineage.fork` seam may checkpoint and fork
-   * a parent box when live `branch(count)` is unavailable. Current Sandbox boxes
-   * expose live branching directly. The kernel reads this ONLY through the
-   * capability probe — it never branches on backend kind.
+   * Optional CRIU capability probe. When present and it resolves
+   * `{ available: true }`, the loop's `lineage.fork` seam may checkpoint+fork a
+   * parent box so a fanout's branches inherit a shared context prefix; absent or
+   * `false`, the fanout degrades to independent fresh boxes. The kernel reads
+   * this ONLY through the capability probe — it never branches on backend kind.
    * The raw `Sandbox` SDK class satisfies it; the loop's test fakes omit it
    * (⇒ `canFork = false`).
    * @experimental
@@ -364,8 +364,8 @@ export interface SandboxClient {
  * When the driver authors its own branch point (`describePlan().parentIndex`),
  * it may descend from any prior
  * iteration, so no box is pruned and the live-box count rises to the total
- * iterations across all rounds. Size `forkFanout` runs accordingly. Live branch
- * children use copy-on-write, but each is still a live box until loop end.
+ * iterations across all rounds. Size `forkFanout` runs accordingly (CRIU forks
+ * are copy-on-write, but each is still a live box until loop end).
  *
  * @experimental
  */
@@ -386,10 +386,10 @@ export interface LoopLineageOptions {
    */
   sessionContinuity?: boolean
   /**
-   * When true, a fanout round (N planned tasks) descending from a prior round
-   * branches the parent's live box so all N branches inherit its context prefix.
-   * If live branching is unavailable, the lineage uses legacy CRIU when its
-   * probe is positive. Otherwise it degrades to N fresh boxes with no prefix.
+   * When true AND the platform reports CRIU fork support, a fanout round (N
+   * planned tasks) descending from a prior round FORKS the parent iteration's
+   * checkpoint so all N branches inherit a shared context prefix. Without fork
+   * support it degrades to N independent fresh boxes (same result, no prefix).
    * Round 0 always starts fresh. NEVER set this for a `random@k` control arm —
    * forking would couple the independent samples.
    *

@@ -258,14 +258,6 @@ describe('protected candidate run finalization', () => {
         material: {
           executionPlanDigest: execution.executionPlan.value.digest,
           closed: true,
-          usageWithinLimits: true,
-          calls: [
-            {
-              callId: 'call-1',
-              inputTokens: 10,
-              accountedInputTokens: 10,
-            },
-          ],
           usage: {
             costUsdNanos: 10_000_000,
             inputTokens: 10,

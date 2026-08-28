@@ -857,53 +857,6 @@ describe('bridgeExecutor over node:http', () => {
     }
     await expect(runOnce(bridgeClient('k2'), 'go')).rejects.toThrow(/bridge 500/)
   })
-
-  it('preserves Router proof of a pre-provider rejection without treating it as a provider attempt', async () => {
-    bridgeHttpHandler = () => {
-      const s = new PassThrough() as PassThrough & { statusCode?: number }
-      s.statusCode = 429
-      s.end(
-        JSON.stringify({
-          error: {
-            code: 'candidate_grant_limit_exceeded',
-            provider_dispatch: 'not_started',
-          },
-        }),
-      )
-      return s
-    }
-    const executor = observedBridgeExecutor()
-
-    await expect(drain(executor)).rejects.toThrow(/bridge 429/)
-    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
-      status: 'unknown',
-      attempts: [{ observations: [], providerDispatch: 'not_started' }],
-      models: [],
-      reason: 'provider-model-missing',
-    })
-  })
-
-  it('does not trust an absent or different provider-dispatch value', async () => {
-    bridgeHttpHandler = () => {
-      const s = new PassThrough() as PassThrough & { statusCode?: number }
-      s.statusCode = 502
-      s.end(
-        JSON.stringify({
-          error: { code: 'upstream_error', provider_dispatch: 'started' },
-        }),
-      )
-      return s
-    }
-    const executor = observedBridgeExecutor()
-
-    await expect(drain(executor)).rejects.toThrow(/bridge 502/)
-    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
-      status: 'unknown',
-      attempts: [{ observations: [] }],
-      models: [],
-      reason: 'provider-model-missing',
-    })
-  })
 })
 
 /**

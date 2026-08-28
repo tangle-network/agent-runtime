@@ -181,9 +181,6 @@ describe('extractLlmCallEvent — strict numeric coercion', () => {
       tokensIn: 17381,
       tokensOut: 1851 + 2119,
       costUsd: 0.0042,
-      // The same record states what the provider served from cache. Without it the budget
-      // charges a re-read prefix at the price of new work.
-      promptCache: { readTokens: 1792 },
     })
   })
 

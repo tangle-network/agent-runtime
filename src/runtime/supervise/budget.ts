@@ -13,19 +13,6 @@
  * spend, and refunds the unspent remainder to `free`. Tokens and usd are separate
  * channels (`LoopTokenUsage` has no `usd`); iterations are conserved alongside them.
  *
- * The token unit is `chargedTokens`: every token counted ONCE, when it first enters the context
- * (`input − cacheRead + output`, which is `freshInput + cacheWrite + output` under a complete
- * split). A cached prefix is re-presented content that was already charged when it was written, so
- * charging a cache read again would charge the same tokens twice — on a real fleet cache is 98% of
- * the rolled-up prompt total, which made a declared cap bite about 56x early. No price weight
- * enters the token channel; money is budgeted separately on `maxUsd`. The unit is additive, so a
- * child's settlement charges what its turns charged and a rolled-up report agrees with the pool.
- * Prompt tokens the provider never classified are charged in full, and
- * `readout().cacheBreakdownKnown` then reads false, so the balance reads as an upper bound on
- * newly-presented work rather than a measurement. The pool trusts a reported cache read the same way
- * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
- * against a provider that misreports its own usage.
- *
  * Pure and deterministic: `now()` is injected, there is no I/O, and no wall-clock or
  * RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
  * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always
@@ -50,8 +37,8 @@
  */
 
 import { ValidationError } from '../../errors'
-import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
-import type { Budget, Spend, UsageEvent } from './types'
+import { addTokenUsage, zeroTokenUsage } from '../util'
+import type { Budget, LoopTokenUsage, Spend, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
 
@@ -90,16 +77,6 @@ export type BudgetReadout = Readonly<{
    * flag would present an under-count as an exact balance.
    */
   tokensKnown: boolean
-  /**
-   * False once the pool has charged a REPORTED spend whose prompt-cache split it could not read.
-   * The prompt tokens that carried no class were charged in full, and a cached prefix reaches the
-   * pool again on every turn that reads it, so the debited amount is an upper bound on
-   * newly-presented work rather than a measurement. It is a separate fact from `tokensKnown`: the
-   * counts arrived, but their composition did not. A restored uncertain reservation leaves this
-   * flag alone — it charges a declared ceiling, which has no composition to misread, and
-   * `tokensKnown` already reports that the balance is not a measurement.
-   */
-  cacheBreakdownKnown: boolean
   usdLeft: number
   usdCapped: boolean
   /** False once any recorded work reported an unknown dollar cost; the dollar totals are then a
@@ -168,22 +145,13 @@ function assertValidSpend(spend: Spend, label: string): void {
     }
   }
   const { freshInput, cacheRead, cacheWrite } = spend.tokens
-  if (freshInput !== undefined && cacheRead !== undefined && cacheWrite !== undefined) {
-    const classified = freshInput + cacheRead + cacheWrite
-    // A spend that CLAIMS a complete split must partition `input` exactly — that invariant is what
-    // lets the charge credit a cache read. A spend that declares its split INCOMPLETE reports
-    // classes covering only part of `input`, which is exactly what `addTokenUsage` produces when it
-    // folds a classified turn together with an unclassified one. Demanding an exact partition there
-    // rejects the shape the incomplete flag exists to describe, and a resumed pool built from such
-    // an aggregate died at construction. Either way the classes may never EXCEED the total they
-    // partition; that direction would let bad telemetry credit tokens nobody presented.
-    if (spend.tokens.cacheBreakdownKnown !== false) {
-      if (classified !== spend.tokens.input) {
-        throw new Error(`${label}.tokens cache classes must sum to input`)
-      }
-    } else if (classified > spend.tokens.input) {
-      throw new Error(`${label}.tokens cache classes must not exceed input`)
-    }
+  if (
+    freshInput !== undefined &&
+    cacheRead !== undefined &&
+    cacheWrite !== undefined &&
+    freshInput + cacheRead + cacheWrite !== spend.tokens.input
+  ) {
+    throw new Error(`${label}.tokens cache classes must sum to input`)
   }
   for (const [field, value] of [
     ['usd', spend.usd],
@@ -191,21 +159,6 @@ function assertValidSpend(spend: Spend, label: string): void {
   ] as const) {
     if (!Number.isFinite(value) || value < 0) {
       throw new Error(`${label}.${field} must be a non-negative finite number`)
-    }
-  }
-  if (spend.usdEstimated !== undefined) {
-    if (!Number.isFinite(spend.usdEstimated) || spend.usdEstimated < 0) {
-      throw new Error(`${label}.usdEstimated must be a non-negative finite number`)
-    }
-    // The catalog-priced part is a part OF `usd`, not an addition to it. A larger value would let
-    // `usd - usdEstimated` report negative provider-billed dollars.
-    if (spend.usdEstimated > spend.usd) {
-      throw new Error(`${label}.usdEstimated must not exceed ${label}.usd`)
-    }
-    // A catalog price is never a measurement. Admitting one under `usdKnown: true` would let an
-    // estimate be read as billed spend.
-    if (spend.usdKnown !== false) {
-      throw new Error(`${label}.usdEstimated requires ${label}.usdKnown false`)
     }
   }
 }
@@ -255,7 +208,6 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
   const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
-  let usdEstimated = 0
   let usdKnown = true
   let iterations = 0
   for (const ev of events) {
@@ -264,7 +216,6 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
       if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
-      usdEstimated += ev.usdEstimated ?? 0
       if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
@@ -276,7 +227,6 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
     ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
-    ...(usdEstimated > 0 ? { usdEstimated } : {}),
     ms: 0,
   }
 }
@@ -286,7 +236,6 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
   const tokens = zeroTokenUsage()
   let tokensKnown = true
   let usd = 0
-  let usdEstimated = 0
   let usdKnown = true
   let iterations = 0
   for await (const ev of events) {
@@ -295,7 +244,6 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
       if (ev.tokensKnown === false) tokensKnown = false
     } else if (ev.kind === 'cost') {
       usd += ev.usd
-      usdEstimated += ev.usdEstimated ?? 0
       if (ev.usdKnown === false) usdKnown = false
     } else {
       iterations += 1
@@ -307,9 +255,12 @@ async function foldUsage(events: AsyncIterable<UsageEvent> | UsageEvent[]): Prom
     ...(tokensKnown ? {} : { tokensKnown: false }),
     usd,
     ...(usdKnown ? {} : { usdKnown: false }),
-    ...(usdEstimated > 0 ? { usdEstimated } : {}),
     ms: 0,
   }
+}
+
+function totalTokens(usage: LoopTokenUsage): number {
+  return usage.input + usage.output
 }
 
 /**
@@ -341,12 +292,6 @@ export function createBudgetPool(
   // keeps enforcing the cap on what it knows and reports, via `readout().tokensKnown`, that the
   // balance is an under-count rather than a measurement.
   let tokensTainted = false
-  // Set once the pool charges a spend whose cache split it could not read, and never cleared. That
-  // spend was charged at its rolled-up prompt total, so the balance is an upper bound on
-  // newly-presented tokens. Same admission treatment as `tokensTainted`: enforce on what is known,
-  // report the uncertainty. A restored uncertain reservation does NOT set it — a declared ceiling
-  // carries no cache composition to misread, and `tokensTainted` already reports that charge.
-  let cacheBreakdownTainted = false
 
   const usdCapped = root.maxUsd !== undefined
   let freeUsd = root.maxUsd ?? 0
@@ -420,7 +365,7 @@ export function createBudgetPool(
     assertValidSpend(spent, `budget pool ticket ${ticket.id} spend`)
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
     const unknownUnderCap = usdCapped && spent.usdKnown === false
-    const spentTokens = chargedTokens(spent.tokens)
+    const spentTokens = totalTokens(spent.tokens)
     // A child whose `Budget` named no `maxUsd` reserved NO dollar allocation, so it has no
     // dollar ceiling to exceed: under a capped root its real dollars are OBSERVED spend, and
     // the settlement below commits them and debits them from `free` (the same treatment
@@ -443,19 +388,16 @@ export function createBudgetPool(
       violation = `ticket ${ticket.id} spent ${spentTokens} tokens > reserved ${rTokens}`
     } else if (spent.iterations > rIterations) {
       violation = `ticket ${ticket.id} spent ${spent.iterations} iterations > reserved ${rIterations}`
-    } else if (unknownUnderCap) {
-      // Decided BEFORE the dollar comparison below. Dollars that are not measured may not be
-      // compared against a reservation as if they were billed: a catalog-priced turn can exceed
-      // the ceiling and would then be reported as an overspend the child never made. The known
-      // channels still settle, then the dollar channel is permanently tainted and admission
-      // closes.
-      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     } else if (usdCapped && usdBudgeted && spent.usd > rUsd) {
       // USD is conserved ONLY when the root declared a ceiling AND the child declared one to
       // be measured against. `maxUsd` is optional on both: when either is unset, usd is an
       // OBSERVED quantity (committed for accounting), never a budgeted constraint — an unset
       // ceiling must not behave as a hard $0 limit that fail-closes a real priced spend.
       violation = `ticket ${ticket.id} spent $${spent.usd} > reserved $${rUsd}`
+    } else if (unknownUnderCap) {
+      // The known channels still settle, then the dollar channel is permanently tainted and
+      // admission closes.
+      violation = `ticket ${ticket.id} reported unknown dollar cost under a dollar-capped budget`
     }
 
     // ── Settlement: unconditional, and the only place the ticket closes ───────────────
@@ -464,7 +406,6 @@ export function createBudgetPool(
     // Release the whole reservation, then commit actual spend; the difference is the
     // refund that flows back to `free`.
     if (spent.tokensKnown === false) tokensTainted = true
-    if (!hasCompleteCacheBreakdown(spent.tokens)) cacheBreakdownTainted = true
     if (spent.usdKnown === false) usdMeasured = false
     reservedTokens -= rTokens
     committedTokens += spentTokens
@@ -512,9 +453,8 @@ export function createBudgetPool(
     // marks the balance incomplete. The alternative — refusing to record it — is the "free turn"
     // the pool must never see.
     if (spend.tokensKnown === false) tokensTainted = true
-    if (!hasCompleteCacheBreakdown(spend.tokens)) cacheBreakdownTainted = true
     if (spend.usdKnown === false) usdMeasured = false
-    const tokens = chargedTokens(spend.tokens)
+    const tokens = totalTokens(spend.tokens)
     // Direct free → committed debit (no reservation ticket). `free` may go negative on overspend —
     // that is honest; the readout then reports exhaustion and the in-loop guard halts the driver.
     // The DURABLE record of this spend is the journal's `metered` event (the twin written by
@@ -531,7 +471,6 @@ export function createBudgetPool(
     return {
       tokensLeft: freeTokens,
       tokensKnown: !tokensTainted,
-      cacheBreakdownKnown: !cacheBreakdownTainted,
       usdLeft: usdCapped ? (usdTainted ? 0 : freeUsd) : 0,
       usdCapped,
       usdKnown: usdMeasured && !usdTainted,
@@ -559,9 +498,8 @@ export function createBudgetPool(
     assertValidSpend(restore.committed, 'budget restore committed')
     const committed = restore.committed
     if (committed.tokensKnown === false) tokensTainted = true
-    if (!hasCompleteCacheBreakdown(committed.tokens)) cacheBreakdownTainted = true
     if (committed.usdKnown === false) usdMeasured = false
-    const tokens = chargedTokens(committed.tokens)
+    const tokens = totalTokens(committed.tokens)
     freeTokens -= tokens
     committedTokens += tokens
     freeIterations -= committed.iterations

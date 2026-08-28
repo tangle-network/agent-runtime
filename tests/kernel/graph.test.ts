@@ -35,11 +35,6 @@
  *      directions, and the refusals fail loud: resume-with-no-prior, resume-while-live (steer is
  *      the live channel), resume-under-a-key, and nonsense values or analyzes edges carrying
  *      continuity refused at validation.
- *  11. driverBackend passthrough: a root node declaring an external harness (`codex`) resolves its
- *      driver through `RunGraphOptions.driverBackend`, forwarded to `supervise()` verbatim. Worker
- *      placement is a separate axis: `backend` alone leaves the root undriveable, and the refusal
- *      names `driveHarnessFromBackend`, not `workerFromBackend` — that is what proves WHICH seam
- *      received the config.
  */
 
 import type { ToolSpan } from '@tangle-network/agent-eval'
@@ -1192,67 +1187,6 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
     // No turn's transcript ever carried an online finding: the panel is opt-in, off by default.
     const transcript = JSON.stringify(seen)
     expect(transcript).not.toContain('online:')
-  })
-})
-
-describe('runGraph — driverBackend selects WHERE the root harness brain runs', () => {
-  /** A graph whose ROOT declares an external harness: that root is driven BY the harness, so it
-   *  needs a driver backend. `backend` cannot supply one — it places WORKER nodes. */
-  const externalRootGraph = (): AgentGraph =>
-    twoNodeGraph({
-      nodes: [
-        {
-          id: 'driver',
-          profile: testAgentProfile('driver', {
-            harness: 'codex',
-            prompt: { systemPrompt: 'Drive the worker until it delivers.' },
-          }),
-        },
-        {
-          id: 'worker',
-          profile: testAgentProfile('worker', { prompt: { systemPrompt: 'Build.' } }),
-        },
-      ],
-    })
-
-  const bridge = (over: Record<string, unknown> = {}) => ({
-    backend: 'bridge' as const,
-    bridgeUrl: 'http://127.0.0.1:1',
-    bridgeBearer: 'unused',
-    ...over,
-  })
-
-  it('refuses an external-harness root when no driverBackend says where it runs', async () => {
-    // `backend` alone is NOT a root driver: it became the worker seam. Without driverBackend the
-    // root has no harness to run in, and supervise() refuses BEFORE any compute is spent.
-    await expect(
-      runGraph(externalRootGraph(), { runId: 'gdb0', backend: bridge() }),
-    ).rejects.toThrow(/requires a local bridge driverBackend/)
-  })
-
-  it('threads driverBackend to the ROOT driver construction point, not the worker seam', async () => {
-    // The refusal names `driveHarnessFromBackend` — the driver path. The worker path refuses the
-    // same fixed id under `workerFromBackend`, so the context string is what proves WHICH seam
-    // received this config: the root's, reached only through the new option.
-    await expect(
-      runGraph(externalRootGraph(), {
-        runId: 'gdb1',
-        backend: bridge(),
-        driverBackend: bridge({ sessionId: 'SHARED' }),
-      }),
-    ).rejects.toThrow(/driveHarnessFromBackend: fixed sessionId.*isolated id/)
-  })
-
-  it('drives the root with driverBackend alone — worker placement stays its own axis', async () => {
-    // No `backend` at all: workers run on the offline leaf seam while the root still resolves its
-    // harness driver. The two axes are independent, which is the whole point of the option.
-    await expect(
-      runGraph(externalRootGraph(), {
-        runId: 'gdb2',
-        makeWorkerAgent: leafSeam([]),
-        driverBackend: bridge({ sessionId: 'SHARED' }),
-      }),
-    ).rejects.toThrow(/driveHarnessFromBackend: fixed sessionId.*isolated id/)
   })
 })
 

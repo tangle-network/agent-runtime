@@ -375,31 +375,8 @@ The `Scope` it runs inside is the budget-conserving reactive control surface (`t
    ├─ progress(nodeId) / traceSource(nodeId)        explicit live observation
    ├─ meter(spend) / recordMaterialization(receipt) runtime accounting and wire-profile evidence
    ├─ view / workerCapacity                         live tree and shared execution slots
-   └─ budget → {tokensLeft,tokensKnown,cacheBreakdownKnown,usdLeft,usdKnown,iterationsLeft,deadlineMs,reservedTokens}
+   └─ budget → {tokensLeft,tokensKnown,usdLeft,usdKnown,iterationsLeft,deadlineMs,reservedTokens}
 ```
-
-The token channel charges each token ONCE, when it first enters the context: `input - cacheRead + output`, which is `freshInput + cacheWrite + output` under a complete split.
-A cache read re-presents content that was already charged when it was written, so charging it again charges the same tokens twice.
-No price weight enters this channel; money is budgeted separately on `maxUsd`.
-The charge is additive, so a rolled-up report agrees with the pool.
-A cache class that does not fit inside the prompt total it partitions credits nothing.
-Prompt tokens the provider never classified are charged in full, and `cacheBreakdownKnown: false` then marks `tokensLeft` an upper bound on newly-presented work rather than a measurement.
-
-The classes come from the provider, not from an estimate.
-`sandbox-events.ts` reads the prompt-cache counters off each usage-bearing event into the `PromptCacheUsage` vocabulary (`readTokens`, `writeTokens`, `missTokens`), which is the vocabulary the router and driver paths already speak.
-It accepts every wire spelling the sandbox, cli-bridge, Anthropic, OpenAI, and DeepSeek paths use, and it forwards an unrecognized provider field verbatim beside the canonical names.
-`promptCacheTokenClasses` in `runtime/util.ts` then turns one report into spend classes: a read and a write that fit inside `input` give a complete partition, one counter alone gives that counter plus `cacheBreakdownKnown: false`, and an overflowing claim gives the marker alone.
-A counter the provider did not report stays absent.
-A zero would assert the provider measured no cache, which is a different fact from a provider that reported nothing.
-
-The dollar channel keeps a receipt and a price apart.
-A provider receipt is a dollar figure the provider billed; cli-bridge sends one only with `cost_known: true` and `provider-receipt` or `billing-receipt` provenance, and the claude harness reports one for the whole `claude -p` invocation.
-A cli-bridge turn that carries NO receipt is priced from the model catalog (`estimateCost` in agent-eval) against that turn's own token counts, because a zero there reads as a measured free turn and made a fleet-wide dollar total report `$0` on runs that certainly spent money.
-The priced part is carried in `Spend.usdEstimated`, so `usd - usdEstimated` is what a provider is known to have billed, and it is admitted only with `usdKnown: false` — a catalog price approximates what a provider would bill and never measures what it did.
-An unpriced model contributes no dollars and leaves the turn unknown rather than free.
-The catalog holds one input rate and one output rate per model and no cache-read rate, so a prompt prefix the provider served from cache is priced at the full input rate.
-That overstates a cache-heavy turn, which is the correct direction: a discount the catalog cannot support would be invented, and an invented discount understates spend.
-A dollar cap is unaffected — `observe` and `reconcile` still refuse unknown dollars under a `maxUsd` root, and an estimate rides `usdKnown: false`.
 
 Two facts make this the whole game:
 - `spawn` **reserves** from one root total and refunds the unspent remainder on settle.

@@ -125,8 +125,7 @@ function respondWithBridgeStream(
         : {}),
     },
   })}`
-  const withReceipt = normalized.replace('data: [DONE]', `${receipt}\n\ndata: [DONE]`)
-  res.end(numberSseDataFrames(withReceipt))
+  res.end(numberSseDataFrames(normalized.replace('data: [DONE]', `${receipt}\n\ndata: [DONE]`)))
 }
 
 function cancelledRunId(url: string | undefined): string | undefined {
@@ -194,23 +193,6 @@ function unknownTokenStream(content: string): string {
   return [
     `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}`,
     `data: ${JSON.stringify({ usage: { cost: 0.01 } })}`,
-    'data: [DONE]',
-    '',
-  ].join('\n\n')
-}
-
-function overBudgetSubmissionStream(): string {
-  return [
-    `data: ${JSON.stringify({
-      model: 'test',
-      choices: [{ delta: { content: 'accepted answer' } }],
-    })}`,
-    `data: ${JSON.stringify({
-      usage: {
-        prompt_tokens: 229_329,
-        completion_tokens: 6_528,
-      },
-    })}`,
     'data: [DONE]',
     '',
   ].join('\n\n')
@@ -1174,94 +1156,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
   })
 
-  it('publishes an acknowledged root receipt when accepted work exceeds the token budget', async () => {
-    const journal = new InMemorySpawnJournal()
-    server = createBridgeServer(async (req, res) => {
-      const body = await readJson(req)
-      const coordination = body.agent_profile.mcp?.['agent-runtime-coordination']
-      if (!coordination || typeof coordination.url !== 'string') {
-        throw new Error('bridge test request did not carry the coordination MCP')
-      }
-      await callCoordination(coordination.url, 'submit_result', {
-        result: { answer: 42 },
-      })
-      respondWithBridgeStream(res, body, overBudgetSubmissionStream())
-    })
-    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
-    const { port } = server.address() as AddressInfo
-    const runId = 'accepted-submit-terminal-error'
-
-    const result = await supervise(codexTestProfile('pi-leader', 'Lead.'), 'Choose.', {
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: `http://127.0.0.1:${port}`,
-        bridgeBearer: 'test-token',
-      },
-      budget: { maxIterations: 2, maxTokens: 200_000 },
-      deliverable: {
-        describe: 'an object whose answer is 42',
-        check: (value) => (value as { answer?: unknown }).answer === 42,
-      },
-      driverRetry: { enabled: false },
-      journal,
-      runId,
-    })
-
-    expect(result.kind).toBe('winner')
-    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
-    const events = (await journal.loadTree(runId)) ?? []
-    expect(events.find((event) => event.kind === 'materialized')).toMatchObject({
-      id: runId,
-      receipt: {
-        status: 'known',
-        runtime: 'cli',
-        backend: 'bridge',
-        model: { status: 'known', id: 'codex/openai/test' },
-      },
-    })
-  })
-
-  it('keeps the budget error when a terminal receipt arrives without an accepted result', async () => {
-    const journal = new InMemorySpawnJournal()
-    server = createBridgeServer(async (req, res) => {
-      const body = await readJson(req)
-      respondWithBridgeStream(res, body, overBudgetSubmissionStream())
-    })
-    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
-    const { port } = server.address() as AddressInfo
-    const runId = 'unaccepted-submit-terminal-error'
-    const attempts: DriverAttemptRecord[] = []
-
-    const result = await supervise(codexTestProfile('pi-leader', 'Lead.'), 'Choose.', {
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: `http://127.0.0.1:${port}`,
-        bridgeBearer: 'test-token',
-      },
-      budget: { maxIterations: 2, maxTokens: 200_000 },
-      driverRetry: { enabled: false },
-      onDriverAttempt: (record) => void attempts.push(record),
-      journal,
-      runId,
-    })
-
-    expect(result.kind).toBe('no-winner')
-    if (result.kind === 'no-winner') {
-      expect(result.reason).toBe('budget-exhausted')
-    }
-    expect(attempts.at(-1)?.error).toContain('supervisor budget exhausted')
-    const events = (await journal.loadTree(runId)) ?? []
-    expect(events.find((event) => event.kind === 'materialized')).toMatchObject({
-      id: runId,
-      receipt: {
-        status: 'known',
-        runtime: 'cli',
-        backend: 'bridge',
-        model: { status: 'known', id: 'codex/openai/test' },
-      },
-    })
-  })
-
   it('retries a mid-stream harness death, which is transport and not a refusal', async () => {
     // Measured on a six-arm campaign wave: three arms died on `pi assistant turn failed: The
     // model finished (finish_reason=stop) without emitting any visible output — Retry the
@@ -1396,12 +1290,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     if (result.reason === 'driver-failed') {
       expect(result.error.message).toMatch(/unknown dollar cost under a dollar-capped budget/)
     }
-    // The turn carried no receipt, so its dollars are the catalog price of what it presented —
-    // recorded, and explicitly not a measurement. Pricing an estimate does not open the cap: the
-    // refusal above is unchanged.
-    expect(result.spentTotal.usdKnown).toBe(false)
-    expect(result.spentTotal.usd).toBeGreaterThan(0)
-    expect(result.spentTotal.usdEstimated).toBe(result.spentTotal.usd)
+    expect(result.spentTotal).toMatchObject({ usd: 0, usdKnown: false })
   })
 
   it('records a manager with unknown token usage as unknown telemetry without ending the run', async () => {

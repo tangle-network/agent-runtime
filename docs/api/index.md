@@ -917,10 +917,6 @@ branch on the upstream status code.
 
 `string`
 
-###### providerDispatch?
-
-`"not_started"`
-
 ###### Returns
 
 [`BackendTransportError`](#backendtransporterror)
@@ -938,15 +934,6 @@ branch on the upstream status code.
 ##### status?
 
 > `readonly` `optional` **status?**: `number`
-
-##### providerDispatch?
-
-> `readonly` `optional` **providerDispatch?**: `"not_started"`
-
-Router-owned proof that a rejected request never reached a provider.
-
-This is intentionally one-sided. An absent value, or any value this
-package does not understand, remains unknown to Runtime.
 
 ##### body?
 
@@ -8118,7 +8105,7 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ***
 
@@ -8484,15 +8471,6 @@ Dollar accounting is known unless explicitly false. A false value must not be tr
 
 > **usd**: `number`
 
-##### usdEstimated?
-
-> `optional` **usdEstimated?**: `number`
-
-The part of `usd` priced from a model catalog because no provider receipt covered the work.
- `usd - usdEstimated` is what a provider is known to have billed. Present only with
- `usdKnown: false`; absence means nothing here was catalog-priced, not that `usd` is
- measured.
-
 ##### ms
 
 > **ms**: `number`
@@ -8550,7 +8528,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Conserved-pool readouts (post-reservation).
 
@@ -8827,8 +8805,7 @@ live `RootHandle` (the Q2 substrate the chat/pi-viz client later consumes).
 ### ProviderModelAttemptEvidence
 
 One provider/harness inference attempt. An empty observation list means the attempt started but
-no trusted served model identity arrived before it failed or ended, unless Router explicitly
-proves that admission rejected it before provider dispatch.
+no trusted served model identity arrived before it failed or ended.
 
 #### Properties
 
@@ -8839,12 +8816,6 @@ proves that admission rejected it before provider dispatch.
 ##### identityConflict?
 
 > `readonly` `optional` **identityConflict?**: `boolean`
-
-##### providerDispatch?
-
-> `readonly` `optional` **providerDispatch?**: `"not_started"`
-
-Router-owned proof that this attempt never reached a provider.
 
 ***
 

@@ -39,7 +39,7 @@ import type {
   TreeView,
 } from '../runtime/supervise/types'
 import type { PendingWait } from '../runtime/supervise/wait'
-import { addTokenUsage, cloneTokenUsage, usdEstimatedOf, zeroTokenUsage } from '../runtime/util'
+import { addTokenUsage, cloneTokenUsage, zeroTokenUsage } from '../runtime/util'
 import { contentAddress } from './content-address'
 import { parseCommittedJsonLines, prepareJsonlAppend, writeAllBytes } from './jsonl-file'
 
@@ -463,9 +463,8 @@ function ownedTreeRootSpawn(
  * is intentionally not read: it proves only what Runtime requested, not what a provider served.
  *
  * Missing legacy evidence, an unfinished node, an unopened owned tree, an identity conflict, and a
- * paid attempt without a qualified served snapshot all return unknown. An explicit
- * `providerDispatch: "not_started"` arm and Runtime accounting-only metered records are ignored
- * for served-model identity, while absent or malformed legacy data remains unknown here.
+ * paid attempt without a qualified served snapshot all return unknown. An explicit not-started arm
+ * can be added by the owning Runtime contract later; absent legacy data remains unknown here.
  */
 export function aggregateProviderModelEvidence(
   forest: SpawnForest,
@@ -496,11 +495,7 @@ export function aggregateProviderModelEvidence(
       return
     }
     if (raw.status === 'unknown') {
-      if (raw.reason === 'provider-model-conflict') {
-        markConflict()
-      } else if (!hasOnlyNotStartedAttempts(raw)) {
-        markMissing()
-      }
+      raw.reason === 'provider-model-conflict' ? markConflict() : markMissing()
     } else if (raw.status !== 'known') {
       markMissing()
       return
@@ -526,17 +521,6 @@ export function aggregateProviderModelEvidence(
       }
       if (rawAttempt.identityConflict === true) markConflict()
       const observations = [...rawAttempt.observations]
-      if (rawAttempt.providerDispatch === 'not_started') {
-        if (observations.length > 0) markMissing()
-        attempts.push(
-          Object.freeze({
-            observations: Object.freeze([]),
-            providerDispatch: 'not_started' as const,
-            ...(rawAttempt.identityConflict === true ? { identityConflict: true } : {}),
-          }),
-        )
-        continue
-      }
       if (observations.length === 0) {
         markMissing()
         attempts.push(
@@ -614,10 +598,6 @@ export function aggregateProviderModelEvidence(
   for (const tree of forest.trees) {
     for (const event of tree.events) {
       if (event.kind === 'metered') {
-        if (event.accountingOnly === true) {
-          if (event.providerModel !== undefined) markMissing()
-          continue
-        }
         // The parent scope re-homes a driver's nested metered spend onto the driver's parent node.
         // Its owned tree carries the provider attempts; consuming this summary would both
         // double-count and treat the spend-only legacy summary as missing identity evidence.
@@ -632,9 +612,7 @@ export function aggregateProviderModelEvidence(
     }
   }
 
-  if (!sawProviderEvidence || attempts.length === 0 || observedModels.size === 0) {
-    reason ??= 'provider-model-missing'
-  }
+  if (!sawProviderEvidence || attempts.length === 0) reason ??= 'provider-model-missing'
   const models = Object.freeze([...observedModels])
   const frozenAttempts = Object.freeze(attempts)
   return Object.freeze(
@@ -652,28 +630,12 @@ function isProviderEvidenceObject(value: unknown): value is ProviderModelExecuti
   return typeof value === 'object' && value !== null && !Array.isArray(value) && 'status' in value
 }
 
-function hasOnlyNotStartedAttempts(evidence: ProviderModelExecutionEvidence): boolean {
-  return (
-    Array.isArray(evidence.attempts) &&
-    evidence.attempts.length > 0 &&
-    evidence.attempts.every(
-      (attempt) =>
-        isProviderAttemptEvidence(attempt) &&
-        attempt.providerDispatch === 'not_started' &&
-        attempt.observations.length === 0 &&
-        attempt.identityConflict !== true,
-    )
-  )
-}
-
 function isProviderAttemptEvidence(value: unknown): value is ProviderModelAttemptEvidence {
   return (
     typeof value === 'object' &&
     value !== null &&
     !Array.isArray(value) &&
-    Array.isArray((value as { observations?: unknown }).observations) &&
-    ((value as { providerDispatch?: unknown }).providerDispatch === undefined ||
-      (value as { providerDispatch?: unknown }).providerDispatch === 'not_started')
+    Array.isArray((value as { observations?: unknown }).observations)
   )
 }
 
@@ -1140,7 +1102,6 @@ function cloneJournalSpend(spend: Spend): Spend {
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: spend.usd,
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
-    ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
     ms: spend.ms,
   }
 }
@@ -1155,9 +1116,6 @@ function copyProviderModelEvidence(
       Object.freeze({
         observations: Object.freeze([...attempt.observations]),
         ...(attempt.identityConflict ? { identityConflict: true } : {}),
-        ...(attempt.providerDispatch === 'not_started'
-          ? { providerDispatch: 'not_started' as const }
-          : {}),
       }),
     ),
   )
@@ -1181,7 +1139,6 @@ function addJournalSpend(a: Spend, b: Spend): Spend {
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),
     usd: a.usd + b.usd,
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
-    ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
   }
 }

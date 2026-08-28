@@ -103,24 +103,6 @@ function resourceInstructionLines(
 }
 
 /**
- * Refuse a best-effort resource policy on the router arm.
- *
- * The router arm inlines `resources.instructions` into the standing prompt and has no channel that
- * could report a resource it skipped. `resources.failOnError: false` asks for the supported subset
- * plus a warning about the rest, so this arm cannot honor it. Running such a profile as strict
- * would apply a policy the profile did not ask for, which is the silent drop the materialization
- * contract exists to prevent.
- */
-function assertRouterArmResourcePolicy(profile: SupervisorProfile): void {
-  if (profile.resources?.failOnError !== false) return
-  throw new ConfigError(
-    'supervisorAgent: resources.failOnError: false requests a best-effort resource subset; the ' +
-      'router-brained supervisor inlines its resources and reports no skipped resource, so the ' +
-      'best-effort policy is refused rather than applied as strict',
-  )
-}
-
-/**
  * The standing instruction both arms run under: `prompt.systemPrompt`, then canonical prompt and
  * resource instruction lines.
  * `undefined` only when the profile names none at all.
@@ -497,7 +479,6 @@ function buildSupervisorAgent(
     // ROUTER arm: the in-process tool-loop. `routerBrain` is an internal detail — a production
     // caller passes a profile, never a hand-built brain. Deterministic source tests use the
     // separately exported `/testing` constructor.
-    assertRouterArmResourcePolicy(stableProfile)
     const brain = testBrain ?? routerBrainFromProfile(stableProfile, stableRouter)
     const inbox = createInbox()
     const build = (

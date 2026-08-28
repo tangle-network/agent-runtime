@@ -203,14 +203,6 @@ export class GraphEdgeCapError extends Error {
 export interface RunGraphOptions {
   /** WHERE worker nodes run — the executor backend. Provide this OR `makeWorkerAgent`. */
   readonly backend?: ExecutorConfig
-  /** WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim (see
-   *  `SuperviseOptions.driverBackend`). Needed when the root node's profile declares an external
-   *  harness (`codex`, `claude-code`, `opencode`): that root is driven by the harness, not by the
-   *  router brain, and automatic execution supports a local `bridge`. Unlike `supervise()`, this
-   *  does NOT default to `backend`: a graph's `backend` places WORKER nodes, so the root driver
-   *  is selected only by this field. Omit = no harness driver, which is correct for a root whose
-   *  `profile.harness` is omitted or `cli-base` (that root runs on the router brain). */
-  readonly driverBackend?: ExecutorConfig
   /** Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
    *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours. */
   readonly makeWorkerAgent?: MakeWorkerAgent
@@ -971,10 +963,6 @@ function runGraphInternal(
       ...(Object.keys(continuityByProfile).length > 0 ? { continuityByProfile } : {}),
       ...(opts.watchWorkers ? { watchWorkers: opts.watchWorkers } : {}),
       ...(opts.router ? { router: opts.router } : {}),
-      // The root's harness driver. `backend` is NOT forwarded: it already became the worker seam
-      // (`makeWorkerAgent` above), so the root driver is an explicit choice, never a side effect
-      // of where workers run.
-      ...(opts.driverBackend ? { driverBackend: opts.driverBackend } : {}),
       ...(authorizeMessage ? { authorizeMessage } : {}),
       ...(opts.perWorker ? { perWorker: opts.perWorker } : {}),
       ...(opts.maxTurns !== undefined ? { maxTurns: opts.maxTurns } : {}),

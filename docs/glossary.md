@@ -25,7 +25,7 @@ Two substrates run the same "recursive agent decision" atom — the round-synchr
 |---|---|---|
 | **Driver** | Owns topology. `plan(task, history) → Task[]` (1 = refine, N = fanout, 0 = stop) and `decide(history) → Decision`. The authority on what runs next. **Live and central.** | `types.ts:138` |
 | **Worker** | The agent run dispatched within an iteration (round-robin over `agentRuns`). "worker box", "finished worker". **Live term.** | `run-loop.ts:88,107` (`AgentRunSpec` `types.ts:67`) |
-| **Validator** | Owns scoring: `validate(output, ctx) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. `ctx.box` is the iteration's LIVE sandbox, so a check can execute commands in the container it scores; a supervised worker gets one through `SandboxSeam.validator`. | `types.ts:52` |
+| **Validator** | Owns scoring: `validate(output) → Verdict {valid, score}`. The judge. Selector ≠ judge: the driver selects, the validator judges. | `types.ts:52` |
 | **OutputAdapter** | Owns event-stream decode: `parse(events) → Output`. | `types.ts:105` |
 | **Analyst** | An `Agent.act` over the trace that returns a steer (never reads the verdict — the steer firewall). `llmAnalyst` (one router call); a strategy reads it via `ctx.critique`. | `bench/src/sandbox-run.ts:58` (`llmAnalyst`); firewall `personify/analyst.ts` (`assertTraceDerivedFindings`) |
 
@@ -55,9 +55,8 @@ The shape grows by LLM decision through the **coordination toolbox** over a live
 
 | Term | Meaning | Anchor |
 |---|---|---|
-| **Budget** | A ceiling envelope on a spawn/root: `{maxIterations, maxTokens, maxUsd?, deadlineMs?}`. (Keystone substrate.) `maxTokens` counts NEWLY-PRESENTED tokens (see **Charged tokens**). `deadlineMs` is currently classify-only, does not fire an abort — known gap. | `supervise/types.ts:189` |
+| **Budget** | A ceiling envelope on a spawn/root: `{maxIterations, maxTokens, maxUsd?, deadlineMs?}`. (Keystone substrate.) `deadlineMs` is currently classify-only, does not fire an abort — known gap. | `supervise/types.ts:189` |
 | **Spend** | Conserved actual cost reconciled from `UsageEvent`s: `{iterations, tokens, usd, ms}`. Tokens and usd are separate channels, never folded. | `supervise/types.ts:198` |
-| **Charged tokens** | The pool's token unit: `input - cacheRead + output`, so each token is counted once, when it first enters the context. Under a complete split it equals `freshInput + cacheWrite + output`. The subtraction form is additive, so an aggregate charges what its records charged; a cache class that does not fit inside the prompt total it partitions credits nothing. Unclassified prompt tokens are charged in full and `BudgetReadout.cacheBreakdownKnown` reads false, marking the balance an upper bound. | `runtime/util.ts` |
 | **BudgetPool / ReservationTicket** | The **conserved reservation pool**: each spawn *reserves* against the root then settles to actual `Spend`. This is what makes **equal-compute hold by construction** (the anti-confound invariant for the gate). | `supervise/budget.ts:48,29` |
 | **UsageEvent** | The normalized usage increment every executor emits, so the pool meters all runtimes identically. | `supervise/types.ts:120` |
 | `runAgentRounds`'s budget | Only `maxIterations` (count) + `maxConcurrency` (in-flight cap) + per-`Iteration` cost aggregation. The rigorous reservation pool is the keystone's, not `runAgentRounds`'s. | `run-loop.ts:88` |

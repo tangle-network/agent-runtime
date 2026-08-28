@@ -233,16 +233,11 @@ export type UsageEvent =
       output: number
       /** Newly processed prompt tokens. Present only with a complete cache split. */
       freshInput?: number
-      /** Prompt tokens the provider reported reading from cache. */
+      /** Prompt tokens read from cache. Present only with a complete cache split. */
       cacheRead?: number
-      /** Prompt tokens the provider reported writing to cache. */
+      /** Prompt tokens written to cache. Present only with a complete cache split. */
       cacheWrite?: number
-      /**
-       * False when this observation cannot classify all positive prompt tokens — including a
-       * provider that reports a read with no write counter. The measured counters are still
-       * carried; the marker says the remaining prompt tokens are unclassified, so a charge over
-       * them is an upper bound. A counter the provider did not report is absent, never zero.
-       */
+      /** False when this observation cannot classify all positive prompt tokens. */
       cacheBreakdownKnown?: false
     }
   | {
@@ -250,15 +245,6 @@ export type UsageEvent =
       /** Known dollar subtotal. When false, `usd` must not be treated as total cost. */
       usdKnown?: false
       usd: number
-      /**
-       * The part of `usd` this runtime priced from a model catalog because no provider receipt
-       * covered the work. Requires `usdKnown: false` — a catalog price approximates what a
-       * provider would bill and never measures what it did.
-       *
-       * Absence means this runtime priced nothing here, NOT that `usd` is a receipt. `usdKnown`
-       * is what says whether a dollar figure is measured.
-       */
-      usdEstimated?: number
     }
   | { kind: 'iteration' }
 
@@ -488,11 +474,6 @@ export interface Spend {
    *  when enforcing a dollar-denominated comparison or limit. */
   usdKnown?: boolean
   usd: number
-  /** The part of `usd` priced from a model catalog because no provider receipt covered the work.
-   *  `usd - usdEstimated` is what a provider is known to have billed. Present only with
-   *  `usdKnown: false`; absence means nothing here was catalog-priced, not that `usd` is
-   *  measured. */
-  usdEstimated?: number
   ms: number
 }
 
@@ -758,10 +739,6 @@ export interface Scope<Out> {
     /** `false` once a turn settled without reporting its tokens: `tokensLeft` is then a ceiling,
      *  not a measurement. */
     tokensKnown: boolean
-    /** `false` once a charged spend arrived without a readable prompt-cache split. That spend was
-     *  charged at its rolled-up prompt total, which counts a cached prefix again on every turn that
-     *  reads it, so `tokensLeft` is an upper bound on newly-presented work. */
-    cacheBreakdownKnown: boolean
     usdLeft: number
     usdCapped: boolean
     usdKnown: boolean
@@ -963,8 +940,6 @@ export type SpawnEvent =
       kind: 'metered'
       id: NodeId
       spend: Spend
-      /** Runtime bookkeeping only; this record carries no provider inference attempt. */
-      accountingOnly?: true
       /** Runtime-owned provider attempt evidence for this driver's own inference turn. */
       providerModel?: ProviderModelExecutionEvidence
       seq: number
@@ -1140,13 +1115,10 @@ export interface SupervisorOpts {
 export type RootProviderModelEvidence = ProviderModelExecutionEvidence
 
 /** One provider/harness inference attempt. An empty observation list means the attempt started but
- * no trusted served model identity arrived before it failed or ended, unless Router explicitly
- * proves that admission rejected it before provider dispatch. */
+ * no trusted served model identity arrived before it failed or ended. */
 export interface ProviderModelAttemptEvidence {
   readonly observations: ReadonlyArray<string>
   readonly identityConflict?: boolean
-  /** Router-owned proof that this attempt never reached a provider. */
-  readonly providerDispatch?: 'not_started'
 }
 
 /** Durable provider identity evidence, independent from the planned materialization alias. */
