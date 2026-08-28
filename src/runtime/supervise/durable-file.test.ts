@@ -1,18 +1,39 @@
 import {
+  appendFileSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { publishExclusiveDurableFile, writeAtomicDurableFile } from './durable-file'
+import {
+  appendDurableFile,
+  publishExclusiveDurableFile,
+  writeAtomicDurableFile,
+} from './durable-file'
+import {
+  cancelRun,
+  cancelWorker,
+  readRunCancellation,
+  readRunCancelRequest,
+  readWorkerCancellation,
+  readWorkerCancelRequests,
+  workerCancelRequestsFile,
+  writeRunCancellation,
+  writeWorkerCancellation,
+} from './run-layout'
 
 let root: string | undefined
+
+function expectPrivateMode(filePath: string): void {
+  if (process.platform !== 'win32') expect(statSync(filePath).mode & 0o777).toBe(0o600)
+}
 
 afterEach(() => {
   if (root !== undefined) rmSync(root, { recursive: true, force: true })
@@ -43,5 +64,194 @@ describe('durable file helpers', () => {
     expect(readFileSync(filePath, 'utf8')).toBe('{"generation":2}\n')
     expect(statSync(filePath).mode & 0o777).toBe(0o600)
     expect(readdirSync(dirname(filePath))).toEqual(['state.json'])
+  })
+
+  it('writes worker cancellation acknowledgements through the durable replacement path', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+    const first = {
+      operationId: 'worker-op',
+      worker: 'worker-1',
+      effect: 'cancel_requested' as const,
+      requestedAt: '2026-08-28T00:00:00.000Z',
+      observedAt: '2026-08-28T00:00:01.000Z',
+      detail: 'abort issued',
+      terminated: [],
+    }
+    const second = { ...first, effect: 'cancelled' as const, terminated: ['worker-1'] }
+
+    writeWorkerCancellation(root, first)
+    expect(readWorkerCancellation(root, first.operationId)).toEqual(first)
+    writeWorkerCancellation(root, second)
+
+    expect(readWorkerCancellation(root, second.operationId)).toEqual(second)
+    expectPrivateMode(join(root, 'cancellations', 'worker-op.json'))
+    expect(readdirSync(join(root, 'cancellations'))).toEqual(['worker-op.json'])
+  })
+
+  it('writes run cancellation acknowledgements through the durable replacement path', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+    const first = {
+      operationId: 'run-op',
+      effect: 'cancel_requested' as const,
+      requestedAt: '2026-08-28T00:00:00.000Z',
+      observedAt: '2026-08-28T00:00:01.000Z',
+      detail: 'root abort issued',
+    }
+    const second = { ...first, effect: 'cancelled' as const, detail: 'run aborted' }
+
+    writeRunCancellation(root, first)
+    expect(readRunCancellation(root, first.operationId)).toEqual(first)
+    writeRunCancellation(root, second)
+
+    expect(readRunCancellation(root, second.operationId)).toEqual(second)
+    expectPrivateMode(join(root, 'cancellations', 'run.json'))
+    expect(readdirSync(join(root, 'cancellations'))).toEqual(['run.json'])
+  })
+
+  it('writes run cancellation requests through the durable replacement path', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    expect(cancelRun(root, 'run-request', { source: 'test', reason: 'stop now' }).effect).toBe(
+      'unknown',
+    )
+    expect(readRunCancelRequest(root)).toMatchObject({
+      operationId: 'run-request',
+      source: 'test',
+      reason: 'stop now',
+    })
+    expectPrivateMode(join(root, 'cancellations', 'run.request.json'))
+    expect(readdirSync(join(root, 'cancellations'))).toEqual(['run.request.json'])
+  })
+
+  it('appends worker cancellation requests in order and replays one operation', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    cancelWorker(root, 'worker-a', 'worker-op-a', { source: 'test' })
+    cancelWorker(root, 'worker-b', 'worker-op-b', { source: 'test' })
+    expect(() => cancelWorker(root!, 'worker-a', 'worker-op-a', { source: 'different' })).toThrow(
+      /conflicts/u,
+    )
+    const firstReplay = cancelWorker(root, 'worker-a', 'worker-op-a', { source: 'test' })
+
+    const firstLine = readFileSync(workerCancelRequestsFile(root), 'utf8').split('\n')[0]
+    appendFileSync(workerCancelRequestsFile(root), `${firstLine}\n`, 'utf8')
+
+    expect(firstReplay.operationId).toBe('worker-op-a')
+    expect(readWorkerCancelRequests(root).map((request) => request.operationId)).toEqual([
+      'worker-op-a',
+      'worker-op-b',
+    ])
+    expectPrivateMode(workerCancelRequestsFile(root))
+    expect(
+      readFileSync(workerCancelRequestsFile(root), 'utf8').split('\n').filter(Boolean),
+    ).toHaveLength(3)
+  })
+
+  it('rejects worker cancellation payload changes for one operation', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    cancelWorker(root, 'worker-a', 'worker-op', { source: 'source-a', reason: 'reason-a' })
+    expect(() => cancelWorker(root!, 'worker-a', 'worker-op')).toThrow(/source/u)
+    expect(() =>
+      cancelWorker(root!, 'worker-b', 'worker-op', { source: 'source-a', reason: 'reason-a' }),
+    ).toThrow(/worker/u)
+    expect(() =>
+      cancelWorker(root!, 'worker-a', 'worker-op', { source: 'source-b', reason: 'reason-a' }),
+    ).toThrow(/source/u)
+    expect(() =>
+      cancelWorker(root!, 'worker-a', 'worker-op', { source: 'source-a', reason: 'reason-b' }),
+    ).toThrow(/reason/u)
+
+    cancelWorker(root, 'worker-default', 'worker-default-op')
+    expect(() =>
+      cancelWorker(root!, 'worker-default', 'worker-default-op', { source: 'source-a' }),
+    ).toThrow(/source/u)
+    expect(() =>
+      cancelWorker(root!, 'worker-default', 'worker-default-op', { reason: 'reason-a' }),
+    ).toThrow(/reason/u)
+  })
+
+  it('rejects run cancellation payload changes for one operation', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    cancelRun(root, 'run-op', { source: 'source-a', reason: 'reason-a' })
+    expect(() => cancelRun(root!, 'run-op')).toThrow(/source/u)
+    expect(() => cancelRun(root!, 'run-op', { source: 'source-b', reason: 'reason-a' })).toThrow(
+      /source/u,
+    )
+    expect(() => cancelRun(root!, 'run-op', { source: 'source-a', reason: 'reason-b' })).toThrow(
+      /reason/u,
+    )
+  })
+
+  it('rejects explicit run fields after an omitted field was admitted', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+
+    cancelRun(root, 'run-default-op')
+    expect(() => cancelRun(root!, 'run-default-op', { source: 'source-a' })).toThrow(/source/u)
+    expect(() => cancelRun(root!, 'run-default-op', { reason: 'reason-a' })).toThrow(/reason/u)
+  })
+
+  it('rejects an append target that is a symbolic link', () => {
+    if (process.platform === 'win32') return
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+    const dir = join(root, 'cancellations')
+    mkdirSync(dir)
+    const target = join(root, 'append-target.json')
+    const file = join(dir, 'requests.ndjson')
+    writeFileSync(target, 'unchanged\n')
+    symlinkSync(target, file)
+
+    expect(() => appendDurableFile(file, '{"operationId":"op"}\n', { mode: 0o600 })).toThrow()
+    expect(readFileSync(target, 'utf8')).toBe('unchanged\n')
+  })
+
+  it('rejects a worker cancellation target that is a symbolic link', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+    const dir = join(root, 'cancellations')
+    mkdirSync(dir)
+    const target = join(root, 'worker-target.json')
+    writeFileSync(target, '{}')
+    symlinkSync(target, join(dir, 'worker-op.json'))
+
+    const record = {
+      operationId: 'worker-op',
+      worker: 'worker-1',
+      effect: 'cancel_requested' as const,
+      requestedAt: '2026-08-28T00:00:00.000Z',
+      observedAt: '2026-08-28T00:00:01.000Z',
+      detail: 'abort issued',
+      terminated: [],
+    }
+    expect(() => writeWorkerCancellation(root!, record)).toThrow(/symbolic link/u)
+    expect(() => readWorkerCancellation(root!, record.operationId)).toThrow(/symbolic link/u)
+  })
+
+  it('rejects a run cancellation request through a symbolic-link directory', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+    const target = join(root, 'run-target')
+    mkdirSync(target)
+    symlinkSync(target, join(root, 'cancellations'), 'dir')
+
+    expect(() => cancelRun(root!, 'run-op', { source: 'test' })).toThrow(/symbolic link/u)
+  })
+
+  it('rejects a run cancellation target that is a symbolic link', () => {
+    root = mkdtempSync(join(tmpdir(), 'agent-runtime-durable-file-'))
+    const dir = join(root, 'cancellations')
+    mkdirSync(dir)
+    const target = join(root, 'run-target.json')
+    writeFileSync(target, '{}')
+    symlinkSync(target, join(dir, 'run.json'))
+
+    const record = {
+      operationId: 'run-op',
+      effect: 'cancel_requested' as const,
+      requestedAt: '2026-08-28T00:00:00.000Z',
+      observedAt: '2026-08-28T00:00:01.000Z',
+      detail: 'abort issued',
+    }
+    expect(() => writeRunCancellation(root!, record)).toThrow(/symbolic link/u)
+    expect(() => readRunCancellation(root!, record.operationId)).toThrow(/symbolic link/u)
   })
 })

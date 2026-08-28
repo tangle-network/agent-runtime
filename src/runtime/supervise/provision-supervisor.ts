@@ -60,8 +60,6 @@ export interface ProvisionSupervisorConnection {
   readonly apiKey?: string
   /** Connection kind is descriptive only and does not select a hidden implementation. */
   readonly kind?: string
-  /** Opaque credential reference. It is not resolved or persisted by Runtime. */
-  readonly credentialRef?: string
 }
 
 /** Input to the public Runtime supervisor provisioner. */
@@ -468,7 +466,7 @@ async function resolveProvider(
   const endpoint = connection.endpoint?.trim()
   if (!apiKey || !endpoint) {
     throw unavailable(
-      'Runtime supervisor needs a provider/client or both connection.endpoint and connection.apiKey; opaque credential references are not resolved by Runtime',
+      'Runtime supervisor needs a provider/client or both connection.endpoint and connection.apiKey',
     )
   }
   let module: typeof import('@tangle-network/sandbox')

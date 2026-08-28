@@ -346,6 +346,12 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
   }
 }
 
+/**
+ * Candidate records keep this async writer because lease authorization must run after the
+ * asynchronous temp-file fsync and immediately before synchronous link publication. The
+ * supervisor durability helper is synchronous and has no lease hook, so combining them would
+ * either move authorization earlier or add an async race to the claim boundary.
+ */
 async function writeRecordIfAbsent(
   directory: string,
   destination: string,

@@ -179,7 +179,7 @@ describe('acknowledged worker cancellation (#758)', () => {
         await workerStarted
         const first = cancelWorker(dir, 'a', 'op-once', { reason: 'test', source: 'test' })
         expect(first.effect).toBe('unknown')
-        const second = cancelWorker(dir, 'a', 'op-once')
+        const second = cancelWorker(dir, 'a', 'op-once', { reason: 'test', source: 'test' })
         expect(second.requestedAt).toBe(first.requestedAt)
       }
       return script(messages, tools, context)
@@ -202,7 +202,7 @@ describe('acknowledged worker cancellation (#758)', () => {
 
     // Repeating the operation AFTER acknowledgement is a pure lookup: the identical record comes
     // back, no new request line lands, and the abort count stays 1.
-    const repeated = cancelWorker(dir, 'a', 'op-once')
+    const repeated = cancelWorker(dir, 'a', 'op-once', { reason: 'test', source: 'test' })
     expect(repeated).toEqual(acknowledged)
     const requestLines = readFileSync(workerCancelRequestsFile(dir), 'utf8')
       .split('\n')
@@ -423,7 +423,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     expect(read?.workerId).toBe('run-reconnect:s0')
     expect(read?.terminated).toEqual(['run-reconnect:s0'])
     // The one-export reconnect path answers identically: repeating the operation is a lookup.
-    expect(cancelWorker(dir, 'a', 'op-reconnect')).toEqual(read)
+    expect(cancelWorker(dir, 'a', 'op-reconnect', { source: 'test' })).toEqual(read)
   })
 
   it('a worker that is already gone acknowledges not_live, and an unmatched one expires not_live at run end — never success', async () => {
@@ -469,7 +469,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     expect(ghost?.effect).toBe('not_live')
     expect(ghost?.detail).toContain('run ended before the request was applied')
     expect(ghost?.terminated).toEqual([])
-    expect(cancelWorker(dir, 'ghost', 'op-ghost')).toEqual(ghost)
+    expect(cancelWorker(dir, 'ghost', 'op-ghost', { source: 'test' })).toEqual(ghost)
   })
 
   it('a nested descendant is applied by the owning manager and no other writer', async () => {

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.177.0
+
+### Supervisor connections use an explicit public contract
+
+`ProvisionSupervisorConnection` no longer exposes `credentialRef`. Runtime does not resolve or persist that value, so the inert field is removed from the kernel and TUI APIs.
+
+Worker and run cancellation records now use the shared durable writer. Each replacement fsyncs the file and its containing directory before readers can observe the complete record.
+
+Candidate claim records keep their asynchronous writer because lease authorization must run immediately before link publication.
+
+This release requires `@tangle-network/sandbox >=0.34.0 <0.35.0`.
+
 ## 0.176.0
 
 ### Durable provider-backed workers use exact terminal replay

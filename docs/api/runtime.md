@@ -14481,12 +14481,6 @@ Transient Sandbox API key used only when Runtime constructs the SDK client.
 
 Connection kind is descriptive only and does not select a hidden implementation.
 
-##### credentialRef?
-
-> `readonly` `optional` **credentialRef?**: `string`
-
-Opaque credential reference. It is not resolved or persisted by Runtime.
-
 ***
 
 ### ProvisionSupervisorRequest
@@ -30059,6 +30053,9 @@ The directory holding every cancellation artifact of one run (request inbox + ac
 > **workerCancelRequestsFile**(`eventDir`): `string`
 
 The durable cancel-request inbox of one run — one NDJSON line per [WorkerCancelRequest](#workercancelrequest).
+It stays append-only so independent operations retain admission order and readers can skip a
+partial trailing line. `appendDurableFile` uses O_APPEND, one write, file fsync, and directory
+fsync; single-record acknowledgements use atomic replacement instead.
 
 #### Parameters
 
@@ -30154,9 +30151,10 @@ request file is not an acknowledgement.
 
 Idempotency is a lookup: when an acknowledgement for `operationId` already exists, it is
 returned AS-IS and nothing is appended — repeating one operation can never apply twice. A
-request the runtime has not answered yet returns `effect: 'unknown'` (never a success); call
-again with the same `operationId` — or `readWorkerCancellation` — to read the acknowledged
-result after a reconnect.
+retry that changes the worker, source, or reason fails closed. A request the runtime has not
+answered yet returns `effect: 'unknown'` (never a success); call again with the same
+`operationId` — or `readWorkerCancellation` — to read the acknowledged result after a
+reconnect.
 
 #### Parameters
 
@@ -30279,9 +30277,10 @@ cascade controller the run already has, so every live worker comes down with it.
 never applies the cancellation itself; writing a request file is not an acknowledgement.
 
 Idempotency is a lookup: when an acknowledgement for `operationId` already exists it is returned
-AS-IS and nothing is written. A request the runtime has not answered yet returns
-`effect: 'unknown'` (never a success); call again with the same `operationId` — or
-[readRunCancellation](#readruncancellation) — to read the acknowledged result after a reconnect.
+AS-IS and nothing is written. A retry that changes the source or reason fails closed. A request
+the runtime has not answered yet returns `effect: 'unknown'` (never a success); call again with
+the same `operationId` — or [readRunCancellation](#readruncancellation) — to read the acknowledged result
+after a reconnect.
 
 A run carries ONE run-scoped operation: a second request under a different `operationId` throws
 rather than silently replacing the pending one, because both would claim the same single abort.

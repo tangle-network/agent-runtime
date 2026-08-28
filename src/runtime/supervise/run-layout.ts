@@ -36,7 +36,8 @@
  *                                  what the run actually did)
  *
  * Reads are tolerant by contract: a partial trailing line (a writer mid-append) or a corrupt line
- * never poisons the rest of the file — later valid lines still matter.
+ * never poisons the rest of the file — later valid lines still matter. Duplicate operation ids
+ * collapse to the first admitted request, while a payload conflict fails closed.
  *
  * Promoted from `loops/src/supervisor-control.ts`. Steer admission now requires the exact worker id
  * and a caller-owned operation id. One atomic request file is the durable inbox; the NDJSON file is
@@ -45,20 +46,13 @@
  * @experimental
  */
 
-import { createHash, randomUUID } from 'node:crypto'
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from 'node:fs'
+import { createHash } from 'node:crypto'
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { canonicalCandidateDigest, type Sha256Digest } from '@tangle-network/agent-interface'
 import type { RetainedRunEffect } from '../retained-run-types'
 import {
+  appendDurableFile,
   assertNoSymlinkDescendant,
   publishExclusiveDurableFile,
   writeAtomicDurableFile,
@@ -483,7 +477,12 @@ export function workerCancellationsDir(eventDir: string): string {
   return join(eventDir, 'cancellations')
 }
 
-/** The durable cancel-request inbox of one run — one NDJSON line per {@link WorkerCancelRequest}. */
+/**
+ * The durable cancel-request inbox of one run — one NDJSON line per {@link WorkerCancelRequest}.
+ * It stays append-only so independent operations retain admission order and readers can skip a
+ * partial trailing line. `appendDurableFile` uses O_APPEND, one write, file fsync, and directory
+ * fsync; single-record acknowledgements use atomic replacement instead.
+ */
 export function workerCancelRequestsFile(eventDir: string): string {
   return join(workerCancellationsDir(eventDir), 'requests.ndjson')
 }
@@ -505,9 +504,13 @@ function safeOperationFile(operationId: string): string {
 
 /** Read every valid cancel request in the run's cancellation inbox. Corrupt lines are skipped. */
 export function readWorkerCancelRequests(eventDir: string): WorkerCancelRequest[] {
+  const dir = workerCancellationsDir(eventDir)
   const file = workerCancelRequestsFile(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'cancel request')
+  assertNoSymlinkDescendant(eventDir, file, 'cancel request')
   if (!existsSync(file)) return []
   const out: WorkerCancelRequest[] = []
+  const byOperationId = new Map<string, WorkerCancelRequest>()
   let raw = ''
   try {
     raw = readFileSync(file, 'utf8')
@@ -517,11 +520,20 @@ export function readWorkerCancelRequests(eventDir: string): WorkerCancelRequest[
   for (const line of raw.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed) continue
+    let parsed: Partial<WorkerCancelRequest>
     try {
-      const parsed = JSON.parse(trimmed) as Partial<WorkerCancelRequest>
-      if (isWorkerCancelRequest(parsed)) out.push(parsed)
+      parsed = JSON.parse(trimmed) as Partial<WorkerCancelRequest>
     } catch {
       // Ignore partial or corrupt input lines; later valid lines still matter.
+      continue
+    }
+    if (!isWorkerCancelRequest(parsed)) continue
+    const prior = byOperationId.get(parsed.operationId)
+    if (prior !== undefined) {
+      assertSameWorkerCancelRequest(prior, parsed)
+    } else {
+      byOperationId.set(parsed.operationId, parsed)
+      out.push(parsed)
     }
   }
   return out
@@ -536,7 +548,10 @@ export function readWorkerCancellation(
   eventDir: string,
   operationId: string,
 ): WorkerCancellation | undefined {
+  const dir = workerCancellationsDir(eventDir)
   const file = workerCancellationFile(eventDir, operationId)
+  assertNoSymlinkDescendant(eventDir, dir, 'cancel acknowledgement')
+  assertNoSymlinkDescendant(eventDir, file, 'cancel acknowledgement')
   if (!existsSync(file)) return undefined
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as WorkerCancellation
   if (parsed.operationId !== operationId) {
@@ -549,19 +564,20 @@ export function readWorkerCancellation(
 }
 
 /**
- * Durably write one acknowledgement record. Write-then-rename, so a concurrent reader sees the
- * prior complete record or the new complete record, never a partial file.
+ * Durably write one acknowledgement record. The shared writer fsyncs the file and containing
+ * directory, so a concurrent reader sees the prior complete record or the new complete record.
  *
  * @internal The runtime acknowledger is the only intended writer; clients read via
  * {@link readWorkerCancellation} or {@link cancelWorker}.
  */
 export function writeWorkerCancellation(eventDir: string, record: WorkerCancellation): void {
   const dir = workerCancellationsDir(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'cancel acknowledgement')
   mkdirSync(dir, { recursive: true })
+  assertNoSymlinkDescendant(eventDir, dir, 'cancel acknowledgement')
   const file = workerCancellationFile(eventDir, record.operationId)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
+  assertNoSymlinkDescendant(eventDir, file, 'cancel acknowledgement')
+  writeAtomicDurableFile(file, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
 }
 
 /**
@@ -577,9 +593,10 @@ export function writeWorkerCancellation(eventDir: string, record: WorkerCancella
  *
  * Idempotency is a lookup: when an acknowledgement for `operationId` already exists, it is
  * returned AS-IS and nothing is appended — repeating one operation can never apply twice. A
- * request the runtime has not answered yet returns `effect: 'unknown'` (never a success); call
- * again with the same `operationId` — or `readWorkerCancellation` — to read the acknowledged
- * result after a reconnect.
+ * retry that changes the worker, source, or reason fails closed. A request the runtime has not
+ * answered yet returns `effect: 'unknown'` (never a success); call again with the same
+ * `operationId` — or `readWorkerCancellation` — to read the acknowledged result after a
+ * reconnect.
  */
 export function cancelWorker(
   eventDir: string,
@@ -591,10 +608,25 @@ export function cancelWorker(
   if (!ref) throw new Error('cancelWorker: worker reference is empty')
   const opId = operationId.trim()
   if (!opId) throw new Error('cancelWorker: operationId is empty')
-  const acknowledged = readWorkerCancellation(eventDir, opId)
-  if (acknowledged) return acknowledged
-  const source = options.source ?? 'human'
   const pending = readWorkerCancelRequests(eventDir).find((r) => r.operationId === opId)
+  const candidate = {
+    operationId: opId,
+    worker: ref,
+    source: options.source ?? 'human',
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+  }
+  if (pending !== undefined) assertSameWorkerCancelRequest(pending, candidate)
+  const acknowledged = readWorkerCancellation(eventDir, opId)
+  if (acknowledged !== undefined) {
+    if (pending === undefined && options.source !== undefined) {
+      throw new Error(
+        `cancelWorker: operation '${opId}' cannot verify source without its admitted request`,
+      )
+    }
+    assertWorkerCancellationMatchesCandidate(acknowledged, candidate)
+    return acknowledged
+  }
+  const source = options.source ?? 'human'
   const request: WorkerCancelRequest = pending ?? {
     operationId: opId,
     at: new Date().toISOString(),
@@ -603,8 +635,13 @@ export function cancelWorker(
     ...(options.reason === undefined ? {} : { reason: options.reason }),
   }
   if (!pending) {
-    mkdirSync(workerCancellationsDir(eventDir), { recursive: true })
-    appendFileSync(workerCancelRequestsFile(eventDir), `${JSON.stringify(request)}\n`, 'utf8')
+    const dir = workerCancellationsDir(eventDir)
+    assertNoSymlinkDescendant(eventDir, dir, 'cancel request')
+    mkdirSync(dir, { recursive: true })
+    assertNoSymlinkDescendant(eventDir, dir, 'cancel request')
+    const file = workerCancelRequestsFile(eventDir)
+    assertNoSymlinkDescendant(eventDir, file, 'cancel request')
+    appendDurableFile(file, `${JSON.stringify(request)}\n`, { mode: 0o600 })
     appendWorkerControlEvent(eventDir, ref, {
       kind: 'cancel-request',
       operationId: opId,
@@ -637,7 +674,10 @@ export function runCancellationFile(eventDir: string): string {
 
 /** Read the run-scoped cancel request, or `undefined` when none was written. */
 export function readRunCancelRequest(eventDir: string): RunCancelRequest | undefined {
+  const dir = workerCancellationsDir(eventDir)
   const file = runCancelRequestFile(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
+  assertNoSymlinkDescendant(eventDir, file, 'run cancel request')
   if (!existsSync(file)) return undefined
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<RunCancelRequest>
   if (!isRunCancelRequest(parsed)) {
@@ -655,7 +695,10 @@ export function readRunCancellation(
   eventDir: string,
   operationId: string,
 ): RunCancellation | undefined {
+  const dir = workerCancellationsDir(eventDir)
   const file = runCancellationFile(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'run cancel acknowledgement')
+  assertNoSymlinkDescendant(eventDir, file, 'run cancel acknowledgement')
   if (!existsSync(file)) return undefined
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as RunCancellation
   if (parsed.operationId !== operationId) {
@@ -668,19 +711,20 @@ export function readRunCancellation(
 }
 
 /**
- * Durably write the run-scoped acknowledgement. Write-then-rename, so a concurrent reader sees the
- * prior complete record or the new complete record, never a partial file.
+ * Durably write the run-scoped acknowledgement. The shared writer fsyncs the file and containing
+ * directory, so a concurrent reader sees the prior complete record or the new complete record.
  *
  * @internal The runtime is the only intended writer; clients read via {@link readRunCancellation}
  * or {@link cancelRun}.
  */
 export function writeRunCancellation(eventDir: string, record: RunCancellation): void {
   const dir = workerCancellationsDir(eventDir)
+  assertNoSymlinkDescendant(eventDir, dir, 'run cancel acknowledgement')
   mkdirSync(dir, { recursive: true })
+  assertNoSymlinkDescendant(eventDir, dir, 'run cancel acknowledgement')
   const file = runCancellationFile(eventDir)
-  const tmp = `${file}.${randomUUID()}.tmp`
-  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-  renameSync(tmp, file)
+  assertNoSymlinkDescendant(eventDir, file, 'run cancel acknowledgement')
+  writeAtomicDurableFile(file, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
 }
 
 /**
@@ -693,9 +737,10 @@ export function writeRunCancellation(eventDir: string, record: RunCancellation):
  * never applies the cancellation itself; writing a request file is not an acknowledgement.
  *
  * Idempotency is a lookup: when an acknowledgement for `operationId` already exists it is returned
- * AS-IS and nothing is written. A request the runtime has not answered yet returns
- * `effect: 'unknown'` (never a success); call again with the same `operationId` — or
- * {@link readRunCancellation} — to read the acknowledged result after a reconnect.
+ * AS-IS and nothing is written. A retry that changes the source or reason fails closed. A request
+ * the runtime has not answered yet returns `effect: 'unknown'` (never a success); call again with
+ * the same `operationId` — or {@link readRunCancellation} — to read the acknowledged result
+ * after a reconnect.
  *
  * A run carries ONE run-scoped operation: a second request under a different `operationId` throws
  * rather than silently replacing the pending one, because both would claim the same single abort.
@@ -707,14 +752,28 @@ export function cancelRun(
 ): RunCancellation {
   const opId = operationId.trim()
   if (!opId) throw new Error('cancelRun: operationId is empty')
-  const acknowledged = readRunCancellation(eventDir, opId)
-  if (acknowledged) return acknowledged
   const pending = readRunCancelRequest(eventDir)
   if (pending !== undefined && pending.operationId !== opId) {
     throw new Error(
       `cancelRun: run cancel '${pending.operationId}' is already pending for this run; ` +
         `read it with readRunCancellation instead of issuing '${opId}'`,
     )
+  }
+  const candidate = {
+    operationId: opId,
+    source: options.source ?? 'human',
+    ...(options.reason === undefined ? {} : { reason: options.reason }),
+  }
+  if (pending !== undefined) assertSameRunCancelRequest(pending, candidate)
+  const acknowledged = readRunCancellation(eventDir, opId)
+  if (acknowledged !== undefined) {
+    if (pending === undefined && options.source !== undefined) {
+      throw new Error(
+        `cancelRun: operation '${opId}' cannot verify source without its admitted request`,
+      )
+    }
+    assertRunCancellationMatchesCandidate(acknowledged, candidate)
+    return acknowledged
   }
   const source = options.source ?? 'human'
   const request: RunCancelRequest = pending ?? {
@@ -724,8 +783,13 @@ export function cancelRun(
     ...(options.reason === undefined ? {} : { reason: options.reason }),
   }
   if (pending === undefined) {
-    mkdirSync(workerCancellationsDir(eventDir), { recursive: true })
-    writeFileSync(runCancelRequestFile(eventDir), `${JSON.stringify(request, null, 2)}\n`, 'utf8')
+    const dir = workerCancellationsDir(eventDir)
+    assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
+    mkdirSync(dir, { recursive: true })
+    assertNoSymlinkDescendant(eventDir, dir, 'run cancel request')
+    const file = runCancelRequestFile(eventDir)
+    assertNoSymlinkDescendant(eventDir, file, 'run cancel request')
+    writeAtomicDurableFile(file, `${JSON.stringify(request, null, 2)}\n`, { mode: 0o600 })
     appendWorkerControlEvent(eventDir, 'run', {
       kind: 'run-cancel-request',
       operationId: opId,
@@ -741,6 +805,97 @@ export function cancelRun(
     observedAt: request.at,
     ...(request.reason === undefined ? {} : { reason: request.reason }),
     detail: 'request queued; no runtime acknowledger has answered yet',
+  }
+}
+
+type WorkerCancelRequestCandidate = {
+  readonly operationId: string
+  readonly worker: string
+  readonly source: string
+  readonly reason?: string
+}
+
+type RunCancelRequestCandidate = {
+  readonly operationId: string
+  readonly source: string
+  readonly reason?: string
+}
+
+function assertSameWorkerCancelRequest(
+  existing: WorkerCancelRequest,
+  candidate: WorkerCancelRequestCandidate,
+): void {
+  if (existing.operationId !== candidate.operationId) {
+    throw new Error(`cancelWorker: operation '${candidate.operationId}' has an id collision`)
+  }
+  if (existing.worker !== candidate.worker) {
+    throw new Error(
+      `cancelWorker: operation '${candidate.operationId}' conflicts with its admitted request ` +
+        `(worker '${existing.worker}' != '${candidate.worker}')`,
+    )
+  }
+  if (existing.source !== candidate.source) {
+    throw new Error(
+      `cancelWorker: operation '${candidate.operationId}' conflicts with its admitted request ` +
+        `(source '${existing.source}' != '${candidate.source}')`,
+    )
+  }
+  if (existing.reason !== candidate.reason) {
+    throw new Error(
+      `cancelWorker: operation '${candidate.operationId}' conflicts with its admitted request ` +
+        `(reason differs)`,
+    )
+  }
+}
+
+function assertWorkerCancellationMatchesCandidate(
+  existing: WorkerCancellation,
+  candidate: WorkerCancelRequestCandidate,
+): void {
+  if (existing.worker !== candidate.worker) {
+    throw new Error(
+      `cancelWorker: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
+        `(worker '${existing.worker}' != '${candidate.worker}')`,
+    )
+  }
+  if (existing.reason !== candidate.reason) {
+    throw new Error(
+      `cancelWorker: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
+        `(reason differs)`,
+    )
+  }
+}
+
+function assertSameRunCancelRequest(
+  existing: RunCancelRequest,
+  candidate: RunCancelRequestCandidate,
+): void {
+  if (existing.operationId !== candidate.operationId) {
+    throw new Error(`cancelRun: operation '${candidate.operationId}' has an id collision`)
+  }
+  if (existing.source !== candidate.source) {
+    throw new Error(
+      `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request ` +
+        `(source '${existing.source}' != '${candidate.source}')`,
+    )
+  }
+  if (existing.reason !== candidate.reason) {
+    throw new Error(
+      `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request ` +
+        `(reason differs)`,
+    )
+  }
+}
+
+function assertRunCancellationMatchesCandidate(
+  existing: RunCancellation,
+  candidate: RunCancelRequestCandidate,
+): void {
+  if (existing.reason !== candidate.reason) {
+    throw new Error(
+      `cancelRun: operation '${candidate.operationId}' conflicts with its acknowledgement ` +
+        `(reason differs)`,
+    )
   }
 }
 
