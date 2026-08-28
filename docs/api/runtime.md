@@ -14515,7 +14515,7 @@ Root directory for Runtime-owned `.agent/supervisor` state.
 
 > `readonly` `optional` **timeoutMs?**: `number`
 
-Maximum time to wait for worker admission and terminal readiness.
+Maximum wall-clock time for the complete supervisor lifecycle, including cleanup.
 
 ##### pollMs?
 
