@@ -639,9 +639,105 @@ describe('scope.interactive — attaching to the exact process one worker runs i
       }),
     ).toThrow(/symbolic link/)
 
+    const actualDir = tempDir()
+    const aliasParent = tempDir()
+    const aliasDir = join(aliasParent, 'run-alias')
+    symlinkSync(actualDir, aliasDir)
+    expect(() =>
+      writeWorkerInteractiveBinding(aliasDir, 'root:s0', 'worker', 'root', {
+        status: 'unavailable',
+        reason: 'executor-exposes-no-interactive-session',
+      }),
+    ).toThrow(/symbolic link/)
+
     pause.open()
     await scope.next()
     await scope.next()
+  })
+
+  it('preserves not-started when an executor has no readiness signal', async () => {
+    const dir = tempDir()
+    const scope = await durableScopeOf(dir)
+    const execution = gate()
+    const profile = testAgentProfile('not-started', { harness: 'pi' })
+    const executor: Executor<unknown> = {
+      runtime: 'sandbox',
+      execute: async () => {
+        await execution.opened
+        return {
+          outRef: 'not-started',
+          out: 'done',
+          spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+        }
+      },
+      interactive: () => ({
+        status: 'unavailable',
+        reason: 'interactive-session-not-started',
+      }),
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => {
+        throw new Error('one-shot result is returned from execute')
+      },
+    }
+    const spec: AgentSpec = { profile, harness: null, executor }
+    const agent = {
+      name: 'not-started',
+      act: async () => 'done',
+      executorSpec: spec,
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const spawned = scope.spawn(agent, 'work', {
+      budget: { maxIterations: 2, maxTokens: 100 },
+      label: 'not-started',
+    })
+    if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
+
+    await vi.waitFor(async () => {
+      await expect(
+        attachWorker(dir, spawned.handle.id, { providers: interactiveProvider('unused') }),
+      ).resolves.toEqual({
+        status: 'unavailable',
+        reason: 'interactive-session-not-started',
+      })
+    })
+
+    execution.open()
+    await scope.next()
+  })
+
+  it('does not let a never-resolving readiness signal block worker settlement', async () => {
+    const dir = tempDir()
+    const scope = await durableScopeOf(dir)
+    const profile = testAgentProfile('never-ready', { harness: 'pi' })
+    const executor: Executor<unknown> = {
+      runtime: 'sandbox',
+      execute: async () => ({
+        outRef: 'never-ready',
+        out: 'done',
+        spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+      }),
+      interactive: () => ({
+        status: 'unavailable',
+        reason: 'interactive-session-not-started',
+      }),
+      interactiveReady: () => new Promise<WorkerInteractiveSession>(() => {}),
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => {
+        throw new Error('one-shot result is returned from execute')
+      },
+    }
+    const spec: AgentSpec = { profile, harness: null, executor }
+    const agent = {
+      name: 'never-ready',
+      act: async () => 'done',
+      executorSpec: spec,
+    } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
+    const spawned = scope.spawn(agent, 'work', {
+      budget: { maxIterations: 2, maxTokens: 100 },
+      label: 'never-ready',
+    })
+    if (!spawned.ok) throw new Error(`spawn failed: ${spawned.reason}`)
+
+    await expect(scope.next()).resolves.toMatchObject({ out: 'done' })
   })
 
   it('publishes no exact binding until a delayed interactive handle is attachable', async () => {

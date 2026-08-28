@@ -22,6 +22,7 @@ import {
   workerInboxFile,
   workerSteerAcknowledgementFile,
   workerSteerRequestFile,
+  workerSteerRequestsDir,
   writeWorkerSteer,
   writeWorkerSteerAcknowledgement,
 } from '../src/runtime/supervise/run-layout'
@@ -195,6 +196,54 @@ describe('supervisor run layout', () => {
     expect(readWorkerSteerRequests(dir).map((request) => request.operationId)).toEqual([
       'steer-valid',
     ])
+  })
+
+  it('ignores requests under foreign names and per-file symbolic links', () => {
+    const root = tempRoot()
+    const dir = supervisorRunDir(root, 'run-forged-request')
+    const canonical = writeWorkerSteer(root, 'run-forged-request', 'run-forged-request:s0', {
+      operationId: 'steer-canonical',
+      message: 'accepted once',
+    })
+    writeFileSync(
+      join(workerSteerRequestsDir(dir), 'foreign.json'),
+      readFileSync(canonical.file, 'utf8'),
+      'utf8',
+    )
+
+    const sourceRoot = tempRoot()
+    const linked = writeWorkerSteer(sourceRoot, 'run-source', 'run-forged-request:s0', {
+      operationId: 'steer-linked',
+      message: 'must not cross the run boundary',
+    })
+    symlinkSync(linked.file, workerSteerRequestFile(dir, 'steer-linked'), 'file')
+
+    expect(readWorkerSteerRequests(dir).map((request) => request.operationId)).toEqual([
+      'steer-canonical',
+    ])
+    expect(() =>
+      claimWorkerSteerDelivery(dir, {
+        schemaVersion: 1,
+        operationId: linked.request.operationId,
+        requestDigest: linked.request.requestDigest,
+        worker: linked.request.worker,
+        effect: 'unknown',
+        requestedAt: linked.request.at,
+        observedAt: '2026-08-28T00:00:00.000Z',
+        detail: 'must not claim a linked request',
+      }),
+    ).toThrow(/symbolic link/)
+  })
+
+  it('rejects a symbolic-link run directory before reading steer requests', () => {
+    const actualRoot = tempRoot()
+    const actualDir = supervisorRunDir(actualRoot, 'run-actual')
+    mkdirSync(workerSteerRequestsDir(actualDir), { recursive: true })
+    const aliasParent = tempRoot()
+    const alias = join(aliasParent, 'run-alias')
+    symlinkSync(actualDir, alias, 'dir')
+
+    expect(() => readWorkerSteerRequests(alias)).toThrow(/symbolic link/)
   })
 
   it('fails closed for a corrupt acknowledgement and a symlinked steer directory', () => {

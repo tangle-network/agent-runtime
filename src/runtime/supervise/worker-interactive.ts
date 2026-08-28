@@ -406,6 +406,9 @@ function assertNoSymlinkDescendant(root: string, target: string): void {
   if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
     throw new Error('worker interactive path escapes its run directory')
   }
+  if (existsSync(base) && lstatSync(base).isSymbolicLink()) {
+    throw new Error(`worker interactive path contains a symbolic link: ${base}`)
+  }
   let current = base
   for (const part of rel.split(/[\\/]/u).filter(Boolean)) {
     current = join(current, part)

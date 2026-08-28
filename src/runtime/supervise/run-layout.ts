@@ -384,9 +384,10 @@ export function readWorkerSteerRequests(eventDir: string, worker?: string): Work
   for (const name of names) {
     if (!name.endsWith('.json')) continue
     try {
-      const parsed = parseWorkerSteerRequest(
-        JSON.parse(readFileSync(join(workerSteerRequestsDir(eventDir), name), 'utf8')),
-      )
+      const file = join(workerSteerRequestsDir(eventDir), name)
+      assertNoSymlinkDescendant(eventDir, file, 'steer request')
+      const parsed = parseWorkerSteerRequest(JSON.parse(readFileSync(file, 'utf8')))
+      if (name !== `${operationFileHash(parsed.operationId)}.json`) continue
       if (workerId === undefined || parsed.worker === workerId) out.push(parsed)
     } catch {
       // One corrupt request cannot hide other independently committed operations.
@@ -851,7 +852,9 @@ function readWorkerSteerRequest(
   eventDir: string,
   operationId: string,
 ): WorkerSteerRequest | undefined {
-  const request = readWorkerSteerRequestFile(workerSteerRequestFile(eventDir, operationId))
+  const file = workerSteerRequestFile(eventDir, operationId)
+  assertNoSymlinkDescendant(eventDir, file, 'steer request')
+  const request = readWorkerSteerRequestFile(file)
   if (request !== undefined && request.operationId !== operationId) {
     throw new Error('steer request file belongs to another operation')
   }
@@ -966,6 +969,9 @@ function assertNoSymlinkDescendant(root: string, target: string, label: string):
   const rel = relative(base, exact)
   if (rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)) {
     throw new Error(`${label} path escapes its run directory`)
+  }
+  if (existsSync(base) && lstatSync(base).isSymbolicLink()) {
+    throw new Error(`${label} path contains a symbolic link: ${base}`)
   }
   let current = base
   for (const part of rel.split(/[\\/]/u).filter(Boolean)) {

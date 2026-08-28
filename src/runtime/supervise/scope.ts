@@ -804,36 +804,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             at: new Date(now()).toISOString(),
           })
         })
-      const interactiveBindingCommitted = spawnCommitted.then(async () => {
-        if (args.interactiveBindingDir === undefined) return
-        const immediate = readInteractiveSession(live)
-        if (
-          immediate.status === 'available' ||
-          immediate.reason !== 'interactive-session-not-started'
-        ) {
-          writeWorkerInteractiveBinding(
-            args.interactiveBindingDir,
-            id,
-            opts.label,
-            args.root,
-            immediate,
-            now,
-          )
-          return
-        }
-        if (live.readInteractiveReady === undefined) return
-        const ready = await live.readInteractiveReady()
-        if (ready.status === 'available' || ready.reason !== 'interactive-session-not-started') {
-          writeWorkerInteractiveBinding(
-            args.interactiveBindingDir,
-            id,
-            opts.label,
-            args.root,
-            ready,
-            now,
-          )
-        }
-      })
       let pendingEvidence: { complete: () => Promise<void>; fail: () => Promise<void> } | undefined
       const materializationCommitted = spawnCommitted.then(async () => {
         const profileDigest = identity?.profileDigest ?? authoredProfileDigest(spec.profile)
@@ -1020,7 +990,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // Drive the executor to settlement off to the side; `next()` awaits the resulting
       // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
       // `runChild` (never re-thrown) so a single failing child never rejects the cursor.
-      const settled = runChild(
+      const childRun = runChild(
         live,
         executor,
         controller,
@@ -1037,6 +1007,44 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
         childDeadlineAtMs,
       )
+      const interactiveBindingCommitted = spawnCommitted.then(async () => {
+        if (args.interactiveBindingDir === undefined) return
+        const immediate = readInteractiveSession(live)
+        if (
+          immediate.status === 'available' ||
+          immediate.reason !== 'interactive-session-not-started' ||
+          live.readInteractiveReady === undefined
+        ) {
+          writeWorkerInteractiveBinding(
+            args.interactiveBindingDir,
+            id,
+            opts.label,
+            args.root,
+            immediate,
+            now,
+          )
+          return
+        }
+        const ready = await readInteractiveReadyUntilWorkerEnds(
+          live.readInteractiveReady,
+          childRun,
+          controller.signal,
+        )
+        if (
+          ready !== undefined &&
+          (ready.status === 'available' || ready.reason !== 'interactive-session-not-started')
+        ) {
+          writeWorkerInteractiveBinding(
+            args.interactiveBindingDir,
+            id,
+            opts.label,
+            args.root,
+            ready,
+            now,
+          )
+        }
+      })
+      const settled = childRun
         .then(async (s) => {
           let resolution = s
           try {
@@ -2603,6 +2611,36 @@ function readInteractiveSession(child: LiveChild): WorkerInteractiveSession {
   if (reported?.status === 'unavailable' && reported.reason) return reported
   if (reported?.status === 'available' && reported.handle) return reported
   return noInteractiveSession('executor-exposes-no-interactive-session')
+}
+
+/** Stop waiting for optional readiness when the worker settles or its lifetime is cancelled. */
+async function readInteractiveReadyUntilWorkerEnds(
+  readReady: () => Promise<WorkerInteractiveSession>,
+  workerEnded: Promise<unknown>,
+  signal: AbortSignal,
+): Promise<WorkerInteractiveSession | undefined> {
+  if (signal.aborted) return undefined
+  let resolveAborted!: () => void
+  const aborted = new Promise<void>((resolve) => {
+    resolveAborted = resolve
+  })
+  const onAbort = () => resolveAborted()
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const outcome = await Promise.race([
+      Promise.resolve()
+        .then(readReady)
+        .then((session) => ({ kind: 'ready' as const, session })),
+      workerEnded.then(
+        () => ({ kind: 'ended' as const }),
+        () => ({ kind: 'ended' as const }),
+      ),
+      aborted.then(() => ({ kind: 'ended' as const })),
+    ])
+    return outcome.kind === 'ready' ? outcome.session : undefined
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<UsageEvent> {
