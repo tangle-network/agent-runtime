@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.181.0
+
+### Per-prompt sandbox options ride every kernel prompt
+
+`ExecCtx` gains an optional `promptOptions` field, typed as the Sandbox SDK `PromptOptions` without `sessionId` and `signal`.
+The leaf kernel, the sandbox lineage (`start`, `continue`, `fork`, and the poll variant), `openSandboxRun`, and the steerable session forward it verbatim into each `streamPrompt`.
+Use it for a session-scoped credential in `backend.model` (`authMode`, `authFiles`), a `timeoutMs`, or a `context` block.
+The kernel keeps ownership of `sessionId` and `signal`: both are removed from the supplied value and applied last, so a caller cannot make every fanout iteration share one server-side session.
+The no-box `SandboxClient` seams read `signal` and discard the rest.
+
+A `promptOptions` value that is present but is not an object is a `ValidationError` before any box is created, on both the leaf kernel and the steerable session.
+
+`SandboxLineage.fork` accepts an optional trailing `promptOptions` parameter.
+A BYO `SandboxLineage` implementation must forward it to each branch's first prompt.
+No other consumer change is required.
+
+`loopDispatch` and `loopCampaignDispatch` accept `promptOptions` beside `sandboxClient`.
+The dispatch forwards it into the `runAgentRounds` context of every cell, so a campaign runs each cell on the supplied credential.
+
+A boxless `SandboxClient` seam now refuses a per-prompt `backend` or `model`.
+`inlineSandboxClient`, `localSandboxClient`, and the in-process MCP executor throw a `ValidationError` that names the seam and the key, because an in-process executor has no box to reconfigure.
+`inProcessSandboxClient` refuses a `backend` but still delivers a per-turn `model`, because its `onPrompt` callback receives the verbatim options and is the executor that can honor one.
+A value that is present but is not an object is refused at these seams too, on the same rule the kernels apply.
+These seams accept and ignore every other per-prompt option.
+
+### Codex sessions: harness-native raw events no longer abort the stream
+
+A `raw` transport event carries the harness's own event.
+Its payload names a harness-native type, such as codex `thread.started` or `turn.completed`.
+The canonical parser no longer reads that payload as a canonical event type, so a codex session runs to completion.
+Every other transport type keeps the guard that rejects a payload type different from the envelope type.
+
 ## 0.178.0
 
 ### Retained native continuations expose control at admission
