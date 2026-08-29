@@ -376,14 +376,22 @@ async function runContextContract(runtime, interfaceModule, providerState) {
     ...material,
     requestDigest: interfaceModule.nativeContextContinuationRequestDigest(material),
   }
-  const native = await initial.handle.continueNative(request, turn)
+  assert(
+    typeof initial.handle.beginNativeContinuation === 'function',
+    'UP-13 Runtime did not expose admission-first native continuation',
+  )
+  const nativeHandle = initial.handle.beginNativeContinuation(request, turn)
+  const admitted = await nativeHandle.admission
+  const native = await nativeHandle.result
   const restarted = await runtime.reconnectRetainedRun({
     provider: providerState.provider,
     controlRef: initialControlRef,
     now: fixedClock,
   })
   assert(restarted !== null, 'UP-13 could not reconnect for a native continuation retry')
-  const nativeReplay = await restarted.continueNative(request, turn)
+  const replayHandle = restarted.beginNativeContinuation(request, turn)
+  const replayAdmission = await replayHandle.admission
+  const nativeReplay = await replayHandle.result
   const fresh = await runtime.startRetainedRunInEnvironment({
     provider: providerState.provider,
     environment: {
@@ -395,6 +403,16 @@ async function runContextContract(runtime, interfaceModule, providerState) {
   })
   assert(native.acknowledgement.status === 'accepted', 'UP-13 native continuation was not accepted')
   assert(nativeReplay.acknowledgement.status === 'replayed', 'UP-13 native continuation was not idempotent')
+  assert(
+    interfaceModule.canonicalCandidateDigest(admitted) ===
+      interfaceModule.canonicalCandidateDigest(native.controlRef),
+    'UP-13 native admission did not identify the terminal run',
+  )
+  assert(
+    interfaceModule.canonicalCandidateDigest(replayAdmission) ===
+      interfaceModule.canonicalCandidateDigest(nativeReplay.controlRef),
+    'UP-13 replay admission did not identify the replayed run',
+  )
   assert(native.acknowledgement.historyMessagesSent === 0, 'UP-13 native continuation duplicated history')
   assert(native.controlRef.sessionId === initialControlRef.sessionId, 'UP-13 native continuation changed sessions')
   assert(fresh.controlRef.sessionId !== initialControlRef.sessionId, 'UP-13 fresh context reused native session')
@@ -402,6 +420,7 @@ async function runContextContract(runtime, interfaceModule, providerState) {
   return {
     nativeStatus: native.acknowledgement.status,
     nativeReplay: nativeReplay.acknowledgement.status,
+    admissionControl: true,
     historyMessagesSent: native.acknowledgement.historyMessagesSent,
     nativeSessionId: native.controlRef.sessionId,
     freshSessionId: fresh.controlRef.sessionId,

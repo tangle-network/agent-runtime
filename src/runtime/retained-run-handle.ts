@@ -56,6 +56,7 @@ type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef)
 interface NativeContinuationAdmissionState {
   readonly isSettled: () => boolean
   readonly failure: () => unknown
+  readonly controlRef: () => AgentExactRunControlRef | undefined
   readonly onAdmission: NativeContinuationAdmissionCallback
 }
 
@@ -225,6 +226,13 @@ export function createRetainedRunHandle(
         { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING' },
       )
     }
+    const admittedControlRef = admission?.controlRef()
+    if (admission !== undefined && admittedControlRef === undefined) {
+      throw new RetainedRunProviderContractError(
+        'provider accepted a native continuation without an admission reference',
+        { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING' },
+      )
+    }
     if (!('result' in outcome) || !('controlRef' in outcome)) {
       throw new Error('provider omitted the successful native continuation result')
     }
@@ -232,6 +240,15 @@ export function createRetainedRunHandle(
       throw new Error('provider returned a native continuation result for another request')
     }
     const nextControlRef = exactContinuedControlRef(outcome.controlRef, continuationSource)
+    if (
+      admittedControlRef !== undefined &&
+      !sameControlCoordinates(nextControlRef, admittedControlRef)
+    ) {
+      throw new RetainedRunProviderContractError(
+        'provider changed the native continuation run after admission',
+        { code: 'RETAINED_NATIVE_CONTINUATION_RESULT_CHANGED' },
+      )
+    }
     if (
       !sameControlCoordinates(activeControlRef, continuationSource) &&
       !sameControlCoordinates(activeControlRef, nextControlRef)
@@ -259,6 +276,7 @@ export function createRetainedRunHandle(
     const continuationSource = activeControlRef
     let admissionSettled = false
     let admissionCalled = false
+    let admittedControlRef: AgentExactRunControlRef | undefined
     let admissionFailure: unknown
     let resolveAdmission!: (controlRef: AgentExactRunControlRef) => void
     let rejectAdmission!: (error: unknown) => void
@@ -298,6 +316,7 @@ export function createRetainedRunHandle(
         }
         activeControlRef = freezeControlRef(nextControlRef)
         knownControlRefDigests.add(canonicalCandidateDigest(activeControlRef))
+        admittedControlRef = activeControlRef
         if (!admissionSettled) {
           admissionSettled = true
           resolveAdmission(copyControlRef(activeControlRef))
@@ -319,6 +338,8 @@ export function createRetainedRunHandle(
     const admissionState: NativeContinuationAdmissionState = {
       isSettled: () => admissionSettled,
       failure: () => admissionFailure,
+      controlRef: () =>
+        admittedControlRef === undefined ? undefined : copyControlRef(admittedControlRef),
       onAdmission,
     }
     const result = executeNativeContinuation(request, turn, admissionState, continuationSource)
