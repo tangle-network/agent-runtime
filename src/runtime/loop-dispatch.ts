@@ -41,6 +41,7 @@ import type {
   ProfileDispatchFn,
   Scenario,
 } from '@tangle-network/agent-eval/campaign'
+import type { PromptOptions } from '@tangle-network/sandbox'
 import { canonicalObservedModel } from './model-identity'
 import { type RunAgentRoundsOptions, runAgentRounds } from './run-loop'
 import { type SuperviseOptions, supervise } from './supervise/supervise'
@@ -63,6 +64,16 @@ export interface LoopDispatchOptions<
 > {
   /** Sandbox client used for every cell's `runAgentRounds`. Supplied once. */
   sandboxClient: SandboxClient
+  /**
+   * Per-prompt sandbox SDK options for every cell, forwarded verbatim into EVERY `streamPrompt`
+   * of every iteration the dispatch runs. The kernel owns `sessionId` and `signal`: both are
+   * removed from the supplied value and applied last. A value that is present but is not an
+   * object is a `ValidationError`, raised before any box is created.
+   *
+   * Typical use: `backend.model` credentials (`authMode` / `authFiles`) so every cell runs on a
+   * caller-supplied subscription credential, `timeoutMs`, and `context`.
+   */
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>
   /** Build the per-cell runAgentRounds options from the scenario (+ profile, when
    *  used with `runProfileMatrix`). */
   toLoopOptions: (
@@ -126,6 +137,7 @@ async function runLoopForCell<Task, Output, Decision, TScenario extends Scenario
 async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
   opts: {
     sandboxClient: SandboxClient
+    promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>
     toArtifact?: (result: LoopResult<Task, Output, Decision>) => TArtifact
     forwardTrace?: boolean
     costSource?: string
@@ -149,6 +161,9 @@ async function runLoopWithCampaignContext<Task, Output, Decision, TArtifact>(
         ...loopOptions,
         ctx: {
           sandboxClient: opts.sandboxClient,
+          // Forwarded unvalidated: `runAgentRounds` reads it through the one shared reader, so
+          // a bad value fails there rather than at a second checking site with its own rules.
+          ...(opts.promptOptions === undefined ? {} : { promptOptions: opts.promptOptions }),
           signal: executionSignal,
           traceEmitter:
             opts.forwardTrace === false ? undefined : campaignTraceToLoopEmitter(ctx.trace),
@@ -480,6 +495,13 @@ export interface LoopCampaignDispatchOptions<
 > {
   /** Sandbox client used for every campaign cell's `runAgentRounds`. */
   sandboxClient: SandboxClient
+  /**
+   * Per-prompt sandbox SDK options for every cell, forwarded verbatim into EVERY `streamPrompt`
+   * of every iteration the dispatch runs. The kernel owns `sessionId` and `signal`: both are
+   * removed from the supplied value and applied last. A value that is present but is not an
+   * object is a `ValidationError`, raised before any box is created.
+   */
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>
   /** Build the per-cell runAgentRounds options from the campaign scenario. */
   toLoopOptions: (scenario: TScenario) => LoopOptionsForDispatch<Task, Output, Decision>
   /** Map the finished loop to the artifact the campaign judges score. */

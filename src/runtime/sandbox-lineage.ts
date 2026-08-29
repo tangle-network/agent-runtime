@@ -198,12 +198,16 @@ export interface SandboxLineage {
    * when fork is available — pass a single shared spec for forked fanouts, or
    * use `random@k` (no fork) when branches must differ. Each child's first turn
    * streams `prompts[i]`. Child-box creation is bounded by `maxConcurrency`.
+   * An implementation MUST forward `promptOptions` into every branch's first
+   * prompt: the compiler accepts an implementation that ignores the argument, and
+   * a branch that drops it runs without the caller's session credential.
    */
   fork(
     parent: SandboxLineageHandle,
     prompts: string[],
     specs: AgentRunSpec<unknown>[],
     signal: AbortSignal,
+    promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>,
   ): Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
   /**
    * Destroy every owned box whose handle is NOT in `keep`, freeing it before
@@ -281,7 +285,7 @@ export function createSandboxLineage(
       return promptEvents(streaming, handle.box, prompt, handle.sessionId, signal, promptOptions)
     },
 
-    async fork(parent, prompts, specs, signal) {
+    async fork(parent, prompts, specs, signal, promptOptions) {
       if (prompts.length === 0) {
         throw new ValidationError('SandboxLineage.fork: prompts must be non-empty')
       }
@@ -304,7 +308,7 @@ export function createSandboxLineage(
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
-            events: promptEvents(streaming, box, prompts[i]!, sessionId, signal),
+            events: promptEvents(streaming, box, prompts[i]!, sessionId, signal, promptOptions),
           }
         })
       }
@@ -330,14 +334,14 @@ export function createSandboxLineage(
           const sessionId = mintSessionId()
           return {
             handle: { box, sessionId },
-            events: promptEvents(streaming, box, prompt, sessionId, signal),
+            events: promptEvents(streaming, box, prompt, sessionId, signal, promptOptions),
           }
         }
         const box = await acquireFresh(spec, signal)
         const sessionId = mintSessionId()
         return {
           handle: { box, sessionId },
-          events: promptEvents(streaming, box, prompt, sessionId, signal),
+          events: promptEvents(streaming, box, prompt, sessionId, signal, promptOptions),
         }
       })
     },

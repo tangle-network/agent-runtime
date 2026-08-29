@@ -24,10 +24,11 @@
  * @stable
  */
 
-import type { SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../errors'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
+import { readPromptOptions } from './prompt-options'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
@@ -177,6 +178,13 @@ export async function runAgentRounds<Task, Output, Decision>(
   if (!options.ctx?.sandboxClient || typeof options.ctx.sandboxClient.create !== 'function') {
     throw new ValidationError('runAgentRounds: ctx.sandboxClient.create is required')
   }
+  // Read once, before any box exists: an unusable value is a caller error, and the
+  // kernel-owned sessionId/signal are removed here so no later call site can forward
+  // a caller's copy of them.
+  const promptOptions = readPromptOptions(
+    options.ctx.promptOptions,
+    'runAgentRounds: ctx.promptOptions',
+  )
   const now = options.now ?? Date.now
   const runId = options.runId ?? `loop-${randomSuffix()}`
   const loopStart = now()
@@ -205,7 +213,7 @@ export async function runAgentRounds<Task, Output, Decision>(
   // box+session handles so a refine continues the parent session and a fanout
   // branches the parent box. Both flags off ⇒ lineage stays undefined and
   // the per-iteration acquire/stream/teardown path is byte-identical to today.
-  const lineageState = await setUpLineage(options, maxConcurrency, recordMount)
+  const lineageState = await setUpLineage(options, maxConcurrency, recordMount, promptOptions)
 
   emitRunLoopHook(options, {
     target: 'agent.run',
@@ -340,6 +348,7 @@ export async function runAgentRounds<Task, Output, Decision>(
         lineagePlan,
         lineageState,
         recordMount,
+        ...(promptOptions === undefined ? {} : { promptOptions }),
       })
 
       if (controller.signal.aborted) throwAbort()
@@ -414,6 +423,8 @@ export async function runAgentRounds<Task, Output, Decision>(
 interface LineageState {
   lineage: SandboxLineage
   options: LoopLineageOptions
+  /** `ExecCtx.promptOptions` — forwarded into every turn the lineage streams. */
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>
   /** iteration index → its live box+session handle (kept alive across rounds). */
   handles: Map<number, SandboxLineageHandle>
   /**
@@ -437,6 +448,7 @@ async function setUpLineage<Task, Output, Decision>(
   options: RunAgentRoundsOptions<Task, Output, Decision>,
   maxConcurrency: number,
   recordMount: MountRecorder,
+  promptOptions: Omit<PromptOptions, 'signal' | 'sessionId'> | undefined,
 ): Promise<LineageState | undefined> {
   const lineageOpts = options.lineage
   if (!lineageOpts || (!lineageOpts.sessionContinuity && !lineageOpts.forkFanout)) return undefined
@@ -453,6 +465,7 @@ async function setUpLineage<Task, Output, Decision>(
       recordMount,
     }),
     options: lineageOpts,
+    ...(promptOptions === undefined ? {} : { promptOptions }),
     handles: new Map(),
     canPrune: typeof options.driver.describePlan !== 'function',
   }
@@ -514,7 +527,7 @@ function planLineageRound<Task>(
     return [
       {
         async acquire() {
-          const events = await lineage.continue(parent, promptFor(0), signal)
+          const events = await lineage.continue(parent, promptFor(0), signal, state.promptOptions)
           // Continuation threads the SAME handle forward — later rounds keep
           // descending from this box's evolving session.
           return { events, handle: parent }
@@ -531,7 +544,7 @@ function planLineageRound<Task>(
     const childSpecs = slice.map((_, offset) => specAt(offset))
     let forked: Promise<{ handle: SandboxLineageHandle; events: AsyncIterable<SandboxEvent> }[]>
     const ensureForked = () => {
-      forked ??= lineage.fork(parent, prompts, childSpecs, signal)
+      forked ??= lineage.fork(parent, prompts, childSpecs, signal, state.promptOptions)
       return forked
     }
     return slice.map((_, offset) => ({
@@ -549,7 +562,7 @@ function planLineageRound<Task>(
   // start an owned box per iteration and record a handle for later descent.
   return slice.map((_, offset) => ({
     async acquire() {
-      return lineage.start(specAt(offset), promptFor(offset), signal)
+      return lineage.start(specAt(offset), promptFor(offset), signal, state.promptOptions)
     },
   }))
 }
@@ -624,6 +637,8 @@ interface RunBatchArgs<Task, Output> {
    *  fresh-box path so a mount declares itself into the manifest. (The lineage
    *  path carries its own recorder from `createSandboxLineage`.) */
   recordMount: MountRecorder
+  /** Validated `ExecCtx.promptOptions` — forwarded into this round's prompts. */
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>
 }
 
 async function runBatch<Task, Output>(args: RunBatchArgs<Task, Output>) {
@@ -712,10 +727,20 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
       // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
       // streams live — byte-identical to the prior path.
+      // The caller's per-prompt SDK options ride every turn; the kernel's own
+      // session id and signal are applied after them and always win.
+      const promptOptions = args.promptOptions
       stream =
         args.streaming === 'poll'
-          ? promptEvents('poll', box, prompt, `${args.runId}-i${args.item.index}`, args.signal)
-          : box.streamPrompt(prompt, { signal: args.signal })
+          ? promptEvents(
+              'poll',
+              box,
+              prompt,
+              `${args.runId}-i${args.item.index}`,
+              args.signal,
+              promptOptions,
+            )
+          : box.streamPrompt(prompt, { ...(promptOptions ?? {}), signal: args.signal })
     }
     const placement = describeSandboxPlacement(args.ctx.sandboxClient, box)
     await emitTrace(args.ctx.traceEmitter, {

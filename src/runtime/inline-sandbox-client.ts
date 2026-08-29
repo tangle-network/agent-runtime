@@ -15,6 +15,7 @@
 
 import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-interface'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { assertBoxlessPromptOptions } from './prompt-options'
 import type { AgentSpec, Executor, ExecutorFactory, ExecutorResult } from './supervise/types'
 import type { SandboxClient } from './types'
 
@@ -42,6 +43,9 @@ async function settle(
  * Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
  * instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
  * run once on the prompt, emit the terminal result event, tear down.
+ *
+ * There is no box, so a per-prompt `backend` or `model` override is refused rather than dropped;
+ * other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
  */
 export function inlineSandboxClient(
   factory: ExecutorFactory<unknown>,
@@ -64,6 +68,7 @@ export function inlineSandboxClient(
           message: string,
           opts?: { signal?: AbortSignal },
         ): AsyncGenerator<SandboxEvent> {
+          assertBoxlessPromptOptions(opts, 'inlineSandboxClient')
           // Chain the caller's turn signal into the executor's spawn signal so
           // an abort reaches `exec.execute` — a cooperative executor settles
           // (throws) instead of running to completion after cancellation.

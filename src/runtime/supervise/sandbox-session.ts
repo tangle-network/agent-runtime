@@ -30,9 +30,10 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { BackendType, PromptOptions, SandboxEvent } from '@tangle-network/sandbox'
+import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../../errors'
+import { readPromptOptions } from '../prompt-options'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import {
   assertSandboxServedModel,
@@ -200,7 +201,10 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
         ...(args.traceEnv && Object.keys(args.traceEnv).length > 0 ? { env: args.traceEnv } : {}),
       },
     }
-    const promptOptions = readPromptOptions(args.loopCtx)
+    const promptOptions = readPromptOptions(
+      args.loopCtx?.promptOptions,
+      'steerable sandbox worker: loopCtx.promptOptions',
+    )
     // The exact instrument every turn of this session asks the box for (agent-runtime#892).
     const requestedModel = concreteProfileModel(args.profile)
     const requested = {
@@ -474,16 +478,6 @@ function readFinalText(event: SandboxEvent): string | undefined {
   if (typeof text === 'string') return text
   const alt = (data as { text?: unknown }).text
   return typeof alt === 'string' ? alt : undefined
-}
-
-/** Prompt options the composed loop context already carries (agent profile / cwd), forwarded so
- *  a steerable worker runs with the same box configuration as the single-shot path. */
-function readPromptOptions(
-  loopCtx: Partial<Omit<ExecCtx, 'sandboxClient' | 'signal'>> | undefined,
-): Omit<PromptOptions, 'signal' | 'sessionId'> | undefined {
-  const opts = (loopCtx as { promptOptions?: unknown } | undefined)?.promptOptions
-  if (!opts || typeof opts !== 'object') return undefined
-  return opts as Omit<PromptOptions, 'signal' | 'sessionId'>
 }
 
 /** Fail loud on a steering config that cannot work, before any box is created. */
