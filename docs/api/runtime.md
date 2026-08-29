@@ -6927,13 +6927,7 @@ Environment, turn, and optional identity needed to replay one retained start.
 
 ##### turn
 
-> `readonly` **turn**: `AgentTurnInput` & `object`
-
-###### Type Declaration
-
-###### turnId
-
-> **turnId**: `string`
+> `readonly` **turn**: [`RetainedRunTurnInput`](#retainedrunturninput)
 
 ##### identity?
 
@@ -6981,13 +6975,7 @@ A retained start is retry-safe only when environment and turn keys are explicit.
 
 ##### turn
 
-> `readonly` **turn**: `AgentTurnInput` & `object`
-
-###### Type Declaration
-
-###### turnId
-
-> **turnId**: `string`
+> `readonly` **turn**: [`RetainedRunTurnInput`](#retainedrunturninput)
 
 ###### Inherited from
 
@@ -7067,13 +7055,7 @@ Original environment key. The provider must return the matching retained metadat
 
 ##### turn
 
-> `readonly` **turn**: `AgentTurnInput` & `object`
-
-###### Type Declaration
-
-###### turnId
-
-> **turnId**: `string`
+> `readonly` **turn**: [`RetainedRunTurnInput`](#retainedrunturninput)
 
 ##### identity?
 
@@ -22778,6 +22760,26 @@ Runtime controls plus the exact user turn bound into a continuation request.
 **`Stable`**
 
 Result of one verified same-session continuation.
+
+***
+
+### RetainedRunTurnInput
+
+> **RetainedRunTurnInput** = `Omit`\<`AgentTurnInput`, `"contextTransfer"`\> & `object`
+
+**`Stable`**
+
+A fresh retained turn with a canonical, approved portable context request.
+
+#### Type Declaration
+
+##### turnId
+
+> `readonly` **turnId**: `string`
+
+##### contextTransfer?
+
+> `readonly` `optional` **contextTransfer?**: `ContextTransferRequest`
 
 ***
 

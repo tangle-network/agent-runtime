@@ -54,6 +54,7 @@ export type {
   RetainedRunReplayPoint,
   RetainedRunSnapshot,
   RetainedRunStartMaterial,
+  RetainedRunTurnInput,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.27
+
+### Runtime 0.179.0 cohort
+
+The published Bench manifest now requires Runtime 0.179.0 and the matching Eval,
+Interface, Knowledge, and Sandbox dependency ranges.
+Consumers that pin any cohort package must update it before installing Bench 0.8.27.
+
 ## 0.8.26
 
 ### Interface 1.8.0 cohort

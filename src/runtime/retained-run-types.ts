@@ -5,6 +5,7 @@ import type {
   AgentNativeContextContinuationOptions,
   AgentNativeContextContinuationResult,
   AgentSessionStatus,
+  ContextTransferRequest,
   InteractionAcknowledgement,
   InteractionResponseCommand,
   NativeContextBoundaryProof,
@@ -72,6 +73,12 @@ export type NativeContextContinuationInput = NativeContextContinuationTurn &
 
 /** Result of one verified same-session continuation. @stable */
 export type NativeContextContinuationExecution = AgentNativeContextContinuationResult
+
+/** A fresh retained turn with a canonical, approved portable context request. @stable */
+export type RetainedRunTurnInput = Omit<AgentTurnInput, 'contextTransfer'> & {
+  readonly turnId: string
+  readonly contextTransfer?: ContextTransferRequest
+}
 
 /**
  * Admission and terminal result for one same-session continuation.
@@ -215,7 +222,7 @@ export type RetainedRunAdmissionHook = (admission: RetainedRunAdmission) => Prom
 /** Environment, turn, and optional identity needed to replay one retained start. @stable */
 export interface RetainedRunStartMaterial {
   readonly environment: CreateAgentEnvironmentInput & { idempotencyKey: string }
-  readonly turn: AgentTurnInput & { turnId: string }
+  readonly turn: RetainedRunTurnInput
   /**
    * Explicit dispatch coordinates. When omitted, the runtime mints
    * deterministic coordinates from `(environment.idempotencyKey, turn.turnId)`
@@ -245,7 +252,7 @@ export interface StartRetainedRunInEnvironmentOptions {
     /** Original environment key. The provider must return the matching retained metadata. */
     readonly idempotencyKey: string
   }
-  readonly turn: AgentTurnInput & { turnId: string }
+  readonly turn: RetainedRunTurnInput
   /**
    * Explicit fresh-session coordinates. When omitted, the runtime mints them
    * from `(environment.idempotencyKey, turn.turnId)`.

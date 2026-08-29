@@ -39,6 +39,14 @@ and the axis that must discriminate before optimizing anything.
    evidence ledger, or process doc when the work changes how future agents
    should operate.
 
+The development dependency keeps Miniflare on the latest stable 4.x release.
+Do not replace it with the registry's prerelease 5.x line until a stable release exists.
+
+The development compiler remains TypeScript 6.0.3 because TypeDoc 0.28.20 and
+the repository's compiler-AST test helpers require the JavaScript compiler API.
+TypeScript 7.0.2 removes that API, so `typescript-consumer` keeps an exact 7.0.2
+alias for packed-consumer compatibility checks without breaking local tooling.
+
 ## Loop API Discipline
 
 The blessed loop surface is the substrate:

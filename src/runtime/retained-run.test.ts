@@ -9,12 +9,17 @@ import {
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
+  type ContextTransferRequest,
+  ContextTransferRequestSchema,
+  contextTransferRequestDigest,
   type InteractionCapabilities,
   interactionRequestDigest,
   interactionResponseCommandDigest,
   NativeContextContinuationRequestSchema,
   nativeContextContinuationRequestDigest,
   nativeContextContinuationTurnDigest,
+  portableContextPlanDigest,
+  portableConversationContextDigest,
   type RuntimeEventEnvelope,
 } from '@tangle-network/agent-interface'
 import type {
@@ -42,6 +47,84 @@ import { mintRetainedIdentity } from './retained-run-start'
 
 const childScript = new URL('../../tests/helpers/retained-run-child.ts', import.meta.url).pathname
 const retainedRequestDigest = `sha256:${'a'.repeat(64)}` as const
+
+function retainedContextTransfer(operationId = 'retained-transfer'): ContextTransferRequest {
+  const sourceMaterial = {
+    source: {
+      runId: 'source-run',
+      messageId: 'source-message',
+      provider: 'source-provider',
+      environmentId: 'source-environment',
+      sessionId: 'source-session',
+      executionId: 'source-execution',
+      requestDigest: retainedRequestDigest,
+    },
+    completeness: 'complete' as const,
+    messages: [
+      {
+        id: 'source-message',
+        role: 'user' as const,
+        parts: [{ type: 'text' as const, text: 'portable context' }],
+        timestamp: '2026-08-01T20:00:00.000Z',
+      },
+    ],
+    attachments: [],
+  }
+  const source = {
+    ...sourceMaterial,
+    digest: portableConversationContextDigest(sourceMaterial),
+  }
+  const destination = {
+    runner: 'codex',
+    provider: 'test-provider',
+    environmentId: 'destination-environment',
+    sessionId: 'destination-session',
+    runId: 'destination-run',
+    executionId: 'destination-execution',
+    profileDigest: `sha256:${'b'.repeat(64)}` as const,
+  }
+  const contextMaterial = {
+    source: source.source,
+    completeness: 'complete' as const,
+    messages: source.messages,
+    attachments: [],
+  }
+  const context = {
+    ...contextMaterial,
+    digest: portableConversationContextDigest(contextMaterial),
+  }
+  const planMaterial = {
+    planId: 'retained-plan',
+    source,
+    destination,
+    messages: [
+      {
+        messageId: 'source-message',
+        action: 'include' as const,
+        parts: [{ partIndex: 0, action: 'include' as const }],
+      },
+    ],
+    context,
+    requiresAcceptance: false,
+  }
+  const plan = {
+    ...planMaterial,
+    digest: portableContextPlanDigest(planMaterial),
+  }
+  const material = {
+    operationId,
+    plan,
+    acceptance: {
+      planDigest: plan.digest,
+      acceptedAt: '2026-08-01T20:01:00.000Z',
+      acceptedBy: 'system' as const,
+    },
+  }
+  return ContextTransferRequestSchema.parse({
+    requestDigest: contextTransferRequestDigest(material),
+    ...material,
+  })
+}
 
 function recordedAdmissions(): {
   admissions: RetainedRunAdmission[]
@@ -366,12 +449,17 @@ describe('retained runtime run control', () => {
     expect(recovered.signal).toBeNull()
     const output = JSON.parse(await readFile(`${referenceFile}.output`, 'utf8')) as {
       controlRef: { environmentId: string; sessionId: string; executionId: string }
+      dispatches: Array<{ contextTransfer?: unknown }>
     }
     expect(output.controlRef).toMatchObject({
       environmentId: 'environment-kill-intent',
       sessionId: intent.sessionId,
       executionId: intent.executionId,
     })
+    expect(output.dispatches).toHaveLength(1)
+    expect(output.dispatches[0]?.contextTransfer).toEqual(
+      retainedContextTransfer('kill-intent-transfer'),
+    )
     const recoveryAdmissions = JSON.parse(
       await readFile(`${referenceFile}.recovered-admissions`, 'utf8'),
     ) as Array<{ phase: string }>
@@ -724,6 +812,7 @@ describe('retained runtime run control', () => {
       },
       session: () => session,
     })
+    const contextTransfer = retainedContextTransfer('stale-field-transfer')
     const staleTurn = {
       prompt: 'fresh prompt',
       turnId: 'fresh-turn',
@@ -733,7 +822,7 @@ describe('retained runtime run control', () => {
       lastEventId: 'old-event',
       detach: false,
       controlRef: { ...controlRef, runId: 'old-run' },
-      contextTransfer: { stale: true },
+      contextTransfer,
       nativeContinuation: { stale: true },
     } as unknown as AgentTurnInput & { turnId: string }
 
@@ -751,7 +840,75 @@ describe('retained runtime run control', () => {
       detach: true,
       sessionId: controlRef.sessionId,
       executionId: controlRef.executionId,
+      contextTransfer,
     })
+  })
+
+  it('binds an accepted context transfer to intent replay and dispatches it exactly', async () => {
+    const transfer = retainedContextTransfer('intent-transfer')
+    const controlRef = {
+      runId: 'transfer-run',
+      provider: 'test-provider',
+      environmentId: 'transfer-environment',
+      sessionId: 'transfer-session',
+      executionId: 'transfer-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true, sessionId: controlRef.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let received: AgentTurnInput | undefined
+    const provider = providerWithEnvironment({
+      id: controlRef.environmentId,
+      async dispatch(input) {
+        received = input
+        return { id: session.id, provider: controlRef.provider, controlRef }
+      },
+      session: () => session,
+    })
+    let creates = 0
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      creates += 1
+      return originalCreate(input)
+    }
+    const recorder = recordedAdmissions()
+    const start = {
+      provider,
+      environment: {
+        profile: { name: 'worker' },
+        idempotencyKey: controlRef.environmentId,
+      },
+      turn: { prompt: 'transfer task', turnId: 'transfer-turn', contextTransfer: transfer },
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    }
+    await startRetainedRun({ ...start, onAdmission: recorder.onAdmission })
+
+    const intent = recorder.admissions[0]
+    if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+    expect(JSON.stringify(intent)).not.toContain('portable context')
+    expect(received?.contextTransfer).toEqual(transfer)
+
+    await expect(
+      startRetainedRun({
+        ...start,
+        turn: {
+          ...start.turn,
+          contextTransfer: retainedContextTransfer('different-transfer'),
+        },
+        intent,
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('retained run intent conflicts with replay material')
+    expect(creates).toBe(1)
   })
 
   it('injects explicit Runtime-owned identity into a retained dispatch', async () => {

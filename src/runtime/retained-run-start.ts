@@ -1,7 +1,8 @@
-import type { Sha256Digest } from '@tangle-network/agent-interface'
+import type { ContextTransferRequest, Sha256Digest } from '@tangle-network/agent-interface'
 import {
   AgentEnvironmentCapabilitiesSchema,
   AgentExactRunControlRefSchema,
+  ContextTransferRequestSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
@@ -93,10 +94,11 @@ export async function startRetainedRun(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
+  const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-  const intent = retainedRunIntent(options, identity)
+  const intent = retainedRunIntent(options, identity, contextTransfer)
   if (options.intent === undefined) {
     await admitDurably(options.onAdmission, intent)
   } else {
@@ -158,6 +160,7 @@ export async function startRetainedRun(
     environment,
     environmentIdempotencyKey: options.environment.idempotencyKey,
     turn: options.turn,
+    contextTransfer,
     identity,
     onAdmission: options.onAdmission,
     capabilities,
@@ -190,6 +193,7 @@ export async function startRetainedRunInEnvironment(
   const identity =
     options.identity ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
+  const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
   const providerCapabilities = await assertRetainedCapabilities(options.provider)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
@@ -227,6 +231,7 @@ export async function startRetainedRunInEnvironment(
     environment,
     environmentIdempotencyKey: options.environment.idempotencyKey,
     turn: options.turn,
+    contextTransfer,
     identity,
     onAdmission: options.onAdmission,
     capabilities,
@@ -262,6 +267,7 @@ interface DispatchRetainedRunOptions {
   readonly environment: AgentEnvironment
   readonly environmentIdempotencyKey: string
   readonly turn: StartRetainedRunOptions['turn']
+  readonly contextTransfer?: ContextTransferRequest
   readonly identity: { readonly sessionId: string; readonly executionId: string }
   readonly onAdmission: RetainedRunAdmissionHook
   readonly capabilities: AgentEnvironmentCapabilities
@@ -312,6 +318,9 @@ async function dispatchRetainedRun(
         turnId: options.turn.turnId,
         detach: true,
         ...identity,
+        ...(options.contextTransfer === undefined
+          ? {}
+          : { contextTransfer: options.contextTransfer }),
       }),
     )
   } catch (error) {
@@ -494,6 +503,7 @@ export async function recoverRetainedRun(
 function retainedRunIntent(
   options: StartRetainedRunOptions,
   identity: { readonly sessionId: string; readonly executionId: string },
+  contextTransfer: ContextTransferRequest | undefined,
 ): RetainedRunIntentAdmission {
   const requestedProfileDigest = canonicalCandidateDigest(options.environment.profile)
   const requestDigest = canonicalCandidateDigest({
@@ -505,7 +515,7 @@ function retainedRunIntent(
     executionId: identity.executionId,
     requestedProfileDigest,
     create: retainedCreateMaterial(options.environment),
-    turn: retainedTurnMaterial(options.turn),
+    turn: retainedTurnMaterial(options.turn, contextTransfer),
   })
   return {
     phase: 'intent',
@@ -518,6 +528,16 @@ function retainedRunIntent(
     requestedProfileDigest,
     requestDigest,
   }
+}
+
+function retainedContextTransfer(
+  value: ContextTransferRequest | undefined,
+): ContextTransferRequest | undefined {
+  if (value === undefined) return undefined
+  return detachedSnapshot(
+    ContextTransferRequestSchema.parse(value),
+    'retained context transfer request',
+  )
 }
 
 function assertExactRetainedRunIntent(

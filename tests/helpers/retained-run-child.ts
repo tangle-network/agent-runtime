@@ -18,6 +18,7 @@ import type {
   RetainedRunIntentAdmission,
 } from '../../src/runtime/retained-run-types'
 import { durableRetainedProvider } from './durable-retained-provider'
+import { retainedContextTransfer } from './retained-context-transfer'
 
 const phases = [
   'start',
@@ -152,10 +153,11 @@ if (phase === 'start') {
     'utf8',
   )
 } else if (phase === 'start-kill-intent') {
+  const contextTransfer = retainedContextTransfer('kill-intent-transfer')
   await startRetainedRun({
     provider: durableRetainedProvider(stateFile),
     environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-intent' },
-    turn: { prompt: 'start', turnId: 'kill-intent' },
+    turn: { prompt: 'start', turnId: 'kill-intent', contextTransfer },
     onAdmission: async (admission) => {
       if (admission.phase === 'intent') {
         persistDurably(referenceFile, admission)
@@ -167,12 +169,13 @@ if (phase === 'start') {
 } else if (phase === 'recover-intent') {
   const admission = JSON.parse(await readFile(referenceFile, 'utf8')) as RetainedRunIntentAdmission
   const admissions: RetainedRunAdmission[] = []
+  const contextTransfer = retainedContextTransfer('kill-intent-transfer')
   const result = await recoverRetainedRun({
     provider: durableRetainedProvider(stateFile),
     admission,
     replay: {
       environment: { profile: { name: 'worker' }, idempotencyKey: 'kill-intent' },
-      turn: { prompt: 'start', turnId: 'kill-intent' },
+      turn: { prompt: 'start', turnId: 'kill-intent', contextTransfer },
     },
     onAdmission: async (recoveredAdmission) => {
       admissions.push(recoveredAdmission)
@@ -184,7 +187,12 @@ if (phase === 'start') {
   }
   await writeFile(
     `${referenceFile}.output`,
-    `${JSON.stringify({ controlRef: result.handle.controlRef })}\n`,
+    `${JSON.stringify({
+      controlRef: result.handle.controlRef,
+      dispatches: JSON.parse(await readFile(stateFile, 'utf8')).environments[
+        'environment-kill-intent'
+      ].sessions[result.handle.controlRef.sessionId].dispatches,
+    })}\n`,
     'utf8',
   )
 } else if (phase === 'start-kill-dispatched') {

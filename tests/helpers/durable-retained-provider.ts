@@ -29,6 +29,7 @@ interface StoredSession {
   controlRef: AgentExactRunControlRef
   status: AgentSessionStatus
   readonly events: AgentEnvironmentEvent[]
+  readonly dispatches: Array<Record<string, unknown>>
   readonly prompts: Array<Record<string, unknown>>
   readonly interactionOperations: Record<
     string,
@@ -117,6 +118,7 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
           controlRef,
           status: 'running',
           events: retainedEvents(controlRef),
+          dispatches: [],
           prompts: [],
           interactionOperations: {},
           cancellationOperations: {},
@@ -124,8 +126,9 @@ function environmentFor(stateFile: string, provider: string, id: string): AgentE
           nativeResponseLosses: {},
         }
         environment.sessions[sessionId] = session
-        writeState(stateFile, state)
       }
+      session.dispatches.push(serializableTurn(input))
+      writeState(stateFile, state)
       return { id: session.id, provider, controlRef: session.controlRef }
     },
     session(sessionId, options) {

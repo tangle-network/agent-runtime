@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.178.0.**
+> **Version 0.179.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.163.2 <0.171.0`.
-> `sandbox` must satisfy `>=0.34.0 <0.35.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^1.8.0`.
+> `agent-eval` must satisfy `>=0.170.0 <0.171.0`.
+> `sandbox` must satisfy `>=0.34.3 <0.35.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^1.9.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -145,7 +145,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Run **agent-eval fixture folders** through Runtime `runAgentRounds` | agent-eval fixture loading/planning, then `loopCampaignDispatch(...)`: `/kernel`; it starts the Runtime cell inside Eval's paid-call lifecycle | a one-off `runCampaign` dispatch, or attaching a completed `LoopResult` after paid work already ran |
 | Run a **recursive `supervise()` tree** through an agent-eval profile matrix | `superviseDispatch({ toTask, toSuperviseOptions, ... })`: `/kernel`; it admits the tree through Eval before Runtime spends, then records its receipt only when Runtime proves one model. Mixed or unknown trees fail instead of being relabelled. | a Lab receipt mapper, a second scheduler, or attaching a completed `SupervisedResult` after paid work already ran |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)`: `/kernel` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |
-| Start a retry-safe detached run in a new environment, or a fresh harness chat in one existing environment | `startRetainedRun(...)` or `startRetainedRunInEnvironment(...)`: `/kernel`; both persist exact coordinates before and after dispatch; the existing-environment path also verifies its retained key through provider metadata; only `continueNative(...)` may claim same-chat continuity | calling `provider.create/get/dispatch` directly, reusing an environment as proof of chat continuity, or appending to an unverified native session |
+| Start a retry-safe detached run in a new environment, or a fresh harness chat in one existing environment | `startRetainedRun(...)` or `startRetainedRunInEnvironment(...)`: `/kernel`; both persist exact coordinates before and after dispatch; an approved `turn.contextTransfer` is validated, detached, digest-bound for intent replay, and passed unchanged as Runtime-owned provider input; the existing-environment path also verifies its retained key through provider metadata; only `continueNative(...)` may claim same-chat continuity | calling `provider.create/get/dispatch` directly, reusing an environment as proof of chat continuity, dropping `contextTransfer` during recovery, or appending to an unverified native session |
 | Run **ONE agent turn** on any substrate: box (`streamPrompt`), cli-bridge/router `Executor`, or in-process chat backend: as ONE normalized `RuntimeStreamEvent` stream with a guaranteed terminal result+usage event; opt into in-stream `tool_call`/`tool_result` with `preserveToolParts`, or tap the raw sandbox events with `onRawEvent` | `streamAgentTurn(backend, prompt, { signal, timeoutMs, preserveToolParts?, onRawEvent? })` + `collectAgentTurn(stream)`: `/kernel` | a per-provider stream→event mapper zoo, a hand-faked box around a non-box executor, or raw fetch leaking through the turn abstraction |
 | Stop a running worker and know whether the BACKEND accepted it | `scope.cancel(nodeId, { operationId })` / `Executor.cancel`: `/kernel` — the answer carries `status` (`accepted \| rejected \| already-terminal \| unknown`) plus the run `effect`, and a local abort never reads as acceptance | `Executor.teardown` (it releases local resources and proves nothing about remote compute or billing), or treating an aborted iterator as a cancelled provider run |
 | Show the provider's OWN subagents (a runner's child tasks) as a tree | the canonical `child-task` events `streamAgentTurn` publishes — the Agent Interface child-task event verbatim, carrying the provider's own child and update identity, deduped per turn: `/kernel` | inferring children from tool names, transcript text, or array position, or minting Runtime node ids for tasks Runtime did not spawn |

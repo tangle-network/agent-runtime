@@ -2099,7 +2099,7 @@ Provider-neutral model request resolved before any grant is reserved.
 
 ###### reasoningEffort
 
-> **reasoningEffort**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+> **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `undefined`
 
 ##### reserve
 
@@ -2306,7 +2306,7 @@ Catalog/snapshot resolution stays separate from credential issuance.
 
 ###### reasoningEffort
 
-`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `undefined`
 
 ###### Returns
 
@@ -2612,7 +2612,7 @@ any archive encoding, or no-op when the exact workspace is already present.
 
 ###### reasoningEffort
 
-`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `undefined`
+`"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `undefined`
 
 ###### Returns
 
@@ -4884,7 +4884,7 @@ Exact profile identity admitted before the shot.
 
 ##### reasoningEffort
 
-> `readonly` **reasoningEffort**: `"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"` \| `null`
+> `readonly` **reasoningEffort**: `"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"` \| `null`
 
 ##### promptSha256
 

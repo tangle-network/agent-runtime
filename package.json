@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.178.0",
+  "version": "0.179.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -154,7 +154,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
-    "@biomejs/biome": "^2.5.5",
+    "@biomejs/biome": "^2.5.10",
     "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "catalog:",
     "@tangle-network/agent-interface": "catalog:",
@@ -162,16 +162,16 @@
     "@types/node": "catalog:",
     "@types/tar-stream": "3.1.4",
     "miniflare": "4.20260722.0",
-    "oxc-parser": "0.144.0",
+    "oxc-parser": "0.147.0",
     "publint": "catalog:",
     "tsdown": "catalog:",
     "tsx": "catalog:",
     "typedoc": "0.28.20",
-    "typedoc-plugin-markdown": "4.12.0",
+    "typedoc-plugin-markdown": "4.13.0",
     "typescript": "catalog:",
     "typescript-consumer": "npm:typescript@7.0.2",
-    "vitest": "^4.1.10",
-    "wrangler": "4.114.0",
+    "vitest": "^4.1.11",
+    "wrangler": "4.126.0",
     "yaml": "2.9.0"
   },
   "engines": {
@@ -180,9 +180,9 @@
   "license": "MIT",
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
-    "@tangle-network/agent-eval": ">=0.163.2 <0.171.0",
-    "@tangle-network/agent-interface": "^1.8.0",
-    "@tangle-network/sandbox": ">=0.34.0 <0.35.0"
+    "@tangle-network/agent-eval": ">=0.170.0 <0.171.0",
+    "@tangle-network/agent-interface": "^1.9.0",
+    "@tangle-network/sandbox": ">=0.34.3 <0.35.0"
   },
   "peerDependenciesMeta": {
     "@tangle-network/sandbox": {
@@ -194,6 +194,6 @@
     "@tangle-network/agent-knowledge": "catalog:",
     "@tangle-network/agent-profile-materialize": "catalog:",
     "@tangle-network/agent-trace-contract": "catalog:",
-    "tar-stream": "3.2.0"
+    "tar-stream": "3.2.1"
   }
 }
