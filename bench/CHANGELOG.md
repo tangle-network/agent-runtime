@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.26
+
+### Interface 1.7.1 cohort
+
+The Interface catalog range becomes `^1.7.1`, matching the Runtime cohort.
+Bench resolves Interface through the catalog, so its published manifest states the new range.
+Nothing in bench changes behavior.
+
+A consumer that pins Interface itself must move it with this package.
+
 ## 0.8.25
 
 ### Sandbox 0.34.0 cohort
