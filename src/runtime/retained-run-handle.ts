@@ -266,6 +266,9 @@ export function createRetainedRunHandle(
       resolveAdmission = resolve
       rejectAdmission = reject
     })
+    // Callers may only observe the terminal result. Keep an internal observer
+    // on admission so a provider failure cannot become an unhandled rejection.
+    void admissionPromise.catch(() => undefined)
     const failAdmission = (error: unknown): void => {
       admissionFailure ??= error
       if (admissionSettled) return
