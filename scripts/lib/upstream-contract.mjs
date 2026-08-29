@@ -62,7 +62,7 @@ const CANONICAL_EVENT_TYPES = Object.freeze([
 const PROFILE = Object.freeze({
   name: 'upstream-contract-profile',
   harness: 'pi',
-  model: { default: 'upstream-contract-model' },
+  model: { provider: 'agent-runtime-upstream-contract', default: 'upstream-contract-model' },
 })
 
 /** Run one Braid upstream requirement through the packed Runtime public surface. */
