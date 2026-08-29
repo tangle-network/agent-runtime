@@ -1,4 +1,4 @@
-const PROVIDER = 'agent-runtime-upstream-contract'
+export const PROVIDER = 'agent-runtime-upstream-contract'
 
 /**
  * A deterministic provider used by the packed public contract suite.

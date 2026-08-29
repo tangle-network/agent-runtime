@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createUpstreamContractProvider } from './upstream-contract-provider.mjs'
+import { createUpstreamContractProvider, PROVIDER } from './upstream-contract-provider.mjs'
 
 export const UPSTREAM_CONTRACTS = Object.freeze({
   'UP-02': Object.freeze({
@@ -62,7 +62,7 @@ const CANONICAL_EVENT_TYPES = Object.freeze([
 const PROFILE = Object.freeze({
   name: 'upstream-contract-profile',
   harness: 'pi',
-  model: { provider: 'agent-runtime-upstream-contract', default: 'upstream-contract-model' },
+  model: { provider: PROVIDER, default: 'upstream-contract-model' },
 })
 
 /** Run one Braid upstream requirement through the packed Runtime public surface. */
