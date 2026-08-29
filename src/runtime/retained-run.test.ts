@@ -28,6 +28,7 @@ import type {
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { retainedContextTransfer } from '../../tests/helpers/retained-context-transfer'
 import { RetainedRunAdmissionError, RetainedRunDispatchBindingError } from '../errors'
 import {
   type RetainedRunAdmission,
@@ -366,12 +367,17 @@ describe('retained runtime run control', () => {
     expect(recovered.signal).toBeNull()
     const output = JSON.parse(await readFile(`${referenceFile}.output`, 'utf8')) as {
       controlRef: { environmentId: string; sessionId: string; executionId: string }
+      dispatches: Array<{ contextTransfer?: unknown }>
     }
     expect(output.controlRef).toMatchObject({
       environmentId: 'environment-kill-intent',
       sessionId: intent.sessionId,
       executionId: intent.executionId,
     })
+    expect(output.dispatches).toHaveLength(1)
+    expect(output.dispatches[0]?.contextTransfer).toEqual(
+      retainedContextTransfer('kill-intent-transfer'),
+    )
     const recoveryAdmissions = JSON.parse(
       await readFile(`${referenceFile}.recovered-admissions`, 'utf8'),
     ) as Array<{ phase: string }>
@@ -724,6 +730,7 @@ describe('retained runtime run control', () => {
       },
       session: () => session,
     })
+    const contextTransfer = retainedContextTransfer('stale-field-transfer')
     const staleTurn = {
       prompt: 'fresh prompt',
       turnId: 'fresh-turn',
@@ -733,7 +740,7 @@ describe('retained runtime run control', () => {
       lastEventId: 'old-event',
       detach: false,
       controlRef: { ...controlRef, runId: 'old-run' },
-      contextTransfer: { stale: true },
+      contextTransfer,
       nativeContinuation: { stale: true },
     } as unknown as AgentTurnInput & { turnId: string }
 
@@ -751,7 +758,75 @@ describe('retained runtime run control', () => {
       detach: true,
       sessionId: controlRef.sessionId,
       executionId: controlRef.executionId,
+      contextTransfer,
     })
+  })
+
+  it('binds an accepted context transfer to intent replay and dispatches it exactly', async () => {
+    const transfer = retainedContextTransfer('intent-transfer')
+    const controlRef = {
+      runId: 'transfer-run',
+      provider: 'test-provider',
+      environmentId: 'transfer-environment',
+      sessionId: 'transfer-session',
+      executionId: 'transfer-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'done', success: true, sessionId: controlRef.sessionId }),
+      prompt: async () => ({ text: 'continued', success: true }),
+      cancel: async () => {},
+    }
+    let received: AgentTurnInput | undefined
+    const provider = providerWithEnvironment({
+      id: controlRef.environmentId,
+      async dispatch(input) {
+        received = input
+        return { id: session.id, provider: controlRef.provider, controlRef }
+      },
+      session: () => session,
+    })
+    let creates = 0
+    const originalCreate = provider.create
+    provider.create = async (input) => {
+      creates += 1
+      return originalCreate(input)
+    }
+    const recorder = recordedAdmissions()
+    const start = {
+      provider,
+      environment: {
+        profile: { name: 'worker' },
+        idempotencyKey: controlRef.environmentId,
+      },
+      turn: { prompt: 'transfer task', turnId: 'transfer-turn', contextTransfer: transfer },
+      identity: { sessionId: controlRef.sessionId, executionId: controlRef.executionId },
+    }
+    await startRetainedRun({ ...start, onAdmission: recorder.onAdmission })
+
+    const intent = recorder.admissions[0]
+    if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+    expect(JSON.stringify(intent)).not.toContain('portable context')
+    expect(received?.contextTransfer).toEqual(transfer)
+
+    await expect(
+      startRetainedRun({
+        ...start,
+        turn: {
+          ...start.turn,
+          contextTransfer: retainedContextTransfer('different-transfer'),
+        },
+        intent,
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('retained run intent conflicts with replay material')
+    expect(creates).toBe(1)
   })
 
   it('injects explicit Runtime-owned identity into a retained dispatch', async () => {

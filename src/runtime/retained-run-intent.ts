@@ -1,3 +1,4 @@
+import type { ContextTransferRequest } from '@tangle-network/agent-interface'
 import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import type {
   AgentTurnInput,
@@ -94,7 +95,10 @@ function retainedSecretNames(
 }
 
 /** Project one headless turn into the material that `freshTurnInput` forwards. */
-export function retainedTurnMaterial(input: AgentTurnInput): Record<string, unknown> {
+export function retainedTurnMaterial(
+  input: AgentTurnInput,
+  contextTransfer: ContextTransferRequest | undefined = input.contextTransfer,
+): Record<string, unknown> {
   return {
     ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
     ...(input.parts === undefined ? {} : { parts: input.parts }),
@@ -103,5 +107,8 @@ export function retainedTurnMaterial(input: AgentTurnInput): Record<string, unkn
     ...(input.context === undefined ? {} : { context: input.context }),
     ...(input.interactions === undefined ? {} : { interactions: input.interactions }),
     ...(input.providerOptions === undefined ? {} : { providerOptions: input.providerOptions }),
+    ...(contextTransfer === undefined
+      ? {}
+      : { contextTransferRequestDigest: contextTransfer.requestDigest }),
   }
 }

@@ -19,7 +19,7 @@ import type {
   AgentCandidateCapturedArtifact,
   AgentCandidateWorkspaceSnapshotEvidence,
 } from '@tangle-network/agent-interface'
-import { type Entry, extract, type Pack, pack } from 'tar-stream'
+import { extract, type Pack, pack, type Extract as TarExtract } from 'tar-stream'
 import {
   candidateWorkspaceManifest,
   captureMaterializedWorkspace,
@@ -602,7 +602,9 @@ async function writeTarEntry(
   })
 }
 
-async function readTarEntry(entry: Entry, maxBytes: number, label: string): Promise<Uint8Array> {
+type TarEntry = TarExtract extends AsyncIterable<infer Entry> ? Entry : never
+
+async function readTarEntry(entry: TarEntry, maxBytes: number, label: string): Promise<Uint8Array> {
   const size = entry.header.size
   if (!Number.isSafeInteger(size) || size === undefined || size < 0 || size > maxBytes) {
     throw new Error(`${label} has an invalid tar size`)
@@ -613,13 +615,16 @@ async function readTarEntry(entry: Entry, maxBytes: number, label: string): Prom
 }
 
 async function collectStream(
-  stream: AsyncIterable<Uint8Array>,
+  stream: AsyncIterable<unknown>,
   maxBytes: number,
   label: string,
 ): Promise<Uint8Array> {
   const chunks: Buffer[] = []
   let totalBytes = 0
   for await (const chunk of stream) {
+    if (!(chunk instanceof Uint8Array)) {
+      throw new Error(`${label} emitted a non-byte chunk`)
+    }
     if (chunk.byteLength > maxBytes - totalBytes) {
       const error = new Error(`${label} exceeds its size limit`)
       if ('destroy' in stream && typeof stream.destroy === 'function') stream.destroy(error)
@@ -633,7 +638,7 @@ async function collectStream(
 }
 
 async function streamEqualsBytes(
-  stream: AsyncIterable<Uint8Array>,
+  stream: AsyncIterable<unknown>,
   expected: Uint8Array,
   maxBytes: number,
   label: string,
@@ -642,6 +647,9 @@ async function streamEqualsBytes(
   let equal = true
   let offset = 0
   for await (const chunk of stream) {
+    if (!(chunk instanceof Uint8Array)) {
+      throw new Error(`${label} emitted a non-byte chunk`)
+    }
     if (chunk.byteLength > maxBytes - offset) {
       const error = new Error(`${label} exceeds its size limit`)
       if ('destroy' in stream && typeof stream.destroy === 'function') stream.destroy(error)

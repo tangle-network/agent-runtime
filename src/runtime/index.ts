@@ -383,6 +383,7 @@ export {
   type RetainedRunReplayPoint,
   type RetainedRunSnapshot,
   type RetainedRunStartMaterial,
+  type RetainedRunTurnInput,
   reconnectRetainedInteractiveRun,
   reconnectRetainedRun,
   recoverRetainedInteractiveRun,

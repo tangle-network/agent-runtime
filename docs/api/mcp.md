@@ -7013,7 +7013,7 @@ created, against the same table that emits the argv.
 
 ##### reasoningEffort
 
-`"medium"` \| `"none"` \| `"minimal"` \| `"low"` \| `"high"` \| `"xhigh"` \| `"ultracode"`
+`"medium"` \| `"high"` \| `"low"` \| `"minimal"` \| `"none"` \| `"ultracode"` \| `"xhigh"`
 
 #### Returns
 
