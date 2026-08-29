@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
+import { ValidationError } from '../../src/errors'
 import {
   CodexExecutionDiagnosticError,
   harnessInvocation,
@@ -1493,6 +1494,50 @@ describe('parseCodexTokenUsage', () => {
         '{"type":"turn.completed","usage":{"input_tokens":2,"cached_input_tokens":3,"output_tokens":1,"reasoning_output_tokens":0}}',
       ),
     ).toThrow(/cached_input_tokens exceeds input_tokens/)
+    expect(() =>
+      parseCodexTokenUsage(
+        '{"type":"turn.completed","usage":{"input_tokens":2,"cached_input_tokens":0,"output_tokens":1,"reasoning_output_tokens":4}}',
+      ),
+    ).toThrow(/reasoning_output_tokens exceeds output_tokens/)
+  })
+
+  it('reports every failure as one error class, framing and record alike', () => {
+    // The JSONL framing and the usage record are read by one function, so a caller that inspects
+    // the class does not have to know which half of the parse rejected its input.
+    expect(() => parseCodexTokenUsage('not json')).toThrow(ValidationError)
+    expect(() => parseCodexTokenUsage('')).toThrow(ValidationError)
+    expect(() => parseCodexTokenUsage('{"type":"turn.completed"}')).toThrow(ValidationError)
+    expect(() =>
+      parseCodexTokenUsage('{"type":"turn.completed","usage":{"input_tokens":1}}'),
+    ).toThrow(ValidationError)
+  })
+
+  it('returns the optional cache-write counter the codex CLI reports', () => {
+    expect(
+      parseCodexTokenUsage(
+        '{"type":"turn.completed","usage":{"input_tokens":15575,"cached_input_tokens":11008,"cache_write_input_tokens":64,"output_tokens":5,"reasoning_output_tokens":0}}',
+      ),
+    ).toEqual({
+      inputTokens: 15575,
+      cachedInputTokens: 11008,
+      cacheWriteInputTokens: 64,
+      outputTokens: 5,
+      reasoningOutputTokens: 0,
+    })
+  })
+
+  it('leaves the cache-write counter absent when the record omits it', () => {
+    // An absent counter must stay absent: a zero would claim no cache write was measured.
+    expect(
+      parseCodexTokenUsage(
+        '{"type":"turn.completed","usage":{"input_tokens":41935,"cached_input_tokens":19200,"output_tokens":273,"reasoning_output_tokens":191}}',
+      ),
+    ).toEqual({
+      inputTokens: 41935,
+      cachedInputTokens: 19200,
+      outputTokens: 273,
+      reasoningOutputTokens: 191,
+    })
   })
 })
 

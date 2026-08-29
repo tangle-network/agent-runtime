@@ -3199,6 +3199,59 @@ The same domain surface in the structural `BenchmarkAdapter` shape.
 
 ***
 
+### HarnessUsage
+
+One harness's own token-usage report for one turn, in the runtime's field names.
+
+`input` is the provider's TOTAL prompt count and `output` is its TOTAL completion count.
+The other three counters CLASSIFY a part of one of those totals; none of them adds to it.
+`cachedInput` and `cacheWriteInput` classify `input`, which is the convention
+`promptCacheTokenClasses` (`util.ts`) folds: `freshInput = input - cacheRead - cacheWrite`.
+`reasoningOutput` classifies `output`.
+
+A counter the harness does not report stays absent, because a zero would claim the harness
+measured none.
+
+#### Properties
+
+##### harness
+
+> `readonly` **harness**: `HarnessType`
+
+The harness family whose adapter produced this report.
+
+##### input
+
+> `readonly` **input**: `number`
+
+Total prompt tokens the provider charged for the turn, the cached ones included.
+
+##### output
+
+> `readonly` **output**: `number`
+
+Total completion tokens the provider charged for the turn, the reasoning ones included.
+
+##### cachedInput?
+
+> `readonly` `optional` **cachedInput?**: `number`
+
+The part of `input` the provider served from its prompt cache.
+
+##### cacheWriteInput?
+
+> `readonly` `optional` **cacheWriteInput?**: `number`
+
+The part of `input` the provider wrote into its prompt cache.
+
+##### reasoningOutput?
+
+> `readonly` `optional` **reasoningOutput?**: `number`
+
+The part of `output` the model spent on reasoning. Never added to `output`.
+
+***
+
 ### HarvestCorpusOptions
 
 #### Properties
@@ -7829,6 +7882,61 @@ The provider/model the platform reports it actually bound to a turn, when it rep
 ##### source?
 
 > `readonly` `optional` **source?**: `string`
+
+***
+
+### SandboxUsageLedger
+
+Per-turn usage accounting over BOTH the canonical events and the harness-native ones.
+
+Some harnesses report a turn's tokens only inside their own event (`harness-usage.ts`), and a
+stream may carry that report AND a canonical usage event for the same turn. Crediting both
+counts one turn twice, so this ledger holds the precedence rule: a canonical usage event WINS,
+and a harness-native report is credited only for a turn in which no canonical usage arrived.
+
+The harness-native report is held until the turn ends, because it can arrive before the
+canonical answer is known — codex emits `turn.completed` ahead of the terminal transport
+events. Call [SandboxUsageLedger.observe](#observe-3) for every event of a turn, then
+[SandboxUsageLedger.settleTurn](#settleturn) once at the turn boundary; settling also resets the
+ledger for the next turn, so one ledger serves a whole multi-turn session.
+
+#### Methods
+
+##### observe()
+
+> **observe**(`event`, `agentRunName`): RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
+
+Account one event. Returns the canonical usage receipt to credit now, if the event is one.
+
+###### Parameters
+
+###### event
+
+`SandboxEvent`
+
+###### agentRunName
+
+`string`
+
+###### Returns
+
+RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
+
+##### settleTurn()
+
+> **settleTurn**(`agentRunName`): RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
+
+End the turn. Returns the held harness-native receipt when no canonical usage arrived.
+
+###### Parameters
+
+###### agentRunName
+
+`string`
+
+###### Returns
+
+RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 ***
 
@@ -25783,6 +25891,38 @@ exposes the same domain as a structural `BenchmarkAdapter`.
 
 ***
 
+### decodeHarnessUsage()
+
+> **decodeHarnessUsage**(`event`, `harness?`): [`HarnessUsage`](#harnessusage) \| `undefined`
+
+Decode a sandbox event with one harness's adapter, or `undefined` when the event carries no
+harness-native usage.
+
+A NAMED harness reads with that harness's adapter only, and a named harness with no adapter
+reports nothing. It never falls through to another harness's adapter: a different harness's
+`turn.completed` decoded as codex would either drop the counters codex does not name or fail on
+a field codex requires, and both answers would be about the wrong harness. The composite over
+every registered adapter runs only when the caller cannot name the harness.
+
+Throws `ValidationError` when an adapter recognizes the event as its harness's usage carrier and
+cannot read the numbers.
+
+#### Parameters
+
+##### event
+
+`SandboxEvent`
+
+##### harness?
+
+`HarnessType`
+
+#### Returns
+
+[`HarnessUsage`](#harnessusage) \| `undefined`
+
+***
+
 ### harvestCorpus()
 
 > **harvestCorpus**(`opts`): `Promise`\<[`HarvestReport`](#harvestreport)\>
@@ -27398,13 +27538,33 @@ RuntimeStreamEvent & \{ type: "llm\_call"; \} \| `undefined`
 
 ***
 
+### createSandboxUsageLedger()
+
+> **createSandboxUsageLedger**(`harness?`): [`SandboxUsageLedger`](#sandboxusageledger)
+
+A [SandboxUsageLedger](#sandboxusageledger) for one worker. Pass the worker's harness to decode with that
+ harness's adapter; omit it to try every registered adapter.
+
+#### Parameters
+
+##### harness?
+
+`HarnessType`
+
+#### Returns
+
+[`SandboxUsageLedger`](#sandboxusageledger)
+
+***
+
 ### sumSandboxUsage()
 
 > **sumSandboxUsage**(`events`, `agentRunName?`): `object`
 
 Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an
-`openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
-event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
+`openSandboxRun` cell. Folds a [SandboxUsageLedger](#sandboxusageledger) over the stream, so it reads usage off
+EVERY backend event shape — the canonical events plus a harness that reports usage only in its
+own event — and a `runProfileMatrix` dispatch can report it to `ctx.cost`:
 
     receipt: (turn) => {
       const u = sumSandboxUsage(turn.events)
@@ -27417,6 +27577,11 @@ event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
 
 Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
 matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
+
+Pure by contract, like the extractors it folds: it never throws. A harness receipt it cannot read
+is skipped, the result reports `tokensKnown: false`, and `tokensUnknownReason` carries the decode
+message — an unreadable receipt is a different fact from a turn that reported no usage, and a
+post-hoc reader that threw would lose the whole failed turn it exists to report.
 
 #### Parameters
 
@@ -27455,6 +27620,10 @@ readonly `SandboxEvent`[]
 ##### estimatedCostUsd?
 
 > `optional` **estimatedCostUsd?**: `number`
+
+##### tokensUnknownReason?
+
+> `optional` **tokensUnknownReason?**: `string`
 
 ***
 

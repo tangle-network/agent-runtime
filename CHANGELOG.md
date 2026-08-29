@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.182.0
+
+### Codex sandbox workers pay their tokens into the budget pool
+
+A harness can report its token usage only inside its own event.
+Codex reports the tokens of a turn in `turn.completed`, which rides the transport as a `raw` event.
+Codex emits no canonical usage event at all.
+A codex sandbox worker therefore settled with `tokensKnown: false` and paid nothing into the conserved budget pool.
+
+`decodeHarnessUsage(event, harness)` reads one event with the named harness's adapter and returns a `HarnessUsage`.
+A named harness with no adapter reports nothing; it never reads with a different harness's adapter.
+The function tries every registered adapter only when the caller names no harness.
+It returns `undefined` for an event that carries no harness-native usage.
+It throws a `ValidationError` that names the field when a reported counter is unreadable.
+A `turn.completed` with no `usage` member reports no usage, which leaves the tokens unknown rather than zero.
+
+One reader parses codex's usage record for both surfaces that read it.
+`runLocalHarness` reads the record off `codex exec --json` stdout, and the sandbox decoder reads it off the stream.
+Both hold the same field policy and the same two invariants: `cached_input_tokens <= input_tokens` and `reasoning_output_tokens <= output_tokens`.
+`cache_write_input_tokens` is optional, because the codex CLI reports it and a provider-normalized capture omits it.
+
+`createSandboxUsageLedger(harness)` accounts one turn over both usage sources.
+`observe` credits a canonical usage event as it arrives.
+`settleTurn` credits the harness receipt only for a turn in which no canonical usage arrived.
+It also resets the ledger for the next turn.
+A turn that reports both sources is therefore charged once.
+
+Four surfaces now meter a harness-native receipt through this ledger:
+the leaf kernel `runAgentRounds`, the steerable sandbox session, the box turn behind `runAgentTask` / `runAgentTaskStream` / `handleChatTurn` / `collectAgentTurn`, and `sumSandboxUsage`.
+Each of them settles the ledger when its turn ends and again on its error path, so a turn that failed after its receipt still pays what it spent.
+A codex sandbox worker now settles with `tokensKnown: true` and the numbers codex reported.
+
+`tokensIn` is the provider's total prompt count, and the prompt-cache counters classify a part of that total.
+`tokensOut` is the provider's total completion count.
+Codex counts reasoning tokens inside `output_tokens`; the kernel does not add them again.
+
+`sumSandboxUsage` never throws.
+A harness receipt it cannot read is skipped, the result reports `tokensKnown: false`, and the new `tokensUnknownReason` field carries the decode message.
+The steerable session does not abort on such a receipt either.
+Whether the work succeeded and whether its spend was measured are different facts.
+The worker keeps its own outcome verdict, reports `spent.tokensKnown: false`, and names the reason on its settlement.
+A correct worker is therefore still selectable as a valid winner.
+
+`parseCodexTokenUsage` returns the optional `cacheWriteInputTokens` counter, and reports every failure as a `ValidationError`.
+
 ## 0.181.0
 
 ### Per-prompt sandbox options ride every kernel prompt

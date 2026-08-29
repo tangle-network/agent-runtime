@@ -28,13 +28,14 @@ import type { PromptOptions, SandboxEvent, SandboxInstance } from '@tangle-netwo
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../errors'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
+import type { RuntimeStreamEvent } from '../types'
 import { readPromptOptions } from './prompt-options'
 import { acquireSandbox } from './sandbox-acquire'
 import { buildBackendOptions } from './sandbox-backend'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import {
   assertSandboxServedModel,
-  extractLlmCallEvent,
+  createSandboxUsageLedger,
   notifySandboxEventObserver,
 } from './sandbox-events'
 import {
@@ -708,6 +709,34 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
   // flag tracks whether THIS iteration's box came from the lineage so the
   // teardown branch below skips it.
   let lineageOwned = false
+  let sawLlmCall = false
+  // One ledger for this iteration's single turn: it credits the canonical usage events as they
+  // arrive and holds the harness's own usage receipt until the turn ends, so a turn that reports
+  // both is charged once. Both live outside the try so a turn that ends mid-stream still credits
+  // what the harness already reported.
+  const usageLedger = createSandboxUsageLedger(spec.profile.harness)
+  const creditLlmCall = (llmCall: RuntimeStreamEvent & { type: 'llm_call' }): void => {
+    sawLlmCall = true
+    slot.costUsd += llmCall.costUsd ?? 0
+    if (llmCall.usdKnown === false) slot.costUsdKnown = false
+    if (llmCall.estimatedCostUsd !== undefined) {
+      slot.estimatedCostUsd = (slot.estimatedCostUsd ?? 0) + llmCall.estimatedCostUsd
+    }
+    if (llmCall.promptCache) {
+      slot.promptCache ??= {}
+      mergeUsageMetadata(slot.promptCache, llmCall.promptCache)
+    }
+    // The prompt-cache report is spend evidence, not only telemetry: it is what tells the
+    // budget which prompt tokens are a re-read of content already charged. Classify per call,
+    // because only this record's own `input` is the total its classes must partition.
+    addTokenUsage(slot.tokenUsage, {
+      input: llmCall.tokensIn,
+      output: llmCall.tokensOut,
+      ...(llmCall.tokensKnown === false ? { tokensKnown: false } : {}),
+      ...promptCacheTokenClasses(llmCall.tokensIn, llmCall.promptCache),
+    })
+    args.ctx.runHandle?.observe(llmCall)
+  }
   try {
     // Stream source: the lineage (continue / fork / fresh) when this round runs
     // under lineage, else a fresh box + a single `streamPrompt` (today's path,
@@ -772,7 +801,6 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         : {}),
       ...(requestedModel !== undefined ? { model: requestedModel } : {}),
     }
-    let sawLlmCall = false
     const outcomeTracker = createAgentRunOutcomeTracker()
     for await (const event of stream) {
       events.push(event)
@@ -786,31 +814,12 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
         iterationIndex: args.item.index,
         agentRunName: slot.agentRunName,
       })
-      const llmCall = extractLlmCallEvent(event, slot.agentRunName)
-      if (llmCall) {
-        sawLlmCall = true
-        slot.costUsd += llmCall.costUsd ?? 0
-        if (llmCall.usdKnown === false) slot.costUsdKnown = false
-        if (llmCall.estimatedCostUsd !== undefined) {
-          slot.estimatedCostUsd = (slot.estimatedCostUsd ?? 0) + llmCall.estimatedCostUsd
-        }
-        if (llmCall.promptCache) {
-          slot.promptCache ??= {}
-          mergeUsageMetadata(slot.promptCache, llmCall.promptCache)
-        }
-        // The prompt-cache report is spend evidence, not only telemetry: it is what tells the
-        // budget which prompt tokens are a re-read of content already charged. Classify per call,
-        // because only this record's own `input` is the total its classes must partition.
-        addTokenUsage(slot.tokenUsage, {
-          input: llmCall.tokensIn,
-          output: llmCall.tokensOut,
-          ...(llmCall.tokensKnown === false ? { tokensKnown: false } : {}),
-          ...promptCacheTokenClasses(llmCall.tokensIn, llmCall.promptCache),
-        })
-        args.ctx.runHandle?.observe(llmCall)
-      }
+      const llmCall = usageLedger.observe(event, slot.agentRunName)
+      if (llmCall) creditLlmCall(llmCall)
       assertSandboxServedModel(event, requested)
     }
+    const harnessCall = usageLedger.settleTurn(slot.agentRunName)
+    if (harnessCall) creditLlmCall(harnessCall)
     const outcome = outcomeTracker.finish()
     slot.sandboxOutcome = outcome
     if (!sawLlmCall) {
@@ -834,6 +843,10 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     }
   } catch (err) {
     slot.error = err instanceof Error ? err : new Error(String(err))
+    // A stream that ends mid-turn still spent whatever the harness already reported, so the held
+    // receipt is credited before the iteration is recorded as failed.
+    const abortedCall = usageLedger.settleTurn(slot.agentRunName)
+    if (abortedCall) creditLlmCall(abortedCall)
   } finally {
     slot.endedAt = args.now()
     await emitTrace(args.ctx.traceEmitter, {

@@ -4,19 +4,27 @@
  * The sandbox SDK emits a polymorphic `SandboxEvent = { type, data, id? }`
  * whose `type` vocabulary is backend-determined (opencode, etc.) rather than
  * enumerated by the SDK. Two consumers project it:
- *   - the loop kernel's cost ledger (`extractLlmCallEvent`) — sums usage off
+ *   - the loop kernel's cost ledger (`extractLlmCallEvent`, and
+ *     `createSandboxUsageLedger` for a turn's full accounting) — sums usage off
  *     every cost-bearing event, regardless of stream shape;
  *   - the `AgentRuntime.act` streaming contract (`mapSandboxEvent`) — projects
  *     incremental events to the `RuntimeStreamEvent` chat-UX vocabulary.
  *
  * Both live here so the empirically-observed `type` vocabulary has one home.
+ * A harness that reports usage only inside its OWN event is decoded by the
+ * per-harness registry in `harness-usage.ts`; this module holds the canonical
+ * fold and the once-per-turn precedence rule between the two sources.
  */
 
-import type { StreamEvent } from '@tangle-network/agent-interface'
+import type { HarnessType, StreamEvent } from '@tangle-network/agent-interface'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import type { RuntimeStreamEvent } from '../types'
+import { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
 import { parseCanonicalTransportEvent } from './sandbox-transport-events'
 import type { ExecutorProgressEvent } from './supervise/types'
+
+/** The canonical usage receipt every accounting path in the kernel reads. */
+type LlmCallEvent = RuntimeStreamEvent & { type: 'llm_call' }
 
 const CANONICAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set([
   'child-task',
@@ -298,9 +306,109 @@ export function extractLlmCallEvent(
 }
 
 /**
+ * Per-turn usage accounting over BOTH the canonical events and the harness-native ones.
+ *
+ * Some harnesses report a turn's tokens only inside their own event (`harness-usage.ts`), and a
+ * stream may carry that report AND a canonical usage event for the same turn. Crediting both
+ * counts one turn twice, so this ledger holds the precedence rule: a canonical usage event WINS,
+ * and a harness-native report is credited only for a turn in which no canonical usage arrived.
+ *
+ * The harness-native report is held until the turn ends, because it can arrive before the
+ * canonical answer is known — codex emits `turn.completed` ahead of the terminal transport
+ * events. Call {@link SandboxUsageLedger.observe} for every event of a turn, then
+ * {@link SandboxUsageLedger.settleTurn} once at the turn boundary; settling also resets the
+ * ledger for the next turn, so one ledger serves a whole multi-turn session.
+ */
+export interface SandboxUsageLedger {
+  /** Account one event. Returns the canonical usage receipt to credit now, if the event is one. */
+  observe(
+    event: SandboxEvent,
+    agentRunName: string,
+  ): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined
+  /** End the turn. Returns the held harness-native receipt when no canonical usage arrived. */
+  settleTurn(agentRunName: string): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined
+}
+
+/** A {@link SandboxUsageLedger} for one worker. Pass the worker's harness to decode with that
+ *  harness's adapter; omit it to try every registered adapter. */
+export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLedger {
+  let held: HarnessUsage[] = []
+  let sawCanonical = false
+  return {
+    observe(event, agentRunName) {
+      const call = extractLlmCallEvent(event, agentRunName)
+      if (call) {
+        sawCanonical = true
+        return call
+      }
+      const usage = decodeHarnessUsage(event, harness)
+      // Every report of the turn is kept: a stream carrying more than one is more than one
+      // charge, and keeping only the last would drop tokens the provider billed.
+      if (usage) held.push(usage)
+      return undefined
+    },
+    settleTurn(agentRunName) {
+      const reports = held
+      const canonical = sawCanonical
+      held = []
+      sawCanonical = false
+      if (canonical || reports.length === 0) return undefined
+      return harnessUsageLlmCall(reports, agentRunName)
+    },
+  }
+}
+
+/**
+ * Fold harness-native usage reports into the canonical `llm_call` the accounting paths read.
+ *
+ * Every counter a `HarnessUsage` carries beside `input` and `output` CLASSIFIES one of those two
+ * totals, so none of them is added to the total it describes:
+ *
+ *   - the prompt-cache counters classify `input` and ride `promptCache`, the convention the
+ *     terminal `tokenUsage` branch above already follows and `promptCacheTokenClasses` folds,
+ *     where `freshInput = input - cacheRead - cacheWrite`;
+ *   - `reasoningOutput` classifies `output`. Codex counts its reasoning tokens INSIDE
+ *     `output_tokens` — a turn reporting `output_tokens 1523` with `reasoning_output_tokens 1516`
+ *     answered with about seven tokens of text — and `parseCodexUsageRecord` holds that as an
+ *     invariant. The canonical `llm_call` carries no reasoning class, so the count is not
+ *     forwarded to {@link buildLlmCall}, whose `reasoningTokens` input is for the sandbox
+ *     `tokenUsage` record that reports reasoning BESIDE its output count.
+ *
+ * A counter no report carried stays absent, because a zero would claim the provider measured none.
+ */
+function harnessUsageLlmCall(
+  reports: readonly HarnessUsage[],
+  agentRunName: string,
+): LlmCallEvent | undefined {
+  let inputTokens = 0
+  let outputTokens = 0
+  let readTokens: number | undefined
+  let writeTokens: number | undefined
+  for (const report of reports) {
+    inputTokens += report.input
+    outputTokens += report.output
+    if (report.cachedInput !== undefined) readTokens = (readTokens ?? 0) + report.cachedInput
+    if (report.cacheWriteInput !== undefined)
+      writeTokens = (writeTokens ?? 0) + report.cacheWriteInput
+  }
+  const promptCache: Record<string, number> = {}
+  if (readTokens !== undefined) promptCache.readTokens = readTokens
+  if (writeTokens !== undefined) promptCache.writeTokens = writeTokens
+  return buildLlmCall(
+    {
+      inputTokens,
+      outputTokens,
+      ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
+    },
+    agentRunName,
+  )
+}
+
+/**
  * Sum the token usage + USD cost of a sandbox turn's events — the one honest way to meter an
- * `openSandboxRun` cell. Folds `extractLlmCallEvent` over the stream (which reads usage off EVERY backend
- * event shape), so a `runProfileMatrix` dispatch can report it to `ctx.cost`:
+ * `openSandboxRun` cell. Folds a {@link SandboxUsageLedger} over the stream, so it reads usage off
+ * EVERY backend event shape — the canonical events plus a harness that reports usage only in its
+ * own event — and a `runProfileMatrix` dispatch can report it to `ctx.cost`:
  *
  *     receipt: (turn) => {
  *       const u = sumSandboxUsage(turn.events)
@@ -313,6 +421,11 @@ export function extractLlmCallEvent(
  *
  * Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
  * matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
+ *
+ * Pure by contract, like the extractors it folds: it never throws. A harness receipt it cannot read
+ * is skipped, the result reports `tokensKnown: false`, and `tokensUnknownReason` carries the decode
+ * message — an unreadable receipt is a different fact from a turn that reported no usage, and a
+ * post-hoc reader that threw would lose the whole failed turn it exists to report.
  */
 export function sumSandboxUsage(
   events: readonly SandboxEvent[],
@@ -324,6 +437,7 @@ export function sumSandboxUsage(
   tokensKnown?: false
   usdKnown?: false
   estimatedCostUsd?: number
+  tokensUnknownReason?: string
 } {
   let input = 0
   let output = 0
@@ -333,9 +447,9 @@ export function sumSandboxUsage(
   let sawCall = false
   let tokensKnown = true
   let usdKnown = true
-  for (const ev of events) {
-    const call = extractLlmCallEvent(ev, agentRunName)
-    if (!call) continue
+  let unreadable: string | undefined
+  const ledger = createSandboxUsageLedger()
+  const credit = (call: LlmCallEvent): void => {
     sawCall = true
     input += call.tokensIn ?? 0
     output += call.tokensOut ?? 0
@@ -347,6 +461,23 @@ export function sumSandboxUsage(
       sawEstimate = true
     }
   }
+  // The FIRST decode message is kept: it names the receipt the reader could not read, and a later
+  // one from the same turn does not make the answer any more unknown.
+  const readable = <T>(read: () => T): T | undefined => {
+    try {
+      return read()
+    } catch (err) {
+      tokensKnown = false
+      unreadable ??= err instanceof Error ? err.message : String(err)
+      return undefined
+    }
+  }
+  for (const ev of events) {
+    const call = readable(() => ledger.observe(ev, agentRunName))
+    if (call) credit(call)
+  }
+  const harnessCall = readable(() => ledger.settleTurn(agentRunName))
+  if (harnessCall) credit(harnessCall)
   return {
     input,
     output,
@@ -354,6 +485,7 @@ export function sumSandboxUsage(
     ...(sawCall && tokensKnown ? {} : { tokensKnown: false as const }),
     ...(sawCall && usdKnown ? {} : { usdKnown: false as const }),
     ...(sawEstimate ? { estimatedCostUsd } : {}),
+    ...(unreadable === undefined ? {} : { tokensUnknownReason: unreadable }),
   }
 }
 

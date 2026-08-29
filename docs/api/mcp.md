@@ -2390,6 +2390,11 @@ Test seam for locating the native Codex executable before it is staged in the wo
 
 Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
 
+`cachedInputTokens` is a part of `inputTokens` and `reasoningOutputTokens` is a part of
+`outputTokens`; neither adds to the total it describes. `cacheWriteInputTokens` is optional
+because the codex CLI reports it and a provider-normalized capture omits it, and an absent
+counter must stay absent rather than become a zero that claims no cache write was measured.
+
 #### Properties
 
 ##### inputTokens
@@ -2407,6 +2412,10 @@ Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
 ##### reasoningOutputTokens
 
 > **reasoningOutputTokens**: `number`
+
+##### cacheWriteInputTokens?
+
+> `optional` **cacheWriteInputTokens?**: `number`
 
 ***
 
@@ -7029,6 +7038,10 @@ created, against the same table that emits the argv.
 > **parseCodexTokenUsage**(`stdout`): [`CodexTokenUsage`](#codextokenusage)
 
 Parse and validate the one terminal usage event emitted by `codex exec --json`.
+
+The JSONL framing is this surface's own; the usage RECORD is read by `parseCodexUsageRecord`,
+the one codex usage reader the sandbox decoder also calls, so both surfaces hold the same field
+policy and the same two cross-field invariants.
 
 #### Parameters
 

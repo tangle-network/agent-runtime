@@ -36,6 +36,8 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import type { AgentProfile, HarnessType, ReasoningEffort } from '@tangle-network/agent-interface'
+import { ValidationError } from '../errors'
+import { parseCodexUsageRecord } from '../runtime/harness-usage'
 import { concreteProfileModel } from '../runtime/supervise/model-policy'
 import {
   codexSensitiveEnvironmentName,
@@ -450,12 +452,20 @@ export interface RunLocalHarnessOptions {
   resolveCodexExecutable?: (command: string, env: NodeJS.ProcessEnv) => Promise<string>
 }
 
-/** Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event. */
+/**
+ * Exact aggregate usage emitted by Codex's terminal `turn.completed` JSONL event.
+ *
+ * `cachedInputTokens` is a part of `inputTokens` and `reasoningOutputTokens` is a part of
+ * `outputTokens`; neither adds to the total it describes. `cacheWriteInputTokens` is optional
+ * because the codex CLI reports it and a provider-normalized capture omits it, and an absent
+ * counter must stay absent rather than become a zero that claims no cache write was measured.
+ */
 export interface CodexTokenUsage {
   inputTokens: number
   cachedInputTokens: number
   outputTokens: number
   reasoningOutputTokens: number
+  cacheWriteInputTokens?: number
 }
 
 /** Isolation settings asserted before a reproducible Codex run is allowed to start. */
@@ -1736,7 +1746,13 @@ function processGroupExists(processGroupId: number): boolean {
   }
 }
 
-/** Parse and validate the one terminal usage event emitted by `codex exec --json`. */
+/**
+ * Parse and validate the one terminal usage event emitted by `codex exec --json`.
+ *
+ * The JSONL framing is this surface's own; the usage RECORD is read by `parseCodexUsageRecord`,
+ * the one codex usage reader the sandbox decoder also calls, so both surfaces hold the same field
+ * policy and the same two cross-field invariants.
+ */
 export function parseCodexTokenUsage(stdout: string): CodexTokenUsage {
   const completed: unknown[] = []
   for (const [index, line] of stdout.split(/\r?\n/).entries()) {
@@ -1745,43 +1761,31 @@ export function parseCodexTokenUsage(stdout: string): CodexTokenUsage {
     try {
       event = JSON.parse(line)
     } catch {
-      throw new Error(`runLocalHarness: Codex JSONL line ${index + 1} is not valid JSON`)
+      throw new ValidationError(`runLocalHarness: Codex JSONL line ${index + 1} is not valid JSON`)
     }
     if (isRecord(event) && event.type === 'turn.completed') completed.push(event)
   }
   if (completed.length !== 1) {
-    throw new Error(
+    throw new ValidationError(
       `runLocalHarness: expected exactly one Codex turn.completed usage event, received ${completed.length}`,
     )
   }
   const event = completed[0]
   if (!isRecord(event) || !isRecord(event.usage)) {
-    throw new Error('runLocalHarness: Codex turn.completed event is missing usage')
+    throw new ValidationError('runLocalHarness: Codex turn.completed event is missing usage')
   }
-  const usage = event.usage
-  const inputTokens = naturalNumber(usage.input_tokens, 'input_tokens')
-  const cachedInputTokens = naturalNumber(usage.cached_input_tokens, 'cached_input_tokens')
-  const outputTokens = naturalNumber(usage.output_tokens, 'output_tokens')
-  const reasoningOutputTokens = naturalNumber(
-    usage.reasoning_output_tokens,
-    'reasoning_output_tokens',
-  )
-  if (cachedInputTokens > inputTokens) {
-    throw new Error('runLocalHarness: Codex cached_input_tokens exceeds input_tokens')
+  const record = parseCodexUsageRecord(event.usage, 'runLocalHarness: Codex')
+  return {
+    inputTokens: record.inputTokens,
+    cachedInputTokens: record.cachedInputTokens,
+    outputTokens: record.outputTokens,
+    reasoningOutputTokens: record.reasoningOutputTokens,
+    ...(record.cacheWriteInputTokens === undefined
+      ? {}
+      : { cacheWriteInputTokens: record.cacheWriteInputTokens }),
   }
-  if (reasoningOutputTokens > outputTokens) {
-    throw new Error('runLocalHarness: Codex reasoning_output_tokens exceeds output_tokens')
-  }
-  return { inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
-
-function naturalNumber(value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`runLocalHarness: Codex usage.${field} must be a non-negative safe integer`)
-  }
-  return value
 }
