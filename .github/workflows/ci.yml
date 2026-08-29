@@ -41,6 +41,9 @@ jobs:
       - name: Check publish credential isolation
         run: pnpm run check:publish-workflow
 
+      - name: Check upstream evidence workflow
+        run: pnpm run check:upstream-evidence-workflow
+
       # GITHUB_BASE_REF is the base BRANCH. The webhook's frozen
       # pull_request.base.sha is deliberately not used: the checked-out merge ref
       # is recomputed against the current base tip, so the frozen sha can name a
