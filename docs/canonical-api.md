@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.177.3.**
+> **Version 0.178.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.163.2 <0.171.0`.
 > `sandbox` must satisfy `>=0.34.0 <0.35.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^1.6.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^1.7.1`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
