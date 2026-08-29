@@ -1,5 +1,7 @@
 import {
   type AgentExactRunControlRef,
+  AgentExactRunControlRefSchema,
+  type AgentNativeContextContinuationOptions,
   AgentNativeContextContinuationResultSchema,
   AgentTurnResultSchema,
   agentNativeContextContinuationResultMatchesRequest,
@@ -9,6 +11,7 @@ import {
   InteractionResponseCommandSchema,
   type NativeContextBoundaryProof,
   NativeContextBoundaryProofSchema,
+  type NativeContextContinuationRequest,
   NativeContextContinuationRequestSchema,
   nativeContextContinuationTurnDigest,
 } from '@tangle-network/agent-interface'
@@ -41,11 +44,21 @@ import {
 import { retainedRunEvents } from './retained-run-events'
 import type {
   NativeContextContinuationExecution,
+  NativeContextContinuationInput,
   RetainedRunCancellation,
   RetainedRunEffect,
   RetainedRunHandle,
   RetainedRunSnapshot,
 } from './retained-run-types'
+
+type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
+
+interface NativeContinuationAdmissionState {
+  readonly isSettled: () => boolean
+  readonly failure: () => unknown
+  readonly controlRef: () => AgentExactRunControlRef | undefined
+  readonly onAdmission: NativeContinuationAdmissionCallback
+}
 
 export function createRetainedRunHandle(
   environment: AgentEnvironment,
@@ -57,8 +70,47 @@ export function createRetainedRunHandle(
   const clock = now ?? Date.now
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
+  // A provider may expose the previous reference while a terminal read catches up.
+  // Remember references seen by this handle so that read cannot move control backwards.
+  const knownControlRefDigests = new Set([canonicalCandidateDigest(activeControlRef)])
+  const synchronizeActiveControlRef = (): void => {
+    let candidate: unknown
+    try {
+      candidate = session.controlRef
+    } catch (error) {
+      throw new RetainedRunProviderContractError(
+        'provider retained session control reference read failed',
+        { code: 'RETAINED_CONTROL_REF_READ_FAILED', cause: error },
+      )
+    }
+    if (candidate === undefined) return
+    const parsed = AgentExactRunControlRefSchema.safeParse(candidate)
+    if (!parsed.success) {
+      throw new RetainedRunProviderContractError(
+        'provider retained session returned an invalid current control reference',
+        { code: 'RETAINED_CONTROL_REF_INVALID', cause: parsed.error },
+      )
+    }
+    const candidateDigest = canonicalCandidateDigest(parsed.data)
+    if (
+      sameControlCoordinates(parsed.data, activeControlRef) ||
+      knownControlRefDigests.has(candidateDigest)
+    ) {
+      return
+    }
+    try {
+      activeControlRef = freezeControlRef(exactContinuedControlRef(parsed.data, activeControlRef))
+      knownControlRefDigests.add(candidateDigest)
+    } catch (error) {
+      throw new RetainedRunProviderContractError(
+        'provider retained session advanced to an invalid control reference',
+        { code: 'RETAINED_CONTROL_REF_ADVANCE_INVALID', cause: error },
+      )
+    }
+  }
   const snapshot = async (reason?: string, signal?: AbortSignal): Promise<RetainedRunSnapshot> => {
     if (signal?.aborted) throw abortError(signal.reason)
+    synchronizeActiveControlRef()
     let status: AgentSessionStatus | null
     try {
       status = await awaitAbortable(
@@ -69,6 +121,7 @@ export function createRetainedRunHandle(
       if (signal?.aborted) throw abortError(signal.reason)
       status = 'unknown'
     }
+    synchronizeActiveControlRef()
     const effect: RetainedRunEffect =
       status === 'cancelled'
         ? 'cancelled'
@@ -85,8 +138,248 @@ export function createRetainedRunHandle(
       ...(signal?.aborted ? { signal: String(signal.reason ?? 'aborted') } : {}),
     }
   }
+  const assertContinuationIsCurrent = (
+    continuationSource: AgentExactRunControlRef,
+    nextControlRef: AgentExactRunControlRef,
+  ): void => {
+    if (
+      !sameControlCoordinates(activeControlRef, continuationSource) &&
+      !sameControlCoordinates(activeControlRef, nextControlRef)
+    ) {
+      throw new Error(
+        'provider advanced the retained session while another native continuation was pending',
+      )
+    }
+  }
+  const missingContinuationAdmission = (): RetainedRunProviderContractError =>
+    new RetainedRunProviderContractError(
+      'provider accepted a native continuation without an admission reference',
+      { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING' },
+    )
+  const executeNativeContinuation = async (
+    request: NativeContextContinuationRequest,
+    turn: NativeContextContinuationInput,
+    admission: NativeContinuationAdmissionState | undefined,
+    expectedSource: AgentExactRunControlRef | undefined,
+  ): Promise<NativeContextContinuationExecution> => {
+    synchronizeActiveControlRef()
+    const exactRequest = NativeContextContinuationRequestSchema.parse(request)
+    const continuationSource = expectedSource ?? activeControlRef
+    if (!sameControlCoordinates(activeControlRef, continuationSource)) {
+      throw new Error('native continuation retained-run control changed before admission')
+    }
+    if (!sameControlCoordinates(exactRequest.run, continuationSource)) {
+      throw new Error('native continuation request targets another retained run')
+    }
+    const { timeoutMs, signal, ...semanticTurn } = turn
+    if (nativeContextContinuationTurnDigest(semanticTurn) !== exactRequest.turnDigest) {
+      throw new Error('native continuation request targets another user turn')
+    }
+    const nativeCapabilities = measuredCapabilities.nativeContinuation
+    if (
+      nativeCapabilities?.atomicBoundary !== true ||
+      nativeCapabilities.requestIdempotency !== true ||
+      !session.continueNative
+    ) {
+      throw new Error(
+        `provider "${activeControlRef.provider}" does not support retry-safe native continuation`,
+      )
+    }
+    if (admission !== undefined && nativeCapabilities.admissionControl !== true) {
+      throw new Error(
+        `provider "${activeControlRef.provider}" does not advertise early native continuation admission control`,
+      )
+    }
+    let outcome: NativeContextContinuationExecution
+    try {
+      outcome = AgentNativeContextContinuationResultSchema.parse(
+        await awaitAbortable(
+          Promise.resolve().then(() => {
+            const providerOptions: AgentNativeContextContinuationOptions = {
+              turn: semanticTurn,
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+              ...(signal === undefined ? {} : { signal }),
+              ...(admission === undefined ? {} : { onAdmission: admission.onAdmission }),
+            }
+            return session.continueNative!(exactRequest, providerOptions)
+          }),
+          signal,
+        ),
+      )
+    } catch (error) {
+      try {
+        synchronizeActiveControlRef()
+      } catch (syncError) {
+        throw new AggregateError(
+          [error, syncError],
+          'native continuation failed and its current control reference could not be read',
+        )
+      }
+      throw error
+    }
+    const admissionFailure = admission?.failure()
+    if (admissionFailure !== undefined) throw admissionFailure
+    synchronizeActiveControlRef()
+    if (
+      outcome.acknowledgement.operationId !== exactRequest.operationId ||
+      outcome.acknowledgement.requestDigest !== exactRequest.requestDigest
+    ) {
+      throw new Error('provider returned a native continuation result for another request')
+    }
+    if (outcome.acknowledgement.actualBoundary !== undefined) {
+      const actualBoundary = NativeContextBoundaryProofSchema.parse(
+        outcome.acknowledgement.actualBoundary,
+      )
+      assertBoundaryBinding(exactRequest.run, actualBoundary)
+    }
+    if (
+      outcome.acknowledgement.status !== 'accepted' &&
+      outcome.acknowledgement.status !== 'replayed'
+    ) {
+      return structuredClone(outcome)
+    }
+    if (
+      admission !== undefined &&
+      !admission.isSettled() &&
+      outcome.acknowledgement.status === 'accepted'
+    ) {
+      throw missingContinuationAdmission()
+    }
+    if (!('result' in outcome) || !('controlRef' in outcome)) {
+      throw new Error('provider omitted the successful native continuation result')
+    }
+    if (!agentNativeContextContinuationResultMatchesRequest(exactRequest, outcome)) {
+      throw new Error('provider returned a native continuation result for another request')
+    }
+    const nextControlRef = exactContinuedControlRef(outcome.controlRef, continuationSource)
+    assertResultBinding(nextControlRef, outcome.result)
+    assertContinuationIsCurrent(continuationSource, nextControlRef)
+    if (admission !== undefined && !admission.isSettled()) {
+      if (outcome.acknowledgement.status !== 'replayed') {
+        throw missingContinuationAdmission()
+      }
+      // A replay may already have been admitted before this process started and
+      // can therefore return only its durable terminal record.
+      admission.onAdmission(nextControlRef)
+    }
+    const admittedControlRef = admission?.controlRef()
+    if (admission !== undefined && admittedControlRef === undefined) {
+      throw missingContinuationAdmission()
+    }
+    if (
+      admittedControlRef !== undefined &&
+      !sameControlCoordinates(nextControlRef, admittedControlRef)
+    ) {
+      throw new RetainedRunProviderContractError(
+        'provider changed the native continuation run after admission',
+        { code: 'RETAINED_NATIVE_CONTINUATION_RESULT_CHANGED' },
+      )
+    }
+    activeControlRef = freezeControlRef(nextControlRef)
+    knownControlRefDigests.add(canonicalCandidateDigest(activeControlRef))
+    return structuredClone({ ...outcome, controlRef: copyControlRef(activeControlRef) })
+  }
+  const beginNativeContinuation = (
+    request: NativeContextContinuationRequest,
+    turn: NativeContextContinuationInput,
+  ): ReturnType<RetainedRunHandle['beginNativeContinuation']> => {
+    synchronizeActiveControlRef()
+    const nativeCapabilities = measuredCapabilities.nativeContinuation
+    if (nativeCapabilities?.admissionControl !== true) {
+      throw new Error(
+        `provider "${activeControlRef.provider}" does not advertise early native continuation admission control`,
+      )
+    }
+    const continuationSource = activeControlRef
+    let admissionSettled = false
+    let admissionCalled = false
+    let admittedControlRef: AgentExactRunControlRef | undefined
+    let admissionFailure: unknown
+    let resolveAdmission!: (controlRef: AgentExactRunControlRef) => void
+    let rejectAdmission!: (error: unknown) => void
+    const admissionPromise = new Promise<AgentExactRunControlRef>((resolve, reject) => {
+      resolveAdmission = resolve
+      rejectAdmission = reject
+    })
+    // Callers may only observe the terminal result. Keep an internal observer
+    // on admission so a provider failure cannot become an unhandled rejection.
+    void admissionPromise.catch(() => undefined)
+    const failAdmission = (error: unknown): void => {
+      admissionFailure ??= error
+      if (admissionSettled) return
+      admissionSettled = true
+      rejectAdmission(error)
+    }
+    const onAdmission: NativeContinuationAdmissionCallback = (candidate) => {
+      if (admissionCalled) {
+        const error = new RetainedRunProviderContractError(
+          'provider called native continuation admission more than once',
+          { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_DUPLICATE' },
+        )
+        failAdmission(error)
+        throw error
+      }
+      admissionCalled = true
+      try {
+        const parsed = AgentExactRunControlRefSchema.parse(candidate)
+        const nextControlRef = exactContinuedControlRef(parsed, continuationSource)
+        assertContinuationIsCurrent(continuationSource, nextControlRef)
+        activeControlRef = freezeControlRef(nextControlRef)
+        knownControlRefDigests.add(canonicalCandidateDigest(activeControlRef))
+        admittedControlRef = activeControlRef
+        if (!admissionSettled) {
+          admissionSettled = true
+          resolveAdmission(copyControlRef(activeControlRef))
+        }
+      } catch (error) {
+        const contractError =
+          error instanceof RetainedRunProviderContractError
+            ? error
+            : new RetainedRunProviderContractError(
+                error instanceof Error
+                  ? error.message
+                  : 'provider returned an invalid native continuation admission reference',
+                { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_INVALID', cause: error },
+              )
+        failAdmission(contractError)
+        throw contractError
+      }
+    }
+    const admissionState: NativeContinuationAdmissionState = {
+      isSettled: () => admissionSettled,
+      failure: () => admissionFailure,
+      controlRef: () =>
+        admittedControlRef === undefined ? undefined : copyControlRef(admittedControlRef),
+      onAdmission,
+    }
+    const result = executeNativeContinuation(request, turn, admissionState, continuationSource)
+    void result.then(
+      (outcome) => {
+        if (admissionSettled) return
+        const error = new RetainedRunProviderContractError(
+          outcome.acknowledgement.status === 'accepted' ||
+            outcome.acknowledgement.status === 'replayed'
+            ? 'provider accepted a native continuation without an admission reference'
+            : 'native continuation ended without durable admission',
+          {
+            code:
+              outcome.acknowledgement.status === 'accepted' ||
+              outcome.acknowledgement.status === 'replayed'
+                ? 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING'
+                : 'RETAINED_NATIVE_CONTINUATION_NOT_ADMITTED',
+          },
+        )
+        failAdmission(error)
+      },
+      (error) => {
+        failAdmission(error)
+      },
+    )
+    return { admission: admissionPromise, result }
+  }
   return {
     get controlRef() {
+      synchronizeActiveControlRef()
       return copyControlRef(activeControlRef)
     },
     get capabilities() {
@@ -108,9 +401,12 @@ export function createRetainedRunHandle(
       }
       return current
     },
-    events: (options) =>
-      retainedRunEvents(session, copyControlRef(activeControlRef), options, clock),
+    events: (options) => {
+      synchronizeActiveControlRef()
+      return retainedRunEvents(session, copyControlRef(activeControlRef), options, clock)
+    },
     result: async () => {
+      synchronizeActiveControlRef()
       let candidate: unknown
       try {
         candidate = await exactSessionResult(session)
@@ -128,6 +424,7 @@ export function createRetainedRunHandle(
           cause: parsed.error,
         })
       }
+      synchronizeActiveControlRef()
       try {
         assertResultBinding(activeControlRef, parsed.data)
       } catch (error) {
@@ -139,6 +436,7 @@ export function createRetainedRunHandle(
       return structuredClone(parsed.data)
     },
     async respondToInteraction(command, options): Promise<InteractionAcknowledgement> {
+      synchronizeActiveControlRef()
       const exactCommand = InteractionResponseCommandSchema.parse(command)
       assertInteractionBinding(activeControlRef, exactCommand)
       if (
@@ -167,6 +465,7 @@ export function createRetainedRunHandle(
           options?.signal,
         ),
       )
+      synchronizeActiveControlRef()
       if (
         acknowledgement.operationId !== exactCommand.operationId ||
         acknowledgement.commandDigest !== exactCommand.commandDigest ||
@@ -178,76 +477,24 @@ export function createRetainedRunHandle(
       return structuredClone(acknowledgement)
     },
     async contextBoundary(options): Promise<NativeContextBoundaryProof | null> {
+      synchronizeActiveControlRef()
       if (!session.contextBoundary) return null
       const proof = await awaitAbortable(
         Promise.resolve().then(() => session.contextBoundary!(options)),
         options?.signal,
       )
+      synchronizeActiveControlRef()
       if (proof === null) return null
       const exactProof = NativeContextBoundaryProofSchema.parse(proof)
       assertBoundaryBinding(activeControlRef, exactProof)
       return structuredClone(exactProof)
     },
-    async continueNative(request, turn): Promise<NativeContextContinuationExecution> {
-      const exactRequest = NativeContextContinuationRequestSchema.parse(request)
-      if (!sameControlCoordinates(exactRequest.run, activeControlRef)) {
-        throw new Error('native continuation request targets another retained run')
-      }
-      const { timeoutMs, signal, ...semanticTurn } = turn
-      if (nativeContextContinuationTurnDigest(semanticTurn) !== exactRequest.turnDigest) {
-        throw new Error('native continuation request targets another user turn')
-      }
-      if (
-        measuredCapabilities.nativeContinuation?.atomicBoundary !== true ||
-        measuredCapabilities.nativeContinuation.requestIdempotency !== true ||
-        !session.continueNative
-      ) {
-        throw new Error(
-          `provider "${activeControlRef.provider}" does not support retry-safe native continuation`,
-        )
-      }
-      const outcome = AgentNativeContextContinuationResultSchema.parse(
-        await awaitAbortable(
-          Promise.resolve().then(() =>
-            session.continueNative!(exactRequest, {
-              turn: semanticTurn,
-              ...(timeoutMs === undefined ? {} : { timeoutMs }),
-              ...(signal === undefined ? {} : { signal }),
-            }),
-          ),
-          signal,
-        ),
-      )
-      if (
-        outcome.acknowledgement.operationId !== exactRequest.operationId ||
-        outcome.acknowledgement.requestDigest !== exactRequest.requestDigest
-      ) {
-        throw new Error('provider returned a native continuation result for another request')
-      }
-      if (outcome.acknowledgement.actualBoundary !== undefined) {
-        const actualBoundary = NativeContextBoundaryProofSchema.parse(
-          outcome.acknowledgement.actualBoundary,
-        )
-        assertBoundaryBinding(exactRequest.run, actualBoundary)
-      }
-      if (
-        outcome.acknowledgement.status !== 'accepted' &&
-        outcome.acknowledgement.status !== 'replayed'
-      ) {
-        return structuredClone(outcome)
-      }
-      if (!('result' in outcome) || !('controlRef' in outcome)) {
-        throw new Error('provider omitted the successful native continuation result')
-      }
-      if (!agentNativeContextContinuationResultMatchesRequest(exactRequest, outcome)) {
-        throw new Error('provider returned a native continuation result for another request')
-      }
-      const nextControlRef = exactContinuedControlRef(outcome.controlRef, activeControlRef)
-      assertResultBinding(nextControlRef, outcome.result)
-      activeControlRef = freezeControlRef(nextControlRef)
-      return structuredClone({ ...outcome, controlRef: copyControlRef(activeControlRef) })
+    beginNativeContinuation,
+    continueNative(request, turn): Promise<NativeContextContinuationExecution> {
+      return executeNativeContinuation(request, turn, undefined, undefined)
     },
     async cancel(options): Promise<RetainedRunCancellation> {
+      synchronizeActiveControlRef()
       assertStableText(options.operationId, 'retained cancellation operation id')
       if (options.reason !== undefined)
         assertStableText(options.reason, 'retained cancellation reason')

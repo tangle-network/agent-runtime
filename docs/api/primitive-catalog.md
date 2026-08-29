@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.177.1` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.178.0` and `@tangle-network/agent-eval@0.170.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -555,7 +555,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 874 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 875 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -998,6 +998,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 874 exports.
 | `MaterializedExecutionIdentity` | interface | External execution identity that operators can use to join this node to its backend. |
 | `McpEndpoint` | interface | Where a handle's MCP server lives; headers carry per-artifact scoping. |
 | `MountManifestEntry` | interface | One mounted resource recorded during box preparation — a pure provenance |
+| `NativeContextContinuationHandle` | interface | Admission and terminal result for one same-session continuation. |
 | `NodeExecutionIdentity` | interface | Durable identity of one realized node. Missing digests mean the input was not canonical JSON. |
 | `NoWinnerError` | interface | A driver's `act()` rejection, normalized to a serializable triple so it survives the typed |
 | `OpenSandboxRunBeforeStartContext` | interface | Context available after the box/session exists and before the first prompt is |

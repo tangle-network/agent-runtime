@@ -1,4 +1,4 @@
-const PROVIDER = 'agent-runtime-upstream-contract'
+export const PROVIDER = 'agent-runtime-upstream-contract'
 
 /**
  * A deterministic provider used by the packed public contract suite.
@@ -227,6 +227,7 @@ export function createUpstreamContractProvider(interfaceModule) {
             counters.nativeContinuations += 1
             const prior = nativeOperations.get(request.operationId)
             if (prior) {
+              options.onAdmission?.(prior.controlRef)
               return {
                 ...structuredClone(prior),
                 acknowledgement: { ...prior.acknowledgement, status: 'replayed' },
@@ -272,6 +273,7 @@ export function createUpstreamContractProvider(interfaceModule) {
             }
             nativeOperations.set(request.operationId, structuredClone(result))
             currentControlRef = nextControlRef
+            options.onAdmission?.(nextControlRef)
             return result
           },
           async cancelRun(request) {
@@ -404,7 +406,7 @@ function retainedCapabilities() {
       eventIdentity: true,
       cancellationIdempotency: true,
     },
-    nativeContinuation: { atomicBoundary: true, requestIdempotency: true },
+    nativeContinuation: { atomicBoundary: true, requestIdempotency: true, admissionControl: true },
     interactions: {
       kinds: ['question'],
       answerFieldTypes: ['text'],

@@ -4,16 +4,22 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type AgentExactRunControlRef,
+  type AgentNativeContextContinuationResult,
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type InteractionCapabilities,
   interactionRequestDigest,
   interactionResponseCommandDigest,
+  NativeContextContinuationRequestSchema,
+  nativeContextContinuationRequestDigest,
+  nativeContextContinuationTurnDigest,
   type RuntimeEventEnvelope,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
+  AgentEnvironmentCapabilities,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
   AgentSession,
@@ -31,6 +37,7 @@ import {
   startRetainedRun,
   startRetainedRunInEnvironment,
 } from './retained-run'
+import { createRetainedRunHandle } from './retained-run-handle'
 import { mintRetainedIdentity } from './retained-run-start'
 
 const childScript = new URL('../../tests/helpers/retained-run-child.ts', import.meta.url).pathname
@@ -1583,6 +1590,489 @@ describe('retained runtime run control', () => {
       message: 'caller stopped cancellation',
     })
     expect(cancelCalls).toBe(1)
+  })
+
+  it('cancels a native continuation from the provider reference admitted before its result', async () => {
+    const initialControlRef: AgentExactRunControlRef = {
+      runId: 'continuation-admission-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'continuation-admission-session',
+      executionId: 'continuation-admission-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const continuationTurn = { prompt: 'continue while the provider is still running' }
+    const expectedBoundary = {
+      runId: initialControlRef.runId,
+      provider: initialControlRef.provider,
+      environmentId: initialControlRef.environmentId,
+      sessionId: initialControlRef.sessionId,
+      executionId: initialControlRef.executionId,
+      requestDigest: initialControlRef.requestDigest,
+      boundary: {
+        kind: 'messages' as const,
+        messageIds: ['continuation-admission-message'],
+        digest: `sha256:${'b'.repeat(64)}` as const,
+      },
+      observedAt: '2026-08-28T00:00:00.000Z',
+    }
+    const continuationMaterial = {
+      operationId: 'continuation-admission-operation',
+      run: initialControlRef,
+      expectedBoundary,
+      turnDigest: nativeContextContinuationTurnDigest(continuationTurn),
+    }
+    const continuationRequest = NativeContextContinuationRequestSchema.parse({
+      ...continuationMaterial,
+      requestDigest: nativeContextContinuationRequestDigest(continuationMaterial),
+    })
+    const nextControlRef: AgentExactRunControlRef = {
+      ...initialControlRef,
+      runId: 'continuation-admitted-run',
+      executionId: 'continuation-admitted-execution',
+      requestDigest: continuationRequest.requestDigest,
+    }
+    const continuationResult: AgentNativeContextContinuationResult = {
+      acknowledgement: {
+        operationId: continuationRequest.operationId,
+        requestDigest: continuationRequest.requestDigest,
+        status: 'accepted',
+        historyMessagesSent: 0,
+        actualBoundary: expectedBoundary,
+      },
+      result: {
+        text: 'continuation was cancelled after admission',
+        success: false,
+        sessionId: nextControlRef.sessionId,
+        metadata: {
+          runId: nextControlRef.runId,
+          executionId: nextControlRef.executionId,
+          requestDigest: nextControlRef.requestDigest,
+        },
+      },
+      controlRef: nextControlRef,
+    }
+    let currentControlRef = initialControlRef
+    let cancelled = false
+    let resolveContinuationStarted!: () => void
+    const continuationStarted = new Promise<void>((resolve) => {
+      resolveContinuationStarted = resolve
+    })
+    let resolveContinuation!: (result: AgentNativeContextContinuationResult) => void
+    const continuationCompletion = new Promise<AgentNativeContextContinuationResult>((resolve) => {
+      resolveContinuation = resolve
+    })
+    let continuationCompleted = false
+    let cancellationRequest: AgentRunCancellationRequest | undefined
+    const session: AgentSession = {
+      id: initialControlRef.sessionId,
+      get controlRef() {
+        return currentControlRef
+      },
+      status: async () => (cancelled ? 'cancelled' : 'running'),
+      async *events() {
+        yield* []
+      },
+      result: async () => ({
+        text: 'cancelled',
+        success: false,
+        sessionId: nextControlRef.sessionId,
+        metadata: {
+          runId: nextControlRef.runId,
+          executionId: nextControlRef.executionId,
+          requestDigest: nextControlRef.requestDigest,
+        },
+      }),
+      prompt: async () => ({ text: 'unused', success: false }),
+      cancel: async () => {},
+      async continueNative(_request, options) {
+        currentControlRef = nextControlRef
+        const onAdmission = options.onAdmission
+        if (onAdmission === undefined) throw new Error('test provider did not receive onAdmission')
+        onAdmission(nextControlRef)
+        resolveContinuationStarted()
+        try {
+          return await continuationCompletion
+        } finally {
+          continuationCompleted = true
+        }
+      },
+      async contextBoundary() {
+        return expectedBoundary
+      },
+      async cancelRun(request) {
+        cancellationRequest = request
+        cancelled = true
+        return {
+          operationId: request.operationId,
+          requestDigest: request.requestDigest,
+          run: request.run,
+          status: 'accepted' as const,
+          effect: 'cancelled' as const,
+        }
+      },
+    }
+    const provider = providerWithEnvironment({})
+    const capabilities: AgentEnvironmentCapabilities = {
+      ...(await provider.capabilities()),
+      nativeContinuation: {
+        atomicBoundary: true,
+        requestIdempotency: true,
+        admissionControl: true,
+      },
+    }
+    const environment: AgentEnvironment = {
+      id: initialControlRef.environmentId,
+      provider: initialControlRef.provider,
+      status: async () => 'running',
+      async *stream() {
+        yield* []
+      },
+    }
+    const run = createRetainedRunHandle(
+      environment,
+      session,
+      initialControlRef,
+      capabilities,
+      undefined,
+    )
+
+    const pendingContinuation = run.beginNativeContinuation(continuationRequest, continuationTurn)
+    await expect(pendingContinuation.admission).resolves.toEqual(nextControlRef)
+    await continuationStarted
+    expect(continuationCompleted).toBe(false)
+    expect(run.controlRef).toEqual(nextControlRef)
+    await expect(run.status()).resolves.toMatchObject({
+      runId: nextControlRef.runId,
+      status: 'running',
+      controlRef: nextControlRef,
+    })
+
+    const cancellation = await run.cancel({
+      operationId: 'cancel-admitted-continuation',
+      reason: 'user stopped the admitted continuation',
+    })
+    expect(cancellation).toMatchObject({
+      status: 'accepted',
+      effect: 'cancelled',
+      snapshot: { status: 'cancelled', controlRef: nextControlRef },
+    })
+    expect(cancellationRequest?.run).toEqual(nextControlRef)
+
+    resolveContinuation(continuationResult)
+    await expect(pendingContinuation.result).resolves.toMatchObject({
+      acknowledgement: { status: 'accepted' },
+      controlRef: nextControlRef,
+    })
+  })
+
+  it('does not create an unhandled admission rejection when only the result is observed', async () => {
+    const controlRef: AgentExactRunControlRef = {
+      runId: 'continuation-failure-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'continuation-failure-session',
+      executionId: 'continuation-failure-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const continuationTurn = { prompt: 'fail before admission' }
+    const expectedBoundary = {
+      runId: controlRef.runId,
+      provider: controlRef.provider,
+      environmentId: controlRef.environmentId,
+      sessionId: controlRef.sessionId,
+      executionId: controlRef.executionId,
+      requestDigest: controlRef.requestDigest,
+      boundary: {
+        kind: 'messages' as const,
+        messageIds: ['continuation-failure-message'],
+        digest: `sha256:${'c'.repeat(64)}` as const,
+      },
+      observedAt: '2026-08-28T00:00:00.000Z',
+    }
+    const continuationMaterial = {
+      operationId: 'continuation-failure-operation',
+      run: controlRef,
+      expectedBoundary,
+      turnDigest: nativeContextContinuationTurnDigest(continuationTurn),
+    }
+    const request = NativeContextContinuationRequestSchema.parse({
+      ...continuationMaterial,
+      requestDigest: nativeContextContinuationRequestDigest(continuationMaterial),
+    })
+    const session: AgentSession = {
+      id: controlRef.sessionId,
+      controlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'unused', success: false }),
+      prompt: async () => ({ text: 'unused', success: false }),
+      cancel: async () => {},
+      async continueNative() {
+        throw new Error('native continuation failed before admission')
+      },
+    }
+    const provider = providerWithEnvironment({})
+    const capabilities: AgentEnvironmentCapabilities = {
+      ...(await provider.capabilities()),
+      nativeContinuation: {
+        atomicBoundary: true,
+        requestIdempotency: true,
+        admissionControl: true,
+      },
+    }
+    const environment: AgentEnvironment = {
+      id: controlRef.environmentId,
+      provider: controlRef.provider,
+      status: async () => 'running',
+      async *stream() {
+        yield* []
+      },
+    }
+    const run = createRetainedRunHandle(environment, session, controlRef, capabilities, undefined)
+    const unhandledRejections: unknown[] = []
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandledRejections.push(reason)
+    }
+    process.on('unhandledRejection', onUnhandledRejection)
+    try {
+      const pendingContinuation = run.beginNativeContinuation(request, continuationTurn)
+      await expect(pendingContinuation.result).rejects.toThrow(
+        'native continuation failed before admission',
+      )
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(unhandledRejections).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection)
+    }
+  })
+
+  it('reconstructs admission from a replayed terminal continuation without a callback', async () => {
+    const initialControlRef: AgentExactRunControlRef = {
+      runId: 'continuation-replay-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'continuation-replay-session',
+      executionId: 'continuation-replay-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const continuationTurn = { prompt: 'replay the admitted continuation' }
+    const expectedBoundary = {
+      runId: initialControlRef.runId,
+      provider: initialControlRef.provider,
+      environmentId: initialControlRef.environmentId,
+      sessionId: initialControlRef.sessionId,
+      executionId: initialControlRef.executionId,
+      requestDigest: initialControlRef.requestDigest,
+      boundary: {
+        kind: 'messages' as const,
+        messageIds: ['continuation-replay-message'],
+        digest: `sha256:${'e'.repeat(64)}` as const,
+      },
+      observedAt: '2026-08-28T00:00:00.000Z',
+    }
+    const continuationMaterial = {
+      operationId: 'continuation-replay-operation',
+      run: initialControlRef,
+      expectedBoundary,
+      turnDigest: nativeContextContinuationTurnDigest(continuationTurn),
+    }
+    const request = NativeContextContinuationRequestSchema.parse({
+      ...continuationMaterial,
+      requestDigest: nativeContextContinuationRequestDigest(continuationMaterial),
+    })
+    const nextControlRef: AgentExactRunControlRef = {
+      ...initialControlRef,
+      runId: 'continuation-replay-next-run',
+      executionId: 'continuation-replay-next-execution',
+      requestDigest: request.requestDigest,
+    }
+    const replayResult: AgentNativeContextContinuationResult = {
+      acknowledgement: {
+        operationId: request.operationId,
+        requestDigest: request.requestDigest,
+        status: 'replayed',
+        historyMessagesSent: 0,
+        actualBoundary: expectedBoundary,
+      },
+      result: {
+        text: 'replayed continuation',
+        success: true,
+        sessionId: nextControlRef.sessionId,
+        metadata: {
+          runId: nextControlRef.runId,
+          executionId: nextControlRef.executionId,
+          requestDigest: nextControlRef.requestDigest,
+        },
+      },
+      controlRef: nextControlRef,
+    }
+    const session: AgentSession = {
+      id: initialControlRef.sessionId,
+      controlRef: initialControlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'unused', success: false }),
+      prompt: async () => ({ text: 'unused', success: false }),
+      cancel: async () => {},
+      async continueNative() {
+        return replayResult
+      },
+    }
+    const provider = providerWithEnvironment({})
+    const capabilities: AgentEnvironmentCapabilities = {
+      ...(await provider.capabilities()),
+      nativeContinuation: {
+        atomicBoundary: true,
+        requestIdempotency: true,
+        admissionControl: true,
+      },
+    }
+    const environment: AgentEnvironment = {
+      id: initialControlRef.environmentId,
+      provider: initialControlRef.provider,
+      status: async () => 'running',
+      async *stream() {
+        yield* []
+      },
+    }
+    const run = createRetainedRunHandle(
+      environment,
+      session,
+      initialControlRef,
+      capabilities,
+      undefined,
+    )
+
+    const pendingContinuation = run.beginNativeContinuation(request, continuationTurn)
+    await expect(pendingContinuation.admission).resolves.toEqual(nextControlRef)
+    await expect(pendingContinuation.result).resolves.toMatchObject({
+      acknowledgement: { status: 'replayed' },
+      controlRef: nextControlRef,
+    })
+    expect(run.controlRef).toEqual(nextControlRef)
+  })
+
+  it('rejects a terminal native continuation identity that differs from its admission', async () => {
+    const initialControlRef: AgentExactRunControlRef = {
+      runId: 'continuation-identity-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'continuation-identity-session',
+      executionId: 'continuation-identity-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const continuationTurn = { prompt: 'continue with one admitted run' }
+    const expectedBoundary = {
+      runId: initialControlRef.runId,
+      provider: initialControlRef.provider,
+      environmentId: initialControlRef.environmentId,
+      sessionId: initialControlRef.sessionId,
+      executionId: initialControlRef.executionId,
+      requestDigest: initialControlRef.requestDigest,
+      boundary: {
+        kind: 'messages' as const,
+        messageIds: ['continuation-identity-message'],
+        digest: `sha256:${'d'.repeat(64)}` as const,
+      },
+      observedAt: '2026-08-28T00:00:00.000Z',
+    }
+    const continuationMaterial = {
+      operationId: 'continuation-identity-operation',
+      run: initialControlRef,
+      expectedBoundary,
+      turnDigest: nativeContextContinuationTurnDigest(continuationTurn),
+    }
+    const request = NativeContextContinuationRequestSchema.parse({
+      ...continuationMaterial,
+      requestDigest: nativeContextContinuationRequestDigest(continuationMaterial),
+    })
+    const admittedControlRef: AgentExactRunControlRef = {
+      ...initialControlRef,
+      runId: 'continuation-admitted-identity-run',
+      executionId: 'continuation-admitted-identity-execution',
+      requestDigest: request.requestDigest,
+    }
+    const terminalControlRef: AgentExactRunControlRef = {
+      ...initialControlRef,
+      runId: 'continuation-terminal-identity-run',
+      executionId: 'continuation-terminal-identity-execution',
+      requestDigest: request.requestDigest,
+    }
+    const continuationResult: AgentNativeContextContinuationResult = {
+      acknowledgement: {
+        operationId: request.operationId,
+        requestDigest: request.requestDigest,
+        status: 'accepted',
+        historyMessagesSent: 0,
+        actualBoundary: expectedBoundary,
+      },
+      result: {
+        text: 'terminal identity changed',
+        success: true,
+        sessionId: terminalControlRef.sessionId,
+        metadata: {
+          runId: terminalControlRef.runId,
+          executionId: terminalControlRef.executionId,
+          requestDigest: terminalControlRef.requestDigest,
+        },
+      },
+      controlRef: terminalControlRef,
+    }
+    let currentControlRef = initialControlRef
+    const session: AgentSession = {
+      id: initialControlRef.sessionId,
+      get controlRef() {
+        return currentControlRef
+      },
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'unused', success: false }),
+      prompt: async () => ({ text: 'unused', success: false }),
+      cancel: async () => {},
+      async continueNative(_request, options) {
+        options.onAdmission?.(admittedControlRef)
+        currentControlRef = terminalControlRef
+        return continuationResult
+      },
+    }
+    const provider = providerWithEnvironment({})
+    const capabilities: AgentEnvironmentCapabilities = {
+      ...(await provider.capabilities()),
+      nativeContinuation: {
+        atomicBoundary: true,
+        requestIdempotency: true,
+        admissionControl: true,
+      },
+    }
+    const environment: AgentEnvironment = {
+      id: initialControlRef.environmentId,
+      provider: initialControlRef.provider,
+      status: async () => 'running',
+      async *stream() {
+        yield* []
+      },
+    }
+    const run = createRetainedRunHandle(
+      environment,
+      session,
+      initialControlRef,
+      capabilities,
+      undefined,
+    )
+
+    const pendingContinuation = run.beginNativeContinuation(request, continuationTurn)
+    await expect(pendingContinuation.admission).resolves.toEqual(admittedControlRef)
+    await expect(pendingContinuation.result).rejects.toMatchObject({
+      code: 'RETAINED_NATIVE_CONTINUATION_RESULT_CHANGED',
+      message: 'provider changed the native continuation run after admission',
+    })
   })
 
   it('interrupts a retained event read and closes its provider iterator', async () => {

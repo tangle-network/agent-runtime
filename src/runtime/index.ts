@@ -354,6 +354,7 @@ export {
   type ClaimRetainedInteractiveControlOptions,
   claimRetainedInteractiveControl,
   type NativeContextContinuationExecution,
+  type NativeContextContinuationHandle,
   type NativeContextContinuationInput,
   type ReconnectRetainedInteractiveRunOptions,
   type ReconnectRetainedRunOptions,

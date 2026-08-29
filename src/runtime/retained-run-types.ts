@@ -68,10 +68,22 @@ export interface RetainedRunCancelOptions {
 
 /** Runtime controls plus the exact user turn bound into a continuation request. @stable */
 export type NativeContextContinuationInput = NativeContextContinuationTurn &
-  Omit<AgentNativeContextContinuationOptions, 'turn'>
+  Omit<AgentNativeContextContinuationOptions, 'turn' | 'onAdmission'>
 
 /** Result of one verified same-session continuation. @stable */
 export type NativeContextContinuationExecution = AgentNativeContextContinuationResult
+
+/**
+ * Admission and terminal result for one same-session continuation.
+ *
+ * The provider resolves `admission` after it durably owns the next exact run
+ * reference. `result` resolves when that run reaches its terminal result.
+ * @stable
+ */
+export interface NativeContextContinuationHandle {
+  readonly admission: Promise<AgentExactRunControlRef>
+  readonly result: Promise<NativeContextContinuationExecution>
+}
 
 /** Reconstructable control of one provider-retained run. @stable */
 export interface RetainedRunHandle {
@@ -86,6 +98,10 @@ export interface RetainedRunHandle {
     options?: { signal?: AbortSignal },
   ): Promise<InteractionAcknowledgement>
   contextBoundary(options?: { signal?: AbortSignal }): Promise<NativeContextBoundaryProof | null>
+  beginNativeContinuation(
+    request: NativeContextContinuationRequest,
+    turn: NativeContextContinuationInput,
+  ): NativeContextContinuationHandle
   continueNative(
     request: NativeContextContinuationRequest,
     turn: NativeContextContinuationInput,

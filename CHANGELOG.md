@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.178.0
+
+### Retained native continuations expose control at admission
+
+Retained run handles now expose `beginNativeContinuation()` with separate admission and terminal-result promises.
+
+The handle installs the provider's exact continued-run reference before admission resolves, so status, events, and cancellation can target an active continuation.
+
+This release requires `@tangle-network/agent-interface ^1.8.0` for the admission-control capability and callback contract.
+
+Consumers that call `beginNativeContinuation()` must use a provider that advertises
+`nativeContinuation.admissionControl: true`.
+Existing `continueNative()` calls retain their terminal-result behavior.
+
 ## 0.177.0
 
 ### Supervisor connections use an explicit public contract
