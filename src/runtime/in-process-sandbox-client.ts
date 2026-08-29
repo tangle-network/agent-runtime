@@ -36,6 +36,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
+import { assertBoxlessPromptOptions } from './prompt-options'
 import type { SandboxClient } from './types'
 
 /** Context handed to each `onPrompt` call. */
@@ -96,6 +97,10 @@ function isAsyncIterable(v: unknown): v is AsyncIterable<SandboxEvent> {
  * `runAgentRounds` / `openSandboxRun`. Returns a PROPERLY-TYPED `SandboxClient`: the
  * lone `SandboxInstance` cast (object literal → `declare class`) lives inside
  * this function, so call sites stay cast-free.
+ *
+ * There is no box, so a per-prompt `backend` override is refused rather than dropped. A per-turn
+ * `model` IS delivered, because `onPrompt` receives the verbatim options and is free to honor it.
+ * Other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
  *
  * @experimental
  */
@@ -182,6 +187,10 @@ export function inProcessSandboxClient(options: InProcessSandboxClientOptions): 
           message: string | unknown[],
           opts?: { signal?: AbortSignal } & Record<string, unknown>,
         ): AsyncGenerator<SandboxEvent> {
+          // `model` is deliberately NOT refused here: this seam surfaces the verbatim per-call
+          // options to `onPrompt` (see InProcessPromptContext.options), so the caller's own
+          // callback is the executor that may honor a per-turn model.
+          assertBoxlessPromptOptions(opts, 'inProcessSandboxClient', ['backend'])
           return drive(onPrompt, message, opts)
         },
         ...fsMembers,

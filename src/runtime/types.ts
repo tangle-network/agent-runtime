@@ -17,6 +17,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type {
   CreateRequestOptions,
   CreateSandboxOptions,
+  PromptOptions,
   SandboxEvent,
   SandboxInstance,
 } from '@tangle-network/sandbox'
@@ -602,6 +603,29 @@ export interface LoopTeardownFailedPayload {
 export interface ExecCtx {
   /** Sandbox SDK client — the kernel calls `.create()` per iteration. */
   sandboxClient: SandboxClient
+  /**
+   * Per-prompt sandbox SDK options, forwarded verbatim into EVERY `streamPrompt`
+   * of every iteration and every turn of this run. The kernel owns `sessionId`
+   * and `signal`: both are removed from the supplied value and applied last, so
+   * only the kernel's own session id and abort signal reach the SDK. A value
+   * that is present but not an object is a `ValidationError`, raised before any
+   * box is created.
+   *
+   * Typical use: `backend.model` credentials (`authMode` / `authFiles`) so a
+   * session runs on a caller-supplied subscription credential, `timeoutMs` for a
+   * per-turn wall-clock ceiling, and `context` for platform-side metadata.
+   *
+   * The instrument keys — `backend` and `model` — need a real box. The no-box
+   * `SandboxClient` seams (`inlineSandboxClient`, `localSandboxClient`,
+   * `inProcessSandboxClient`, and the in-process MCP executor) run an in-process
+   * executor with nothing to reconfigure, so they refuse a `backend` or `model`
+   * with a `ValidationError` instead of running the turn on an instrument the
+   * caller did not ask for. They accept and ignore every other key. The one
+   * exception is `inProcessSandboxClient`, which surfaces the verbatim options
+   * to its `onPrompt` callback: that callback is the executor, so a per-turn
+   * `model` reaches it and only `backend` is refused.
+   */
+  promptOptions?: Omit<PromptOptions, 'signal' | 'sessionId'>
   /** Optional runtime hooks. Execution-scoped; never part of `AgentProfile`. */
   hooks?: RuntimeHooks
   /** Optional trace emitter. When set, the kernel emits `loop.*` events. */

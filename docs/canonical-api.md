@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.180.0.**
+> **Version 0.181.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.170.0 <0.171.0`.
 > `sandbox` must satisfy `>=0.34.3 <0.35.0`.
@@ -142,6 +142,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Compare strategies + get a significance report on a domain | `runBenchmark({ environment, tasks, worker, strategies })`: `/kernel` | your own strategy-comparison loop / paired-bootstrap / Pareto math |
 | Add a stateful tool-using domain | implement `AgenticSurface` (5 hooks: open/tools/call/score/close): `/kernel` | a bespoke per-benchmark agent runner / tool-loop harness |
 | Run a sandbox coding rollout, round-synchronous (fresh box per round) | `runAgentRounds(options)`: `/kernel` | a `new Sandbox()`+acquire+stream+parse+delete loop, or a 2nd winner-selector |
+| Bind a per-turn sandbox SDK option to a whole run — a session credential (`backend.model.authMode` + `authFiles`), a per-turn `timeoutMs`, platform `context` | `ExecCtx.promptOptions` (SDK `PromptOptions` minus `sessionId`/`signal`): `/kernel` — forwarded verbatim into EVERY `streamPrompt` of every iteration, every lineage turn, and every turn of a steerable worker (the same object reaches the steerable seam as `loopCtx.promptOptions`); one reader validates it before any box exists, removes the kernel-owned `sessionId`+`signal`, and the kernel applies its own last | writing credentials into the profile or the create options to reach one turn, a per-call options builder beside the kernel, a caller-chosen `sessionId` (every fanout iteration would share one server session), or passing a non-object (it fails loud rather than dropping the credential) |
 | Run **agent-eval fixture folders** through Runtime `runAgentRounds` | agent-eval fixture loading/planning, then `loopCampaignDispatch(...)`: `/kernel`; it starts the Runtime cell inside Eval's paid-call lifecycle | a one-off `runCampaign` dispatch, or attaching a completed `LoopResult` after paid work already ran |
 | Run a **recursive `supervise()` tree** through an agent-eval profile matrix | `superviseDispatch({ toTask, toSuperviseOptions, ... })`: `/kernel`; it admits the tree through Eval before Runtime spends, then records its receipt only when Runtime proves one model. Mixed or unknown trees fail instead of being relabelled. | a Lab receipt mapper, a second scheduler, or attaching a completed `SupervisedResult` after paid work already ran |
 | Run + **resume** ONE persistent box across turns | `openSandboxRun(client, opts, deliverable)`: `/kernel` | a per-domain `new Sandbox`+`box.fs.read`+delete copy |

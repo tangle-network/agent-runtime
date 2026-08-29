@@ -22,6 +22,7 @@ import { type AgentProfile, agentProfileSchema } from '@tangle-network/agent-int
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ConfigError } from '../errors'
 import type { LoopSandboxPlacement, SandboxClient } from '../runtime'
+import { assertBoxlessPromptOptions } from '../runtime/prompt-options'
 import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type { DelegationExecutor } from './executor'
 import { LOCAL_HARNESSES, type LocalHarness } from './local-harness'
@@ -78,6 +79,9 @@ const DEFAULT_POSTCHECK_TIMEOUT_MS = 2 * 60 * 1000
  * runs the shared worktree-harness core and emits one `result` event whose `data.result` is the
  * raw `WorktreeHarnessResult` (the content-addressed patch artifact). The authored profile
  * (`backend.profile`) threads its systemPrompt + model into the harness via the core.
+ *
+ * There is no box, so a per-prompt `backend` or `model` override is refused rather than dropped;
+ * other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
  *
  * @experimental
  */
@@ -138,6 +142,7 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
           message: string | unknown[],
           promptOpts?: { signal?: AbortSignal },
         ): AsyncGenerator<SandboxEvent> {
+          assertBoxlessPromptOptions(promptOpts, 'in-process executor')
           const taskPrompt =
             typeof message === 'string'
               ? message

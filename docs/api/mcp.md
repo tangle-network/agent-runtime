@@ -6943,6 +6943,9 @@ runs the shared worktree-harness core and emits one `result` event whose `data.r
 raw `WorktreeHarnessResult` (the content-addressed patch artifact). The authored profile
 (`backend.profile`) threads its systemPrompt + model into the harness via the core.
 
+There is no box, so a per-prompt `backend` or `model` override is refused rather than dropped;
+other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
+
 #### Parameters
 
 ##### options

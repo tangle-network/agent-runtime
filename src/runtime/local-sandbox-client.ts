@@ -25,6 +25,7 @@ import {
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { ValidationError } from '../errors'
 import type { KeyProvider } from './key-provider'
+import { assertBoxlessPromptOptions } from './prompt-options'
 import { routerBrain } from './router-client'
 import { materializeLocalMcp } from './stdio-mcp-client'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
@@ -50,7 +51,10 @@ export interface LocalSandboxClientOptions {
 }
 
 /** A same-host `SandboxClient` adapter with no process isolation. Local MCP is
- * refused unless the caller explicitly supplies a policy that allows it. */
+ * refused unless the caller explicitly supplies a policy that allows it.
+ *
+ * There is no box, so a per-prompt `backend` or `model` override is refused rather than dropped;
+ * other per-prompt options (`timeoutMs`, `context`) are accepted and ignored. */
 export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClient {
   const defaultProfile =
     opts.profile === undefined
@@ -117,6 +121,7 @@ export function localSandboxClient(opts: LocalSandboxClientOptions): SandboxClie
           message: string,
           popts?: { signal?: AbortSignal },
         ): AsyncGenerator<SandboxEvent> {
+          assertBoxlessPromptOptions(popts, 'localSandboxClient')
           let estimatedCostUsd = 0
           let sawEstimatedCost = false
           const chat: ToolLoopChat = async (messages, tools) => {

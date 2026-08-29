@@ -1,0 +1,159 @@
+[
+  {
+    "type": "start",
+    "data": {
+      "id": "f348269b-cd42-4e90-8413-180e460709e5",
+      "created_at": 1788035204,
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "1"
+  },
+  {
+    "type": "execution.started",
+    "data": {
+      "executionId": "f348269b-cd42-4e90-8413-180e460709e5",
+      "sessionId": "raw-sample-mtetztlf",
+      "timestamp": 1788035204758,
+      "effectiveBackend": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "source": "request"
+      },
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "2"
+  },
+  {
+    "type": "status",
+    "data": {
+      "status": "generating_response",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "3"
+  },
+  {
+    "type": "status",
+    "data": {
+      "status": "started",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "4"
+  },
+  {
+    "type": "session.updated",
+    "data": {
+      "sessionId": "01a04f34-0a5a-7570-ac19-e82ddc66cafa",
+      "sessionID": "01a04f34-0a5a-7570-ac19-e82ddc66cafa",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "5"
+  },
+  {
+    "type": "raw",
+    "data": {
+      "type": "thread.started",
+      "thread_id": "01a04f34-0a5a-7570-ac19-e82ddc66cafa",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "6"
+  },
+  {
+    "type": "raw",
+    "data": {
+      "type": "turn.started",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "7"
+  },
+  {
+    "type": "token",
+    "data": {
+      "value": "OK",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "8"
+  },
+  {
+    "type": "message.part.updated",
+    "data": {
+      "part": {
+        "id": "0f6431dd-71d3-49a3-b5fe-05526736b24a",
+        "sessionID": "01a04f34-0a5a-7570-ac19-e82ddc66cafa",
+        "messageID": "f348269b-cd42-4e90-8413-180e460709e5",
+        "type": "text",
+        "text": "OK"
+      },
+      "delta": "OK",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "8"
+  },
+  {
+    "type": "raw",
+    "data": {
+      "type": "turn.completed",
+      "usage": {
+        "input_tokens": 15575,
+        "cached_input_tokens": 11008,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 5,
+        "reasoning_output_tokens": 0
+      },
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "9"
+  },
+  {
+    "type": "status",
+    "data": {
+      "status": "complete",
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "10"
+  },
+  {
+    "type": "result",
+    "data": {
+      "executionId": "f348269b-cd42-4e90-8413-180e460709e5",
+      "outcome": {
+        "type": "completed"
+      },
+      "finalText": "OK",
+      "toolInvocations": [],
+      "metadata": {
+        "sessionId": "raw-sample-mtetztlf",
+        "domains": [],
+        "agentIdentifier": "default",
+        "backendType": "sdk"
+      },
+      "timing": {
+        "startedAt": 1788035204859,
+        "completedAt": 1788035211441,
+        "durationMs": 6582
+      },
+      "effectiveBackend": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "source": "request"
+      },
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "11"
+  },
+  {
+    "type": "done",
+    "data": {
+      "requestId": "f348269b-cd42-4e90-8413-180e460709e5",
+      "outcome": {
+        "type": "completed"
+      },
+      "effectiveBackend": {
+        "provider": "openai",
+        "model": "gpt-5.6-sol",
+        "source": "request"
+      },
+      "sandboxId": "sandbox-809aee006429"
+    },
+    "id": "12"
+  }
+]

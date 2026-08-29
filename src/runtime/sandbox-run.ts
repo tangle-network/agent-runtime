@@ -36,6 +36,7 @@ import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-netw
 import type { RuntimeHooks, RuntimeHookTarget } from '../runtime-hooks'
 import { notifyRuntimeHookEvent } from '../runtime-hooks'
 import { boxReadErrorMessage, readBoxPathWithRetry } from './box-read-retry'
+import { readPromptOptions } from './prompt-options'
 import { probeSandboxCapabilities } from './sandbox-capabilities'
 import { notifySandboxEventObserver } from './sandbox-events'
 import { createSandboxLineage, type SandboxLineageHandle } from './sandbox-lineage'
@@ -176,6 +177,10 @@ export async function openSandboxRun<Out>(
   const runId = options.runId ?? `sandbox-run-${randomSuffix()}`
   const now = options.now ?? Date.now
   const agentRunName = options.agentRun.name ?? options.agentRun.profile.name ?? 'agent'
+  // Read once, before the box exists, so the run owns the session id and abort signal this
+  // type promises: the Omit does not reject a value that carries them, and an untyped host
+  // is not checked at all.
+  const promptOptions = readPromptOptions(options.promptOptions, 'openSandboxRun: promptOptions')
   const capabilities = await probeSandboxCapabilities(client)
   const lineage = createSandboxLineage(client, capabilities, {
     ...(options.maxConcurrency !== undefined ? { maxConcurrency: options.maxConcurrency } : {}),
@@ -337,7 +342,7 @@ export async function openSandboxRun<Out>(
           options.agentRun as AgentRunSpec<unknown>,
           prompt,
           options.signal,
-          options.promptOptions,
+          promptOptions,
         )
         handle = r.handle
         await options.beforeStart?.({
@@ -387,7 +392,7 @@ export async function openSandboxRun<Out>(
       try {
         const result = await settle(
           handle.box,
-          await lineage.continue(handle, prompt, options.signal, options.promptOptions),
+          await lineage.continue(handle, prompt, options.signal, promptOptions),
           stepIndex,
           'resume',
         )

@@ -3490,6 +3490,18 @@ different per-create profile and provides no host isolation.
 
 Sandbox client used for every cell's `runAgentRounds`. Supplied once.
 
+##### promptOptions?
+
+> `optional` **promptOptions?**: `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
+Per-prompt sandbox SDK options for every cell, forwarded verbatim into EVERY `streamPrompt`
+of every iteration the dispatch runs. The kernel owns `sessionId` and `signal`: both are
+removed from the supplied value and applied last. A value that is present but is not an
+object is a `ValidationError`, raised before any box is created.
+
+Typical use: `backend.model` credentials (`authMode` / `authFiles`) so every cell runs on a
+caller-supplied subscription credential, `timeoutMs`, and `context`.
+
 ##### toLoopOptions
 
 > **toLoopOptions**: (`scenario`, `profile`) => [`LoopOptionsForDispatch`](#loopoptionsfordispatch)\<`Task`, `Output`, `Decision`\>
@@ -3699,6 +3711,15 @@ Options for adapting plain agent-eval campaign scenarios into Runtime cells.
 > **sandboxClient**: [`SandboxClient`](#sandboxclient-6)
 
 Sandbox client used for every campaign cell's `runAgentRounds`.
+
+##### promptOptions?
+
+> `optional` **promptOptions?**: `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
+Per-prompt sandbox SDK options for every cell, forwarded verbatim into EVERY `streamPrompt`
+of every iteration the dispatch runs. The kernel owns `sessionId` and `signal`: both are
+removed from the supplied value and applied last. A value that is present but is not an
+object is a `ValidationError`, raised before any box is created.
 
 ##### toLoopOptions
 
@@ -7991,7 +8012,7 @@ of a contextless turn the caller mistakes for a real continuation.
 
 ##### fork()
 
-> **fork**(`parent`, `prompts`, `specs`, `signal`): `Promise`\<`object`[]\>
+> **fork**(`parent`, `prompts`, `specs`, `signal`, `promptOptions?`): `Promise`\<`object`[]\>
 
 **`Experimental`**
 
@@ -8006,6 +8027,9 @@ A heterogeneous-profile fanout therefore homogenizes to the parent's profile
 when fork is available — pass a single shared spec for forked fanouts, or
 use `random@k` (no fork) when branches must differ. Each child's first turn
 streams `prompts[i]`. Child-box creation is bounded by `maxConcurrency`.
+An implementation MUST forward `promptOptions` into every branch's first
+prompt: the compiler accepts an implementation that ignores the argument, and
+a branch that drops it runs without the caller's session credential.
 
 ###### Parameters
 
@@ -8024,6 +8048,10 @@ streams `prompts[i]`. Child-box creation is bounded by `maxConcurrency`.
 ###### signal
 
 `AbortSignal`
+
+###### promptOptions?
+
+`Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
 
 ###### Returns
 
@@ -21583,6 +21611,31 @@ Execution context for `runAgentRounds`: the sandbox client the kernel creates bo
 
 Sandbox SDK client — the kernel calls `.create()` per iteration.
 
+##### promptOptions?
+
+> `optional` **promptOptions?**: `Omit`\<`PromptOptions`, `"signal"` \| `"sessionId"`\>
+
+Per-prompt sandbox SDK options, forwarded verbatim into EVERY `streamPrompt`
+of every iteration and every turn of this run. The kernel owns `sessionId`
+and `signal`: both are removed from the supplied value and applied last, so
+only the kernel's own session id and abort signal reach the SDK. A value
+that is present but not an object is a `ValidationError`, raised before any
+box is created.
+
+Typical use: `backend.model` credentials (`authMode` / `authFiles`) so a
+session runs on a caller-supplied subscription credential, `timeoutMs` for a
+per-turn wall-clock ceiling, and `context` for platform-side metadata.
+
+The instrument keys — `backend` and `model` — need a real box. The no-box
+`SandboxClient` seams (`inlineSandboxClient`, `localSandboxClient`,
+`inProcessSandboxClient`, and the in-process MCP executor) run an in-process
+executor with nothing to reconfigure, so they refuse a `backend` or `model`
+with a `ValidationError` instead of running the turn on an instrument the
+caller did not ask for. They accept and ignore every other key. The one
+exception is `inProcessSandboxClient`, which surfaces the verbatim options
+to its `onPrompt` callback: that callback is the executor, so a per-turn
+`model` reaches it and only `backend` is refused.
+
 ##### hooks?
 
 > `optional` **hooks?**: [`RuntimeHooks`](index.md#runtimehooks)
@@ -25759,6 +25812,10 @@ Adapt a single `onPrompt(prompt, ctx)` callback into a `SandboxClient` for
 lone `SandboxInstance` cast (object literal → `declare class`) lives inside
 this function, so call sites stay cast-free.
 
+There is no box, so a per-prompt `backend` override is refused rather than dropped. A per-turn
+`model` IS delivered, because `onPrompt` receives the verbatim options and is free to honor it.
+Other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
+
 #### Parameters
 
 ##### options
@@ -25778,6 +25835,9 @@ this function, so call sites stay cast-free.
 Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is
 instantiated fresh per `streamPrompt` (mirrors the per-spawn executor lifecycle):
 run once on the prompt, emit the terminal result event, tear down.
+
+There is no box, so a per-prompt `backend` or `model` override is refused rather than dropped;
+other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 #### Parameters
 
@@ -25909,6 +25969,9 @@ Rules, all fail-closed:
 
 A same-host `SandboxClient` adapter with no process isolation. Local MCP is
 refused unless the caller explicitly supplies a policy that allows it.
+
+There is no box, so a per-prompt `backend` or `model` override is refused rather than dropped;
+other per-prompt options (`timeoutMs`, `context`) are accepted and ignored.
 
 #### Parameters
 
