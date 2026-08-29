@@ -46,26 +46,32 @@ import type {
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
+const MAX_RETAINED_IDENTITY_BYTES = 128
+
 /**
  * Mint deterministic dispatch coordinates from the two caller-supplied keys.
  * The same `(idempotencyKey, turnId)` pair yields the same coordinates in
  * every process, so a pre-dispatch admission record always names the exact
- * session and execution the dispatch will request. Format is readable, not
- * hashed, following `deriveExecutionId`: components are URL-encoded so
- * delimiters inside caller keys cannot collapse distinct pairs, and the
- * result stays inside the 256-byte identifier bound.
+ * session and execution the dispatch will request. Short inputs keep a
+ * readable URL-encoded identity. Long inputs use a full SHA-256 digest so
+ * provider storage layers never receive an overlong composite identifier.
  */
 export function mintRetainedIdentity(
   idempotencyKey: string,
   turnId: string,
 ): { sessionId: string; executionId: string } {
   const base = `${encodeURIComponent(idempotencyKey)}:${encodeURIComponent(turnId)}`
-  const sessionId = `retained-session:${base}`
-  const executionId = `retained-execution:${base}`
-  if (executionId.length > 256) {
-    throw new RangeError('minted retained identity must not exceed 256 bytes')
-  }
+  const digest = canonicalCandidateDigest({ kind: 'retained-identity.v1', base }).slice(
+    'sha256:'.length,
+  )
+  const sessionId = boundedRetainedIdentity('retained-session', base, digest)
+  const executionId = boundedRetainedIdentity('retained-execution', base, digest)
   return { sessionId, executionId }
+}
+
+function boundedRetainedIdentity(prefix: string, base: string, digest: string): string {
+  const readable = `${prefix}:${base}`
+  return readable.length <= MAX_RETAINED_IDENTITY_BYTES ? readable : `${prefix}:${digest}`
 }
 
 /**

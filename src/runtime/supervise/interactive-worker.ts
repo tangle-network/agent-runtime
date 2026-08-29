@@ -19,11 +19,13 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
+  AgentEnvironment,
   AgentEnvironmentProvider,
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
 import { contentAddress } from '../../durable/spawn-journal'
 import type { MakeWorkerAgent, WorkerSpawnContext } from '../../mcp/tools/coordination'
+import { destroyInteractiveEnvironment } from '../retained-interactive-lifecycle'
 import type { RetainedInteractiveRunHandle } from '../retained-interactive-types'
 import { claimRetainedInteractiveControl, startRetainedInteractiveRun } from '../retained-run'
 import { retainedCreateMaterial } from '../retained-run-intent'
@@ -97,6 +99,8 @@ export interface InteractiveWorkerOptions {
   /** Destroy the provider environment after the process is terminal. Defaults to true. */
   readonly destroyEnvironmentOnTeardown?: boolean
 }
+
+const INTERACTIVE_TEARDOWN_TIMEOUT_MS = 30_000
 
 /** Stable input available to key and holder functions. */
 export interface InteractiveWorkerKeyInput {
@@ -253,6 +257,7 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
   const localController = new AbortController()
   const inbox = createInbox()
   let handle: RetainedInteractiveRunHandle | undefined
+  let createdEnvironment: AgentEnvironment | undefined
   let environmentId: string | undefined
   let artifact: ExecutorResult<InteractiveWorkerResult> | undefined
   let activeLink: ReturnType<typeof linkAbort> | undefined
@@ -271,6 +276,7 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
 
   const executor: Executor<InteractiveWorkerResult> = {
     runtime: input.runtime,
+    teardownTimeoutMs: INTERACTIVE_TEARDOWN_TIMEOUT_MS,
     execute(task, signal): AsyncIterable<UsageEvent> {
       if (executeStarted || teardownComplete || teardownPromise !== undefined) {
         throw new Error('workerFromInteractiveProvider: execute() may only be called once')
@@ -392,7 +398,14 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
       }
       const interactiveIdempotencyKey = input.interactiveKey(task)
       const started = await startRetainedInteractiveRun({
-        provider: input.provider,
+        provider: {
+          ...input.provider,
+          async create(environmentInput): Promise<AgentEnvironment> {
+            const environment = await input.provider.create!(environmentInput)
+            createdEnvironment = environment
+            return environment
+          },
+        },
         environment: {
           ...(input.environment ?? {}),
           profile: input.profile,
@@ -618,9 +631,20 @@ function interactiveExecutor(input: InteractiveExecutorInput): Executor<Interact
 
   async function destroyEnvironment(): Promise<void> {
     if (input.destroyEnvironmentOnTeardown === false) return
-    if (!environmentId || !input.provider.get) return
-    const environment = await input.provider.get(environmentId)
-    await environment?.destroy?.()
+    if (createdEnvironment !== undefined) {
+      await destroyInteractiveEnvironment(createdEnvironment)
+      return
+    }
+    if (!input.provider.get) return
+    // The exact provider reference is durable and remains available even when the admission
+    // callback was interrupted after the environment was created. Use it as the cleanup identity
+    // so an aborted provider signal cannot turn a real environment into an unconfirmed leak.
+    const cleanupEnvironmentId = environmentId ?? handle?.ref.run.environmentId
+    if (!cleanupEnvironmentId) return
+    const environment = await input.provider.get(cleanupEnvironmentId)
+    if (environment !== undefined && environment !== null) {
+      await destroyInteractiveEnvironment(environment)
+    }
   }
 
   return executor
@@ -713,10 +737,21 @@ function controlErrorValue(error: unknown): Error {
 async function safeStatus(
   handle: RetainedInteractiveRunHandle,
 ): Promise<AgentInteractiveSessionStatus | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), 100)
+    timer.unref?.()
+  })
   try {
-    return await handle.status()
+    // A provider environment created with the worker's abort signal may reject or hang all
+    // subsequent calls after the scope begins teardown. Keep status best-effort and let the fresh
+    // environment lookup below prove release without spending the teardown acknowledgement window
+    // on a stale connection.
+    return await Promise.race([handle.status(), timeout])
   } catch {
     return undefined
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 

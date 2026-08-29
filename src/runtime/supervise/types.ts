@@ -177,6 +177,11 @@ export interface Executor<Out> {
    */
   teardown(grace: number | 'brutalKill' | 'infinity'): Promise<{ destroyed: boolean }>
   /**
+   * Optional acknowledgement window for a remote cleanup requested as `'brutalKill'`.
+   * Local executors keep the short default; remote executors may need bounded network time.
+   */
+  teardownTimeoutMs?: number
+  /**
    * The replay source (B1): the content-addressed `outRef` + the materialized output the
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
    */

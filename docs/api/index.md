@@ -8440,6 +8440,13 @@ subscription CLI with no token receipt). `Executor` can still be used directly, 
 refuses it before `execute` so unknown compute can never appear as measured zero in a
 supervised or equal-resource run. A metered executor MUST report usage.
 
+##### teardownTimeoutMs?
+
+> `optional` **teardownTimeoutMs?**: `number`
+
+Optional acknowledgement window for a remote cleanup requested as `'brutalKill'`.
+Local executors keep the short default; remote executors may need bounded network time.
+
 #### Methods
 
 ##### execute()
