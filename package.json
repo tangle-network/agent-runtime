@@ -154,8 +154,8 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
-    "@modelcontextprotocol/sdk": "catalog:",
     "@biomejs/biome": "^2.5.5",
+    "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "catalog:",
     "@tangle-network/agent-interface": "catalog:",
     "@tangle-network/sandbox": "catalog:",
@@ -181,7 +181,7 @@
   "packageManager": "pnpm@11.17.0",
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.163.2 <0.171.0",
-    "@tangle-network/agent-interface": "^1.6.0",
+    "@tangle-network/agent-interface": "^1.7.1",
     "@tangle-network/sandbox": ">=0.34.0 <0.35.0"
   },
   "peerDependenciesMeta": {
