@@ -2,9 +2,9 @@
 
 ## 0.8.26
 
-### Interface 1.7.1 cohort
+### Interface 1.8.0 cohort
 
-The Interface catalog range becomes `^1.7.1`, matching the Runtime cohort.
+The Interface catalog range becomes `^1.8.0`, matching the Runtime cohort.
 Bench resolves Interface through the catalog, so its published manifest states the new range.
 Nothing in bench changes behavior.
 

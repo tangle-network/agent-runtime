@@ -53,16 +53,6 @@ import type {
 
 type NativeContinuationAdmissionCallback = (controlRef: AgentExactRunControlRef) => void
 
-type NativeContinuationProviderOptions = AgentNativeContextContinuationOptions & {
-  readonly onAdmission?: NativeContinuationAdmissionCallback
-}
-
-type NativeContinuationCapabilities = NonNullable<
-  AgentEnvironmentCapabilities['nativeContinuation']
-> & {
-  readonly admissionControl?: boolean
-}
-
 interface NativeContinuationAdmissionState {
   readonly isSettled: () => boolean
   readonly failure: () => unknown
@@ -166,9 +156,7 @@ export function createRetainedRunHandle(
     if (nativeContextContinuationTurnDigest(semanticTurn) !== exactRequest.turnDigest) {
       throw new Error('native continuation request targets another user turn')
     }
-    const nativeCapabilities = measuredCapabilities.nativeContinuation as
-      | NativeContinuationCapabilities
-      | undefined
+    const nativeCapabilities = measuredCapabilities.nativeContinuation
     if (
       nativeCapabilities?.atomicBoundary !== true ||
       nativeCapabilities.requestIdempotency !== true ||
@@ -188,7 +176,7 @@ export function createRetainedRunHandle(
       outcome = AgentNativeContextContinuationResultSchema.parse(
         await awaitAbortable(
           Promise.resolve().then(() => {
-            const providerOptions: NativeContinuationProviderOptions = {
+            const providerOptions: AgentNativeContextContinuationOptions = {
               turn: semanticTurn,
               ...(timeoutMs === undefined ? {} : { timeoutMs }),
               ...(signal === undefined ? {} : { signal }),
@@ -262,9 +250,7 @@ export function createRetainedRunHandle(
     turn: NativeContextContinuationInput,
   ): ReturnType<RetainedRunHandle['beginNativeContinuation']> => {
     synchronizeActiveControlRef()
-    const nativeCapabilities = measuredCapabilities.nativeContinuation as
-      | NativeContinuationCapabilities
-      | undefined
+    const nativeCapabilities = measuredCapabilities.nativeContinuation
     if (nativeCapabilities?.admissionControl !== true) {
       throw new Error(
         `provider "${activeControlRef.provider}" does not advertise early native continuation admission control`,

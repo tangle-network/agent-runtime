@@ -8,7 +8,7 @@ Retained run handles now expose `beginNativeContinuation()` with separate admiss
 
 The handle installs the provider's exact continued-run reference before admission resolves, so status, events, and cancellation can target an active continuation.
 
-This release requires `@tangle-network/agent-interface ^1.7.1` for the admission-control capability and callback contract.
+This release requires `@tangle-network/agent-interface ^1.8.0` for the admission-control capability and callback contract.
 
 Consumers that call `beginNativeContinuation()` must use a provider that advertises
 `nativeContinuation.admissionControl: true`.

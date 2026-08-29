@@ -1687,11 +1687,7 @@ describe('retained runtime run control', () => {
       cancel: async () => {},
       async continueNative(_request, options) {
         currentControlRef = nextControlRef
-        const onAdmission = (
-          options as {
-            readonly onAdmission?: (controlRef: AgentExactRunControlRef) => void
-          }
-        ).onAdmission
+        const onAdmission = options.onAdmission
         if (onAdmission === undefined) throw new Error('test provider did not receive onAdmission')
         onAdmission(nextControlRef)
         resolveContinuationStarted()
@@ -1717,14 +1713,14 @@ describe('retained runtime run control', () => {
       },
     }
     const provider = providerWithEnvironment({})
-    const capabilities = {
+    const capabilities: AgentEnvironmentCapabilities = {
       ...(await provider.capabilities()),
       nativeContinuation: {
         atomicBoundary: true,
         requestIdempotency: true,
         admissionControl: true,
       },
-    } as AgentEnvironmentCapabilities
+    }
     const environment: AgentEnvironment = {
       id: initialControlRef.environmentId,
       provider: initialControlRef.provider,
