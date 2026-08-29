@@ -138,6 +138,24 @@ export function createRetainedRunHandle(
       ...(signal?.aborted ? { signal: String(signal.reason ?? 'aborted') } : {}),
     }
   }
+  const assertContinuationIsCurrent = (
+    continuationSource: AgentExactRunControlRef,
+    nextControlRef: AgentExactRunControlRef,
+  ): void => {
+    if (
+      !sameControlCoordinates(activeControlRef, continuationSource) &&
+      !sameControlCoordinates(activeControlRef, nextControlRef)
+    ) {
+      throw new Error(
+        'provider advanced the retained session while another native continuation was pending',
+      )
+    }
+  }
+  const missingContinuationAdmission = (): RetainedRunProviderContractError =>
+    new RetainedRunProviderContractError(
+      'provider accepted a native continuation without an admission reference',
+      { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING' },
+    )
   const executeNativeContinuation = async (
     request: NativeContextContinuationRequest,
     turn: NativeContextContinuationInput,
@@ -220,18 +238,12 @@ export function createRetainedRunHandle(
     ) {
       return structuredClone(outcome)
     }
-    if (admission !== undefined && !admission.isSettled()) {
-      throw new RetainedRunProviderContractError(
-        'provider accepted a native continuation without an admission reference',
-        { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING' },
-      )
-    }
-    const admittedControlRef = admission?.controlRef()
-    if (admission !== undefined && admittedControlRef === undefined) {
-      throw new RetainedRunProviderContractError(
-        'provider accepted a native continuation without an admission reference',
-        { code: 'RETAINED_NATIVE_CONTINUATION_ADMISSION_MISSING' },
-      )
+    if (
+      admission !== undefined &&
+      !admission.isSettled() &&
+      outcome.acknowledgement.status === 'accepted'
+    ) {
+      throw missingContinuationAdmission()
     }
     if (!('result' in outcome) || !('controlRef' in outcome)) {
       throw new Error('provider omitted the successful native continuation result')
@@ -240,6 +252,20 @@ export function createRetainedRunHandle(
       throw new Error('provider returned a native continuation result for another request')
     }
     const nextControlRef = exactContinuedControlRef(outcome.controlRef, continuationSource)
+    assertResultBinding(nextControlRef, outcome.result)
+    assertContinuationIsCurrent(continuationSource, nextControlRef)
+    if (admission !== undefined && !admission.isSettled()) {
+      if (outcome.acknowledgement.status !== 'replayed') {
+        throw missingContinuationAdmission()
+      }
+      // A replay may already have been admitted before this process started and
+      // can therefore return only its durable terminal record.
+      admission.onAdmission(nextControlRef)
+    }
+    const admittedControlRef = admission?.controlRef()
+    if (admission !== undefined && admittedControlRef === undefined) {
+      throw missingContinuationAdmission()
+    }
     if (
       admittedControlRef !== undefined &&
       !sameControlCoordinates(nextControlRef, admittedControlRef)
@@ -249,15 +275,6 @@ export function createRetainedRunHandle(
         { code: 'RETAINED_NATIVE_CONTINUATION_RESULT_CHANGED' },
       )
     }
-    if (
-      !sameControlCoordinates(activeControlRef, continuationSource) &&
-      !sameControlCoordinates(activeControlRef, nextControlRef)
-    ) {
-      throw new Error(
-        'provider advanced the retained session while another native continuation was pending',
-      )
-    }
-    assertResultBinding(nextControlRef, outcome.result)
     activeControlRef = freezeControlRef(nextControlRef)
     knownControlRefDigests.add(canonicalCandidateDigest(activeControlRef))
     return structuredClone({ ...outcome, controlRef: copyControlRef(activeControlRef) })
@@ -306,14 +323,7 @@ export function createRetainedRunHandle(
       try {
         const parsed = AgentExactRunControlRefSchema.parse(candidate)
         const nextControlRef = exactContinuedControlRef(parsed, continuationSource)
-        if (
-          !sameControlCoordinates(activeControlRef, continuationSource) &&
-          !sameControlCoordinates(activeControlRef, nextControlRef)
-        ) {
-          throw new Error(
-            'provider advanced the retained session while another native continuation was pending',
-          )
-        }
+        assertContinuationIsCurrent(continuationSource, nextControlRef)
         activeControlRef = freezeControlRef(nextControlRef)
         knownControlRefDigests.add(canonicalCandidateDigest(activeControlRef))
         admittedControlRef = activeControlRef

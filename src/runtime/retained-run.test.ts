@@ -1849,6 +1849,114 @@ describe('retained runtime run control', () => {
     }
   })
 
+  it('reconstructs admission from a replayed terminal continuation without a callback', async () => {
+    const initialControlRef: AgentExactRunControlRef = {
+      runId: 'continuation-replay-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'continuation-replay-session',
+      executionId: 'continuation-replay-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const continuationTurn = { prompt: 'replay the admitted continuation' }
+    const expectedBoundary = {
+      runId: initialControlRef.runId,
+      provider: initialControlRef.provider,
+      environmentId: initialControlRef.environmentId,
+      sessionId: initialControlRef.sessionId,
+      executionId: initialControlRef.executionId,
+      requestDigest: initialControlRef.requestDigest,
+      boundary: {
+        kind: 'messages' as const,
+        messageIds: ['continuation-replay-message'],
+        digest: `sha256:${'e'.repeat(64)}` as const,
+      },
+      observedAt: '2026-08-28T00:00:00.000Z',
+    }
+    const continuationMaterial = {
+      operationId: 'continuation-replay-operation',
+      run: initialControlRef,
+      expectedBoundary,
+      turnDigest: nativeContextContinuationTurnDigest(continuationTurn),
+    }
+    const request = NativeContextContinuationRequestSchema.parse({
+      ...continuationMaterial,
+      requestDigest: nativeContextContinuationRequestDigest(continuationMaterial),
+    })
+    const nextControlRef: AgentExactRunControlRef = {
+      ...initialControlRef,
+      runId: 'continuation-replay-next-run',
+      executionId: 'continuation-replay-next-execution',
+      requestDigest: request.requestDigest,
+    }
+    const replayResult: AgentNativeContextContinuationResult = {
+      acknowledgement: {
+        operationId: request.operationId,
+        requestDigest: request.requestDigest,
+        status: 'replayed',
+        historyMessagesSent: 0,
+        actualBoundary: expectedBoundary,
+      },
+      result: {
+        text: 'replayed continuation',
+        success: true,
+        sessionId: nextControlRef.sessionId,
+        metadata: {
+          runId: nextControlRef.runId,
+          executionId: nextControlRef.executionId,
+          requestDigest: nextControlRef.requestDigest,
+        },
+      },
+      controlRef: nextControlRef,
+    }
+    const session: AgentSession = {
+      id: initialControlRef.sessionId,
+      controlRef: initialControlRef,
+      status: async () => 'running',
+      async *events() {
+        yield* []
+      },
+      result: async () => ({ text: 'unused', success: false }),
+      prompt: async () => ({ text: 'unused', success: false }),
+      cancel: async () => {},
+      async continueNative() {
+        return replayResult
+      },
+    }
+    const provider = providerWithEnvironment({})
+    const capabilities: AgentEnvironmentCapabilities = {
+      ...(await provider.capabilities()),
+      nativeContinuation: {
+        atomicBoundary: true,
+        requestIdempotency: true,
+        admissionControl: true,
+      },
+    }
+    const environment: AgentEnvironment = {
+      id: initialControlRef.environmentId,
+      provider: initialControlRef.provider,
+      status: async () => 'running',
+      async *stream() {
+        yield* []
+      },
+    }
+    const run = createRetainedRunHandle(
+      environment,
+      session,
+      initialControlRef,
+      capabilities,
+      undefined,
+    )
+
+    const pendingContinuation = run.beginNativeContinuation(request, continuationTurn)
+    await expect(pendingContinuation.admission).resolves.toEqual(nextControlRef)
+    await expect(pendingContinuation.result).resolves.toMatchObject({
+      acknowledgement: { status: 'replayed' },
+      controlRef: nextControlRef,
+    })
+    expect(run.controlRef).toEqual(nextControlRef)
+  })
+
   it('rejects a terminal native continuation identity that differs from its admission', async () => {
     const initialControlRef: AgentExactRunControlRef = {
       runId: 'continuation-identity-run',
