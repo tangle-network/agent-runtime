@@ -97,7 +97,7 @@ function retainedSecretNames(
 /** Project one headless turn into the material that `freshTurnInput` forwards. */
 export function retainedTurnMaterial(
   input: AgentTurnInput,
-  contextTransfer: ContextTransferRequest | undefined = input.contextTransfer,
+  contextTransfer: ContextTransferRequest | undefined,
 ): Record<string, unknown> {
   return {
     ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
