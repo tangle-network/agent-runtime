@@ -4,12 +4,17 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type AgentExactRunControlRef,
+  type AgentNativeContextContinuationResult,
   type AgentRunCancellationAcknowledgement,
   type AgentRunCancellationRequest,
   AgentRunCancellationRequestSchema,
   type InteractionCapabilities,
   interactionRequestDigest,
   interactionResponseCommandDigest,
+  NativeContextContinuationRequestSchema,
+  nativeContextContinuationRequestDigest,
+  nativeContextContinuationTurnDigest,
   type RuntimeEventEnvelope,
 } from '@tangle-network/agent-interface'
 import type {
@@ -1583,6 +1588,164 @@ describe('retained runtime run control', () => {
       message: 'caller stopped cancellation',
     })
     expect(cancelCalls).toBe(1)
+  })
+
+  it('cancels a native continuation from the provider reference admitted before its result', async () => {
+    const initialControlRef: AgentExactRunControlRef = {
+      runId: 'continuation-admission-run',
+      provider: 'test-provider',
+      environmentId: 'environment-1',
+      sessionId: 'continuation-admission-session',
+      executionId: 'continuation-admission-execution',
+      requestDigest: retainedRequestDigest,
+    }
+    const continuationTurn = { prompt: 'continue while the provider is still running' }
+    const expectedBoundary = {
+      runId: initialControlRef.runId,
+      provider: initialControlRef.provider,
+      environmentId: initialControlRef.environmentId,
+      sessionId: initialControlRef.sessionId,
+      executionId: initialControlRef.executionId,
+      requestDigest: initialControlRef.requestDigest,
+      boundary: {
+        kind: 'messages' as const,
+        messageIds: ['continuation-admission-message'],
+        digest: `sha256:${'b'.repeat(64)}` as const,
+      },
+      observedAt: '2026-08-28T00:00:00.000Z',
+    }
+    const continuationMaterial = {
+      operationId: 'continuation-admission-operation',
+      run: initialControlRef,
+      expectedBoundary,
+      turnDigest: nativeContextContinuationTurnDigest(continuationTurn),
+    }
+    const continuationRequest = NativeContextContinuationRequestSchema.parse({
+      ...continuationMaterial,
+      requestDigest: nativeContextContinuationRequestDigest(continuationMaterial),
+    })
+    const nextControlRef: AgentExactRunControlRef = {
+      ...initialControlRef,
+      runId: 'continuation-admitted-run',
+      executionId: 'continuation-admitted-execution',
+      requestDigest: continuationRequest.requestDigest,
+    }
+    const continuationResult: AgentNativeContextContinuationResult = {
+      acknowledgement: {
+        operationId: continuationRequest.operationId,
+        requestDigest: continuationRequest.requestDigest,
+        status: 'accepted',
+        historyMessagesSent: 0,
+        actualBoundary: expectedBoundary,
+      },
+      result: {
+        text: 'continuation was cancelled after admission',
+        success: false,
+        sessionId: nextControlRef.sessionId,
+        metadata: {
+          runId: nextControlRef.runId,
+          executionId: nextControlRef.executionId,
+          requestDigest: nextControlRef.requestDigest,
+        },
+      },
+      controlRef: nextControlRef,
+    }
+    let currentControlRef = initialControlRef
+    let cancelled = false
+    let resolveContinuationStarted!: () => void
+    const continuationStarted = new Promise<void>((resolve) => {
+      resolveContinuationStarted = resolve
+    })
+    let resolveContinuation!: (result: AgentNativeContextContinuationResult) => void
+    const continuationCompletion = new Promise<AgentNativeContextContinuationResult>((resolve) => {
+      resolveContinuation = resolve
+    })
+    let cancellationRequest: AgentRunCancellationRequest | undefined
+    const session: AgentSession = {
+      id: initialControlRef.sessionId,
+      get controlRef() {
+        return currentControlRef
+      },
+      status: async () => (cancelled ? 'cancelled' : 'running'),
+      async *events() {
+        yield* []
+      },
+      result: async () => ({
+        text: 'cancelled',
+        success: false,
+        sessionId: nextControlRef.sessionId,
+        metadata: {
+          runId: nextControlRef.runId,
+          executionId: nextControlRef.executionId,
+          requestDigest: nextControlRef.requestDigest,
+        },
+      }),
+      prompt: async () => ({ text: 'unused', success: false }),
+      cancel: async () => {},
+      async continueNative() {
+        currentControlRef = nextControlRef
+        resolveContinuationStarted()
+        return await continuationCompletion
+      },
+      async contextBoundary() {
+        return expectedBoundary
+      },
+      async cancelRun(request) {
+        cancellationRequest = request
+        cancelled = true
+        return {
+          operationId: request.operationId,
+          requestDigest: request.requestDigest,
+          run: request.run,
+          status: 'accepted' as const,
+          effect: 'cancelled' as const,
+        }
+      },
+    }
+    const provider = providerWithEnvironment({
+      dispatch: async () => ({
+        id: initialControlRef.sessionId,
+        provider: initialControlRef.provider,
+        controlRef: initialControlRef,
+      }),
+      session: () => session,
+    })
+    const baseCapabilities = provider.capabilities
+    provider.capabilities = async () => ({
+      ...(await baseCapabilities()),
+      nativeContinuation: { atomicBoundary: true, requestIdempotency: true },
+    })
+    const run = await startRetainedRun({
+      provider,
+      environment: { profile: { name: 'worker' }, idempotencyKey: 'continuation-admission' },
+      turn: { prompt: 'start', turnId: 'continuation-admission' },
+      onAdmission: recordedAdmissions().onAdmission,
+      identity: {
+        sessionId: initialControlRef.sessionId,
+        executionId: initialControlRef.executionId,
+      },
+    })
+
+    const pendingContinuation = run.continueNative(continuationRequest, continuationTurn)
+    await continuationStarted
+    expect(run.controlRef).toEqual(nextControlRef)
+
+    const cancellation = await run.cancel({
+      operationId: 'cancel-admitted-continuation',
+      reason: 'user stopped the admitted continuation',
+    })
+    expect(cancellation).toMatchObject({
+      status: 'accepted',
+      effect: 'cancelled',
+      snapshot: { status: 'cancelled', controlRef: nextControlRef },
+    })
+    expect(cancellationRequest?.run).toEqual(nextControlRef)
+
+    resolveContinuation(continuationResult)
+    await expect(pendingContinuation).resolves.toMatchObject({
+      acknowledgement: { status: 'accepted' },
+      controlRef: nextControlRef,
+    })
   })
 
   it('interrupts a retained event read and closes its provider iterator', async () => {

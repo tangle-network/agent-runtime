@@ -1,5 +1,6 @@
 import {
   type AgentExactRunControlRef,
+  AgentExactRunControlRefSchema,
   AgentNativeContextContinuationResultSchema,
   AgentTurnResultSchema,
   agentNativeContextContinuationResultMatchesRequest,
@@ -57,8 +58,47 @@ export function createRetainedRunHandle(
   const clock = now ?? Date.now
   const measuredCapabilities = structuredClone(capabilities)
   let activeControlRef = freezeControlRef(initialControlRef)
+  // A provider may expose the previous reference while a terminal read catches up.
+  // Remember references seen by this handle so that read cannot move control backwards.
+  const knownControlRefDigests = new Set([canonicalCandidateDigest(activeControlRef)])
+  const synchronizeActiveControlRef = (): void => {
+    let candidate: unknown
+    try {
+      candidate = session.controlRef
+    } catch (error) {
+      throw new RetainedRunProviderContractError(
+        'provider retained session control reference read failed',
+        { code: 'RETAINED_CONTROL_REF_READ_FAILED', cause: error },
+      )
+    }
+    if (candidate === undefined) return
+    const parsed = AgentExactRunControlRefSchema.safeParse(candidate)
+    if (!parsed.success) {
+      throw new RetainedRunProviderContractError(
+        'provider retained session returned an invalid current control reference',
+        { code: 'RETAINED_CONTROL_REF_INVALID', cause: parsed.error },
+      )
+    }
+    const candidateDigest = canonicalCandidateDigest(parsed.data)
+    if (
+      sameControlCoordinates(parsed.data, activeControlRef) ||
+      knownControlRefDigests.has(candidateDigest)
+    ) {
+      return
+    }
+    try {
+      activeControlRef = freezeControlRef(exactContinuedControlRef(parsed.data, activeControlRef))
+      knownControlRefDigests.add(candidateDigest)
+    } catch (error) {
+      throw new RetainedRunProviderContractError(
+        'provider retained session advanced to an invalid control reference',
+        { code: 'RETAINED_CONTROL_REF_ADVANCE_INVALID', cause: error },
+      )
+    }
+  }
   const snapshot = async (reason?: string, signal?: AbortSignal): Promise<RetainedRunSnapshot> => {
     if (signal?.aborted) throw abortError(signal.reason)
+    synchronizeActiveControlRef()
     let status: AgentSessionStatus | null
     try {
       status = await awaitAbortable(
@@ -69,6 +109,7 @@ export function createRetainedRunHandle(
       if (signal?.aborted) throw abortError(signal.reason)
       status = 'unknown'
     }
+    synchronizeActiveControlRef()
     const effect: RetainedRunEffect =
       status === 'cancelled'
         ? 'cancelled'
@@ -87,6 +128,7 @@ export function createRetainedRunHandle(
   }
   return {
     get controlRef() {
+      synchronizeActiveControlRef()
       return copyControlRef(activeControlRef)
     },
     get capabilities() {
@@ -108,9 +150,12 @@ export function createRetainedRunHandle(
       }
       return current
     },
-    events: (options) =>
-      retainedRunEvents(session, copyControlRef(activeControlRef), options, clock),
+    events: (options) => {
+      synchronizeActiveControlRef()
+      return retainedRunEvents(session, copyControlRef(activeControlRef), options, clock)
+    },
     result: async () => {
+      synchronizeActiveControlRef()
       let candidate: unknown
       try {
         candidate = await exactSessionResult(session)
@@ -128,6 +173,7 @@ export function createRetainedRunHandle(
           cause: parsed.error,
         })
       }
+      synchronizeActiveControlRef()
       try {
         assertResultBinding(activeControlRef, parsed.data)
       } catch (error) {
@@ -139,6 +185,7 @@ export function createRetainedRunHandle(
       return structuredClone(parsed.data)
     },
     async respondToInteraction(command, options): Promise<InteractionAcknowledgement> {
+      synchronizeActiveControlRef()
       const exactCommand = InteractionResponseCommandSchema.parse(command)
       assertInteractionBinding(activeControlRef, exactCommand)
       if (
@@ -167,6 +214,7 @@ export function createRetainedRunHandle(
           options?.signal,
         ),
       )
+      synchronizeActiveControlRef()
       if (
         acknowledgement.operationId !== exactCommand.operationId ||
         acknowledgement.commandDigest !== exactCommand.commandDigest ||
@@ -178,17 +226,20 @@ export function createRetainedRunHandle(
       return structuredClone(acknowledgement)
     },
     async contextBoundary(options): Promise<NativeContextBoundaryProof | null> {
+      synchronizeActiveControlRef()
       if (!session.contextBoundary) return null
       const proof = await awaitAbortable(
         Promise.resolve().then(() => session.contextBoundary!(options)),
         options?.signal,
       )
+      synchronizeActiveControlRef()
       if (proof === null) return null
       const exactProof = NativeContextBoundaryProofSchema.parse(proof)
       assertBoundaryBinding(activeControlRef, exactProof)
       return structuredClone(exactProof)
     },
     async continueNative(request, turn): Promise<NativeContextContinuationExecution> {
+      synchronizeActiveControlRef()
       const exactRequest = NativeContextContinuationRequestSchema.parse(request)
       if (!sameControlCoordinates(exactRequest.run, activeControlRef)) {
         throw new Error('native continuation request targets another retained run')
@@ -206,18 +257,33 @@ export function createRetainedRunHandle(
           `provider "${activeControlRef.provider}" does not support retry-safe native continuation`,
         )
       }
-      const outcome = AgentNativeContextContinuationResultSchema.parse(
-        await awaitAbortable(
-          Promise.resolve().then(() =>
-            session.continueNative!(exactRequest, {
-              turn: semanticTurn,
-              ...(timeoutMs === undefined ? {} : { timeoutMs }),
-              ...(signal === undefined ? {} : { signal }),
-            }),
+      const continuationSource = activeControlRef
+      let outcome: NativeContextContinuationExecution
+      try {
+        outcome = AgentNativeContextContinuationResultSchema.parse(
+          await awaitAbortable(
+            Promise.resolve().then(() =>
+              session.continueNative!(exactRequest, {
+                turn: semanticTurn,
+                ...(timeoutMs === undefined ? {} : { timeoutMs }),
+                ...(signal === undefined ? {} : { signal }),
+              }),
+            ),
+            signal,
           ),
-          signal,
-        ),
-      )
+        )
+      } catch (error) {
+        try {
+          synchronizeActiveControlRef()
+        } catch (syncError) {
+          throw new AggregateError(
+            [error, syncError],
+            'native continuation failed and its current control reference could not be read',
+          )
+        }
+        throw error
+      }
+      synchronizeActiveControlRef()
       if (
         outcome.acknowledgement.operationId !== exactRequest.operationId ||
         outcome.acknowledgement.requestDigest !== exactRequest.requestDigest
@@ -242,12 +308,22 @@ export function createRetainedRunHandle(
       if (!agentNativeContextContinuationResultMatchesRequest(exactRequest, outcome)) {
         throw new Error('provider returned a native continuation result for another request')
       }
-      const nextControlRef = exactContinuedControlRef(outcome.controlRef, activeControlRef)
+      const nextControlRef = exactContinuedControlRef(outcome.controlRef, continuationSource)
+      if (
+        !sameControlCoordinates(activeControlRef, continuationSource) &&
+        !sameControlCoordinates(activeControlRef, nextControlRef)
+      ) {
+        throw new Error(
+          'provider advanced the retained session while another native continuation was pending',
+        )
+      }
       assertResultBinding(nextControlRef, outcome.result)
       activeControlRef = freezeControlRef(nextControlRef)
+      knownControlRefDigests.add(canonicalCandidateDigest(activeControlRef))
       return structuredClone({ ...outcome, controlRef: copyControlRef(activeControlRef) })
     },
     async cancel(options): Promise<RetainedRunCancellation> {
+      synchronizeActiveControlRef()
       assertStableText(options.operationId, 'retained cancellation operation id')
       if (options.reason !== undefined)
         assertStableText(options.reason, 'retained cancellation reason')
