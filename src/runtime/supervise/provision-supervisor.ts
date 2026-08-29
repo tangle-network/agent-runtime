@@ -209,9 +209,14 @@ export async function provisionSupervisor(
         blobs: context.blobs,
         makeWorkerAgent,
         perWorker: workerBudget(),
+        // Keep each supervisor turn bounded so control requests are observed while the remote
+        // worker is running. The coordination tool keeps one settlement drain in flight, so a
+        // timeout only ends this turn; it cannot lose the eventual worker event.
+        awaitTimeoutMs: input.pollMs,
       })
       await coord.ready()
       const spawn = findTool(coord.tools, 'spawn_agent')
+      const awaitEvent = findTool(coord.tools, 'await_event')
       const result = await spawn.handler({
         profile: workerProfile,
         task: input.task,
@@ -249,17 +254,23 @@ export async function provisionSupervisor(
         ownerId: scope.view.root,
         controlScope: 'run',
       })
-      const settled = scope.next()
       try {
         while (true) {
           await steerAcknowledger.pass('turn')
           cancelAcknowledger.pass('turn')
-          const outcome = await raceSettlement(settled, input.pollMs, scope.signal)
-          if (outcome !== undefined && outcome !== null) {
-            await coord.drainResolved()
+          // `await_event` owns the single scope cursor drain. Calling `scope.next()` directly here
+          // would bypass the coordination ledger and make a real cancellation look unknown.
+          const event = await awaitEvent.handler({ kinds: ['settled'] })
+          if (isSettledEvent(event)) {
             await steerAcknowledger.pass('final')
             cancelAcknowledger.pass('final')
-            return outcome.kind === 'done' ? outcome.out : undefined
+            return undefined
+          }
+          if (isIdleEvent(event)) {
+            throw new Error(`Runtime supervisor worker '${childId}' ended without a settlement`)
+          }
+          if (!isPendingEvent(event)) {
+            throw new Error(`Runtime supervisor returned an invalid settlement response`)
           }
         }
       } finally {
@@ -538,25 +549,20 @@ function workerIdFromSpawn(value: unknown): string {
   return workerId
 }
 
-async function raceSettlement(
-  promise: ReturnType<Scope<unknown>['next']>,
-  pollMs: number,
-  signal: AbortSignal,
-): Promise<Awaited<ReturnType<Scope<unknown>['next']>> | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let onAbort: (() => void) | undefined
-  const poll = new Promise<undefined>((resolvePoll) => {
-    timer = setTimeout(() => resolvePoll(undefined), pollMs)
-    if (typeof timer.unref === 'function') timer.unref()
-    onAbort = () => resolvePoll(undefined)
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
-  try {
-    return await Promise.race([promise, poll])
-  } finally {
-    if (timer !== undefined) clearTimeout(timer)
-    if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
-  }
+function isSettledEvent(value: unknown): boolean {
+  return isObject(value) && value.type === 'settled'
+}
+
+function isIdleEvent(value: unknown): boolean {
+  return isObject(value) && value.idle === true
+}
+
+function isPendingEvent(value: unknown): boolean {
+  return isObject(value) && value.pending === true
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 async function waitForWorkerSpawn(
@@ -650,10 +656,10 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
   }
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number, keepAlive = false): Promise<void> {
   return new Promise((resolveDelay) => {
     const timer = setTimeout(resolveDelay, ms)
-    if (typeof timer.unref === 'function') timer.unref()
+    if (!keepAlive && typeof timer.unref === 'function') timer.unref()
   })
 }
 
@@ -700,7 +706,10 @@ async function waitForWorkerTerminal(
     if (Date.now() >= deadline) {
       throw unavailable(`Runtime supervisor timed out waiting for worker '${workerId}' to settle`)
     }
-    await delay(pollMs)
+    // Cleanup is an explicit lifecycle operation. Keep this bounded poll referenced so a caller
+    // awaiting cleanup cannot have Node exit while the provider is still committing the terminal
+    // worker event.
+    await delay(pollMs, true)
   }
 }
 

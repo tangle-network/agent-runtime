@@ -66,7 +66,7 @@ export async function teardownExecutor<Out>(
     grace === 'infinity'
       ? undefined
       : grace === 'brutalKill'
-        ? TEARDOWN_ACKNOWLEDGEMENT_MS
+        ? (executor.teardownTimeoutMs ?? TEARDOWN_ACKNOWLEDGEMENT_MS)
         : grace + TEARDOWN_ACKNOWLEDGEMENT_MS
   // The execution cutoff stops new work; cleanup still gets a small, bounded acknowledgement
   // window after that cutoff. Otherwise an already-resolved brutal kill invoked exactly at the

@@ -3349,6 +3349,21 @@ describe('retained runtime run control', () => {
     })
   })
 
+  it('bounds long retained identities without losing deterministic replay', () => {
+    const environmentKey = `environment-${'e'.repeat(256)}`
+    const turnId = `turn-${'t'.repeat(256)}`
+    const first = mintRetainedIdentity(environmentKey, turnId)
+    const second = mintRetainedIdentity(environmentKey, turnId)
+
+    expect(first).toEqual(second)
+    expect(first.sessionId).toMatch(/^retained-session:[a-f0-9]{64}$/u)
+    expect(first.executionId).toMatch(/^retained-execution:[a-f0-9]{64}$/u)
+    expect(first.sessionId.length).toBeLessThanOrEqual(128)
+    expect(first.executionId.length).toBeLessThanOrEqual(128)
+    expect(first.sessionId).not.toContain(environmentKey)
+    expect(first.executionId).not.toContain(turnId)
+  })
+
   it('fails loud with the provider reference when dispatch dishonors the requested identity', async () => {
     let destroys = 0
     const rogueRef = {
