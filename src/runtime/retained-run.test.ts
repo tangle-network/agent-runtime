@@ -19,6 +19,7 @@ import {
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
+  AgentEnvironmentCapabilities,
   AgentEnvironmentEvent,
   AgentEnvironmentProvider,
   AgentSession,
@@ -36,6 +37,7 @@ import {
   startRetainedRun,
   startRetainedRunInEnvironment,
 } from './retained-run'
+import { createRetainedRunHandle } from './retained-run-handle'
 import { mintRetainedIdentity } from './retained-run-start'
 
 const childScript = new URL('../../tests/helpers/retained-run-child.ts', import.meta.url).pathname
@@ -1660,6 +1662,7 @@ describe('retained runtime run control', () => {
     const continuationCompletion = new Promise<AgentNativeContextContinuationResult>((resolve) => {
       resolveContinuation = resolve
     })
+    let continuationCompleted = false
     let cancellationRequest: AgentRunCancellationRequest | undefined
     const session: AgentSession = {
       id: initialControlRef.sessionId,
@@ -1682,10 +1685,21 @@ describe('retained runtime run control', () => {
       }),
       prompt: async () => ({ text: 'unused', success: false }),
       cancel: async () => {},
-      async continueNative() {
+      async continueNative(_request, options) {
         currentControlRef = nextControlRef
+        const onAdmission = (
+          options as {
+            readonly onAdmission?: (controlRef: AgentExactRunControlRef) => void
+          }
+        ).onAdmission
+        if (onAdmission === undefined) throw new Error('test provider did not receive onAdmission')
+        onAdmission(nextControlRef)
         resolveContinuationStarted()
-        return await continuationCompletion
+        try {
+          return await continuationCompletion
+        } finally {
+          continuationCompleted = true
+        }
       },
       async contextBoundary() {
         return expectedBoundary
@@ -1702,33 +1716,41 @@ describe('retained runtime run control', () => {
         }
       },
     }
-    const provider = providerWithEnvironment({
-      dispatch: async () => ({
-        id: initialControlRef.sessionId,
-        provider: initialControlRef.provider,
-        controlRef: initialControlRef,
-      }),
-      session: () => session,
-    })
-    const baseCapabilities = provider.capabilities
-    provider.capabilities = async () => ({
-      ...(await baseCapabilities()),
-      nativeContinuation: { atomicBoundary: true, requestIdempotency: true },
-    })
-    const run = await startRetainedRun({
-      provider,
-      environment: { profile: { name: 'worker' }, idempotencyKey: 'continuation-admission' },
-      turn: { prompt: 'start', turnId: 'continuation-admission' },
-      onAdmission: recordedAdmissions().onAdmission,
-      identity: {
-        sessionId: initialControlRef.sessionId,
-        executionId: initialControlRef.executionId,
+    const provider = providerWithEnvironment({})
+    const capabilities = {
+      ...(await provider.capabilities()),
+      nativeContinuation: {
+        atomicBoundary: true,
+        requestIdempotency: true,
+        admissionControl: true,
       },
-    })
+    } as AgentEnvironmentCapabilities
+    const environment: AgentEnvironment = {
+      id: initialControlRef.environmentId,
+      provider: initialControlRef.provider,
+      status: async () => 'running',
+      async *stream() {
+        yield* []
+      },
+    }
+    const run = createRetainedRunHandle(
+      environment,
+      session,
+      initialControlRef,
+      capabilities,
+      undefined,
+    )
 
-    const pendingContinuation = run.continueNative(continuationRequest, continuationTurn)
+    const pendingContinuation = run.beginNativeContinuation(continuationRequest, continuationTurn)
+    await expect(pendingContinuation.admission).resolves.toEqual(nextControlRef)
     await continuationStarted
+    expect(continuationCompleted).toBe(false)
     expect(run.controlRef).toEqual(nextControlRef)
+    await expect(run.status()).resolves.toMatchObject({
+      runId: nextControlRef.runId,
+      status: 'running',
+      controlRef: nextControlRef,
+    })
 
     const cancellation = await run.cancel({
       operationId: 'cancel-admitted-continuation',
@@ -1742,7 +1764,7 @@ describe('retained runtime run control', () => {
     expect(cancellationRequest?.run).toEqual(nextControlRef)
 
     resolveContinuation(continuationResult)
-    await expect(pendingContinuation).resolves.toMatchObject({
+    await expect(pendingContinuation.result).resolves.toMatchObject({
       acknowledgement: { status: 'accepted' },
       controlRef: nextControlRef,
     })

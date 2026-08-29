@@ -31,6 +31,7 @@ export {
 } from './retained-run-start'
 export type {
   NativeContextContinuationExecution,
+  NativeContextContinuationHandle,
   NativeContextContinuationInput,
   ReconnectRetainedRunOptions,
   RecoverRetainedRunIntentOptions,

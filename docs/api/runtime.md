@@ -6506,6 +6506,27 @@ Options for an idempotent retained cancellation.
 
 ***
 
+### NativeContextContinuationHandle
+
+**`Stable`**
+
+Admission and terminal result for one same-session continuation.
+
+The provider resolves `admission` after it durably owns the next exact run
+reference. `result` resolves when that run reaches its terminal result.
+
+#### Properties
+
+##### admission
+
+> `readonly` **admission**: `Promise`\<`AgentExactRunControlRef`\>
+
+##### result
+
+> `readonly` **result**: `Promise`\<\{ \} \| \{ \}\>
+
+***
+
 ### RetainedRunHandle
 
 **`Stable`**
@@ -6601,6 +6622,24 @@ Capabilities measured from the exact environment that owns this run.
 ###### Returns
 
 `Promise`\<\{ \} \| `null`\>
+
+##### beginNativeContinuation()
+
+> **beginNativeContinuation**(`request`, `turn`): [`NativeContextContinuationHandle`](#nativecontextcontinuationhandle)
+
+###### Parameters
+
+###### request
+
+`NativeContextContinuationRequest`
+
+###### turn
+
+[`NativeContextContinuationInput`](#nativecontextcontinuationinput)
+
+###### Returns
+
+[`NativeContextContinuationHandle`](#nativecontextcontinuationhandle)
 
 ##### continueNative()
 
@@ -22724,7 +22763,7 @@ Effect recorded for one retained control operation.
 
 ### NativeContextContinuationInput
 
-> **NativeContextContinuationInput** = `NativeContextContinuationTurn` & `Omit`\<`AgentNativeContextContinuationOptions`, `"turn"`\>
+> **NativeContextContinuationInput** = `NativeContextContinuationTurn` & `Omit`\<`AgentNativeContextContinuationOptions`, `"turn"` \| `"onAdmission"`\>
 
 **`Stable`**
 
