@@ -1,6 +1,19 @@
 import { CanonicalStreamEventSchema, type StreamEvent } from '@tangle-network/agent-interface'
 import { assertRuntimeTimestamp } from './timestamps'
 
+/**
+ * Transport type whose payload is the harness's OWN event, passed through verbatim.
+ *
+ * A `raw` payload names a harness-native type from a vocabulary the canonical schema does not
+ * define (codex emits `thread.started` / `turn.started` / `turn.completed`). The transport type is
+ * therefore the only canonical statement such an event makes, and its payload must never be read
+ * as a canonical type: the mismatch guard below exists to catch a producer that MISLABELS a
+ * canonical event, which a harness-native payload cannot do. A payload that does satisfy the
+ * canonical `raw` shape (`backend` + `event`) still parses; anything else is not a canonical
+ * event, and the caller reads it off the transport event instead.
+ */
+const harnessNativePayloadType = 'raw'
+
 /** Parse canonical payload fields without treating transport identity as event data. */
 export function parseCanonicalTransportEvent(
   type: unknown,
@@ -12,8 +25,10 @@ export function parseCanonicalTransportEvent(
     throw new Error(`${source} emitted a canonical event without an object payload`)
   }
   const outerType = String(type ?? '')
+  const harnessNative = outerType === harnessNativePayloadType
   if (normalized !== undefined) {
     if (
+      !harnessNative &&
       typeof normalized === 'object' &&
       normalized !== null &&
       'type' in normalized &&
@@ -26,6 +41,7 @@ export function parseCanonicalTransportEvent(
     }
     const candidate = CanonicalStreamEventSchema.safeParse(normalized)
     if (!candidate.success) {
+      if (harnessNative) return undefined
       throw new Error(`${source} emitted an invalid normalized canonical event`, {
         cause: candidate.error,
       })
@@ -41,7 +57,7 @@ export function parseCanonicalTransportEvent(
     normalized: _normalized,
     ...payload
   } = data
-  if (embeddedType !== undefined && embeddedType !== outerType) {
+  if (!harnessNative && embeddedType !== undefined && embeddedType !== outerType) {
     throw new Error(
       `${source} canonical event type "${String(embeddedType)}" does not match transport type "${outerType}"`,
     )
