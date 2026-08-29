@@ -33,12 +33,13 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import type { BackendType, SandboxEvent } from '@tangle-network/sandbox'
 import { type AgentRunOutcome, createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { ValidationError } from '../../errors'
+import type { RuntimeStreamEvent } from '../../types'
 import { readPromptOptions } from '../prompt-options'
 import { probeSandboxCapabilities } from '../sandbox-capabilities'
 import {
   assertSandboxServedModel,
   createSandboxToolPartState,
-  extractLlmCallEvent,
+  createSandboxUsageLedger,
   type SandboxServedBackend,
   sandboxEventServedBackend,
   sandboxProgressEvents,
@@ -221,6 +222,56 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     let handle: SandboxLineageHandle | undefined
     state.session = () => handle
     let nextPrompt: string | undefined = args.taskToPrompt(task)
+    // One ledger for the whole session: it credits the canonical usage events as they arrive and
+    // holds the harness's own usage receipt until the turn ends, so a turn that reports both is
+    // charged once. `settleTurn` resets it, so each turn accounts independently.
+    const usageLedger = createSandboxUsageLedger(args.harness)
+    let usageFailure: string | undefined
+    // A receipt the ledger cannot read marks the SPEND unknown, never the stream failed. The
+    // worker keeps running, because a decode problem that aborted a live session would throw away
+    // the work the session had already done, and it settles on its own outcome with
+    // `tokensKnown: false` plus this message. The first message is kept: it names the receipt that
+    // could not be read, and a later one adds no fact.
+    const readUsage = (
+      read: () => (RuntimeStreamEvent & { type: 'llm_call' }) | undefined,
+    ): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined => {
+      try {
+        return read()
+      } catch (err) {
+        tokensKnown = false
+        const message = err instanceof Error ? err.message : String(err)
+        usageFailure ??= message
+        activity.push({ at: now(), kind: 'note', label: 'usage-unreadable', detail: message })
+        return undefined
+      }
+    }
+    function* creditCall(call: RuntimeStreamEvent & { type: 'llm_call' }): Generator<UsageEvent> {
+      const callTokensKnown =
+        call.tokensKnown !== false &&
+        typeof call.tokensIn === 'number' &&
+        typeof call.tokensOut === 'number'
+      if (!callTokensKnown) tokensKnown = false
+      const input = call.tokensIn ?? 0
+      const output = call.tokensOut ?? 0
+      if (input || output || !callTokensKnown) {
+        const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
+          kind: 'tokens',
+          input,
+          output,
+          ...(callTokensKnown ? {} : { tokensKnown: false }),
+          // Classify against THIS call's own prompt total, so the classes partition the
+          // number they belong to rather than a running sum from other calls.
+          ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
+        }
+        addTokenUsage(tokens, usage)
+        yield usage
+      }
+      if (typeof call.costUsd === 'number' && call.costUsd > 0) {
+        usd += call.costUsd
+        // Numeric sandbox cost has no billing-provenance/completeness receipt.
+        yield { kind: 'cost', usd: call.costUsd, usdKnown: false, provenance: 'uncaptured' }
+      }
+    }
 
     try {
       for (let turn = 0; maxTurns === 0 || turn < maxTurns; turn += 1) {
@@ -281,45 +332,31 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           for await (const event of events) {
             outcomeTracker.observe(event)
             for (const progress of recordEvent(event)) yield { kind: 'progress', progress }
-            const call = extractLlmCallEvent(event, spec.name ?? String(args.harness))
+            const call = readUsage(() =>
+              usageLedger.observe(event, spec.name ?? String(args.harness)),
+            )
             if (call) {
               sawLlmCall = true
-              const callTokensKnown =
-                call.tokensKnown !== false &&
-                typeof call.tokensIn === 'number' &&
-                typeof call.tokensOut === 'number'
-              if (!callTokensKnown) tokensKnown = false
-              const input = call.tokensIn ?? 0
-              const output = call.tokensOut ?? 0
-              if (input || output || !callTokensKnown) {
-                const usage: Extract<UsageEvent, { kind: 'tokens' }> = {
-                  kind: 'tokens',
-                  input,
-                  output,
-                  ...(callTokensKnown ? {} : { tokensKnown: false }),
-                  // Classify against THIS call's own prompt total, so the classes partition the
-                  // number they belong to rather than a running sum from other calls.
-                  ...promptCacheTokenClasses(call.tokensIn, call.promptCache),
-                }
-                addTokenUsage(tokens, usage)
-                yield usage
-              }
-              if (typeof call.costUsd === 'number' && call.costUsd > 0) {
-                usd += call.costUsd
-                // Numeric sandbox cost has no billing-provenance/completeness receipt.
-                yield {
-                  kind: 'cost',
-                  usd: call.costUsd,
-                  usdKnown: false,
-                  provenance: 'uncaptured',
-                }
-              }
+              yield* creditCall(call)
             }
             assertSandboxServedModel(event, requested)
+          }
+          const harnessCall = readUsage(() =>
+            usageLedger.settleTurn(spec.name ?? String(args.harness)),
+          )
+          if (harnessCall) {
+            sawLlmCall = true
+            yield* creditCall(harnessCall)
           }
           state.latestOutcome = outcomeTracker.finish()
         } catch (e) {
           cleanup()
+          // A forceful steer ends the turn mid-stream. The harness receipt the turn already
+          // reported is credited, because those tokens were spent whatever ended the turn.
+          const abortedCall = readUsage(() =>
+            usageLedger.settleTurn(spec.name ?? String(args.harness)),
+          )
+          if (abortedCall) yield* creditCall(abortedCall)
           // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
           // steer is already queued, so loop back and fold it. Anything else is fatal.
           if (isInterruptAbort(e, interruptSig, signal, args.controller.signal)) {
@@ -371,6 +408,12 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       turns: state.turns,
       toolCalls: state.toolCalls,
       ...(state.latestOutcome ? { outcome: state.latestOutcome } : {}),
+      // The named reason behind a `false` `spent.tokensKnown`, on the settlement rather than the
+      // verdict: whether the work SUCCEEDED and whether its spend was MEASURED are different
+      // facts, and collapsing them would drop a correct worker from every valid-winner selection.
+      // The conserved pool already carries the measurement fact — `tokensKnown: false` taints the
+      // readout and names the node in `spendGaps`.
+      ...(usageFailure === undefined ? {} : { tokensUnknownReason: usageFailure }),
     }
     const verdict = state.latestOutcome
       ? projectSandboxOutcome(state.latestOutcome).verdict

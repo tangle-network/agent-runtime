@@ -13,9 +13,11 @@
  *
  * This is a UNIFICATION seam, not a new stream parser — each kind is a thin
  * adapter over code that already exists and is already hardened:
- *   - `box`      — `mapSandboxEvent` + `extractLlmCallEvent` (sandbox-events.ts)
- *                  project the sandbox event stream; its requested profile is
- *                  explicitly recorded as unverified because the box already exists.
+ *   - `box`      — `mapSandboxEvent` projects the sandbox event stream and one
+ *                  `SandboxUsageLedger` (sandbox-events.ts) meters it, so a harness
+ *                  that reports usage only in its own event is counted once per turn;
+ *                  its requested profile is explicitly recorded as unverified because
+ *                  the box already exists.
  *   - `executor` — Runtime materializes the exact `AgentProfile`, records its
  *                  identity receipts, drives the executor once, and tears it
  *                  down after capturing the terminal artifact.
@@ -51,6 +53,7 @@ import { scoreKnowledgeReadiness } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   canonicalCandidateDigest,
+  type HarnessType,
   renderInputPartsAsText,
 } from '@tangle-network/agent-interface'
 import type { AgentTurnInput } from '@tangle-network/agent-interface/environment-provider'
@@ -72,9 +75,11 @@ import { awaitAbortable } from './retained-run-binding'
 import {
   canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
+  createSandboxUsageLedger,
   isSandboxTerminalEvent,
   mapSandboxEvent,
   mapSandboxToolEvent,
+  type SandboxUsageLedger,
 } from './sandbox-events'
 import { projectSandboxOutcome, readSandboxOutcome } from './sandbox-outcome'
 import { executableAgentProfileSnapshot } from './supervise/executable-spec'
@@ -654,6 +659,7 @@ async function* streamAgentTurnInternal(
                 ...(backend.options ? { options: backend.options } : {}),
                 preserveToolParts: opts.preserveToolParts === true,
                 ...(opts.onRawEvent ? { onRawEvent: opts.onRawEvent } : {}),
+                ...(profile?.harness ? { harness: profile.harness } : {}),
               },
             )
     // One dedupe for every backend kind: a repeated provider `sourceEventId` is the same child
@@ -882,16 +888,23 @@ interface BoxTurnConfig {
   preserveToolParts: boolean
   /** Awaited raw-event tap, before projection. */
   onRawEvent?: (event: SandboxEvent) => void | Promise<void>
+  /** The profile's harness, so a harness that reports usage only in its own event is metered. */
+  harness?: HarnessType
 }
 
 /**
  * One turn over a box: `box.streamPrompt` projected through the existing
  * `mapSandboxEvent` (text/reasoning deltas +
  * cost-bearing `llm_call`s), plus the opt-in `mapSandboxToolEvent` tool-part
- * projection. Usage accumulates off the mapped `llm_call` events — the same
- * fold `sumSandboxUsage` applies. Final text prefers the terminal
+ * projection. Final text prefers the terminal
  * `result`/`done`/`final` payload over concatenated deltas, because the
  * sandbox `message.part.updated` fallback may carry running accumulations.
+ *
+ * Usage rides ONE {@link SandboxUsageLedger} for the turn — the same accounting the leaf kernel,
+ * the steerable session, and `sumSandboxUsage` use — so a harness that reports its tokens only
+ * inside its own event is metered here too, and a turn reporting both sources is charged once.
+ * The ledger settles when the stream ends AND on the error path, because a turn that failed
+ * mid-stream still spent what the harness already reported.
  */
 async function* driveBoxTurn(
   box: SandboxInstance,
@@ -909,38 +922,58 @@ async function* driveBoxTurn(
   })
   const toolParts = cfg.preserveToolParts ? createSandboxToolPartState() : undefined
   const outcomeTracker = createAgentRunOutcomeTracker()
-  for await (const event of abortableValues(stream, signal)) {
-    outcomeTracker.observe(event)
-    if (cfg.onRawEvent) {
-      await awaitAbortable(
-        Promise.resolve().then(() => cfg.onRawEvent!(event)),
-        signal,
-      )
-    }
-    const terminalText = terminalTextFromSandboxEvent(event)
-    if (terminalText !== undefined) acc.terminalText = terminalText
-    const canonical = canonicalStreamEventFromSandboxEvent(event)
-    if (canonical) {
-      yield canonical
-      continue
-    }
-
-    if (toolParts) {
-      for (const toolEvent of mapSandboxToolEvent(event, toolParts)) {
-        yield toolEvent
+  const usageLedger = createSandboxUsageLedger(cfg.harness)
+  try {
+    for await (const event of abortableValues(stream, signal)) {
+      outcomeTracker.observe(event)
+      if (cfg.onRawEvent) {
+        await awaitAbortable(
+          Promise.resolve().then(() => cfg.onRawEvent!(event)),
+          signal,
+        )
       }
-    }
-    const mapped = mapSandboxEvent(event, { agentRunName })
-    if (mapped) {
-      // `mapSandboxEvent` stamps `agentRunName` as the model label when the
-      // event carried none — a run label, not a reported model. Exclude it from
-      // the terminal usage so `usage.model` is never a fabricated value.
-      foldEvent(mapped, acc, agentRunName)
-      yield mapped
-    }
+      const terminalText = terminalTextFromSandboxEvent(event)
+      if (terminalText !== undefined) acc.terminalText = terminalText
+      // Read usage BEFORE the canonical short-circuit: a harness-native receipt rides a transport
+      // type the canonical decoder answers for, and a `continue` past it would lose the turn.
+      // `mapSandboxEvent` re-derives the SAME canonical call below, so only this fold runs.
+      const call = usageLedger.observe(event, agentRunName)
+      if (call) foldEvent(call, acc, agentRunName)
+      const canonical = canonicalStreamEventFromSandboxEvent(event)
+      if (canonical) {
+        yield canonical
+        continue
+      }
 
-    // Unknown provider events stay available through onRawEvent. Do not copy
-    // arbitrary provider payloads into the public stream.
+      if (toolParts) {
+        for (const toolEvent of mapSandboxToolEvent(event, toolParts)) {
+          yield toolEvent
+        }
+      }
+      const mapped = mapSandboxEvent(event, { agentRunName })
+      if (mapped) {
+        // `mapSandboxEvent` stamps `agentRunName` as the model label when the
+        // event carried none — a run label, not a reported model. Exclude it from
+        // the terminal usage so `usage.model` is never a fabricated value.
+        if (mapped.type !== 'llm_call') foldEvent(mapped, acc, agentRunName)
+        yield mapped
+      }
+
+      // Unknown provider events stay available through onRawEvent. Do not copy
+      // arbitrary provider payloads into the public stream.
+    }
+  } catch (err) {
+    const aborted = usageLedger.settleTurn(agentRunName)
+    if (aborted) {
+      foldEvent(aborted, acc, agentRunName)
+      yield aborted
+    }
+    throw err
+  }
+  const settled = usageLedger.settleTurn(agentRunName)
+  if (settled) {
+    foldEvent(settled, acc, agentRunName)
+    yield settled
   }
   acc.sandboxOutcome = outcomeTracker.finish()
   const projection = projectSandboxOutcome(acc.sandboxOutcome)

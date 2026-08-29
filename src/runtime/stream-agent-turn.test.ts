@@ -120,6 +120,68 @@ describe('streamAgentTurn: box backend', () => {
     })
   })
 
+  it('meters a harness that reports its tokens only inside its own event', async () => {
+    // Codex emits no canonical usage event: the turn's tokens live in its own `turn.completed`,
+    // which rides the transport as a `raw` event. Without the usage ledger a codex box reported
+    // zero tokens through every headline entrypoint that folds a box turn.
+    const box = await makeBox([
+      { type: 'raw', data: { type: 'turn.started' } },
+      { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'OK' } },
+      {
+        type: 'raw',
+        data: {
+          type: 'turn.completed',
+          usage: {
+            input_tokens: 15575,
+            cached_input_tokens: 11008,
+            cache_write_input_tokens: 0,
+            output_tokens: 5,
+            reasoning_output_tokens: 0,
+          },
+        },
+      },
+      { type: 'result', data: { finalText: 'OK' } },
+      doneEvent(),
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'answer' }),
+    )
+    expect(turn.finalText).toBe('OK')
+    // `input` is the whole prompt count with the cached part named separately, and `output` is the
+    // whole completion count — codex bills its reasoning tokens inside it.
+    expect(turn.usage).toEqual({
+      input: 15575,
+      output: 5,
+      usdKnown: false,
+      promptCache: { readTokens: 11008, writeTokens: 0 },
+    })
+  })
+
+  it('charges a turn once when it reports both a canonical usage event and its own', async () => {
+    const box = await makeBox([
+      {
+        type: 'raw',
+        data: {
+          type: 'turn.completed',
+          usage: {
+            input_tokens: 15575,
+            cached_input_tokens: 11008,
+            output_tokens: 5,
+            reasoning_output_tokens: 0,
+          },
+        },
+      },
+      { type: 'result', data: { finalText: 'OK' } },
+      doneEvent({ tokenUsage: { inputTokens: 7, outputTokens: 3 } }),
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'answer' }),
+    )
+    expect(turn.usage).toEqual({ input: 7, output: 3, usdKnown: false })
+  })
+
   it('collectAgentTurn round-trips the terminal summary', async () => {
     const box = await makeBox([
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: '42' } },

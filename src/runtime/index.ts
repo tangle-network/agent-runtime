@@ -194,6 +194,11 @@ export {
   sandboxClientAsProvider,
   type WorkspaceRequest,
 } from './environment-provider'
+// Per-harness usage decoders: the ONE registry of harnesses that report token usage only inside
+// their own event, read alongside the canonical usage events by `createSandboxUsageLedger`. Only
+// the composite is public, as with `decodeToolPart` — the registry and its entries stay internal
+// so a harness is added in one place.
+export { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
 export {
   type HarvestCorpusOptions,
   type HarvestFailure,
@@ -430,11 +435,13 @@ export {
 export {
   assertSandboxServedModel,
   createSandboxToolPartState,
+  createSandboxUsageLedger,
   extractLlmCallEvent,
   mapSandboxEvent,
   mapSandboxToolEvent,
   type SandboxServedBackend,
   type SandboxToolPartState,
+  type SandboxUsageLedger,
   sandboxEventServedBackend,
   sandboxProgressEvents,
   sumSandboxUsage,
