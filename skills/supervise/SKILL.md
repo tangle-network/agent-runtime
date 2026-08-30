@@ -5,13 +5,13 @@ description: Drive worker agents with explicit profiles, corrections, budgets, a
 
 # Supervise
 
-Use this policy only when the running agent has the coordination tools, including `spawn_agent` and `await_event`.
+Use this policy only when the running agent has the coordination tools, including `spawn_worker` and `await_event`.
 The supervisor plans and checks work; workers produce the artifacts.
 
 ## Run The Work
 
 1. Split the job into independent deliverables with observable completion checks.
-2. Call `spawn_agent` with a focused task and a complete worker profile.
+2. Call `spawn_worker` with a focused task and a complete worker profile.
 3. Assign each worker only the tools, context, authority, and budget it needs.
 4. Use `await_event` to collect questions, findings, progress, and settlements.
 5. Answer blocking questions or steer the responsible worker with specific evidence.

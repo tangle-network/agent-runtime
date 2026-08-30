@@ -41,7 +41,7 @@ pnpm test tests/kernel/coordination-driver.test.ts tests/supervisor-loop-example
 | file | what it shows |
 |---|---|
 | `run.ts` | the one-call supervisor. `WORKER_BACKEND=bridge` \| `sandbox` is the only knob. |
-| `run-supervisor-mcp.ts` | the harness-native path: a coding agent *is* the supervisor and calls a real `spawn_agent` tool to launch workers — a box driving boxes, no scripted driver. |
+| `run-supervisor-mcp.ts` | the harness-native path: a coding agent *is* the supervisor and calls a real `spawn_worker` tool to launch workers — a box driving boxes, no scripted driver. |
 | `shared.ts` | the demo goal, the pass/fail check, and the two helpers that make the one-knob swap real. |
 
 ## The pieces, in plain terms

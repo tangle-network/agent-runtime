@@ -139,10 +139,10 @@ async function main(): Promise<void> {
         console.error('')
 
         const toolNames = (parsed.result?.tools ?? []).map((t) => t.name)
-        const hasSpawn = toolNames.includes('spawn_agent')
+        const hasSpawn = toolNames.includes('spawn_worker')
         const hasAwait = toolNames.includes('await_event')
         console.error(`[probe] tools advertised: ${toolNames.join(', ')}`)
-        console.error(`[probe] spawn_agent present = ${hasSpawn}; await_event present = ${hasAwait}`)
+        console.error(`[probe] spawn_worker present = ${hasSpawn}; await_event present = ${hasAwait}`)
         ok = hasSpawn && hasAwait
 
         if (ok) {
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
 
   console.error(
     ok
-      ? 'CONTAINER-REACHABLE: docker tools/list returned spawn_agent and await_event.'
+      ? 'CONTAINER-REACHABLE: docker tools/list returned spawn_worker and await_event.'
       : 'NOT reachable from container; see output above.',
   )
   process.exit(ok ? 0 : 1)

@@ -97,15 +97,15 @@ describe('the generated API — rendered from schemas, never prose', () => {
 
   it('renders declare-function blocks and filters by query; lifecycle verbs are named as excluded', () => {
     const faces = [
-      { name: 'spawn_agent', description: 'Start a worker.', inputSchema: { type: 'object' } },
+      { name: 'spawn_worker', description: 'Start a worker.', inputSchema: { type: 'object' } },
       { name: 'await_event', description: 'Wait for the next event.' },
     ]
     const all = renderCodeModeApi(faces)
-    expect(all).toContain('declare function spawn_agent(')
+    expect(all).toContain('declare function spawn_worker(')
     expect(all).toContain('declare function await_event(')
     expect(all).toContain('NOT callable from code: submit_result, stop, ask_parent')
     const filtered = renderCodeModeApi(faces, 'spawn')
-    expect(filtered).toContain('spawn_agent')
+    expect(filtered).toContain('spawn_worker')
     expect(filtered).not.toContain('declare function await_event')
   })
 })
@@ -196,7 +196,7 @@ describe('the execute deadline gates api calls — no work outlives the call (su
         answerQuestion: noop,
         runAnalyst: noop,
       },
-      coordinationTools: () => [{ name: 'spawn_agent', inputSchema: { type: 'object' } }],
+      coordinationTools: () => [{ name: 'spawn_worker', inputSchema: { type: 'object' } }],
     } as unknown as Parameters<
       Extract<
         ReturnType<ReturnType<typeof codeModeSupervisorTools>>[number],
@@ -214,7 +214,7 @@ describe('the execute deadline gates api calls — no work outlives the call (su
     // Each iteration awaits a real 5ms tick, so ~30ms admits a handful, then the gate refuses.
     const program = `
       for (;;) {
-        await api.spawn_agent({ profile: { name: 'w' }, task: 't' })
+        await api.spawn_worker({ profile: { name: 'w' }, task: 't' })
       }
     `
     await expect(
@@ -240,7 +240,7 @@ describe('the execute deadline gates api calls — no work outlives the call (su
     controller.abort(new Error('scope cancelled'))
     await expect(
       execute.handler(
-        { code: 'return await api.spawn_agent({ profile: { name: 42 }, task: 42 })' },
+        { code: 'return await api.spawn_worker({ profile: { name: 42 }, task: 42 })' },
         fakeContext(controller.signal, () => {
           spawns += 1
         }),
@@ -256,7 +256,7 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
     const program = `
       const spawned = []
       for (const name of ['builder-a', 'builder-b']) {
-        spawned.push(await api.spawn_agent({ profile: { name }, task: 'build ' + name }))
+        spawned.push(await api.spawn_worker({ profile: { name }, task: 'build ' + name }))
       }
       const settled = []
       while (settled.length < 2) {
@@ -297,7 +297,7 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
     expect(settledChildren.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('search answers the LIVE grant: the rendered API is the spawn_agent the verbs actually serve', async () => {
+  it('search answers the LIVE grant: the rendered API is the spawn_worker the verbs actually serve', async () => {
     let rendered = ''
     const res = await superviseWithTestBrain(
       testAgentProfile('root', { harness: 'cli-base' }),
@@ -331,7 +331,7 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
       },
     )
     expect(res.kind).not.toBe('error')
-    expect(rendered).toContain('declare function spawn_agent(')
+    expect(rendered).toContain('declare function spawn_worker(')
     // Generated from the live descriptor's schema — a field only the real schema carries.
     expect(rendered).toContain('continuity')
   })

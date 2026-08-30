@@ -30,7 +30,7 @@ They do not establish distributed recovery, secure remote use, or production per
 | Area | Implementation | Honest capability |
 |---|---|---|
 | Recursive execution | `src/runtime/supervise/types.ts`, `scope.ts`, `supervisor.ts` | A driver can start child agents recursively under one budget and depth limit. |
-| Agent-facing coordination | `src/mcp/tools/coordination.ts` | A driver can call `spawn_agent`, `observe_agent`, `steer_agent`, `await_event`, `ask_parent`, and `stop`. |
+| Agent-facing coordination | `src/mcp/tools/coordination.ts` | A driver can call `spawn_worker`, `observe_agent`, `steer_agent`, `await_event`, `ask_parent`, and `stop`. |
 | Native MCP transport | `src/runtime/supervise/coordination-mcp.ts` | A local agent runner can call coordination actions over HTTP. |
 | Driver reasoning | `src/runtime/supervise/coordination-driver.ts` | A model can choose coordination actions dynamically. |
 | Child execution | `Executor` and `createExecutor` | Router, bridge, CLI, sandbox, worktree, and custom implementations share one execution contract. |
@@ -117,10 +117,6 @@ The duplication makes cross-feature recovery and cost accounting unreliable.
 ### 6. The historical live proof is not an acceptance test
 
 `bench/src/atom-mcp-e2e.mts` is useful exploratory code, but it cannot support a current production claim.
-
-The script asks the supervisor to call `spawn_worker`, while the current MCP exports `spawn_agent`.
-
-See `bench/src/atom-mcp-e2e.mts:178` and `src/mcp/tools/coordination.ts:473`.
 
 The script prints a failed verdict without setting a failing process exit code.
 

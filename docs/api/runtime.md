@@ -13030,7 +13030,7 @@ root profile/task identity and declared budget match. The original absolute dead
 measured spend are restored before new admission. The built-in driver is resume-aware: children
 that already settled, including their exact execution identities, are replayed onto
 `Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
-(`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+(`spawn_worker`'s `key`) resolve to their committed results instead of re-running, pending
 waits re-arm on their original deadlines, and the coordination log loads prior questions,
 findings, and instruction receipts. The router arm receives all three in its resume brief; the
 external arm seeds prior questions while findings and receipts remain in the durable log.
@@ -17130,7 +17130,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
- seam re-attaches with. `spawn_agent`'s per-call `continuity` argument overrides in either
+ seam re-attaches with. `spawn_worker`'s per-call `continuity` argument overrides in either
  direction; `runGraph` derives this from delegates-edge `continuity`. Omit = every spawn is
  `'fresh'` (status quo). See `CoordinationToolsOptions.continuityByProfile` for the
  refusal semantics (no-prior / while-live / with-key) and the process-local resume boundary.
@@ -17152,7 +17152,7 @@ root profile/task identity and declared budget match. The original absolute dead
 measured spend are restored before new admission. The built-in driver is resume-aware: children
 that already settled, including their exact execution identities, are replayed onto
 `Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
-(`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+(`spawn_worker`'s `key`) resolve to their committed results instead of re-running, pending
 waits re-arm on their original deadlines, and the coordination log loads prior questions,
 findings, and instruction receipts. The router arm receives all three in its resume brief; the
 external arm seeds prior questions while findings and receipts remain in the durable log.
@@ -17796,14 +17796,14 @@ One product-owned tool. It reuses the canonical MCP descriptor fields while Runt
 How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_agent / await_event / stop as native tools over the live scope.
+ so the harness calls spawn_worker / await_event / stop as native tools over the live scope.
 
 > **DriveHarness**(`args`): `Promise`\<`void`\>
 
 How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- so the harness calls spawn_agent / await_event / stop as native tools over the live scope.
+ so the harness calls spawn_worker / await_event / stop as native tools over the live scope.
 
 #### Parameters
 
@@ -17932,7 +17932,7 @@ Independent completion check for direct driver work (`submit_result`).
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
+Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
  boxes/sandboxes, not total work). Omit/`<= 0` = no cap.
 
@@ -18059,7 +18059,7 @@ Idle time after which `observe_agent` reports a worker as stalled. Omit = runtim
 > `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
 
 Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
- that name to the node's latest settled worker; `spawn_agent`'s per-call `continuity`
+ that name to the node's latest settled worker; `spawn_worker`'s per-call `continuity`
  overrides. Omit = every spawn fresh (status quo).
 
 ##### stopRule?
@@ -23274,7 +23274,7 @@ Default continuity for this edge's SPAWN traversals. `'resume'` makes every spaw
  spawn context carries `resume: { ofWorker, sequence }` for the executor seam, spending
  from the same conserved pool — the node's first spawn is effectively `'fresh'`, and a
  spawn while a prior worker is still live refuses loudly (steer is the live channel).
- The driver's per-call `spawn_agent` `continuity` argument overrides either way. Omit =
+ The driver's per-call `spawn_worker` `continuity` argument overrides either way. Omit =
  `'fresh'` (today's behavior, byte-identical). Caps count resumes exactly like fresh
  spawns.
 
@@ -28569,7 +28569,7 @@ Drive a team of agents (spawned + steered by `profile`) to solve a graded `Agent
 
 > **asAuthoredProfile**(`raw`): [`AuthoredProfile`](#authoredprofile) \| `null`
 
-Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
+Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the
  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching).
 
 #### Parameters
@@ -28960,7 +28960,7 @@ Called once when the external manager accepts a result or declares completion.
 
 `number`
 
-Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
 
 ###### awaitTimeoutMs?
@@ -28987,7 +28987,7 @@ Bind address. Omit = `127.0.0.1`. A non-loopback host is REFUSED unless
 `boolean`
 
 Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
- spawn_agent / steer_agent / stop to everyone who can reach the port. Required for any
+ spawn_worker / steer_agent / stop to everyone who can reach the port. Required for any
  non-loopback bind; ignored for loopback ones.
 
 ###### analysts?
@@ -29060,7 +29060,7 @@ OPT-IN peer mail: let this manager's workers message each other directly, bounde
 `WorkerSpawnContext.peerMailUrl`.
 
 It is a SEPARATE listener on its own port, not another tool on this server, and that is the
-whole point: this server mounts spawn_agent / steer_agent / stop with no authentication, so a
+whole point: this server mounts spawn_worker / steer_agent / stop with no authentication, so a
 worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
 channel's authority marking would mean nothing. The mail listener serves `send_mail` and
 `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
@@ -29406,7 +29406,7 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 > **runGraph**(`graph`, `opts`): `Promise`\<[`GraphResult`](#graphresult)\<`unknown`\>\>
 
 Execute an [AgentGraph](#agentgraph). The root node becomes the supervisor (`supervise()` — the
-execution core), each worker node is spawnable BY NODE ID (`spawn_agent` with
+execution core), each worker node is spawnable BY NODE ID (`spawn_worker` with
 `profile: { name: '<node id>' }`; the node's canonical profile is pinned by the graph), each
 delegates directive is appended to the worker profile's `prompt.instructions` per traversal,
 and each analyzes edge becomes an analyst-on-settle route with a real DESTINATION. Every
@@ -30942,7 +30942,7 @@ Reduce one canonical executable profile to the scalars the two brain arms consum
 
 > **assertCoordinationBinding**(`binding`): `void`
 
-Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_agent /
+Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_worker /
 steer_agent / stop with NO authentication of any kind (it is a bare JSON-RPC-over-HTTP handler),
 so a non-loopback bind lets anyone who can reach the port spawn agents and spend the run's
 conserved budget. There is no token to require yet, so the only honest options are loopback or an

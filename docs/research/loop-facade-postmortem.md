@@ -136,7 +136,7 @@ The remaining eight are four families with different reasons to exist:
 No combinator is subsumed by `runGraph`, and the reason is behavioural rather than stylistic.
 `runPersonified` accepts no brain, no router, and no model configuration, so a combinator's order is a property of the program.
 `runGraph` always routes delegation through a model, whether the caller supplies a `brain`, places a `driverBackend` harness, or falls through to the root profile's router brain.
-`tests/kernel/composition-families.test.ts` holds the distinction: one two-node graph runs its worker when the scripted brain emits `spawn_agent` and runs nothing when the same brain declines.
+`tests/kernel/composition-families.test.ts` holds the distinction: one two-node graph runs its worker when the scripted brain emits `spawn_worker` and runs nothing when the same brain declines.
 A `pipeline` stage cannot be skipped that way, so the two entries do not express the same behaviour.
 
 The dispatch pair already shares one core, `runLoopWithCampaignContext`.

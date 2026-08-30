@@ -50,11 +50,11 @@ function rootBrain() {
     {
       toolCalls: [
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: { profile: manager, task: 'same task', key: 'manager-a' },
         },
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: { profile: manager, task: 'same task', key: 'manager-b' },
         },
       ],
@@ -178,12 +178,12 @@ describe('nested supervisor coordination durability', () => {
           toolCalls: [
             {
               id: 'spawn-a',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: manager, task: 'same task', key: 'manager-a' }),
             },
             {
               id: 'spawn-b',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: manager, task: 'same task', key: 'manager-b' }),
             },
           ],
@@ -290,7 +290,7 @@ describe('nested supervisor coordination durability', () => {
             {
               toolCalls: [
                 {
-                  name: 'spawn_agent',
+                  name: 'spawn_worker',
                   arguments: {
                     profile: testAgentProfile('identical-manager', {
                       harness: 'codex',
@@ -301,7 +301,7 @@ describe('nested supervisor coordination durability', () => {
                   },
                 },
                 {
-                  name: 'spawn_agent',
+                  name: 'spawn_worker',
                   arguments: {
                     profile: testAgentProfile('identical-manager', {
                       harness: 'codex',

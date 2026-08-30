@@ -5,7 +5,7 @@
  * no model interface at all, so the order is a property of the program.
  *
  * `runGraph(graph)` runs a MODEL-DECIDED topology: the root supervisor chooses each delegation by
- * emitting `spawn_agent`. A node with a `delegates` edge pointing at it runs only when the root
+ * emitting `spawn_worker`. A node with a `delegates` edge pointing at it runs only when the root
  * model asks for it.
  *
  * These tests hold that boundary open, because it is the reason the two families both exist. A
@@ -209,7 +209,7 @@ describe('model-decided composition — the graph family', () => {
   it('a delegates edge does not run its worker — the root model decides, and may decline', async () => {
     const received: AgentProfile[] = []
     // The graph is identical to the one whose worker DOES run in `graph.test.ts`; only the brain
-    // differs. This brain never emits `spawn_agent`.
+    // differs. This brain never emits `spawn_worker`.
     const res = await runGraph(twoNodeGraph(), {
       makeLeafAgent: countingSeam(received),
       brain: scriptedBrain([{ content: 'I decline to delegate.' }]),
@@ -230,7 +230,7 @@ describe('model-decided composition — the graph family', () => {
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: { profile: { name: 'worker' }, task: 'build it' },
             },
           ],

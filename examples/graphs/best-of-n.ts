@@ -50,11 +50,11 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
         // Both spawns in ONE driver turn — concurrent candidates under the conserved pool.
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'coder-a' }, task: 'attempt the fix' },
           },
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'coder-b' }, task: 'attempt the fix' },
           },
         ],

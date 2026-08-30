@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.183.0
+
+### The coordination spawn tool is now `spawn_worker`
+
+**BREAKING:** a prompt or a profile that tells an agent to call `spawn_agent` must now say `spawn_worker`.
+Three surfaces change together.
+Any prompt, skill, or authored profile text that names the tool must use the new word; the shipped `supervise` and `codemode` skills already do.
+`coordinationVerbNames` is an exported constant whose members changed: it now lists `spawn_worker`.
+A code-mode program must call `api.spawn_worker(...)` instead of `api.spawn_agent(...)`.
+
+The codex CLI publishes its own tool named `spawn_agent`.
+A harness mounts an MCP tool under a prefix built from the server name, so the two names do not collide on the wire.
+They collide in prose.
+An agent reads a bare tool name out of its prompt, and on codex the bare word `spawn_agent` reaches the harness's own spawner.
+The runtime never sees that call.
+The worker it starts gets no journal row, no reservation from the conserved budget pool, and no grade, while it runs and spends real tokens.
+
+The runtime's own word for the spawned thing is a worker: `workerId`, `maxLiveWorkers`, the per-worker budget.
+No known harness publishes `spawn_worker`.
+
+One downstream effect is a correction, not a regression.
+`agent-eval` classifies a tool call as a harness sub-agent action when the tool name contains `spawn_agent`.
+The prefixed name `agent-runtime-coordination_spawn_agent` contains that text, so the runtime's own children counted as harness-internal sub-agent actions.
+Under `spawn_worker` only true harness sub-agents match, and a supervised run now reports its children as its own.
+
+`harnessNativeTools` (`./mcp`) records the sub-agent tools each harness publishes to its own model, with the source of each list.
+`collidesWithHarnessNativeTool(name)` reports the harnesses that publish a name.
+`harnessNativeToolNames(harness)` reports one harness's list, or `undefined` when no list has been sourced for that harness.
+Read one before you name a new coordination verb.
+
+The registry is a list of names to avoid.
+Nothing reads it on a hot path, and an entry disables no harness feature.
+
 ## 0.182.0
 
 ### Codex sandbox workers pay their tokens into the budget pool

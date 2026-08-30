@@ -28,7 +28,7 @@ export type AuthoredProfile = AgentProfile & {
   readonly prompt: AgentProfilePrompt & { readonly systemPrompt: string }
 }
 
-/** Narrow an untyped `spawn_agent` profile argument to an `AuthoredProfile`, or null if the
+/** Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or null if the
  *  supervisor failed to author one (empty/placeholder profile — a skill violation worth catching). */
 export function asAuthoredProfile(raw: unknown): AuthoredProfile | null {
   const parsed = agentProfileSchema.safeParse(raw)
@@ -60,7 +60,7 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     '',
     'For the task you are given:',
     '1. DECOMPOSE it into the smallest set of sub-tasks a single focused worker can each deliver.',
-    '2. For EACH sub-task, AUTHOR a worker by calling spawn_agent with a COMPLETE `profile`:',
+    '2. For EACH sub-task, AUTHOR a worker by calling spawn_worker with a COMPLETE `profile`:',
     '   • name and description: who this specialist is and why it exists.',
     '   • prompt.systemPrompt: rich instructions for THIS sub-task — exact output, process, evidence, and what "done" means.',
     '   • model.default, model.reasoningEffort, and harness: choose the execution system deliberately when the task benefits from it.',

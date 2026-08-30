@@ -172,7 +172,7 @@ function steeringBrain(harness: FakeHarness, record: BrainRecord): ToolLoopChat 
     turn += 1
 
     if (turn === 1) {
-      return call('spawn_agent', { profile: coderProfile, task: 'make the change' })
+      return call('spawn_worker', { profile: coderProfile, task: 'make the change' })
     }
     if (turn === 2) {
       workerId = String(parsed?.workerId ?? 'w')
@@ -212,7 +212,7 @@ function missingMessageAuthorityBrain(
     turn += 1
 
     if (turn === 1) {
-      return call('spawn_agent', { profile: coderProfile, task: 'make the change' })
+      return call('spawn_worker', { profile: coderProfile, task: 'make the change' })
     }
     if (turn === 2) {
       workerId = String(parsed?.workerId ?? workerId)

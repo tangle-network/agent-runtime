@@ -365,7 +365,7 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
           },
           { name: 'await_event', arguments: {} },
@@ -439,7 +439,7 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
             },
             { name: 'await_event', arguments: {} },
@@ -549,7 +549,7 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
       for (let i = 0; i < opts.maxSpawns; i += 1) {
         if (stopSignal?.aborted) return
         await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
         })
         // Each settle is this arm's evaluation boundary — the harness pulls it, the bus publishes

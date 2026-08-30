@@ -75,7 +75,7 @@ export function shotLoopResumed(): {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'coder' }, task: 'shot 1: make the tests pass' },
           },
         ],
@@ -84,7 +84,7 @@ export function shotLoopResumed(): {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'coder' }, task: 'shot 2: continue — fix the failures' },
           },
         ],
@@ -93,7 +93,7 @@ export function shotLoopResumed(): {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'coder' }, task: 'shot 3: finish the failing suite' },
           },
         ],

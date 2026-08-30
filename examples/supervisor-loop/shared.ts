@@ -58,7 +58,7 @@ export function scriptedSupervisorChat(
       content: `delegating slice ${i}`,
       toolCalls: [
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: {
             profile: {
               ...workerProfile,

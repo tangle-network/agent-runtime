@@ -164,7 +164,7 @@ async function runNestedTree(exporter: OtelExporter) {
     [
       {
         spend: { iterations: 0, tokens: { input: 100, output: 40 }, usd: 0.5, ms: 12 },
-        detail: { driver: 'root', turn: 0, kind: 'driver-inference', toolCalls: ['spawn_agent'] },
+        detail: { driver: 'root', turn: 0, kind: 'driver-inference', toolCalls: ['spawn_worker'] },
       },
     ],
   )
@@ -305,7 +305,7 @@ describe('one span per supervised node, parented to its parent node', () => {
     expect(a['llm.token_count.completion']).toBe(40)
     expect(a['llm.cost_usd']).toBe(0.5)
     expect(a['tangle.supervise.turn.index'] ?? a['tangle.supervise.turn.turn']).toBe(0)
-    expect(a['tangle.supervise.turn.toolCalls']).toBe('spawn_agent')
+    expect(a['tangle.supervise.turn.toolCalls']).toBe('spawn_worker')
     // The root driver meters against the run root, so its turn hangs off the root span; the mid
     // driver's turn hangs off the mid driver's own node span.
     expect(rootTurn.parentSpanId).toBe(recorder.rootSpanId)
@@ -513,7 +513,7 @@ function superviseOnce(otel?: SuperviseOptions['otel']) {
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'go' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'go' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },

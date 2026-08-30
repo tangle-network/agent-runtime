@@ -57,7 +57,7 @@ function leafSeam(profileRaw: unknown): Agent<unknown, unknown> {
 const PROGRAM = `
   const parts = ['api-server', 'web-client']
   for (const name of parts) {
-    await api.spawn_agent({ profile: { name }, task: 'build the ' + name })
+    await api.spawn_worker({ profile: { name }, task: 'build the ' + name })
   }
   const settled = []
   while (settled.length < parts.length) {

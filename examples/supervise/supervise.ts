@@ -39,7 +39,7 @@ async function main(): Promise<void> {
       prompt: {
         systemPrompt:
           'You are a supervisor. Produce the deliverable by delegating:\n' +
-          '1. Call spawn_agent with a worker profile and the task.\n' +
+          '1. Call spawn_worker with a worker profile and the task.\n' +
           `   The worker profile must use harness="cli-base", model.provider="tangle-router", ` +
           `model.default=${JSON.stringify(model)}, and model.metadata.maxTurns=6.\n` +
           '2. Then call await_event and WAIT for that worker to settle — never call stop while a ' +

@@ -31,7 +31,7 @@ The lint on authored code refuses imports, `process`, and network access; it is 
 ## Router-Brained Supervisors
 
 A raw chat model has no shell, so give it the runtime's code mode: pass `codeModeSupervisorTools()` as `resolveSupervisorTools` and the supervisor's tool surface becomes `search` and `execute`.
-`search` answers a TypeScript API generated from the live coordination grant; `execute` runs the model's program through a caller-supplied runner, and every `api.spawn_agent` call crosses the kernel's pool, authorization, and journal.
+`search` answers a TypeScript API generated from the live coordination grant; `execute` runs the model's program through a caller-supplied runner, and every `api.spawn_worker` call crosses the kernel's pool, authorization, and journal.
 Supply a jailed runner for an untrusted model: the in-process runner is not an isolation boundary.
 The lifecycle verbs (`submit_result`, `stop`, `ask_parent`) stay model tools: the program does the mechanics, the model keeps the judgment.
 

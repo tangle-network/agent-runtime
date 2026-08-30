@@ -1062,7 +1062,7 @@ describe('superviseDispatch', () => {
                   {
                     id: 'spawn-deepseek',
                     function: {
-                      name: 'spawn_agent',
+                      name: 'spawn_worker',
                       arguments: JSON.stringify({
                         profile: {
                           name: 'deepseek-child',

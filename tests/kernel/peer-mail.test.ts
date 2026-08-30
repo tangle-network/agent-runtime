@@ -149,7 +149,7 @@ async function runTwoSiblings(
         const workerIds: string[] = []
         for (const name of Object.keys(scripts)) {
           const spawned = await jsonRpc(mcp.url, 'tools/call', {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name }, task: `run ${name}`, label: name },
           })
           const structured = (

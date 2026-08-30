@@ -77,6 +77,13 @@ export type {
 export { createFleetWorkspaceExecutor, createSiblingSandboxExecutor } from './executor'
 export type { FeedbackEvent, FeedbackStore } from './feedback-store'
 export { eventToSnapshot, InMemoryFeedbackStore } from './feedback-store'
+export type { SourcedHarness } from './harness-native-tools'
+export {
+  collidesWithHarnessNativeTool,
+  harnessNativeToolNames,
+  harnessNativeTools,
+  sourcedHarnesses,
+} from './harness-native-tools'
 export type {
   InProcessExecutorDescribePlacement,
   InProcessExecutorOptions,

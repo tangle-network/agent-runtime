@@ -2,7 +2,7 @@
  * Supervisor + coordinator MCP — workers on sandbox OR cli-bridge, ONE code path.
  *
  * A real coding-harness agent (opencode via the cli-bridge) IS the supervisor: it mounts the
- * coordination MCP (`serveCoordinationMcp`) over a LIVE `Scope` and calls the REAL `spawn_agent`
+ * coordination MCP (`serveCoordinationMcp`) over a LIVE `Scope` and calls the REAL `spawn_worker`
  * tool natively — a box driving boxes, not an emulated function-tool. Each spawned worker is a
  * leaf built by `workerFromBackend(backend, deliverable)`, gated on a DEPLOYABLE check (its
  * output must contain `ANSWER=42` — the completion oracle reads the worker's real output, never
@@ -10,7 +10,7 @@
  *
  * THE ONE KNOB — `WORKER_BACKEND`:
  * The worker leaf is `createExecutor({ backend: process.env.WORKER_BACKEND ?? 'bridge', ...seam })`.
- * Flip `WORKER_BACKEND=sandbox` and the SAME supervisor + SAME coordination MCP + SAME `spawn_agent`
+ * Flip `WORKER_BACKEND=sandbox` and the SAME supervisor + SAME coordination MCP + SAME `spawn_worker`
  * flow + SAME deployable check spawn workers in a cloud box instead of behind the local cli-bridge —
  * with zero other changes. The worker backend is the ONLY variable; everything else is identical.
  *
@@ -26,7 +26,7 @@
  *
  * The supervisor BRAIN is fixed (not a variable): a real cli-bridge harness agent with the
  * coordination MCP mounted, exactly like bench/src/atom-mcp-e2e.mts. The bridge fronts full
- * agents that do their own native tool-use, so the supervisor calls `spawn_agent` through its
+ * agents that do their own native tool-use, so the supervisor calls `spawn_worker` through its
  * OWN harness tool-loop — that is what makes this the real MCP path, not a scripted driver.
  */
 
@@ -52,20 +52,20 @@ import { buildWorkerBackend, demoCheck, expectedAnswer } from './shared'
 
 /** Standing role belongs to the profile; the concrete assignment is one user turn. */
 const supervisorSystem =
-  'You are a SUPERVISOR with a "coordination" MCP exposing spawn_agent, await_event, and stop. ' +
+  'You are a SUPERVISOR with a "coordination" MCP exposing spawn_worker, await_event, and stop. ' +
   'Delegate the assignment; do not solve it yourself. Author a worker profile (a JSON object with a "name" and a ' +
-  'rich "systemPrompt"), call spawn_agent with { profile, task }, use await_event to observe it, ' +
+  'rich "systemPrompt"), call spawn_worker with { profile, task }, use await_event to observe it, ' +
   'and call stop only after a worker delivers a valid result.'
 
 const supervisorTask =
   `A worker must produce the exact line "${expectedAnswer}". ` +
   'Author a worker profile with a ' +
   `rich "systemPrompt" instructing the worker to emit the exact line "${expectedAnswer}") and call ` +
-  'spawn_agent with { profile, task }. Then call await_event to wait for it to settle, and call ' +
+  'spawn_worker with { profile, task }. Then call await_event to wait for it to settle, and call ' +
   'stop once a worker has delivered (valid:true).'
 
 /** One real bridge harness turn, with the coordination MCP mounted so the supervisor can call
- *  spawn_agent as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
+ *  spawn_worker as a NATIVE tool. Same shape as bench/src/atom-mcp-e2e.mts's bridgeChat. */
 async function supervisorBridgeChat(opts: {
   mcpUrl: string
   workerProfile: AgentProfile
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
       const mcp = await serveCoordinationMcp({
         scope,
         blobs,
-        // Every spawn_agent call lands here; workerFromBackend builds a createExecutor({ backend })
+        // Every spawn_worker call lands here; workerFromBackend builds a createExecutor({ backend })
         // leaf gated on the deployable check (output contains ANSWER=42 — a real artifact).
         makeWorkerAgent: workerFromBackend(backend, {
           check: demoCheck,
@@ -153,7 +153,7 @@ async function main(): Promise<void> {
         const settled = mcp.settled()
         const delivered = settled.filter((w) => w.status === 'done' && w.valid === true)
         console.log(
-          `\n[mcp] spawn_agent calls observed: ${settled.length}; delivered (check passed): ${delivered.length}`,
+          `\n[mcp] spawn_worker calls observed: ${settled.length}; delivered (check passed): ${delivered.length}`,
         )
         console.log(
           `[mcp] bus events: ${mcp.history().length}; stats: ${JSON.stringify(mcp.stats())}`,

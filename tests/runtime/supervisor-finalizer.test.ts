@@ -237,11 +237,11 @@ const twoWorkerScript = () =>
     {
       toolCalls: [
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: { profile: offlineProfile('good'), task: 'go', label: 'good' },
         },
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: { profile: offlineProfile('unchecked'), task: 'go', label: 'unchecked' },
         },
       ],

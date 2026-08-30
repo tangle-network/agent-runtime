@@ -54,7 +54,7 @@ async function jsonRpc(
 }
 
 describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP → Scope.spawn)', () => {
-  it('a real HTTP tools/call spawn_agent lands on Scope.spawn and the worker settles', async () => {
+  it('a real HTTP tools/call spawn_worker lands on Scope.spawn and the worker settles', async () => {
     const blobs = new InMemoryResultBlobStore()
     let observed: { toolsList: unknown; settled: ReadonlyArray<{ valid?: boolean }> } | undefined
 
@@ -72,7 +72,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
         try {
           const toolsList = await jsonRpc(mcp.url, 'tools/list', {})
           await jsonRpc(mcp.url, 'tools/call', {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: {}, task: 'go' },
           })
           await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} })
@@ -103,7 +103,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     const names = ((observed?.toolsList as { tools?: Array<{ name: string }> })?.tools ?? []).map(
       (t) => t.name,
     )
-    expect(names).toContain('spawn_agent')
+    expect(names).toContain('spawn_worker')
     expect(names).toContain('await_event')
   })
 
@@ -140,7 +140,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       })
       expect(called.error).toBeUndefined()
       expect(boundBeforeFirstCall).toBe(true)
-      expect(boundNames).toContain('spawn_agent')
+      expect(boundNames).toContain('spawn_worker')
       expect(boundNames).toContain('await_event')
     } finally {
       await mcp.close()
@@ -176,7 +176,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       const names = ((listed.result as { tools?: Array<{ name: string }> })?.tools ?? []).map(
         (entry) => entry.name,
       )
-      expect(names).toContain('spawn_agent')
+      expect(names).toContain('spawn_worker')
       expect(names).toContain('lookup_evidence')
 
       const called = await jsonRpc(mcp.url, 'tools/call', {
@@ -191,7 +191,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
     }
   })
 
-  it('refuses a product tool that shadows spawn_agent before opening a listener', async () => {
+  it('refuses a product tool that shadows spawn_worker before opening a listener', async () => {
     await expect(
       serveCoordinationMcp({
         scope: {} as Scope<unknown>,
@@ -200,14 +200,14 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
         perWorker: { maxIterations: 1, maxTokens: 1 },
         nodeTools: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             description: 'must not shadow coordination',
             inputSchema: { type: 'object' },
             handler: async () => ({}),
           },
         ],
       }),
-    ).rejects.toThrow(/spawn_agent.*shadows/)
+    ).rejects.toThrow(/spawn_worker.*shadows/)
   })
 })
 
@@ -243,7 +243,7 @@ async function withLiveScope<T>(body: (scope: Scope<unknown>) => Promise<T>): Pr
 }
 
 describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () => {
-  // The verbs this server mounts (spawn_agent / steer_agent / stop) are unauthenticated, and this
+  // The verbs this server mounts (spawn_worker / steer_agent / stop) are unauthenticated, and this
   // function is a PUBLIC export taking `host` directly — so the rule has to live HERE, not only at
   // the `supervise` / `supervisorAgent` composition sites that happen to call it.
   const serve = (
@@ -285,7 +285,7 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
         await mcp.close()
       }
     })
-    expect(names).toContain('spawn_agent')
+    expect(names).toContain('spawn_worker')
   })
 
   it.each(['127.0.0.1', '127.0.0.53', 'localhost', '::1', '::ffff:127.0.0.1'])(
@@ -353,7 +353,7 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
     let mailToolNames: ReadonlyArray<string> = []
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_agent',
+        name: 'spawn_worker',
         arguments: { profile: {}, task: 'go' },
       })
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'await_event', arguments: {} })
