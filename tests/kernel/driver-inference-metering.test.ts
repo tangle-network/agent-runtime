@@ -164,7 +164,7 @@ describe("driver inference metering — the driver's own tokens count against th
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: testAgentProfile('worker'), task: 'go' },
           },
         ],
@@ -252,7 +252,7 @@ describe("driver inference metering — the driver's own tokens count against th
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: testAgentProfile('worker', { metadata: { kind: 'worker' } }),
               task: 'sub',
@@ -295,7 +295,7 @@ describe("driver inference metering — the driver's own tokens count against th
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: midProfile, task: 'go' } }],
+        toolCalls: [{ name: 'spawn_worker', arguments: { profile: midProfile, task: 'go' } }],
         usage: { input: 100, output: 50 },
         costUsd: 0.02,
       },
@@ -375,7 +375,7 @@ describe("driver inference metering — the driver's own tokens count against th
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: testAgentProfile('worker', { metadata: { kind: 'worker' } }),
               task: 'sub',
@@ -417,7 +417,7 @@ describe("driver inference metering — the driver's own tokens count against th
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: midProfile, task: 'go' } }],
+        toolCalls: [{ name: 'spawn_worker', arguments: { profile: midProfile, task: 'go' } }],
         usage: { input: 100, output: 50 },
         costUsd: 0.02,
       },
@@ -495,7 +495,7 @@ describe("driver inference metering — the driver's own tokens count against th
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: testAgentProfile('mid', { metadata: { kind: 'driver' } }),
               task: 'go',
@@ -615,7 +615,7 @@ describe("driver inference metering — the driver's own tokens count against th
         brain: async () => {
           managerTurns += 1
           return {
-            toolCalls: [{ id: 'would-spawn', name: 'spawn_agent', arguments: '{}' }],
+            toolCalls: [{ id: 'would-spawn', name: 'spawn_worker', arguments: '{}' }],
             usage: { input: 5, output: 5 },
             costUsd: 0.01,
           }
@@ -650,7 +650,7 @@ describe("driver inference metering — the driver's own tokens count against th
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: testAgentProfile('worker'), task: 'go' },
           },
         ],
@@ -701,7 +701,7 @@ describe("driver inference metering — the driver's own tokens count against th
     expect(first.kind).toBe('driver-inference')
     expect(first.driver).toBe('root')
     expect(first.turn).toBe(0)
-    expect(first.toolCalls).toEqual(['spawn_agent'])
+    expect(first.toolCalls).toEqual(['spawn_worker'])
     expect(first.spend.tokens.input).toBe(100)
 
     // ALL three events carry the right per-turn detail (turn index increments; the stop turn's
@@ -912,7 +912,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: testAgentProfile('worker'), task: 'go' },
           },
         ],

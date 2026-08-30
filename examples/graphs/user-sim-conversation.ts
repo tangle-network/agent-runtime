@@ -121,7 +121,7 @@ export function userSimConversation(): {
       ...USER_TURNS.flatMap((turn) => [
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'product-agent' }, task: turn } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'product-agent' }, task: turn } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },

@@ -229,7 +229,7 @@ describe('workerFromInteractiveProvider', () => {
           toolCalls: [
             {
               id: 'spawn-worker',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({
                 profile: workerProfile,
                 task: 'wait for an external terminal controller',

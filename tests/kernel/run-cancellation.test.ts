@@ -101,7 +101,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       markLive = resolve
     })
     const script = scriptedBrain([
-      { toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go', label: 'w' } }] },
+      { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
@@ -145,7 +145,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
   it('a run that settles on its own despite the request reads not_live, never success', async () => {
     const dir = await runDir()
     const script = scriptedBrain([
-      { toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go', label: 'w' } }] },
+      { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
@@ -175,7 +175,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
   it('a request written after the run ended is never answered as success', async () => {
     const dir = await runDir()
     const script = scriptedBrain([
-      { toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go', label: 'w' } }] },
+      { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])
@@ -219,7 +219,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       markLive = resolve
     })
     const script = scriptedBrain([
-      { toolCalls: [{ name: 'spawn_agent', arguments: { profile: {}, task: 'go', label: 'w' } }] },
+      { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
     ])

@@ -493,7 +493,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
           {
             toolCalls: [
               {
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: {
                   profile: testAgentProfile('worker'),
                   task: 'go',

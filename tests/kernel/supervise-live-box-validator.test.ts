@@ -163,7 +163,7 @@ function inBoxValidator(expected: string): {
 const SPAWN_ONE_WORKER = [
   {
     toolCalls: [
-      { name: 'spawn_agent', arguments: { profile: testAgentProfile('worker'), task: 'go' } },
+      { name: 'spawn_worker', arguments: { profile: testAgentProfile('worker'), task: 'go' } },
     ],
   },
   { toolCalls: [{ name: 'await_event', arguments: {} }] },

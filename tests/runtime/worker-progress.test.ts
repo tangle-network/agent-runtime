@@ -452,7 +452,7 @@ describe('watchWorkers — the online detector raises a finding MID-RUN, not at 
       },
     })
 
-    const spawnTool = tools.tools.find((t) => t.name === 'spawn_agent')
+    const spawnTool = tools.tools.find((t) => t.name === 'spawn_worker')
     await spawnTool?.handler({ profile: {}, task: 'go' })
 
     // The default panel trips on the 4th identical call (maxRepeated: 3).
@@ -497,7 +497,7 @@ describe('watchWorkers — the online detector raises a finding MID-RUN, not at 
         if (e.type === 'finding') findings.push(e.finding)
       },
     })
-    await tools.tools.find((t) => t.name === 'spawn_agent')?.handler({ profile: {}, task: 'go' })
+    await tools.tools.find((t) => t.name === 'spawn_worker')?.handler({ profile: {}, task: 'go' })
     for (let i = 0; i < 8; i += 1) {
       pushed.record({ toolName: 'read', args: { path: 'same.ts' }, status: 'ok' })
     }

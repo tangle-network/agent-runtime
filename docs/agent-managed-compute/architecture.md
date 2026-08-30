@@ -159,7 +159,7 @@ There are two valid agent-facing tool sets.
 
 Coordination tools act inside one live run:
 
-- `spawn_agent`
+- `spawn_worker`
 - `observe_agent`
 - `steer_agent`
 - `await_event`

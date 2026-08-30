@@ -100,7 +100,7 @@ export type GraphEdge =
        *  spawn context carries `resume: { ofWorker, sequence }` for the executor seam, spending
        *  from the same conserved pool — the node's first spawn is effectively `'fresh'`, and a
        *  spawn while a prior worker is still live refuses loudly (steer is the live channel).
-       *  The driver's per-call `spawn_agent` `continuity` argument overrides either way. Omit =
+       *  The driver's per-call `spawn_worker` `continuity` argument overrides either way. Omit =
        *  `'fresh'` (today's behavior, byte-identical). Caps count resumes exactly like fresh
        *  spawns. */
       readonly continuity?: ContinuityMode
@@ -665,7 +665,7 @@ function stringifyPayload(payload: unknown): string {
 
 /**
  * Execute an {@link AgentGraph}. The root node becomes the supervisor (`supervise()` — the
- * execution core), each worker node is spawnable BY NODE ID (`spawn_agent` with
+ * execution core), each worker node is spawnable BY NODE ID (`spawn_worker` with
  * `profile: { name: '<node id>' }`; the node's canonical profile is pinned by the graph), each
  * delegates directive is appended to the worker profile's `prompt.instructions` per traversal,
  * and each analyzes edge becomes an analyst-on-settle route with a real DESTINATION. Every
@@ -812,7 +812,7 @@ export function superviseAgentGraph(
     const node = requested !== undefined ? workers.get(requested) : undefined
     if (!node) {
       throw new ValidationError(
-        `runGraph: spawn_agent named profile ${JSON.stringify(requested)} which is not a worker ` +
+        `runGraph: spawn_worker named profile ${JSON.stringify(requested)} which is not a worker ` +
           `node of this graph (nodes: ${[...workers.keys()].join(', ')}). Spawn by node id: ` +
           'profile.name selects the node; the node profile itself is pinned by the graph.',
       )
@@ -962,7 +962,7 @@ export function superviseAgentGraph(
   })
   const graphBrief = [
     'AGENT GRAPH: you are the driver node of a fixed topology. You may spawn ONLY these worker',
-    "nodes, by EXACT name (spawn_agent with profile: { name: '<node id>' }; the node's full",
+    "nodes, by EXACT name (spawn_worker with profile: { name: '<node id>' }; the node's full",
     'profile is pinned by the graph — any other profile fields you author are ignored):',
     ...workerLines,
     ...(driverAnalyzesBriefs.length > 0 ? ['', ...driverAnalyzesBriefs] : []),

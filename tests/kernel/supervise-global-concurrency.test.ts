@@ -218,7 +218,7 @@ describe('supervise tree-wide worker capacity', () => {
       const brain = scriptedBrain([
         {
           toolCalls: childProfiles.map((child) => ({
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: child, task: `run ${child.name}` },
           })),
         },
@@ -252,7 +252,7 @@ describe('supervise tree-wide worker capacity', () => {
     const rootBrain = scriptedBrain([
       {
         toolCalls: [0, 1].map((index) => ({
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: {
             profile: testAgentProfile(`manager-${index}`, {
               harness: 'cli-base',

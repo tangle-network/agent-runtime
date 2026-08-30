@@ -62,7 +62,7 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphTestOpt
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'implementer' }, task: 'implement the feature' },
           },
         ],

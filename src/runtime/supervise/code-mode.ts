@@ -42,7 +42,7 @@ import type {
 
 /** The seven coordination verbs callable in code, and the `context.verbs` member each maps to. */
 const CODE_CALLABLE_VERBS = {
-  spawn_agent: 'spawnAgent',
+  spawn_worker: 'spawnAgent',
   await_event: 'awaitEvent',
   steer_agent: 'steerAgent',
   observe_agent: 'observeAgent',

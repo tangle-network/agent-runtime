@@ -619,7 +619,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
               toolCalls: [
                 {
                   id: 'worker',
-                  name: 'spawn_agent',
+                  name: 'spawn_worker',
                   arguments: JSON.stringify({
                     profile: codexTestProfile('worker'),
                     task: { kind: 'implement', expected: 'WORK=42' },
@@ -628,7 +628,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 },
                 {
                   id: 'evaluator',
-                  name: 'spawn_agent',
+                  name: 'spawn_worker',
                   arguments: JSON.stringify({
                     profile: codexTestProfile('evaluator'),
                     task: { kind: 'evaluate', expected: 'EVAL=pass' },
@@ -637,7 +637,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 },
                 {
                   id: 'fallback',
-                  name: 'spawn_agent',
+                  name: 'spawn_worker',
                   arguments: JSON.stringify({
                     profile: codexTestProfile('fallback'),
                     task: { kind: 'archive', expected: 'FALLBACK=ready' },
@@ -752,7 +752,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
               toolCalls: [
                 {
                   id: 'spawn',
-                  name: 'spawn_agent',
+                  name: 'spawn_worker',
                   arguments: JSON.stringify({
                     profile: {
                       name: 'oc-worker',
@@ -818,7 +818,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             toolCalls: [
               {
                 id: 'spawn',
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: JSON.stringify({
                   profile: {
                     name: 'pi-worker',
@@ -883,7 +883,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             toolCalls: [
               {
                 id: 'spawn',
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: JSON.stringify({
                   profile: {
                     name: 'ghost',
@@ -945,7 +945,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             toolCalls: [
               {
                 id: 'spawn',
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: JSON.stringify({
                   profile: {
                     name: 'queued',
@@ -1004,7 +1004,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             toolCalls: [
               {
                 id: 'spawn',
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: JSON.stringify({
                   profile: {
                     name: 'kb',
@@ -1055,7 +1055,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
             toolCalls: [
               {
                 id: 'spawn',
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: JSON.stringify({
                   profile: codexTestProfile('durable-worker'),
                   task: 'produce the durable result',
@@ -1142,7 +1142,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
         if (coordination?.url) {
           if (depth === 0) {
-            await callCoordination(coordination.url, 'spawn_agent', {
+            await callCoordination(coordination.url, 'spawn_worker', {
               profile: {
                 name: 'methods-supervisor',
                 description: 'Run the discriminating experiment',
@@ -1171,7 +1171,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
               task: 'Run one experiment and return its measured result.',
             })
           } else {
-            await callCoordination(coordination.url, 'spawn_agent', {
+            await callCoordination(coordination.url, 'spawn_worker', {
               profile: {
                 name: 'experiment-worker',
                 description: 'Execute and report the measurement',
@@ -1598,7 +1598,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           toolCalls: [
             {
               id: 'spawn',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({
                 profile: {
                   name: 'policy-worker',
@@ -2073,7 +2073,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       const profile = body.agent_profile
       const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
       if (coordination?.url) {
-        await callCoordination(coordination.url, 'spawn_agent', {
+        await callCoordination(coordination.url, 'spawn_worker', {
           profile: {
             name: 'worker',
             harness: 'codex',

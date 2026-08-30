@@ -3930,7 +3930,7 @@ Analyst lenses run AUTOMATICALLY when a worker settles `done` (the analyst-on-se
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
+Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_worker`
  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
  reserving from the pool when the cap is already met — a concurrency fence on top of the
  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
@@ -5610,6 +5610,14 @@ SDK contract — re-invoking with the same ids returns the same outcome.
 
 ***
 
+### SourcedHarness
+
+> **SourcedHarness** = keyof *typeof* [`harnessNativeTools`](#harnessnativetools)
+
+A harness with a sourced native tool list.
+
+***
+
 ### LocalHarness
 
 > **LocalHarness** = `Extract`\<`HarnessType`, `"claude-code"` \| `"codex"` \| `"opencode"` \| `"pi"`\>
@@ -5773,6 +5781,37 @@ Default cap on spans retained per delegation record.
 **`Experimental`**
 
 Default cap on the serialized trace payload per record, in bytes.
+
+***
+
+### harnessNativeTools
+
+> `const` **harnessNativeTools**: `object`
+
+Sourced native sub-agent tool names, keyed by the same `HarnessType` vocabulary the rest of the
+runtime draws harness names from, so a harness the interface renames is a compile error here.
+
+#### Type Declaration
+
+##### codex
+
+> `readonly` **codex**: readonly \[`"spawn_agent"`, `"send_input"`, `"resume_agent"`, `"close_agent"`, `"list_agents"`, `"wait_agent"`, `"send_message"`, `"interrupt_agent"`, `"followup_task"`\]
+
+##### claude-code
+
+> `readonly` **claude-code**: readonly \[`"Agent"`, `"Task"`, `"SendMessage"`, `"TaskStop"`, `"KillAgent"`\]
+
+##### opencode
+
+> `readonly` **opencode**: readonly \[`"task"`\]
+
+***
+
+### sourcedHarnesses
+
+> `const` **sourcedHarnesses**: readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
+
+The harnesses this registry has a sourced list for.
 
 ***
 
@@ -6937,6 +6976,46 @@ Project a `FeedbackEvent` down to the snapshot shape carried on
 #### Returns
 
 [`DelegationFeedbackSnapshot`](#delegationfeedbacksnapshot)
+
+***
+
+### harnessNativeToolNames()
+
+> **harnessNativeToolNames**(`harness`): readonly `string`[] \| `undefined`
+
+The tool names `harness` publishes natively, or `undefined` when no list has been sourced for it.
+The two are different facts and a caller must not read one as the other.
+
+#### Parameters
+
+##### harness
+
+`HarnessType`
+
+#### Returns
+
+readonly `string`[] \| `undefined`
+
+***
+
+### collidesWithHarnessNativeTool()
+
+> **collidesWithHarnessNativeTool**(`name`): readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
+
+The sourced harnesses that publish `name` natively — empty when the name is clear of all of them.
+
+The comparison folds case. A model resolving a bare word out of a prompt does not hold the
+harness's exact casing, so `task` and `Task` are one collision, not two distinct names.
+
+#### Parameters
+
+##### name
+
+`string`
+
+#### Returns
+
+readonly (`"claude-code"` \| `"codex"` \| `"opencode"`)[]
 
 ***
 

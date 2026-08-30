@@ -1203,7 +1203,7 @@ export interface SuperviseOptions {
   /** Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
    *  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
    *  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
-   *  seam re-attaches with. `spawn_agent`'s per-call `continuity` argument overrides in either
+   *  seam re-attaches with. `spawn_worker`'s per-call `continuity` argument overrides in either
    *  direction; `runGraph` derives this from delegates-edge `continuity`. Omit = every spawn is
    *  `'fresh'` (status quo). See `CoordinationToolsOptions.continuityByProfile` for the
    *  refusal semantics (no-prior / while-live / with-key) and the process-local resume boundary. */
@@ -1218,7 +1218,7 @@ export interface SuperviseOptions {
    * measured spend are restored before new admission. The built-in driver is resume-aware: children
    * that already settled, including their exact execution identities, are replayed onto
    * `Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
-   * (`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+   * (`spawn_worker`'s `key`) resolve to their committed results instead of re-running, pending
    * waits re-arm on their original deadlines, and the coordination log loads prior questions,
    * findings, and instruction receipts. The router arm receives all three in its resume brief; the
    * external arm seeds prior questions while findings and receipts remain in the durable log.

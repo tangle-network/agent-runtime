@@ -91,7 +91,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
   it('runs a supervisor to delivery from just profile + task + worker seam + brain + budget', async () => {
     const brain = scriptedBrain([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } }],
+        toolCalls: [{ name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } }],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
@@ -147,7 +147,9 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       makeWorkerAgent: blockedLeaf,
       brain: scriptedBrain([
         {
-          toolCalls: [{ name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } }],
+          toolCalls: [
+            { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
+          ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
       ]),
@@ -239,7 +241,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } },
+              { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -324,7 +326,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         brain: scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } },
+              { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -372,7 +374,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: {
                 profile: workerProfile('same-worker'),
                 task: 'go',
@@ -385,7 +387,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: {
                 profile: workerProfile('same-worker'),
                 task: 'go',
@@ -565,7 +567,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: testAgentProfile('unsafe-worker', {
                 prompt: { systemPrompt: 'run the task' },
@@ -616,7 +618,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     const journal = new InMemorySpawnJournal()
     const brain = scriptedBrain([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile, task: 'go' } }],
+        toolCalls: [{ name: 'spawn_worker', arguments: { profile, task: 'go' } }],
       },
       { content: 'profile was refused' },
     ])
@@ -841,7 +843,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
           {
             toolCalls: [
               {
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: {
                   profile: testAgentProfile('forbidden', {
                     harness: 'pi',
@@ -1131,7 +1133,7 @@ describe('supervise — the code-valued options are nameable, so a run configura
   const spawnAwaitStop = () =>
     scriptedBrain([
       {
-        toolCalls: [{ name: 'spawn_agent', arguments: { profile: workerProfile(), task: 'go' } }],
+        toolCalls: [{ name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } }],
       },
       { toolCalls: [{ name: 'await_event', arguments: {} }] },
       { content: 'done' },
@@ -1337,11 +1339,11 @@ describe('supervise — peerMail threads from options through both supervisor ar
       },
       peerMail: true,
       driveHarness: async ({ coordinationMcpUrl }) => {
-        await callTool(coordinationMcpUrl, 'spawn_agent', {
+        await callTool(coordinationMcpUrl, 'spawn_worker', {
           profile: workerProfile('w1'),
           task: 'go',
         })
-        await callTool(coordinationMcpUrl, 'spawn_agent', {
+        await callTool(coordinationMcpUrl, 'spawn_worker', {
           profile: workerProfile('w2'),
           task: 'go',
         })
@@ -1376,7 +1378,7 @@ describe('supervise — peerMail threads from options through both supervisor ar
       peerMail: true,
       driveHarness: async ({ coordinationMcpUrl }) => {
         spawnReplies.push(
-          await callTool(coordinationMcpUrl, 'spawn_agent', {
+          await callTool(coordinationMcpUrl, 'spawn_worker', {
             profile: testAgentProfile('lead', {
               harness: 'cli-base',
               metadata: { role: 'driver' },

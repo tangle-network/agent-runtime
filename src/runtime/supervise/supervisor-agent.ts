@@ -183,7 +183,7 @@ export interface CoordinationBinding {
 }
 
 /**
- * Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_agent /
+ * Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_worker /
  * steer_agent / stop with NO authentication of any kind (it is a bare JSON-RPC-over-HTTP handler),
  * so a non-loopback bind lets anyone who can reach the port spawn agents and spend the run's
  * conserved budget. There is no token to require yet, so the only honest options are loopback or an
@@ -195,7 +195,7 @@ export function assertCoordinationBinding(binding: CoordinationBinding | undefin
   if (binding?.allowUnauthenticatedRemote === true) return
   throw new ConfigError(
     `supervisorAgent: coordination.host=${JSON.stringify(host)} is not a loopback address and the coordination MCP ` +
-      'has no authentication: any client that can reach the port could call spawn_agent/steer_agent ' +
+      'has no authentication: any client that can reach the port could call spawn_worker/steer_agent ' +
       'and spend this run\'s budget. Bind a loopback host ("127.0.0.1", "localhost", "::1"), or set ' +
       'coordination.allowUnauthenticatedRemote: true to accept that exposure explicitly.',
   )
@@ -303,7 +303,7 @@ function createVerbSlot(): VerbSlot {
     }
   return {
     verbs: Object.freeze({
-      spawnAgent: verb('spawn_agent'),
+      spawnAgent: verb('spawn_worker'),
       awaitEvent: verb('await_event'),
       steerAgent: verb('steer_agent'),
       observeAgent: verb('observe_agent'),
@@ -355,7 +355,7 @@ export type ObserveSupervisorNodeEvent = (
 /** How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate
  *  seam the caller supplies (mirrors `makeWorkerAgent` for spawned children). It runs `profile` on
  *  `task` in its backend (remote sandbox or local CLI bridge) with `coordinationMcpUrl` mounted as an MCP server,
- *  so the harness calls spawn_agent / await_event / stop as native tools over the live scope. */
+ *  so the harness calls spawn_worker / await_event / stop as native tools over the live scope. */
 export interface DriveHarness {
   (args: {
     /** The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
@@ -400,7 +400,7 @@ export interface SupervisorAgentDeps {
   readonly onProviderModel?: (model: string | undefined) => void
   /** Independent completion check for direct driver work (`submit_result`). */
   readonly deliverable?: DeliverableSpec<unknown>
-  /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
+  /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
    *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
    *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
   readonly maxLiveWorkers?: number
@@ -450,7 +450,7 @@ export interface SupervisorAgentDeps {
   /** Idle time after which `observe_agent` reports a worker as stalled. Omit = runtime default. */
   readonly stallAfterMs?: number
   /** Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
-   *  that name to the node's latest settled worker; `spawn_agent`'s per-call `continuity`
+   *  that name to the node's latest settled worker; `spawn_worker`'s per-call `continuity`
    *  overrides. Omit = every spawn fresh (status quo). */
   readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
   /** PROGRESS-derived stop rule (BOTH arms). Ends a run that has stopped learning BEFORE it

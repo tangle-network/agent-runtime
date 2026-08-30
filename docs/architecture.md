@@ -462,7 +462,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
   says where it runs.
 - **REAL** — the supervisor **authoring** child profiles is the AgentProfile law (§1,
   and `canonical-api.md` §1.5): a supervisor's intelligence is *writing full
-  AgentProfiles for its children*. The coordination toolbox `spawn_agent` carries the
+  AgentProfiles for its children*. The coordination toolbox `spawn_worker` carries the
   child profile (`src/mcp/tools/coordination.ts`).
 - The in-process driver brain is `driverAgent` (`supervise/coordination-driver.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`supervise/runtime.ts`).
   A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
@@ -505,7 +505,7 @@ settle**, with one firewall that keeps it honest.
         │        (coordination.ts / personify/analyst.ts:46)                         │  FIREWALL
         │                                                                            │
         │   ③ next move from {trace, findings} via the MCP:                          │  move = f(trace, findings)
-        │        steer_agent (1 child)   spawn_agent (N)   select   stop            │  NOT f(score)
+        │        steer_agent (1 child)   spawn_worker (N)   select   stop            │  NOT f(score)
         │                                                                            │
         └───────────────┬─────────────────────────────────────────────────────────────┘
                         ▼

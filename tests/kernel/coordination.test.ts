@@ -161,7 +161,7 @@ describe('coordination tools', () => {
       'unmountable-tool': 0,
     })
 
-    const spawn = tool(tb, 'spawn_agent')
+    const spawn = tool(tb, 'spawn_worker')
     expect(
       await spawn.handler({
         profile: { name: 'unrouted', harness: 'pi', model: { provider: 'x', default: 'y' } },
@@ -268,7 +268,7 @@ describe('coordination tools', () => {
     expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
   })
 
-  it('spawn_agent returns workerId and fails closed when admission fails', async () => {
+  it('spawn_worker returns workerId and fails closed when admission fails', async () => {
     const { scope, setAdmit } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -277,7 +277,7 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
     // No `maxLiveWorkers` cap ⇒ `freeSlots: null` (uncapped; the conserved pool is the fence).
-    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
+    expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w0',
       assignmentId: 'ordinal:0',
       continuity: 'fresh',
@@ -285,7 +285,7 @@ describe('coordination tools', () => {
       freeSlots: null,
     })
     setAdmit(false)
-    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
+    expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       error: 'budget-exhausted',
       live: 1,
       freeSlots: null,
@@ -346,13 +346,15 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
 
-    expect(await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'new work' })).toMatchObject({
-      workerId: 'w0',
-      assignmentId: 'ordinal:4',
-    })
+    expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'new work' })).toMatchObject(
+      {
+        workerId: 'w0',
+        assignmentId: 'ordinal:4',
+      },
+    )
   })
 
-  it('spawn_agent fails closed at the maxLiveWorkers cap WITHOUT touching the pool', async () => {
+  it('spawn_worker fails closed at the maxLiveWorkers cap WITHOUT touching the pool', async () => {
     // A scope whose live (non-terminal) node set is driven by the spawns we make: each successful
     // spawn appends a `running` node; nothing settles. The conserved pool always admits, so the
     // ONLY thing that can stop a spawn here is the concurrency cap.
@@ -388,7 +390,7 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
       maxLiveWorkers: 2,
     })
-    const spawn = () => tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
+    const spawn = () => tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })
     // `freeSlots` counts down as the cap fills — the reading that tells the driver capacity is
     // still idle, so it can fill slots instead of opening one worker per turn.
     expect(await spawn()).toEqual({
@@ -425,7 +427,7 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    expect(await tool(uncapped, 'spawn_agent').handler({ profile: {}, task: 'go' })).toEqual({
+    expect(await tool(uncapped, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       workerId: 'w3',
       assignmentId: 'ordinal:0',
       continuity: 'fresh',
@@ -493,7 +495,7 @@ describe('coordination tools', () => {
       maxLiveWorkers: 1,
     })
     const spawnKeyed = (key: string) =>
-      tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go', key })
+      tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go', key })
 
     // Key 'a' runs and takes the only slot, then delivers.
     expect(await spawnKeyed('a')).toEqual({
@@ -536,7 +538,7 @@ describe('coordination tools', () => {
     expect(await spawnKeyed('c')).toEqual({ error: 'max-live-workers', live: 1, freeSlots: 0 })
   })
 
-  it('spawn_agent reserves the per-worker default when no budget is given', async () => {
+  it('spawn_worker reserves the per-worker default when no budget is given', async () => {
     const { scope, spawns } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -544,12 +546,12 @@ describe('coordination tools', () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 2, maxTokens: 100 },
     })
-    await tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go' })
+    await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })
     expect(spawns).toHaveLength(1)
     expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 100 })
   })
 
-  it('spawn_agent honors a per-spawn budget, merged per-field over the default', async () => {
+  it('spawn_worker honors a per-spawn budget, merged per-field over the default', async () => {
     const { scope, spawns } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -559,7 +561,7 @@ describe('coordination tools', () => {
     })
     // Only raise maxTokens + add a usd ceiling; maxIterations falls through from the default.
     expect(
-      await tool(tb, 'spawn_agent').handler({
+      await tool(tb, 'spawn_worker').handler({
         profile: {},
         task: 'hard',
         budget: { maxTokens: 5000, maxUsd: 0.5 },
@@ -574,7 +576,7 @@ describe('coordination tools', () => {
     expect(spawns[0].opts.budget).toEqual({ maxIterations: 2, maxTokens: 5000, maxUsd: 0.5 })
   })
 
-  it('spawn_agent fails loud on a malformed per-spawn budget (never silently uses the default)', async () => {
+  it('spawn_worker fails loud on a malformed per-spawn budget (never silently uses the default)', async () => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({
       scope,
@@ -583,10 +585,10 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 2, maxTokens: 100 },
     })
     await expect(
-      tool(tb, 'spawn_agent').handler({ profile: {}, task: 'go', budget: 'lots' }),
+      tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go', budget: 'lots' }),
     ).rejects.toThrow(/"budget" must be an object/)
     await expect(
-      tool(tb, 'spawn_agent').handler({
+      tool(tb, 'spawn_worker').handler({
         profile: {},
         task: 'go',
         budget: { maxTokens: Number.POSITIVE_INFINITY },
@@ -1429,7 +1431,7 @@ describe('coordination tools', () => {
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
     const server = createMcpServer({ extraTools: tb.tools })
-    expect(server.tools.has('spawn_agent')).toBe(true)
+    expect(server.tools.has('spawn_worker')).toBe(true)
     expect(server.tools.has('steer_agent')).toBe(true)
     expect(server.tools.has('delegate_feedback')).toBe(true)
     expect(() =>
@@ -1447,7 +1449,7 @@ describe('coordination tools', () => {
   })
 })
 
-describe("spawn_agent's published child-profile schema", () => {
+describe("spawn_worker's published child-profile schema", () => {
   const profileArg = (): Record<string, unknown> => {
     const { scope } = mockScope()
     const tb = createCoordinationTools({
@@ -1456,7 +1458,7 @@ describe("spawn_agent's published child-profile schema", () => {
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    const input = tool(tb, 'spawn_agent').inputSchema as {
+    const input = tool(tb, 'spawn_worker').inputSchema as {
       properties: Record<string, Record<string, unknown>>
     }
     return input.properties.profile
@@ -1571,7 +1573,7 @@ describe("spawn_agent's published child-profile schema", () => {
       },
       perWorker: { maxIterations: 1, maxTokens: 10 },
     })
-    const spawn = tool(tb, 'spawn_agent')
+    const spawn = tool(tb, 'spawn_worker')
     // …while the HANDLER validates the model-authored profile against the canonical schema and
     // fails CLOSED with named issues: an unrecognized field would otherwise be silently dropped
     // from the worker that runs, which is exactly the drop this runtime exists to refuse.

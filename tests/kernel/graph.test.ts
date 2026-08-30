@@ -258,7 +258,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -316,7 +316,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: {
                 // The driver tries to rewrite the worker's role and grant itself tools.
                 profile: {
@@ -344,7 +344,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'ghost' }, task: 'x' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'ghost' }, task: 'x' } },
           ],
         },
         { content: 'stop' },
@@ -368,7 +368,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         {
@@ -406,7 +406,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     })
     const spawnTurn = {
       toolCalls: [
-        { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+        { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
       ],
     }
     await expect(
@@ -450,7 +450,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     const controller = new AbortController()
     const spawnTurn = {
       toolCalls: [
-        { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+        { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
       ],
     }
     const inner = scriptedBrain([
@@ -492,7 +492,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: { profile: { name: 'worker' }, task: 'build it', key: 'build' },
             },
           ],
@@ -500,7 +500,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: { profile: { name: 'worker' }, task: 'build it', key: 'build' },
             },
           ],
@@ -566,7 +566,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -638,12 +638,12 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'builder' }, task: 'build' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'builder' }, task: 'build' } },
           ],
         },
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -691,7 +691,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -754,7 +754,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -804,7 +804,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -915,7 +915,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(worker)
@@ -978,12 +978,12 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build' } },
           ],
         },
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'fixer' }, task: 'stand by' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] }, // settled(worker)
@@ -1119,7 +1119,7 @@ describe('runGraph — every supervise option a graph does not own reaches super
           toolCalls: [
             {
               id: 'c1',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
             },
           ],
@@ -1146,7 +1146,7 @@ describe('runGraph — every supervise option a graph does not own reaches super
     })
     expect(res.result.kind).toBe('winner')
     expect(mounted[0]).toContain('measure_rung')
-    expect(mounted[0]).toContain('spawn_agent')
+    expect(mounted[0]).toContain('spawn_worker')
   })
 
   it("accepts the root-durability knobs a lost run needed, typed as supervise's own", () => {
@@ -1215,7 +1215,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -1258,7 +1258,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -1286,7 +1286,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: {
                 profile: { name: 'worker', prompt: { systemPrompt: 'smuggled' } },
                 task: 'build it',
@@ -1316,7 +1316,7 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         {
@@ -1367,7 +1367,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
           toolCalls: [
             {
               id: 'c1',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
             },
           ],
@@ -1405,7 +1405,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
     expect(res.result.kind).toBe('winner')
     // Mounted alongside the coordination verbs, not instead of them.
     expect(mounted[0]).toContain('kb_record')
-    expect(mounted[0]).toContain('spawn_agent')
+    expect(mounted[0]).toContain('spawn_worker')
     // The handler ran with the RUN's identity, not anything the model could author.
     expect(handled).toHaveLength(1)
     expect(handled[0]?.raw).toEqual({ claim: 'gmres diverges at rung 3' })
@@ -1422,7 +1422,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
           toolCalls: [
             {
               id: 'c1',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
             },
           ],
@@ -1442,7 +1442,7 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
       brain,
     })
     expect(res.result.kind).toBe('winner')
-    expect(mounted[0]).toContain('spawn_agent')
+    expect(mounted[0]).toContain('spawn_worker')
     expect(mounted.flat()).not.toContain('kb_record')
   })
 })
@@ -1469,7 +1469,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
           toolCalls: [
             {
               id: 'c1',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: { name: 'worker' }, task: 'build it' }),
             },
           ],
@@ -1533,7 +1533,7 @@ describe('runGraph — watchWorkers passthrough (the online detector panel over 
         [
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build' } },
+              { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build' } },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -1615,7 +1615,7 @@ describe('runGraph — the caller-brain seam on the production surface (#694 opt
   const driverDecisions = [
     {
       toolCalls: [
-        { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+        { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
       ],
     },
     { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -1761,7 +1761,7 @@ describe('runGraph — caller hooks compose onto the same event stream', () => {
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task: 'build it' } },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
@@ -1793,7 +1793,7 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
     })
   const spawnTurn = (task: string, extra: Record<string, unknown> = {}) => ({
     toolCalls: [
-      { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task, ...extra } },
+      { name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task, ...extra } },
     ],
   })
   const awaitTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
@@ -1960,14 +1960,17 @@ describe('runGraph — continuity (fresh | resume | steer as ledgered data)', ()
         brain: scriptedBrain([
           {
             toolCalls: [
-              { name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task: 'build it' } },
+              {
+                name: 'spawn_worker',
+                arguments: { profile: { name: 'worker' }, task: 'build it' },
+              },
             ],
           },
           { toolCalls: [{ name: 'await_event', arguments: {} }] },
           {
             toolCalls: [
               {
-                name: 'spawn_agent',
+                name: 'spawn_worker',
                 arguments: { profile: { name: 'worker' }, task: 'again', continuity: 'resume' },
               },
             ],

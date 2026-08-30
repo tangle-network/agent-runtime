@@ -80,7 +80,7 @@ Independent completion check for work the driver performs itself. When present, 
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
 
 ##### analysts?
@@ -119,7 +119,7 @@ Idle time after which `observe_agent` reports a worker as stalled (a derived rea
 
 Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
  to the node's latest settled worker (see
- `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
+ `CoordinationToolsOptions.continuityByProfile`); `spawn_worker`'s per-call `continuity`
  argument overrides. Omit = every spawn fresh (status quo).
 
 ##### preflightSpawn?
@@ -937,7 +937,7 @@ root profile/task identity and declared budget match. The original absolute dead
 measured spend are restored before new admission. The built-in driver is resume-aware: children
 that already settled, including their exact execution identities, are replayed onto
 `Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
-(`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+(`spawn_worker`'s `key`) resolve to their committed results instead of re-running, pending
 waits re-arm on their original deadlines, and the coordination log loads prior questions,
 findings, and instruction receipts. The router arm receives all three in its resume brief; the
 external arm seeds prior questions while findings and receipts remain in the durable log.
@@ -1734,7 +1734,7 @@ Idle time after which `observe_agent` reports a running worker as `stalled`. A d
 Default continuity per worker PROFILE NAME: `'resume'` makes each spawn of that name after
  the first re-attach to the node's most recent SETTLED worker — a NEW live worker whose spawn
  context carries the prior worker's identity (`WorkerSpawnContext.resume`), which the executor
- seam re-attaches with. `spawn_agent`'s per-call `continuity` argument overrides in either
+ seam re-attaches with. `spawn_worker`'s per-call `continuity` argument overrides in either
  direction; `runGraph` derives this from delegates-edge `continuity`. Omit = every spawn is
  `'fresh'` (status quo). See `CoordinationToolsOptions.continuityByProfile` for the
  refusal semantics (no-prior / while-live / with-key) and the process-local resume boundary.
@@ -1764,7 +1764,7 @@ root profile/task identity and declared budget match. The original absolute dead
 measured spend are restored before new admission. The built-in driver is resume-aware: children
 that already settled, including their exact execution identities, are replayed onto
 `Scope.resume` (and into the driver's settled ledger + its first context), keyed assignments
-(`spawn_agent`'s `key`) resolve to their committed results instead of re-running, pending
+(`spawn_worker`'s `key`) resolve to their committed results instead of re-running, pending
 waits re-arm on their original deadlines, and the coordination log loads prior questions,
 findings, and instruction receipts. The router arm receives all three in its resume brief; the
 external arm seeds prior questions while findings and receipts remain in the durable log.
@@ -2062,7 +2062,7 @@ Independent completion check for direct driver work (`submit_result`).
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
 
-Hard cap on simultaneously-LIVE workers across both arms — `spawn_agent` fails closed once
+Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
  boxes/sandboxes, not total work). Omit/`<= 0` = no cap.
 
@@ -2249,7 +2249,7 @@ Idle time after which `observe_agent` reports a worker as stalled. Omit = runtim
 > `readonly` `optional` **continuityByProfile?**: `Readonly`\<`Record`\<`string`, [`ContinuityMode`](runtime.md#continuitymode)\>\>
 
 Default continuity per worker PROFILE NAME (both arms) — `'resume'` re-attaches spawns of
- that name to the node's latest settled worker; `spawn_agent`'s per-call `continuity`
+ that name to the node's latest settled worker; `spawn_worker`'s per-call `continuity`
  overrides. Omit = every spawn fresh (status quo).
 
 ###### Inherited from

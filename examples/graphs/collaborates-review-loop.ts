@@ -93,7 +93,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'implementer' }, task: 'implement the feature' },
           },
         ],
@@ -101,7 +101,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'reviewer' }, task: 'review the implementation' },
           },
         ],
@@ -116,7 +116,7 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: { name: 'implementer' },
               task: 'address the review verdict: add the missing tests',

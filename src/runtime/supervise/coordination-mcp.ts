@@ -1,9 +1,9 @@
 /**
  *
- * Serve the coordination verbs (spawn_agent / await_event / observe_agent / steer_agent / stop)
+ * Serve the coordination verbs (spawn_worker / await_event / observe_agent / steer_agent / stop)
  * as a real HTTP MCP server over a LIVE `Scope`. This is the keystone that lets a coding-harness
  * agent (opencode via the cli-bridge, claude-code, codex) BE the supervisor: it mounts this MCP
- * (`mcp.mcpServers.coordination`) and calls `spawn_agent` as a native tool, which lands on
+ * (`mcp.mcpServers.coordination`) and calls `spawn_worker` as a native tool, which lands on
  * `Scope.spawn` — a real box driving real boxes, not emulated function-tools.
  *
  * Coordination vs DELEGATION (`../../mcp/delegates.ts`): coordination SPAWNS workers in a CHOSEN
@@ -97,7 +97,7 @@ export async function serveCoordinationMcp(opts: {
   deliverable?: DeliverableSpec<unknown>
   /** Called once when the external manager accepts a result or declares completion. */
   onStop?: (reason: string | undefined) => void
-  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+  /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   maxLiveWorkers?: number
   /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
@@ -109,7 +109,7 @@ export async function serveCoordinationMcp(opts: {
    *  `allowUnauthenticatedRemote` acknowledges the exposure. */
   host?: string
   /** Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
-   *  spawn_agent / steer_agent / stop to everyone who can reach the port. Required for any
+   *  spawn_worker / steer_agent / stop to everyone who can reach the port. Required for any
    *  non-loopback bind; ignored for loopback ones. */
   allowUnauthenticatedRemote?: boolean
   /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
@@ -140,7 +140,7 @@ export async function serveCoordinationMcp(opts: {
    * `WorkerSpawnContext.peerMailUrl`.
    *
    * It is a SEPARATE listener on its own port, not another tool on this server, and that is the
-   * whole point: this server mounts spawn_agent / steer_agent / stop with no authentication, so a
+   * whole point: this server mounts spawn_worker / steer_agent / stop with no authentication, so a
    * worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
    * channel's authority marking would mean nothing. The mail listener serves `send_mail` and
    * `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
@@ -165,7 +165,7 @@ export async function serveCoordinationMcp(opts: {
   const host = opts.host ?? '127.0.0.1'
   // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
   // that happen to call it. This function is a public export taking `host` directly, and it mounts
-  // spawn_agent / steer_agent / stop as a bare JSON-RPC-over-HTTP handler with NO authentication of
+  // spawn_worker / steer_agent / stop as a bare JSON-RPC-over-HTTP handler with NO authentication of
   // any kind — so a caller reaching it without going through `supervise`/`supervisorAgent` would
   // otherwise stand up unauthenticated spawn/steer/stop on every interface. There is no token to
   // require yet, so the only honest options are a loopback bind or an explicit, recorded
@@ -174,7 +174,7 @@ export async function serveCoordinationMcp(opts: {
     throw new ConfigError(
       `coordination host=${JSON.stringify(host)} is not a loopback address and the coordination ` +
         'MCP has no authentication: any client that can reach the port could call ' +
-        "spawn_agent/steer_agent and spend this run's budget. Bind a loopback host " +
+        "spawn_worker/steer_agent and spend this run's budget. Bind a loopback host " +
         '("127.0.0.1", "localhost", "::1"), or set allowUnauthenticatedRemote: true to accept ' +
         'that exposure explicitly.',
     )

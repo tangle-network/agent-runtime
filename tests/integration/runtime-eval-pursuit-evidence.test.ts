@@ -70,7 +70,7 @@ describe('Runtime pursuit -> Eval evidence', () => {
     const runId = 'run:runtime-eval-e2e:1'
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_agent',
+        name: 'spawn_worker',
         arguments: {
           profile: testAgentProfile('evidence-worker'),
           task: 'produce the measured artifact',

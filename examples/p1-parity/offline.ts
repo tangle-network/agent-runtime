@@ -143,7 +143,7 @@ export function offlineGraphBackend(
     turns.push({
       toolCalls: [
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: {
             profile: { name: coder },
             task: shot === 1 ? cell.task : rebriefText(shot),

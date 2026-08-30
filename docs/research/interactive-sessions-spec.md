@@ -54,7 +54,7 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 ### Phase 3 — runtime: the generic `session` Executor (agent-runtime)
 - [ ] A `session` backend on the `Executor` port: `execute` calls the substrate session API (create → send task → stream until done) and settles with the result; `deliver` → `/send` (steer); `teardown` → `/kill`. Harness-agnostic.
 - [ ] Wire `makeWorkerAgent` (coordination MCP) → the `session` executor, selected by the worker's `AgentProfile.backend`.
-- [ ] Exit: `spawn_agent` → a worker that runs as a live interactive session, settles on its deployable check.
+- [ ] Exit: `spawn_worker` → a worker that runs as a live interactive session, settles on its deployable check.
 
 ### Phase 4 — shared workspace (agent-runtime)  *(the e2e's open design point)*
 - [ ] Supervisor + its workers share ONE `Workspace` (gitWorkspace) — workers branch/worktree, deliver back so the supervisor (and the next worker) build on one artifact. Fixes the "files missing" confusion.
@@ -66,7 +66,7 @@ The law: *an agent IS its AgentProfile; you change behavior by authoring the pro
 - [ ] Exit: open the URL, watch the supervisor + worker panes work in real time; scrub the replay after.
 
 ### Phase 6 — prove it e2e (no mock)
-- [ ] The whole chain on interactive sessions: supervisor (tmux) authors profiles → `spawn_agent` → worker (tmux) codes in the shared workspace → real test gates → delivered — all streamed live, all journaled, replayable.
+- [ ] The whole chain on interactive sessions: supervisor (tmux) authors profiles → `spawn_worker` → worker (tmux) codes in the shared workspace → real test gates → delivered — all streamed live, all journaled, replayable.
 - [ ] Retire `atom-mcp-e2e`'s harness-specific shortcuts (now: author profiles, the substrate materializes).
 - [ ] Exit: a recorded run URL + the replay + green deployable check.
 

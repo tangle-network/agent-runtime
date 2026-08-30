@@ -215,7 +215,7 @@ export async function provisionSupervisor(
         awaitTimeoutMs: input.pollMs,
       })
       await coord.ready()
-      const spawn = findTool(coord.tools, 'spawn_agent')
+      const spawn = findTool(coord.tools, 'spawn_worker')
       const awaitEvent = findTool(coord.tools, 'await_event')
       const result = await spawn.handler({
         profile: workerProfile,

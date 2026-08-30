@@ -128,7 +128,7 @@ afterEach(() => {
 })
 
 const spawnCall = (label: string, kind = 'hang'): ScriptedTurn['toolCalls'] => [
-  { name: 'spawn_agent', arguments: { profile: { metadata: { kind } }, task: 'go', label } },
+  { name: 'spawn_worker', arguments: { profile: { metadata: { kind } }, task: 'go', label } },
 ]
 const awaitTurn: ScriptedTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
 
@@ -351,7 +351,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: { metadata: { kind: 'lead' } },
               task: 'go',
@@ -531,7 +531,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: { metadata: { kind: 'lead' } },
               task: 'go',
@@ -626,7 +626,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const spawnTurn: ScriptedTurn = {
       toolCalls: [
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: {
             profile: { metadata: { kind: 'lead' } },
             task: 'go',
@@ -786,7 +786,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: { metadata: { kind: 'lead' } },
               task: 'go',
@@ -869,7 +869,7 @@ describe('acknowledged worker cancellation (#758)', () => {
     const spawnTurn: ScriptedTurn = {
       toolCalls: [
         {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: {
             profile: { metadata: { kind: 'lead' } },
             task: 'go',

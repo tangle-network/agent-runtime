@@ -153,7 +153,7 @@ const spawnAwaitStop: ScriptedTurn[] = [
   {
     toolCalls: [
       {
-        name: 'spawn_agent',
+        name: 'spawn_worker',
         arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
       },
     ],
@@ -221,11 +221,11 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: { which: 'a' } }, task: 'a' },
           },
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: { which: 'b' } }, task: 'b' },
           },
         ],
@@ -275,7 +275,7 @@ describe('completion-oracle settle — settled ⟺ DELIVERED (Foreman 0/18)', ()
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: { kind: 'driver' } }, task: 'delegate' },
           },
         ],

@@ -418,7 +418,7 @@ export interface CoordinationToolsOptions {
    *  the driver can still run lenses on demand via `run_analyst`). Lens routes require
    *  `analysts`; agent routes do not. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
-  /** Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_agent`
+  /** Hard cap on how many workers may be LIVE (spawned but not yet settled) at once. `spawn_worker`
    *  counts the scope's non-terminal nodes and fails closed (`error: 'max-live-workers'`) BEFORE
    *  reserving from the pool when the cap is already met — a concurrency fence on top of the
    *  conserved-budget fence (the pool bounds total work; this bounds simultaneous work, e.g. live
@@ -620,9 +620,17 @@ export interface CoordinationTools {
 /** The reserved coordination verb names — the complete set `createCoordinationTools` can emit
  *  (the analyst pair is conditional but still reserved). A driver's extra WORK tools must not
  *  collide with any of these, or it could no longer coordinate; callers validate eagerly against
- *  this set so the conflict fails loud at construction, not buried in a swallowed `act()` throw. */
+ *  this set so the conflict fails loud at construction, not buried in a swallowed `act()` throw.
+ *
+ *  Every name here must also stay clear of the tools a coding harness publishes NATIVELY
+ *  (`harnessNativeToolNames`, `mcp/harness-native-tools`). A harness prefixes an MCP tool with its
+ *  server name, so the two never collide on the wire — but a driver reads a BARE word out of a
+ *  prompt, and a bare word that the harness also publishes resolves to the harness's own tool.
+ *  The spawn verb is `spawn_worker` for that reason: the runtime's vocabulary for the spawned
+ *  thing is a worker (`workerId`, `maxLiveWorkers`, the per-worker budget), and no known harness
+ *  publishes that name. `tests/kernel/harness-native-tools.test.ts` holds the set clear. */
 export const coordinationVerbNames = [
-  'spawn_agent',
+  'spawn_worker',
   'observe_agent',
   'steer_agent',
   'await_event',
@@ -654,7 +662,7 @@ function isAwaitableEventKind(value: unknown): value is AwaitableEventKind {
   return (awaitableEventKinds as ReadonlyArray<unknown>).includes(value)
 }
 
-const idArg = { type: 'string', description: 'The workerId returned by spawn_agent.' } as const
+const idArg = { type: 'string', description: 'The workerId returned by spawn_worker.' } as const
 
 /**
  * Strip zod's object-KEY CODEC artifact from a derived JSON Schema, at every depth.
@@ -798,7 +806,7 @@ const spawnProfileFields: readonly PublishedProfileField[] = [
 ]
 
 /**
- * Build the published shape of `spawn_agent`'s `profile` argument from the canonical
+ * Build the published shape of `spawn_worker`'s `profile` argument from the canonical
  * `agentProfileSchema` conversion's `properties` map, so it cannot drift from the profile the
  * runtime materializes.
  *
@@ -1931,7 +1939,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
 
   const tools: McpToolDescriptor[] = [
     {
-      name: 'spawn_agent',
+      name: 'spawn_worker',
       description:
         'Start a worker the driver will drive. `profile` is the worker or another driver; ' +
         '`task` is what it should do. Reserves budget from the conserved pool and fails closed. ' +

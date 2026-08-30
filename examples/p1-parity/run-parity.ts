@@ -212,7 +212,7 @@ function liveParityCell(index: number, shots: number, env: LiveEnv, nonce: strin
           'every position, and restate its full reply ending with its final ANSWER line.',
         instructions: [
           "You supervise exactly ONE pinned worker node named 'coder'; the graph pins its full " +
-            'profile. To run a shot call spawn_agent with arguments ' +
+            'profile. To run a shot call spawn_worker with arguments ' +
             '{"profile":{"name":"coder"},"task":"<brief>"} — never author any other profile.',
           "Shot 1's task must be the root task COPIED VERBATIM. After each spawn, call " +
             'await_event until that worker settles; the settle reports valid:true only when ' +

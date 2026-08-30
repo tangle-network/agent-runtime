@@ -73,7 +73,7 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
         toolCalls: [
           {
             id: 'c1',
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: JSON.stringify({ profile: { name: 'builder' }, task: 'build the feature' }),
           },
         ],

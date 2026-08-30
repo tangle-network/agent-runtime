@@ -96,7 +96,7 @@ describe('durable external worker steer', () => {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: {} }, task: 'wait for a steer', label: 'worker' },
           },
         ],

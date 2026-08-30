@@ -4,7 +4,7 @@
  * the local cli-bridge (real harness CLIs on your machine) or inside real Tangle sandbox boxes; flipping
  * `WORKER_BACKEND` is the whole difference.
  *
- * The supervisor brain must emit `spawn_agent`/`await_event` via OpenAI tool-calling, so it runs on the
+ * The supervisor brain must emit `spawn_worker`/`await_event` via OpenAI tool-calling, so it runs on the
  * router (real, tool-calling) when a key is present, else the scripted $0/offline brain — NOT cli-bridge
  * (full-agent harnesses don't return raw tool_calls). All of that is in `shared.ts`.
  *
@@ -17,7 +17,7 @@
  *   WORKER_BACKEND=sandbox TANGLE_API_KEY=sk-... SANDBOX_BASE_URL=https://... \
  *     pnpm tsx examples/supervisor-loop/run.ts
  *
- * For the coordination-MCP variant (a supervisor driving workers via `spawn_agent` over a served MCP),
+ * For the coordination-MCP variant (a supervisor driving workers via `spawn_worker` over a served MCP),
  * see run-supervisor-mcp.ts. For a fully offline, no-creds wiring check:
  *   pnpm test tests/kernel/coordination-driver.test.ts tests/supervisor-loop-example.test.ts
  */
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   console.log(`supervisor-loop · ${backend.backend.toUpperCase()} · driver=${label}`)
 
   const task =
-    `${demoGoal}\nUse this exact worker execution identity in spawn_agent.profile: ` +
+    `${demoGoal}\nUse this exact worker execution identity in spawn_worker.profile: ` +
     JSON.stringify({ harness: worker.profile.harness, model: worker.profile.model })
   const common = {
     backend,

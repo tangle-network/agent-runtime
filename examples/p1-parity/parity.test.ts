@@ -287,7 +287,7 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
       brain: meteredScriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'coder' }, task: cell.task } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'coder' }, task: cell.task } },
           ],
         },
         // ONE event: the down settle. (No verify report — analysts fire on `done` settles only.)
@@ -295,7 +295,7 @@ describe('p1-parity — the same cell reaches both arms and both report honestly
         // The retry spawn drives INTO the exhausted delegates cap — refused, ledgered.
         {
           toolCalls: [
-            { name: 'spawn_agent', arguments: { profile: { name: 'coder' }, task: 'retry' } },
+            { name: 'spawn_worker', arguments: { profile: { name: 'coder' }, task: 'retry' } },
           ],
         },
         { content: 'done' },

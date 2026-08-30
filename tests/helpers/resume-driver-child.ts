@@ -11,7 +11,7 @@
  *
  * Every phase runs the SAME brain script — five keyed workers, then pull events until idle. The
  * brain is deliberately NOT resume-aware: it re-issues the identical plan every time. Skipping the
- * committed work is therefore the RUNTIME's job (`spawn_agent`'s `key` resolving against the
+ * committed work is therefore the RUNTIME's job (`spawn_worker`'s `key` resolving against the
  * journal), which is exactly the property under test.
  */
 
@@ -125,7 +125,7 @@ const brain: ToolLoopChat = async (messages) => {
     return {
       toolCalls: workers.map((w, i) => ({
         id: `spawn-${i}`,
-        name: 'spawn_agent',
+        name: 'spawn_worker',
         arguments: JSON.stringify({
           profile: offlineProfile(w.key),
           task: `do ${w.key}`,

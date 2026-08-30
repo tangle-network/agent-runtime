@@ -80,7 +80,7 @@ describe('pursuit projection usage and totals', () => {
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
       for (const label of workers) {
         await jsonRpc(coordinationMcpUrl, 'tools/call', {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           arguments: { profile: testAgentProfile(label), task: `work as ${label}`, label },
         })
       }

@@ -1773,7 +1773,7 @@ describe('workerFromBackend continuity — bridge session re-attachment', () => 
       budget: { maxIterations: 20, maxTokens: 50_000 },
     }
     const spawnTurn = (task: string) => ({
-      toolCalls: [{ name: 'spawn_agent', arguments: { profile: { name: 'worker' }, task } }],
+      toolCalls: [{ name: 'spawn_worker', arguments: { profile: { name: 'worker' }, task } }],
     })
     const awaitTurn = { toolCalls: [{ name: 'await_event', arguments: {} }] }
     const res = await runGraph(graph, {

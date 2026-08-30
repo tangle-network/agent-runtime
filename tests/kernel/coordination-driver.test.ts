@@ -137,7 +137,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       iterations: 1,
       score: 0.9,
     })
-    // The makeWorkerAgent the spawn_agent tool dispatches: this test only spawns the worker leaf.
+    // The makeWorkerAgent the spawn_worker tool dispatches: this test only spawns the worker leaf.
     const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> => worker
 
     // Scripted driver LLM: turn 0 spawns a worker, turn 1 awaits it, turn 2 stops (no calls).
@@ -146,7 +146,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
             },
           ],
@@ -169,16 +169,16 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     })
 
     // The driver's act IS the loop — the run produced the worker's output, which only exists if
-    // spawn_agent → Scope.spawn → settle actually ran inside the tool-loop.
+    // spawn_worker → Scope.spawn → settle actually ran inside the tool-loop.
     expect(result.kind).toBe('winner')
 
     // Feed-back proof: by turn 2 (the 3rd chat call), the conversation the driver saw contains
-    // `tool` messages carrying the spawn_agent + await_event settlements — i.e. the tool RESULTS
+    // `tool` messages carrying the spawn_worker + await_event settlements — i.e. the tool RESULTS
     // were folded back. The OpenAI tool message is `{ role:'tool', tool_call_id, content }`; the
     // await_event settlement serializes the done worker, so its content carries 'done'.
     const turn2Convo = seen[2]!
     const toolMsgs = turn2Convo.filter((m) => m.role === 'tool')
-    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_agent result + await_event result
+    expect(toolMsgs.length).toBeGreaterThanOrEqual(2) // spawn_worker result + await_event result
     expect(toolMsgs.some((m) => String(m.content).includes('done'))).toBe(true)
 
     // A real worker spawn is recorded in the journal (not a mock-bypassed result).
@@ -215,7 +215,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: { kind: 'worker' } }, task: 'go' },
           },
         ],
@@ -256,7 +256,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       iterations: 1,
       score: 1,
     })
-    // Alternate good/failing on each spawn_agent dispatch — the brain fans out three workers,
+    // Alternate good/failing on each spawn_worker dispatch — the brain fans out three workers,
     // two of which crash (down), and stops without awaiting any of them.
     let spawn = 0
     const makeAgent = (_p: AgentProfile): Agent<unknown, unknown> =>
@@ -265,9 +265,9 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
     const chat = scriptedBrain([
       {
         toolCalls: [
-          { name: 'spawn_agent', arguments: { profile: {}, task: 'go' } },
-          { name: 'spawn_agent', arguments: { profile: {}, task: 'go' } },
-          { name: 'spawn_agent', arguments: { profile: {}, task: 'go' } },
+          { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
+          { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
+          { name: 'spawn_worker', arguments: { profile: {}, task: 'go' } },
         ],
       },
       // Await once so the two hanging workers are torn down at run end, but the brain stops
@@ -311,7 +311,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { metadata: { kind: 'worker' } }, task: 'sub' },
           },
         ],
@@ -340,7 +340,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
         {
           toolCalls: [
             {
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: { profile: { metadata: { kind: 'driver' } }, task: 'delegate' },
             },
           ],
@@ -403,12 +403,12 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
       seenNormalTurns.push(messages)
       normalTurn += 1
       if (normalTurn === 1) {
-        expect(tools.some((t) => t.function.name === 'spawn_agent')).toBe(true)
+        expect(tools.some((t) => t.function.name === 'spawn_worker')).toBe(true)
         return {
           toolCalls: [
             {
               id: 'spawn',
-              name: 'spawn_agent',
+              name: 'spawn_worker',
               arguments: JSON.stringify({ profile: {}, task: 'go' }),
             },
           ],
@@ -710,7 +710,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
   it('fails loud at CONSTRUCTION when a work tool shadows a coordination verb', () => {
     const opts: DriverAgentOptions = {
       ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
-      extraTools: [{ ...echoTool, name: 'spawn_agent' }],
+      extraTools: [{ ...echoTool, name: 'spawn_worker' }],
       executeExtraTool: async () => 'nope',
     }
     // The collision guard fires eagerly — NOT buried in a swallowed act() throw.

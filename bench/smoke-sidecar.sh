@@ -34,9 +34,9 @@ curl -s -X POST "$URL" -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | head -c 600
 echo
 
-echo "=== spawn_agent (worker docker-execs into container) ==="
+echo "=== spawn_worker (worker docker-execs into container) ==="
 curl -s -X POST "$URL" -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spawn_agent","arguments":{"profile":{"name":"smoke-worker"},"task":"echo SMOKE_WORKER_RAN"}}}'
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spawn_worker","arguments":{"profile":{"name":"smoke-worker"},"task":"echo SMOKE_WORKER_RAN"}}}'
 echo
 sleep 6
 echo "=== await_event ==="

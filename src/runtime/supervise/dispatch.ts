@@ -22,7 +22,7 @@
  *
  *   1. `SuperviseOptions.maxLiveWorkers` (`src/runtime/supervise/supervise.ts`) — supervised-tree
  *      level. One shared Scope counter bounds every spawned manager and leaf in the recursive tree;
- *      `spawn_agent` fails closed with `error: 'max-live-workers'` past it. Unset ⇒ NO tree cap.
+ *      `spawn_worker` fails closed with `error: 'max-live-workers'` past it. Unset ⇒ NO tree cap.
  *      `CoordinationToolsOptions.maxLiveWorkers` remains the local form for a toolbox mounted on a
  *      caller-owned Scope that has no tree limit.
  *   2. `SandboxLineage`'s `maxConcurrency` / `DEFAULT_FORK_CONCURRENCY = 4`

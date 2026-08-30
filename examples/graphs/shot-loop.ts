@@ -68,7 +68,7 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: { profile: { name: 'coder' }, task: 'shot 1: make the tests pass' },
           },
         ],
@@ -79,7 +79,7 @@ export function shotLoop(): { graph: AgentGraph; opts: RunGraphTestOptions } {
       {
         toolCalls: [
           {
-            name: 'spawn_agent',
+            name: 'spawn_worker',
             arguments: {
               profile: { name: 'coder' },
               task: 'shot 2: fix the failing suite the verifier reported',

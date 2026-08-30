@@ -10,7 +10,7 @@
  * against the live scope, fold the results back, repeat until the driver stops (no tool
  * calls) or the turn cap forces a keep-best finalize.
  *
- * Recursion composes through `makeWorkerAgent`: `spawn_agent` resolves a `profile` to a
+ * Recursion composes through `makeWorkerAgent`: `spawn_worker` resolves a `profile` to a
  * worker LEAF or — when the profile is a driver — a `driverChild` wrapping ANOTHER
  * `driverAgent` over its own nested scope (see `driver-executor.ts`). So an agent
  * drives an agent that drives an agent, each an LLM tool-loop, all on one conserved-budget
@@ -119,7 +119,7 @@ export interface DriverAgentOptions {
   /** Independent completion check for work the driver performs itself. When present, the driver
    *  receives `submit_result`; the first passing submission ends the loop and becomes the output. */
   readonly deliverable?: DeliverableSpec<unknown>
-  /** Hard cap on simultaneously-LIVE workers — `spawn_agent` fails closed once this many are in
+  /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   readonly maxLiveWorkers?: number
   /** The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
@@ -138,7 +138,7 @@ export interface DriverAgentOptions {
   readonly stallAfterMs?: number
   /** Default continuity per worker PROFILE NAME — `'resume'` makes spawns of that name re-attach
    *  to the node's latest settled worker (see
-   *  `CoordinationToolsOptions.continuityByProfile`); `spawn_agent`'s per-call `continuity`
+   *  `CoordinationToolsOptions.continuityByProfile`); `spawn_worker`'s per-call `continuity`
    *  argument overrides. Omit = every spawn fresh (status quo). */
   readonly continuityByProfile?: Readonly<Record<string, ContinuityMode>>
   /** OPT-IN async gate run before every spawn mints an assignment or reserves budget. See
@@ -1252,21 +1252,21 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
   if (completed.length > 0) {
     lines.push(
       '',
-      'COMPLETED keys — spawn_agent with the same key returns the finished result, spending nothing:',
+      'COMPLETED keys — spawn_worker with the same key returns the finished result, spending nothing:',
       ...completed.map(([k, v]) => `- ${k} → ${v.id} (${v.label})`),
     )
   }
   if (lost.length > 0) {
     lines.push(
       '',
-      'Keys LOST in flight with the prior process — this is the unresolved work; spawn_agent with the same key starts a fresh attempt:',
+      'Keys LOST in flight with the prior process — this is the unresolved work; spawn_worker with the same key starts a fresh attempt:',
       ...lost.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
     )
   }
   if (failed.length > 0) {
     lines.push(
       '',
-      'Keys whose prior attempt FAILED (settled down) — spawn_agent with the same key retries:',
+      'Keys whose prior attempt FAILED (settled down) — spawn_worker with the same key retries:',
       ...failed.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
     )
   }

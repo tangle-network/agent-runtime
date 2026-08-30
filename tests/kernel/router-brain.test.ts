@@ -109,7 +109,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
           message: {
             content: 'reasoning',
             tool_calls: [
-              { id: 'c1', function: { name: 'spawn_agent', arguments: '{"task":"go","n":3}' } },
+              { id: 'c1', function: { name: 'spawn_worker', arguments: '{"task":"go","n":3}' } },
             ],
           },
         },
@@ -124,7 +124,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
       {
         type: 'function' as const,
         function: {
-          name: 'spawn_agent',
+          name: 'spawn_worker',
           description: 'spawn a worker',
           parameters: { type: 'object' },
         },
@@ -146,7 +146,7 @@ describe('routerBrain — the production ToolLoopChat seam over the router tool-
     // tool_calls carry RAW JSON argument strings (the loop JSON.parses them itself).
     expect(result.content).toBe('reasoning')
     expect(result.toolCalls).toEqual([
-      { id: 'c1', name: 'spawn_agent', arguments: '{"task":"go","n":3}' },
+      { id: 'c1', name: 'spawn_worker', arguments: '{"task":"go","n":3}' },
     ])
   })
 
@@ -336,7 +336,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
     stubStream(
       frame({
         choices: [
-          { delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'spawn_agent' } }] } },
+          { delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'spawn_worker' } }] } },
         ],
       }) +
         frame({
@@ -361,7 +361,7 @@ describe('streamRouterChatWithTools — the SSE tool-calling transport', () => {
     const result = await streamRouterChatWithTools(cfg, [], [])
     // Ordered by the provider's slot index, arguments reassembled whole — the loop JSON.parses them.
     expect(result.toolCalls).toEqual([
-      { id: 'c1', name: 'spawn_agent', arguments: '{"task":"go"}' },
+      { id: 'c1', name: 'spawn_worker', arguments: '{"task":"go"}' },
       { id: 'c2', name: 'stop', arguments: '{}' },
     ])
   })
