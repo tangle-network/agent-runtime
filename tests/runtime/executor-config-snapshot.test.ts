@@ -113,7 +113,7 @@ describe('createExecutor config intake', () => {
           provider,
           runtime: 'provider-runtime',
           taskToTurn,
-          defaults: { workspace: { cwd: '/repo' } },
+          defaults: { workspace: { cwd: { base: 'host', path: '/repo' } } },
         },
         runtime: 'provider-runtime',
       },

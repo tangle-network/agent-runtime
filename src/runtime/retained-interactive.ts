@@ -42,7 +42,6 @@ import type {
   RetainedInteractiveIntentAdmission,
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
-import { effectiveWorkspaceCwd } from './workspace-cwd'
 
 /**
  * Start one retry-safe native coding-agent TUI without dispatching a headless turn.
@@ -54,7 +53,7 @@ export async function startRetainedInteractiveRun(
   options: StartRetainedInteractiveRunOptions,
 ): Promise<RetainedInteractiveRunHandle> {
   options.signal?.throwIfAborted()
-  const startOptions = resolveRetainedInteractiveStart(options)
+  const startOptions = options
   assertStableText(startOptions.environment.idempotencyKey, 'environment idempotency key')
   assertStableText(startOptions.interactiveIdempotencyKey, 'interactive idempotency key')
   if (typeof startOptions.onAdmission !== 'function') {
@@ -247,16 +246,6 @@ export async function reconnectRetainedInteractiveRun(
   const handle = createRetainedInteractiveRunHandle(environment, ref, capabilities)
   await handle.status({ signal: options.signal })
   return handle
-}
-
-function resolveRetainedInteractiveStart(
-  options: StartRetainedInteractiveRunOptions,
-): StartRetainedInteractiveRunOptions {
-  const cwd = effectiveWorkspaceCwd(options.cwd, options.environment.workspace?.cwd)
-  return {
-    ...options,
-    ...(cwd === undefined ? {} : { cwd }),
-  }
 }
 
 function interactiveRequest(

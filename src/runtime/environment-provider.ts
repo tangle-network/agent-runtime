@@ -15,10 +15,13 @@ import {
   type AgentRunControlRef,
   agentInteractiveSessionRefMatchesStart,
   canonicalCandidateDigest,
+  canonicalWorkspaceCwd,
   harnessSystemPromptIntents,
   type InteractionAcknowledgement,
   type InteractionResponseCommand,
   type TokenUsage,
+  WorkspaceRequestSchema,
+  workspaceCwdPathForBase,
 } from '@tangle-network/agent-interface'
 import type {
   AgentEnvironment,
@@ -323,6 +326,7 @@ export function sandboxClientAsProvider(
           input,
           options.defaultBackend ?? 'opencode',
           options.resolveProfile,
+          providerName,
         ))
       const capabilities = await providerCapabilities()
       const box = await client.create(
@@ -591,10 +595,15 @@ function createInputFromSandboxOptions(
 ): Partial<CreateAgentEnvironmentInput> {
   const profile = options?.backend?.profile
   const backend = options?.backend?.type
+  const cwd =
+    options?.cwd === undefined
+      ? undefined
+      : canonicalWorkspaceCwd({ base: 'repository', path: options.cwd })
   const workspace = {
     ...(options?.environment ? { environment: options.environment } : {}),
     ...(options?.git?.url ? { repoUrl: options.git.url } : {}),
     ...(options?.git?.ref ? { gitRef: options.git.ref } : {}),
+    ...(cwd === undefined ? {} : { cwd }),
   }
   return {
     ...(profile !== undefined ? { profile } : {}),
@@ -616,10 +625,12 @@ async function sandboxOptionsFromCreateInput(
   input: CreateAgentEnvironmentInput,
   defaultBackend: BackendType,
   resolveProfile?: SandboxClientProviderOptions['resolveProfile'],
+  providerName = 'tangle-sandbox',
 ): Promise<CreateSandboxOptions> {
   const backendType = (input.backend ?? defaultBackend) as BackendType
-  const workspace = input.workspace ?? {}
+  const workspace = WorkspaceRequestSchema.parse(input.workspace ?? {})
   const environment = sandboxEnvironmentFromWorkspace(workspace)
+  const cwd = workspaceCwdPathForBase(workspace.cwd, 'repository', providerName)
   const providerOptions = input.providerOptions?.sandboxCreateOptions
   const base =
     providerOptions && typeof providerOptions === 'object'
@@ -633,6 +644,7 @@ async function sandboxOptionsFromCreateInput(
     ...base,
     ...(environment ? { environment } : {}),
     ...(workspace.repoUrl ? { git: { url: workspace.repoUrl, ref: workspace.gitRef } } : {}),
+    ...(cwd === undefined ? {} : { cwd }),
     ...(input.resources ? { resources: input.resources as CreateSandboxOptions['resources'] } : {}),
     ...(input.env ? { env: input.env } : {}),
     ...(Array.isArray(input.secrets) ? { secrets: input.secrets } : {}),
@@ -1917,7 +1929,15 @@ function defaultTangleSandboxCapabilities(options: {
     },
     streaming: { live: true, replay: true, detach: true, turnIdempotency: true },
     sessions: { continue: true, list: true, messages: true },
-    workspace: { read: true, write: true, exec: true, git: true, upload: true, download: true },
+    workspace: {
+      read: true,
+      write: true,
+      exec: true,
+      git: true,
+      upload: true,
+      download: true,
+      cwdBases: { repository: true, host: false },
+    },
     branching: { checkpoint: false, fork: false },
     ...(options.rediscover
       ? { interactiveAgent: { ...completeInteractiveAgentCapabilities } }

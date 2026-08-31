@@ -100,9 +100,10 @@ describe('retained interactive runs', () => {
     expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
   })
 
-  it('forwards the provider workspace cwd unchanged to creation and exact process start', async () => {
+  it('forwards the based workspace cwd to creation and leaves process resolution to the provider', async () => {
     const fixture = interactiveProvider()
     const admissions: RetainedInteractiveAdmission[] = []
+    const cwd = { base: 'repository' as const, path: 'packages/braid' }
 
     await startRetainedInteractiveRun({
       provider: fixture.provider,
@@ -112,7 +113,7 @@ describe('retained interactive runs', () => {
         workspace: {
           repoUrl: 'https://github.com/tangle-network/braid.git',
           gitRef: 'main',
-          cwd: '/workspace/./braid/',
+          cwd,
         },
       },
       interactiveIdempotencyKey: 'native-request-cwd',
@@ -124,77 +125,62 @@ describe('retained interactive runs', () => {
     expect(fixture.createInputs[0]?.workspace).toEqual({
       repoUrl: 'https://github.com/tangle-network/braid.git',
       gitRef: 'main',
-      cwd: '/workspace/./braid/',
+      cwd,
     })
-    expect(fixture.startRequests[0]?.cwd).toBe('/workspace/./braid/')
+    expect(fixture.startRequests[0]?.cwd).toBeUndefined()
     expect(admissions[1]).toMatchObject({
       phase: 'interactive_environment',
-      request: { cwd: '/workspace/./braid/' },
     })
+    expect(admissions[1]).not.toHaveProperty('request.cwd')
   })
 
-  it.each(['.', '../outside', 'C:\\workspace\\repo'])(
-    'preserves provider cwd spelling: %s',
-    async (cwd) => {
-      const fixture = interactiveProvider()
-
-      await startRetainedInteractiveRun({
-        provider: fixture.provider,
-        environment: {
-          profile,
-          idempotencyKey: `provider-cwd-${cwd.replace(/[^a-z]+/giu, '-')}`,
-          workspace: { cwd },
-        },
-        interactiveIdempotencyKey: 'native-provider-cwd',
-        onAdmission: async () => {},
-      })
-
-      expect(fixture.createInputs[0]?.workspace?.cwd).toBe(cwd)
-      expect(fixture.startRequests[0]?.cwd).toBe(cwd)
-    },
-  )
-
-  it('rejects conflicting explicit cwd values before intent admission', async () => {
+  it.each([
+    { base: 'repository' as const, path: '.' },
+    { base: 'repository' as const, path: 'packages/runtime' },
+    { base: 'host' as const, path: '/workspace/repo' },
+  ])('preserves the provider-owned workspace cwd: $base $path', async (cwd) => {
     const fixture = interactiveProvider()
-    const admissions: RetainedInteractiveAdmission[] = []
-
-    await expect(
-      startRetainedInteractiveRun({
-        provider: fixture.provider,
-        environment: {
-          profile,
-          idempotencyKey: 'workspace-cwd-conflict',
-          workspace: { cwd: '/workspace/repo' },
-        },
-        interactiveIdempotencyKey: 'native-cwd-conflict',
-        cwd: '/workspace/other',
-        onAdmission: async (admission) => {
-          admissions.push(admission)
-        },
-      }),
-    ).rejects.toThrow('retained interactive cwd conflicts with environment.workspace.cwd')
-    expect(admissions).toEqual([])
-    expect(fixture.createCalls).toBe(0)
-  })
-
-  it('accepts matching explicit and workspace cwd values without rewriting them', async () => {
-    const fixture = interactiveProvider()
-    const cwd = '../repo'
 
     await startRetainedInteractiveRun({
       provider: fixture.provider,
       environment: {
         profile,
-        idempotencyKey: 'workspace-cwd-matching',
+        idempotencyKey: `provider-cwd-${cwd.base}-${cwd.path.replace(/[^a-z]+/giu, '-')}`,
         workspace: { cwd },
       },
-      interactiveIdempotencyKey: 'native-cwd-matching',
-      cwd,
+      interactiveIdempotencyKey: 'native-provider-cwd',
       onAdmission: async () => {},
     })
 
-    expect(fixture.createInputs[0]?.workspace?.cwd).toBe(cwd)
-    expect(fixture.startRequests[0]?.cwd).toBe(cwd)
+    expect(fixture.createInputs[0]?.workspace?.cwd).toEqual(cwd)
+    expect(fixture.startRequests[0]?.cwd).toBeUndefined()
+  })
+
+  it('keeps an explicit process cwd separate from the portable workspace request', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+    const workspaceCwd = { base: 'repository' as const, path: 'packages/runtime' }
+
+    await startRetainedInteractiveRun({
+      provider: fixture.provider,
+      environment: {
+        profile,
+        idempotencyKey: 'workspace-and-process-cwd',
+        workspace: { cwd: workspaceCwd },
+      },
+      interactiveIdempotencyKey: 'native-process-cwd',
+      cwd: '/home/agent/repo/packages/runtime',
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+    })
+
+    expect(fixture.createInputs[0]?.workspace?.cwd).toEqual(workspaceCwd)
+    expect(fixture.startRequests[0]?.cwd).toBe('/home/agent/repo/packages/runtime')
+    expect(admissions[1]).toMatchObject({
+      phase: 'interactive_environment',
+      request: { cwd: '/home/agent/repo/packages/runtime' },
+    })
   })
 
   it('keeps environment creation stable while native process identity stays distinct', async () => {
@@ -393,7 +379,7 @@ describe('retained interactive runs', () => {
       environment: {
         profile,
         idempotencyKey: 'workspace-cwd-replay-conflict',
-        workspace: { cwd: '/workspace/repo' },
+        workspace: { cwd: { base: 'repository', path: 'packages/runtime' } },
       },
       interactiveIdempotencyKey: 'native-cwd-replay-conflict',
       onAdmission: async (admission) => {
@@ -413,7 +399,7 @@ describe('retained interactive runs', () => {
           environment: {
             profile,
             idempotencyKey: 'workspace-cwd-replay-conflict',
-            workspace: { cwd: '/workspace/other' },
+            workspace: { cwd: { base: 'repository', path: 'packages/other' } },
           },
           interactiveIdempotencyKey: 'native-cwd-replay-conflict',
         },
@@ -436,7 +422,7 @@ describe('retained interactive runs', () => {
         environment: {
           profile,
           idempotencyKey: 'workspace-loss',
-          workspace: { cwd: '/workspace/repo' },
+          workspace: { cwd: { base: 'repository', path: 'packages/runtime' } },
         },
         interactiveIdempotencyKey: 'native-loss',
         onAdmission,
@@ -458,10 +444,7 @@ describe('retained interactive runs', () => {
     expect(recovered?.ref.run).toEqual(environmentAdmission.request.run)
     expect(fixture.startCalls).toBe(2)
     expect(fixture.processStarts).toBe(1)
-    expect(fixture.startRequests.map((request) => request.cwd)).toEqual([
-      '/workspace/repo',
-      '/workspace/repo',
-    ])
+    expect(fixture.startRequests.map((request) => request.cwd)).toEqual([undefined, undefined])
     expect(admissions.at(-1)).toMatchObject({
       phase: 'interactive_started',
       ref: { incarnationId: 'incarnation-1' },

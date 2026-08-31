@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.185.0
+
+### Interface 2 workspace paths reach Tangle Sandbox correctly
+
+Runtime now carries based workspace paths from Interface 2 through environment creation.
+The Tangle Sandbox adapter maps repository paths to its relative `cwd` option.
+It rejects host paths because Sandbox does not accept host filesystem paths.
+
+This release consumes Interface `2.0.0`, Agent Core `0.9.6`, and Profile Materialize `0.18.0`.
+Sandbox remains below `0.35.0` until that release is publicly available.
+
 ## 0.183.0
 
 ### The coordination spawn tool is now `spawn_worker`
