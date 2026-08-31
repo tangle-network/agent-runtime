@@ -346,7 +346,7 @@ describe('retained runtime run control', () => {
       workspace: {
         repoUrl: 'https://github.com/tangle-network/braid.git',
         gitRef: 'main',
-        cwd: '/workspace/./braid/',
+        cwd: { base: 'repository' as const, path: 'braid' },
       },
       secrets: { TANGLE_TOKEN: 'headless-secret-value' },
       providerOptions: { credential: 'headless-provider-secret' },
@@ -395,7 +395,10 @@ describe('retained runtime run control', () => {
         provider,
         environment: {
           ...environment,
-          workspace: { ...environment.workspace, cwd: '/workspace/other' },
+          workspace: {
+            ...environment.workspace,
+            cwd: { base: 'repository' as const, path: 'other' },
+          },
         },
         turn,
         intent,
@@ -439,7 +442,7 @@ describe('retained runtime run control', () => {
     expect(created?.workspace).toEqual({
       repoUrl: 'https://github.com/tangle-network/braid.git',
       gitRef: 'main',
-      cwd: '/workspace/./braid/',
+      cwd: { base: 'repository' as const, path: 'braid' },
     })
     expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
     expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })

@@ -302,7 +302,7 @@ describe('provisionSupervisor', () => {
         invocationId: 'provision-lifecycle-1',
         task: 'Inspect the assigned workspace',
         workerEnvironment: {
-          workspace: { cwd: '/workspace' },
+          workspace: { cwd: { base: 'repository', path: '.' } },
           metadata: { purpose: 'provision-test' },
         },
         workspaceDir: root,
@@ -317,7 +317,7 @@ describe('provisionSupervisor', () => {
       expect(provisioned.providers).toBe(fixture.provider)
       expect(provisioned.terminalTakeover).toBe('required')
       expect(fixture.stats.createInputs[0]).toMatchObject({
-        workspace: { cwd: '/workspace' },
+        workspace: { cwd: { base: 'repository', path: '.' } },
         metadata: {
           purpose: 'provision-test',
           runtime: 'agent-runtime',
@@ -688,7 +688,15 @@ const fixtureCapabilities: AgentEnvironmentCapabilities = {
   },
   streaming: { live: true, replay: true, detach: true, turnIdempotency: true },
   sessions: { continue: true, list: true, messages: true },
-  workspace: { read: true, write: true, exec: true, git: true, upload: true, download: true },
+  workspace: {
+    read: true,
+    write: true,
+    exec: true,
+    git: true,
+    upload: true,
+    download: true,
+    cwdBases: { repository: true, host: true },
+  },
   branching: { checkpoint: false, fork: false },
   placement: false,
   usage: false,

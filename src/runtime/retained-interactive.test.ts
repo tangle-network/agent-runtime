@@ -100,7 +100,7 @@ describe('retained interactive runs', () => {
     expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
   })
 
-  it('forwards the provider workspace cwd unchanged to creation and exact process start', async () => {
+  it('forwards the public workspace cwd to creation and the provider start', async () => {
     const fixture = interactiveProvider()
     const admissions: RetainedInteractiveAdmission[] = []
 
@@ -112,7 +112,7 @@ describe('retained interactive runs', () => {
         workspace: {
           repoUrl: 'https://github.com/tangle-network/braid.git',
           gitRef: 'main',
-          cwd: '/workspace/./braid/',
+          cwd: { base: 'repository', path: 'packages/braid' },
         },
       },
       interactiveIdempotencyKey: 'native-request-cwd',
@@ -124,35 +124,80 @@ describe('retained interactive runs', () => {
     expect(fixture.createInputs[0]?.workspace).toEqual({
       repoUrl: 'https://github.com/tangle-network/braid.git',
       gitRef: 'main',
-      cwd: '/workspace/./braid/',
+      cwd: { base: 'repository', path: 'packages/braid' },
     })
-    expect(fixture.startRequests[0]?.cwd).toBe('/workspace/./braid/')
+    expect(fixture.startRequests[0]?.cwd).toBe('packages/braid')
     expect(admissions[1]).toMatchObject({
       phase: 'interactive_environment',
-      request: { cwd: '/workspace/./braid/' },
+      request: { cwd: 'packages/braid' },
     })
   })
 
-  it.each(['.', '../outside', 'C:\\workspace\\repo'])(
-    'preserves provider cwd spelling: %s',
-    async (cwd) => {
-      const fixture = interactiveProvider()
+  it.each([
+    ['repository', '.'],
+    ['repository', 'packages/braid'],
+    ['host', '/workspace/repo'],
+  ] as const)('preserves the selected workspace cwd path: %s %s', async (base, cwd) => {
+    const fixture = interactiveProvider()
+    const workspaceCwd =
+      base === 'repository'
+        ? { base: 'repository' as const, path: cwd }
+        : { base: 'host' as const, path: cwd }
 
-      await startRetainedInteractiveRun({
+    await startRetainedInteractiveRun({
+      provider: fixture.provider,
+      environment: {
+        profile,
+        idempotencyKey: `provider-cwd-${cwd.replace(/[^a-z]+/giu, '-')}`,
+        workspace: { cwd: workspaceCwd },
+      },
+      interactiveIdempotencyKey: 'native-provider-cwd',
+      onAdmission: async () => {},
+    })
+
+    expect(fixture.createInputs[0]?.workspace?.cwd).toEqual(workspaceCwd)
+    expect(fixture.startRequests[0]?.cwd).toBe(cwd)
+  })
+
+  it('rejects a workspace cwd base the provider does not advertise', async () => {
+    const fixture = interactiveProvider({ supportedCwdBases: { repository: true, host: false } })
+    const admissions: RetainedInteractiveAdmission[] = []
+
+    await expect(
+      startRetainedInteractiveRun({
         provider: fixture.provider,
         environment: {
           profile,
-          idempotencyKey: `provider-cwd-${cwd.replace(/[^a-z]+/giu, '-')}`,
-          workspace: { cwd },
+          idempotencyKey: 'workspace-cwd-unsupported',
+          workspace: { cwd: { base: 'host', path: '/workspace/repo' } },
         },
-        interactiveIdempotencyKey: 'native-provider-cwd',
-        onAdmission: async () => {},
-      })
+        interactiveIdempotencyKey: 'native-cwd-unsupported',
+        onAdmission: async (admission) => {
+          admissions.push(admission)
+        },
+      }),
+    ).rejects.toThrow('provider "test-provider" does not advertise workspace cwd base "host"')
+    expect(admissions.map((admission) => admission.phase)).toEqual(['interactive_intent'])
+    expect(fixture.createCalls).toBe(0)
+  })
 
-      expect(fixture.createInputs[0]?.workspace?.cwd).toBe(cwd)
-      expect(fixture.startRequests[0]?.cwd).toBe(cwd)
-    },
-  )
+  it('rejects a workspace cwd when the provider omits cwd base capabilities', async () => {
+    const fixture = interactiveProvider({ omitCwdBases: true })
+
+    await expect(
+      startRetainedInteractiveRun({
+        provider: fixture.provider,
+        environment: {
+          profile,
+          idempotencyKey: 'workspace-cwd-capabilities-omitted',
+          workspace: { cwd: { base: 'repository', path: 'repo' } },
+        },
+        interactiveIdempotencyKey: 'native-cwd-capabilities-omitted',
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('provider "test-provider" does not advertise workspace cwd base "repository"')
+    expect(fixture.createCalls).toBe(0)
+  })
 
   it('rejects conflicting explicit cwd values before intent admission', async () => {
     const fixture = interactiveProvider()
@@ -164,7 +209,7 @@ describe('retained interactive runs', () => {
         environment: {
           profile,
           idempotencyKey: 'workspace-cwd-conflict',
-          workspace: { cwd: '/workspace/repo' },
+          workspace: { cwd: { base: 'repository', path: 'repo' } },
         },
         interactiveIdempotencyKey: 'native-cwd-conflict',
         cwd: '/workspace/other',
@@ -179,21 +224,24 @@ describe('retained interactive runs', () => {
 
   it('accepts matching explicit and workspace cwd values without rewriting them', async () => {
     const fixture = interactiveProvider()
-    const cwd = '../repo'
+    const cwd = 'repo'
 
     await startRetainedInteractiveRun({
       provider: fixture.provider,
       environment: {
         profile,
         idempotencyKey: 'workspace-cwd-matching',
-        workspace: { cwd },
+        workspace: { cwd: { base: 'repository', path: cwd } },
       },
       interactiveIdempotencyKey: 'native-cwd-matching',
       cwd,
       onAdmission: async () => {},
     })
 
-    expect(fixture.createInputs[0]?.workspace?.cwd).toBe(cwd)
+    expect(fixture.createInputs[0]?.workspace?.cwd).toEqual({
+      base: 'repository',
+      path: cwd,
+    })
     expect(fixture.startRequests[0]?.cwd).toBe(cwd)
   })
 
@@ -393,7 +441,7 @@ describe('retained interactive runs', () => {
       environment: {
         profile,
         idempotencyKey: 'workspace-cwd-replay-conflict',
-        workspace: { cwd: '/workspace/repo' },
+        workspace: { cwd: { base: 'repository', path: 'repo' } },
       },
       interactiveIdempotencyKey: 'native-cwd-replay-conflict',
       onAdmission: async (admission) => {
@@ -413,7 +461,7 @@ describe('retained interactive runs', () => {
           environment: {
             profile,
             idempotencyKey: 'workspace-cwd-replay-conflict',
-            workspace: { cwd: '/workspace/other' },
+            workspace: { cwd: { base: 'repository', path: 'other' } },
           },
           interactiveIdempotencyKey: 'native-cwd-replay-conflict',
         },
@@ -436,7 +484,7 @@ describe('retained interactive runs', () => {
         environment: {
           profile,
           idempotencyKey: 'workspace-loss',
-          workspace: { cwd: '/workspace/repo' },
+          workspace: { cwd: { base: 'repository', path: 'repo' } },
         },
         interactiveIdempotencyKey: 'native-loss',
         onAdmission,
@@ -458,10 +506,7 @@ describe('retained interactive runs', () => {
     expect(recovered?.ref.run).toEqual(environmentAdmission.request.run)
     expect(fixture.startCalls).toBe(2)
     expect(fixture.processStarts).toBe(1)
-    expect(fixture.startRequests.map((request) => request.cwd)).toEqual([
-      '/workspace/repo',
-      '/workspace/repo',
-    ])
+    expect(fixture.startRequests.map((request) => request.cwd)).toEqual(['repo', 'repo'])
     expect(admissions.at(-1)).toMatchObject({
       phase: 'interactive_started',
       ref: { incarnationId: 'incarnation-1' },
@@ -923,6 +968,8 @@ function interactiveProvider(
     returnMalformedRef?: boolean
     returnWrongRun?: boolean
     returnWrongTerminal?: boolean
+    supportedCwdBases?: { repository: boolean; host: boolean }
+    omitCwdBases?: boolean
   } = {},
 ): ProviderFixture {
   const fixture = {
@@ -1122,7 +1169,12 @@ function interactiveProvider(
         fixture.hangingCalls += 1
         return neverPending()
       }
-      return interactiveCapabilities(options.completeCapabilities !== false)
+      return interactiveCapabilities(
+        options.completeCapabilities !== false,
+        options.omitCwdBases
+          ? undefined
+          : (options.supportedCwdBases ?? { repository: true, host: true }),
+      )
     },
     create: async (input) => {
       if (hangAt === 'create') {
@@ -1251,7 +1303,10 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   expect(predicate()).toBe(true)
 }
 
-function interactiveCapabilities(complete: boolean): AgentEnvironmentCapabilities {
+function interactiveCapabilities(
+  complete: boolean,
+  cwdBases?: { repository: boolean; host: boolean },
+): AgentEnvironmentCapabilities {
   return {
     profile: {
       namedProfiles: true,
@@ -1267,7 +1322,15 @@ function interactiveCapabilities(complete: boolean): AgentEnvironmentCapabilitie
     },
     streaming: { live: true, replay: true, detach: true, turnIdempotency: true },
     sessions: { continue: true, list: true, messages: true },
-    workspace: { read: true, write: true, exec: true, git: true, upload: true, download: true },
+    workspace: {
+      read: true,
+      write: true,
+      exec: true,
+      git: true,
+      upload: true,
+      download: true,
+      ...(cwdBases === undefined ? {} : { cwdBases }),
+    },
     branching: { checkpoint: true, fork: true },
     placement: true,
     usage: true,

@@ -42,7 +42,7 @@ import type {
   RetainedInteractiveIntentAdmission,
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
-import { effectiveWorkspaceCwd } from './workspace-cwd'
+import { assertWorkspaceCwdMatches, effectiveWorkspaceCwd } from './workspace-cwd'
 
 /**
  * Start one retry-safe native coding-agent TUI without dispatching a headless turn.
@@ -54,9 +54,10 @@ export async function startRetainedInteractiveRun(
   options: StartRetainedInteractiveRunOptions,
 ): Promise<RetainedInteractiveRunHandle> {
   options.signal?.throwIfAborted()
-  const startOptions = resolveRetainedInteractiveStart(options)
+  const startOptions = options
   assertStableText(startOptions.environment.idempotencyKey, 'environment idempotency key')
   assertStableText(startOptions.interactiveIdempotencyKey, 'interactive idempotency key')
+  assertWorkspaceCwdMatches(startOptions.cwd, startOptions.environment.workspace?.cwd)
   if (typeof startOptions.onAdmission !== 'function') {
     throw new Error('startRetainedInteractiveRun requires an awaited onAdmission durability hook')
   }
@@ -89,6 +90,7 @@ export async function startRetainedInteractiveRun(
     ),
   )
   assertInteractiveCapabilities(startOptions.provider.name, providerCapabilities)
+  const resolvedStartOptions = resolveRetainedInteractiveStart(startOptions, providerCapabilities)
 
   const environment = await createInteractiveEnvironment(
     () =>
@@ -119,7 +121,7 @@ export async function startRetainedInteractiveRun(
   }
 
   const request = interactiveRequest(
-    startOptions,
+    resolvedStartOptions,
     environment,
     profile,
     requestedProfileDigest,
@@ -251,8 +253,14 @@ export async function reconnectRetainedInteractiveRun(
 
 function resolveRetainedInteractiveStart(
   options: StartRetainedInteractiveRunOptions,
+  providerCapabilities: AgentEnvironmentCapabilities,
 ): StartRetainedInteractiveRunOptions {
-  const cwd = effectiveWorkspaceCwd(options.cwd, options.environment.workspace?.cwd)
+  const cwd = effectiveWorkspaceCwd(
+    options.cwd,
+    options.environment.workspace?.cwd,
+    options.provider.name,
+    providerCapabilities.workspace.cwdBases,
+  )
   return {
     ...options,
     ...(cwd === undefined ? {} : { cwd }),

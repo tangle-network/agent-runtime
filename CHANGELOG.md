@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.184.1
+
+### Retained interactive workspaces honor Interface 2 cwd bases
+
+Runtime now validates the selected workspace cwd base against provider capabilities before creating an environment.
+It converts the shared repository or host reference to the provider-facing interactive start path.
+It rejects an unsupported base or a conflicting explicit cwd without creating a second environment.
+
 ## 0.183.0
 
 ### The coordination spawn tool is now `spawn_worker`

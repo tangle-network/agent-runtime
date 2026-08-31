@@ -1267,7 +1267,7 @@ describe('environment provider adapters', () => {
       backend: 'provider',
       provider,
       defaults: {
-        workspace: { cwd: '/repo' },
+        workspace: { cwd: { base: 'repository', path: 'repo' } },
         providerOptions: { region: 'us-west', tenancy: 'team-a' },
       },
       steering: {
@@ -1316,7 +1316,7 @@ describe('environment provider adapters', () => {
     expect(Object.isFrozen(created.profile.model)).toBe(true)
     expect(created).toMatchObject({
       backend: 'pi',
-      workspace: { cwd: '/repo' },
+      workspace: { cwd: { base: 'repository', path: 'repo' } },
       signal: ctx.signal,
       providerOptions: {
         region: 'us-west',
@@ -1790,7 +1790,7 @@ describe('environment provider adapters', () => {
       registry,
       defaults: {
         backend: 'codex',
-        workspace: { cwd: '/repo' },
+        workspace: { cwd: { base: 'repository', path: 'repo' } },
       },
     })
     const spec: AgentSpec = {
@@ -1809,7 +1809,7 @@ describe('environment provider adapters', () => {
     expect(created).toMatchObject({
       profile: spec.profile,
       backend: 'codex',
-      workspace: { cwd: '/repo' },
+      workspace: { cwd: { base: 'repository', path: 'repo' } },
     })
     expect(executor.resultArtifact().out).toMatchObject({ content: 'from-named-provider' })
     expect(registry.names()).toEqual(['named-provider'])

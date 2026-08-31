@@ -1,15 +1,42 @@
-import type { WorkspaceRequest } from '@tangle-network/agent-interface/environment-provider'
+import { type WorkspaceCwd, workspaceCwdPathForBase } from '@tangle-network/agent-interface'
+import type { AgentEnvironmentCapabilities } from '@tangle-network/agent-interface/environment-provider'
 
 /**
- * Resolve the one provider-owned cwd that an interactive retained start must use.
- * Runtime preserves this provider string and does not interpret its path syntax.
+ * Reject an explicit interactive cwd that disagrees with the public workspace
+ * request before the durable intent is admitted.
+ */
+export function assertWorkspaceCwdMatches(
+  explicitCwd: string | undefined,
+  workspaceCwd: WorkspaceCwd | undefined,
+): void {
+  if (explicitCwd === undefined || workspaceCwd === undefined) return
+  const requestedCwd = workspaceCwdPathForBase(workspaceCwd, workspaceCwd.base, 'Runtime')
+  if (explicitCwd !== requestedCwd) {
+    throw new Error('retained interactive cwd conflicts with environment.workspace.cwd')
+  }
+}
+
+/**
+ * Resolve one provider-facing cwd after capability negotiation.
+ * Runtime does not interpret the path syntax for either public base.
  */
 export function effectiveWorkspaceCwd(
   explicitCwd: string | undefined,
-  workspaceCwd: WorkspaceRequest['cwd'],
+  workspaceCwd: WorkspaceCwd | undefined,
+  providerName: string,
+  cwdBases: AgentEnvironmentCapabilities['workspace']['cwdBases'],
 ): string | undefined {
-  if (explicitCwd !== undefined && workspaceCwd !== undefined && explicitCwd !== workspaceCwd) {
+  const resolvedCwd = (() => {
+    if (workspaceCwd === undefined) return undefined
+    if (cwdBases?.[workspaceCwd.base] !== true) {
+      throw new Error(
+        `provider "${providerName}" does not advertise workspace cwd base "${workspaceCwd.base}"`,
+      )
+    }
+    return workspaceCwdPathForBase(workspaceCwd, workspaceCwd.base, providerName)
+  })()
+  if (explicitCwd !== undefined && resolvedCwd !== undefined && explicitCwd !== resolvedCwd) {
     throw new Error('retained interactive cwd conflicts with environment.workspace.cwd')
   }
-  return explicitCwd ?? workspaceCwd
+  return explicitCwd ?? resolvedCwd
 }
