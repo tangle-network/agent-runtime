@@ -42,6 +42,11 @@ import type {
   RetainedInteractiveIntentAdmission,
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
+import {
+  effectiveWorkspaceCwd,
+  normalizeWorkspaceCwd,
+  normalizeWorkspaceEnvironment,
+} from './workspace-cwd'
 
 /**
  * Start one retry-safe native coding-agent TUI without dispatching a headless turn.
@@ -53,80 +58,83 @@ export async function startRetainedInteractiveRun(
   options: StartRetainedInteractiveRunOptions,
 ): Promise<RetainedInteractiveRunHandle> {
   options.signal?.throwIfAborted()
-  assertStableText(options.environment.idempotencyKey, 'environment idempotency key')
-  assertStableText(options.interactiveIdempotencyKey, 'interactive idempotency key')
-  if (typeof options.onAdmission !== 'function') {
+  const startOptions = normalizeRetainedInteractiveStart(options)
+  assertStableText(startOptions.environment.idempotencyKey, 'environment idempotency key')
+  assertStableText(startOptions.interactiveIdempotencyKey, 'interactive idempotency key')
+  if (typeof startOptions.onAdmission !== 'function') {
     throw new Error('startRetainedInteractiveRun requires an awaited onAdmission durability hook')
   }
-  if (!options.provider.get) {
-    throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
+  if (!startOptions.provider.get) {
+    throw new Error(
+      `provider "${startOptions.provider.name}" cannot reconstruct an environment by id`,
+    )
   }
-  const profile = agentProfileSchema.parse(options.environment.profile)
+  const profile = agentProfileSchema.parse(startOptions.environment.profile)
   if (profile.harness === undefined) {
     throw new Error('retained interactive runs require AgentProfile.harness')
   }
   const requestedProfileDigest = canonicalAgentProfileDigest(profile)
   const identity = mintRetainedIdentity(
-    options.environment.idempotencyKey,
-    options.interactiveIdempotencyKey,
+    startOptions.environment.idempotencyKey,
+    startOptions.interactiveIdempotencyKey,
   )
-  const intent = interactiveIntent(options, profile, identity)
-  if (options.intent === undefined) {
+  const intent = interactiveIntent(startOptions, profile, identity)
+  if (startOptions.intent === undefined) {
     // This is the only admission that can be written before provider.create.
     // A replay supplies the same record and therefore skips a duplicate write.
-    await admitDurably(options.onAdmission, intent)
+    await admitDurably(startOptions.onAdmission, intent)
   } else {
-    assertExactInteractiveIntent(options.intent, intent)
+    assertExactInteractiveIntent(startOptions.intent, intent)
   }
   const providerCapabilities = AgentEnvironmentCapabilitiesSchema.parse(
     await awaitAbortable(
-      Promise.resolve().then(() => options.provider.capabilities()),
-      options.signal,
+      Promise.resolve().then(() => startOptions.provider.capabilities()),
+      startOptions.signal,
     ),
   )
-  assertInteractiveCapabilities(options.provider.name, providerCapabilities)
+  assertInteractiveCapabilities(startOptions.provider.name, providerCapabilities)
 
   const environment = await createInteractiveEnvironment(
     () =>
-      options.provider.create({
-        ...options.environment,
+      startOptions.provider.create({
+        ...startOptions.environment,
         profile,
-        signal: options.signal,
+        signal: startOptions.signal,
         metadata: retainedEnvironmentMetadata(
-          options.environment.metadata,
-          options.environment.idempotencyKey,
+          startOptions.environment.metadata,
+          startOptions.environment.idempotencyKey,
         ),
       }),
-    options.signal,
+    startOptions.signal,
   )
   let capabilities: AgentEnvironmentCapabilities
   try {
-    assertExactEnvironment(options.provider.name, environment)
-    options.signal?.throwIfAborted()
+    assertExactEnvironment(startOptions.provider.name, environment)
+    startOptions.signal?.throwIfAborted()
     capabilities = interactiveCapabilitiesForEnvironment(
-      options.provider.name,
+      startOptions.provider.name,
       providerCapabilities,
       environment,
     )
-    assertInteractiveMethods(options.provider.name, environment)
+    assertInteractiveMethods(startOptions.provider.name, environment)
   } catch (error) {
     await destroyUnusedEnvironment(environment, error)
     throw error
   }
 
   const request = interactiveRequest(
-    options,
+    startOptions,
     environment,
     profile,
     requestedProfileDigest,
     identity,
   )
-  await admitDurably(options.onAdmission, {
+  await admitDurably(startOptions.onAdmission, {
     phase: 'interactive_environment',
-    provider: options.provider.name,
+    provider: startOptions.provider.name,
     environmentId: environment.id,
-    idempotencyKey: options.environment.idempotencyKey,
-    interactiveIdempotencyKey: options.interactiveIdempotencyKey,
+    idempotencyKey: startOptions.environment.idempotencyKey,
+    interactiveIdempotencyKey: startOptions.interactiveIdempotencyKey,
     request,
   })
 
@@ -136,15 +144,15 @@ export async function startRetainedInteractiveRun(
       environment,
       () =>
         environment.startInteractive!(request, {
-          signal: options.signal,
+          signal: startOptions.signal,
         }),
-      options.signal,
+      startOptions.signal,
     ),
   )
-  await admitDurably(options.onAdmission, {
+  await admitDurably(startOptions.onAdmission, {
     phase: 'interactive_started',
-    idempotencyKey: options.environment.idempotencyKey,
-    interactiveIdempotencyKey: options.interactiveIdempotencyKey,
+    idempotencyKey: startOptions.environment.idempotencyKey,
+    interactiveIdempotencyKey: startOptions.interactiveIdempotencyKey,
     ref,
   })
   return createRetainedInteractiveRunHandle(environment, ref, capabilities, request)
@@ -209,6 +217,11 @@ function exactRecoveryRequest(
   assertStableText(admission.environmentId, 'interactive environment id')
   assertStableText(admission.idempotencyKey, 'environment idempotency key')
   assertStableText(admission.interactiveIdempotencyKey, 'interactive idempotency key')
+  const rawRequest =
+    typeof admission.request === 'object' && admission.request !== null
+      ? (admission.request as Record<string, unknown>)
+      : {}
+  normalizeWorkspaceCwd(rawRequest.cwd)
   const request = exactAgentInteractiveSessionStart(admission.request)
   const identity = mintRetainedIdentity(
     admission.idempotencyKey,
@@ -243,6 +256,17 @@ export async function reconnectRetainedInteractiveRun(
   const handle = createRetainedInteractiveRunHandle(environment, ref, capabilities)
   await handle.status({ signal: options.signal })
   return handle
+}
+
+function normalizeRetainedInteractiveStart(
+  options: StartRetainedInteractiveRunOptions,
+): StartRetainedInteractiveRunOptions {
+  const cwd = effectiveWorkspaceCwd(options.cwd, options.environment.workspace?.cwd)
+  return {
+    ...options,
+    environment: normalizeWorkspaceEnvironment(options.environment),
+    ...(cwd === undefined ? {} : { cwd }),
+  }
 }
 
 function interactiveRequest(

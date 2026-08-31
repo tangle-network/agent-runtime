@@ -60,6 +60,8 @@ describe('retained interactive runs', () => {
     expect(fixture.createCalls).toBe(1)
     expect(fixture.dispatchCalls).toBe(0)
     expect(fixture.processStarts).toBe(1)
+    expect(fixture.startRequests).toHaveLength(1)
+    expect(fixture.startRequests[0]).not.toHaveProperty('cwd')
     expect(admissions.map((admission) => admission.phase)).toEqual([
       'interactive_intent',
       'interactive_environment',
@@ -96,6 +98,62 @@ describe('retained interactive runs', () => {
     expect(terminal.control).toEqual(control)
     const stopAcknowledgement = await handle.stop(stopCommand(handle.ref, control))
     expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
+  })
+
+  it('derives one normalized workspace cwd for creation and exact process start', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+
+    await startRetainedInteractiveRun({
+      provider: fixture.provider,
+      environment: {
+        profile,
+        idempotencyKey: 'workspace-request-cwd',
+        workspace: {
+          repoUrl: 'https://github.com/tangle-network/braid.git',
+          gitRef: 'main',
+          cwd: '/workspace/./braid/',
+        },
+      },
+      interactiveIdempotencyKey: 'native-request-cwd',
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+    })
+
+    expect(fixture.createInputs[0]?.workspace).toEqual({
+      repoUrl: 'https://github.com/tangle-network/braid.git',
+      gitRef: 'main',
+      cwd: '/workspace/braid',
+    })
+    expect(fixture.startRequests[0]?.cwd).toBe('/workspace/braid')
+    expect(admissions[1]).toMatchObject({
+      phase: 'interactive_environment',
+      request: { cwd: '/workspace/braid' },
+    })
+  })
+
+  it('rejects conflicting explicit cwd values before intent admission', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+
+    await expect(
+      startRetainedInteractiveRun({
+        provider: fixture.provider,
+        environment: {
+          profile,
+          idempotencyKey: 'workspace-cwd-conflict',
+          workspace: { cwd: '/workspace/repo' },
+        },
+        interactiveIdempotencyKey: 'native-cwd-conflict',
+        cwd: '/workspace/other',
+        onAdmission: async (admission) => {
+          admissions.push(admission)
+        },
+      }),
+    ).rejects.toThrow('retained interactive cwd conflicts with environment.workspace.cwd')
+    expect(admissions).toEqual([])
+    expect(fixture.createCalls).toBe(0)
   })
 
   it('keeps environment creation stable while native process identity stays distinct', async () => {
@@ -286,6 +344,44 @@ describe('retained interactive runs', () => {
     expect(fixture.processStarts).toBe(processStartsBeforeReplay)
   })
 
+  it('binds the derived workspace cwd to replay identity', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+    await startRetainedInteractiveRun({
+      provider: fixture.provider,
+      environment: {
+        profile,
+        idempotencyKey: 'workspace-cwd-replay-conflict',
+        workspace: { cwd: '/workspace/repo' },
+      },
+      interactiveIdempotencyKey: 'native-cwd-replay-conflict',
+      onAdmission: async (admission) => {
+        admissions.push(admission)
+      },
+    })
+    const intent = admissions.find((admission) => admission.phase === 'interactive_intent')
+    if (intent?.phase !== 'interactive_intent') {
+      throw new Error('expected interactive intent admission')
+    }
+
+    await expect(
+      recoverRetainedInteractiveRun({
+        provider: fixture.provider,
+        admission: intent,
+        replay: {
+          environment: {
+            profile,
+            idempotencyKey: 'workspace-cwd-replay-conflict',
+            workspace: { cwd: '/workspace/other' },
+          },
+          interactiveIdempotencyKey: 'native-cwd-replay-conflict',
+        },
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('interactive intent conflicts with replay material')
+    expect(fixture.createCalls).toBe(1)
+  })
+
   it('recovers a lost start response by replaying the same process identity', async () => {
     const fixture = interactiveProvider({ loseFirstStartResponse: true })
     const admissions: RetainedInteractiveAdmission[] = []
@@ -296,7 +392,11 @@ describe('retained interactive runs', () => {
     await expect(
       startRetainedInteractiveRun({
         provider: fixture.provider,
-        environment: { profile, idempotencyKey: 'workspace-loss' },
+        environment: {
+          profile,
+          idempotencyKey: 'workspace-loss',
+          workspace: { cwd: '/workspace/repo' },
+        },
         interactiveIdempotencyKey: 'native-loss',
         onAdmission,
       }),
@@ -317,10 +417,58 @@ describe('retained interactive runs', () => {
     expect(recovered?.ref.run).toEqual(environmentAdmission.request.run)
     expect(fixture.startCalls).toBe(2)
     expect(fixture.processStarts).toBe(1)
+    expect(fixture.startRequests.map((request) => request.cwd)).toEqual([
+      '/workspace/repo',
+      '/workspace/repo',
+    ])
     expect(admissions.at(-1)).toMatchObject({
       phase: 'interactive_started',
       ref: { incarnationId: 'incarnation-1' },
     })
+  })
+
+  it.each(['../outside', '/workspace/../outside', 'workspace/../../outside'])(
+    'rejects workspace cwd traversal before admission: %s',
+    async (cwd) => {
+      const fixture = interactiveProvider()
+      const admissions: RetainedInteractiveAdmission[] = []
+
+      await expect(
+        startRetainedInteractiveRun({
+          provider: fixture.provider,
+          environment: {
+            profile,
+            idempotencyKey: `workspace-cwd-traversal-${cwd.replace(/[^a-z]+/giu, '-')}`,
+          },
+          interactiveIdempotencyKey: 'native-cwd-traversal',
+          cwd,
+          onAdmission: async (admission) => {
+            admissions.push(admission)
+          },
+        }),
+      ).rejects.toThrow(/workspace cwd/u)
+      expect(admissions).toEqual([])
+      expect(fixture.createCalls).toBe(0)
+    },
+  )
+
+  it('rejects a cwd above the canonical string bound before admission', async () => {
+    const fixture = interactiveProvider()
+    const admissions: RetainedInteractiveAdmission[] = []
+
+    await expect(
+      startRetainedInteractiveRun({
+        provider: fixture.provider,
+        environment: { profile, idempotencyKey: 'workspace-cwd-too-long' },
+        interactiveIdempotencyKey: 'native-cwd-too-long',
+        cwd: 'x'.repeat(16_385),
+        onAdmission: async (admission) => {
+          admissions.push(admission)
+        },
+      }),
+    ).rejects.toThrow(/workspace cwd/u)
+    expect(admissions).toEqual([])
+    expect(fixture.createCalls).toBe(0)
   })
 
   it('keeps the environment and does not start when its admission cannot persist', async () => {
@@ -473,6 +621,16 @@ describe('retained interactive runs', () => {
         onAdmission: async () => {},
       }),
     ).rejects.toThrow('does not match its recovery coordinates')
+    await expect(
+      recoverRetainedInteractiveRun({
+        provider: fixture.provider,
+        admission: {
+          ...environmentAdmission,
+          request: { ...environmentAdmission.request, cwd: '../outside' },
+        },
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('workspace cwd must not contain path traversal segments')
     expect(fixture.startCalls).toBe(startsBeforeRecovery)
   })
 
@@ -736,6 +894,7 @@ interface ProviderFixture {
   readonly provider: AgentEnvironmentProvider
   readonly prompts: string[]
   readonly createInputs: CreateAgentEnvironmentInput[]
+  readonly startRequests: AgentInteractiveSessionStart[]
   readonly createCalls: number
   readonly environmentCreations: number
   readonly dispatchCalls: number
@@ -772,6 +931,7 @@ function interactiveProvider(
   const fixture = {
     prompts: [] as string[],
     createInputs: [] as CreateAgentEnvironmentInput[],
+    startRequests: [] as AgentInteractiveSessionStart[],
     createCalls: 0,
     environmentCreations: 0,
     dispatchCalls: 0,
@@ -894,6 +1054,7 @@ function interactiveProvider(
         fixture.hangingCalls += 1
         return neverPending()
       }
+      fixture.startRequests.push(request)
       fixture.startCalls += 1
       if (!ref) {
         fixture.processStarts += 1
@@ -988,7 +1149,12 @@ function interactiveProvider(
     },
   }
   return Object.defineProperties(
-    { provider, prompts: fixture.prompts, createInputs: fixture.createInputs },
+    {
+      provider,
+      prompts: fixture.prompts,
+      createInputs: fixture.createInputs,
+      startRequests: fixture.startRequests,
+    },
     {
       createCalls: { get: () => fixture.createCalls },
       environmentCreations: { get: () => fixture.environmentCreations },

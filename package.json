@@ -154,7 +154,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
-    "@biomejs/biome": "^2.5.10",
+    "@biomejs/biome": "^2.5.11",
     "@modelcontextprotocol/sdk": "catalog:",
     "@tangle-network/agent-eval": "catalog:",
     "@tangle-network/agent-interface": "catalog:",
@@ -171,7 +171,7 @@
     "typescript": "catalog:",
     "typescript-consumer": "npm:typescript@7.0.2",
     "vitest": "^4.1.11",
-    "wrangler": "4.126.0",
+    "wrangler": "4.127.0",
     "yaml": "2.9.0"
   },
   "engines": {
