@@ -4,7 +4,6 @@ import type {
   AgentTurnInput,
   CreateAgentEnvironmentInput,
 } from '@tangle-network/agent-interface/environment-provider'
-import { normalizeWorkspaceEnvironment } from './workspace-cwd'
 
 /**
  * Project environment creation input into public digest material.
@@ -17,38 +16,31 @@ import { normalizeWorkspaceEnvironment } from './workspace-cwd'
 export function retainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
-  const normalizedEnvironment = normalizeWorkspaceEnvironment(environment)
   return {
-    ...(normalizedEnvironment.backend === undefined
-      ? {}
-      : { backend: normalizedEnvironment.backend }),
-    ...(normalizedEnvironment.workspace === undefined
+    ...(environment.backend === undefined ? {} : { backend: environment.backend }),
+    ...(environment.workspace === undefined
       ? {}
       : {
-          workspaceDigest: canonicalCandidateDigest(
-            publicWorkspaceMaterial(normalizedEnvironment.workspace),
-          ),
+          workspaceDigest: canonicalCandidateDigest(publicWorkspaceMaterial(environment.workspace)),
         }),
-    ...(normalizedEnvironment.resources === undefined
+    ...(environment.resources === undefined
       ? {}
       : {
-          resourcesDigest: canonicalCandidateDigest(
-            publicResourceMaterial(normalizedEnvironment.resources),
-          ),
+          resourcesDigest: canonicalCandidateDigest(publicResourceMaterial(environment.resources)),
         }),
-    ...(normalizedEnvironment.name === undefined ? {} : { name: normalizedEnvironment.name }),
-    ...(normalizedEnvironment.env === undefined
+    ...(environment.name === undefined ? {} : { name: environment.name }),
+    ...(environment.env === undefined
       ? {}
-      : { environmentVariableNames: retainedObjectNames(normalizedEnvironment.env) }),
-    ...(normalizedEnvironment.secrets === undefined
+      : { environmentVariableNames: retainedObjectNames(environment.env) }),
+    ...(environment.secrets === undefined
       ? {}
-      : { secretNames: retainedSecretNames(normalizedEnvironment.secrets) }),
-    ...(normalizedEnvironment.metadata === undefined
+      : { secretNames: retainedSecretNames(environment.secrets) }),
+    ...(environment.metadata === undefined
       ? {}
-      : { metadataKeys: retainedObjectNames(normalizedEnvironment.metadata) }),
-    ...(normalizedEnvironment.providerOptions === undefined
+      : { metadataKeys: retainedObjectNames(environment.metadata) }),
+    ...(environment.providerOptions === undefined
       ? {}
-      : { providerOptionNames: retainedObjectNames(normalizedEnvironment.providerOptions) }),
+      : { providerOptionNames: retainedObjectNames(environment.providerOptions) }),
   }
 }
 

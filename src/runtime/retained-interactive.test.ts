@@ -100,7 +100,7 @@ describe('retained interactive runs', () => {
     expect(stopAcknowledgement).toMatchObject({ status: 'accepted', effect: 'stopped' })
   })
 
-  it('derives one normalized workspace cwd for creation and exact process start', async () => {
+  it('forwards the provider workspace cwd unchanged to creation and exact process start', async () => {
     const fixture = interactiveProvider()
     const admissions: RetainedInteractiveAdmission[] = []
 
@@ -124,14 +124,35 @@ describe('retained interactive runs', () => {
     expect(fixture.createInputs[0]?.workspace).toEqual({
       repoUrl: 'https://github.com/tangle-network/braid.git',
       gitRef: 'main',
-      cwd: '/workspace/braid',
+      cwd: '/workspace/./braid/',
     })
-    expect(fixture.startRequests[0]?.cwd).toBe('/workspace/braid')
+    expect(fixture.startRequests[0]?.cwd).toBe('/workspace/./braid/')
     expect(admissions[1]).toMatchObject({
       phase: 'interactive_environment',
-      request: { cwd: '/workspace/braid' },
+      request: { cwd: '/workspace/./braid/' },
     })
   })
+
+  it.each(['.', '../outside', 'C:\\workspace\\repo'])(
+    'preserves provider cwd spelling: %s',
+    async (cwd) => {
+      const fixture = interactiveProvider()
+
+      await startRetainedInteractiveRun({
+        provider: fixture.provider,
+        environment: {
+          profile,
+          idempotencyKey: `provider-cwd-${cwd.replace(/[^a-z]+/giu, '-')}`,
+          workspace: { cwd },
+        },
+        interactiveIdempotencyKey: 'native-provider-cwd',
+        onAdmission: async () => {},
+      })
+
+      expect(fixture.createInputs[0]?.workspace?.cwd).toBe(cwd)
+      expect(fixture.startRequests[0]?.cwd).toBe(cwd)
+    },
+  )
 
   it('rejects conflicting explicit cwd values before intent admission', async () => {
     const fixture = interactiveProvider()
@@ -154,6 +175,26 @@ describe('retained interactive runs', () => {
     ).rejects.toThrow('retained interactive cwd conflicts with environment.workspace.cwd')
     expect(admissions).toEqual([])
     expect(fixture.createCalls).toBe(0)
+  })
+
+  it('accepts matching explicit and workspace cwd values without rewriting them', async () => {
+    const fixture = interactiveProvider()
+    const cwd = '../repo'
+
+    await startRetainedInteractiveRun({
+      provider: fixture.provider,
+      environment: {
+        profile,
+        idempotencyKey: 'workspace-cwd-matching',
+        workspace: { cwd },
+      },
+      interactiveIdempotencyKey: 'native-cwd-matching',
+      cwd,
+      onAdmission: async () => {},
+    })
+
+    expect(fixture.createInputs[0]?.workspace?.cwd).toBe(cwd)
+    expect(fixture.startRequests[0]?.cwd).toBe(cwd)
   })
 
   it('keeps environment creation stable while native process identity stays distinct', async () => {
@@ -427,50 +468,6 @@ describe('retained interactive runs', () => {
     })
   })
 
-  it.each(['../outside', '/workspace/../outside', 'workspace/../../outside'])(
-    'rejects workspace cwd traversal before admission: %s',
-    async (cwd) => {
-      const fixture = interactiveProvider()
-      const admissions: RetainedInteractiveAdmission[] = []
-
-      await expect(
-        startRetainedInteractiveRun({
-          provider: fixture.provider,
-          environment: {
-            profile,
-            idempotencyKey: `workspace-cwd-traversal-${cwd.replace(/[^a-z]+/giu, '-')}`,
-          },
-          interactiveIdempotencyKey: 'native-cwd-traversal',
-          cwd,
-          onAdmission: async (admission) => {
-            admissions.push(admission)
-          },
-        }),
-      ).rejects.toThrow(/workspace cwd/u)
-      expect(admissions).toEqual([])
-      expect(fixture.createCalls).toBe(0)
-    },
-  )
-
-  it('rejects a cwd above the canonical string bound before admission', async () => {
-    const fixture = interactiveProvider()
-    const admissions: RetainedInteractiveAdmission[] = []
-
-    await expect(
-      startRetainedInteractiveRun({
-        provider: fixture.provider,
-        environment: { profile, idempotencyKey: 'workspace-cwd-too-long' },
-        interactiveIdempotencyKey: 'native-cwd-too-long',
-        cwd: 'x'.repeat(16_385),
-        onAdmission: async (admission) => {
-          admissions.push(admission)
-        },
-      }),
-    ).rejects.toThrow(/workspace cwd/u)
-    expect(admissions).toEqual([])
-    expect(fixture.createCalls).toBe(0)
-  })
-
   it('keeps the environment and does not start when its admission cannot persist', async () => {
     const fixture = interactiveProvider()
     let failure: unknown
@@ -626,11 +623,11 @@ describe('retained interactive runs', () => {
         provider: fixture.provider,
         admission: {
           ...environmentAdmission,
-          request: { ...environmentAdmission.request, cwd: '../outside' },
+          request: { ...environmentAdmission.request, cwd: '' },
         },
         onAdmission: async () => {},
       }),
-    ).rejects.toThrow('workspace cwd must not contain path traversal segments')
+    ).rejects.toThrow()
     expect(fixture.startCalls).toBe(startsBeforeRecovery)
   })
 

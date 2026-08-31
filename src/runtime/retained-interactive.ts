@@ -42,11 +42,7 @@ import type {
   RetainedInteractiveIntentAdmission,
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
-import {
-  effectiveWorkspaceCwd,
-  normalizeWorkspaceCwd,
-  normalizeWorkspaceEnvironment,
-} from './workspace-cwd'
+import { effectiveWorkspaceCwd } from './workspace-cwd'
 
 /**
  * Start one retry-safe native coding-agent TUI without dispatching a headless turn.
@@ -58,7 +54,7 @@ export async function startRetainedInteractiveRun(
   options: StartRetainedInteractiveRunOptions,
 ): Promise<RetainedInteractiveRunHandle> {
   options.signal?.throwIfAborted()
-  const startOptions = normalizeRetainedInteractiveStart(options)
+  const startOptions = resolveRetainedInteractiveStart(options)
   assertStableText(startOptions.environment.idempotencyKey, 'environment idempotency key')
   assertStableText(startOptions.interactiveIdempotencyKey, 'interactive idempotency key')
   if (typeof startOptions.onAdmission !== 'function') {
@@ -217,11 +213,6 @@ function exactRecoveryRequest(
   assertStableText(admission.environmentId, 'interactive environment id')
   assertStableText(admission.idempotencyKey, 'environment idempotency key')
   assertStableText(admission.interactiveIdempotencyKey, 'interactive idempotency key')
-  const rawRequest =
-    typeof admission.request === 'object' && admission.request !== null
-      ? (admission.request as Record<string, unknown>)
-      : {}
-  normalizeWorkspaceCwd(rawRequest.cwd)
   const request = exactAgentInteractiveSessionStart(admission.request)
   const identity = mintRetainedIdentity(
     admission.idempotencyKey,
@@ -258,13 +249,12 @@ export async function reconnectRetainedInteractiveRun(
   return handle
 }
 
-function normalizeRetainedInteractiveStart(
+function resolveRetainedInteractiveStart(
   options: StartRetainedInteractiveRunOptions,
 ): StartRetainedInteractiveRunOptions {
   const cwd = effectiveWorkspaceCwd(options.cwd, options.environment.workspace?.cwd)
   return {
     ...options,
-    environment: normalizeWorkspaceEnvironment(options.environment),
     ...(cwd === undefined ? {} : { cwd }),
   }
 }

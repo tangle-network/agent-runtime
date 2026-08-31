@@ -439,7 +439,7 @@ describe('retained runtime run control', () => {
     expect(created?.workspace).toEqual({
       repoUrl: 'https://github.com/tangle-network/braid.git',
       gitRef: 'main',
-      cwd: '/workspace/braid',
+      cwd: '/workspace/./braid/',
     })
     expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
     expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })

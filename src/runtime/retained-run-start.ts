@@ -45,16 +45,8 @@ import type {
 } from './retained-run-types'
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
-import { normalizeWorkspaceEnvironment } from './workspace-cwd'
 
 const MAX_RETAINED_IDENTITY_BYTES = 128
-
-function normalizeRetainedRunStart(options: StartRetainedRunOptions): StartRetainedRunOptions {
-  return {
-    ...options,
-    environment: normalizeWorkspaceEnvironment(options.environment),
-  }
-}
 
 /**
  * Mint deterministic dispatch coordinates from the two caller-supplied keys.
@@ -105,45 +97,42 @@ export async function startRetainedRun(
   if (typeof options.onAdmission !== 'function') {
     throw new Error('startRetainedRun requires an awaited onAdmission durability hook')
   }
-  const startOptions = normalizeRetainedRunStart(options)
   const identity =
-    startOptions.identity ??
-    mintRetainedIdentity(startOptions.environment.idempotencyKey, startOptions.turn.turnId)
-  const contextTransfer = retainedContextTransfer(startOptions.turn.contextTransfer)
-  if (!startOptions.provider.get) {
-    throw new Error(
-      `provider "${startOptions.provider.name}" cannot reconstruct an environment by id`,
-    )
+    options.identity ??
+    mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
+  const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
+  if (!options.provider.get) {
+    throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
   }
-  const intent = retainedRunIntent(startOptions, identity, contextTransfer)
-  if (startOptions.intent === undefined) {
-    await admitDurably(startOptions.onAdmission, intent)
+  const intent = retainedRunIntent(options, identity, contextTransfer)
+  if (options.intent === undefined) {
+    await admitDurably(options.onAdmission, intent)
   } else {
-    assertExactRetainedRunIntent(startOptions.intent, intent)
+    assertExactRetainedRunIntent(options.intent, intent)
   }
-  const providerCapabilities = await assertRetainedCapabilities(startOptions.provider)
+  const providerCapabilities = await assertRetainedCapabilities(options.provider)
   assertRequestedInteractionCapabilities(
-    startOptions.provider.name,
-    startOptions.turn.interactions,
+    options.provider.name,
+    options.turn.interactions,
     providerCapabilities,
   )
-  const environment = await startOptions.provider.create({
-    ...startOptions.environment,
+  const environment = await options.provider.create({
+    ...options.environment,
     metadata: retainedEnvironmentMetadata(
-      startOptions.environment.metadata,
-      startOptions.environment.idempotencyKey,
+      options.environment.metadata,
+      options.environment.idempotencyKey,
     ),
   })
   let capabilities: AgentEnvironmentCapabilities
   try {
     capabilities = retainedCapabilitiesForEnvironment(
-      startOptions.provider.name,
+      options.provider.name,
       providerCapabilities,
       environment,
     )
     assertRequestedInteractionCapabilities(
-      startOptions.provider.name,
-      startOptions.turn.interactions,
+      options.provider.name,
+      options.turn.interactions,
       capabilities,
     )
   } catch (error) {
@@ -163,29 +152,25 @@ export async function startRetainedRun(
     } catch (cleanupError) {
       throw new AggregateError(
         [
-          new Error(
-            `provider "${startOptions.provider.name}" does not expose detached session control`,
-          ),
+          new Error(`provider "${options.provider.name}" does not expose detached session control`),
           cleanupError,
         ],
         'retained run could not start and its unused environment could not be destroyed',
       )
     }
-    throw new Error(
-      `provider "${startOptions.provider.name}" does not expose detached session control`,
-    )
+    throw new Error(`provider "${options.provider.name}" does not expose detached session control`)
   }
 
   return dispatchRetainedRun({
-    provider: startOptions.provider,
+    provider: options.provider,
     environment,
-    environmentIdempotencyKey: startOptions.environment.idempotencyKey,
-    turn: startOptions.turn,
+    environmentIdempotencyKey: options.environment.idempotencyKey,
+    turn: options.turn,
     contextTransfer,
     identity,
-    onAdmission: startOptions.onAdmission,
+    onAdmission: options.onAdmission,
     capabilities,
-    now: startOptions.now,
+    now: options.now,
   })
 }
 
