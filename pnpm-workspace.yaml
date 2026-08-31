@@ -19,7 +19,7 @@ catalog:
   '@arethetypeswrong/cli': 0.18.5
   '@modelcontextprotocol/sdk': 1.30.0
   '@tangle-network/agent-core': '>=0.9.5 <0.10.0'
-  '@types/node': 26.3.0
+  '@types/node': 26.4.0
   '@tangle-network/agent-eval': '>=0.170.0 <0.171.0'
   '@tangle-network/agent-interface': ^1.9.0
   '@tangle-network/agent-knowledge': ^10.8.0

@@ -343,6 +343,11 @@ describe('retained runtime run control', () => {
     const environment = {
       profile: { name: 'worker' },
       idempotencyKey: 'headless-intent-environment',
+      workspace: {
+        repoUrl: 'https://github.com/tangle-network/braid.git',
+        gitRef: 'main',
+        cwd: '/workspace/./braid/',
+      },
       secrets: { TANGLE_TOKEN: 'headless-secret-value' },
       providerOptions: { credential: 'headless-provider-secret' },
     }
@@ -390,6 +395,20 @@ describe('retained runtime run control', () => {
         provider,
         environment: {
           ...environment,
+          workspace: { ...environment.workspace, cwd: '/workspace/other' },
+        },
+        turn,
+        intent,
+        onAdmission: async () => {},
+      }),
+    ).rejects.toThrow('retained run intent conflicts with replay material')
+    expect(creates).toBe(0)
+
+    await expect(
+      startRetainedRun({
+        provider,
+        environment: {
+          ...environment,
           secrets: { OTHER_TOKEN: 'headless-secret-value' },
         },
         turn,
@@ -416,6 +435,11 @@ describe('retained runtime run control', () => {
     expect(creates).toBe(1)
     expect(created?.metadata).toEqual({
       retainedIdempotencyKey: environment.idempotencyKey,
+    })
+    expect(created?.workspace).toEqual({
+      repoUrl: 'https://github.com/tangle-network/braid.git',
+      gitRef: 'main',
+      cwd: '/workspace/./braid/',
     })
     expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
     expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })
