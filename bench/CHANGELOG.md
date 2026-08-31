@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.28
+
+### Runtime 0.184.1 and Interface 2.0.0 cohort
+
+The published Bench manifest now requires Runtime 0.184.1 and Interface 2.0.0.
+Consumers that pin any cohort package must update it before installing Bench 0.8.28.
+
 ## 0.8.27
 
 ### Runtime 0.179.0 cohort
