@@ -4,7 +4,7 @@
 
 ### Interface 2 workspace paths reach Tangle Sandbox correctly
 
-Runtime now carries based workspace paths from Interface 2 through environment creation.
+Runtime now carries base workspace paths from Interface 2 through environment creation.
 The Tangle Sandbox adapter maps repository paths to its relative `cwd` option.
 It rejects host paths because Sandbox does not accept host filesystem paths.
 
