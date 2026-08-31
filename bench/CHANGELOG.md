@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.28
+
+### Interface 2 and Runtime 0.185.0 cohort
+
+The published Bench manifest now requires Runtime 0.185.0 and the matching Interface 2
+and Sandbox 0.34.6 dependency ranges through the workspace catalog.
+Consumers that pin any cohort package must update it before installing Bench 0.8.28.
+
 ## 0.8.27
 
 ### Runtime 0.179.0 cohort
