@@ -182,7 +182,7 @@
   "peerDependencies": {
     "@tangle-network/agent-eval": ">=0.171.0 <0.172.0",
     "@tangle-network/agent-interface": "^2.0.0",
-    "@tangle-network/sandbox": ">=0.34.6 <0.35.0"
+    "@tangle-network/sandbox": ">=0.36.1 <0.37.0"
   },
   "peerDependenciesMeta": {
     "@tangle-network/sandbox": {
