@@ -2029,6 +2029,28 @@ Maximum time for task verification, executable grading, and receipt construction
 
 ***
 
+### AgentCandidateExecutionRoots
+
+Absolute container roots owned by one isolated candidate execution.
+
+#### Properties
+
+##### taskRoot
+
+> `readonly` **taskRoot**: `string`
+
+##### candidateRoot?
+
+> `readonly` `optional` **candidateRoot?**: `string`
+
+##### profileRoot?
+
+> `readonly` `optional` **profileRoot?**: `string`
+
+Private runtime HOME used for agent-scoped profile files, when needed.
+
+***
+
 ### PrepareAgentCandidateExecutionOptions
 
 #### Properties
@@ -3020,17 +3042,9 @@ Runtime placement for one exact cell from a signed candidate experiment.
 
 ##### executionRoots
 
-> **executionRoots**: `object`
+> **executionRoots**: [`AgentCandidateExecutionRoots`](#agentcandidateexecutionroots)
 
 Absolute paths inside the evaluator-owned execution environment.
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
 
 ##### stagingRoots
 
@@ -3212,15 +3226,7 @@ Exact file-backed knowledge admitted by the candidate bundle.
 
 ###### execution
 
-> **execution**: `object`
-
-###### execution.taskRoot
-
-> **taskRoot**: `string`
-
-###### execution.candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
+> **execution**: [`AgentCandidateExecutionRoots`](#agentcandidateexecutionroots)
 
 ###### staging
 
@@ -3476,15 +3482,7 @@ Immutable bytes from which the executor creates fresh isolated workspaces.
 
 ##### roots
 
-> `readonly` **roots**: `object`
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
+> `readonly` **roots**: [`AgentCandidateExecutionRoots`](#agentcandidateexecutionroots)
 
 ##### profilePlan
 
@@ -3754,6 +3752,12 @@ One exact profile file supplied to an evaluator-owned executor.
 ##### mode
 
 > `readonly` **mode**: `number`
+
+##### root?
+
+> `readonly` `optional` **root?**: `"agent"`
+
+Omit for a workspace-root file; agent-root files use the private Pi directory.
 
 ##### bytes
 

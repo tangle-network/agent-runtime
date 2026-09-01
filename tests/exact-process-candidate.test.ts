@@ -29,6 +29,7 @@ import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-exec
 import {
   canonicalCandidateBytes,
   embeddedCandidateArtifact,
+  sha256Bytes,
 } from '../src/candidate-execution/digest'
 import {
   CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
@@ -385,6 +386,64 @@ describe('exact process candidate experiment executor', () => {
         {} as never,
       ),
     ).rejects.toThrow(/absolute or declare a signed PATH/)
+  })
+
+  it('writes workspace and agent-root profile files to separate execution roots', async () => {
+    const fixture = createCandidateOutputExecutionFixture('application/json', 32)
+    const workspaceInstructions = 'WORKSPACE PROFILE\n'
+    const agentInstructions = 'AGENT PROFILE'
+    const workspaceBytes = Buffer.from(workspaceInstructions, 'utf8')
+    const candidate = redigestCandidateBundle(fixture.bundle, {
+      profile: {
+        ...fixture.bundle.profile,
+        harness: 'pi',
+        prompt: { instructions: [agentInstructions] },
+        resources: {
+          failOnError: true,
+          files: [
+            {
+              path: 'AGENTS.md',
+              resource: {
+                kind: 'inline',
+                name: 'workspace-agents',
+                content: workspaceInstructions,
+                sha256: sha256Bytes(workspaceBytes),
+                byteLength: workspaceBytes.byteLength,
+              },
+            },
+          ],
+        },
+      },
+      execution: {
+        ...fixture.bundle.execution,
+        harness: 'pi',
+        launch: { kind: 'container-command', executable: 'pi' },
+      },
+    })
+    fixture.task = {
+      ...fixture.task,
+      executionRoots: { ...fixture.task.executionRoots, profileRoot: '/workspace/profile' },
+    }
+    const experiment = candidateExperiment(fixture, candidate)
+    const setup = exactAdapter(fixture, completedProcess('{"accepted":true}\n'), () =>
+      stoppedStatus(0),
+    )
+
+    await setup.adapter.execute(candidateCell(experiment, fixture))
+
+    const writes = vi.mocked(setup.environment.writeFile).mock.calls
+    const workspaceWrite = writes.find(([path]) => path === '/workspace/task/AGENTS.md')
+    const agentWrite = writes.find(([path]) => path === '/workspace/profile/.pi/agent/AGENTS.md')
+    expect(Buffer.from(workspaceWrite?.[1] ?? []).toString('utf8')).toBe(workspaceInstructions)
+    expect(Buffer.from(agentWrite?.[1] ?? []).toString('utf8')).toBe(`${agentInstructions}\n`)
+    expect(writes.some(([path]) => path === '/workspace/task/.pi/agent/AGENTS.md')).toBe(false)
+    expect(writes.some(([path]) => path === '/opt/candidate/AGENTS.md')).toBe(false)
+
+    const [launch] = vi.mocked(setup.environment.process.spawn).mock.calls[0]!
+    expect(launch?.env).toMatchObject({
+      PI_CODING_AGENT_DIR: '/workspace/profile/.pi/agent',
+      PI_CODING_AGENT_SESSION_DIR: '/workspace/profile/.pi/agent/sessions',
+    })
   })
 
   it('blocks all egress when the signed task disables model calls', async () => {

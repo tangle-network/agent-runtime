@@ -18,6 +18,7 @@ import {
   omitTopLevelDigest,
   sha256Bytes,
 } from './digest'
+import { assertAgentCandidateExecutionRoots } from './execution-roots'
 import { verifyTaskCheckout } from './git-materialize'
 import { parseAgentCandidateProfileActivation } from './profile'
 import type {
@@ -63,6 +64,7 @@ export interface PreparedCandidateState {
     profileFiles: ReadonlyArray<{
       path: string
       mode: number
+      root?: 'agent'
       bytes: Uint8Array
     }>
   }
@@ -348,6 +350,7 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
 }
 
 function assertPrivateCandidateIntegrity(state: PreparedCandidateState): void {
+  assertAgentCandidateExecutionRoots(state.roots.execution)
   const bundleMaterial = omitTopLevelDigest(state.bundle)
   if (canonicalCandidateDigest(bundleMaterial) !== state.bundle.digest) {
     throw new Error('prepared candidate bundle no longer matches its digest')
@@ -511,13 +514,17 @@ function workspaceInputView(
   })
 }
 
-function profileFileView(
-  source: PreparedCandidateState['executorInputs']['profileFiles'][number],
-): AgentCandidateExecutorRequest['inputs']['profile']['files'][number] {
+function profileFileView(source: {
+  path: string
+  mode: number
+  root?: 'agent'
+  bytes: Uint8Array
+}): AgentCandidateExecutorRequest['inputs']['profile']['files'][number] {
   const bytes = Uint8Array.from(source.bytes)
   return Object.freeze({
     path: source.path,
     mode: source.mode,
+    ...(source.root === 'agent' ? { root: 'agent' as const } : {}),
     get bytes(): Uint8Array {
       return Uint8Array.from(bytes)
     },
@@ -566,6 +573,7 @@ function assertExecutorInputs(state: PreparedCandidateState): void {
       !expected ||
       !actual ||
       actual.path !== expected.relPath ||
+      (actual.root ?? 'workspace') !== (expected.root ?? 'workspace') ||
       actual.mode !== expected.mode ||
       sha256Bytes(actual.bytes) !== expected.contentSha256
     ) {
@@ -663,11 +671,11 @@ function assertSignedBenchmarkInput(state: PreparedCandidateState): void {
   }
 }
 
-function immutableExecutorFiles(
-  files: PreparedCandidateState['executorInputs']['taskFiles'],
-): ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }> {
+function immutableExecutorFiles<
+  T extends { path: string; mode: number; root?: 'agent'; bytes: Uint8Array },
+>(files: ReadonlyArray<T>): ReadonlyArray<T> {
   return Object.freeze(
-    files.map((file) => Object.freeze({ ...file, bytes: Uint8Array.from(file.bytes) })),
+    files.map((file) => Object.freeze({ ...file, bytes: Uint8Array.from(file.bytes) }) as T),
   )
 }
 

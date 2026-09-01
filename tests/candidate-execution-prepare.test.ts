@@ -9,6 +9,7 @@ import {
   canonicalCandidateDigest,
   canonicalCandidateDocument,
   embeddedCandidateArtifact,
+  sha256Bytes,
 } from '../src/candidate-execution/digest'
 import {
   CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
@@ -80,6 +81,12 @@ describe('candidate execution preparation', () => {
           launch: { kind: 'container-command', executable },
         },
       })
+      if (harness === 'pi') {
+        value.task = {
+          ...value.task,
+          executionRoots: { ...value.task.executionRoots, profileRoot: '/workspace/profile' },
+        }
+      }
       bindCandidateFixtureBundle(value)
 
       const prepared = await prepareAgentCandidateExecution(
@@ -169,6 +176,133 @@ describe('candidate execution preparation', () => {
     )
   })
 
+  it('preserves identical Pi profile paths across workspace and agent roots', async () => {
+    const value = fixture()
+    const workspaceInstructions = 'WORKSPACE PROFILE\n'
+    const agentInstructions = 'AGENT PROFILE'
+    const workspaceResource = Buffer.from(workspaceInstructions, 'utf8')
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        harness: 'pi',
+        prompt: { instructions: [agentInstructions] },
+        resources: {
+          failOnError: true,
+          files: [
+            {
+              path: 'AGENTS.md',
+              resource: {
+                kind: 'inline',
+                name: 'workspace-agents',
+                content: workspaceInstructions,
+                sha256: sha256Bytes(workspaceResource),
+                byteLength: workspaceResource.byteLength,
+              },
+            },
+          ],
+        },
+      },
+      execution: {
+        ...value.bundle.execution,
+        harness: 'pi',
+        launch: { kind: 'container-command', executable: 'pi' },
+      },
+    })
+    value.task = {
+      ...value.task,
+      executionRoots: { ...value.task.executionRoots, profileRoot: '/workspace/profile' },
+    }
+    bindCandidateFixtureBundle(value)
+
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(value.bundle, value.ports),
+      value.task,
+      value.ports,
+    )
+
+    expect(prepared.profilePlan.value.material.files).toEqual(
+      expect.arrayContaining([
+        {
+          relPath: 'AGENTS.md',
+          mode: 0o644,
+          contentSha256: sha256Bytes(Buffer.from(workspaceInstructions, 'utf8')),
+        },
+        {
+          relPath: 'AGENTS.md',
+          mode: 0o644,
+          contentSha256: sha256Bytes(Buffer.from(`${agentInstructions}\n`, 'utf8')),
+          root: 'agent',
+        },
+      ]),
+    )
+    expect(prepared.profileActivation.files.filter((file) => file.path === 'AGENTS.md')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ content: workspaceInstructions }),
+        expect.objectContaining({ content: `${agentInstructions}\n` }),
+      ]),
+    )
+    expect(prepared.launch.env.PI_CODING_AGENT_DIR).toBe('/workspace/profile/.pi/agent')
+    expect(prepared.launch.env.PI_CODING_AGENT_SESSION_DIR).toBe(
+      '/workspace/profile/.pi/agent/sessions',
+    )
+    expect(prepared.roots.execution.profileRoot).toBe('/workspace/profile')
+    expect(prepared.roots.execution.profileRoot).not.toContain('/workspace/task')
+    expect(prepared.roots.execution.profileRoot).not.toContain('/opt/candidate')
+  })
+
+  it('keeps the private execution root optional for workspace-only profiles', async () => {
+    const value = fixture()
+
+    const prepared = await prepareAgentCandidateExecution(
+      await verifyAgentCandidateBundle(value.bundle, value.ports),
+      value.task,
+      value.ports,
+    )
+
+    expect(prepared.roots.execution.profileRoot).toBeUndefined()
+  })
+
+  it('rejects an agent-root profile without a private execution root', async () => {
+    const value = fixture()
+    value.bundle = redigestBundle(value.bundle, {
+      profile: {
+        ...value.bundle.profile,
+        harness: 'pi',
+        prompt: { instructions: ['private instructions'] },
+      },
+      execution: {
+        ...value.bundle.execution,
+        harness: 'pi',
+        launch: { kind: 'container-command', executable: 'pi' },
+      },
+    })
+    bindCandidateFixtureBundle(value)
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow('candidate profile agent-root files require executionRoots.profileRoot')
+  })
+
+  it('rejects an execution profile root that overlaps a workspace root', async () => {
+    const value = fixture()
+    value.task = {
+      ...value.task,
+      executionRoots: { ...value.task.executionRoots, profileRoot: '/workspace/task' },
+    }
+
+    await expect(
+      prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      ),
+    ).rejects.toThrow('execution task and profile roots must be distinct and non-overlapping')
+  })
+
   it('keeps replacement and additive prompts on distinct Claude controls', async () => {
     const value = fixture()
     const systemPrompt = 'Replace the native prompt.'
@@ -254,6 +388,12 @@ describe('candidate execution preparation', () => {
           launch: { kind: 'container-command', executable },
         },
       })
+      if (harness === 'pi') {
+        value.task = {
+          ...value.task,
+          executionRoots: { ...value.task.executionRoots, profileRoot: '/workspace/profile' },
+        }
+      }
       bindCandidateFixtureBundle(value)
 
       const prepared = await prepareAgentCandidateExecution(

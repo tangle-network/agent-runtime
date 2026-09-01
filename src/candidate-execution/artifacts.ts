@@ -224,6 +224,7 @@ function withPortableModes(
 export async function verifyMaterializedProfileWorkspace(
   root: string,
   expected: AgentCandidateProfilePlanMaterial,
+  fileRoot: 'workspace' | 'agent' = 'workspace',
 ): Promise<void> {
   const observed = await scanMaterializedWorkspaceManifest(root)
   const observedProfile = observed.files.map(({ path, mode, sha256 }) => ({
@@ -231,12 +232,17 @@ export async function verifyMaterializedProfileWorkspace(
     mode,
     contentSha256: sha256,
   }))
+  const expectedFiles = expected.files
+    .filter((file) => (file.root ?? 'workspace') === fileRoot)
+    .map(({ root: _root, ...file }) => file)
   if (
     !Buffer.from(canonicalCandidateBytes(observedProfile)).equals(
-      canonicalCandidateBytes(expected.files),
+      canonicalCandidateBytes(expectedFiles),
     )
   ) {
-    throw new Error('profile staging files, modes, or bytes do not match the signed profile plan')
+    throw new Error(
+      `profile ${fileRoot} staging files, modes, or bytes do not match the signed profile plan`,
+    )
   }
 }
 

@@ -55,6 +55,7 @@ export {
   type ExecutePreparedAgentCandidateOptions,
   executePreparedAgentCandidate,
 } from './execute'
+export type { AgentCandidateExecutionRoots } from './execution-roots'
 export {
   CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
   CANDIDATE_KNOWLEDGE_ROOT_ENV,

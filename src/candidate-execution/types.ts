@@ -33,6 +33,8 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 
+import type { AgentCandidateExecutionRoots } from './execution-roots'
+
 export const verifiedCandidateBrand: unique symbol = Symbol('verifiedAgentCandidate')
 export const preparedCandidateBrand: unique symbol = Symbol('preparedAgentCandidate')
 export const verifiedTaskOutcomeBrand: unique symbol = Symbol('verifiedTaskOutcome')
@@ -262,10 +264,7 @@ export interface AgentCandidateTaskExecution {
   benchmarkSuite: AgentCandidateBenchmarkSuite
   task: AgentCandidateBenchmarkTask
   /** Absolute paths inside the evaluator-owned execution environment. */
-  executionRoots: {
-    taskRoot: string
-    candidateRoot?: string
-  }
+  executionRoots: AgentCandidateExecutionRoots
   /** Host-side staging roots. These are verified but never signed as container paths. */
   stagingRoots: {
     taskRoot: string
@@ -324,10 +323,7 @@ export interface PreparedAgentCandidateExecution {
   }
   readonly executionId: string
   readonly roots: {
-    execution: {
-      taskRoot: string
-      candidateRoot?: string
-    }
+    execution: AgentCandidateExecutionRoots
     staging: {
       taskRoot: string
       candidateRoot?: string
@@ -560,6 +556,8 @@ export interface AgentCandidateExecutorWorkspaceFile {
 export interface AgentCandidateExecutorProfileFile {
   readonly path: string
   readonly mode: number
+  /** Omit for a workspace-root file; agent-root files use the private Pi directory. */
+  readonly root?: 'agent'
   readonly bytes: Uint8Array
 }
 

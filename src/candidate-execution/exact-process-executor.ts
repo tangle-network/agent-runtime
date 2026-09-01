@@ -12,18 +12,23 @@ import type {
   AgentExactProcessResources,
   AgentExactProcessStatus,
 } from '@tangle-network/agent-interface/environment-provider'
-
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
   immutableCandidateValue,
   sha256Bytes,
 } from './digest'
+import { assertAgentCandidateExecutionRoots } from './execution-roots'
 import {
   CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
   CANDIDATE_KNOWLEDGE_ROOT_ENV,
   candidateKnowledgeExecutionPaths,
 } from './knowledge'
+import {
+  candidateProfileAgentPaths,
+  PI_CANDIDATE_AGENT_DIR_ENV,
+  PI_CANDIDATE_SESSION_DIR_ENV,
+} from './profile'
 import type {
   AgentCandidateExecutorPort,
   AgentCandidateExecutorRequest,
@@ -445,6 +450,8 @@ function assertSupportedRequest(request: AgentCandidateExecutorRequest): void {
   if (!posix.isAbsolute(request.launch.executable) && !request.launch.env.PATH?.trim()) {
     throw new Error('exact process candidate executable must be absolute or declare a signed PATH')
   }
+  if (!request.roots) throw new Error('candidate execution roots are missing')
+  assertAgentCandidateExecutionRoots(request.roots)
 }
 
 async function materializeRequest(
@@ -452,6 +459,7 @@ async function materializeRequest(
   request: AgentCandidateExecutorRequest,
   signal: AbortSignal,
 ): Promise<void> {
+  assertAgentCandidateExecutionRoots(request.roots)
   const knowledgePaths = assertKnowledgeExecutionBinding(request)
   for (const file of request.inputs.task.files) {
     await environment.writeFile(beneath(request.roots.taskRoot, file.path), file.bytes, {
@@ -459,17 +467,11 @@ async function materializeRequest(
       signal,
     })
   }
-  const profileRoot =
-    request.executionPlan.value.material.profile.targetWorkspace === 'task'
-      ? request.roots.taskRoot
-      : request.roots.candidateRoot
-  if (!profileRoot) throw new Error('candidate profile targets a missing workspace')
-  for (const file of request.profileActivation.files) {
-    await environment.writeFile(
-      beneath(profileRoot, file.path),
-      Buffer.from(file.content, 'utf8'),
-      { mode: file.mode, signal },
-    )
+  for (const file of request.inputs.profile.files) {
+    await environment.writeFile(profileFileExecutionPath(request, file), file.bytes, {
+      mode: file.mode,
+      signal,
+    })
   }
   if (request.knowledge && knowledgePaths) {
     for (const file of request.knowledge.files) {
@@ -520,15 +522,9 @@ function assertKnowledgeExecutionBinding(
   const reserved = [paths.root, paths.retrievalConfig].filter(
     (value): value is string => value !== undefined,
   )
-  const profileRoot =
-    request.executionPlan.value.material.profile.targetWorkspace === 'task'
-      ? request.roots.taskRoot
-      : request.roots.candidateRoot
   const otherFiles = [
     ...request.inputs.task.files.map((file) => beneath(request.roots.taskRoot, file.path)),
-    ...(profileRoot
-      ? request.profileActivation.files.map((file) => beneath(profileRoot, file.path))
-      : []),
+    ...request.inputs.profile.files.map((file) => profileFileExecutionPath(request, file)),
     ...(request.instruction.delivery.kind === 'utf8-file'
       ? [request.instruction.delivery.path]
       : []),
@@ -546,6 +542,33 @@ function assertKnowledgeExecutionBinding(
     throw new Error('candidate knowledge paths overlap other execution inputs')
   }
   return paths
+}
+
+function profileFileExecutionPath(
+  request: AgentCandidateExecutorRequest,
+  file: AgentCandidateExecutorRequest['inputs']['profile']['files'][number],
+): string {
+  const workspace = request.executionPlan.value.material.profile.targetWorkspace
+  const workspaceRoot = workspace === 'task' ? request.roots.taskRoot : request.roots.candidateRoot
+  if (!workspaceRoot) throw new Error('candidate profile targets a missing workspace')
+  if (file.root !== 'agent') return beneath(workspaceRoot, file.path)
+  const agentDir = profileAgentDirectory(request)
+  return beneath(agentDir, file.path)
+}
+
+function profileAgentDirectory(request: AgentCandidateExecutorRequest): string {
+  const paths = candidateProfileAgentPaths(
+    request.profilePlan.value.material,
+    request.roots.profileRoot,
+  )
+  if (!paths) throw new Error('candidate profile agent-root file is missing its private root')
+  if (
+    request.launch.env[PI_CANDIDATE_AGENT_DIR_ENV] !== paths.agentDir ||
+    request.launch.env[PI_CANDIDATE_SESSION_DIR_ENV] !== paths.sessionDir
+  ) {
+    throw new Error('candidate Pi agent-root files do not match the signed launch environment')
+  }
+  return paths.agentDir
 }
 
 function exactLaunch(request: AgentCandidateExecutorRequest): AgentExactProcessLaunch {
