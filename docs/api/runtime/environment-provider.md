@@ -248,6 +248,29 @@ Resolve a named profile before calling Sandbox, which accepts inline profiles on
 
 ***
 
+### ProviderLeafOut
+
+**`Experimental`**
+
+What one provider-executed turn settles on: the visible answer plus the complete event archive
+the environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
+
+#### Properties
+
+##### content
+
+> **content**: `string`
+
+**`Experimental`**
+
+##### events
+
+> **events**: `AgentEnvironmentEvent`[]
+
+**`Experimental`**
+
+***
+
 ### ProviderExecutorOptions
 
 **`Experimental`**
@@ -283,6 +306,31 @@ Options for running a provider as a supervise-mode executor.
 > `optional` **requireTerminalEvent?**: `boolean`
 
 **`Experimental`**
+
+##### promptOptions?
+
+> `optional` **promptOptions?**: [`ProviderPromptOptions`](#providerpromptoptions)
+
+**`Experimental`**
+
+Per-run prompt options merged UNDER every streamed turn: a mapped turn's own field wins, and
+the runtime's abort signal is applied last. `providerOptions` merges one level, so a
+`taskToTurn` that sets its own provider option cannot silently drop the session credential
+declared here.
+
+##### validator?
+
+> `optional` **validator?**: [`Validator`](../runtime.md#validator-3)\<[`ProviderLeafOut`](#providerleafout), `DefaultVerdict`\>
+
+**`Experimental`**
+
+OPT-IN executable score for this worker, with the SAME contract the sandbox seam's validator
+has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
+files and run commands in the environment it is scoring. Every other supervised hook fires
+after teardown and can only read the artifact.
+
+The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
+back to its own settle verdict.
 
 ##### profileForCreate?
 
@@ -333,6 +381,29 @@ rewrite the caller's task mapping.
 **`Experimental`**
 
 Provider object or registry name accepted by runtime provider adapters.
+
+***
+
+### ProviderPromptOptions
+
+> **ProviderPromptOptions** = `Omit`\<`PromptOptions`, `"model"` \| `"sessionId"` \| `"signal"`\>
+
+**`Experimental`**
+
+Per-run Sandbox prompt options for the provider path — the same field, the same name, and the
+same kernel-owned exclusions as `ExecCtx.promptOptions` on the sandbox path.
+
+The kernel owns `sessionId` and `signal`, so neither is declarable: a caller-chosen session id
+would make every worker share one server session, and the abort channel belongs to the run.
+`model` is excluded too, and for a different reason: this executor's materialization record
+names the model from `AgentProfile`, so a turn-level override would make the record state a
+model the provider did not run. Declare the instrument on `AgentProfile.model`.
+
+Everything else is the per-call configuration a portable profile cannot carry. `backend` is the
+load-bearing one: `backend.model.authMode` plus `authFiles` is how a caller-owned subscription
+seat reaches the harness inside the environment. Runtime lowers these onto the turn with the one
+mapper it already uses in the other direction, so a sandbox-shaped provider reads them from
+`AgentTurnInput.providerOptions.backend` exactly as it reads a sandbox box's prompt options.
 
 ## Functions
 
@@ -437,6 +508,13 @@ Each environment exposes interactive methods only when its deployment declares e
 **`Experimental`**
 
 Adapt an environment provider into an `ExecutorFactory` for `createExecutor`.
+
+`createExecutor({ backend: 'provider', provider })` is the composition most callers want; it
+builds this factory and injects the seam. See `examples/provider-executor/`.
+
+Still `@experimental`: the entry point that consumes it, `createExecutor`, carries no stability
+tag and is therefore experimental by default, so a stable promise here would be reachable only
+through an experimental symbol.
 
 #### Parameters
 

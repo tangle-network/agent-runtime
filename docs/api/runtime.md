@@ -7646,7 +7646,7 @@ through them when the driver plans N tasks. Mutually exclusive with
 
 ##### validator?
 
-> `optional` **validator?**: [`Validator`](#validator-2)\<`Output`, `DefaultVerdict`\>
+> `optional` **validator?**: [`Validator`](#validator-3)\<`Output`, `DefaultVerdict`\>
 
 ##### task
 
@@ -15237,7 +15237,7 @@ Hard cap on the composed loop's iterations. The budget pool reserves against
 
 ##### validator?
 
-> `optional` **validator?**: [`Validator`](#validator-2)\<[`SandboxLeafOut`](#sandboxleafout), `DefaultVerdict`\>
+> `optional` **validator?**: [`Validator`](#validator-3)\<[`SandboxLeafOut`](#sandboxleafout), `DefaultVerdict`\>
 
 OPT-IN executable score for this worker. Forwarded to the composed
 `runAgentRounds` as its `validator`, so the kernel calls `validate` while the
@@ -15646,8 +15646,22 @@ Live credential service. Runtime retains this reference through reusable capture
 ### ProviderSeam
 
 Generic environment provider executor config. External packages implement
- `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor`
- consume them as backend data while preserving the existing usage channel.
+`AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor` consume them as backend
+data while preserving the existing usage channel. Runtime depends on no provider package, so a
+Tangle provider and a hand-written one compose identically. Worked wiring:
+`examples/provider-executor/`.
+
+Everything a create needs travels on `CreateAgentEnvironmentInput` through
+[ProviderExecutorOptions.defaults](runtime/environment-provider.md#defaults-1); everything one turn needs travels on
+[ProviderExecutorOptions.promptOptions](runtime/environment-provider.md#promptoptions). Wrapping the provider's own client to reach a
+field is what this seam exists to replace: the wrapper is invisible to Runtime, so its options
+are absent from every record the run produces.
+
+READINESS IS THE PROVIDER'S CONTRACT. `provider.create` resolves with an environment that can
+take a turn, so this seam streams straight into it and adds no readiness wait of its own. The
+sandbox seam's `acquireSandbox` exists because a raw `SandboxClient.create` returns before the
+box is ready; a second poll here would hide a provider that does not honor the contract, and
+that provider is an upstream defect to report rather than a race to paper over.
 
 #### Extends
 
@@ -15694,6 +15708,35 @@ Generic environment provider executor config. External packages implement
 ###### Inherited from
 
 [`ProviderExecutorOptions`](runtime/environment-provider.md#providerexecutoroptions).[`requireTerminalEvent`](runtime/environment-provider.md#requireterminalevent-1)
+
+##### promptOptions?
+
+> `optional` **promptOptions?**: [`ProviderPromptOptions`](runtime/environment-provider.md#providerpromptoptions)
+
+Per-run prompt options merged UNDER every streamed turn: a mapped turn's own field wins, and
+the runtime's abort signal is applied last. `providerOptions` merges one level, so a
+`taskToTurn` that sets its own provider option cannot silently drop the session credential
+declared here.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](runtime/environment-provider.md#providerexecutoroptions).[`promptOptions`](runtime/environment-provider.md#promptoptions)
+
+##### validator?
+
+> `optional` **validator?**: [`Validator`](#validator-3)\<[`ProviderLeafOut`](runtime/environment-provider.md#providerleafout), `DefaultVerdict`\>
+
+OPT-IN executable score for this worker, with the SAME contract the sandbox seam's validator
+has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
+files and run commands in the environment it is scoring. Every other supervised hook fires
+after teardown and can only read the artifact.
+
+The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
+back to its own settle verdict.
+
+###### Inherited from
+
+[`ProviderExecutorOptions`](runtime/environment-provider.md#providerexecutoroptions).[`validator`](runtime/environment-provider.md#validator)
 
 ##### profileForCreate?
 
@@ -32004,6 +32047,18 @@ Re-exports [ProviderAsSandboxClientOptions](runtime/environment-provider.md#prov
 ### ProviderExecutorOptions
 
 Re-exports [ProviderExecutorOptions](runtime/environment-provider.md#providerexecutoroptions)
+
+***
+
+### ProviderLeafOut
+
+Re-exports [ProviderLeafOut](runtime/environment-provider.md#providerleafout)
+
+***
+
+### ProviderPromptOptions
+
+Re-exports [ProviderPromptOptions](runtime/environment-provider.md#providerpromptoptions)
 
 ***
 

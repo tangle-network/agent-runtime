@@ -455,9 +455,25 @@ export interface BridgeModelCredential {
   provider: KeyProvider
 }
 
-/** Generic environment provider executor config. External packages implement
- *  `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor`
- *  consume them as backend data while preserving the existing usage channel. */
+/**
+ * Generic environment provider executor config. External packages implement
+ * `AgentEnvironmentProvider`; this built-in wrapper lets `createExecutor` consume them as backend
+ * data while preserving the existing usage channel. Runtime depends on no provider package, so a
+ * Tangle provider and a hand-written one compose identically. Worked wiring:
+ * `examples/provider-executor/`.
+ *
+ * Everything a create needs travels on `CreateAgentEnvironmentInput` through
+ * {@link ProviderExecutorOptions.defaults}; everything one turn needs travels on
+ * {@link ProviderExecutorOptions.promptOptions}. Wrapping the provider's own client to reach a
+ * field is what this seam exists to replace: the wrapper is invisible to Runtime, so its options
+ * are absent from every record the run produces.
+ *
+ * READINESS IS THE PROVIDER'S CONTRACT. `provider.create` resolves with an environment that can
+ * take a turn, so this seam streams straight into it and adds no readiness wait of its own. The
+ * sandbox seam's `acquireSandbox` exists because a raw `SandboxClient.create` returns before the
+ * box is ready; a second poll here would hide a provider that does not honor the contract, and
+ * that provider is an upstream defect to report rather than a race to paper over.
+ */
 export interface ProviderSeam extends ProviderExecutorOptions {
   provider: AgentEnvironmentProvider | string
   registry?: AgentEnvironmentProviderRegistry
@@ -4664,7 +4680,10 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
       })
     }
     case 'provider': {
-      const { provider, registry, profileForCreate, taskToTurn, ...decisionData } = config
+      // `validator` is an executable port like `provider`: retained live by reference, never
+      // cloned, because `detachedSnapshot` cannot structured-clone its `validate` method.
+      const { provider, registry, profileForCreate, taskToTurn, validator, ...decisionData } =
+        config
       const snapshot = detachedSnapshot(decisionData, 'createExecutor provider config')
       // A registry is a live service. Resolve its mutable name mapping exactly once at intake and
       // retain the resulting provider instance, never the registry lookup for later execution.
@@ -4674,6 +4693,7 @@ export function snapshotExecutorConfig(config: ExecutorConfig): ExecutorConfig {
         provider: resolvedProvider,
         ...(profileForCreate === undefined ? {} : { profileForCreate }),
         ...(taskToTurn === undefined ? {} : { taskToTurn }),
+        ...(validator === undefined ? {} : { validator }),
       })
     }
     case 'sandbox': {
@@ -4863,6 +4883,11 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
               'createExecutor(provider, steering): destroyOnSettle=false conflicts with the session-owned environment lifecycle',
             )
           }
+          if (providerSeam.validator) {
+            throw new ValidationError(
+              'createExecutor(provider, steering): validator is not representable with steering — the steerable session is a multi-turn session on one environment, not a scored single-shot leaf, so the score would be silently dropped',
+            )
+          }
           const harness = requiredProviderProfileHarness(spec, providerSeam)
           const sandboxClient = providerAsSandboxClient(provider, {
             defaults: {
@@ -4872,6 +4897,10 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
             requireTerminalEvent: providerSeam.requireTerminalEvent,
             requireSession: true,
           })
+          // The steerable session already speaks this vocabulary: it reads
+          // `ExecCtx.promptOptions` and the composed client raises them back onto
+          // `AgentTurnInput.providerOptions` before the provider sees them. One declaration on the
+          // provider seam therefore serves the plain and the steerable path with no translation.
           const providerCtx: ExecutorContext = {
             ...seamed,
             seams: {
@@ -4879,6 +4908,9 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
               [sandboxSeamKey]: {
                 sandboxClient,
                 steering: providerSeam.steering,
+                ...(providerSeam.promptOptions === undefined
+                  ? {}
+                  : { loopCtx: { promptOptions: providerSeam.promptOptions } }),
               } satisfies SandboxSeam,
             },
           }

@@ -91,7 +91,7 @@ import type {
   UsageEvent,
 } from './supervise/types'
 import { promptFromAgentTurnInput, promptOptionsFromAgentTurnInput } from './turn-input'
-import type { LoopSandboxPlacement, SandboxClient } from './types'
+import type { LoopSandboxPlacement, SandboxClient, Validator } from './types'
 import { zeroTokenUsage } from './util'
 
 // Keep this file loadable from the lean `./environment-provider` export without agent-eval installed.
@@ -363,6 +363,70 @@ export function sandboxClientAsProvider(
   }
 }
 
+/**
+ * What one provider-executed turn settles on: the visible answer plus the complete event archive
+ * the environment streamed. It is the value a `ProviderExecutorOptions.validator` scores.
+ *
+ * @experimental
+ */
+export interface ProviderLeafOut {
+  content: string
+  events: AgentEnvironmentEvent[]
+}
+
+/**
+ * Per-run Sandbox prompt options for the provider path — the same field, the same name, and the
+ * same kernel-owned exclusions as `ExecCtx.promptOptions` on the sandbox path.
+ *
+ * The kernel owns `sessionId` and `signal`, so neither is declarable: a caller-chosen session id
+ * would make every worker share one server session, and the abort channel belongs to the run.
+ * `model` is excluded too, and for a different reason: this executor's materialization record
+ * names the model from `AgentProfile`, so a turn-level override would make the record state a
+ * model the provider did not run. Declare the instrument on `AgentProfile.model`.
+ *
+ * Everything else is the per-call configuration a portable profile cannot carry. `backend` is the
+ * load-bearing one: `backend.model.authMode` plus `authFiles` is how a caller-owned subscription
+ * seat reaches the harness inside the environment. Runtime lowers these onto the turn with the one
+ * mapper it already uses in the other direction, so a sandbox-shaped provider reads them from
+ * `AgentTurnInput.providerOptions.backend` exactly as it reads a sandbox box's prompt options.
+ *
+ * @experimental
+ */
+export type ProviderPromptOptions = Omit<PromptOptions, 'model' | 'sessionId' | 'signal'>
+
+/** Turn fields the seam's prompt options configure. The kernel owns every other coordinate. */
+type ProviderTurnDefaults = Omit<
+  AgentTurnInput,
+  'model' | 'parts' | 'prompt' | 'sessionId' | 'signal'
+>
+
+/**
+ * Lower the seam's prompt options onto turn fields, through the one mapper this module already
+ * uses to raise a sandbox prompt into a provider turn. Reusing it is what keeps the two directions
+ * from drifting: whatever `turnInputFromPrompt` decides a prompt option configures, the seam
+ * declares the same way.
+ */
+function providerTurnDefaults(
+  options: ProviderPromptOptions | undefined,
+  context: string,
+): ProviderTurnDefaults | undefined {
+  if (options === undefined) return undefined
+  if ((options as { model?: unknown }).model !== undefined) {
+    throw new ValidationError(
+      `${context}: promptOptions.model is refused — this executor's materialization names AgentProfile's model, so a turn-level override would record a model the provider did not run`,
+    )
+  }
+  const {
+    prompt: _prompt,
+    parts: _parts,
+    model: _model,
+    sessionId: _sessionId,
+    signal: _signal,
+    ...turn
+  } = turnInputFromPrompt('', options)
+  return turn
+}
+
 /** Options for running a provider as a supervise-mode executor.
  * @experimental */
 export interface ProviderExecutorOptions {
@@ -370,6 +434,23 @@ export interface ProviderExecutorOptions {
   runtime?: Runtime
   destroyOnSettle?: boolean
   requireTerminalEvent?: boolean
+  /**
+   * Per-run prompt options merged UNDER every streamed turn: a mapped turn's own field wins, and
+   * the runtime's abort signal is applied last. `providerOptions` merges one level, so a
+   * `taskToTurn` that sets its own provider option cannot silently drop the session credential
+   * declared here.
+   */
+  promptOptions?: ProviderPromptOptions
+  /**
+   * OPT-IN executable score for this worker, with the SAME contract the sandbox seam's validator
+   * has: `validate` runs while the environment is still alive, so `ValidationCtx.box` can read
+   * files and run commands in the environment it is scoring. Every other supervised hook fires
+   * after teardown and can only read the artifact.
+   *
+   * The verdict becomes the settled artifact's verdict. Absent, nothing changes and the leaf falls
+   * back to its own settle verdict.
+   */
+  validator?: Validator<ProviderLeafOut>
   /** Transform only the profile sent to `provider.create`. The original profile
    * remains the input to `taskToTurn`, so execution-only normalization cannot
    * rewrite the caller's task mapping. */
@@ -377,7 +458,41 @@ export interface ProviderExecutorOptions {
   taskToTurn?: (task: unknown, specProfile: AgentProfile) => AgentTurnInput
 }
 
+/**
+ * Merge the declared turn defaults under one mapped turn.
+ *
+ * `providerOptions` is merged one level rather than replaced: the defaults carry the caller's
+ * session credential and a `taskToTurn` that sets an unrelated provider option would otherwise
+ * remove it, and a run that silently loses its credential fails inside the environment as an
+ * authorization error that names nothing.
+ */
+function providerTurnWithDefaults(
+  defaults: ProviderTurnDefaults | undefined,
+  turn: AgentTurnInput,
+  signal: AbortSignal,
+): AgentTurnInput {
+  if (defaults === undefined) return { ...turn, signal }
+  const providerOptions =
+    defaults.providerOptions === undefined && turn.providerOptions === undefined
+      ? undefined
+      : { ...(defaults.providerOptions ?? {}), ...(turn.providerOptions ?? {}) }
+  return {
+    ...defaults,
+    ...turn,
+    ...(providerOptions === undefined ? {} : { providerOptions }),
+    signal,
+  }
+}
+
 /** Adapt an environment provider into an `ExecutorFactory` for `createExecutor`.
+ *
+ * `createExecutor({ backend: 'provider', provider })` is the composition most callers want; it
+ * builds this factory and injects the seam. See `examples/provider-executor/`.
+ *
+ * Still `@experimental`: the entry point that consumes it, `createExecutor`, carries no stability
+ * tag and is therefore experimental by default, so a stable promise here would be reachable only
+ * through an experimental symbol.
+ *
  * @experimental */
 export function providerAsExecutor(
   provider: AgentEnvironmentProvider,
@@ -524,6 +639,11 @@ async function* streamProviderExecutor(
 ): AsyncIterable<UsageEvent> {
   const started = Date.now()
   const linked = linkAbort(args.signal, args.controller.signal).signal
+  // READINESS IS THE PROVIDER'S CONTRACT. `create` resolves with an environment that can take a
+  // turn, so this streams straight into it and adds no wait of its own. The sandbox seam's
+  // `acquireSandbox` exists because a raw `SandboxClient.create` returns before the box is ready;
+  // wrapping a second readiness poll around a provider that already honors the contract would hide
+  // a provider that does not, and a provider that does not is an upstream defect to report.
   const environment = await args.provider.create({
     ...(args.options.defaults ?? {}),
     profile: args.createProfile,
@@ -531,8 +651,11 @@ async function* streamProviderExecutor(
   })
   args.onEnvironment(environment)
 
-  const turn =
-    args.options.taskToTurn?.(args.task, args.profile) ?? taskToTurnInput(args.task, linked)
+  const turn = providerTurnWithDefaults(
+    providerTurnDefaults(args.options.promptOptions, `providerAsExecutor(${args.provider.name})`),
+    args.options.taskToTurn?.(args.task, args.profile) ?? taskToTurnInput(args.task, linked),
+    linked,
+  )
   const events: AgentEnvironmentEvent[] = []
   const tokens = zeroTokenUsage()
   let usd = 0
@@ -540,7 +663,7 @@ async function* streamProviderExecutor(
   let terminal = false
   try {
     const toolParts = createSandboxToolPartState()
-    for await (const event of environment.stream({ ...turn, signal: linked })) {
+    for await (const event of environment.stream(turn)) {
       events.push(event)
       text += textFromEnvironmentEvent(event)
       // One projection for every sandbox-shaped stream: the provider event is adapted to the
@@ -580,9 +703,20 @@ async function* streamProviderExecutor(
       usdKnown: false,
       ms: Date.now() - started,
     }
+    // Scored HERE, before the `finally` destroys the environment: a validator that reads a file or
+    // runs a command needs the environment it is scoring to still exist. Every other supervised
+    // hook fires after teardown and can only read the artifact.
+    const verdict = await args.options.validator?.validate(result, {
+      iteration: 0,
+      box: environmentAsSandboxInstance(environment, {
+        requireTerminalEvent: args.options.requireTerminalEvent ?? true,
+      }),
+      signal: linked,
+    })
     args.onArtifact({
       outRef: contentRef(`provider:${args.provider.name}`, result),
       out: result,
+      ...(verdict ? { verdict } : {}),
       spent,
     })
   } finally {
@@ -1481,10 +1615,7 @@ function taskToPrompt(task: unknown): string {
   return JSON.stringify(task)
 }
 
-function resultFromEvents(
-  events: AgentEnvironmentEvent[],
-  fallbackText: string,
-): { content: string; events: AgentEnvironmentEvent[] } {
+function resultFromEvents(events: AgentEnvironmentEvent[], fallbackText: string): ProviderLeafOut {
   for (let i = events.length - 1; i >= 0; i -= 1) {
     const event = events[i]
     const text = event ? resultTextFromData(event.data) : undefined

@@ -51,6 +51,7 @@ under `engine` the TOPOLOGY decides, so the same step cannot be skipped at all.
 | [`knowledge-gating`](./knowledge-gating/) | execution must stop when required knowledge is below threshold |
 | [`researcher-loop`](./researcher-loop/) | a domain preset on a caller-owned profile, with a hard tenant-isolation check |
 | [`sanitized-telemetry-streaming`](./sanitized-telemetry-streaming/) | runtime telemetry must be useful without leaking user content |
+| [`provider-executor`](./provider-executor/) | workers must run on someone else's boxes through the `AgentEnvironmentProvider` contract |
 
 ## Specialized examples
 
