@@ -129,8 +129,17 @@ async function check(root: string, base: string) {
       ...process.env,
       PACKAGE_VERSION_BUMP_ROOT: root,
       PACKAGE_VERSION_BUMP_BASE: base,
+      // Hermetic: a fixture with no release tag would otherwise fall back to the
+      // real registry, where these package names ARE published, and every
+      // fixture version would be measured against a stranger's release.
+      PACKAGE_VERSION_BUMP_REGISTRY: '0',
     },
   })
+}
+
+/** Mark a fixture commit as released, the way `publish.yml` marks a real one. */
+async function tag(root: string, name: string): Promise<void> {
+  await git(root, 'tag', name)
 }
 
 afterEach(async () => {
@@ -664,5 +673,178 @@ describe('a change to the exported symbols requires a version bump', () => {
     await expect(check(root, base)).rejects.toMatchObject({
       stderr: expect.stringContaining('api-surface.json does not exist'),
     })
+  })
+})
+
+/**
+ * The version a change is measured against is the LAST PUBLISHED one, not the
+ * base branch's.
+ *
+ * Reading the base branch instead made an unreleased version behave like a
+ * released one. Measured 2026-09-01 on agent-runtime: main declared 0.190.0
+ * while the registry's newest was 0.189.0, and two export-adding pull requests
+ * open against that main were each refused for adding exports to a version no
+ * consumer could yet resolve. One unpublished bump absorbs every consumer-visible
+ * change until it ships; a published version still buys nothing.
+ */
+describe('the baseline is the last published version, not the base branch', () => {
+  /** Release `v1.0.0`, then put an unshipped `1.1.0` on the base. */
+  async function repoWithUnpublishedBump(): Promise<{ root: string; base: string }> {
+    const root = await createRepo()
+    await tag(root, 'v1.0.0')
+    await writeManifests(root, {
+      version: '1.1.0',
+      evalPeer: '>=0.140.1 <0.141.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'prepare 1.1.0')
+    return { root, base: (await git(root, 'rev-parse', 'HEAD')).trim() }
+  }
+
+  it('accepts added exports when the base carries a bump that has not shipped', async () => {
+    const { root, base } = await repoWithUnpublishedBump()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
+    })
+    await commit(root, 'add an export under the unshipped 1.1.0')
+
+    // 1.1.0 is not on the registry, so it is still paying for its own contents.
+    const result = await check(root, base)
+    expect(result.stdout).toContain('paid for by 1.0.0 -> 1.1.0 (minor)')
+    expect(result.stdout).toContain('1.0.0 is the last published version (v1.0.0)')
+  })
+
+  it('accepts a SECOND change under the same unshipped bump — the release-train case', async () => {
+    const { root, base } = await repoWithUnpublishedBump()
+    // The first change already landed on the base; this is the one that used to
+    // be told to open a version of its own.
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
+    })
+    await commit(root, 'first export-adding change')
+    const secondBase = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value', runGraph: 'value' },
+    })
+    await commit(root, 'second export-adding change')
+
+    await expect(check(root, secondBase)).resolves.toMatchObject({
+      stdout: expect.stringContaining('paid for by 1.0.0 -> 1.1.0 (minor)'),
+    })
+  })
+
+  it('still refuses added exports when the base version IS published', async () => {
+    const root = await createRepo()
+    await tag(root, 'v1.0.0')
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
+    })
+    await commit(root, 'add an export under the published 1.0.0')
+
+    // The defect this file exists for is unchanged: npm already holds 1.0.0, and
+    // publish.yml skips a version already on the registry.
+    const failure = await check(root, base).catch((error) => error)
+    expect(failure.stderr).toContain('still declares 1.0.0')
+    expect(failure.stderr).toContain('export added: . supervise')
+  })
+
+  it('names the published baseline in the refusal when the base is ahead but still short', async () => {
+    const root = await createRepo()
+    await tag(root, 'v1.0.0')
+    await writeManifests(root, {
+      version: '1.0.1',
+      evalPeer: '>=0.140.1 <0.141.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'prepare 1.0.1')
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    // A 1.x package needs a MINOR for an addition, and the unshipped bump is only
+    // a patch, so the absorbing case applies and still falls short.
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
+    })
+    await commit(root, 'add an export under the unshipped 1.0.1')
+
+    const failure = await check(root, base).catch((error) => error)
+    expect(failure.stderr).toContain('moves 1.0.0 -> 1.0.1, only a patch bump')
+    expect(failure.stderr).toContain(
+      'measured against the last published version 1.0.0 (v1.0.0); the base declares 1.0.1, ' +
+        'which is not published yet',
+    )
+  })
+
+  it('passes a change with no consumer surface, published or not', async () => {
+    const { root, base } = await repoWithUnpublishedBump()
+    await writeFile(join(root, 'source.ts'), 'export const value = 2\n')
+    await commit(root, 'change only source')
+
+    await expect(check(root, base)).resolves.toMatchObject({
+      stdout: expect.stringContaining('consumer surface unchanged at 1.1.0'),
+    })
+  })
+
+  it('orders release tags semantically, so v0.100.0 outranks v0.99.0', async () => {
+    const root = await createRepo()
+    await writeManifests(root, {
+      version: '0.99.0',
+      evalPeer: '>=0.140.1 <0.141.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'release 0.99.0')
+    await tag(root, 'v0.99.0')
+    await writeManifests(root, {
+      version: '0.100.0',
+      evalPeer: '>=0.140.1 <0.141.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'release 0.100.0')
+    await tag(root, 'v0.100.0')
+    await writeManifests(root, {
+      version: '0.101.0',
+      evalPeer: '>=0.140.1 <0.141.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'prepare 0.101.0')
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeSurface(root, '.', '@tangle-network/agent-runtime', {
+      '.': { runAgent: 'value', AgentSpec: 'type', supervise: 'value' },
+    })
+    await commit(root, 'add an export')
+
+    // Lexically v0.99.0 is the larger string. Picking it would measure against a
+    // version two releases stale.
+    await expect(check(root, base)).resolves.toMatchObject({
+      stdout: expect.stringContaining('paid for by 0.100.0 -> 0.101.0'),
+    })
+  })
+
+  it('reads each package own released version at the tag, never the root one', async () => {
+    const root = await createRepo()
+    await tag(root, 'v1.0.0')
+    // The root ships an unpublished bump; bench does not move at all.
+    await writeManifests(root, {
+      version: '1.1.0',
+      evalPeer: '>=0.140.1 <0.141.0',
+      knowledgeCatalog: '7.0.4',
+      benchVersion: '0.4.9',
+    })
+    await commit(root, 'prepare 1.1.0')
+    const base = (await git(root, 'rev-parse', 'HEAD')).trim()
+    await writeSurface(root, 'bench', '@tangle-network/agent-bench', {
+      '.': { runBench: 'value', runSuite: 'value' },
+    })
+    await commit(root, 'add a bench export')
+
+    // bench released 0.4.9 and still declares 0.4.9, so the root's unshipped
+    // 1.1.0 pays nothing for it.
+    const failure = await check(root, base).catch((error) => error)
+    expect(failure.stderr).toContain('bench/package.json (@tangle-network/agent-bench)')
+    expect(failure.stderr).toContain('still declares 0.4.9')
   })
 })

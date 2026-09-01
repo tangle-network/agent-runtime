@@ -65,10 +65,42 @@
  * everything repo-specific out of the manifests they inspect, so an edit to one
  * belongs in all three. Nothing here may name a single repository.
  *
+ * The version a change is measured against is the LAST PUBLISHED one, not the
+ * base branch's. Those differ whenever main already carries a bump that has not
+ * shipped, and reading the base branch instead made an unreleased version behave
+ * like a released one: the first consumer-visible change claimed the open slot
+ * and every later one in the same train was told to open another.
+ *
+ * Measured 2026-09-01 on agent-runtime. Two export-adding pull requests were
+ * open against a main that declared 0.190.0 while the registry's newest version
+ * was 0.189.0. Nothing could ship under 0.190.0 without a second bump, so #1065
+ * and #1066 were each refused, each for adding exports to a version no consumer
+ * could yet resolve, and both had to be merged with admin over a red gate. One
+ * unpublished bump can absorb every consumer-visible change until it ships,
+ * which is what a release train is for.
+ *
+ * A version that IS on the registry still demands its own bump. That is the
+ * defect this file exists for, and it is unchanged: 0.119.0 moved a peer floor
+ * under a version npm already held, and `publish.yml` skips a version already
+ * published, so re-tagging could never correct it.
+ *
+ * What "published" means here, in order:
+ *
+ *   1. The highest `v*` tag reachable from the base — the repository's own
+ *      record of what it released, since `publish.yml` fires on that tag. Each
+ *      package's released version is read from ITS manifest at that tag, so a
+ *      workspace package with its own version line is never handed the root's.
+ *   2. The npm registry's `latest`, consulted only when no tag is reachable and
+ *      only as a best effort. A registry that cannot be reached changes nothing.
+ *   3. Neither: fall back to the base branch's version, which is the behavior
+ *      this check has always had. Unknown publication state must not weaken it.
+ *
  * Usage: pnpm run check:version-bump
- *   PACKAGE_VERSION_BUMP_BASE  base ref to compare against (default: the
- *                              CI base branch, else origin/main, else main)
- *   PACKAGE_VERSION_BUMP_ROOT  repository to inspect (default: this repo)
+ *   PACKAGE_VERSION_BUMP_BASE      base ref to compare against (default: the
+ *                                  CI base branch, else origin/main, else main)
+ *   PACKAGE_VERSION_BUMP_ROOT      repository to inspect (default: this repo)
+ *   PACKAGE_VERSION_BUMP_REGISTRY  `0` skips the registry fallback entirely,
+ *                                  for a hermetic or offline run
  */
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -340,6 +372,52 @@ const surfaceAtRef = (ref, manifestPath) => {
 /** Rank a level, treating `lower` and `unorderable` as paying nothing. */
 const rankOf = (level) => LEVEL_RANK[level] ?? 0
 
+/** True when `candidate` is strictly higher than `reference`. */
+const isHigher = (reference, candidate) => rankOf(versionBumpLevel(reference, candidate)) > 0
+
+/**
+ * The newest `v*` tag reachable from `ref`, or `null`.
+ *
+ * Reachability is the point: a tag on a branch nobody merged describes nothing
+ * this base contains. Ordering is semantic, never lexical — `v0.99.0` sorts
+ * above `v0.100.0` as a string, and picking the wrong tag would compare against
+ * a version older than the one that actually shipped.
+ */
+const lastReleaseTag = (ref) => {
+  const tags = (git(['tag', '--list', 'v*', '--merged', ref], { allowFailure: true }) ?? '')
+    .split('\n')
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0)
+  let newest = null
+  for (const tag of tags) {
+    if (newest === null || isHigher(newest.slice(1), tag.slice(1))) newest = tag
+  }
+  return newest
+}
+
+/**
+ * `latest` from the npm registry for one package, or `undefined`.
+ *
+ * Best effort by construction. This runs only when no release tag is reachable,
+ * and every failure — offline, private package, never published, a slow
+ * registry — returns `undefined` and leaves the check exactly as it was.
+ */
+const registryVersion = (name) => {
+  if (process.env.PACKAGE_VERSION_BUMP_REGISTRY === '0') return undefined
+  try {
+    const stdout = execFileSync('npm', ['view', name, 'version', '--silent'], {
+      encoding: 'utf8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const version = stdout.trim()
+    return version.length > 0 ? version : undefined
+  } catch {
+    return undefined
+  }
+}
+
+
 const base = resolveBase()
 if (base === null) {
   process.stdout.write('No base ref to compare against; version-bump check does not apply.\n')
@@ -363,6 +441,20 @@ const baseWorkspace = workspaceAtRef(mergeBase)
 const headWorkspace = workspaceAtRef(head)
 const baseManifests = manifestsAtRef(mergeBase, baseWorkspace)
 const headManifests = manifestsAtRef(head, headWorkspace)
+
+// What a consumer can ALREADY resolve, per package name. The base branch's
+// version is not that: main routinely carries a bump that has not shipped, and
+// one unpublished bump absorbs every consumer-visible change until it does.
+const releaseTag = lastReleaseTag(mergeBase)
+// Each package's released version comes from ITS OWN manifest at the tag, so a
+// workspace package on a separate version line is never handed the root's.
+const releasedManifests =
+  releaseTag === null ? null : manifestsAtRef(releaseTag, workspaceAtRef(releaseTag))
+const releasedFrom = releaseTag === null ? 'the npm registry' : `${releaseTag}`
+const releasedVersionOf = (name) =>
+  releasedManifests === null
+    ? registryVersion(name)
+    : releasedManifests.get(name)?.manifest.version
 
 const publishable = (entry) => entry !== undefined && entry.manifest.private !== true
 const failures = []
@@ -432,20 +524,29 @@ for (const name of names) {
     continue
   }
 
+  // Measure the bump against the last PUBLISHED version. When the base already
+  // carries a bump nobody can resolve yet, that bump pays for this change too;
+  // when the base's version is on the registry, it pays for nothing.
+  const releasedVersion = releasedVersionOf(name)
+  const absorbing =
+    releasedVersion !== undefined && isHigher(releasedVersion, baseEntry.manifest.version)
+  const comparisonVersion = absorbing ? releasedVersion : baseEntry.manifest.version
+
   // The manifest rule asks only for a higher version; the export rule asks for a
   // level. The stronger of the two governs.
   const requiredLevel = (() => {
-    const forExports = requiredBumpLevel(severity, baseEntry.manifest.version)
+    const forExports = requiredBumpLevel(severity, comparisonVersion)
     const forManifest = changes.length > 0 ? 'patch' : 'none'
     return rankOf(forExports) >= rankOf(forManifest) ? forExports : forManifest
   })()
-  const paidLevel = versionBumpLevel(baseEntry.manifest.version, headEntry.manifest.version)
+  const paidLevel = versionBumpLevel(comparisonVersion, headEntry.manifest.version)
 
   if (rankOf(paidLevel) >= rankOf(requiredLevel)) {
     inspected.push(
       `${headEntry.path}: ${changes.length} manifest and ${exportLines.length} export change(s) ` +
         `needing a ${requiredLevel} bump, paid for by ` +
-        `${baseEntry.manifest.version} -> ${headEntry.manifest.version} (${paidLevel})`,
+        `${comparisonVersion} -> ${headEntry.manifest.version} (${paidLevel})` +
+        (absorbing ? ` — ${comparisonVersion} is the last published version (${releasedFrom})` : ''),
     )
     continue
   }
@@ -453,6 +554,8 @@ for (const name of names) {
     path: headEntry.path,
     name,
     baseVersion: baseEntry.manifest.version,
+    comparisonVersion,
+    absorbing,
     headVersion: headEntry.manifest.version,
     changes: [...changes, ...exportLines],
     requiredLevel,
@@ -474,8 +577,10 @@ if (failures.length > 0) {
       continue
     }
     const versionState = (() => {
-      if (failure.baseVersion === failure.headVersion) return `still declares ${failure.headVersion}`
-      const move = `moves ${failure.baseVersion} -> ${failure.headVersion}`
+      if (failure.comparisonVersion === failure.headVersion) {
+        return `still declares ${failure.headVersion}`
+      }
+      const move = `moves ${failure.comparisonVersion} -> ${failure.headVersion}`
       return rankOf(failure.paidLevel) === 0
         ? `${move}, which is not higher`
         : `${move}, only a ${failure.paidLevel} bump`
@@ -486,6 +591,12 @@ if (failures.length > 0) {
         `${severityLabel === 'additive' ? 'an' : 'a'} ${severityLabel} change needing a ` +
         `${failure.requiredLevel} bump:`,
     )
+    if (failure.absorbing) {
+      lines.push(
+        `  measured against the last published version ${failure.comparisonVersion} ` +
+          `(${releasedFrom}); the base declares ${failure.baseVersion}, which is not published yet`,
+      )
+    }
     for (const change of failure.changes) lines.push(`  ${change}`)
     lines.push('')
   }
