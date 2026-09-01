@@ -893,7 +893,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`budget`](#budget-18)
+[`NodeSnapshot`](#nodesnapshot).[`budget`](#budget-19)
 
 ##### ownedTreeRoot?
 
@@ -12089,12 +12089,32 @@ Set when this attempt ended the loop.
 
 Set when another attempt follows.
 
+##### contract?
+
+> `readonly` `optional` **contract?**: [`DriverContractState`](#drivercontractstate)
+
+The completion check's verdict after this attempt. Absent when the caller declares none.
+
+##### reprompted?
+
+> `readonly` `optional` **reprompted?**: `boolean`
+
+True when this COMPLETED attempt's unmet contract sent the loop back into the live session.
+
+##### repromptRefusedBy?
+
+> `readonly` `optional` **repromptRefusedBy?**: [`DriverRepromptRefusal`](#driverrepromptrefusal)
+
+Why an unmet contract did NOT re-enter the session. Absent when the contract was met, when
+ the caller configured no re-prompt, or when the re-prompt was issued.
+
 ***
 
 ### DriverProgressMark
 
-The comparable mark used to decide whether an attempt did anything at all. Any field moving
- counts as progress — a driver that metered one turn before dying is not dead on arrival.
+The comparable mark used to decide whether an attempt moved the run TOWARD ITS DELIVERABLE.
+ While a declared check is unmet, spend and settlements are not progress on their own; see this
+ file's header for the measurement that made that the rule.
 
 #### Properties
 
@@ -12117,7 +12137,116 @@ Monotone count of settled children.
 
 > `readonly` **submitted**: `boolean`
 
-Whether an accepted deliverable exists.
+Whether an accepted deliverable exists — a submission that PASSED the completion check.
+
+##### contract?
+
+> `readonly` `optional` **contract?**: [`DriverContractState`](#drivercontractstate)
+
+The completion check's verdict right now. Omit (or `'none'`) when the caller declares no
+ check: the retry then reads spend and settlements exactly as it did before this field
+ existed, so a caller with no contract is unaffected.
+
+##### deliveredCount?
+
+> `readonly` `optional` **deliveredCount?**: `number`
+
+Monotone count of settled children that PASSED the completion check. A child that ran and
+ settled without delivering does not count here, which is the whole point.
+
+***
+
+### DriverReentry
+
+Why the loop is entering the driver again, and with what. Absent on a first attempt and on
+ every failure retry — those re-enter with the caller's ORIGINAL task, because a driver that
+ crashed may never have read it.
+
+#### Properties
+
+##### reason
+
+> `readonly` **reason**: `"unmet-contract"`
+
+##### steer
+
+> `readonly` **steer**: `string`
+
+The instruction to re-enter the LIVE session with: the unmet items, not the original task.
+
+##### reprompt
+
+> `readonly` **reprompt**: `number`
+
+1-based: which re-prompt this is.
+
+***
+
+### DriverUnmetContractContext
+
+What the caller sees when a drive returns with its completion check unmet.
+
+#### Properties
+
+##### attempt
+
+> `readonly` **attempt**: `number`
+
+The attempt that just completed, 1-based.
+
+##### reprompts
+
+> `readonly` **reprompts**: `number`
+
+How many re-prompts this run has already issued.
+
+##### maxReprompts
+
+> `readonly` **maxReprompts**: `number`
+
+##### progress
+
+> `readonly` **progress**: [`DriverProgressMark`](#driverprogressmark)
+
+The mark read AFTER the completed drive.
+
+##### budget
+
+> `readonly` **budget**: [`DriverBudgetReadout`](#driverbudgetreadout)
+
+##### describe?
+
+> `readonly` `optional` **describe?**: `string`
+
+What the run was supposed to produce, from the caller's completion check.
+
+***
+
+### DriverRepromptPolicy
+
+How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where
+ such a drive ends the run and only the completion gate's label records what happened.
+
+#### Properties
+
+##### maxReprompts
+
+> `readonly` **maxReprompts**: `number`
+
+How many times one run may re-enter its live session with the unmet items. `0` = never. Each
+ re-prompt also consumes an attempt, so `maxAttempts` bounds it too.
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
+
+Compose the instruction, or return `'stop'`. Omit = [defaultUnmetContractSteer](#defaultunmetcontractsteer).
+
+##### describe?
+
+> `readonly` `optional` **describe?**: `string`
+
+What the run owes, surfaced in the default instruction.
 
 ***
 
@@ -12880,6 +13009,42 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`onDriverAttempt`](#ondriverattempt-1)
+
+##### repromptOnUnmet?
+
+> `readonly` `optional` **repromptOnUnmet?**: `number`
+
+How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
+re-entered on the SAME live session with the unmet items.
+
+A harness owns its own turn loop, so it decides when it is finished — and it can decide that
+while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
+could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+
+A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
+live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+run the coordination server already stopped is never re-prompted — that stop was a decision.
+
+Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
+completion check. A recursive manager declares none of its own, so it is left unchanged.
+Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`repromptOnUnmet`](#repromptonunmet-1)
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
+
+Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+ Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+ owes and reports how many workers passed the check.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`onUnmetContract`](#onunmetcontract-3)
 
 ##### childSettleGraceMs?
 
@@ -16983,6 +17148,34 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 
 `void` \| `Promise`\<`void`\>
 
+##### repromptOnUnmet?
+
+> `readonly` `optional` **repromptOnUnmet?**: `number`
+
+How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
+re-entered on the SAME live session with the unmet items.
+
+A harness owns its own turn loop, so it decides when it is finished — and it can decide that
+while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
+could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+
+A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
+live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+run the coordination server already stopped is never re-prompted — that stop was a decision.
+
+Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
+completion check. A recursive manager declares none of its own, so it is left unchanged.
+Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
+
+Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+ Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+ owes and reports how many workers passed the check.
+
 ##### childSettleGraceMs?
 
 > `readonly` `optional` **childSettleGraceMs?**: `number`
@@ -17975,6 +18168,25 @@ Per-attempt record for the external driver — how an operator sees "failed afte
 ###### Returns
 
 `void` \| `Promise`\<`void`\>
+
+##### repromptOnUnmet?
+
+> `readonly` `optional` **repromptOnUnmet?**: `number`
+
+How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
+ on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
+ end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
+ ended on the driver's own completion, and the completion gate could only label that result,
+ never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
+ live children, same budget/deadline/abort/attempt bounds. Requires `deliverable`; refused for
+ a router-brained supervisor, which runs its loop in process. Omit/`0` = never re-prompt.
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](#onunmetcontract)
+
+Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+ Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction.
 
 ##### nodeContext?
 
@@ -23220,11 +23432,63 @@ Why the dispatcher stopped admitting work. `drained` = the queue ran dry (the or
 
 ***
 
+### DriverBudgetReadout
+
+> **DriverBudgetReadout** = [`Scope`](index.md#scope)\<`unknown`\>\[`"budget"`\]
+
+The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this
+ module tracks the pool's shape rather than restating it.
+
+***
+
+### DriverContractState
+
+> **DriverContractState** = `"met"` \| `"unmet"` \| `"none"`
+
+Whether the run's declared completion check has passed. `'none'` means the caller declared no
+ check at all — the retry then reads spend and settlements exactly as it always has.
+
+***
+
 ### DriverAttemptStop
 
 > **DriverAttemptStop** = `"completed"` \| `"terminal-error"` \| `"retry-disabled"` \| `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"no-progress"` \| `"max-attempts"`
 
 Why the retry loop stopped. `completed` is the only non-failure.
+
+***
+
+### DriverRepromptRefusal
+
+> **DriverRepromptRefusal** = `"reprompts-exhausted"` \| `"caller-stop"` \| `Extract`\<[`DriverAttemptStop`](#driverattemptstop), `"aborted"` \| `"budget-exhausted"` \| `"deadline"` \| `"max-attempts"`\>
+
+Why a completed drive with an unmet contract was not re-entered.
+
+***
+
+### DriverUnmetContractDecision
+
+> **DriverUnmetContractDecision** = \{ `steer`: `string`; \} \| `"stop"`
+
+The caller's answer: re-enter the session with `steer`, or end the run here.
+
+***
+
+### OnUnmetContract
+
+> **OnUnmetContract** = (`context`) => [`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
+
+Compose the re-entry instruction for a completed drive that delivered nothing, or refuse.
+
+#### Parameters
+
+##### context
+
+[`DriverUnmetContractContext`](#driverunmetcontractcontext)
+
+#### Returns
+
+[`DriverUnmetContractDecision`](#driverunmetcontractdecision) \| `Promise`\<[`DriverUnmetContractDecision`](#driverunmetcontractdecision)\>
 
 ***
 
@@ -29282,6 +29546,27 @@ readonly `object`[]
 #### Returns
 
 () => [`DispatchUnit`](#dispatchunit)\<`Out`\> \| `undefined`
+
+***
+
+### defaultUnmetContractSteer()
+
+> **defaultUnmetContractSteer**(`context`): `string`
+
+The instruction a completed-but-undelivered drive is re-entered with when the caller supplies no
+`onUnmetContract`. It states the verdict, names what is owed, reports the ledger, and gives the
+three steps — the same shape `depthStrategy` re-prompts a resumed session with, said in the
+driver's own terms.
+
+#### Parameters
+
+##### context
+
+[`DriverUnmetContractContext`](#driverunmetcontractcontext)
+
+#### Returns
+
+`string`
 
 ***
 
