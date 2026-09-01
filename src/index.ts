@@ -223,6 +223,7 @@ export type {
   SupervisedResult,
   Supervisor,
   SupervisorFinalizer,
+  TokenUsageProvenance,
   WorkerTraceEvidence,
   WorkerTraceUnavailableReason,
 } from './runtime'

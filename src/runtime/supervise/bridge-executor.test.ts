@@ -1,12 +1,15 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { estimateCost } from '@tangle-network/agent-eval'
 import {
   type AgentProfile,
   canonicalAgentProfileDigest,
   type ReasoningEffort,
 } from '@tangle-network/agent-interface'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
@@ -2009,5 +2012,326 @@ describe('bridgeExecutor credits the turn receipt cli-bridge already normalized'
       freshInput: 400,
       cacheBreakdownKnown: false,
     })
+  })
+})
+
+/**
+ * The harness's own rollout, read as the receipt cli-bridge never sends.
+ *
+ * MEASURED MOTIVE (discovery#80, 2026-09-01). A live codex seat on this exact path metered
+ * `{input: 0, output: 0, tokensKnown: false}` on 9 of 9 turns while 27,320,482 codex tokens sat in
+ * the run's own rollout directory, 1,453,948 of them spent by three `spawn_agent` children the
+ * journal has no row for. cli-bridge forwards no codex usage, so the store is the only receipt this
+ * path produces.
+ */
+describe('bridgeExecutor credits the harness store cli-bridge does not forward', () => {
+  let server: Server | undefined
+  let storeRoot = ''
+  let sessionsDir = ''
+
+  beforeEach(async () => {
+    storeRoot = await mkdtemp(join(tmpdir(), 'bridge-codex-store-'))
+    sessionsDir = join(storeRoot, 'sessions', '2026', '09', '01')
+    await mkdir(sessionsDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    if (server) await new Promise((resolve) => server?.close(resolve))
+    server = undefined
+    await rm(storeRoot, { recursive: true, force: true })
+  })
+
+  const SEAT_SESSION = '01a05e99-3b2e-7023-91e4-0b43ce7d5477'
+  const CHILD_SESSION = '01a05eac-c4c2-7911-9582-731c6ebfcb69'
+
+  const rolloutLine = (row: unknown) => `${JSON.stringify(row)}\n`
+
+  const tokenCount = (input: number, output: number, cached = 0, reasoning = 0) =>
+    rolloutLine({
+      timestamp: '2026-09-01T20:11:40.000Z',
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: {
+          total_token_usage: {
+            input_tokens: input,
+            cached_input_tokens: cached,
+            cache_write_input_tokens: 0,
+            output_tokens: output,
+            reasoning_output_tokens: reasoning,
+            total_tokens: input + output,
+          },
+        },
+      },
+    })
+
+  const taskStarted = (turnId: string, startedAt: number) =>
+    rolloutLine({
+      timestamp: '2026-09-01T20:11:40.000Z',
+      type: 'event_msg',
+      payload: { type: 'task_started', turn_id: turnId, started_at: startedAt },
+    })
+
+  /** The seat's own rollout: 25,809,518 prompt / 57,016 completion, the measured run's real total. */
+  const seatRollout = () =>
+    [
+      rolloutLine({
+        timestamp: '2026-09-01T20:11:40.000Z',
+        type: 'session_meta',
+        payload: {
+          id: SEAT_SESSION,
+          timestamp: '2026-09-01T20:11:40.000Z',
+          cwd: '/work/pursuit',
+          cli_version: '0.152.0',
+          originator: 'codex-exec',
+        },
+      }),
+      taskStarted('01a05e99-4000-7000-8000-00000000000a', 1_788_293_500),
+      tokenCount(25_809_518, 57_016, 24_000_000, 30_000),
+    ].join('')
+
+  /**
+   * One `spawn_agent` child, forked: 5,000,000 inherited prompt tokens are prepended before its own
+   * turn, and only the 555,804 after the boundary belong to it.
+   */
+  const nativeChildRollout = () =>
+    [
+      rolloutLine({
+        timestamp: '2026-09-01T20:33:00.000Z',
+        type: 'session_meta',
+        payload: {
+          id: CHILD_SESSION,
+          parent_thread_id: SEAT_SESSION,
+          forked_from_id: SEAT_SESSION,
+          thread_source: 'subagent',
+          agent_nickname: 'Turing',
+          agent_path: '/root/c1_b_grid',
+          timestamp: '2026-09-01T20:33:00.000Z',
+          cwd: '/work/pursuit',
+          cli_version: '0.152.0',
+          source: { subagent: { thread_spawn: { parent_thread_id: SEAT_SESSION, depth: 1 } } },
+        },
+      }),
+      taskStarted('e6b7a614-6156-4d3e-891d-de80de86e1c9', 1_788_200_000),
+      tokenCount(5_000_000, 40_000),
+      taskStarted('01a05eac-c500-7000-8000-00000000000b', 1_788_294_780),
+      tokenCount(5_555_804, 42_049),
+    ].join('')
+
+  /** One codex turn against a fake bridge that writes `rollouts` into the store while it runs. */
+  async function runCodexTurn(opts: {
+    rollouts?: ReadonlyArray<{ name: string; text: string }>
+    observation?: Record<string, unknown>
+    harness?: string
+    workspaceRoot?: string
+  }) {
+    server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
+        string,
+        unknown
+      >
+      // The harness writes its own rollout while the turn runs, exactly as codex does.
+      for (const rollout of opts.rollouts ?? []) {
+        await writeFile(join(sessionsDir, rollout.name), rollout.text)
+      }
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        ...durableRunHeaders(String(requestBody.run_id)),
+      })
+      const receipt = {
+        ...bridgeProfileReceipt(requestBody),
+        ...(opts.observation === undefined
+          ? {}
+          : {
+              inference: {
+                effectiveEndpoint: 'http://127.0.0.1:4317/v1',
+                apiMode: 'openai-completions',
+                transport: 'scoped-loopback',
+                observation: opts.observation,
+              },
+            }),
+      }
+      const frames = [
+        `data: ${JSON.stringify({ choices: [{ delta: { content: 'pareto knee mapped' } }] })}`,
+        `data: ${JSON.stringify({ profile_materialization: receipt })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n')
+      res.end(numberSseDataFrames(frames))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const profile: AgentProfile = {
+      name: 'research-lead-codex',
+      harness: 'codex',
+      model: { provider: 'openai', default: 'gpt-5.6-sol' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: `http://127.0.0.1:${port}`,
+            bridgeBearer: 'test-bearer',
+            harnessStore: {
+              harness: opts.harness ?? 'codex',
+              root: storeRoot,
+              ...(opts.workspaceRoot === undefined ? {} : { workspaceRoot: opts.workspaceRoot }),
+            },
+          },
+        },
+      },
+    )
+    const events = await drain(
+      executor.execute(
+        'map the pareto knee',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    )
+    return { events, artifact: executor.resultArtifact() }
+  }
+
+  it('meters a codex seat from its rollout when the bridge forwards no usage at all', async () => {
+    const { events, artifact } = await runCodexTurn({
+      rollouts: [{ name: `rollout-${SEAT_SESSION}.jsonl`, text: seatRollout() }],
+    })
+
+    expect(events).toContainEqual({
+      kind: 'tokens',
+      input: 25_809_518,
+      output: 57_016,
+      freshInput: 1_809_518,
+      cacheRead: 24_000_000,
+      cacheWrite: 0,
+      provenance: 'harness-store',
+    })
+    // The whole point: the provider's own counters, so the channel is measured, not a floor.
+    expect(artifact.spent.tokensKnown).toBeUndefined()
+    expect(artifact.spent.tokens).toMatchObject({ input: 25_809_518, output: 57_016 })
+    expect(artifact.spent.tokensProvenance).toBe('harness-store')
+  })
+
+  it('adds a harness-native child the parent receipt never counted, scoped to its fork', async () => {
+    const { events, artifact } = await runCodexTurn({
+      rollouts: [
+        { name: `rollout-${SEAT_SESSION}.jsonl`, text: seatRollout() },
+        { name: `rollout-${CHILD_SESSION}.jsonl`, text: nativeChildRollout() },
+      ],
+      observation: {
+        requests: 4,
+        generationRequests: 4,
+        auxiliaryRequests: 0,
+        usageReceipts: 4,
+        rejectedRequests: 0,
+        failedRequests: 0,
+        inFlightRequests: 0,
+        accountingMatched: true,
+        usage: { inputTokens: 25_809_518, outputTokens: 57_016, costKnown: false },
+      },
+    })
+
+    const store = events.filter(
+      (event) => event.kind === 'tokens' && event.provenance === 'harness-store',
+    )
+    // The receipt covered the seat, so ONLY the native child is added — the seat is not charged
+    // twice, and the child's 5,555,804 file total is never the number.
+    expect(store).toEqual([
+      {
+        kind: 'tokens',
+        input: 555_804,
+        output: 2_049,
+        freshInput: 555_804,
+        cacheRead: 0,
+        cacheWrite: 0,
+        provenance: 'harness-store',
+      },
+    ])
+    expect(artifact.spent.tokens).toMatchObject({ input: 26_365_322, output: 59_065 })
+    expect(artifact.spent.tokensProvenance).toBe('mixed')
+  })
+
+  it('names an unattributable fork instead of charging its file total', async () => {
+    const { events, artifact } = await runCodexTurn({
+      observation: {
+        requests: 1,
+        generationRequests: 1,
+        auxiliaryRequests: 0,
+        usageReceipts: 1,
+        rejectedRequests: 0,
+        failedRequests: 0,
+        inFlightRequests: 0,
+        accountingMatched: true,
+        usage: { inputTokens: 1_000, outputTokens: 20, costKnown: false },
+      },
+      rollouts: [
+        {
+          name: 'rollout-opaque.jsonl',
+          text: [
+            rolloutLine({
+              timestamp: '2026-09-01T20:11:40.000Z',
+              type: 'session_meta',
+              payload: {
+                id: 'opaque-child',
+                forked_from_id: 'opaque-parent',
+                thread_source: 'subagent',
+                timestamp: '2026-09-01T20:11:40.000Z',
+                cwd: '/work/pursuit',
+              },
+            }),
+            taskStarted('aaaaaaaa-0000-4000-8000-000000000001', 1_700_000_000),
+            tokenCount(5_896_355_271, 9_000_000),
+          ].join(''),
+        },
+      ],
+    })
+
+    // The 5,896,355,271 the file's own total reads is charged to nothing.
+    expect(
+      events.some((event) => event.kind === 'tokens' && event.provenance === 'harness-store'),
+    ).toBe(false)
+    expect(artifact.spent.tokens).toMatchObject({ input: 1_000, output: 20 })
+    // The receipt was read, so the counters are real — but the store holds spend nobody can
+    // attribute, so the total is a floor and the settlement says why.
+    expect(artifact.spent.tokensKnown).toBe(false)
+    expect(artifact.out).toMatchObject({
+      tokensUnknownReason: expect.stringContaining('harness-store'),
+    })
+  })
+
+  it('ignores a rollout recorded outside the run workspace', async () => {
+    const { artifact } = await runCodexTurn({
+      workspaceRoot: '/work/pursuit',
+      rollouts: [
+        {
+          name: 'rollout-foreign.jsonl',
+          text: [
+            rolloutLine({
+              timestamp: '2026-09-01T20:11:40.000Z',
+              type: 'session_meta',
+              payload: {
+                id: 'foreign-seat',
+                timestamp: '2026-09-01T20:11:40.000Z',
+                cwd: '/somewhere/else',
+              },
+            }),
+            taskStarted('01a05e99-7000-7000-8000-00000000000c', 1_788_293_500),
+            tokenCount(903_000, 4_000),
+          ].join(''),
+        },
+      ],
+    })
+
+    expect(artifact.spent.tokens).toMatchObject({ input: 0, output: 0 })
+    expect(artifact.spent.tokensKnown).toBe(false)
+  })
+
+  it('refuses a harness whose store this runtime cannot read', async () => {
+    await expect(runCodexTurn({ harness: 'claude-code' })).rejects.toThrow(
+      /has no store reader; only "codex" is readable today/,
+    )
   })
 })

@@ -8876,6 +8876,19 @@ How `boxMinutes` was obtained, in the vocabulary `agent-eval`'s cost ledger alre
   is not a platform receipt, and the conserved pool never reserves against it.
 `'uncaptured'` — a box ran and nothing measured its time. Comes WITHOUT `boxMinutes`.
 
+##### tokensProvenance?
+
+> `optional` **tokensProvenance?**: [`TokenUsageProvenance`](#tokenusageprovenance)
+
+How the token counters in `tokens` were obtained, when this record states it.
+
+ABSENT means every count came from the executor's live stream, which is what every path
+reported before harness stores were readable. `'harness-store'` says the harness's own file was
+the receipt; `'mixed'` says both sources contributed to this settlement.
+
+This is a provenance fact, not a confidence one: a store read is the provider's own number and
+carries `tokensKnown: true`. The twin of `boxMinutesProvenance` on the token channel.
+
 ***
 
 ### Scope
@@ -12233,6 +12246,20 @@ Content-addressed pointer to a persisted `WorkerToolTraceArtifact`.
 ##### Type Literal
 
 \{ `status`: `"unavailable"`; `reason`: [`WorkerTraceUnavailableReason`](#workertraceunavailablereason); \}
+
+***
+
+### TokenUsageProvenance
+
+> **TokenUsageProvenance** = `"stream-receipt"` \| `"harness-store"` \| `"mixed"`
+
+How a token count was obtained.
+
+`'stream-receipt'` — the executor's live event stream carried the provider's counters.
+`'harness-store'` — the harness's own on-disk session store was read after the turn. Measured
+  motive (discovery#80): a cli-bridge codex seat metered zero on 9 of 9 turns while 27,320,482
+  tokens sat in its rollout, so the store is the only receipt that path produces.
+`'mixed'` — a settlement whose turns came from more than one of the above.
 
 ***
 

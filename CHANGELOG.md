@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.190.0
+
+### The harness's own rollout is a spend receipt
+
+A codex seat driven through cli-bridge metered nothing.
+Measured on one live seat: all 9 `metered` events read `{input: 0, output: 0, tokensKnown: false}` while 27,320,482 codex tokens sat in the run's own rollout directory.
+1,453,948 of those (5.3%) belonged to three `spawn_agent` children the spawn journal has no row for at all.
+cli-bridge forwards no `turn.completed` and no canonical usage frame, so the runtime had no receipt to read — while codex had already written the provider's counters to disk.
+
+Name the store and the runtime reads it:
+
+```ts
+seams: {
+  bridge: {
+    bridgeUrl, bridgeBearer,
+    harnessStore: { harness: 'codex', root: '/run/.agent-home/.codex', workspaceRoot: '/run/work' },
+  },
+}
+```
+
+The executor tails the store once per turn and credits the delta, so a turn is charged once.
+A turn whose stream carried a receipt credits only the harness-native children, whose own counters the parent's receipt never contains.
+A turn with no receipt credits the seat and its children.
+
+`root` must be the run's OWN store.
+An ambient host store credits this run with another run's files; `workspaceRoot` rejects a session whose recorded working directory is somewhere else.
+A harness with no reader is refused loudly — only `codex` is readable today.
+
+Nothing changes for a caller that names no store.
+
+### Where a token count came from
+
+`Spend.tokensProvenance` and the `tokens` usage event's `provenance` state which receipt a number came from: `'stream-receipt'`, `'harness-store'`, or `'mixed'`.
+ABSENT means the executor's live stream, which is what every path reported before, so a run that reads no store settles byte-identically.
+A store read is the provider's own number and still carries `tokensKnown: true`; the marker says the evidence is a file the harness wrote rather than an event the transport forwarded.
+The channel folds through `addSpend`, the settlement, the live `observe_agent` read, and the OTLP span as `tangle.supervise.tokens_provenance`.
+
+### Reading a codex rollout directly
+
+`readCodexRolloutSession` and `createCodexRolloutStoreReader` are exported for a caller reconciling a finished run.
+
+A forked child rollout prepends the parent's rows with rewritten timestamps.
+Reading the file's final `total_token_usage` as the child's spend overstates it — measured 723x on one real 2026-08-14 child.
+These readers never report a file total.
+They isolate the fork boundary and report the delta from it, and a fork they cannot isolate reports `boundary: 'unresolved'` with no usage at all, because an unattributable number is worse than an absent one.
+
 ## 0.189.0
 
 ### `peerMail` reaches a backend-derived worker

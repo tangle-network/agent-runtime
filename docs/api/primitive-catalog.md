@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.189.0` and `@tangle-network/agent-eval@0.172.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.190.0` and `@tangle-network/agent-eval@0.172.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 441 exports.
+Import from `@tangle-network/agent-runtime` — 442 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -277,6 +277,7 @@ Import from `@tangle-network/agent-runtime` — 441 exports.
 | `SpendChannel` | type | The accounting channels a usage gap leaves incomplete. |
 | `SupervisedResult` | type | Typed terminal result (M2) — a no-winner is NEVER coerced to a best-effort output. |
 | `SupervisorFinalizer` | type | The finalization seam: ledger in, output (or `undefined` = nothing deliverable) out. |
+| `TokenUsageProvenance` | type | How a token count was obtained. |
 | `VerifiedAgentCandidateTaskOutcome` | type | Branded task outcome that has survived independent evaluator verification. |
 | `Verifier` | type | Verifies the edited worktree. Sync or async; throws only on a setup fault |
 | `WorkerTraceEvidence` | type | Durable proof of a worker's structured tool trace, or the exact reason it is unavailable. |
@@ -557,11 +558,12 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 904 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
 | `acquireSandbox` | function | Cold-start-resilient sandbox acquisition: create by name, observe readiness from the sandbox's own status (not the create call), and re-attach after gateway timeouts. |
+| `addHarnessUsage` | function | Sum two usage reports on every counter both of them state. |
 | `allOf` | function | Stop only when EVERY rule stops — for a conservative gate that needs corroboration. |
 | `allWorkersStalled` | function | "Everyone is stuck." Fires when every live worker reads `stalled` — no metered activity for |
 | `analystsFromRegistry` | function | Adapt an `agent-eval` `AnalystRegistry` into the lens shape `supervise({ analysts })` takes. |
@@ -608,6 +610,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `createAgentEnvironmentProviderRegistry` | function | Create a registry that resolves provider names to concrete provider instances. |
 | `createBudgetPool` | function | Create a conserved reservation pool from a root `Budget`. `runStartedAtMs` is the WALL-CLOCK |
 | `createChatSessionStore` | function | In-memory, process-local conversation store with detached reads and writes. |
+| `createCodexRolloutStoreReader` | function | Open an incremental reader over a codex store. |
 | `createEventBus` | function | Create the child→parent coordination bus: one typed pipe for settled outputs, questions, and analyst findings, with a priority-ordered pull queue and a pass-through subscribe lane. |
 | `createExecutor` | function | The single built-in executor factory. Picks a leaf backend by data (`config.backend`), |
 | `createExecutorRegistry` | function | The open resolver/registry. Pre-registers the three built-ins under their |
@@ -664,6 +667,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `fsSurfaceReader` | function | A {@link SurfaceReader} over the local filesystem, for worktree/local workers. Every path — |
 | `gateOnDeliverable` | function | Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the |
 | `gitWorkspace` | function | A `Workspace` over a git checkout: materialize an isolated worktree at `ref`, commit produced changes (conflict-aware), and read `head` — hooks disabled, identity pinned. |
+| `harnessUsageIsEmpty` | function | True when a report states any spend at all. |
 | `harvestCorpus` | function | Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. |
 | `harvestSurfaceDiffs` | function | Re-read every mounted (and watched) surface and report the ones whose settled state differs from |
 | `inlineSandboxClient` | function | Adapt an `ExecutorFactory` into a `SandboxClient` for `runAgentRounds`. The factory is |
@@ -717,6 +721,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `providerAsSandboxClient` | function | Adapt a neutral environment provider to the `SandboxClient` interface used by existing loop paths. |
 | `provisionSupervisor` | function | Provision one real provider-backed worker and keep its owning manager alive for controls. |
 | `queueOf` | function | Convenience: a `DispatchUnit` factory over a fixed array of tasks, for the common case where |
+| `readCodexRolloutSession` | function | Read one rollout's rows into a session record. |
 | `readRunCancellation` | function | Read the acknowledgement for the run-scoped cancel operation. `undefined` when the runtime has |
 | `readRunCancelRequest` | function | Read the run-scoped cancel request, or `undefined` when none was written. |
 | `readWorkerCancellation` | function | Read the acknowledgement for one cancel operation. `undefined` when the runtime has not |
@@ -894,6 +899,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `BenchmarkReport` | interface | Benchmark output: per-strategy means plus the full per-task × per-strategy losses table an optimizer mines. |
 | `BoxSurfaceReaderOptions` | interface | Retry and cancellation controls for {@link boxSurfaceReader}. |
 | `BranchCapableBox` | interface | Loop-side view of the current Sandbox SDK's live branch method. |
+| `BridgeHarnessStore` | interface | A harness's own session store on the bridge host, named so the runtime may read it. |
 | `BridgeModelCredential` | interface | A live, request-scoped model credential reference for a local cli-bridge. |
 | `BridgeSeam` | interface | cli-bridge seam. A local OpenAI-compatible bridge that fronts harness CLIs |
 | `Budget` | interface | A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. |
@@ -915,6 +921,12 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `CliSeam` | interface | UNMETERED CLI subprocess seam. `bin` + `args` describe the process to spawn. |
 | `CliWorktreeSeam` | interface | cli-worktree seam. A supervisor-authored `AgentProfile` driving a local coding-harness CLI |
 | `CodeModeRunner` | interface | Where model-written code runs. THE isolation boundary — see the module doc: this runtime ships |
+| `CodexRolloutIdentity` | interface | Who wrote one rollout, exactly as its own `session_meta` states it. Nothing here is inferred. |
+| `CodexRolloutSession` | interface | One rollout file, read. |
+| `CodexRolloutStoreReader` | interface | A store reader that credits each turn once: it tails only the bytes appended since the last read. |
+| `CodexRolloutStoreRef` | interface | Where a harness keeps its own session store, and which workspace may be credited from it. |
+| `CodexRolloutTurn` | interface | One turn of one session, with the counters it added to the session's cumulative total. |
+| `CodexStoreDelta` | interface | What one incremental read of a store observed. |
 | `CollectedAgentTurn` | interface | A drained turn: the terminal summary plus every event the stream yielded. |
 | `CompletionAnalyst` | interface | Reads a node's trace → a completion verdict. Same input shape as the `analyze` hook, so |
 | `CompletionEvidence` | interface | Trace-derived evidence for a completion claim — an artifact (output) or a verifier metric, |
@@ -1183,6 +1195,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `AxisScoresOf` | type | Decompose ONE record into per-axis scores (e.g. judge dimensions). When set, it REPLACES the |
 | `BudgetReadout` | type | Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`, |
 | `ChatCompletionsTransport` | type | Buffered OpenAI-compatible completion port used only for offline execution. |
+| `CodexForkBoundary` | type | How this reader isolated the session's own rows from the parent rows prepended to its file. |
 | `CombinatorShape` | type | A combinator is just a `LoopShape`: a factory `(ShapeContext) => Agent` whose `Agent.act` |
 | `ContinuityMode` | type | How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default, |
 | `CoordinationDeliveryEvidence` | type | Durable delivery evidence retained in commit order. An attempt without a later event carrying |
@@ -1273,6 +1286,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 891 exports.
 | `SurfaceReader` | type | The read seam: fetch the current bytes at a mounted path. Implemented by a sandbox box's |
 | `SurfaceReadOutcome` | type | Outcome of reading one surface back at settle. `missing: true` means the path no longer exists |
 | `TerminalDecision` | type | One of the kernel's terminal decision values. |
+| `TokenUsageProvenance` | type | How a token count was obtained. |
 | `ToolLoopChat` | type | One inference turn over the running conversation + the tool specs → the model's text, any |
 | `ToolLoopCompactionOptions` | type | Public supervisor-facing compaction config: same knobs as the primitive, but `distill` is optional |
 | `ToolLoopMessageRecord` | type | Provider-neutral conversation record accepted by a tool-loop brain. |

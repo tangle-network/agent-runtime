@@ -63,7 +63,7 @@
 import { ValidationError } from '../../errors'
 import type { LoopTokenUsage } from '../types'
 import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
-import type { Budget, Spend, UsageEvent } from './types'
+import type { Budget, Spend, TokenUsageProvenance, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
 
@@ -271,6 +271,8 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
 export interface UsageTotals {
   tokens: LoopTokenUsage
   tokensKnown: boolean
+  /** Which evidence the counted tokens came from. `undefined` until the first `tokens` event. */
+  tokensProvenance?: TokenUsageProvenance
   usd: number
   usdEstimated: number
   usdKnown: boolean
@@ -298,6 +300,11 @@ export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
   if (ev.kind === 'tokens') {
     addTokenUsage(totals.tokens, ev)
     if (ev.tokensKnown === false) totals.tokensKnown = false
+    // An event that names no provenance came from the executor's own live stream, which is what
+    // every path reported before a harness store was readable.
+    const source = ev.provenance ?? 'stream-receipt'
+    totals.tokensProvenance =
+      totals.tokensProvenance === undefined || totals.tokensProvenance === source ? source : 'mixed'
     return
   }
   if (ev.kind === 'cost') {
@@ -321,6 +328,11 @@ export function spendFromUsageTotals(totals: UsageTotals): Spend {
     usd: totals.usd,
     ...(totals.usdKnown ? {} : { usdKnown: false }),
     ...(totals.usdEstimated > 0 ? { usdEstimated: totals.usdEstimated } : {}),
+    // Only a provenance OTHER than the live stream is stated. Absence is the historical answer and
+    // means the same thing, so every path that never reads a harness store is byte-unchanged.
+    ...(totals.tokensProvenance === undefined || totals.tokensProvenance === 'stream-receipt'
+      ? {}
+      : { tokensProvenance: totals.tokensProvenance }),
     ms: 0,
   }
 }

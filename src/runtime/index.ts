@@ -133,6 +133,22 @@ export {
   renderPairwiseMarkdown,
   type ScoreOf,
 } from './benchmark-report'
+// codex's own rollout store, read as a spend receipt. The reader is public because a harness store
+// is evidence a caller may need OUTSIDE a live run — reconciling a finished run, or auditing a seat
+// whose transport forwarded no usage at all.
+export {
+  addHarnessUsage,
+  type CodexForkBoundary,
+  type CodexRolloutIdentity,
+  type CodexRolloutSession,
+  type CodexRolloutStoreReader,
+  type CodexRolloutStoreRef,
+  type CodexRolloutTurn,
+  type CodexStoreDelta,
+  createCodexRolloutStoreReader,
+  harnessUsageIsEmpty,
+  readCodexRolloutSession,
+} from './codex-rollout-store'
 export {
   type CompletionAnalyst,
   type CompletionEvidence,
@@ -903,6 +919,7 @@ export {
 // The ONE built-in executor entrypoint: backend-as-data (`createExecutor({backend})`).
 // The per-backend factories are internal case-arms; BYO agents implement `Executor`.
 export {
+  type BridgeHarnessStore,
   type BridgeModelCredential,
   type BridgeSeam,
   type CliInPlaceSeam,
@@ -1064,6 +1081,7 @@ export type {
   SupervisedResult,
   Supervisor,
   SupervisorOpts,
+  TokenUsageProvenance,
   TreeView,
   UnconfirmedTeardown,
   UnknownMaterializationReason,

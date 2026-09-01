@@ -2521,6 +2521,11 @@ async function foldStream(
         ...(totals.tokensKnown ? {} : { tokensKnown: false }),
         usd: totals.usd,
         ...(totals.usdKnown ? {} : { usdKnown: false }),
+        // A live read says which receipt the running total came from, so `observe_agent` on a
+        // codex seat reports store-read tokens as store-read rather than as a stream receipt.
+        ...(totals.tokensProvenance === undefined || totals.tokensProvenance === 'stream-receipt'
+          ? {}
+          : { tokensProvenance: totals.tokensProvenance }),
         ms: 0,
       })
     }
@@ -2570,6 +2575,12 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...(terminal.boxMinutesProvenance !== undefined
       ? { boxMinutesProvenance: terminal.boxMinutesProvenance }
       : {}),
+    // Token provenance travels with the counters. The stream fold already derives it from the
+    // events; the terminal artifact answers for an executor whose settlement states it and whose
+    // stream did not, so a store-read receipt is not dropped on the way to the journal.
+    ...((streamed.tokensProvenance ?? terminal.tokensProvenance) === undefined
+      ? {}
+      : { tokensProvenance: streamed.tokensProvenance ?? terminal.tokensProvenance }),
   }
 }
 
