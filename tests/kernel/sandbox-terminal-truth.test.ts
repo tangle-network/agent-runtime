@@ -115,6 +115,31 @@ describe('sandbox terminal truth', () => {
   it('does not fail a run because one tool call failed', async () => {
     // A tool that errors is a normal, reportable result. Only the execution's own error and
     // terminal events settle the execution — anything wider makes a working agent unrunnable.
+    // The round still has to ANSWER: the verdict reads the output marker, so the answer below is
+    // what separates this claim from "a box that produced nothing passes".
+    const executor = await run([
+      {
+        type: 'message.part.updated',
+        data: {
+          part: {
+            type: 'tool',
+            callID: 'call-1',
+            tool: 'bash',
+            state: { status: 'error', error: 'exit 1' },
+          },
+        },
+      } as SandboxEvent,
+      { type: 'tool.result', data: { status: 'error', success: false, name: 'bash' } },
+      {
+        type: 'result',
+        data: { finalText: 'the build fails on a missing header' },
+      } as SandboxEvent,
+      doneEvent({ tokenUsage: { inputTokens: 4, outputTokens: 2 } }),
+    ] as readonly SandboxEvent[])
+    expect(executor.resultArtifact().verdict).toEqual({ valid: true, score: 1 })
+  })
+
+  it('refuses a round that reported a tool call and never answered', async () => {
     const executor = await run([
       {
         type: 'message.part.updated',
@@ -130,7 +155,9 @@ describe('sandbox terminal truth', () => {
       { type: 'tool.result', data: { status: 'error', success: false, name: 'bash' } },
       doneEvent({ tokenUsage: { inputTokens: 4, outputTokens: 2 } }),
     ] as readonly SandboxEvent[])
-    expect(executor.resultArtifact().verdict).toEqual({ valid: true, score: 1 })
+    const verdict = executor.resultArtifact().verdict
+    expect(verdict?.valid).toBe(false)
+    expect(verdict?.notes).toContain('absent')
   })
 })
 

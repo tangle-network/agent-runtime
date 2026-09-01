@@ -90,7 +90,11 @@ import {
 } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
-import { type SandboxLeafOut, sandboxLeafOutputFromEvents } from '../sandbox-executor-output'
+import {
+  type SandboxLeafOut,
+  type SandboxOutputMarker,
+  sandboxLeafOutputFromEvents,
+} from '../sandbox-executor-output'
 import type {
   AgentRunSpec,
   Driver,
@@ -1647,12 +1651,43 @@ function failedRound(result: {
  * `valid` from its check. This is the sandbox backend's structural answer for a
  * run with no oracle at all — without it nothing ever writes `valid`, no settled
  * child is ever DELIVERED, and the finalizer has nothing to select no matter how
- * well the worker ran. Structural, never self-reported: the harness completed a
- * round and returned an output artifact, or it did not.
+ * well the worker ran. Structural, never self-reported: the round's
+ * {@link SandboxOutputMarker} says what the harness produced, and the verdict is
+ * that marker.
+ *
+ * `text` is the only marker that passes. `empty` (a text-bearing terminal event
+ * carrying an empty string) and `absent` (no text-bearing event at all) each settle
+ * `valid: false` with the marker named in `notes`, because a box that answered
+ * nothing is not a worker whose output a finalizer may select. The two stay
+ * distinct: `empty` reports a box that ran and said nothing, `absent` reports an
+ * answer no reader can confirm was ever produced.
  */
-function leafVerdict(result: { winner?: { output?: unknown } }): DefaultVerdict | undefined {
-  if (result.winner?.output === undefined) return undefined
-  return { valid: true, score: 1 }
+function leafVerdict(result: { winner?: { output?: SandboxLeafOut } }): DefaultVerdict | undefined {
+  const output = result.winner?.output
+  if (output === undefined) return undefined
+  return verdictForOutputMarker(output.output)
+}
+
+/** The verdict one {@link SandboxOutputMarker} settles, with the marker named in `notes`. */
+function verdictForOutputMarker(marker: SandboxOutputMarker): DefaultVerdict {
+  switch (marker.kind) {
+    case 'text':
+      return { valid: true, score: 1 }
+    case 'empty':
+      return {
+        valid: false,
+        score: 0,
+        notes:
+          'sandbox output marker empty: the round produced a text-bearing terminal event that carried no answer',
+      }
+    case 'absent':
+      return {
+        valid: false,
+        score: 0,
+        notes:
+          'sandbox output marker absent: the round produced no text-bearing event, so no answer was observed',
+      }
+  }
 }
 
 // ── cli executor (Halo / external RLM subprocess) ──────────────────────────────
@@ -2499,6 +2534,10 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   const external = linkAbort(args.signal, args.controller.signal).signal
   const tokens = zeroTokenUsage()
   let tokensKnown = true
+  // Why the token channel is a floor rather than a total, when it is. Named on the artifact under
+  // the same key `sumSandboxUsage` uses, so one reader answers "what could not be read" on both
+  // the sandbox stream and the bridge stream.
+  let tokensUnknownReason: string | undefined
   let usd = 0
   let usdKnown = true
   // The part of `usd` this runtime priced from the catalog. `usd - estimatedUsdCharged` is what a
@@ -2827,6 +2866,36 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     turns += 1
     observation.turns = turns
     observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
+    // A turn whose stream carried no usage frame is not a free turn: cli-bridge's own
+    // scoped-loopback accounting FOR THIS TURN rides the turn's materialization receipt. It is
+    // read here, after the stream, so the canonical usage frames always win and a turn that
+    // reported both is charged once — the same precedence `SandboxUsageLedger` holds for sandbox
+    // streams (`sandbox-events.ts`).
+    if (!sawTurnTokenUsage) {
+      const receipt = readBridgeReceiptTokens(
+        activeRun.profileMaterialization?.inference?.observation?.usage,
+      )
+      if ('event' in receipt) {
+        sawTurnTokenUsage = true
+        turnInputTokens += receipt.event.input
+        turnOutputTokens += receipt.event.output
+        addTokenUsage(tokens, receipt.event)
+        yield receipt.event
+        if (receipt.event.freshInput !== undefined) {
+          promptCache.freshInput = (promptCache.freshInput ?? 0) + receipt.event.freshInput
+        }
+        if (receipt.event.cacheRead !== undefined) {
+          promptCache.readTokens = (promptCache.readTokens ?? 0) + receipt.event.cacheRead
+        }
+        if (receipt.event.cacheWrite !== undefined) {
+          promptCache.writeTokens = (promptCache.writeTokens ?? 0) + receipt.event.cacheWrite
+        }
+      } else {
+        // The FIRST reason is kept: it names the receipt this session could not read, and a later
+        // turn failing the same way does not make the answer any more unknown.
+        tokensUnknownReason ??= receipt.reason
+      }
+    }
     if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) usdKnown = false
     if (!sawTurnCostStatus || !turnUsdKnown) {
@@ -2895,6 +2964,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     transportAttempts,
     ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
     ...(sawEstimatedUsd ? { estimatedCostUsd: estimatedUsd } : {}),
+    ...(tokensKnown || tokensUnknownReason === undefined ? {} : { tokensUnknownReason }),
   } as unknown
   args.onArtifact({
     outRef: contentRef('bridge', {
@@ -2905,6 +2975,74 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     out,
     spent,
   })
+}
+
+/**
+ * The tokens one cli-bridge turn's own materialization receipt states, or the reason it states
+ * none.
+ *
+ * cli-bridge runs every harness against a scoped-loopback endpoint that it owns, counts the model
+ * traffic that passes through it, and publishes that count for the turn as
+ * `inference.observation.usage`. The count is harness-agnostic BY CONSTRUCTION: the proxy reads
+ * provider requests, not a CLI's own event vocabulary. A harness that emits no OpenAI-shaped
+ * `usage` frame therefore still has a readable receipt, which is why this runtime holds NO
+ * per-harness bridge decoder — the bridge normalizes usage at the source and the runtime keeps one
+ * reader. (`harness-usage.ts` holds the decoder registry for the OTHER transport, the sandbox
+ * stream, where the runtime does read a harness's own event.)
+ *
+ * A receipt states a turn's tokens only when it names BOTH totals. Anything less leaves the turn
+ * unknown with the reason named, never a zero that would read as a measured free turn.
+ *
+ * The counters beside the two totals CLASSIFY the prompt total; none of them adds to it. The
+ * receipt carries no reasoning counter at all, so the codex hazard of adding a reasoning count to
+ * an output total that already contains it cannot arise on this path.
+ */
+function readBridgeReceiptTokens(
+  usage: BridgeInferenceUsage | undefined,
+): { event: Extract<UsageEvent, { kind: 'tokens' }> } | { reason: string } {
+  if (usage === undefined) {
+    return { reason: 'usage-unreadable: the turn receipt carried no bridge inference observation' }
+  }
+  const input = usage.inputTokens
+  const output = usage.outputTokens
+  if (input === undefined || output === undefined) {
+    const missing = [
+      ...(input === undefined ? ['prompt'] : []),
+      ...(output === undefined ? ['completion'] : []),
+    ].join(' and ')
+    return { reason: `usage-unreadable: the turn receipt named no ${missing} total` }
+  }
+  const fresh = usage.freshInputTokens
+  // One reader of the cache-class convention, shared with every other usage path.
+  const classes = promptCacheTokenClasses(input, {
+    ...(usage.cacheReadInputTokens === undefined ? {} : { readTokens: usage.cacheReadInputTokens }),
+    ...(usage.cacheWriteInputTokens === undefined
+      ? {}
+      : { writeTokens: usage.cacheWriteInputTokens }),
+  })
+  // The receipt may state its own fresh count. It is carried when the cache counters did not
+  // already imply the partition — one class named out of three classifies PART of the prompt
+  // total, so the split stays incomplete. A fresh count that CONTRADICTS the implied partition
+  // keeps both measured counters and declares the remainder unclassified rather than picking a
+  // winner between two numbers the same receipt reported.
+  const declaredFresh =
+    classes.freshInput === undefined && fresh !== undefined && fresh <= input
+      ? { freshInput: fresh, cacheBreakdownKnown: false as const }
+      : {}
+  const contradiction =
+    classes.freshInput !== undefined && fresh !== undefined && fresh !== classes.freshInput
+      ? { cacheBreakdownKnown: false as const }
+      : {}
+  return {
+    event: {
+      kind: 'tokens',
+      input,
+      output,
+      ...classes,
+      ...declaredFresh,
+      ...contradiction,
+    },
+  }
 }
 
 const BRIDGE_CANCEL_LONG_POLL_MS = 30_000
