@@ -265,6 +265,8 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'driveHarness',
   'driverRetry',
   'onDriverAttempt',
+  'workerRetry',
+  'onWorkerRetry',
   'repromptOnUnmet',
   'onUnmetContract',
   'childSettleGraceMs',

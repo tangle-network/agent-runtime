@@ -147,6 +147,11 @@ import type {
   UsageEvent,
 } from './types'
 import type { WaitProbeRegistry } from './wait'
+import {
+  type WorkerSpawnRetryAttempt,
+  type WorkerSpawnRetryPolicy,
+  withWorkerSpawnRetry,
+} from './worker-retry'
 import { WORKER_TRACE_PROPAGATION } from './worker-trace'
 
 /**
@@ -1239,6 +1244,29 @@ export interface SuperviseOptions {
    *  attempts, last cause X" visible instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   /**
+   * How a BACKEND-DERIVED WORKER whose spawn was refused before it ran is re-entered, instead of
+   * settling dead with a slot free seconds later.
+   *
+   * `driverRetry` guards the root only. A worker that dies is typed into a `down` settlement,
+   * which is the right shape when the worker RAN — and the wrong shape for
+   * `host-executor: acquire timeout after 60000ms (in_flight=4/4, queued=1)`, a queue refusal the
+   * bridge emits before any harness child exists. Measured 2026-08-22 on discovery-lab cells
+   * oscnp s2/s3: ten live agents on one bridge that admits four, and every worker refused at the
+   * 60 s acquire deadline was lost for the whole run.
+   *
+   * Fail-closed on two proofs that the attempt did no work: the error carries a pre-spawn
+   * signature, AND the attempt yielded no execution event. An attempt that streamed anything may
+   * have metered usage, so a blind re-run would double-spend and stays fatal.
+   *
+   * Omit = no retry, the historical behaviour. Applies to backend-derived leaves, including those
+   * a `makeLeafAgent` builds; a caller-owned `makeWorkerAgent` composes
+   * {@link withWorkerSpawnRetry} itself.
+   */
+  readonly workerRetry?: WorkerSpawnRetryPolicy
+  /** Per-re-entry record for every retried worker spawn — what makes a saturated executor visible
+   *  as waiting rather than as a worker that silently took longer. */
+  readonly onWorkerRetry?: (attempt: WorkerSpawnRetryAttempt) => void
+  /**
    * How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
    * re-entered on the SAME live session with the unmet items.
    *
@@ -1515,6 +1543,8 @@ const superviseOptionKeys = [
   'watchWorkers',
   'repromptOnUnmet',
   'onUnmetContract',
+  'workerRetry',
+  'onWorkerRetry',
 ] as const
 
 type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
@@ -1629,6 +1659,7 @@ const superviseExecutableOptionKeys = [
   'onDriverAttempt',
   'onProgressStop',
   'onUnmetContract',
+  'onWorkerRetry',
   'resolveDeliverable',
   'resolveDriveHarness',
   'resolveSpawnProfile',
@@ -1731,6 +1762,8 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     onProgressStop,
     onDriverAttempt,
     onUnmetContract,
+    workerRetry,
+    onWorkerRetry,
     finalizer,
     now,
     signal,
@@ -1782,6 +1815,36 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
             ? {}
             : { detectors: Object.freeze([...watchWorkers.detectors]) }),
         })
+  // A RegExp does not survive a JSON snapshot, so the policy's numbers are snapshot and its
+  // signatures are copied as the exact values the caller selected.
+  const capturedWorkerRetry =
+    workerRetry === undefined
+      ? undefined
+      : Object.freeze({
+          ...detachedSnapshot(
+            {
+              ...(workerRetry.enabled === undefined ? {} : { enabled: workerRetry.enabled }),
+              ...(workerRetry.maxTotalMs === undefined
+                ? {}
+                : { maxTotalMs: workerRetry.maxTotalMs }),
+              ...(workerRetry.initialBackoffMs === undefined
+                ? {}
+                : { initialBackoffMs: workerRetry.initialBackoffMs }),
+              ...(workerRetry.maxBackoffMs === undefined
+                ? {}
+                : { maxBackoffMs: workerRetry.maxBackoffMs }),
+            },
+            'supervise worker-retry configuration',
+          ),
+          ...(workerRetry.additionalPreSpawnSignatures === undefined
+            ? {}
+            : {
+                additionalPreSpawnSignatures: Object.freeze([
+                  ...workerRetry.additionalPreSpawnSignatures,
+                ]),
+              }),
+        })
+
   const capturedAnalysts =
     analysts === undefined || typeof analysts === 'string'
       ? analysts
@@ -1818,6 +1881,8 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(onProgressStop === undefined ? {} : { onProgressStop }),
     ...(onDriverAttempt === undefined ? {} : { onDriverAttempt }),
     ...(onUnmetContract === undefined ? {} : { onUnmetContract }),
+    ...(capturedWorkerRetry === undefined ? {} : { workerRetry: capturedWorkerRetry }),
+    ...(onWorkerRetry === undefined ? {} : { onWorkerRetry }),
     ...(finalizer === undefined ? {} : { finalizer }),
     ...(now === undefined ? {} : { now }),
     ...(signal === undefined ? {} : { signal }),
@@ -2069,6 +2134,11 @@ function superviseInternal(
       'supervise: makeWorkerAgent replaces the worker path and makeLeafAgent overrides a leaf inside it; pass one',
     )
   }
+  if (options.makeWorkerAgent && (options.workerRetry || options.onWorkerRetry)) {
+    throw new ValidationError(
+      'supervise: workerRetry applies only to backend-derived workers; compose withWorkerSpawnRetry onto a caller-owned makeWorkerAgent explicitly',
+    )
+  }
   if (options.makeWorkerAgent && options.resolveDeliverable) {
     throw new ValidationError(
       'supervise: resolveDeliverable applies only to backend-derived workers; wrap a caller-owned makeWorkerAgent with its completion checks explicitly',
@@ -2302,8 +2372,17 @@ function superviseInternal(
     }
     // A caller-owned leaf factory slots in here, under the same authorization and classification
     // every backend-derived leaf gets; `backend` is then only needed for a per-spawn deliverable.
-    const makeLeaf =
-      options.makeLeafAgent ?? workerFromBackend(options.backend as ExecutorConfig, deliverable)
+    //
+    // The retry seam wraps the leaf factory, so a spawn refused BEFORE the worker ran is
+    // re-entered rather than settled dead. It sits inside the authorized path: the profile is
+    // already decided, and a re-entry runs the same executor object the kernel admitted.
+    const withRetry = (make: MakeWorkerAgent): MakeWorkerAgent =>
+      withWorkerSpawnRetry(make, options.workerRetry, {
+        ...(options.onWorkerRetry ? { onRetry: options.onWorkerRetry } : {}),
+      })
+    const makeLeaf = withRetry(
+      options.makeLeafAgent ?? workerFromBackend(options.backend as ExecutorConfig, deliverable),
+    )
     const securityPolicy = options.profileSecurity ?? DEFAULT_AUTHORED_PROFILE_SECURITY_POLICY
 
     const makeRecursiveWorkerFor = (
@@ -2400,7 +2479,7 @@ function superviseInternal(
           const makeSelectedLeaf =
             leafDeliverable === deliverable
               ? makeLeaf
-              : workerFromBackend(options.backend as ExecutorConfig, leafDeliverable)
+              : withRetry(workerFromBackend(options.backend as ExecutorConfig, leafDeliverable))
           return makeSelectedLeaf(
             authorized,
             Object.freeze({
