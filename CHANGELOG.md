@@ -39,6 +39,34 @@ A second poll here would hide a provider that does not honor the contract.
 
 Nothing is removed and nothing changes shape for existing callers: `promptOptions`, `validator`, `ProviderPromptOptions`, and `ProviderLeafOut` are additions.
 A caller that reaches a provider create field or a session credential through a client wrapper should move it onto the seam.
+### Driver persistence tracks the deliverable, not the spend
+
+The root-driver retry decided whether an attempt earned another one from two numbers.
+It read the pool tokens spent and the count of settled children.
+Neither number says whether the run produced what it owed.
+Measured across 1,422 settled discovery-lab runs on 2026-09-01, that reading retried the runs that left nothing 629 of 827 times (76.1%).
+It retried the runs that left an artifact 21 of 399 times (5.3%).
+
+`DriverProgressMark` now carries `contract` and `deliveredCount`.
+While a declared completion check is unmet, spend and settlements alone are no longer progress.
+Only a delivery resets the no-progress counter.
+A delivery is an accepted submission, one more child that passed the check, or the contract that turns met.
+A caller that declares no completion check reports `contract: 'none'` and keeps the previous behavior exactly.
+
+### A driver that finished without delivering can be sent back
+
+A harness owns its own turn loop, so it ends when it decides that it is finished.
+It can decide that while the run has produced nothing.
+In the same measurement, 376 of 376 winning runs ended on the driver's own completion.
+The completion gate could label such a result invalid, but it could not send the driver back for the deliverable.
+
+Set `SuperviseOptions.repromptOnUnmet` to re-enter the same live session with the unmet items.
+The re-entry uses the retry path that already exists.
+It keeps the same scope, the same coordination server, and the same live children.
+It crosses the same budget, deadline, abort, and attempt bounds that a retry crosses.
+Use `onUnmetContract` to compose the instruction, or return `'stop'` to end the run.
+The option needs a `deliverable`, and Runtime refuses it for a router-brained supervisor.
+Runtime never re-prompts a run that the coordination server already stopped.
 
 ## 0.185.2
 

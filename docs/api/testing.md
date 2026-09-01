@@ -788,6 +788,42 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
 
+##### repromptOnUnmet?
+
+> `readonly` `optional` **repromptOnUnmet?**: `number`
+
+How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
+re-entered on the SAME live session with the unmet items.
+
+A harness owns its own turn loop, so it decides when it is finished — and it can decide that
+while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
+could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+
+A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
+live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+run the coordination server already stopped is never re-prompted — that stop was a decision.
+
+Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
+completion check. A recursive manager declares none of its own, so it is left unchanged.
+Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`repromptOnUnmet`](runtime.md#repromptonunmet-1)
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](runtime.md#onunmetcontract)
+
+Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+ Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+ owes and reports how many workers passed the check.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onUnmetContract`](runtime.md#onunmetcontract-3)
+
 ##### childSettleGraceMs?
 
 > `readonly` `optional` **childSettleGraceMs?**: `number`
@@ -1135,7 +1171,7 @@ The conserved compute pool for the whole run.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-15)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`budget`](runtime.md#budget-16)
 
 ##### rootHandle?
 
@@ -1534,6 +1570,42 @@ Per-attempt record for every external driver in the tree — what makes "failed 
 ###### Inherited from
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`onDriverAttempt`](runtime.md#ondriverattempt-1)
+
+##### repromptOnUnmet?
+
+> `readonly` `optional` **repromptOnUnmet?**: `number`
+
+How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
+re-entered on the SAME live session with the unmet items.
+
+A harness owns its own turn loop, so it decides when it is finished — and it can decide that
+while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
+could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+
+A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
+live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+run the coordination server already stopped is never re-prompted — that stop was a decision.
+
+Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
+completion check. A recursive manager declares none of its own, so it is left unchanged.
+Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`repromptOnUnmet`](runtime.md#repromptonunmet-1)
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](runtime.md#onunmetcontract)
+
+Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+ Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+ owes and reports how many workers passed the check.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`onUnmetContract`](runtime.md#onunmetcontract-3)
 
 ##### childSettleGraceMs?
 
@@ -2125,6 +2197,33 @@ Per-attempt record for the external driver — how an operator sees "failed afte
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onDriverAttempt`](runtime.md#ondriverattempt-2)
+
+##### repromptOnUnmet?
+
+> `readonly` `optional` **repromptOnUnmet?**: `number`
+
+How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
+ on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
+ end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
+ ended on the driver's own completion, and the completion gate could only label that result,
+ never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
+ live children, same budget/deadline/abort/attempt bounds. Requires `deliverable`; refused for
+ a router-brained supervisor, which runs its loop in process. Omit/`0` = never re-prompt.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`repromptOnUnmet`](runtime.md#repromptonunmet-2)
+
+##### onUnmetContract?
+
+> `readonly` `optional` **onUnmetContract?**: [`OnUnmetContract`](runtime.md#onunmetcontract)
+
+Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+ Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onUnmetContract`](runtime.md#onunmetcontract-4)
 
 ##### nodeContext?
 

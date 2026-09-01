@@ -665,15 +665,30 @@ export {
   type RollingDispatchOptions,
   rollingDispatch,
 } from './supervise/dispatch'
-// Root-driver retry: the second chance a transiently-failed EXTERNAL driver gets before a run ends
-// `driver-failed`, plus the per-attempt record that makes the failure diagnosable.
+// Root-driver persistence: the second chance a transiently-failed EXTERNAL driver gets before a run
+// ends `driver-failed`, the per-attempt record that makes the failure diagnosable, and the
+// deliverable-aware progress mark that decides whether an attempt earned another one. A drive that
+// RETURNS with its completion check unmet is a first-class moment here, not just a label on the
+// result: `SuperviseOptions.repromptOnUnmet` re-enters the live session with the unmet items, and
+// `onUnmetContract` composes what it says.
 export {
   classifyDriverFailure,
   type DriverAttemptRecord,
   type DriverAttemptStop,
   DriverAttemptsExhaustedError,
+  // The pool readout an unmet-contract hook is handed, so a caller can type its own decision
+  // against the same budget the loop reads.
+  type DriverBudgetReadout,
+  type DriverContractState,
   type DriverProgressMark,
+  type DriverReentry,
+  type DriverRepromptPolicy,
+  type DriverRepromptRefusal,
   type DriverRetryPolicy,
+  type DriverUnmetContractContext,
+  type DriverUnmetContractDecision,
+  defaultUnmetContractSteer,
+  type OnUnmetContract,
 } from './supervise/driver-retry'
 // The child→parent message bus: the one typed pipe carrying settled outputs, questions, and
 // analyst findings up to the driver (pass-through + queued lanes, transport-agnostic).
