@@ -1,7 +1,41 @@
 import { describe, expect, it } from 'vitest'
-import { enforceTokenLimits, profileModelExecutionSettings } from './model-policy'
+import {
+  enforceTokenLimits,
+  profileBridgeWireModel,
+  profileModelExecutionSettings,
+  profileProviderModel,
+} from './model-policy'
 
 const model = { provider: 'tangle-router', default: 'glm-5.2' } as const
+
+describe('provider model lowering', () => {
+  it.each([
+    ['bare model', 'gpt-5.6-luna', 'gpt-5.6-luna'],
+    ['matching provider prefix', 'tangle-router/gpt-5.6-luna', 'gpt-5.6-luna'],
+    [
+      'matching provider with a nested route',
+      'tangle-router/fireworks/deepseek-v4-flash',
+      'fireworks/deepseek-v4-flash',
+    ],
+    ['different provider prefix', 'anthropic/claude-sonnet-4-5', 'anthropic/claude-sonnet-4-5'],
+  ])('maps a %s for direct provider requests', (_name, authored, expected) => {
+    expect(profileProviderModel({ model: { provider: 'tangle-router', default: authored } })).toBe(
+      expected,
+    )
+  })
+
+  it('preserves the complete runner, provider, and nested model route for CLI Bridge', () => {
+    expect(
+      profileBridgeWireModel({
+        harness: 'pi',
+        model: {
+          provider: 'tangle-router',
+          default: 'tangle-router/fireworks/deepseek-v4-flash',
+        },
+      }),
+    ).toBe('pi/tangle-router/fireworks/deepseek-v4-flash')
+  })
+})
 
 describe('separate completion ceilings', () => {
   it('reads the three ceilings from the exact profile and refuses the retired metadata path', () => {

@@ -68,10 +68,11 @@ describe('examples/graphs/user-sim-conversation — turns are traversals, the se
         { role: 'user', content: USER_TURNS[turn] },
       ])
     }
-    // Every wire call carried the worker's model, NO tools field (a pure conversation), and NO
-    // sampling fields the seam never configured (nothing is silently injected).
+    // The direct scripted endpoint already selects its provider, so every wire call carries the
+    // provider-facing model without duplicating that provider. A pure conversation carries no
+    // tools or sampling fields that the caller did not configure.
     for (const req of requests) {
-      expect(req.model).toBe('scripted/product-agent')
+      expect(req.model).toBe('product-agent')
       expect(req.tools).toBeUndefined()
       expect(req.temperature).toBeUndefined()
       expect(req.max_tokens).toBeUndefined()

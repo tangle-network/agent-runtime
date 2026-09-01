@@ -132,6 +132,7 @@ import {
   type ProfileModelExecutionSettings,
   profileBridgeWireModel,
   profileModelExecutionSettings,
+  profileProviderModel,
   type TokenLimitDecision,
 } from './model-policy'
 import {
@@ -5160,7 +5161,7 @@ function exactRouterModel(profile: AgentProfile, context: string): string {
       `${context}: AgentProfile.harness ${JSON.stringify(profile.harness)} conflicts with direct Router execution; use "cli-base"`,
     )
   }
-  return concreteProfileModel(profile)!
+  return profileProviderModel(profile)!
 }
 
 /**

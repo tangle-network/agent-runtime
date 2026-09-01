@@ -57,7 +57,7 @@ describe('createProfileExecutionBackend', () => {
 
     expect(complete).toHaveBeenCalledOnce()
     expect(complete.mock.calls[0]?.[0]).toMatchObject({
-      model: 'offline/profile-backend',
+      model: 'profile-backend',
       messages: [{ role: 'user', content: 'answer from the declared profile' }],
     })
     expect(events.filter((event) => event.type === 'final')).toHaveLength(1)
