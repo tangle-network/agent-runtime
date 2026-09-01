@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.186.0
+
+### An environment provider is now a composed backend, not a wiring exercise
+
+`createExecutor({ backend: 'provider', provider })` consumes any `AgentEnvironmentProvider` — a Tangle provider in production, or any object satisfying the contract.
+Runtime depends on no provider package, and it does not need to.
+`examples/provider-executor/` runs one profile through a provider offline, both as a leaf factory and as `SuperviseOptions.backend`, and `docs/canonical-api.md` names the seam.
+
+Do this instead of wrapping the provider's own client to reach a create field.
+A wrapper is invisible to Runtime, so its create options are absent from every record the run produces.
+
+### A caller-owned session credential can reach a provider environment
+
+`ProviderExecutorOptions.promptOptions` carries per-run Sandbox prompt options into every streamed turn, with the same name, type, and kernel-owned exclusions as `ExecCtx.promptOptions` on the sandbox path.
+Put a subscription seat's `backend.model.authMode` and `authFiles` here, never in the `AgentProfile`: a profile is portable and a credential is not.
+The runtime merges it UNDER each turn, so a `taskToTurn` field wins and `providerOptions` merges one level rather than replacing.
+The steerable provider path reads the same declaration.
+
+A turn-level `model` is refused with a `ValidationError`.
+This executor's materialization record names the model from `AgentProfile`, so an override would record a model the provider did not run.
+Declare the instrument on `AgentProfile.model`.
+
+### A provider worker can be scored against its live environment
+
+`ProviderExecutorOptions.validator` takes the sandbox seam's `Validator` contract.
+`validate` runs before the environment is destroyed, so `ValidationCtx.box` can read files and run commands in the environment it grades; every other supervised hook fires after teardown and can only read the artifact.
+The verdict becomes the settled artifact's verdict.
+A validator combined with `steering` is refused, because a steerable session is a multi-turn session on one environment rather than a scored single-shot leaf.
+
+### Readiness stays the provider's contract
+
+`provider.create` resolving means the environment can take a turn, and this seam adds no readiness wait of its own.
+`acquireSandbox` exists because a raw `SandboxClient.create` returns before the box is ready.
+A second poll here would hide a provider that does not honor the contract.
+
+### What a consumer must do differently
+
+Nothing is removed and nothing changes shape for existing callers: `promptOptions`, `validator`, `ProviderPromptOptions`, and `ProviderLeafOut` are additions.
+A caller that reaches a provider create field or a session credential through a client wrapper should move it onto the seam.
+
 ## 0.185.2
 
 ### Portable profiles call direct providers with their model identifier
