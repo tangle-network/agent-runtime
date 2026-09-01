@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import {
   type AgentProfile,
+  type AgentProfileMcpServer,
   type AgentProfileSecurityPolicy,
   agentProfileSchema,
   canonicalAgentProfileDigest,
@@ -216,6 +217,9 @@ export function workerFromBackend(
         }),
     )
     const boundSessionId = boundBackend.backend === 'bridge' ? boundBackend.sessionId : undefined
+    // Resolved BEFORE the executor exists, so a run that asked for peer mail on a backend that
+    // cannot deliver it fails the spawn instead of handing the worker a capability nobody serves.
+    const peerMailAttachment = peerMailRuntimeAttachment(profile, capturedBackend, spawnContext)
     const baseFactory = createExecutor(boundBackend)
     // Carry the configured factory into Scope. It is built only AFTER reservation with the real
     // child signal/context, so a rejected or already-completed keyed spawn creates no executor.
@@ -228,11 +232,28 @@ export function workerFromBackend(
         bridgeSessionByWorker.set(ctx.node.nodeId, boundSessionId)
       }
       // Caller-supplied seams sit UNDER the per-child seams the Scope seeds, so the scope's
-      // recursion and trace context always win on a key collision.
+      // recursion and trace context always win on a key collision. The peer-mail attachment sits
+      // ABOVE both: it is Runtime-owned, minted by the coordination layer for this exact spawn,
+      // and nothing a caller passes may replace the endpoint a sibling's identity is bound to.
       const extraSeams = seams?.()
+      const seamsForChild =
+        extraSeams === undefined && peerMailAttachment === undefined
+          ? ctx.seams
+          : {
+              ...extraSeams,
+              ...ctx.seams,
+              ...(peerMailAttachment === undefined
+                ? {}
+                : {
+                    [bridgeRuntimeAttachmentsKey]: {
+                      ...readCallerRuntimeAttachments(ctx.seams),
+                      ...peerMailAttachment,
+                    },
+                  }),
+            }
       const built = baseFactory(
         spec,
-        extraSeams === undefined ? ctx : { ...ctx, seams: { ...extraSeams, ...ctx.seams } },
+        seamsForChild === ctx.seams ? ctx : { ...ctx, seams: seamsForChild },
       )
       return deliverable ? gateOnDeliverable(built, deliverable) : built
     }
@@ -246,6 +267,87 @@ export function workerFromBackend(
       executorSpec: AgentSpec
     }
   }
+}
+
+/**
+ * The reserved MCP alias one worker's PEER MAIL capability endpoint mounts under.
+ *
+ * Distinct from the driver's coordination alias on purpose: the two servers carry different
+ * authority. Coordination mounts spawn_worker / steer_agent / stop; mail mounts send_mail and
+ * read_mail and nothing else, on a per-worker secret path bound to that worker's identity.
+ */
+const peerMailMcpAlias = 'agent-runtime-peer-mail'
+
+/**
+ * The Runtime-owned MCP attachment that carries this spawn's peer-mail endpoint into the worker,
+ * or `undefined` when this backend runs no MCP client at all.
+ *
+ * The endpoint rides the SAME out-of-band channel the driver's coordination MCP rides
+ * (`runtime_attachments` on the bridge wire), for the same reason: the capability path carries
+ * fresh random bytes per process, so writing it into `AgentProfile.mcp` would move the canonical
+ * profile digest a durable session is bound to, and a keyed re-spawn would then fail its identity
+ * check against the journal. Nothing in the authored profile changes, and this runs inside the
+ * leaf factory — after `authorizeSpawn` has already decided the profile — so the authorization
+ * chain is unchanged.
+ *
+ * Three backend classes, three honest answers:
+ *
+ *  - `bridge` MOUNTS it. cli-bridge advertises `capabilities.runtimeAttachments.mcp` and mounts
+ *    the named servers for the run without binding them into the session profile.
+ *  - `router`, `router-tools` and `provider` mount NOTHING. Those workers are in-process tool
+ *    loops with no MCP client; their tool surface is the caller's own array, and
+ *    `WorkerSpawnContext.peerMailUrl` is the deliverable a caller uses directly.
+ *  - Every other backend REFUSES the spawn. A sandbox box or a local CLI harness receives tools
+ *    only through its materialized `AgentProfile`, and the runtime has no channel that reaches it
+ *    out of band, so minting a capability it can never call would ledger a channel that does not
+ *    exist. This is the same rule `bridgeResumeSessionId` applies to `continuity: 'resume'`.
+ */
+function peerMailRuntimeAttachment(
+  profile: AgentProfile,
+  backend: ExecutorConfig,
+  spawnContext: WorkerSpawnContext | undefined,
+): Readonly<Record<string, AgentProfileMcpServer>> | undefined {
+  const url = spawnContext?.peerMailUrl
+  if (url === undefined) return undefined
+  switch (backend.backend) {
+    case 'router':
+    case 'router-tools':
+    case 'provider':
+      return undefined
+    case 'bridge':
+      break
+    default:
+      throw new ValidationError(
+        `workerFromBackend: the '${backend.backend}' backend seam cannot mount a peer-mail ` +
+          'endpoint — it materializes tools only through the AgentProfile, and writing a ' +
+          'per-process capability URL there would move the canonical profile digest. Run peer-mail ' +
+          "workers on the 'bridge' backend, mount the endpoint yourself from " +
+          'WorkerSpawnContext.peerMailUrl through makeLeafAgent or makeWorkerAgent, or drop ' +
+          'peerMail for this run',
+      )
+  }
+  if (profile.mcp?.[peerMailMcpAlias] !== undefined) {
+    throw new ValidationError(
+      `workerFromBackend: profile MCP alias ${JSON.stringify(peerMailMcpAlias)} is reserved`,
+    )
+  }
+  return Object.freeze({
+    [peerMailMcpAlias]: Object.freeze({ transport: 'http', url }) as AgentProfileMcpServer,
+  })
+}
+
+/**
+ * Runtime attachments a caller already put on the child's `ExecutorContext`, so mounting peer mail
+ * ADDS one server rather than replacing the map. An absent or malformed value contributes nothing;
+ * the executor that reads the seam owns its validation and refuses a malformed map there.
+ */
+function readCallerRuntimeAttachments(
+  seams: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const existing = seams[bridgeRuntimeAttachmentsKey]
+  return existing !== null && typeof existing === 'object' && !Array.isArray(existing)
+    ? (existing as Readonly<Record<string, unknown>>)
+    : {}
 }
 
 function externalExecutionId(kind: string, identity: unknown): string {
@@ -1028,11 +1130,18 @@ export interface SuperviseOptions {
   /** OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
    *  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
    *  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
-   *  endpoint on {@link WorkerSpawnContext.peerMailUrl}. Mounting that URL into the worker is the
-   *  `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
-   *  the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
-   *  it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
-   *  supervisor; a router-brained supervisor is refused rather than silently unmailed. */
+   *  endpoint on {@link WorkerSpawnContext.peerMailUrl}.
+   *
+   *  On the backend-derived worker path the runtime also MOUNTS that endpoint, the way a driver
+   *  receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
+   *  authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
+   *  already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
+   *  native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+   *  stays the caller's to use; every other backend refuses the spawn rather than mint a
+   *  capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
+   *
+   *  Requires a harness-brained supervisor; a router-brained supervisor is refused rather than
+   *  silently unmailed. */
   readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
   /** Override the worker seam directly (tests / advanced) instead of deriving it from `backend`.
    *  This is caller-owned execution: profile security, spawn authorization, and recursive-driver

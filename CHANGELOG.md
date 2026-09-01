@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.189.0
+
+### `peerMail` reaches a backend-derived worker
+
+`supervise({ peerMail: true })` mints one capability URL per spawn and hands it to `WorkerSpawnContext.peerMailUrl`.
+Nothing mounted it, so only a caller-owned `makeWorkerAgent` could use the feature — and that seam replaces the authorized worker path, which costs `authorizeSpawn`.
+
+`workerFromBackend` now mounts the endpoint for you.
+It rides the bridge's `runtime_attachments`, under the reserved alias `agent-runtime-peer-mail`, the way a driver receives its coordination MCP.
+The authored profile does not change, so the canonical profile digest a durable bridge session binds does not move.
+The mount runs after `authorizeSpawn`, so the authorization chain does not change.
+A `bridge` worker calls `send_mail` and `read_mail` as native tools.
+
+Read the backend before you turn `peerMail` on.
+`router`, `router-tools`, and `provider` workers run no MCP client, so they mount nothing and `peerMailUrl` stays yours to use.
+Every other backend now REFUSES the spawn: a sandbox box or a local CLI harness receives tools only through its materialized `AgentProfile`, and a per-process capability URL written there would move the profile digest.
+Mount the endpoint yourself through `makeLeafAgent` or `makeWorkerAgent`, or drop `peerMail` for that run.
+
 ## 0.188.0
 
 ### The cohort moves to agent-knowledge 13
