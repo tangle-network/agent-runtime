@@ -462,13 +462,17 @@ function optimizerReceipt(
   }
   const cachedTokens = optimizerTokenCount(usage.promptCache?.readTokens, 'cache read tokens')
   const cacheWriteTokens = optimizerTokenCount(usage.promptCache?.writeTokens, 'cache write tokens')
-  const classified = (cachedTokens ?? 0) + (cacheWriteTokens ?? 0)
-  if (classified > usage.input) {
-    throw new Error('profile optimizer cache classes exceed total input tokens')
+  const inputTokens = usage.input - (cachedTokens ?? 0)
+  if (inputTokens < 0) {
+    throw new Error('profile optimizer cache reads exceed total input tokens')
+  }
+  // A cache write annotates fresh input. It is not a third, disjoint prompt-token class.
+  if ((cacheWriteTokens ?? 0) > inputTokens) {
+    throw new Error('profile optimizer cache writes exceed non-cached input tokens')
   }
   return {
     model,
-    inputTokens: usage.input - classified,
+    inputTokens,
     outputTokens: usage.output,
     ...(cachedTokens !== undefined ? { cachedTokens } : {}),
     ...(cacheWriteTokens !== undefined ? { cacheWriteTokens } : {}),

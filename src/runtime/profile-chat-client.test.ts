@@ -89,6 +89,46 @@ describe('profileChatClient exact Runtime adapter', () => {
     expect(response.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('keeps cache writes inside non-cached input in an optimizer receipt', async () => {
+    const call = profileOptimizerModelCall({
+      profile,
+      context: 'profile optimizer cache write test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async () => ({
+          model: 'deepseek-v4-flash',
+          choices: [{ message: { content: 'cached response' }, finish_reason: 'stop' }],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 2,
+            cost: 0.001,
+            prompt_cache: { read_tokens: 3, write_tokens: 9 },
+          },
+        }),
+      },
+    })
+
+    const result = await call({
+      callId: 'optimizer-cache-write',
+      request: { ...request, model: 'deepseek-v4-flash' },
+      endpointFormat: 'chat-completions',
+      signal: new AbortController().signal,
+    })
+
+    expect(result.succeeded).toBe(true)
+    if (!result.succeeded) throw new Error(result.error)
+    expect(result.receipt).toMatchObject({
+      inputTokens: 9,
+      cachedTokens: 3,
+      cacheWriteTokens: 9,
+    })
+    expect(result.response.usage.promptTokens).toBe(
+      result.receipt.inputTokens + (result.receipt.cachedTokens ?? 0),
+    )
+  })
+
   it('uses the same provider snapshot in the response and optimizer receipt', async () => {
     const responseModel = 'deepseek-v4-flash@fp_a18b46594c_prod0820_fp8_kvcache_20260402'
     const call = profileOptimizerModelCall({
