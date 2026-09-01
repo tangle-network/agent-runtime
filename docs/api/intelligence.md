@@ -1570,15 +1570,7 @@ metered, and settled by the caller's grant service.
 
 ##### executionRoots
 
-> **executionRoots**: `object`
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
+> **executionRoots**: [`AgentCandidateExecutionRoots`](index.md#agentcandidateexecutionroots)
 
 ##### stagingRoots
 
@@ -1698,15 +1690,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ##### executionRoots
 
-> **executionRoots**: `object`
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
+> **executionRoots**: [`AgentCandidateExecutionRoots`](index.md#agentcandidateexecutionroots)
 
 ##### stagingRoots
 
@@ -1830,15 +1814,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### executionRoots
 
-> **executionRoots**: `object`
-
-###### taskRoot
-
-> **taskRoot**: `string`
-
-###### candidateRoot?
-
-> `optional` **candidateRoot?**: `string`
+> **executionRoots**: [`AgentCandidateExecutionRoots`](index.md#agentcandidateexecutionroots)
 
 ###### Inherited from
 

@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.188.1` and `@tangle-network/agent-eval@0.172.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.189.0` and `@tangle-network/agent-eval@0.172.1` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -15,7 +15,7 @@ Every subpath this package declares in `package.json` `exports`. Reach for these
 
 ### Root — task lifecycle, conversation, RSI verbs, observability
 
-Import from `@tangle-network/agent-runtime` — 440 exports.
+Import from `@tangle-network/agent-runtime` — 441 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -177,6 +177,7 @@ Import from `@tangle-network/agent-runtime` — 440 exports.
 | `AgentCandidateExecutionCleanupHandles` | interface | Non-secret identities a trusted recovery worker needs to close an abandoned attempt. |
 | `AgentCandidateExecutionLease` | interface | Secret capability required to finish the acquired attempt. |
 | `AgentCandidateExecutionRecoveryEvidence` | interface | Trusted, independently observed closure facts for one expired winning lease. |
+| `AgentCandidateExecutionRoots` | interface | Absolute container roots owned by one isolated candidate execution. |
 | `AgentCandidateExecutorFinalCapture` | interface | Replayable evaluator result captured only after process death and trace drain. |
 | `AgentCandidateExecutorMemoryCapture` | interface | Raw isolated-memory capture made only after access has been revoked. |
 | `AgentCandidateExecutorPort` | interface | Executes one prepared request inside an evaluator-owned isolation boundary. |
@@ -1505,7 +1506,7 @@ Import from `@tangle-network/agent-runtime/primeintellect` — 29 exports.
 
 ### Candidate execution — immutable prepare, run, grade, and receipt
 
-Import from `@tangle-network/agent-runtime/candidate-execution` — 114 exports.
+Import from `@tangle-network/agent-runtime/candidate-execution` — 115 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1550,6 +1551,7 @@ Import from `@tangle-network/agent-runtime/candidate-execution` — 114 exports.
 | `AgentCandidateExecutionCleanupHandles` | interface | Non-secret identities a trusted recovery worker needs to close an abandoned attempt. |
 | `AgentCandidateExecutionLease` | interface | Secret capability required to finish the acquired attempt. |
 | `AgentCandidateExecutionRecoveryEvidence` | interface | Trusted, independently observed closure facts for one expired winning lease. |
+| `AgentCandidateExecutionRoots` | interface | Absolute container roots owned by one isolated candidate execution. |
 | `AgentCandidateExecutorFinalCapture` | interface | Replayable evaluator result captured only after process death and trace drain. |
 | `AgentCandidateExecutorMemoryCapture` | interface | Raw isolated-memory capture made only after access has been revoked. |
 | `AgentCandidateExecutorPort` | interface | Executes one prepared request inside an evaluator-owned isolation boundary. |

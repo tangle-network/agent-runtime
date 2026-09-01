@@ -154,6 +154,7 @@ describe('atomic prepared candidate execution', () => {
         expect(Buffer.from(request.inputs.task.files[0]?.bytes ?? []).toString('utf8')).toBe(
           'export const value = 1\n',
         )
+        expect(request.inputs.profile.files.every((file) => file.root === undefined)).toBe(true)
         await terminalTrace(request, traceStore)
         return {
           executionId: request.executionId,

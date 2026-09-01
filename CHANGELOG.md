@@ -18,6 +18,14 @@ Read the backend before you turn `peerMail` on.
 Every other backend now REFUSES the spawn: a sandbox box or a local CLI harness receives tools only through its materialized `AgentProfile`, and a per-process capability URL written there would move the profile digest.
 Mount the endpoint yourself through `makeLeafAgent` or `makeWorkerAgent`, or drop `peerMail` for that run.
 
+### Candidate profile files keep their execution root
+
+Runtime preserves the materializer's `agent` and `workspace` roots through preparation and exact execution.
+Pi agent-root files use a private profile root outside the task and candidate workspaces.
+Workspace-only callers remain compatible without a profile root.
+
+Runtime consumes Materializer `0.19.x`, which carries rooted profile-plan evidence.
+
 ## 0.188.0
 
 ### The cohort moves to agent-knowledge 13

@@ -223,6 +223,12 @@ Re-exports [executePreparedAgentCandidate](index.md#executepreparedagentcandidat
 
 ***
 
+### AgentCandidateExecutionRoots
+
+Re-exports [AgentCandidateExecutionRoots](index.md#agentcandidateexecutionroots)
+
+***
+
 ### CANDIDATE\_KNOWLEDGE\_RETRIEVAL\_CONFIG\_ENV
 
 Re-exports [CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV](index.md#candidate_knowledge_retrieval_config_env)

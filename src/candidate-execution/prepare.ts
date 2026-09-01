@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
-import { lstat, readdir } from 'node:fs/promises'
-import { isAbsolute, posix, relative, resolve as resolveHostPath } from 'node:path'
+import { lstat, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { isAbsolute, join, posix, relative, resolve as resolveHostPath } from 'node:path'
 import type {
   AgentCandidateConfigValue,
   AgentCandidateEffectiveMemory,
@@ -49,6 +50,7 @@ import {
   sha256Bytes,
 } from './digest'
 import { isWellFormedUnicode } from './exact-object'
+import { assertAgentCandidateExecutionRoots, executionPathsOverlap } from './execution-roots'
 import { candidateExecutionOwnerWindowMs } from './execution-window'
 import { verifyTaskCheckout } from './git-materialize'
 import {
@@ -59,7 +61,12 @@ import {
 } from './knowledge'
 import { sealAgentCandidateModelSettlement, usdToNanos } from './model-settlement'
 import { createPreparedCandidateExecution } from './prepared-state'
-import { materializeAgentCandidateProfilePlan } from './profile'
+import {
+  candidateProfileAgentPaths,
+  materializeAgentCandidateProfilePlan,
+  PI_CANDIDATE_AGENT_DIR_ENV,
+  PI_CANDIDATE_SESSION_DIR_ENV,
+} from './profile'
 import {
   type AgentCandidateExecutionPorts,
   type AgentCandidateTaskExecution,
@@ -177,18 +184,45 @@ export async function prepareAgentCandidateExecution(
     harness: bundle.execution.harness,
     launch: bundle.execution.launch,
     workspace: bundle.execution.cwd.workspace,
-    workspaces: task.executionRoots,
+    workspaces: {
+      taskRoot: task.executionRoots.taskRoot,
+      ...(task.executionRoots.candidateRoot
+        ? { candidateRoot: task.executionRoots.candidateRoot }
+        : {}),
+    },
     resolvedResources: verifiedResourceTextByDigest(candidate),
   })
-  const profileApplication = applyAgentCandidateWorkspacePlan(
+  const profileAgentPaths = candidateProfileAgentPaths(
     profileWorkspacePlan,
-    task.stagingRoots.profileRoot,
-    bundle.execution.cwd.workspace,
+    task.executionRoots.profileRoot,
   )
-  await verifyMaterializedProfileWorkspace(
-    task.stagingRoots.profileRoot,
-    profileApplication.profileActivation.profilePlan.material,
-  )
+  const profileAgentStagingRoot = profileWorkspacePlan.files.some((file) => file.root === 'agent')
+    ? await mkdtemp(join(tmpdir(), 'tangle-candidate-profile-agent-'))
+    : undefined
+  let profileApplication: ReturnType<typeof applyAgentCandidateWorkspacePlan>
+  try {
+    profileApplication = applyAgentCandidateWorkspacePlan(
+      profileWorkspacePlan,
+      task.stagingRoots.profileRoot,
+      bundle.execution.cwd.workspace,
+      profileAgentStagingRoot ? { agentDir: profileAgentStagingRoot } : undefined,
+    )
+    await verifyMaterializedProfileWorkspace(
+      task.stagingRoots.profileRoot,
+      profileApplication.profileActivation.profilePlan.material,
+    )
+    if (profileAgentStagingRoot) {
+      await verifyMaterializedProfileWorkspace(
+        profileAgentStagingRoot,
+        profileApplication.profileActivation.profilePlan.material,
+        'agent',
+      )
+    }
+  } finally {
+    if (profileAgentStagingRoot) {
+      await rm(profileAgentStagingRoot, { recursive: true, force: true })
+    }
+  }
   const profilePlanBytes = await readVerifiedArtifact(
     profileApplication.profileActivation.profilePlan.artifact,
     ports.artifacts,
@@ -250,6 +284,18 @@ export async function prepareAgentCandidateExecution(
     const publicEnv = mergePublicEnvironment(
       bundle.execution.env ?? {},
       profileApplication.env,
+      profileAgentPaths
+        ? {
+            [PI_CANDIDATE_AGENT_DIR_ENV]: {
+              kind: 'public' as const,
+              value: profileAgentPaths.agentDir,
+            },
+            [PI_CANDIDATE_SESSION_DIR_ENV]: {
+              kind: 'public' as const,
+              value: profileAgentPaths.sessionDir,
+            },
+          }
+        : {},
       bundle.execution.instructionDelivery.kind === 'utf8-file'
         ? {
             [bundle.execution.instructionDelivery.env]: {
@@ -585,17 +631,14 @@ function assertTaskInput(
       throw new Error('task repository Git object formats disagree')
     }
   }
+  assertAgentCandidateExecutionRoots(task.executionRoots)
   for (const [name, root] of [
-    ['execution task root', task.executionRoots.taskRoot],
-    ['execution candidate root', task.executionRoots.candidateRoot],
     ['staging task root', task.stagingRoots.taskRoot],
     ['staging candidate root', task.stagingRoots.candidateRoot],
     ['staging profile root', task.stagingRoots.profileRoot],
   ] as const) {
     if (root === undefined) continue
-    const canonical = name.startsWith('execution')
-      ? posix.isAbsolute(root) && posix.normalize(root) === root
-      : isAbsolute(root) && resolveHostPath(root) === root
+    const canonical = isAbsolute(root) && resolveHostPath(root) === root
     if (!canonical) throw new Error(`${name} must be a canonical absolute path`)
   }
   if (
@@ -657,21 +700,15 @@ function assertTaskInput(
   }
   if (delivery.kind === 'utf8-file') {
     if (
-      executionPathsOverlap(task.executionRoots.taskRoot, delivery.path) ||
-      (task.executionRoots.candidateRoot !== undefined &&
-        executionPathsOverlap(task.executionRoots.candidateRoot, delivery.path))
+      [
+        task.executionRoots.taskRoot,
+        task.executionRoots.candidateRoot,
+        task.executionRoots.profileRoot,
+      ].some((root) => root !== undefined && executionPathsOverlap(root, delivery.path))
     ) {
       throw new Error('task instruction file must remain outside execution workspaces')
     }
   }
-}
-
-function executionPathsOverlap(left: string, right: string): boolean {
-  const a = posix.normalize(left)
-  const b = posix.normalize(right)
-  return (
-    a === b || b.startsWith(a === '/' ? '/' : `${a}/`) || a.startsWith(b === '/' ? '/' : `${b}/`)
-  )
 }
 
 function assertDisjointHostStagingRoots(task: AgentCandidateTaskExecution): void {
@@ -921,13 +958,21 @@ function absoluteExecutionCwd(
   cwd: VerifiedAgentCandidate['bundle']['execution']['cwd'],
   roots: AgentCandidateTaskExecution['executionRoots'],
 ): string {
-  const root = cwd.workspace === 'task' ? roots.taskRoot : roots.candidateRoot
-  if (!root) throw new Error('candidate cwd is missing its execution workspace root')
+  const root = workspaceExecutionRoot(cwd.workspace, roots)
   const absolute = cwd.path === '.' ? root : posix.join(root, cwd.path)
   if (absolute !== root && !absolute.startsWith(`${root}/`)) {
     throw new Error('candidate cwd escapes its execution workspace')
   }
   return absolute
+}
+
+function workspaceExecutionRoot(
+  workspace: 'task' | 'candidate',
+  roots: AgentCandidateTaskExecution['executionRoots'],
+): string {
+  const root = workspace === 'task' ? roots.taskRoot : roots.candidateRoot
+  if (!root) throw new Error(`candidate ${workspace} workspace root is missing`)
+  return root
 }
 
 function validateProtectedModelReservation(
@@ -990,15 +1035,27 @@ function modelLimits(limits: AgentCandidateExecutionLimits): {
 }
 
 function exactProfileExecutorFiles(
-  sourceFiles: ReadonlyArray<{ relPath: string; content: string; mode?: number }>,
-  expectedFiles: ReadonlyArray<{ relPath: string; mode: number; contentSha256: string }>,
-): Array<{ path: string; mode: number; bytes: Uint8Array }> {
-  const byPath = new Map(sourceFiles.map((file) => [file.relPath, file]))
-  if (byPath.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
+  sourceFiles: ReadonlyArray<{
+    relPath: string
+    content: string
+    mode?: number
+    root?: 'agent' | 'workspace'
+  }>,
+  expectedFiles: ReadonlyArray<{
+    relPath: string
+    mode: number
+    contentSha256: string
+    root?: 'agent'
+  }>,
+): Array<{ path: string; mode: number; root?: 'agent'; bytes: Uint8Array }> {
+  const byIdentity = new Map(
+    sourceFiles.map((file) => [profileFileIdentity(file.root, file.relPath), file]),
+  )
+  if (byIdentity.size !== sourceFiles.length || sourceFiles.length !== expectedFiles.length) {
     throw new Error('profile source files do not match the signed profile plan')
   }
   return expectedFiles.map((expected) => {
-    const source = byPath.get(expected.relPath)
+    const source = byIdentity.get(profileFileIdentity(expected.root, expected.relPath))
     const mode = source?.mode ?? 0o644
     const bytes = Buffer.from(source?.content ?? '', 'utf8')
     if (
@@ -1011,8 +1068,17 @@ function exactProfileExecutorFiles(
     ) {
       throw new Error('profile source files do not match the signed profile plan')
     }
-    return { path: expected.relPath, mode, bytes: Uint8Array.from(bytes) }
+    return {
+      path: expected.relPath,
+      mode,
+      ...(expected.root === 'agent' ? { root: 'agent' as const } : {}),
+      bytes: Uint8Array.from(bytes),
+    }
   })
+}
+
+function profileFileIdentity(root: 'agent' | 'workspace' | undefined, relPath: string): string {
+  return `${root ?? 'workspace'}\0${relPath}`
 }
 
 function errorMessage(error: unknown): string {

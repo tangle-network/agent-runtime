@@ -29,6 +29,7 @@ import type {
 import {
   isMaterializerHarness,
   materializeCandidateProfile,
+  resolvePiRuntimePaths,
 } from '@tangle-network/agent-profile-materialize'
 
 import {
@@ -53,6 +54,8 @@ export function candidateMaterializerHarness(harness: HarnessType): HarnessId {
 
 /** Runtime applies the materializer's launch flags to the candidate process. */
 export const CANDIDATE_PROFILE_MATERIALIZER_BINDS = ['systemPrompt'] as const
+export const PI_CANDIDATE_AGENT_DIR_ENV = 'PI_CODING_AGENT_DIR'
+export const PI_CANDIDATE_SESSION_DIR_ENV = 'PI_CODING_AGENT_SESSION_DIR'
 
 interface MaterializeAgentCandidateProfilePlanOptions {
   profile: AgentCandidateProfile
@@ -90,23 +93,47 @@ export function materializeAgentCandidateProfilePlan(
   )
 }
 
+/** Resolve the private Pi roots needed by an agent-root profile plan. */
+export function candidateProfileAgentPaths(
+  plan: {
+    harness: HarnessType
+    files: ReadonlyArray<{ root?: 'agent' | 'workspace' }>
+  },
+  runtimeHome: string | undefined,
+): { agentDir: string; sessionDir: string } | undefined {
+  if (!plan.files.some((file) => file.root === 'agent')) return undefined
+  if (plan.harness !== 'pi') {
+    throw new Error(`candidate profile agent-root files are unsupported for ${plan.harness}`)
+  }
+  if (runtimeHome === undefined) {
+    throw new Error('candidate profile agent-root files require executionRoots.profileRoot')
+  }
+  return resolvePiRuntimePaths(runtimeHome)
+}
+
 /** Bind exact native profile text to the canonical plan captured during preparation. */
 export function createAgentCandidateProfileActivation(
   plan: AgentCandidateWorkspacePlan,
   profilePlan: AgentCandidateProfilePlanEvidence,
 ): AgentCandidateProfileActivation {
-  const sourceByPath = new Map(plan.files.map((file) => [file.relPath, file]))
-  if (sourceByPath.size !== plan.files.length) {
-    throw new Error('candidate profile activation contains duplicate native file paths')
+  const sourceByIdentity = new Map(
+    plan.files.map((file) => [profileFileIdentity(file.root, file.relPath), file]),
+  )
+  if (sourceByIdentity.size !== plan.files.length) {
+    throw new Error('candidate profile activation contains duplicate rooted native file paths')
   }
   const files = profilePlan.material.files.map((expected) => {
-    const source = sourceByPath.get(expected.relPath)
+    const source = sourceByIdentity.get(profileFileIdentity(expected.root, expected.relPath))
     if (!source) {
-      throw new Error(`candidate profile activation is missing ${expected.relPath}`)
+      throw new Error(
+        `candidate profile activation is missing ${profileFileLabel(expected.root, expected.relPath)}`,
+      )
     }
     const mode = source.mode ?? 0o644
     if (!Number.isSafeInteger(mode) || mode < 0 || mode > 0o777) {
-      throw new Error(`candidate profile activation has invalid mode for ${expected.relPath}`)
+      throw new Error(
+        `candidate profile activation has invalid mode for ${profileFileLabel(expected.root, expected.relPath)}`,
+      )
     }
     return { path: expected.relPath, mode, content: source.content }
   })
@@ -121,6 +148,14 @@ export function createAgentCandidateProfileActivation(
     }).value,
     profilePlan.digest,
   )
+}
+
+function profileFileIdentity(root: 'agent' | 'workspace' | undefined, relPath: string): string {
+  return `${root ?? 'workspace'}\0${relPath}`
+}
+
+function profileFileLabel(root: 'agent' | 'workspace' | undefined, relPath: string): string {
+  return root === 'agent' ? `agent:${relPath}` : relPath
 }
 
 /** Parse and check every native file hash plus both canonical document digests. */
