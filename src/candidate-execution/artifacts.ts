@@ -88,6 +88,13 @@ export interface WorkspaceScanOptions {
   readonly portableTree?: boolean
 }
 
+/**
+ * Refuse a materialized workspace whose files, modes, or bytes are not the signed manifest.
+ *
+ * The scan streams, so the size of the largest file does not decide whether the check can run, and
+ * the refusal names the one mismatch a caller can produce on its own: a capture and a verify that
+ * disagree about `portableTree`.
+ */
 export async function verifyMaterializedWorkspace(
   root: string,
   expected: AgentCandidateWorkspaceManifestMaterial,
@@ -143,6 +150,11 @@ export async function readMaterializedWorkspaceFiles(
   )
 }
 
+/**
+ * Build the canonical manifest for files a caller already holds — the shape a remote executor
+ * returns. Pass `portableTree` to record Git's two file modes instead of exact permission bits, and
+ * pass the same flag to every verify that reads the result.
+ */
 export function candidateWorkspaceManifest(
   files: ReadonlyArray<{ path: string; mode: number; bytes: Uint8Array }>,
   options: { portableTree?: boolean } = {},

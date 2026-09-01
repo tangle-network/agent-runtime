@@ -7,6 +7,13 @@
  */
 
 export {
+  candidateWorkspaceManifest,
+  scanMaterializedWorkspaceManifest,
+  verifyMaterializedWorkspace,
+  type WorkspaceScanLimits,
+  type WorkspaceScanOptions,
+} from './artifacts'
+export {
   type AgentCandidateCodeSource,
   type AgentCandidateCodeSurfaceSource,
   type AgentCandidateProfileSource,
@@ -150,3 +157,14 @@ export {
   captureAgentCandidateWorkspaceFiles,
   createAgentCandidateWorkspacePort,
 } from './workspace-archive'
+export {
+  type DescribeWorkspaceTreeOptions,
+  describeWorkspaceTree,
+  type SeedWorkspaceTreeInput,
+  seedWorkspaceTree,
+  type WorkspaceTreeAlgorithm,
+  type WorkspaceTreeDescriptor,
+  type WorkspaceTreeEntryPolicy,
+  type WorkspaceTreeExclusion,
+  type WorkspaceTreeExclusionReason,
+} from './workspace-tree'

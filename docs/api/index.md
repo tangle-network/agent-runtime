@@ -1490,6 +1490,55 @@ In-memory `RuntimeSessionStore` for single-process use and tests.
 
 ## Interfaces
 
+### WorkspaceScanLimits
+
+The per-scan caps a bounded capture applies.
+
+#### Properties
+
+##### maxFiles
+
+> `readonly` **maxFiles**: `number`
+
+##### maxFileBytes
+
+> `readonly` **maxFileBytes**: `number`
+
+##### maxTotalFileBytes
+
+> `readonly` **maxTotalFileBytes**: `number`
+
+***
+
+### WorkspaceScanOptions
+
+What a workspace scan reads and how it records a file's permission bits.
+
+#### Properties
+
+##### ignoredProtectedRootEntries?
+
+> `readonly` `optional` **ignoredProtectedRootEntries?**: readonly (`".git"` \| `".sidecar"`)[]
+
+##### limits?
+
+> `readonly` `optional` **limits?**: [`WorkspaceScanLimits`](#workspacescanlimits)
+
+##### portableTree?
+
+> `readonly` `optional` **portableTree?**: `boolean`
+
+Record Git's two file modes instead of the filesystem's exact permission bits: `0o755` when
+any execute bit is set, `0o644` otherwise. A checkout umask then cannot move a manifest
+digest, while a real permission change still does.
+
+This is the normalization `readCandidateGitTreeFiles` already applies to a Git tree
+(`100644`/`100755`), so one tree scanned from disk and the same tree read out of Git produce
+the same manifest. Off by default: the flag changes the digest, so a capture and the verify
+that checks it must agree on it.
+
+***
+
 ### AgentCandidateCodeSurfaceSource
 
 The only accepted path from an agent-eval code candidate to executable bytes.
@@ -3856,6 +3905,122 @@ Use the evaluator-owned artifact store when manifest or archive bytes should not
 > `readonly` **archive**: `Uint8Array`
 
 Caller-owned bytes accepted by createAgentCandidateWorkspacePort.
+
+***
+
+### WorkspaceTreeExclusion
+
+One entry the walk recorded but did not describe. Reported rather than dropped: a digest that
+ silently omitted an entry would be a different digest with no way to tell why.
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+Tree-relative path, `/`-separated.
+
+##### reason
+
+> `readonly` **reason**: [`WorkspaceTreeExclusionReason`](#workspacetreeexclusionreason)
+
+##### target?
+
+> `readonly` `optional` **target?**: `string`
+
+The link target exactly as it was written, for a symbolic-link exclusion.
+
+***
+
+### WorkspaceTreeDescriptor
+
+#### Properties
+
+##### algorithm
+
+> `readonly` **algorithm**: [`WorkspaceTreeAlgorithm`](#workspacetreealgorithm)
+
+##### digest
+
+> `readonly` **digest**: `` `sha256:${string}` ``
+
+##### files
+
+> `readonly` **files**: `number`
+
+##### directories
+
+> `readonly` **directories**: `number`
+
+##### symlinks
+
+> `readonly` **symlinks**: `number`
+
+Links kept INSIDE the tree. An excluded link is counted in `excluded`, never here.
+
+##### bytes
+
+> `readonly` **bytes**: `number`
+
+Total described regular-file bytes.
+
+##### excluded
+
+> `readonly` **excluded**: readonly [`WorkspaceTreeExclusion`](#workspacetreeexclusion)[]
+
+***
+
+### DescribeWorkspaceTreeOptions
+
+#### Properties
+
+##### algorithm?
+
+> `readonly` `optional` **algorithm?**: [`WorkspaceTreeAlgorithm`](#workspacetreealgorithm)
+
+Default `'tree-v1'`.
+
+##### onEscapingLink?
+
+> `readonly` `optional` **onEscapingLink?**: [`WorkspaceTreeEntryPolicy`](#workspacetreeentrypolicy)
+
+A symbolic link that is absolute, leaves the tree lexically, resolves outside it, or does not
+resolve at all. `'refuse'` (default) is correct for an input seed. `'exclude'` is correct for a
+close-time walk over a tree a run wrote. The link is NEVER followed in either policy: an
+escaping link must not contribute bytes from outside the tree to a content address.
+
+##### onMissingEntry?
+
+> `readonly` `optional` **onMissingEntry?**: [`WorkspaceTreeEntryPolicy`](#workspacetreeentrypolicy)
+
+An entry that vanished between the directory read that named it and the walk that reached it.
+`'refuse'` (default) is correct for a settled tree; `'exclude'` is correct for a workspace a
+live process still writes to.
+
+***
+
+### SeedWorkspaceTreeInput
+
+#### Properties
+
+##### source
+
+> `readonly` **source**: `string`
+
+The tree to copy FROM. Described, then copied entry by entry.
+
+##### destination
+
+> `readonly` **destination**: `string`
+
+The tree to copy INTO. Must exist, and must not lie inside `source`.
+
+##### algorithm?
+
+> `readonly` `optional` **algorithm?**: [`WorkspaceTreeAlgorithm`](#workspacetreealgorithm)
+
+Default `'tree-v1'`; decides only the digest this returns, never the bytes it writes.
 
 ***
 
@@ -11280,6 +11445,33 @@ Independent evaluator-gateway usage, even when execution or trace capture failed
 
 ***
 
+### WorkspaceTreeAlgorithm
+
+> **WorkspaceTreeAlgorithm** = `"tree-v1"` \| `"portable-tree-v1"`
+
+`'tree-v1'` records a file's exact permission bits. `'portable-tree-v1'` records the two modes
+Git stores — `755` when any execute bit is set, `644` otherwise, and `755` for a directory — so a
+digest survives a checkout whose umask differs. Both stamp the algorithm into the digest, so one
+tree cannot produce the same digest under both.
+
+***
+
+### WorkspaceTreeEntryPolicy
+
+> **WorkspaceTreeEntryPolicy** = `"refuse"` \| `"exclude"`
+
+What a walk does with an entry it refuses to describe: fail, or record and continue.
+
+***
+
+### WorkspaceTreeExclusionReason
+
+> **WorkspaceTreeExclusionReason** = `"absolute-symlink"` \| `"symlink-escapes-tree"` \| `"symlink-resolves-outside-tree"` \| `"unresolved-symlink"` \| `"entry-disappeared"`
+
+Why one entry contributed its name instead of its content.
+
+***
+
 ### RetryableErrorPredicate
 
 > **RetryableErrorPredicate** = (`err`) => `boolean`
@@ -13423,6 +13615,90 @@ Build an `AgentExecutionBackend` backed by a sandbox/sidecar `streamPrompt` call
 
 ***
 
+### verifyMaterializedWorkspace()
+
+> **verifyMaterializedWorkspace**(`root`, `expected`, `options?`): `Promise`\<`void`\>
+
+Refuse a materialized workspace whose files, modes, or bytes are not the signed manifest.
+
+The scan streams, so the size of the largest file does not decide whether the check can run, and
+the refusal names the one mismatch a caller can produce on its own: a capture and a verify that
+disagree about `portableTree`.
+
+#### Parameters
+
+##### root
+
+`string`
+
+##### expected
+
+`AgentCandidateWorkspaceManifestMaterial`
+
+##### options?
+
+`Omit`\<[`WorkspaceScanOptions`](#workspacescanoptions), `"limits"`\> = `{}`
+
+#### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### scanMaterializedWorkspaceManifest()
+
+> **scanMaterializedWorkspaceManifest**(`root`, `options?`): `Promise`\<`AgentCandidateWorkspaceManifestMaterial`\>
+
+The canonical manifest of one materialized workspace, read without holding any file.
+
+Every file is digested by streaming, so the size of the largest file does not decide whether the
+workspace can be described. `FileHandle.readFile` refuses anything above 2 GiB with
+`ERR_FS_FILE_TOO_LARGE`, which made a workspace holding one such artifact impossible to verify
+against a manifest it already matched. The digest is sha-256 over the same bytes either way, so
+a manifest a buffered read produced is reproduced exactly.
+
+#### Parameters
+
+##### root
+
+`string`
+
+##### options?
+
+[`WorkspaceScanOptions`](#workspacescanoptions) = `{}`
+
+#### Returns
+
+`Promise`\<`AgentCandidateWorkspaceManifestMaterial`\>
+
+***
+
+### candidateWorkspaceManifest()
+
+> **candidateWorkspaceManifest**(`files`, `options?`): `AgentCandidateWorkspaceManifestMaterial`
+
+Build the canonical manifest for files a caller already holds — the shape a remote executor
+returns. Pass `portableTree` to record Git's two file modes instead of exact permission bits, and
+pass the same flag to every verify that reads the result.
+
+#### Parameters
+
+##### files
+
+readonly `object`[]
+
+##### options?
+
+###### portableTree?
+
+`boolean`
+
+#### Returns
+
+`AgentCandidateWorkspaceManifestMaterial`
+
+***
+
 ### buildAgentCandidateBundle()
 
 > **buildAgentCandidateBundle**(`input`): `AgentCandidateBundle`
@@ -13967,6 +14243,66 @@ Create the standard bounded materializer for candidate execution ports.
 #### Returns
 
 [`AgentCandidateWorkspacePort`](#agentcandidateworkspaceport)
+
+***
+
+### describeWorkspaceTree()
+
+> **describeWorkspaceTree**(`directory`, `options?`): `Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
+
+Describe one directory tree by content, streaming every file.
+
+The digest covers, for every entry in sorted order: its kind, its tree-relative path, its mode
+under the selected algorithm, and then — for a file, its length and its own sha-256; for a kept
+link, its target; for an excluded entry, the reason and the target. A file's content therefore
+never enters the tree hash directly, which is what removes any in-memory size ceiling: the tree
+hash consumes 32 bytes per file however large the file is.
+
+A hard-linked regular file is described like any other regular file. Its content is what the
+digest is about, and a package manager that links a store into `node_modules` is ordinary
+content, not a reason to refuse a workspace.
+
+#### Parameters
+
+##### directory
+
+`string`
+
+##### options?
+
+[`DescribeWorkspaceTreeOptions`](#describeworkspacetreeoptions) = `{}`
+
+#### Returns
+
+`Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
+
+***
+
+### seedWorkspaceTree()
+
+> **seedWorkspaceTree**(`input`): `Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
+
+Seed a workspace from a directory, one entry at a time, and return the digest of what was
+seeded.
+
+Nothing is packed: `cp` walks and copies file by file, so a multi-gigabyte seed costs one file
+handle rather than one archive in memory. Existing destination entries are never overwritten —
+a seed that could replace a file the workspace already holds would make the resulting tree
+depend on the order two seeds ran in.
+
+Links are copied verbatim, exactly as they were written. Following them would copy bytes from
+outside the seed into the workspace, which is the same rule [describeWorkspaceTree](#describeworkspacetree)
+applies to the digest.
+
+#### Parameters
+
+##### input
+
+[`SeedWorkspaceTreeInput`](#seedworkspacetreeinput)
+
+#### Returns
+
+`Promise`\<[`WorkspaceTreeDescriptor`](#workspacetreedescriptor)\>
 
 ***
 
