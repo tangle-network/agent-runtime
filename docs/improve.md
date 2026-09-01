@@ -63,7 +63,7 @@ const optimizerProfile = {
   model: {
     provider: 'tangle-router',
     default: process.env.OPTIMIZER_MODEL!,
-    metadata: { maxTokens: 16_384 },
+    maxVisibleOutputTokens: 16_384,
   },
 } satisfies AgentProfile
 
