@@ -46,6 +46,28 @@ Reading the file's final `total_token_usage` as the child's spend overstates it 
 These readers never report a file total.
 They isolate the fork boundary and report the delta from it, and a fork they cannot isolate reports `boundary: 'unresolved'` with no usage at all, because an unattributable number is worse than an absent one.
 
+### `/candidate-execution` describes a workspace tree without holding it
+
+`describeWorkspaceTree(dir, options)` gives a directory tree one content digest.
+It streams every file, so the largest file in the tree does not decide whether the tree can be described.
+`captureAgentCandidateWorkspace` still returns one `Uint8Array` and still refuses a tree above its byte limits; use the tree digest when you only need identity.
+
+Two policies decide what the walk does with an entry it will not describe.
+`onEscapingLink` covers a link that is absolute, leaves the tree, or does not resolve.
+`onMissingEntry` covers an entry that vanished between the directory read and the walk.
+Both default to `refuse`, which is correct for an input seed.
+Pass `exclude` when you describe a tree that a live run wrote.
+An excluded entry is never followed, and both the entry and the reason are hashed, so two trees that differ only in an exclusion cannot share a digest.
+
+`seedWorkspaceTree({ source, destination })` fills a workspace entry by entry and returns the digest of what it seeded.
+It never overwrites an entry the destination already holds, and it copies a link verbatim.
+
+Pick the algorithm by what you compare.
+`tree-v1` records exact permission bits.
+`portable-tree-v1` records Git's two file modes, so a digest survives a checkout whose umask differs.
+
+The streaming manifest surface now resolves from `/candidate-execution` as well: `scanMaterializedWorkspaceManifest`, `verifyMaterializedWorkspace`, `candidateWorkspaceManifest`, `WorkspaceScanOptions`, and `WorkspaceScanLimits`.
+
 ## 0.189.0
 
 ### `peerMail` reaches a backend-derived worker

@@ -13,6 +13,36 @@ plus the isolated prepare/execute/finalize/recover lifecycle around them.
 
 ## References
 
+### candidateWorkspaceManifest
+
+Re-exports [candidateWorkspaceManifest](index.md#candidateworkspacemanifest)
+
+***
+
+### scanMaterializedWorkspaceManifest
+
+Re-exports [scanMaterializedWorkspaceManifest](index.md#scanmaterializedworkspacemanifest)
+
+***
+
+### verifyMaterializedWorkspace
+
+Re-exports [verifyMaterializedWorkspace](index.md#verifymaterializedworkspace)
+
+***
+
+### WorkspaceScanLimits
+
+Re-exports [WorkspaceScanLimits](index.md#workspacescanlimits)
+
+***
+
+### WorkspaceScanOptions
+
+Re-exports [WorkspaceScanOptions](index.md#workspacescanoptions)
+
+***
+
 ### AgentCandidateCodeSource
 
 Re-exports [AgentCandidateCodeSource](index.md#agentcandidatecodesource)
@@ -694,3 +724,57 @@ Re-exports [captureAgentCandidateWorkspaceFiles](index.md#captureagentcandidatew
 ### createAgentCandidateWorkspacePort
 
 Re-exports [createAgentCandidateWorkspacePort](index.md#createagentcandidateworkspaceport)
+
+***
+
+### DescribeWorkspaceTreeOptions
+
+Re-exports [DescribeWorkspaceTreeOptions](index.md#describeworkspacetreeoptions)
+
+***
+
+### describeWorkspaceTree
+
+Re-exports [describeWorkspaceTree](index.md#describeworkspacetree)
+
+***
+
+### SeedWorkspaceTreeInput
+
+Re-exports [SeedWorkspaceTreeInput](index.md#seedworkspacetreeinput)
+
+***
+
+### seedWorkspaceTree
+
+Re-exports [seedWorkspaceTree](index.md#seedworkspacetree)
+
+***
+
+### WorkspaceTreeAlgorithm
+
+Re-exports [WorkspaceTreeAlgorithm](index.md#workspacetreealgorithm)
+
+***
+
+### WorkspaceTreeDescriptor
+
+Re-exports [WorkspaceTreeDescriptor](index.md#workspacetreedescriptor)
+
+***
+
+### WorkspaceTreeEntryPolicy
+
+Re-exports [WorkspaceTreeEntryPolicy](index.md#workspacetreeentrypolicy)
+
+***
+
+### WorkspaceTreeExclusion
+
+Re-exports [WorkspaceTreeExclusion](index.md#workspacetreeexclusion)
+
+***
+
+### WorkspaceTreeExclusionReason
+
+Re-exports [WorkspaceTreeExclusionReason](index.md#workspacetreeexclusionreason)
