@@ -61,9 +61,18 @@
  * `requiredBumpLevel` in `lib/api-surface.mjs`.
  *
  * This file, `check-api-surface.mjs` and `lib/api-surface.mjs` are kept
- * byte-identical in agent-eval, agent-knowledge and agent-runtime. They read
- * everything repo-specific out of the manifests they inspect, so an edit to one
- * belongs in all three. Nothing here may name a single repository.
+ * byte-identical in agent-knowledge and agent-runtime. They read everything
+ * repo-specific out of the manifests they inspect, so an edit to one belongs in
+ * both. Nothing here may name a single repository.
+ *
+ * agent-eval is deliberately NOT in that set, and the roster that used to name it
+ * was never true: it has never carried these files on main. Its copy sits on an
+ * unmerged branch, `feat/export-surface-gate`, written 2026-08-18 and 59 commits
+ * behind main on 2026-09-01, whose own copy of this file had already drifted from
+ * this one before the fix below existed. Adopting the gate there is a decision
+ * about that repository's release discipline, not an edit this file is owed, so
+ * it is tracked as its own issue. Restore the third name only when agent-eval
+ * actually carries the file.
  *
  * The version a change is measured against is the LAST PUBLISHED one, not the
  * base branch's. Those differ whenever main already carries a bump that has not
