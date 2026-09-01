@@ -41,9 +41,11 @@ try {
   const packDir = join(tempRoot, 'pack')
   const unpackDir = join(tempRoot, 'unpack')
   const appDir = join(tempRoot, 'app')
+  const standaloneAppDir = join(tempRoot, 'standalone-app')
   mkdirSync(packDir, { recursive: true })
   mkdirSync(unpackDir, { recursive: true })
   mkdirSync(appDir, { recursive: true })
+  mkdirSync(standaloneAppDir, { recursive: true })
 
   if (suppliedTarball && !existsSync(suppliedTarball)) {
     throw new Error(`supplied release tarball does not exist: ${suppliedTarball}`)
@@ -83,6 +85,11 @@ try {
   }
   if (packageJson.peerDependenciesMeta?.['@tangle-network/agent-eval']?.optional) {
     throw new Error('@tangle-network/agent-eval must stay required: root and ./kernel import it at runtime')
+  }
+  if (packageJson.peerDependenciesMeta?.['@tangle-network/sandbox']?.optional) {
+    throw new Error(
+      '@tangle-network/sandbox must stay required: public execution exports import its runtime modules',
+    )
   }
   const packageExports = packageJson.exports
   if (!packageExports || typeof packageExports !== 'object') {
@@ -458,6 +465,54 @@ try {
       `,
     ],
     appDir,
+  )
+
+  // Verify the install a new Runtime consumer actually performs. The app has
+  // no direct peer declarations, so npm must install every required peer from
+  // Runtime's metadata before any public entrypoint can load.
+  writeFileSync(
+    join(standaloneAppDir, 'package.json'),
+    `${JSON.stringify(
+      {
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@tangle-network/agent-runtime': `file:${tarballs[0]}`,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  run(
+    'npm',
+    ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
+    standaloneAppDir,
+  )
+  const standaloneScope = join(standaloneAppDir, 'node_modules', '@tangle-network')
+  assertPeerInstalled(
+    standaloneScope,
+    '@tangle-network/sandbox',
+    packageJson.peerDependencies['@tangle-network/sandbox'],
+  )
+  run(
+    process.execPath,
+    [
+      '--input-type=module',
+      '--eval',
+      `
+        const { readFileSync } = await import('node:fs')
+        const packageJson = JSON.parse(
+          readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
+        )
+        for (const subpath of Object.keys(packageJson.exports)) {
+          const specifier =
+            subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
+          await import(specifier)
+        }
+      `,
+    ],
+    standaloneAppDir,
   )
 
   run(
@@ -909,6 +964,26 @@ function assertSingleFirstPartyPackageVersion(scopeDir, packageName, expectedVer
   process.stdout.write(
     `${packageName}: one ${expectedVersion} installation.\n`,
   )
+}
+
+function assertPeerInstalled(scopeDir, packageName, peerRange) {
+  const installations = firstPartyPackageDirs(scopeDir)
+    .map((packageDir) => ({
+      packageDir,
+      packageJson: JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')),
+    }))
+    .filter(({ packageJson }) => packageJson.name === packageName)
+  if (installations.length !== 1) {
+    throw new Error(
+      `standalone consumer must install exactly one ${packageName}; found ${installations.length}`,
+    )
+  }
+  const installedVersion = installations[0].packageJson.version
+  if (!rangeAdmits(peerRange, installedVersion)) {
+    throw new Error(
+      `standalone consumer installed ${packageName}@${installedVersion}, outside ${peerRange}`,
+    )
+  }
 }
 
 function staticExternalImportClosure(entryPath, packageDir) {

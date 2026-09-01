@@ -175,9 +175,8 @@ async function loadSandboxClient(apiKey: string | undefined): Promise<SandboxCli
       },
     } satisfies SandboxClient
   }
-  // Dynamic import keeps the bin importable in environments that haven't
-  // installed `@tangle-network/sandbox` yet (the runtime package lists it
-  // as a peer dep, not a hard dep).
+  // Diagnostic mode does not need a client, so defer SDK initialization until
+  // delegation is requested. Runtime declares the SDK as a required peer.
   const mod = await import('@tangle-network/sandbox').catch((err) => {
     process.stderr.write(
       `agent-runtime-mcp: failed to load @tangle-network/sandbox (${err.message}); install the peer dependency\n`,
