@@ -1405,9 +1405,11 @@ const superviseOptionKeySet: ReadonlySet<string> = new Set<string>(superviseOpti
 /**
  * Refuse a top-level option key `supervise()` reads nowhere, naming it.
  *
- * Mirrors `assertExactConfigKeys`, which does the same for one executor configuration: an unknown
- * field is a caller asking for behavior that will not happen, and the only observable moment is
- * intake.
+ * The shape is `assertExactConfigKeys`, which does the same for one executor configuration: an
+ * unknown field is a caller asking for behavior that will not happen, and intake is the only
+ * moment it is observable. The error class is not the same, on purpose. A bad `SuperviseOptions`
+ * key is a configuration fault, and `ConfigError` is already what `supervise()` throws for one —
+ * see `resolveNamed`, for an option that names a registry entry the registry does not hold.
  */
 function assertSuperviseOptionKeys(opts: SuperviseOptions, context: string): void {
   const unknown = Object.keys(opts).filter((key) => !superviseOptionKeySet.has(key))
