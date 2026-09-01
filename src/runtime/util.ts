@@ -204,6 +204,7 @@ export function cloneSpend(spend: Spend): Spend {
     ...(spend.usdKnown === false ? { usdKnown: false } : {}),
     ...(spend.usdEstimated !== undefined ? { usdEstimated: spend.usdEstimated } : {}),
     ms: spend.ms,
+    ...boxMinutesOf(spend),
   }
 }
 
@@ -223,7 +224,61 @@ export function addSpend(a: Spend, b: Spend): Spend {
     ...(a.usdKnown === false || b.usdKnown === false ? { usdKnown: false } : {}),
     ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
+    ...boxMinutesOf(a, b),
   }
+}
+
+/**
+ * Fold the platform box-time channel across spends, as a field to spread.
+ *
+ * Returns nothing when no input carried the channel, so a fold over router or cli-bridge work —
+ * which runs no box at all — never gains a `boxMinutesProvenance: 'uncaptured'` that would claim
+ * a box ran and went unmetered.
+ *
+ * Three rules, one per field:
+ *  - `boxMinutes` sums the numbers that are present, and stays ABSENT when none is. A missing
+ *    measurement never enters the sum as a zero.
+ *  - `boxMinutesKnown` is sticky-false, like `tokensKnown`: one contributor that could not state
+ *    its box time makes the whole sum a floor.
+ *  - `boxMinutesProvenance` degrades. `'observed'` survives only when every contributor that
+ *    carried a number was observed; one derived number makes the sum `'estimated'`; no number at
+ *    all is `'uncaptured'`.
+ */
+function boxMinutesOf(...spends: ReadonlyArray<Spend>): {
+  boxMinutes?: number
+  boxMinutesKnown?: boolean
+  boxMinutesProvenance?: 'observed' | 'estimated' | 'uncaptured'
+} {
+  const present = spends.filter((spend) => spend.boxMinutesProvenance !== undefined)
+  if (present.length === 0) return {}
+  let minutes = 0
+  let sawNumber = false
+  let known = true
+  let observedOnly = true
+  for (const spend of present) {
+    if (typeof spend.boxMinutes === 'number' && Number.isFinite(spend.boxMinutes)) {
+      minutes += spend.boxMinutes
+      sawNumber = true
+      if (spend.boxMinutesProvenance !== 'observed') observedOnly = false
+    }
+    if (spend.boxMinutesKnown !== true) known = false
+  }
+  return {
+    ...(sawNumber ? { boxMinutes: roundBoxMinutes(minutes) } : {}),
+    boxMinutesKnown: known,
+    boxMinutesProvenance: sawNumber ? (observedOnly ? 'observed' : 'estimated') : 'uncaptured',
+  }
+}
+
+/**
+ * Box minutes at four decimals — a tenth of a second.
+ *
+ * Fine enough that a box alive for two seconds reports `0.0333` instead of a zero that would read
+ * as a measured free box, and coarse enough that summing floats does not print
+ * `1.5000000000000002`.
+ */
+export function roundBoxMinutes(minutes: number): number {
+  return Number(minutes.toFixed(4))
 }
 
 /** Copy a token subtotal without dropping optional provider cache telemetry. */

@@ -39,6 +39,26 @@ export interface PursuitNodeUsage {
   readonly tokensKnown: boolean
 }
 
+/**
+ * One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays.
+ *
+ * Kept apart from `PursuitNodeCost` because the two answer different questions and fail
+ * independently: a seat run reports a truthful `$0` and real minutes, a caller-account run
+ * reports real dollars and may report no minutes at all. Collapsing them into one "spend known"
+ * figure hides which one is missing.
+ *
+ * Absent on a node that ran no box. `boxMinutes` absent WITH the block present says a box ran and
+ * nothing measured it — a missing measurement is never a zero.
+ */
+export interface PursuitNodePlatform {
+  readonly boxMinutes?: number
+  /** `false` when a box ran whose time could not be closed, so `boxMinutes` is a floor. */
+  readonly boxMinutesKnown: boolean
+  /** `observed` = the platform billed the minutes; `estimated` = Runtime derived them from the box
+   *  lifetime it watched; `uncaptured` = a box ran and nothing measured it. */
+  readonly provenance: 'observed' | 'estimated' | 'uncaptured'
+}
+
 /** One node's dollar cost with the provenance that decides whether it may be compared or summed. */
 export interface PursuitNodeCost {
   readonly usd: number
@@ -124,6 +144,8 @@ export interface PursuitNodeProjection {
   readonly usage?: PursuitNodeUsage
   /** Absent until a spend record lands; the run's `spendGaps` then names the node. */
   readonly cost?: PursuitNodeCost
+  /** What the node consumed on the PLATFORM. Absent on a node that ran no box. */
+  readonly platform?: PursuitNodePlatform
   readonly timing?: PursuitNodeTiming
   /** The kernel-minted attempt this node's execution binding is keyed on. */
   readonly attemptId?: string
@@ -662,6 +684,16 @@ function costOf(total: Spend): PursuitNodeCost {
   }
 }
 
+/** The platform block, or nothing at all when the node's spend names no box channel. */
+function platformOf(total: Spend): PursuitNodePlatform | undefined {
+  if (total.boxMinutesProvenance === undefined) return undefined
+  return {
+    ...(total.boxMinutes !== undefined ? { boxMinutes: total.boxMinutes } : {}),
+    boxMinutesKnown: total.boxMinutesKnown === true,
+    provenance: total.boxMinutesProvenance,
+  }
+}
+
 function timingOf(node: MutableNode): PursuitNodeTiming | undefined {
   if (node.startedAt === undefined) return undefined
   return {
@@ -695,6 +727,9 @@ function freezeNode(node: MutableNode): PursuitNodeProjection {
     ...rest,
     ...(modelCalls.length > 0 ? { modelCalls: Object.freeze([...modelCalls]) } : {}),
     ...(total !== undefined ? { usage: usageOf(total, reasoningTokens), cost: costOf(total) } : {}),
+    ...(total !== undefined && platformOf(total) !== undefined
+      ? { platform: platformOf(total) }
+      : {}),
     ...(timing !== undefined ? { timing } : {}),
   })
 }

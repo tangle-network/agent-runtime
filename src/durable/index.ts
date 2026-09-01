@@ -48,6 +48,7 @@ export {
   type PursuitCostProvenance,
   type PursuitNodeCost,
   type PursuitNodePlacement,
+  type PursuitNodePlatform,
   type PursuitNodeProjection,
   type PursuitNodeTiming,
   type PursuitNodeUsage,

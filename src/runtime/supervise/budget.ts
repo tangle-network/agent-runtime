@@ -26,6 +26,17 @@
  * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
  * against a provider that misreports its own usage.
  *
+ * THE POOL RESERVES AGAINST THREE QUANTITIES AND NO MORE. `Spend.boxMinutes` — platform box wall
+ * time — is reported and summed, and it is never reserved, never committed, and never refunded.
+ * The reason is the conservation law above: a reservation is only meaningful against a ceiling a
+ * caller declared and a measurement the pool can trust, and box minutes have neither. `Budget`
+ * declares no box ceiling, and the number the sandbox executor reports is DERIVED from the box
+ * lifetime it watched (`boxMinutesProvenance: 'estimated'`), not a platform receipt. Reserving
+ * against an estimate would let a derived number refuse real work, which is the same defect as a
+ * gate that cannot fire, inverted. When the platform reports minutes itself
+ * (`boxMinutesProvenance: 'observed'`) and a `Budget` gains a box ceiling, the channel becomes a
+ * conserved quantity; until both hold, it is evidence only.
+ *
  * Pure and deterministic: the run's start instant is supplied, there is no I/O, and no
  * wall-clock or RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
  * unknown reconcile) so a child can never refund twice. Reconciling an OPEN ticket always

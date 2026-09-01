@@ -238,6 +238,19 @@ export interface Iteration<Task, Output> {
   promptCache?: Record<string, number | string>
   /** Summed LLM token usage across every `llm_call` event in this iteration. */
   tokenUsage: LoopTokenUsage
+  /**
+   * Wall time this iteration's box was alive, in milliseconds: from the moment the loop acquired
+   * the box to the moment the loop's own teardown returned.
+   *
+   * ABSENT when this iteration did not own the box's terminal. A lineage box and a same-sandbox
+   * box are reaped at loop end, AFTER the loop has already built its result, so no iteration can
+   * pair them. A missing lifetime is never a zero: a box nobody timed is a different fact from a
+   * box that lived no time.
+   */
+  boxLiveMs?: number
+  /** False when `boxLiveMs` is a floor rather than the full lifetime: the delete was attempted and
+   *  never acknowledged, so the box may have outlived the number. */
+  boxLiveMsKnown?: false
 }
 
 /** @stable */
@@ -326,6 +339,12 @@ export interface LoopResult<Task, Output, Decision> {
   /** Sum of every iteration's token usage. `loopDispatch` commits it through
    *  the campaign's paid-call receipt. */
   tokenUsage: LoopTokenUsage
+  /** Sum of `Iteration.boxLiveMs` over the iterations that could pair a box acquire with its
+   *  teardown. ABSENT when none could — the run's box time went unmeasured, which is not a zero. */
+  boxLiveMs?: number
+  /** False when at least one iteration ran a box whose lifetime the loop could not fully observe,
+   *  so `boxLiveMs` is a floor over the run rather than its total. */
+  boxLiveMsKnown?: false
   /** Domain-free run provenance for auditability: the mount manifest recorded
    *  during `prepareBox` and the selection receipts for how the winner was
    *  chosen. Always present; empty arrays when nothing was recorded. */

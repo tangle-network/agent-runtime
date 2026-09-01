@@ -21385,6 +21385,25 @@ Provider-reported prompt-cache fields; absent fields remain unknown.
 
 Summed LLM token usage across every `llm_call` event in this iteration.
 
+##### boxLiveMs?
+
+> `optional` **boxLiveMs?**: `number`
+
+Wall time this iteration's box was alive, in milliseconds: from the moment the loop acquired
+the box to the moment the loop's own teardown returned.
+
+ABSENT when this iteration did not own the box's terminal. A lineage box and a same-sandbox
+box are reaped at loop end, AFTER the loop has already built its result, so no iteration can
+pair them. A missing lifetime is never a zero: a box nobody timed is a different fact from a
+box that lived no time.
+
+##### boxLiveMsKnown?
+
+> `optional` **boxLiveMsKnown?**: `false`
+
+False when `boxLiveMs` is a floor rather than the full lifetime: the delete was attempted and
+ never acknowledged, so the box may have outlived the number.
+
 ***
 
 ### LoopPlanDescription

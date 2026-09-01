@@ -446,3 +446,67 @@ describe('projectPursuit', () => {
     expect(view.runs[0]?.totals.inclusive.tokens).toMatchObject({ input: 100, output: 40 })
   })
 })
+
+describe('projectPursuit reads the platform channel a node reported', () => {
+  /** One run: spawn a sandbox child, settle it with the spend under test. */
+  function runWith(spent: Record<string, unknown>) {
+    return projectPursuit(
+      chain([
+        spawn('run:box', 'root:s0', 'root', 'worker'),
+        {
+          kind: 'event',
+          event: {
+            id: 'settle',
+            pursuitId: 'pursuit:test',
+            runId: 'run:box',
+            target: 'agent.child',
+            phase: 'after',
+            timestamp: 2,
+            parentId: 'root',
+            payload: { childId: 'root:s0', status: 'done', outRef: 'sha256:out', spent },
+          },
+        },
+      ]),
+    )
+  }
+
+  it('carries the derived minutes and their provenance onto the node', () => {
+    const view = runWith({
+      iterations: 1,
+      tokens: { input: 100, output: 23 },
+      usd: 0,
+      ms: 900,
+      boxMinutes: 1.5,
+      boxMinutesKnown: true,
+      boxMinutesProvenance: 'estimated',
+    })
+
+    expect(view.nodes[0]?.platform).toEqual({
+      boxMinutes: 1.5,
+      boxMinutesKnown: true,
+      provenance: 'estimated',
+    })
+    // Dollars and platform time are separate answers: a subscription seat reports a truthful $0
+    // beside real minutes, so one "spend known" figure would hide which is missing.
+    expect(view.nodes[0]?.cost).toMatchObject({ usd: 0, usdKnown: true })
+  })
+
+  it('says a box ran unmeasured rather than reporting no box and rather than reporting zero', () => {
+    const view = runWith({
+      iterations: 1,
+      tokens: { input: 100, output: 23 },
+      usd: 0,
+      ms: 900,
+      boxMinutesKnown: false,
+      boxMinutesProvenance: 'uncaptured',
+    })
+
+    expect(view.nodes[0]?.platform).toEqual({ boxMinutesKnown: false, provenance: 'uncaptured' })
+  })
+
+  it('omits the block entirely for a node that ran no box', () => {
+    const view = runWith({ iterations: 1, tokens: { input: 100, output: 23 }, usd: 0, ms: 900 })
+
+    expect(view.nodes[0]?.platform).toBeUndefined()
+  })
+})

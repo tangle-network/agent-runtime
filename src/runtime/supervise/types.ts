@@ -643,8 +643,14 @@ export interface Budget {
   readonly deadlineMs?: number
 }
 
-/** Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd
- *  are separate channels (never folded). */
+/**
+ * Conserved spend, reconciled from the normalized `UsageEvent` stream. Tokens and usd are separate
+ * channels (never folded).
+ *
+ * `boxMinutes` is a REPORTED channel, not a conserved one: it is summed across a run and carried
+ * in the journal, and the budget pool never reserves, commits, or refunds against it. `budget.ts`
+ * holds the reason.
+ */
 export interface Spend {
   iterations: number
   tokens: LoopTokenUsage
@@ -664,6 +670,33 @@ export interface Spend {
    *  measured. */
   usdEstimated?: number
   ms: number
+  /**
+   * Platform box wall time in minutes — the third conserved channel, beside tokens and dollars.
+   *
+   * A run on a subscription seat has no marginal dollar per model call, so box time is the only
+   * real resource it consumes. Before this channel existed such a run reported `$0` with nothing
+   * beside it and was unaccountable by construction.
+   *
+   * ABSENT when nothing was measured. Never `0` for unknown: a zero would claim the box consumed
+   * no platform time, which is a different fact from a box nobody metered. The field is absent
+   * entirely on a run with no box (router, cli-bridge, inline), because "not applicable" is not
+   * the same fact as "unmeasured" either.
+   */
+  boxMinutes?: number
+  /** True when this record states its box time. `false` says a box RAN and its lifetime could not
+   *  be paired, so `boxMinutes` — when present at all — is a floor, never the total. The twin of
+   *  `tokensKnown` and `usdKnown` on the platform channel. */
+  boxMinutesKnown?: boolean
+  /**
+   * How `boxMinutes` was obtained, in the vocabulary `agent-eval`'s cost ledger already uses
+   * (`CostProvenance`, `cost-ledger.ts`).
+   *
+   * `'observed'` — the platform itself reported the minutes.
+   * `'estimated'` — this runtime derived them from the box lifetime it watched. A derived number
+   *   is not a platform receipt, and the conserved pool never reserves against it.
+   * `'uncaptured'` — a box ran and nothing measured its time. Comes WITHOUT `boxMinutes`.
+   */
+  boxMinutesProvenance?: 'observed' | 'estimated' | 'uncaptured'
 }
 
 // ── Node lifecycle ────────────────────────────────────────────────────────────
