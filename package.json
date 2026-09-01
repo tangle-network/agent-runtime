@@ -184,11 +184,6 @@
     "@tangle-network/agent-interface": "^2.0.0",
     "@tangle-network/sandbox": ">=0.36.1 <0.37.0"
   },
-  "peerDependenciesMeta": {
-    "@tangle-network/sandbox": {
-      "optional": true
-    }
-  },
   "dependencies": {
     "@tangle-network/agent-core": "catalog:",
     "@tangle-network/agent-knowledge": "catalog:",
