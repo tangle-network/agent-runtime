@@ -63,7 +63,7 @@ import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
 import { driverChild } from './driver-executor'
-import type { DriverAttemptRecord, DriverRetryPolicy } from './driver-retry'
+import type { DriverAttemptRecord, DriverRetryPolicy, OnUnmetContract } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
 import {
@@ -1130,6 +1130,28 @@ export interface SuperviseOptions {
    *  attempts, last cause X" visible instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
   /**
+   * How many times an EXTERNAL-harness driver that RETURNED with `deliverable` still unmet is
+   * re-entered on the SAME live session with the unmet items.
+   *
+   * A harness owns its own turn loop, so it decides when it is finished — and it can decide that
+   * while the run has produced nothing. Measured on discovery-lab (2026-09-01, n = 1,422 settled
+   * runs): 376 of 376 winning runs ended on the driver's own completion, and the completion gate
+   * could only LABEL an undelivered result `valid:false`, never send the driver back for it.
+   *
+   * A re-prompt is the retry path, not a second loop: same scope, same coordination server, same
+   * live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
+   * run the coordination server already stopped is never re-prompted — that stop was a decision.
+   *
+   * Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
+   * completion check. A recursive manager declares none of its own, so it is left unchanged.
+   * Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+   */
+  readonly repromptOnUnmet?: number
+  /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+   *  Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction, which names what the run
+   *  owes and reports how many workers passed the check. */
+  readonly onUnmetContract?: OnUnmetContract
+  /**
    * How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
    * cascades the abort into them. A root that died did not make its children unhealthy: a child
    * mid-unit holds work already paid for, and an immediate cascade discards everything it has not
@@ -2158,6 +2180,11 @@ function superviseInternal(
           ...(options.compaction ? { compaction: options.compaction } : {}),
           ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
           ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
+          // `repromptOnUnmet` is deliberately NOT forwarded here. A nested manager declares no
+          // completion check of its own — the run's `deliverable` gates the LEAVES, and this
+          // manager receives no `submit_result` — so it has no contract that could be unmet, and
+          // forwarding the option would refuse every recursive spawn at construction. The run's
+          // contract belongs to the manager that declared it.
           ...(log
             ? {
                 onEvent: (_event, record) => log.append(runId, record, ownerId),
@@ -2255,6 +2282,10 @@ function superviseInternal(
       ...(options.compaction ? { compaction: options.compaction } : {}),
       ...(options.driverRetry ? { driverRetry: options.driverRetry } : {}),
       ...(options.onDriverAttempt ? { onDriverAttempt: options.onDriverAttempt } : {}),
+      ...(options.repromptOnUnmet !== undefined
+        ? { repromptOnUnmet: options.repromptOnUnmet }
+        : {}),
+      ...(options.onUnmetContract ? { onUnmetContract: options.onUnmetContract } : {}),
       // A durable run's layout dir doubles as the worker-cancel control surface: every
       // router-arm manager's turn loop acknowledges the `cancelWorker` requests it OWNS — the
       // root (default 'run' scope) resolves its direct children plus label/profile references,
