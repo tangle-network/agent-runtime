@@ -12,7 +12,12 @@
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import { createExecutor } from '../../src/runtime/supervise/runtime'
-import type { AgentSpec, ExecutorContext, UsageEvent } from '../../src/runtime/supervise/types'
+import type {
+  AgentSpec,
+  DefaultVerdict,
+  ExecutorContext,
+  UsageEvent,
+} from '../../src/runtime/supervise/types'
 import { testAgentProfile } from './test-agent-profile'
 
 const spec: AgentSpec = {
@@ -42,18 +47,25 @@ function scriptedClient(events: SandboxEvent[]) {
   }
 }
 
+async function settledArtifact(client: ReturnType<typeof scriptedClient>): Promise<{
+  out: { content?: unknown; output?: unknown; servedBackend?: unknown }
+  verdict?: DefaultVerdict
+}> {
+  const executor = createExecutor({ backend: 'sandbox', sandboxClient: client })(spec, ctx())
+  await drain(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
+  const artifact = executor.resultArtifact()
+  return {
+    out: artifact.out as { content?: unknown; output?: unknown; servedBackend?: unknown },
+    ...(artifact.verdict ? { verdict: artifact.verdict } : {}),
+  }
+}
+
 async function settledOut(client: ReturnType<typeof scriptedClient>): Promise<{
   content?: unknown
   output?: unknown
   servedBackend?: unknown
 }> {
-  const executor = createExecutor({ backend: 'sandbox', sandboxClient: client })(spec, ctx())
-  await drain(executor.execute('task', new AbortController().signal) as AsyncIterable<UsageEvent>)
-  return executor.resultArtifact().out as {
-    content?: unknown
-    output?: unknown
-    servedBackend?: unknown
-  }
+  return (await settledArtifact(client)).out
 }
 
 const doneEvent = { type: 'done', data: { outcome: { type: 'completed' } } } as SandboxEvent
@@ -166,6 +178,35 @@ describe('sandbox leaf — the settle contract', () => {
     )
     expect(answered.output).toEqual({ kind: 'text', bytes: 9 })
     expect(answered.content).toBe('delivered')
+  })
+
+  it('settles each output marker with its own verdict, so an unanswered box never passes', async () => {
+    const answered = await settledArtifact(
+      scriptedClient([
+        { type: 'result', data: { finalText: 'delivered' } } as SandboxEvent,
+        doneEvent,
+      ]),
+    )
+    expect(answered.out.output).toEqual({ kind: 'text', bytes: 9 })
+    expect(answered.verdict).toEqual({ valid: true, score: 1 })
+
+    const empty = await settledArtifact(
+      scriptedClient([{ type: 'result', data: { finalText: '' } } as SandboxEvent, doneEvent]),
+    )
+    expect(empty.out.output).toEqual({ kind: 'empty' })
+    expect(empty.verdict?.valid).toBe(false)
+    expect(empty.verdict?.score).toBe(0)
+    expect(empty.verdict?.notes).toContain('empty')
+
+    const absent = await settledArtifact(scriptedClient([doneEvent]))
+    expect(absent.out.output).toEqual({ kind: 'absent' })
+    expect(absent.verdict?.valid).toBe(false)
+    expect(absent.verdict?.score).toBe(0)
+    expect(absent.verdict?.notes).toContain('absent')
+
+    // The two refusals stay distinguishable: a box that answered nothing is a different fact
+    // from an answer no reader can confirm was produced.
+    expect(empty.verdict?.notes).not.toEqual(absent.verdict?.notes)
   })
 
   it('fails the worker with the round’s own error instead of an artifact it never produced', async () => {
