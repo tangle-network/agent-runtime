@@ -1567,6 +1567,29 @@ describe('profile-selected model keeps its provider', () => {
     )
   })
 
+  it('refuses a provider prefix without a model before a direct request', () => {
+    expect(() =>
+      createExecutor({
+        backend: 'router',
+        routerBaseUrl: 'http://router.test',
+        routerKey: 'secret',
+        complete: async () => {
+          throw new Error('transport must not run')
+        },
+      })(
+        {
+          profile: {
+            name: 'direct-worker',
+            harness: 'cli-base',
+            model: { provider: 'tangle-router', default: 'tangle-router/' },
+          },
+          harness: null,
+        } as AgentSpec,
+        { signal: new AbortController().signal, seams: {} },
+      ),
+    ).toThrow(/model\.default must name a model after provider "tangle-router"/)
+  })
+
   // A harness addresses a model as `provider/model`. Building the wire id from `model.default`
   // alone dropped the provider: `{provider:'tangle-router', default:'glm-5.2'}` became
   // `pi/glm-5.2`, which routes to the right BACKEND and then hands pi a bare id it cannot place.
