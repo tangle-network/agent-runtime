@@ -8,7 +8,7 @@ Runtime now carries base workspace paths from Interface 2 through environment cr
 The Tangle Sandbox adapter maps repository paths to its relative `cwd` option.
 It rejects host paths because Sandbox does not accept host filesystem paths.
 
-This release consumes Eval `0.171.0`, Knowledge `11.0.0`, Interface `2.0.0`, Agent Core `0.9.6`, and Profile Materialize `0.18.0`.
+This release consumes Eval `0.171.0`, Knowledge `11.0.0`, Interface `2.0.0`, Agent Core `0.9.6`, and Profile Materialize `0.18.1`.
 Sandbox remains below `0.35.0` until that release is publicly available.
 
 ## 0.183.0
