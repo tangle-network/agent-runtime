@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.187.0
+## 0.187.1
+
+0.187.0 was tagged but never published (its release check failed on a stale lockfile), so this release carries the whole cohort. The `agent-eval` peer floor is 0.172.1.
 
 ### `Spend` reports the platform box time a run consumed
 
