@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.29
+
+Manifest-only: the shared-contract dependency ranges follow the 0.187.0 cohort — `agent-eval` `^0.172.0`, `agent-interface` `^2.2.0`, `agent-knowledge` `^12.0.0`, `sandbox` `^0.36.3`.
+
 ## 0.8.28
 
 ### Interface 2 and Runtime 0.185.0 cohort
