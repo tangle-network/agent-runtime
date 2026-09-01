@@ -186,6 +186,8 @@ export {
   type PlacementInfo,
   type ProviderAsSandboxClientOptions,
   type ProviderExecutorOptions,
+  type ProviderLeafOut,
+  type ProviderPromptOptions,
   providerAsExecutor,
   providerAsSandboxClient,
   type ResourceRequest,
