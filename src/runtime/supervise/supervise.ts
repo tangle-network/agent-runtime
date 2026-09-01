@@ -1404,6 +1404,8 @@ const superviseOptionKeys = [
   'stallAfterMs',
   'stopRule',
   'watchWorkers',
+  'repromptOnUnmet',
+  'onUnmetContract',
 ] as const
 
 type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
