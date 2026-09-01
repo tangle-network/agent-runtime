@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.186.0
+
+### `Spend` reports the platform box time a run consumed
+
+`Spend` carries three new optional fields.
+`boxMinutes` is platform box wall time in minutes.
+`boxMinutesKnown` is `true` only when the record states that time.
+`boxMinutesProvenance` is `observed`, `estimated`, or `uncaptured`.
+
+The sandbox executor fills them from the box lifetime it watches.
+It starts the lifetime when it acquires the box.
+It closes the lifetime when the platform acknowledges the delete.
+That number is derived, so it reports `estimated`, never `observed`.
+
+Read the channel before you read `usd`.
+A run on a subscription seat pays no marginal dollar for a model call.
+Box time is then the only real resource that the run consumes.
+
+Three rules protect the number:
+- A run that used no box carries none of the three fields.
+- A run whose box time nobody measured carries `uncaptured` and no number.
+- The number is never `0` for an unknown, because `0` claims a measurement.
+
+The conserved budget pool does not reserve against this channel.
+A reservation needs a ceiling that a caller declared and a number that the pool can trust.
+`Budget` declares no box ceiling, and a derived number is not a platform receipt.
+`src/runtime/supervise/budget.ts` holds the rule.
+
+`LoopResult` and `Iteration` carry the same measurement in milliseconds, as `boxLiveMs`.
+`boxLiveMsKnown` is `false` when the number is a floor.
+A lineage box and a same-sandbox box report no lifetime.
+The loop reaps them after it builds its result, so no iteration can close them.
+
+### `Spend.usd` carries the per-prompt cost the platform reports
+
+`PromptResult.costUsd` is a sibling of `usage` on a terminal sandbox event.
+The usage reader read only `usage`, so it dropped every dollar the platform reported.
+The reader now carries that number to `Spend.usd` with `usdKnown: true`.
+The runtime prices nothing there, so the number is a receipt.
+A terminal event that reports no number still leaves the dollar channel unknown.
+
 ## 0.185.2
 
 ### Portable profiles call direct providers with their model identifier
