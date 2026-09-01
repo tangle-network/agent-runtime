@@ -273,7 +273,21 @@ export function extractLlmCallEvent(
   if (isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage') {
     const usage = data.usage as Record<string, unknown> | undefined
     if (!usage || typeof usage !== 'object') return undefined
-    return buildLlmCall({ ...usage, model: data.model ?? usage.model }, agentRunName)
+    // `PromptResult.costUsd` — the platform's own provider-reported model cost for the prompt —
+    // is a SIBLING of `usage` on the terminal event, not a member of it, so reading only `usage`
+    // dropped every dollar the SDK reported. The runtime priced nothing here, so this is a
+    // receipt: it settles `usdKnown: true`. A terminal event that reports no number leaves the
+    // dollar channel unknown, never a measured zero.
+    return buildLlmCall(
+      {
+        ...usage,
+        model: data.model ?? usage.model,
+        ...(usage.costUsd === undefined && data.costUsd !== undefined
+          ? { costUsd: data.costUsd }
+          : {}),
+      },
+      agentRunName,
+    )
   }
   // sandbox 0.4.0 terminal event: `data = { tokenUsage: { inputTokens, outputTokens,
   // reasoningTokens, cacheReadInputTokens }, totalCostUsd }`. Usage lives under
@@ -296,6 +310,10 @@ export function extractLlmCallEvent(
         inputTokens: usage.inputTokens,
         outputTokens: mergedOut,
         totalCostUsd: data.totalCostUsd,
+        // The `PromptResult.costUsd` the polled-prompt path forwards onto its synthetic terminal
+        // event. `totalCostUsd` is the live SSE spelling of the same fact; a stream carries one or
+        // the other, never both.
+        ...(data.costUsd === undefined ? {} : { costUsd: data.costUsd }),
         model: data.model ?? usage.model,
         ...(cache !== undefined ? { promptCache: cache } : {}),
       },

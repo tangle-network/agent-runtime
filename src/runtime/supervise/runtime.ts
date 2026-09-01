@@ -104,6 +104,7 @@ import {
   addTokenUsage,
   cloneTokenUsage,
   promptCacheTokenClasses,
+  roundBoxMinutes,
   unmeteredSpend,
   zeroTokenUsage,
 } from '../util'
@@ -1564,6 +1565,14 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
         : {}),
       ...(result.promptCache ? { promptCache: result.promptCache } : {}),
     }
+    // The platform channel. A sandbox worker on a subscription seat pays no marginal dollar per
+    // model call, so box wall time is the only real resource it consumes — and until this channel
+    // existed the run reported `$0` with nothing beside it. The number is DERIVED from the box
+    // lifetime this loop watched, never a platform receipt, so it rides as `'estimated'` and the
+    // conserved budget pool never reserves against it (`budget.ts`). A run whose boxes could not
+    // be paired says `'uncaptured'` and carries no number: a missing measurement is not a zero.
+    const boxMinutes =
+      result.boxLiveMs === undefined ? undefined : roundBoxMinutes(result.boxLiveMs / 60_000)
     const spent: Spend = {
       iterations: result.iterations.length,
       tokens: cloneTokenUsage(result.tokenUsage),
@@ -1571,6 +1580,13 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       usd: result.costUsd,
       ...(usdKnown ? {} : { usdKnown: false }),
       ms: Date.now() - started,
+      ...(boxMinutes === undefined
+        ? { boxMinutesKnown: false, boxMinutesProvenance: 'uncaptured' as const }
+        : {
+            boxMinutes,
+            boxMinutesKnown: result.boxLiveMsKnown !== false,
+            boxMinutesProvenance: 'estimated' as const,
+          }),
     }
     args.onArtifact({
       outRef: contentRef('sandbox', { harness: args.harness, out: outWithUsage }),

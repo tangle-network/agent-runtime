@@ -705,6 +705,10 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
   })
 
   let box: SandboxInstance | undefined
+  // When this iteration's box became live. Paired with the teardown below to state the box's
+  // wall time — the one platform resource a subscription-seat run really consumes, and the only
+  // one the platform does not bill per call.
+  let boxAcquiredAt: number | undefined
   // Lineage-owned boxes are torn down by the lineage at loop end, not here. The
   // flag tracks whether THIS iteration's box came from the lineage so the
   // teardown branch below skips it.
@@ -747,11 +751,13 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     if (source) {
       const acquired = await source.acquire()
       box = acquired.handle.box
+      boxAcquiredAt = args.now()
       lineageOwned = true
       args.lineageState?.handles.set(args.item.index, acquired.handle)
       stream = acquired.events
     } else {
       box = await createSandboxForSpec(args.ctx.sandboxClient, spec, args.signal, args.recordMount)
+      boxAcquiredAt = args.now()
       const prompt = spec.taskToPrompt(args.item.task)
       // 'poll' (opt-in) fire-and-detaches + status-polls the terminal result so a
       // long, quiet turn never holds a drop-prone live SSE; 'sse' (default)
@@ -878,11 +884,20 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
     // alive across rounds (a later round may continue/fork it), tearing it down
     // at loop end — so skip per-iteration teardown here.
     if (lineageOwned) {
-      // no-op: lineage.teardown() reaps this box at loop end
+      // no-op: lineage.teardown() reaps this box at loop end. Its lifetime therefore closes after
+      // the loop has already built its result, so this iteration reports no box time rather than a
+      // number it cannot pair.
     } else if (args.collectBox && box) {
       args.collectBox(box)
     } else {
-      await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
+      const teardown = await destroySandboxSafe(box, args.ctx.traceEmitter, args.runId, args.now)
+      // The platform bills a box until it is deleted, so the lifetime closes on the delete, not on
+      // the stream. A delete this loop could not prove leaves the number a floor: the box may have
+      // outlived it.
+      if (boxAcquiredAt !== undefined && teardown !== 'no-delete-api') {
+        slot.boxLiveMs = Math.max(0, args.now() - boxAcquiredAt)
+        if (teardown !== 'deleted') slot.boxLiveMsKnown = false
+      }
     }
   }
   // An abort caught above is NOT a soft per-iteration failure — it must
@@ -911,14 +926,18 @@ const TEARDOWN_TIMEOUT_MS = 15_000
  * A delete that throws or hangs (bounded by `TEARDOWN_TIMEOUT_MS`) is recorded
  * as a `loop.teardown.failed` trace so a silently-leaking box is observable —
  * distinct from a fake with no `delete`, which is expected and stays silent.
+ *
+ * The return value names which of those three happened, because the caller pairs the box's
+ * lifetime on it: only `'deleted'` closes the lifetime, `'unproven'` leaves it a floor, and
+ * `'no-delete-api'` means there was no box lifecycle to time at all.
  */
 async function destroySandboxSafe(
   box: SandboxInstance | undefined,
   trace?: LoopTraceEmitter,
   runId?: string,
   now?: () => number,
-): Promise<void> {
-  if (!box || typeof (box as { delete?: unknown }).delete !== 'function') return
+): Promise<'deleted' | 'unproven' | 'no-delete-api'> {
+  if (!box || typeof (box as { delete?: unknown }).delete !== 'function') return 'no-delete-api'
   const emitFailed = async (reason: string) => {
     if (!trace || !runId) return
     await emitTrace(trace, {
@@ -933,6 +952,7 @@ async function destroySandboxSafe(
   const outcome = await withTimeout(deleteBoxSafe(box), TEARDOWN_TIMEOUT_MS)
   if (outcome === undefined) await emitFailed('timeout')
   else if (outcome === false) await emitFailed('delete threw')
+  return outcome === true ? 'deleted' : 'unproven'
 }
 
 /**
@@ -1083,6 +1103,14 @@ function finalize<Task, Output, Decision>(
     addTokenUsage(acc, iter.tokenUsage)
     return acc
   }, zeroTokenUsage())
+  // Box time sums only over the iterations that could pair an acquire with a teardown. An
+  // iteration that ran a box and could not time it makes the sum a floor; a run where NO iteration
+  // could time one reports no box time at all rather than a zero.
+  const timedBoxes = args.iterations.filter((iter) => iter.boxLiveMs !== undefined)
+  const boxLiveMs = timedBoxes.reduce((sum, iter) => sum + (iter.boxLiveMs ?? 0), 0)
+  const boxLiveMsKnown =
+    timedBoxes.length === args.iterations.length &&
+    args.iterations.every((iter) => iter.boxLiveMsKnown !== false)
   const result: LoopResult<Task, Output, Decision> = {
     decision: args.decision,
     iterations: args.iterations,
@@ -1093,6 +1121,8 @@ function finalize<Task, Output, Decision>(
     ...(estimatedCostUsd > 0 ? { estimatedCostUsd } : {}),
     ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
     tokenUsage,
+    ...(timedBoxes.length > 0 ? { boxLiveMs } : {}),
+    ...(boxLiveMsKnown ? {} : { boxLiveMsKnown: false as const }),
     provenance: {
       mounts: args.mounts,
       selectionReceipts: buildSelectionReceipts(args.iterations, winner, selector),

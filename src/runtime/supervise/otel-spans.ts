@@ -458,6 +458,15 @@ function assignSpend(attrs: Attrs, value: unknown): Spend | undefined {
   }
   if (typeof spend.iterations === 'number') attrs['tangle.supervise.iterations'] = spend.iterations
   if (typeof spend.ms === 'number' && spend.ms > 0) attrs['tangle.supervise.duration_ms'] = spend.ms
+  // The platform channel travels with its provenance, so a span never presents a derived box time
+  // as a platform receipt. An absent number emits no attribute at all rather than a zero.
+  if (typeof spend.boxMinutes === 'number' && Number.isFinite(spend.boxMinutes)) {
+    attrs['tangle.platform.box_minutes'] = spend.boxMinutes
+  }
+  if (spend.boxMinutesProvenance !== undefined) {
+    attrs['tangle.platform.box_minutes_provenance'] = spend.boxMinutesProvenance
+    attrs['tangle.platform.box_minutes_known'] = spend.boxMinutesKnown === true
+  }
   return spend
 }
 
