@@ -90,7 +90,11 @@ import {
 } from '../router-client'
 import type { RunAgentRoundsOptions } from '../run-loop'
 import { runAgentRounds } from '../run-loop'
-import { type SandboxLeafOut, sandboxLeafOutputFromEvents } from '../sandbox-executor-output'
+import {
+  type SandboxLeafOut,
+  type SandboxOutputMarker,
+  sandboxLeafOutputFromEvents,
+} from '../sandbox-executor-output'
 import type {
   AgentRunSpec,
   Driver,
@@ -1631,12 +1635,43 @@ function failedRound(result: {
  * `valid` from its check. This is the sandbox backend's structural answer for a
  * run with no oracle at all — without it nothing ever writes `valid`, no settled
  * child is ever DELIVERED, and the finalizer has nothing to select no matter how
- * well the worker ran. Structural, never self-reported: the harness completed a
- * round and returned an output artifact, or it did not.
+ * well the worker ran. Structural, never self-reported: the round's
+ * {@link SandboxOutputMarker} says what the harness produced, and the verdict is
+ * that marker.
+ *
+ * `text` is the only marker that passes. `empty` (a text-bearing terminal event
+ * carrying an empty string) and `absent` (no text-bearing event at all) each settle
+ * `valid: false` with the marker named in `notes`, because a box that answered
+ * nothing is not a worker whose output a finalizer may select. The two stay
+ * distinct: `empty` reports a box that ran and said nothing, `absent` reports an
+ * answer no reader can confirm was ever produced.
  */
-function leafVerdict(result: { winner?: { output?: unknown } }): DefaultVerdict | undefined {
-  if (result.winner?.output === undefined) return undefined
-  return { valid: true, score: 1 }
+function leafVerdict(result: { winner?: { output?: SandboxLeafOut } }): DefaultVerdict | undefined {
+  const output = result.winner?.output
+  if (output === undefined) return undefined
+  return verdictForOutputMarker(output.output)
+}
+
+/** The verdict one {@link SandboxOutputMarker} settles, with the marker named in `notes`. */
+function verdictForOutputMarker(marker: SandboxOutputMarker): DefaultVerdict {
+  switch (marker.kind) {
+    case 'text':
+      return { valid: true, score: 1 }
+    case 'empty':
+      return {
+        valid: false,
+        score: 0,
+        notes:
+          'sandbox output marker empty: the round produced a text-bearing terminal event that carried no answer',
+      }
+    case 'absent':
+      return {
+        valid: false,
+        score: 0,
+        notes:
+          'sandbox output marker absent: the round produced no text-bearing event, so no answer was observed',
+      }
+  }
 }
 
 // ── cli executor (Halo / external RLM subprocess) ──────────────────────────────
