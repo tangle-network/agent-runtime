@@ -1783,3 +1783,231 @@ describe('bridgeExecutor cross-turn materialization identity', () => {
     expect(turns).toBe(2)
   })
 })
+
+/**
+ * cli-bridge's own scoped-loopback accounting, credited when the stream carries no usage frame.
+ *
+ * The numbers are one production opencode turn transcribed verbatim: run
+ * `q-zk-pr374-gating-cpu-r3` (2026-09-01, `opencode/zai-coding-plan/glm-5.3` on a subscription
+ * seat) measured 17,418,155 prompt tokens of which 17,301,440 were cache reads and 116,715 were
+ * fresh, against 63,455 completion tokens. The three classes partition the prompt total exactly,
+ * which is the invariant every consumer of `Spend.tokens` reads.
+ */
+describe('bridgeExecutor credits the turn receipt cli-bridge already normalized', () => {
+  let server: Server | undefined
+  afterEach(async () => {
+    if (server) await new Promise((resolve) => server?.close(resolve))
+    server = undefined
+  })
+
+  const OPENCODE_TURN = {
+    inputTokens: 17_418_155,
+    freshInputTokens: 116_715,
+    cacheReadInputTokens: 17_301_440,
+    cacheWriteInputTokens: 0,
+    outputTokens: 63_455,
+    costKnown: false as const,
+  }
+
+  function observationWith(usage: Record<string, unknown>): Record<string, unknown> {
+    return {
+      requests: 41,
+      generationRequests: 38,
+      auxiliaryRequests: 3,
+      usageReceipts: 38,
+      rejectedRequests: 0,
+      failedRequests: 0,
+      inFlightRequests: 0,
+      accountingMatched: true,
+      usage,
+    }
+  }
+
+  /** One opencode turn. `usageFrame` is the SSE `usage` object, omitted for the measured case
+   *  where opencode's stream carries none. `observation` rides the turn's receipt. */
+  async function runOpencodeTurn(opts: {
+    observation?: Record<string, unknown>
+    usageFrame?: Record<string, unknown>
+  }) {
+    server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const requestBody = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
+        string,
+        unknown
+      >
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        ...durableRunHeaders(String(requestBody.run_id)),
+      })
+      const receipt = {
+        ...bridgeProfileReceipt(requestBody),
+        ...(opts.observation === undefined
+          ? {}
+          : {
+              inference: {
+                effectiveEndpoint: 'http://127.0.0.1:4317/v1',
+                apiMode: 'openai-completions',
+                transport: 'scoped-loopback',
+                observation: opts.observation,
+              },
+            }),
+      }
+      const frames = [
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: 'gate map built' } }],
+          ...(opts.usageFrame === undefined ? {} : { usage: opts.usageFrame }),
+        })}`,
+        `data: ${JSON.stringify({ profile_materialization: receipt })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n')
+      res.end(numberSseDataFrames(frames))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const profile: AgentProfile = {
+      name: 'lead-zk-d2',
+      harness: 'opencode',
+      model: { provider: 'zai-coding-plan', default: 'glm-5.3' },
+    }
+    const executor = bridgeExecutor(
+      { profile, harness: null },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: { bridgeUrl: `http://127.0.0.1:${port}`, bridgeBearer: 'test-bearer' },
+        },
+      },
+    )
+    const events = await drain(
+      executor.execute(
+        'build the gate map',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    )
+    return { events, artifact: executor.resultArtifact() }
+  }
+
+  it('reports an opencode turn whose stream carried no usage frame, cache split intact', async () => {
+    const { events, artifact } = await runOpencodeTurn({
+      observation: observationWith(OPENCODE_TURN),
+    })
+
+    expect(events).toContainEqual({
+      kind: 'tokens',
+      input: 17_418_155,
+      output: 63_455,
+      freshInput: 116_715,
+      cacheRead: 17_301_440,
+      cacheWrite: 0,
+    })
+    expect(artifact.spent.tokens).toMatchObject({
+      input: 17_418_155,
+      output: 63_455,
+      freshInput: 116_715,
+      cacheRead: 17_301_440,
+      cacheWrite: 0,
+    })
+    // The receipt WAS read, so the token channel is a measured total, not a floor.
+    expect(artifact.spent.tokensKnown).toBeUndefined()
+    expect(artifact.out).not.toHaveProperty('tokensUnknownReason')
+    expect(artifact.out).toMatchObject({
+      promptCache: { freshInput: 116_715, readTokens: 17_301_440, writeTokens: 0 },
+    })
+  })
+
+  it('charges a turn once when the stream reported usage AND the receipt did', async () => {
+    const { events, artifact } = await runOpencodeTurn({
+      observation: observationWith(OPENCODE_TURN),
+      usageFrame: {
+        prompt_tokens: 900,
+        completion_tokens: 40,
+        cache_read_input_tokens: 800,
+        cache_write_input_tokens: 0,
+        cost_known: false,
+      },
+    })
+
+    // The canonical frame wins; the receipt's 17.4M is NOT added on top of it.
+    expect(events.filter((event) => event.kind === 'tokens')).toHaveLength(1)
+    expect(artifact.spent.tokens).toMatchObject({ input: 900, output: 40, cacheRead: 800 })
+  })
+
+  it('leaves the turn unknown and names the reason when the receipt omits a total', async () => {
+    const { events, artifact } = await runOpencodeTurn({
+      observation: observationWith({
+        inputTokens: 17_418_155,
+        cacheReadInputTokens: 17_301_440,
+        costKnown: false,
+      }),
+    })
+
+    expect(events.some((event) => event.kind === 'tokens')).toBe(false)
+    expect(artifact.spent.tokensKnown).toBe(false)
+    // A zero here would read as a measured free turn.
+    expect(artifact.spent.tokens).toMatchObject({ input: 0, output: 0 })
+    expect(artifact.out).toMatchObject({
+      tokensUnknownReason: 'usage-unreadable: the turn receipt named no completion total',
+    })
+  })
+
+  it('leaves the turn unknown and names the reason when the receipt carries no observation', async () => {
+    const { artifact } = await runOpencodeTurn({})
+
+    expect(artifact.spent.tokensKnown).toBe(false)
+    expect(artifact.out).toMatchObject({
+      tokensUnknownReason:
+        'usage-unreadable: the turn receipt carried no bridge inference observation',
+    })
+  })
+
+  it('keeps both measured counters and declares the split incomplete when the receipt contradicts itself', async () => {
+    const { events, artifact } = await runOpencodeTurn({
+      observation: observationWith({
+        inputTokens: 1_000,
+        // 1000 - 600 - 0 leaves 400 fresh by partition. The receipt says 300, so one of its own
+        // two answers is wrong and neither may be picked as the winner.
+        freshInputTokens: 300,
+        cacheReadInputTokens: 600,
+        cacheWriteInputTokens: 0,
+        outputTokens: 25,
+        costKnown: false,
+      }),
+    })
+
+    expect(events).toContainEqual({
+      kind: 'tokens',
+      input: 1_000,
+      output: 25,
+      freshInput: 400,
+      cacheRead: 600,
+      cacheWrite: 0,
+      cacheBreakdownKnown: false,
+    })
+    // The totals are still measured; only the classification of the prompt total is incomplete.
+    expect(artifact.spent.tokensKnown).toBeUndefined()
+    expect(artifact.spent.tokens.cacheBreakdownKnown).toBe(false)
+  })
+
+  it('carries a fresh count the receipt reports alone, and says the split is incomplete', async () => {
+    const { events } = await runOpencodeTurn({
+      observation: observationWith({
+        inputTokens: 1_000,
+        freshInputTokens: 400,
+        outputTokens: 25,
+        costKnown: false,
+      }),
+    })
+
+    // One class named out of three classifies PART of the prompt total, never all of it.
+    expect(events).toContainEqual({
+      kind: 'tokens',
+      input: 1_000,
+      output: 25,
+      freshInput: 400,
+      cacheBreakdownKnown: false,
+    })
+  })
+})
