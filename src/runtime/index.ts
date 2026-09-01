@@ -1143,6 +1143,21 @@ export {
   workerInteractiveBindingFile,
   workerInteractiveBindingsDir,
 } from './supervise/worker-interactive'
+// Worker-spawn persistence: the same second chance for a LEAF whose spawn a saturated executor
+// refused before it ran. Fail-closed on two proofs of zero work — a pre-spawn signature in the
+// error AND no execution event from the attempt — so a stream that may already have metered a
+// provider call stays fatal. `SuperviseOptions.workerRetry` turns it on as data;
+// `withWorkerSpawnRetry` composes it onto a caller-owned worker seam.
+export {
+  isPreSpawnExecutorFailure,
+  type ResolvedWorkerSpawnRetry,
+  resolveWorkerSpawnRetry,
+  retryPreSpawnRefusals,
+  type WorkerSpawnRetryAttempt,
+  type WorkerSpawnRetryHooks,
+  type WorkerSpawnRetryPolicy,
+  withWorkerSpawnRetry,
+} from './supervise/worker-retry'
 // The same tracing, carried ACROSS the process boundary: a spawned worker inherits the run's trace
 // id and the spawning node's span id through the `TRACE_ID` / `PARENT_SPAN_ID` env convention this
 // package already reads (`readTraceContextFromEnv`), so a worker on a remote sandbox emits spans

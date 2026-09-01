@@ -68,6 +68,27 @@ Pick the algorithm by what you compare.
 
 The streaming manifest surface now resolves from `/candidate-execution` as well: `scanMaterializedWorkspaceManifest`, `verifyMaterializedWorkspace`, `candidateWorkspaceManifest`, `WorkspaceScanOptions`, and `WorkspaceScanLimits`.
 
+### A worker whose spawn was refused before it ran gets a second chance
+
+`driverRetry` guards the root only.
+A worker that dies is typed into a `down` settlement, which is the right shape when the worker ran.
+It is the wrong shape for `host-executor: acquire timeout after 60000ms`, a queue refusal the bridge emits before any harness child exists.
+
+`SuperviseOptions.workerRetry` re-enters such a spawn.
+`onWorkerRetry` reports every re-entry, so a saturated executor reads as waiting rather than as a worker that took longer.
+Omit both and nothing changes.
+
+The seam is fail-closed on two proofs that the attempt did no work.
+The error must carry a pre-spawn signature, and the attempt must have yielded no execution event.
+An attempt that streamed anything may have metered a provider call, so it stays fatal.
+
+`isPreSpawnExecutorFailure` is the predicate.
+It answers "did this fail before any provider call", not "is this an infrastructure hiccup".
+`ECONNRESET`, `fetch failed`, and a 5xx are transient transport failures and are not pre-spawn failures; add your own admission signature with `workerRetry.additionalPreSpawnSignatures`.
+
+`withWorkerSpawnRetry` composes the seam onto a caller-owned worker seam, and `retryPreSpawnRefusals` wraps one executor directly.
+Re-entry calls `execute` again on the same executor object, so the kernel's materialization attestation and the bound session id are the ones it admitted.
+
 ## 0.189.0
 
 ### `peerMail` reaches a backend-derived worker
