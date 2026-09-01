@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.185.2
+
+### Portable profiles call direct providers with their model identifier
+
+An `AgentProfile` can qualify `model.default` with the selected `model.provider`.
+Direct provider execution now removes that exact provider prefix before it sends the request.
+Runtime preserves a different prefix because it can identify a nested provider route.
+CLI Bridge still receives the complete `runner/provider/model` route.
+
 ## 0.185.0
 
 ### Interface 2 workspace paths reach Tangle Sandbox correctly

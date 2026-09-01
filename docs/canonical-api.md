@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.185.1.**
+> **Version 0.185.2.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.171.0 <0.172.0`.
 > `sandbox` must satisfy `>=0.36.1 <0.37.0`.
@@ -156,6 +156,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Pick the **execution transport a driven loop runs on** (`sandbox` box / cli-bridge / router) from a product flag | `resolveSandboxClient({ backend })`: `/kernel` | a per-product `if (backend === 'router') …` branch re-wiring `createExecutor` + `inlineSandboxClient` |
 | Adapt an exact `AgentProfile` to agent-eval's `ChatClient` without moving credentials or execution policy into Eval | `profileChatClient({ profile, executor, context })`: `/kernel` | a provider fetch configured separately from the profile, or request fields that override the profile's model policy |
 | Pick / register a leaf backend, or bring your own agent | `createExecutor({ backend })` / `createExecutorRegistry()` / implement `Executor`: `/kernel` | a per-vendor adapter or closed `inline\|sandbox\|cli` switch (won't report through the `UsageEvent` channel) |
+| Carry one portable model identity across direct and CLI Bridge execution | Set `model.provider` and use either a bare `model.default` or one qualified by that exact provider. Runtime removes only the matching provider prefix at a direct provider boundary. CLI Bridge receives the complete `runner/provider/model` route. | stripping the first path segment without checking the provider, or rewriting the model in a product client |
 | Run a worker as a **conversation on a bare `/v1/chat/completions` endpoint** (no sandbox), with session continuity for `continuity: 'resume'` graphs | `chatTransportExecutor(options)` + `chatWorkerSeam({ url, sessions?, deliverable? })` + `createChatSessionStore()`: `/kernel` | a leaf-seam fake of a chat worker, a multishot transcript loop outside the kernel (no ledger, no conserved pool), or a resume that re-primes a fresh session |
 | Optimize text or named components with upstream GEPA | `officialGepa({ recipe, ... })`, passed as `improve(...).method` from root `.` | a local GEPA approximation, prompt mutation loop, or silent fallback when Python is unavailable |
 | Optimize one text surface with Microsoft SkillOpt | `officialSkillOpt({ trainer, optimizer, ... })`, passed as `improve(...).method` from root `.` | Runtime-owned SkillOpt search or a silent local fallback |

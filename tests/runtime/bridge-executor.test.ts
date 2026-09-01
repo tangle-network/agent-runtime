@@ -1524,6 +1524,72 @@ async function drainExecutor(executor: Executor<unknown>): Promise<UsageEvent[]>
 }
 
 describe('profile-selected model keeps its provider', () => {
+  it('removes the matching provider prefix only when calling that provider directly', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const authoredModel = 'tangle-router/gpt-5.6-luna'
+    const executor = createExecutor({
+      backend: 'router',
+      routerBaseUrl: 'http://router.test',
+      routerKey: 'secret',
+      complete: async (body) => {
+        seen.push(body)
+        return {
+          model: 'gpt-5.6-luna',
+          choices: [{ message: { content: 'ok' } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }
+      },
+    })(
+      {
+        profile: {
+          name: 'direct-worker',
+          harness: 'cli-base',
+          model: { provider: 'tangle-router', default: authoredModel },
+        },
+        harness: null,
+      } as AgentSpec,
+      { signal: new AbortController().signal, seams: {} },
+    )
+
+    const run = executor.execute('go', new AbortController().signal)
+    if (isUsageStream(run)) {
+      for await (const _event of run) {
+        // drain
+      }
+    } else {
+      await run
+    }
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.model).toBe('gpt-5.6-luna')
+    expect(runtimeOwnedExecutorMaterialization(executor)?.effectiveProfile.model?.default).toBe(
+      authoredModel,
+    )
+  })
+
+  it('refuses a provider prefix without a model before a direct request', () => {
+    expect(() =>
+      createExecutor({
+        backend: 'router',
+        routerBaseUrl: 'http://router.test',
+        routerKey: 'secret',
+        complete: async () => {
+          throw new Error('transport must not run')
+        },
+      })(
+        {
+          profile: {
+            name: 'direct-worker',
+            harness: 'cli-base',
+            model: { provider: 'tangle-router', default: 'tangle-router/' },
+          },
+          harness: null,
+        } as AgentSpec,
+        { signal: new AbortController().signal, seams: {} },
+      ),
+    ).toThrow(/model\.default must name a model after provider "tangle-router"/)
+  })
+
   // A harness addresses a model as `provider/model`. Building the wire id from `model.default`
   // alone dropped the provider: `{provider:'tangle-router', default:'glm-5.2'}` became
   // `pi/glm-5.2`, which routes to the right BACKEND and then hands pi a bare id it cannot place.

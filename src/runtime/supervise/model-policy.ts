@@ -33,10 +33,18 @@ export function concreteProfileModel(profile: Pick<AgentProfile, 'model'>): stri
   return concreteModelId(profile.model?.default)
 }
 
-/** The provider-facing model id declared by a profile. Direct Router execution uses this form:
- * the endpoint already selects the provider, so the model id itself is not harness-prefixed. */
+/**
+ * Return the model id for a direct provider request.
+ *
+ * A portable profile can qualify its model with the selected provider. The direct endpoint already
+ * selects that provider, so remove only the exact matching prefix. Preserve every other prefix
+ * because it can identify a provider-owned nested route, such as `anthropic/claude-sonnet`.
+ */
 export function profileProviderModel(profile: Pick<AgentProfile, 'model'>): string | undefined {
-  return concreteProfileModel(profile)
+  const model = concreteProfileModel(profile)
+  const provider = profile.model?.provider?.trim()
+  if (!model || !provider || !model.startsWith(`${provider}/`)) return model
+  return concreteModelId(model.slice(provider.length + 1))
 }
 
 /** The full cli-bridge wire id declared by a profile: harness/provider/model. */
