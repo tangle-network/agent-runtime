@@ -192,10 +192,32 @@ function assertWorkspaceManifest(
   observed: AgentCandidateWorkspaceManifestMaterial,
   expected: AgentCandidateWorkspaceManifestMaterial,
 ): void {
-  if (!Buffer.from(canonicalCandidateBytes(observed)).equals(canonicalCandidateBytes(expected))) {
-    throw new Error(
-      'materialized workspace files, modes, or bytes do not match the signed manifest',
+  if (Buffer.from(canonicalCandidateBytes(observed)).equals(canonicalCandidateBytes(expected))) {
+    return
+  }
+  // The one mismatch a caller can produce by passing `portableTree` on one side of a
+  // capture/verify pair and not the other. Named, because the general refusal below reads as
+  // changed bytes and would send a reader looking for a file that never changed. Comparing the
+  // two manifests already in hand costs no second walk.
+  if (
+    Buffer.from(canonicalCandidateBytes(withPortableModes(observed))).equals(
+      canonicalCandidateBytes(withPortableModes(expected)),
     )
+  ) {
+    throw new Error(
+      'materialized workspace files do not match the signed manifest: only the file modes differ, ' +
+        'so the capture and this verify disagree about portableTree',
+    )
+  }
+  throw new Error('materialized workspace files, modes, or bytes do not match the signed manifest')
+}
+
+function withPortableModes(
+  material: AgentCandidateWorkspaceManifestMaterial,
+): AgentCandidateWorkspaceManifestMaterial {
+  return {
+    ...material,
+    files: material.files.map((file) => ({ ...file, mode: portableFileMode(file.mode) })),
   }
 }
 

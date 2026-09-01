@@ -168,6 +168,28 @@ describe('workspace manifest — the portable tree', () => {
     expect(portableExecutable.files[0]?.mode).toBe(0o755)
   })
 
+  it('names a capture and a verify that disagree about the flag', async () => {
+    // The one mismatch the flag can cause on its own. A generic 'files, modes, or bytes do not
+    // match' would send a reader looking for a file that never changed.
+    const root = await temporaryRoot('candidate-workspace-policy-mismatch-')
+    await writeFile(join(root, 'proof.txt'), 'seeded\n')
+    await chmod(join(root, 'proof.txt'), 0o664)
+    const portable = await scanMaterializedWorkspaceManifest(root, { portableTree: true })
+    await expect(verifyMaterializedWorkspace(root, portable)).rejects.toThrow(
+      /only the file modes differ, so the capture and this verify disagree about portableTree/,
+    )
+    await expect(
+      verifyMaterializedWorkspace(root, portable, { portableTree: true }),
+    ).resolves.toBeUndefined()
+
+    // A changed file is still the general refusal, not the policy one.
+    await writeFile(join(root, 'proof.txt'), 'changed\n')
+    await chmod(join(root, 'proof.txt'), 0o664)
+    await expect(
+      verifyMaterializedWorkspace(root, portable, { portableTree: true }),
+    ).rejects.toThrow(/files, modes, or bytes do not match/)
+  })
+
   it('normalizes a manifest built from already-read files the same way', async () => {
     const bytes = Uint8Array.from(Buffer.from('x'))
     const exact = candidateWorkspaceManifest([{ path: 'a', mode: 0o664, bytes }])
