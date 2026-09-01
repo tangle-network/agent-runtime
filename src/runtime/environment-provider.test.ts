@@ -104,6 +104,7 @@ describe('environment provider adapters', () => {
       backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
       environment: 'universal',
       git: { url: 'https://example.com/repo.git', ref: 'main' },
+      cwd: './packages//runtime/',
       env: { A: '1' },
       name: 'box-name',
       idempotencyKey: 'create-1',
@@ -118,6 +119,7 @@ describe('environment provider adapters', () => {
         environment: 'universal',
         repoUrl: 'https://example.com/repo.git',
         gitRef: 'main',
+        cwd: { base: 'repository', path: 'packages/runtime' },
       },
       env: { A: '1' },
       name: 'box-name',
@@ -162,6 +164,12 @@ describe('environment provider adapters', () => {
         },
       },
     })
+    await expect(
+      client.create({
+        backend: { type: 'codex' as BackendType, profile: { name: 'worker' } },
+        cwd: '/workspace/repo',
+      }),
+    ).rejects.toThrow('Workspace cwd must be relative')
   })
 
   it('adapts a SandboxClient to a neutral provider with create/stream/workspace methods', async () => {
@@ -218,6 +226,7 @@ describe('environment provider adapters', () => {
         environment: 'universal',
         repoUrl: 'https://example.com/repo.git',
         gitRef: 'main',
+        cwd: { base: 'repository', path: 'packages/runtime' },
       },
       env: { A: '1' },
       secrets: ['SECRET_NAME'],
@@ -230,6 +239,7 @@ describe('environment provider adapters', () => {
       backend: { type: 'codex', profile: { name: 'worker' } },
       environment: 'universal',
       git: { url: 'https://example.com/repo.git', ref: 'main' },
+      cwd: 'packages/runtime',
       env: { A: '1' },
       secrets: ['SECRET_NAME'],
       idempotencyKey: 'create-2',
@@ -341,6 +351,7 @@ describe('environment provider adapters', () => {
         namedProfiles: false,
         systemPrompt: { replace: false, append: false },
       },
+      workspace: { cwdBases: { repository: true, host: false } },
     })
     await expect(unresolved.create({ profile: 'catalog/researcher' })).rejects.toThrow(
       /requires an inline AgentProfile/,
@@ -355,6 +366,7 @@ describe('environment provider adapters', () => {
         namedProfiles: true,
         systemPrompt: { replace: false, append: false },
       },
+      workspace: { cwdBases: { repository: true, host: false } },
     })
     await resolved.create({ profile: 'catalog/researcher' })
 
@@ -498,7 +510,41 @@ describe('environment provider adapters', () => {
         profile: { name: 'worker' },
         workspace: { environment: 'universal', image: 'ghcr.io/example/runner@sha256:abc' },
       }),
-    ).rejects.toThrow(/must match/)
+    ).rejects.toThrow(/workspace cannot specify both environment and image/)
+  })
+
+  it('maps repository cwd at the Tangle boundary and rejects host cwd', async () => {
+    let createCalls = 0
+    let createOptions: CreateSandboxOptions | undefined
+    const box = {
+      id: 'sbx-cwd',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
+        createCalls += 1
+        createOptions = options
+        return box
+      },
+    }
+    const provider = sandboxClientAsProvider(client)
+
+    await provider.create({
+      profile: { name: 'worker' },
+      workspace: { cwd: { base: 'repository', path: './packages//runtime/' } },
+    })
+
+    expect(createOptions).toMatchObject({ cwd: 'packages/runtime' })
+    await expect(
+      provider.create({
+        profile: { name: 'worker' },
+        workspace: { cwd: { base: 'host', path: '/workspace/repo' } },
+      }),
+    ).rejects.toThrow('supports workspace cwd base "repository", not "host"')
+    expect(createCalls).toBe(1)
   })
 
   it('maps only prompt parts representable by current Sandbox', async () => {
@@ -1267,7 +1313,7 @@ describe('environment provider adapters', () => {
       backend: 'provider',
       provider,
       defaults: {
-        workspace: { cwd: '/repo' },
+        workspace: { cwd: { base: 'host', path: '/repo' } },
         providerOptions: { region: 'us-west', tenancy: 'team-a' },
       },
       steering: {
@@ -1316,7 +1362,7 @@ describe('environment provider adapters', () => {
     expect(Object.isFrozen(created.profile.model)).toBe(true)
     expect(created).toMatchObject({
       backend: 'pi',
-      workspace: { cwd: '/repo' },
+      workspace: { cwd: { base: 'host', path: '/repo' } },
       signal: ctx.signal,
       providerOptions: {
         region: 'us-west',
@@ -1790,7 +1836,7 @@ describe('environment provider adapters', () => {
       registry,
       defaults: {
         backend: 'codex',
-        workspace: { cwd: '/repo' },
+        workspace: { cwd: { base: 'host', path: '/repo' } },
       },
     })
     const spec: AgentSpec = {
@@ -1809,7 +1855,7 @@ describe('environment provider adapters', () => {
     expect(created).toMatchObject({
       profile: spec.profile,
       backend: 'codex',
-      workspace: { cwd: '/repo' },
+      workspace: { cwd: { base: 'host', path: '/repo' } },
     })
     expect(executor.resultArtifact().out).toMatchObject({ content: 'from-named-provider' })
     expect(registry.names()).toEqual(['named-provider'])

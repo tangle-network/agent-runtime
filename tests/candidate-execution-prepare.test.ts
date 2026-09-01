@@ -164,7 +164,9 @@ describe('candidate execution preparation', () => {
     const agentFile = prepared.profileActivation.files.find((file) =>
       file.path.startsWith('.opencode/agents/'),
     )
-    expect(agentFile?.content).toBe(`---\nmode: primary\n---\n${systemPrompt}\n`)
+    expect(agentFile?.content).toBe(
+      `---\n# tangle-agent-profile-materialize: generated\nmode: primary\n---\n${systemPrompt}\n`,
+    )
   })
 
   it('keeps replacement and additive prompts on distinct Claude controls', async () => {
