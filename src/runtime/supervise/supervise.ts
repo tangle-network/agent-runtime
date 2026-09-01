@@ -1486,11 +1486,111 @@ function captureDeliverable(
   })
 }
 
+/**
+ * Every `SuperviseOptions` key whose value IS a callback, as data.
+ *
+ * `captureSuperviseOptions` detaches its decision data with `detachedSnapshot`, which
+ * structured-clones. A function cannot be structured-cloned, so a callback key that the capture
+ * does not lift out of the remainder makes `supervise()` throw
+ * `supervise options: input must be structured-cloneable` before any compute — a refusal that names
+ * the snapshot rather than the option, so a caller reads it as a bad value and not as a capability
+ * the entry point cannot carry.
+ *
+ * That is what happened to `onUnmetContract`: added with the re-prompt path in 0.186.0, accepted by
+ * the option-key check, forwarded by `supervisorAgent`, read by the retry loop, and never
+ * destructured here. Every `supervisePursuit` run that passed the callback failed at construction
+ * on 0.186.0, 0.187.1 and 0.188.0, and the only working configuration was the number alone.
+ *
+ * The assignment below fails to COMPILE, naming the offender, when a callback-valued option is not
+ * in this list, so the next one cannot be added silently. The list is not merely documentation:
+ * {@link assertNoUncapturedExecutableOption} refuses at runtime any callback that still reaches the
+ * snapshot, including one nested in an option this type test cannot see.
+ */
+const superviseExecutableOptionKeys = [
+  'authorizeMessage',
+  'authorizeSpawn',
+  'driveHarness',
+  'executeExtraTool',
+  'finalizer',
+  'isDriverProfile',
+  'makeLeafAgent',
+  'makeWorkerAgent',
+  'now',
+  'onCoordinationEvent',
+  'onDriverAttempt',
+  'onProgressStop',
+  'onUnmetContract',
+  'resolveDeliverable',
+  'resolveDriveHarness',
+  'resolveSpawnProfile',
+  'resolveSupervisorTools',
+  'stopRule',
+] as const
+
+/** A `SuperviseOptions` key whose value is callable. An object-valued option that CONTAINS a
+ *  callback (`router.complete`, `compaction.distill`, `analysts.run`) is captured field by field and
+ *  is deliberately outside this test; the runtime guard covers what a type cannot see. */
+type CallableSuperviseOption = {
+  [K in keyof SuperviseOptions]-?: NonNullable<SuperviseOptions[K]> extends (
+    ...args: never[]
+  ) => unknown
+    ? K
+    : never
+}[keyof SuperviseOptions]
+
+type UncapturedCallableOption = Exclude<
+  CallableSuperviseOption,
+  (typeof superviseExecutableOptionKeys)[number]
+>
+/** A callback-valued option missing from `superviseExecutableOptionKeys` makes this assignment
+ *  fail, and the compiler error names the key. Add it to the list AND to the destructuring below —
+ *  the list alone carries no value through. */
+const everyCallableOptionIsListed: UncapturedCallableOption extends never
+  ? true
+  : UncapturedCallableOption = true
+void everyCallableOptionIsListed
+
+type StaleExecutableOptionKey = Exclude<
+  (typeof superviseExecutableOptionKeys)[number],
+  keyof SuperviseOptions
+>
+/** A listed key that `SuperviseOptions` no longer declares makes this assignment fail. */
+const everyListedExecutableOptionExists: StaleExecutableOptionKey extends never
+  ? true
+  : StaleExecutableOptionKey = true
+void everyListedExecutableOptionExists
+
+/** The callback-valued options, for a test that proves the capture forwards each one. */
+export const SUPERVISE_EXECUTABLE_OPTION_KEYS: ReadonlyArray<keyof SuperviseOptions> =
+  Object.freeze([...superviseExecutableOptionKeys])
+
+/**
+ * Refuse a callback that reached the decision-data remainder, naming the option.
+ *
+ * The type test above cannot see a callback nested inside an object-valued option, and
+ * `detachedSnapshot` would report only that its input is not structured-cloneable. This says which
+ * key carries the callback and what to do about it, so the next occurrence is a five-second fix
+ * instead of a bisect over every option a caller passed.
+ */
+function assertNoUncapturedExecutableOption(decisionData: Readonly<Record<string, unknown>>): void {
+  const carried = Object.entries(decisionData)
+    .filter(([, value]) => typeof value === 'function')
+    .map(([key]) => key)
+  if (carried.length > 0) {
+    throw new ValidationError(
+      `supervise: option ${carried.sort().join(', ')} carries a callback that the option capture ` +
+        'does not forward, so the run would fail on a structured-clone refusal that names the ' +
+        'snapshot instead of the option; lift the key out of the decision data in ' +
+        'captureSuperviseOptions and add it to superviseExecutableOptionKeys',
+    )
+  }
+}
+
 /** Capture the public one-call configuration before any asynchronous work starts. Decision data is
  * detached and frozen; executable ports are copied as the exact references selected at intake.
  * Service internals intentionally remain live, while replacing a callback/service on the caller's
  * mutable options object can no longer change an in-flight run. */
-function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
+export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
@@ -1521,12 +1621,14 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     stopRule,
     onProgressStop,
     onDriverAttempt,
+    onUnmetContract,
     finalizer,
     now,
     signal,
     rootHandle,
     ...decisionData
   } = opts
+  assertNoUncapturedExecutableOption(decisionData)
   const capturedData = detachedSnapshot(decisionData, 'supervise options')
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
   const capturedDriverBackend =
@@ -1606,6 +1708,7 @@ function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
     ...(stopRule === undefined ? {} : { stopRule }),
     ...(onProgressStop === undefined ? {} : { onProgressStop }),
     ...(onDriverAttempt === undefined ? {} : { onDriverAttempt }),
+    ...(onUnmetContract === undefined ? {} : { onUnmetContract }),
     ...(finalizer === undefined ? {} : { finalizer }),
     ...(now === undefined ? {} : { now }),
     ...(signal === undefined ? {} : { signal }),
