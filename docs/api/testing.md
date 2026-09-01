@@ -598,11 +598,18 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
 OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
- endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl). Mounting that URL into the worker is the
- `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
- the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
- it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
- supervisor; a router-brained supervisor is refused rather than silently unmailed.
+ endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl).
+
+ On the backend-derived worker path the runtime also MOUNTS that endpoint, the way a driver
+ receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
+ authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
+ already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
+ native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+ stays the caller's to use; every other backend refuses the spawn rather than mint a
+ capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
+
+ Requires a harness-brained supervisor; a router-brained supervisor is refused rather than
+ silently unmailed.
 
 ###### Inherited from
 
@@ -1281,11 +1288,18 @@ Where the coordination MCP binds when the supervisor is harness-driven. Omit = a
 OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
  spawn, serves the mail listener beside the coordination MCP, and hands each worker its
- endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl). Mounting that URL into the worker is the
- `makeWorkerAgent` owner's job today: the runtime never writes it into a worker profile, since
- the fresh random URL would move the canonical profile digest, and bridge workers cannot mount
- it out of band until the bridge carries runtime attachments (#774). Requires a harness-brained
- supervisor; a router-brained supervisor is refused rather than silently unmailed.
+ endpoint on [WorkerSpawnContext.peerMailUrl](runtime.md#peermailurl).
+
+ On the backend-derived worker path the runtime also MOUNTS that endpoint, the way a driver
+ receives its coordination MCP: out of band on the bridge's `runtime_attachments`, so the
+ authored profile digest never moves, and inside the leaf factory, so `authorizeSpawn` has
+ already decided the profile. A `bridge` worker therefore calls `send_mail` / `read_mail` as
+ native tools. `router`, `router-tools` and `provider` workers run no MCP client, so the URL
+ stays the caller's to use; every other backend refuses the spawn rather than mint a
+ capability it can never reach. A caller-owned `makeWorkerAgent` owns its own mount.
+
+ Requires a harness-brained supervisor; a router-brained supervisor is refused rather than
+ silently unmailed.
 
 ###### Inherited from
 

@@ -365,12 +365,16 @@ export interface WorkerSpawnContext {
    * The PEER MAIL capability endpoint minted for this exact spawn, when the run enabled peer mail
    * ({@link CoordinationToolsOptions.peerMail}). It serves `send_mail` / `read_mail` and nothing
    * else, and it speaks as this worker: the sender is bound to the capability, never passed as an
-   * argument. Mount it on the worker the way `coordinationMcpUrl` is mounted on a driver.
+   * argument.
    *
    * It arrives HERE, out of band, rather than being merged into the worker's `AgentProfile.mcp`,
    * for the same reason the driver's coordination URL does: the URL carries fresh random bytes per
    * process, so writing it into the profile would change the canonical profile digest every run and
    * a keyed re-spawn would then fail its identity check against the journal.
+   *
+   * The backend-derived worker path mounts it for you (`workerFromBackend`): a bridge worker gets
+   * it as a Runtime-owned MCP attachment beside its authored profile. A caller-owned
+   * `makeWorkerAgent` mounts it the way `coordinationMcpUrl` is mounted on a driver.
    */
   readonly peerMailUrl?: string
 }
