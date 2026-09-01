@@ -36,6 +36,7 @@ import {
   type AgentProfileResourceRef,
   agentProfileSchema,
   canonicalAgentProfileDigest,
+  type HarnessType,
   harnessTypeSchema,
   nativeReasoningControl,
   profileMaterializationAxes,
@@ -62,6 +63,14 @@ import {
   type WorktreeCheckRunner,
   type WorktreeHarnessResult,
 } from '../../mcp/worktree-harness'
+import {
+  addHarnessUsage,
+  type CodexRolloutStoreReader,
+  type CodexRolloutStoreRef,
+  type CodexStoreDelta,
+  createCodexRolloutStoreReader,
+  harnessUsageIsEmpty,
+} from '../codex-rollout-store'
 import {
   type AgentEnvironmentProvider,
   type AgentEnvironmentProviderRegistry,
@@ -167,6 +176,7 @@ import type {
   ExecutorToolCall,
   Runtime,
   Spend,
+  TokenUsageProvenance,
   UsageEvent,
   WorkerInteractiveSession,
 } from './types'
@@ -438,6 +448,22 @@ export interface BridgeSeam {
   modelCredential?: BridgeModelCredential
   /** Optional working directory forwarded to cli-bridge and persisted with the session. */
   cwd?: string
+  /**
+   * The harness's OWN on-disk session store, read as a spend receipt.
+   *
+   * cli-bridge forwards no token usage for a codex worker, so a turn whose provider counters exist
+   * only in codex's rollout meters `{0, 0}` with `tokensKnown: false`. Measured on one live seat
+   * (discovery#80): 9 of 9 `metered` events read zero while 27,320,482 codex tokens sat in the same
+   * run directory, 1,453,948 of them belonging to harness-native children the journal never saw.
+   *
+   * Naming the store here turns those rows into evidence. The executor tails it once per turn and
+   * credits the DELTA, so each turn is charged once, and it reports the counters with
+   * `provenance: 'harness-store'` so a reader can tell a disk receipt from a stream receipt.
+   *
+   * The path must be the run's OWN isolated store. An ambient host store credits this run with
+   * another run's files, and `workspaceRoot` is the structural guard against it.
+   */
+  harnessStore?: BridgeHarnessStore
   /** Caller-owned deadline for each bridge turn. Runtime enforces it locally and sends the
    *  same value in `execution.timeoutMs` so the bridge-owned process follows the same policy. */
   timeoutMs?: number
@@ -448,6 +474,18 @@ export interface BridgeSeam {
   maxReconnects?: number
   /** Newest-last activity window `progress()` reports. Default 12. */
   activityWindow?: number
+}
+
+/**
+ * A harness's own session store on the bridge host, named so the runtime may read it.
+ *
+ * Only `codex` has a reader today. Any other harness is REFUSED rather than read with codex's
+ * decoder: a different harness's file decoded as a codex rollout would either drop counters it does
+ * not name or credit a number that is about the wrong wire shape.
+ */
+export interface BridgeHarnessStore extends CodexRolloutStoreRef {
+  /** The harness family that wrote the store. */
+  readonly harness: HarnessType
 }
 
 /** A live, request-scoped model credential reference for a local cli-bridge. */
@@ -2573,6 +2611,18 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // them as no cache report at all, and the cost receipt then charges a re-read prefix in full.
   const promptCache: { freshInput?: number; readTokens?: number; writeTokens?: number } = {}
 
+  // The harness's own store, when the caller named one. Opened BEFORE turn 0 and baselined on the
+  // first read, so rows this run did not write are consumed and credited to nothing.
+  const harnessStore = openBridgeHarnessStore(seam.harnessStore)
+  // Which evidence the counted tokens came from. `undefined` until the first count lands, so a
+  // settlement with no tokens at all states no provenance rather than claiming a stream receipt.
+  let tokensProvenance: TokenUsageProvenance | undefined
+  const creditProvenance = (source: TokenUsageProvenance): void => {
+    tokensProvenance =
+      tokensProvenance === undefined || tokensProvenance === source ? source : 'mixed'
+  }
+  if (harnessStore) await readHarnessStoreDelta(harnessStore, observation)
+
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
@@ -2766,6 +2816,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         }
         if (chunk.usage) {
           sawTurnTokenUsage = true
+          creditProvenance('stream-receipt')
           if (!chunk.usage.known) turnTokensKnown = false
           turnInputTokens += chunk.usage.input
           turnOutputTokens += chunk.usage.output
@@ -2893,6 +2944,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       )
       if ('event' in receipt) {
         sawTurnTokenUsage = true
+        creditProvenance('stream-receipt')
         turnInputTokens += receipt.event.input
         turnOutputTokens += receipt.event.output
         addTokenUsage(tokens, receipt.event)
@@ -2910,6 +2962,51 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
         // The FIRST reason is kept: it names the receipt this session could not read, and a later
         // turn failing the same way does not make the answer any more unknown.
         tokensUnknownReason ??= receipt.reason
+      }
+    }
+    // The harness's own store closes what the transport did not carry. It is read on EVERY turn,
+    // not only an unmetered one, because the two sources cover different work: a stream receipt
+    // reports the seat's turn, and a harness-native child spends in its own rollout with its own
+    // counter that the parent's receipt never includes. So a turn with a receipt still credits the
+    // native children, and a turn without one credits both — never the same tokens twice.
+    if (harnessStore) {
+      const delta = await readHarnessStoreDelta(harnessStore, observation)
+      if (delta) {
+        const charged = sawTurnTokenUsage ? delta.native : addHarnessUsage(delta.seat, delta.native)
+        if (!harnessUsageIsEmpty(charged)) {
+          const event: Extract<UsageEvent, { kind: 'tokens' }> = {
+            kind: 'tokens',
+            input: charged.input,
+            output: charged.output,
+            ...promptCacheTokenClasses(charged.input, {
+              ...(charged.cachedInput === undefined ? {} : { readTokens: charged.cachedInput }),
+              ...(charged.cacheWriteInput === undefined
+                ? {}
+                : { writeTokens: charged.cacheWriteInput }),
+            }),
+            provenance: 'harness-store',
+          }
+          sawTurnTokenUsage = true
+          creditProvenance('harness-store')
+          turnInputTokens += event.input
+          turnOutputTokens += event.output
+          addTokenUsage(tokens, event)
+          if (event.freshInput !== undefined) {
+            promptCache.freshInput = (promptCache.freshInput ?? 0) + event.freshInput
+          }
+          if (event.cacheRead !== undefined) {
+            promptCache.readTokens = (promptCache.readTokens ?? 0) + event.cacheRead
+          }
+          if (event.cacheWrite !== undefined) {
+            promptCache.writeTokens = (promptCache.writeTokens ?? 0) + event.cacheWrite
+          }
+          yield event
+        }
+        // A fork this reader cannot attribute is named, never charged and never silently zero.
+        if (delta.unresolved.length > 0) {
+          turnTokensKnown = false
+          tokensUnknownReason ??= `harness-store: ${delta.unresolved.length} forked rollout(s) could not be attributed to a turn; ${delta.unresolved[0]?.reason ?? 'no reason recorded'}`
+        }
       }
     }
     if (!sawTurnTokenUsage || !turnTokensKnown) tokensKnown = false
@@ -2971,6 +3068,11 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
     ...(usdKnown ? {} : { usdKnown: false }),
     ...(estimatedUsdCharged > 0 ? { usdEstimated: estimatedUsdCharged } : {}),
     ms: Date.now() - started,
+    // Only a provenance OTHER than the live stream is stated, so a bridge run that read no harness
+    // store settles byte-identically to every run before this channel existed.
+    ...(tokensProvenance === undefined || tokensProvenance === 'stream-receipt'
+      ? {}
+      : { tokensProvenance }),
   }
   const out = {
     content: lastText,
@@ -3013,6 +3115,52 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
  * receipt carries no reasoning counter at all, so the codex hazard of adding a reasoning count to
  * an output total that already contains it cannot arise on this path.
  */
+/**
+ * Open the harness store named on the seam, or nothing when the caller named none.
+ *
+ * A harness with no reader is REFUSED loudly rather than read with codex's decoder. Silently
+ * ignoring it would hand back the same `{0, 0}` the store was configured to fix, with no signal
+ * that the configuration did nothing.
+ */
+function openBridgeHarnessStore(
+  store: BridgeHarnessStore | undefined,
+): CodexRolloutStoreReader | undefined {
+  if (store === undefined) return undefined
+  if (store.harness !== 'codex') {
+    throw new ValidationError(
+      `bridgeExecutor: harnessStore.harness ${JSON.stringify(store.harness)} has no store reader; only "codex" is readable today`,
+    )
+  }
+  const ref: CodexRolloutStoreRef = {
+    root: store.root,
+    ...(store.workspaceRoot === undefined ? {} : { workspaceRoot: store.workspaceRoot }),
+  }
+  return createCodexRolloutStoreReader(ref)
+}
+
+/**
+ * Read one turn's worth of the harness store.
+ *
+ * A read that fails is noted on the live activity log and returns nothing: the store is additional
+ * evidence, and a filesystem error on it must never end a turn whose work already happened.
+ */
+async function readHarnessStoreDelta(
+  reader: CodexRolloutStoreReader,
+  observation: BridgeObservation,
+): Promise<CodexStoreDelta | undefined> {
+  try {
+    return await reader.read()
+  } catch (err) {
+    observation.activity.push({
+      at: Date.now(),
+      kind: 'note',
+      label: 'harness-store-unreadable',
+      detail: err instanceof Error ? err.message : String(err),
+    })
+    return undefined
+  }
+}
+
 function readBridgeReceiptTokens(
   usage: BridgeInferenceUsage | undefined,
 ): { event: Extract<UsageEvent, { kind: 'tokens' }> } | { reason: string } {

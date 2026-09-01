@@ -921,7 +921,7 @@ Manager-scoped assignment identity, including deterministic ids for unkeyed sibl
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-9)
+[`NodeSnapshot`](#nodesnapshot).[`identity`](#identity-10)
 
 ##### materialization?
 
@@ -2468,6 +2468,216 @@ False-discovery rate for the Benjamini–Hochberg correction. Default 0.05.
 
 Below this many shared scenarios a paired test can't defensibly separate two profiles, so the
  `significant` tag is suppressed regardless of p (small-n mirage protection). Default 12.
+
+***
+
+### CodexRolloutIdentity
+
+Who wrote one rollout, exactly as its own `session_meta` states it. Nothing here is inferred.
+
+#### Properties
+
+##### sessionId
+
+> `readonly` **sessionId**: `string`
+
+The rollout's own thread id (`session_meta.payload.id`).
+
+##### parentThreadId?
+
+> `readonly` `optional` **parentThreadId?**: `string`
+
+The thread this one was spawned or forked from, when it was.
+
+##### forkedFromId?
+
+> `readonly` `optional` **forkedFromId?**: `string`
+
+The thread whose rows are prepended into this file, when this file is a fork.
+
+##### nativeChild
+
+> `readonly` **nativeChild**: `boolean`
+
+True when `thread_source` reads `subagent`: a harness-native child, invisible to the journal.
+
+##### agentPath?
+
+> `readonly` `optional` **agentPath?**: `string`
+
+The child's own path in the harness's agent tree (`/root/c1_b_grid`), when it has one.
+
+##### agentNickname?
+
+> `readonly` `optional` **agentNickname?**: `string`
+
+The harness's own nickname for the child ("Turing"), when it has one.
+
+##### depth?
+
+> `readonly` `optional` **depth?**: `number`
+
+Spawn depth the harness recorded. `1` is a direct child of the seat.
+
+##### cwd?
+
+> `readonly` `optional` **cwd?**: `string`
+
+The working directory the session ran in, used to attribute a store to a workspace.
+
+##### cliVersion?
+
+> `readonly` `optional` **cliVersion?**: `string`
+
+The codex build that wrote it.
+
+##### startedAtMs?
+
+> `readonly` `optional` **startedAtMs?**: `number`
+
+When the session itself started, from its own `session_meta` timestamp.
+
+***
+
+### CodexRolloutTurn
+
+One turn of one session, with the counters it added to the session's cumulative total.
+
+#### Properties
+
+##### turnId?
+
+> `readonly` `optional` **turnId?**: `string`
+
+##### startedAtMs?
+
+> `readonly` `optional` **startedAtMs?**: `number`
+
+##### usage
+
+> `readonly` **usage**: [`HarnessUsage`](#harnessusage)
+
+***
+
+### CodexRolloutSession
+
+One rollout file, read.
+
+#### Properties
+
+##### identity
+
+> `readonly` **identity**: [`CodexRolloutIdentity`](#codexrolloutidentity)
+
+##### boundary
+
+> `readonly` **boundary**: [`CodexForkBoundary`](#codexforkboundary)
+
+##### own?
+
+> `readonly` `optional` **own?**: [`HarnessUsage`](#harnessusage)
+
+The session's OWN spend — the cumulative delta from its fork boundary to its last report.
+ABSENT when the boundary is unresolved: an unattributable number must not be charged.
+
+##### turns
+
+> `readonly` **turns**: readonly [`CodexRolloutTurn`](#codexrolloutturn)[]
+
+The session's own turns, newest last. Empty when the file reported no usage.
+
+##### fileCumulativeInput
+
+> `readonly` **fileCumulativeInput**: `number`
+
+The file's final cumulative `total_token_usage`, kept ONLY as the diagnostic that shows how
+far a naive file total is from the truth. Never charge this.
+
+##### fileCumulativeOutput
+
+> `readonly` **fileCumulativeOutput**: `number`
+
+***
+
+### CodexStoreDelta
+
+What one incremental read of a store observed.
+
+#### Properties
+
+##### seat
+
+> `readonly` **seat**: [`HarnessUsage`](#harnessusage)
+
+Spend by sessions that are NOT native children — the seat's own turns.
+
+##### native
+
+> `readonly` **native**: [`HarnessUsage`](#harnessusage)
+
+Spend by `thread_source: subagent` sessions — the harness-native children.
+
+##### unresolved
+
+> `readonly` **unresolved**: readonly `object`[]
+
+Sessions whose fork boundary could not be isolated, so their spend is absent, not zero.
+
+##### sessions
+
+> `readonly` **sessions**: readonly [`CodexRolloutSession`](#codexrolloutsession)[]
+
+Every session this read touched, for evidence. Each one states its WHOLE own spend and turn
+list, which is not the same number as `seat` / `native`: those two carry only what this read
+newly observed.
+
+***
+
+### CodexRolloutStoreReader
+
+A store reader that credits each turn once: it tails only the bytes appended since the last read.
+
+#### Methods
+
+##### read()
+
+> **read**(): `Promise`\<[`CodexStoreDelta`](#codexstoredelta)\>
+
+Read everything appended since the previous call and attribute it.
+
+The FIRST call establishes the baseline. Call it before the first turn so pre-existing rows are
+consumed and credited to nothing; every later call returns exactly that turn's spend.
+
+###### Returns
+
+`Promise`\<[`CodexStoreDelta`](#codexstoredelta)\>
+
+***
+
+### CodexRolloutStoreRef
+
+Where a harness keeps its own session store, and which workspace may be credited from it.
+
+#### Extended by
+
+- [`BridgeHarnessStore`](#bridgeharnessstore)
+
+#### Properties
+
+##### root
+
+> `readonly` **root**: `string`
+
+Absolute path to the harness home the CLI writes into — `CODEX_HOME`, or `$HOME/.codex`.
+This MUST be the run's own isolated store. Pointing it at an ambient host store credits one
+run with another run's files, which is the exact defect this reader exists to end.
+
+##### workspaceRoot?
+
+> `readonly` `optional` **workspaceRoot?**: `string`
+
+Credit only sessions whose recorded `cwd` is this path or below it. Absent credits every
+session under `root`, which is correct only for a store no other run writes to.
 
 ***
 
@@ -6314,7 +6524,7 @@ Start one retry-safe native coding-agent TUI in a new environment.
 
 ###### Inherited from
 
-[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`cwd`](#cwd)
+[`RetainedInteractiveStartMaterial`](#retainedinteractivestartmaterial).[`cwd`](#cwd-1)
 
 ##### cols?
 
@@ -7077,7 +7287,7 @@ so every process derives the same values.
 
 ###### Inherited from
 
-[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`identity`](#identity-1)
+[`RetainedRunStartMaterial`](#retainedrunstartmaterial).[`identity`](#identity-2)
 
 ##### provider
 
@@ -15765,6 +15975,24 @@ them only to a loopback bridge through private request headers.
 
 Optional working directory forwarded to cli-bridge and persisted with the session.
 
+##### harnessStore?
+
+> `optional` **harnessStore?**: [`BridgeHarnessStore`](#bridgeharnessstore)
+
+The harness's OWN on-disk session store, read as a spend receipt.
+
+cli-bridge forwards no token usage for a codex worker, so a turn whose provider counters exist
+only in codex's rollout meters `{0, 0}` with `tokensKnown: false`. Measured on one live seat
+(discovery#80): 9 of 9 `metered` events read zero while 27,320,482 codex tokens sat in the same
+run directory, 1,453,948 of them belonging to harness-native children the journal never saw.
+
+Naming the store here turns those rows into evidence. The executor tails it once per turn and
+credits the DELTA, so each turn is charged once, and it reports the counters with
+`provenance: 'harness-store'` so a reader can tell a disk receipt from a stream receipt.
+
+The path must be the run's OWN isolated store. An ambient host store credits this run with
+another run's files, and `workspaceRoot` is the structural guard against it.
+
 ##### timeoutMs?
 
 > `optional` **timeoutMs?**: `number`
@@ -15790,6 +16018,51 @@ Transport reconnects allowed after the first POST. Default 3; set 0 to disable.
 > `optional` **activityWindow?**: `number`
 
 Newest-last activity window `progress()` reports. Default 12.
+
+***
+
+### BridgeHarnessStore
+
+A harness's own session store on the bridge host, named so the runtime may read it.
+
+Only `codex` has a reader today. Any other harness is REFUSED rather than read with codex's
+decoder: a different harness's file decoded as a codex rollout would either drop counters it does
+not name or credit a number that is about the wrong wire shape.
+
+#### Extends
+
+- [`CodexRolloutStoreRef`](#codexrolloutstoreref)
+
+#### Properties
+
+##### root
+
+> `readonly` **root**: `string`
+
+Absolute path to the harness home the CLI writes into — `CODEX_HOME`, or `$HOME/.codex`.
+This MUST be the run's own isolated store. Pointing it at an ambient host store credits one
+run with another run's files, which is the exact defect this reader exists to end.
+
+###### Inherited from
+
+[`CodexRolloutStoreRef`](#codexrolloutstoreref).[`root`](#root-3)
+
+##### workspaceRoot?
+
+> `readonly` `optional` **workspaceRoot?**: `string`
+
+Credit only sessions whose recorded `cwd` is this path or below it. Absent credits every
+session under `root`, which is correct only for a store no other run writes to.
+
+###### Inherited from
+
+[`CodexRolloutStoreRef`](#codexrolloutstoreref).[`workspaceRoot`](#workspaceroot)
+
+##### harness
+
+> `readonly` **harness**: `HarnessType`
+
+The harness family that wrote the store.
 
 ***
 
@@ -17910,7 +18183,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-3)
+[`SupervisorNodeContext`](#supervisornodecontext).[`depth`](#depth-4)
 
 ##### identity
 
@@ -17918,7 +18191,7 @@ Stable identity of this manager's coordination stream.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-4)
+[`SupervisorNodeContext`](#supervisornodecontext).[`identity`](#identity-5)
 
 ##### assignmentId?
 
@@ -22604,6 +22877,58 @@ Decompose ONE record into per-axis scores (e.g. judge dimensions). When set, it 
 
 ***
 
+### CodexForkBoundary
+
+> **CodexForkBoundary** = \{ `kind`: `"whole-file"`; \} \| \{ `kind`: `"resolved"`; `rule`: `"history-start-ordinal"` \| `"turn-is-session"` \| `"turn-uuid-v7"` \| `"turn-start-time"`; `turnId?`: `string`; `inheritedTurns`: `number`; \} \| \{ `kind`: `"unresolved"`; `reason`: `string`; \}
+
+How this reader isolated the session's own rows from the parent rows prepended to its file.
+
+#### Union Members
+
+##### Type Literal
+
+\{ `kind`: `"whole-file"`; \}
+
+Not a fork: every row in the file belongs to this session.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"resolved"`; `rule`: `"history-start-ordinal"` \| `"turn-is-session"` \| `"turn-uuid-v7"` \| `"turn-start-time"`; `turnId?`: `string`; `inheritedTurns`: `number`; \}
+
+A fork whose own first turn was isolated, and by which rule.
+
+###### kind
+
+> `readonly` **kind**: `"resolved"`
+
+###### rule
+
+> `readonly` **rule**: `"history-start-ordinal"` \| `"turn-is-session"` \| `"turn-uuid-v7"` \| `"turn-start-time"`
+
+###### turnId?
+
+> `readonly` `optional` **turnId?**: `string`
+
+The `turn_id` of the session's own first turn.
+
+###### inheritedTurns
+
+> `readonly` **inheritedTurns**: `number`
+
+Rows credited to the parent and excluded from `own`.
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"unresolved"`; `reason`: `string`; \}
+
+A fork this reader could not isolate. `own` is absent; nothing may be charged.
+
+***
+
 ### InProcessOnPrompt
 
 > **InProcessOnPrompt** = (`prompt`, `ctx`) => `SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
@@ -23968,13 +24293,13 @@ of inferring children from tool names or transcript order.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](index.md#tokenusageprovenance); \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"iteration"`; \}
 
 #### Union Members
 
 ##### Type Literal
 
-\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; \}
+\{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](index.md#tokenusageprovenance); \}
 
 ###### kind
 
@@ -24020,6 +24345,22 @@ False when this observation cannot classify all positive prompt tokens — inclu
 provider that reports a read with no write counter. The measured counters are still
 carried; the marker says the remaining prompt tokens are unclassified, so a charge over
 them is an upper bound. A counter the provider did not report is absent, never zero.
+
+###### provenance?
+
+> `optional` **provenance?**: [`TokenUsageProvenance`](index.md#tokenusageprovenance)
+
+Where these counters came from.
+
+ABSENT — the executor's own live stream carried the receipt. This is the default and the
+only value that existed before harness stores were readable.
+`'harness-store'` — the harness's OWN on-disk session store was read after the turn. The
+counters are the provider's, not this runtime's estimate, so they may claim
+`tokensKnown: true`; the marker states that the evidence is a file the harness wrote rather
+than an event the transport forwarded.
+
+The distinction is load-bearing on a transport that forwards no usage: crediting a store
+read as if it were a stream receipt would hide that the stream is still silent.
 
 ***
 
@@ -26099,6 +26440,88 @@ Render a self-contained HTML leaderboard page (the hosted surface): the SVG char
 #### Returns
 
 `string`
+
+***
+
+### readCodexRolloutSession()
+
+> **readCodexRolloutSession**(`rows`): [`CodexRolloutSession`](#codexrolloutsession) \| `undefined`
+
+Read one rollout's rows into a session record.
+
+`rows` is the file's JSON values in file order. Pass the whole file to read a completed session;
+the store reader passes appended slices and carries the identity forward itself.
+
+#### Parameters
+
+##### rows
+
+`Iterable`\<`unknown`\>
+
+#### Returns
+
+[`CodexRolloutSession`](#codexrolloutsession) \| `undefined`
+
+***
+
+### createCodexRolloutStoreReader()
+
+> **createCodexRolloutStoreReader**(`ref`): [`CodexRolloutStoreReader`](#codexrolloutstorereader)
+
+Open an incremental reader over a codex store.
+
+Nothing is read until `read()` is called, and every read is bounded by the bytes appended since
+the previous one, so a 695MB rollout is scanned once rather than once per turn.
+
+#### Parameters
+
+##### ref
+
+[`CodexRolloutStoreRef`](#codexrolloutstoreref)
+
+#### Returns
+
+[`CodexRolloutStoreReader`](#codexrolloutstorereader)
+
+***
+
+### addHarnessUsage()
+
+> **addHarnessUsage**(`left`, `right`): [`HarnessUsage`](#harnessusage)
+
+Sum two usage reports on every counter both of them state.
+
+#### Parameters
+
+##### left
+
+[`HarnessUsage`](#harnessusage)
+
+##### right
+
+[`HarnessUsage`](#harnessusage)
+
+#### Returns
+
+[`HarnessUsage`](#harnessusage)
+
+***
+
+### harnessUsageIsEmpty()
+
+> **harnessUsageIsEmpty**(`usage`): `boolean`
+
+True when a report states any spend at all.
+
+#### Parameters
+
+##### usage
+
+[`HarnessUsage`](#harnessusage)
+
+#### Returns
+
+`boolean`
 
 ***
 
@@ -32507,6 +32930,12 @@ Re-exports [SupervisedResult](index.md#supervisedresult)
 ### Supervisor
 
 Re-exports [Supervisor](index.md#supervisor)
+
+***
+
+### TokenUsageProvenance
+
+Re-exports [TokenUsageProvenance](index.md#tokenusageprovenance)
 
 ***
 

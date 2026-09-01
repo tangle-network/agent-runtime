@@ -467,6 +467,11 @@ function assignSpend(attrs: Attrs, value: unknown): Spend | undefined {
     attrs['tangle.platform.box_minutes_provenance'] = spend.boxMinutesProvenance
     attrs['tangle.platform.box_minutes_known'] = spend.boxMinutesKnown === true
   }
+  // Absent means the executor's live stream carried the counters, so no attribute is emitted for
+  // it: a span states only that the receipt came from somewhere else.
+  if (spend.tokensProvenance !== undefined) {
+    attrs['tangle.supervise.tokens_provenance'] = spend.tokensProvenance
+  }
   return spend
 }
 

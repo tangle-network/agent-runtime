@@ -7,7 +7,7 @@
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'
-import type { Spend } from './supervise/types'
+import type { Spend, TokenUsageProvenance } from './supervise/types'
 import type { LoopTokenUsage } from './types'
 
 /**
@@ -225,7 +225,31 @@ export function addSpend(a: Spend, b: Spend): Spend {
     ...usdEstimatedOf(a, b),
     ms: a.ms + b.ms,
     ...boxMinutesOf(a, b),
+    ...tokensProvenanceOf(a, b),
   }
+}
+
+/**
+ * Fold the token-provenance channel across spends, as a field to spread.
+ *
+ * Returns nothing when no contributor stated one, because ABSENT already means "the executor's own
+ * live stream", which is what every path reported before a harness store was readable. A
+ * contributor that stated one and a contributor that did not therefore disagree, and the sum is
+ * `'mixed'` — the honest answer for a tree whose spend came from two kinds of receipt.
+ */
+function tokensProvenanceOf(...spends: ReadonlyArray<Spend>): {
+  tokensProvenance?: TokenUsageProvenance
+} {
+  let folded: TokenUsageProvenance | undefined
+  let sawStated = false
+  for (const spend of spends) {
+    const stated = spend.tokensProvenance ?? 'stream-receipt'
+    if (spend.tokensProvenance !== undefined) sawStated = true
+    folded = folded === undefined || folded === stated ? stated : 'mixed'
+  }
+  return !sawStated || folded === undefined || folded === 'stream-receipt'
+    ? {}
+    : { tokensProvenance: folded }
 }
 
 /**

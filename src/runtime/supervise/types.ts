@@ -366,6 +366,17 @@ export type ExecutorProgressEvent =
       readonly event: ChildTaskEvent
     }
 
+/**
+ * How a token count was obtained.
+ *
+ * `'stream-receipt'` — the executor's live event stream carried the provider's counters.
+ * `'harness-store'` — the harness's own on-disk session store was read after the turn. Measured
+ *   motive (discovery#80): a cli-bridge codex seat metered zero on 9 of 9 turns while 27,320,482
+ *   tokens sat in its rollout, so the store is the only receipt that path produces.
+ * `'mixed'` — a settlement whose turns came from more than one of the above.
+ */
+export type TokenUsageProvenance = 'stream-receipt' | 'harness-store' | 'mixed'
+
 export type UsageEvent =
   | {
       kind: 'tokens'
@@ -386,6 +397,20 @@ export type UsageEvent =
        * them is an upper bound. A counter the provider did not report is absent, never zero.
        */
       cacheBreakdownKnown?: false
+      /**
+       * Where these counters came from.
+       *
+       * ABSENT — the executor's own live stream carried the receipt. This is the default and the
+       * only value that existed before harness stores were readable.
+       * `'harness-store'` — the harness's OWN on-disk session store was read after the turn. The
+       * counters are the provider's, not this runtime's estimate, so they may claim
+       * `tokensKnown: true`; the marker states that the evidence is a file the harness wrote rather
+       * than an event the transport forwarded.
+       *
+       * The distinction is load-bearing on a transport that forwards no usage: crediting a store
+       * read as if it were a stream receipt would hide that the stream is still silent.
+       */
+      provenance?: TokenUsageProvenance
     }
   | {
       kind: 'cost'
@@ -697,6 +722,17 @@ export interface Spend {
    * `'uncaptured'` — a box ran and nothing measured its time. Comes WITHOUT `boxMinutes`.
    */
   boxMinutesProvenance?: 'observed' | 'estimated' | 'uncaptured'
+  /**
+   * How the token counters in `tokens` were obtained, when this record states it.
+   *
+   * ABSENT means every count came from the executor's live stream, which is what every path
+   * reported before harness stores were readable. `'harness-store'` says the harness's own file was
+   * the receipt; `'mixed'` says both sources contributed to this settlement.
+   *
+   * This is a provenance fact, not a confidence one: a store read is the provider's own number and
+   * carries `tokensKnown: true`. The twin of `boxMinutesProvenance` on the token channel.
+   */
+  tokensProvenance?: TokenUsageProvenance
 }
 
 // ── Node lifecycle ────────────────────────────────────────────────────────────

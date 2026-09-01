@@ -4679,7 +4679,7 @@ For `'delegation'`, this is the taskId.
 
 ##### label?
 
-> `optional` **label?**: `"good"` \| `"bad"` \| `"neutral"` \| `"mixed"`
+> `optional` **label?**: `"mixed"` \| `"good"` \| `"bad"` \| `"neutral"`
 
 **`Experimental`**
 
@@ -5190,7 +5190,7 @@ Default 50. Hard cap 500.
 
 ##### label?
 
-> `optional` **label?**: `"good"` \| `"bad"` \| `"neutral"` \| `"mixed"`
+> `optional` **label?**: `"mixed"` \| `"good"` \| `"bad"` \| `"neutral"`
 
 **`Experimental`**
 
