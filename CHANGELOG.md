@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.188.0
+
+### The cohort moves to agent-knowledge 13
+
+`agent-knowledge` `^13.0.0` replaces `^12.0.2` in the catalog and the release cohort.
+Knowledge 13 reads a check's execution facts from two new `CheckExecution` fields, `killedBySignal` and `outputTruncated`, and grades a parse the deadline killed as `unrunnable` instead of "does not parse".
+It also runs every check through `agent-eval`'s `runBoundedProcess`, so one bounded process runner serves the whole stack.
+A consumer that only reads a `CheckExecution` needs no change; a consumer that produces one supplies the two fields.
+
 ## 0.187.1
 
 0.187.0 was tagged but never published (its release check failed on a stale lockfile), so this release carries the whole cohort. The `agent-eval` peer floor is 0.172.1.
