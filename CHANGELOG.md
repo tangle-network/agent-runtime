@@ -33,6 +33,13 @@ A reservation needs a ceiling that a caller declared and a number that the pool 
 A lineage box and a same-sandbox box report no lifetime.
 The loop reaps them after it builds its result, so no iteration can close them.
 
+The channel reaches the durable record.
+`preserveUnknownTelemetry` copies it from the terminal artifact onto the settled spend.
+A streaming executor puts no box time on its usage stream, so this is the only path.
+`PursuitNodeProjection` then carries a `platform` block, typed as `PursuitNodePlatform`.
+Read that block beside `cost`, not inside it.
+A seat run reports a true `$0` and real minutes; one combined figure hides which one is missing.
+
 ### `Spend.usd` carries the per-prompt cost the platform reports
 
 `PromptResult.costUsd` is a sibling of `usage` on a terminal sandbox event.

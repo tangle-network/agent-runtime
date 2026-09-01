@@ -2558,6 +2558,18 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
     ...(terminal.tokensKnown === false ? { tokensKnown: false } : {}),
     ...(terminal.usdKnown === false ? { usdKnown: false } : {}),
     ms: terminal.ms,
+    // The platform box-time channel is terminal-artifact-only BY DESIGN: a box's minutes are not
+    // known until it dies, so nothing on the usage stream can carry them and the conserved pool
+    // never sees them. That makes this the one place they can reach `live.spent`, and from there
+    // the journal, the tree view and every rollup. Without this the channel would be reported by
+    // the executor and dropped at settlement — measured by the value audit on PR #1053.
+    ...(terminal.boxMinutes !== undefined ? { boxMinutes: terminal.boxMinutes } : {}),
+    ...(terminal.boxMinutesKnown !== undefined
+      ? { boxMinutesKnown: terminal.boxMinutesKnown }
+      : {}),
+    ...(terminal.boxMinutesProvenance !== undefined
+      ? { boxMinutesProvenance: terminal.boxMinutesProvenance }
+      : {}),
   }
 }
 

@@ -558,6 +558,39 @@ count no provider reported, which makes `input`/`output` a floor.
 
 ***
 
+### PursuitNodePlatform
+
+One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays.
+
+Kept apart from `PursuitNodeCost` because the two answer different questions and fail
+independently: a seat run reports a truthful `$0` and real minutes, a caller-account run
+reports real dollars and may report no minutes at all. Collapsing them into one "spend known"
+figure hides which one is missing.
+
+Absent on a node that ran no box. `boxMinutes` absent WITH the block present says a box ran and
+nothing measured it — a missing measurement is never a zero.
+
+#### Properties
+
+##### boxMinutes?
+
+> `readonly` `optional` **boxMinutes?**: `number`
+
+##### boxMinutesKnown
+
+> `readonly` **boxMinutesKnown**: `boolean`
+
+`false` when a box ran whose time could not be closed, so `boxMinutes` is a floor.
+
+##### provenance
+
+> `readonly` **provenance**: `"observed"` \| `"estimated"` \| `"uncaptured"`
+
+`observed` = the platform billed the minutes; `estimated` = Runtime derived them from the box
+ lifetime it watched; `uncaptured` = a box ran and nothing measured it.
+
+***
+
 ### PursuitNodeCost
 
 One node's dollar cost with the provenance that decides whether it may be compared or summed.
@@ -779,6 +812,12 @@ Absent until a spend record lands; the run's `spendGaps` then names the node.
 > `readonly` `optional` **cost?**: [`PursuitNodeCost`](#pursuitnodecost)
 
 Absent until a spend record lands; the run's `spendGaps` then names the node.
+
+##### platform?
+
+> `readonly` `optional` **platform?**: [`PursuitNodePlatform`](#pursuitnodeplatform)
+
+What the node consumed on the PLATFORM. Absent on a node that ran no box.
 
 ##### timing?
 

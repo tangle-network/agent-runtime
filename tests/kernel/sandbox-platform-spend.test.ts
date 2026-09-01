@@ -11,11 +11,16 @@
 
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { spendFromUsageEvents } from '../../src/runtime/supervise/budget'
-import { createExecutor } from '../../src/runtime/supervise/runtime'
+import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
+import { createExecutor, createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope } from '../../src/runtime/supervise/scope'
 import type {
+  Agent,
   AgentSpec,
+  Executor,
   ExecutorContext,
+  ExecutorResult,
   Spend,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
@@ -238,5 +243,117 @@ describe('addSpend folds the platform channel without inventing a measurement', 
     // "Not applicable" is not the same fact as "a box ran and nobody metered it".
     expect(summed.boxMinutesProvenance).toBeUndefined()
     expect(summed.boxMinutesKnown).toBeUndefined()
+  })
+})
+
+/**
+ * The channel has to survive settlement, or it does not exist.
+ *
+ * The sandbox executor is a STREAMING executor: `scope.spawn` folds its `UsageEvent` stream into
+ * the spend it journals, and box time is deliberately not on that stream — a box's minutes are
+ * not known until it dies, and the conserved pool must never see them. `preserveUnknownTelemetry`
+ * is therefore the only path from the terminal artifact to the durable record, and a channel it
+ * does not copy is reported by the executor and dropped on the way to the journal.
+ */
+describe('the platform channel survives settlement into the journal and the projection', () => {
+  /** A streaming worker whose terminal artifact — not its stream — states its box time. */
+  function platformWorker(spent: Spend): Agent<unknown, unknown> {
+    const artifact: ExecutorResult<unknown> = { outRef: 'w:done', out: 'done', spent }
+    const executor: Executor<unknown> = {
+      runtime: 'sandbox',
+      execute() {
+        return (async function* () {
+          yield { kind: 'iteration' } as UsageEvent
+          yield { kind: 'tokens', input: 12, output: 3 } as UsageEvent
+        })()
+      },
+      teardown: async () => ({ destroyed: true }),
+      resultArtifact: () => artifact,
+    }
+    const executorSpec: AgentSpec = {
+      profile: testAgentProfile('platform-worker'),
+      harness: null,
+      executor,
+    }
+    return { name: 'platform-worker', act: async () => 'done', executorSpec } as Agent<
+      unknown,
+      unknown
+    >
+  }
+
+  async function settleThroughScope(spent: Spend) {
+    const journal = new InMemorySpawnJournal()
+    const root = 'platform-scope'
+    await journal.beginTree(root, new Date(0).toISOString())
+    const scope = createScope({
+      parentId: root,
+      root,
+      pool: createBudgetPool({ maxIterations: 2, maxTokens: 1_000 }, Date.now()),
+      journal,
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+      seams: {},
+      depth: 0,
+      signal: new AbortController().signal,
+      now: Date.now,
+    })
+    const spawned = scope.spawn(platformWorker(spent), 'task', {
+      budget: { maxIterations: 2, maxTokens: 1_000 },
+      label: 'worker',
+    })
+    expect(spawned.ok).toBe(true)
+    const settled = await scope.next()
+    const events = (await journal.loadTree(root)) ?? []
+    return { settled, events }
+  }
+
+  it('journals the derived box time the executor reported, not a dropped channel', async () => {
+    const { settled, events } = await settleThroughScope({
+      iterations: 1,
+      tokens: { input: 12, output: 3 },
+      usd: 0,
+      ms: 500,
+      boxMinutes: 1.5,
+      boxMinutesKnown: true,
+      boxMinutesProvenance: 'estimated',
+    })
+
+    expect(settled?.kind).toBe('done')
+    const done = events.find((event) => event.kind === 'settled')
+    expect(done).toMatchObject({
+      spent: { boxMinutes: 1.5, boxMinutesKnown: true, boxMinutesProvenance: 'estimated' },
+    })
+    // The token channel still comes from the stream, unchanged.
+    expect(done).toMatchObject({ spent: { tokens: { input: 12, output: 3 } } })
+  })
+
+  it('journals an unmeasured box as uncaptured rather than dropping the fact', async () => {
+    const { events } = await settleThroughScope({
+      iterations: 1,
+      tokens: { input: 12, output: 3 },
+      usd: 0,
+      ms: 500,
+      boxMinutesKnown: false,
+      boxMinutesProvenance: 'uncaptured',
+    })
+
+    const done = events.find((event) => event.kind === 'settled')
+    expect(done).toMatchObject({
+      spent: { boxMinutesKnown: false, boxMinutesProvenance: 'uncaptured' },
+    })
+    expect((done as { spent: Spend }).spent.boxMinutes).toBeUndefined()
+  })
+
+  it('leaves a worker that ran no box with no platform channel on its settled record', async () => {
+    const { events } = await settleThroughScope({
+      iterations: 1,
+      tokens: { input: 12, output: 3 },
+      usd: 0,
+      ms: 500,
+    })
+
+    const done = events.find((event) => event.kind === 'settled') as { spent: Spend }
+    expect(done.spent.boxMinutesProvenance).toBeUndefined()
+    expect(done.spent.boxMinutesKnown).toBeUndefined()
   })
 })
