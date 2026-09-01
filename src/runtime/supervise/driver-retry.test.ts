@@ -6,6 +6,8 @@ import {
   DriverAttemptsExhaustedError,
   type DriverBudgetReadout,
   type DriverProgressMark,
+  type DriverReentry,
+  defaultUnmetContractSteer,
   runDriverWithRetry,
 } from './driver-retry'
 
@@ -27,6 +29,20 @@ function budget(over: Partial<DriverBudgetReadout> = {}): DriverBudgetReadout {
 }
 
 const noProgress: DriverProgressMark = { poolTokensSpent: 0, settledCount: 0, submitted: false }
+
+/** A mark from a caller that DECLARED a completion check — the shape every field below is read
+ *  against. `contract: 'unmet'` is the state 76.1% of the measured lab runs sat in while the old
+ *  reading counted their spend as persistence. */
+function mark(over: Partial<DriverProgressMark> = {}): DriverProgressMark {
+  return {
+    poolTokensSpent: 0,
+    settledCount: 0,
+    submitted: false,
+    deliveredCount: 0,
+    contract: 'unmet',
+    ...over,
+  }
+}
 
 /** Drive a scripted sequence of outcomes. `null` completes the attempt; an Error rejects it. */
 function scriptedDrive(outcomes: ReadonlyArray<Error | null>) {
@@ -267,5 +283,333 @@ describe('runDriverWithRetry', () => {
       sleep: instantSleep,
     }).catch((e: unknown) => e)
     expect((error as DriverAttemptsExhaustedError).cause).toBe(fault)
+  })
+})
+
+describe('runDriverWithRetry — progress tracks the deliverable, not the burn rate', () => {
+  it('refuses to read spend and settlements as progress while a declared check is unmet', async () => {
+    // The measured shape: the driver meters turns and settles children, run after run, and never
+    // delivers. The old mark called every attempt productive, so the barren ceiling never armed and
+    // the run retried to its absolute ceiling. Now it gives up as a dead driver does.
+    const script = scriptedDrive(Array.from({ length: 8 }, () => new Error('stream closed')))
+    let poolTokensSpent = 0
+    let settledCount = 0
+    const error = await runDriverWithRetry({
+      drive: async (attempt) => {
+        poolTokensSpent += 5_000
+        settledCount += 1
+        await script.drive(attempt)
+      },
+      progress: () => mark({ poolTokensSpent, settledCount }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+    }).catch((e: unknown) => e)
+
+    expect(script.attempts).toEqual([1, 2, 3])
+    expect((error as DriverAttemptsExhaustedError).stop).toBe('no-progress')
+  })
+
+  it('counts a child that PASSED the check as progress and keeps rescuing the run', async () => {
+    // The other half of the same rule: real delivery, not spend, buys another attempt.
+    const script = scriptedDrive(Array.from({ length: 20 }, () => new Error('stream closed')))
+    let deliveredCount = 0
+    const error = await runDriverWithRetry({
+      drive: async (attempt) => {
+        deliveredCount += 1
+        await script.drive(attempt)
+      },
+      progress: () => mark({ settledCount: deliveredCount, deliveredCount }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+    }).catch((e: unknown) => e)
+
+    expect(script.attempts).toHaveLength(8)
+    expect((error as DriverAttemptsExhaustedError).stop).toBe('max-attempts')
+  })
+
+  it('leaves a caller who declares no check on the exact historical spend reading', async () => {
+    const script = scriptedDrive(Array.from({ length: 20 }, () => new Error('stream closed')))
+    let poolTokensSpent = 0
+    const error = await runDriverWithRetry({
+      drive: async (attempt) => {
+        poolTokensSpent += 10
+        await script.drive(attempt)
+      },
+      // No `contract` field at all: the shape every pre-existing caller constructs.
+      progress: () => ({ poolTokensSpent, settledCount: 0, submitted: false }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+    }).catch((e: unknown) => e)
+
+    expect(script.attempts).toHaveLength(8)
+    expect((error as DriverAttemptsExhaustedError).stop).toBe('max-attempts')
+  })
+
+  it('treats an accepted submission as progress even with the contract read a turn behind', async () => {
+    const script = scriptedDrive([new Error('a'), new Error('b'), new Error('c'), null])
+    let submitted = false
+    await runDriverWithRetry({
+      drive: async (attempt) => {
+        submitted = attempt >= 3
+        await script.drive(attempt)
+      },
+      progress: () => mark({ submitted, poolTokensSpent: 1 }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      sleep: instantSleep,
+    })
+    // Attempts 1 and 2 are barren; the submission on 3 resets the counter and buys attempt 4.
+    expect(script.attempts).toEqual([1, 2, 3, 4])
+  })
+})
+
+describe('runDriverWithRetry — a completed drive whose contract is unmet', () => {
+  /** A drive that completes every time, and delivers only once it has been re-prompted `after`
+   *  times. Records what each attempt was re-entered with. */
+  function completingDrive(after: number) {
+    const reentries: Array<DriverReentry | undefined> = []
+    let reprompts = 0
+    return {
+      reentries,
+      delivered: () => reprompts >= after,
+      drive: async (_attempt: number, reentry?: DriverReentry): Promise<void> => {
+        reentries.push(reentry)
+        if (reentry !== undefined) reprompts += 1
+      },
+    }
+  }
+
+  it('re-enters the SAME session with the unmet items, and stops once the contract is met', async () => {
+    const script = completingDrive(1)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () =>
+        mark({ contract: script.delivered() ? 'met' : 'unmet', submitted: script.delivered() }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 2, describe: 'primes.txt holding the first 20 primes' },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+
+    expect(script.reentries).toHaveLength(2)
+    // The first entry is the caller's own task; the second is the unmet-items instruction.
+    expect(script.reentries[0]).toBeUndefined()
+    expect(script.reentries[1]?.reason).toBe('unmet-contract')
+    expect(script.reentries[1]?.reprompt).toBe(1)
+    expect(script.reentries[1]?.steer).toContain('primes.txt holding the first 20 primes')
+    expect(records[0]?.reprompted).toBe(true)
+    expect(records[0]?.contract).toBe('unmet')
+    expect(records[1]?.stop).toBe('completed')
+    expect(records[1]?.contract).toBe('met')
+  })
+
+  it('ends the run on the first completion when no re-prompt is configured', async () => {
+    // The measured status quo: 376 of 376 winning lab runs ended here, and the completion gate
+    // could only label the result.
+    const script = completingDrive(1)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+
+    expect(script.reentries).toEqual([undefined])
+    expect(records[0]?.stop).toBe('completed')
+    expect(records[0]?.contract).toBe('unmet')
+    expect(records[0]?.reprompted).toBeUndefined()
+  })
+
+  it('stops at the re-prompt cap rather than arguing with the harness forever', async () => {
+    const script = completingDrive(99)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 2 },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+
+    expect(script.reentries).toHaveLength(3)
+    expect(records.map((r) => r.reprompted)).toEqual([true, true, undefined])
+    expect(records[2]?.repromptRefusedBy).toBe('reprompts-exhausted')
+    expect(records[2]?.stop).toBe('completed')
+  })
+
+  it('lets the deadline refuse a re-prompt — the bound the completed path never used to read', async () => {
+    const script = completingDrive(99)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget({ deadlineMs: 10 }),
+      now: () => 11,
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 5 },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+
+    expect(script.reentries).toEqual([undefined])
+    expect(records[0]?.repromptRefusedBy).toBe('deadline')
+  })
+
+  it('lets an exhausted pool refuse a re-prompt', async () => {
+    const script = completingDrive(99)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget({ tokensLeft: 0 }),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 5 },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+    expect(script.reentries).toEqual([undefined])
+    expect(records[0]?.repromptRefusedBy).toBe('budget-exhausted')
+  })
+
+  it('lets an aborted run refuse a re-prompt', async () => {
+    const controller = new AbortController()
+    controller.abort('caller cancel')
+    const script = completingDrive(99)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: controller.signal,
+      reprompt: { maxReprompts: 5 },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+    expect(records[0]?.repromptRefusedBy).toBe('aborted')
+  })
+
+  it('bounds re-prompts by the absolute attempt ceiling as well as by their own cap', async () => {
+    const script = completingDrive(99)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      policy: { maxAttempts: 2 },
+      reprompt: { maxReprompts: 9 },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+
+    expect(script.reentries).toHaveLength(2)
+    expect(records[1]?.repromptRefusedBy).toBe('max-attempts')
+  })
+
+  it('lets the caller end the run instead of re-prompting', async () => {
+    const script = completingDrive(99)
+    const records: DriverAttemptRecord[] = []
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 5, onUnmetContract: () => 'stop' },
+      onAttempt: (r) => void records.push(r),
+      sleep: instantSleep,
+    })
+
+    expect(script.reentries).toEqual([undefined])
+    expect(records[0]?.repromptRefusedBy).toBe('caller-stop')
+  })
+
+  it('carries the caller-composed instruction into the live session verbatim', async () => {
+    const script = completingDrive(1)
+    await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark({ contract: script.delivered() ? 'met' : 'unmet' }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: {
+        maxReprompts: 1,
+        onUnmetContract: (ctx) => ({ steer: `attempt ${ctx.attempt}: finish primes.txt` }),
+      },
+      sleep: instantSleep,
+    })
+    expect(script.reentries[1]?.steer).toBe('attempt 1: finish primes.txt')
+  })
+
+  it('refuses an empty instruction rather than re-entering a session with nothing to act on', async () => {
+    const script = completingDrive(99)
+    const error = await runDriverWithRetry({
+      drive: script.drive,
+      progress: () => mark(),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 1, onUnmetContract: () => ({ steer: '   ' }) },
+      sleep: instantSleep,
+    }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ValidationError)
+  })
+
+  it('retries a crashed re-prompt with the ORIGINAL task, never with the unmet-items text', async () => {
+    // A drive that dies may never have read the re-prompt, so replaying it in the task's place
+    // would drop the run's actual instruction.
+    const reentries: Array<DriverReentry | undefined> = []
+    let attempts = 0
+    await runDriverWithRetry({
+      drive: async (_attempt, reentry) => {
+        attempts += 1
+        reentries.push(reentry)
+        if (attempts === 2) throw new Error('stream closed')
+      },
+      progress: () => mark({ contract: attempts >= 3 ? 'met' : 'unmet', deliveredCount: attempts }),
+      budget: () => budget(),
+      signal: new AbortController().signal,
+      reprompt: { maxReprompts: 3 },
+      sleep: instantSleep,
+    })
+
+    expect(reentries).toHaveLength(3)
+    expect(reentries[1]?.reason).toBe('unmet-contract')
+    expect(reentries[2]).toBeUndefined()
+  })
+})
+
+describe('defaultUnmetContractSteer', () => {
+  it('states the verdict, names what is owed, and reports the ledger', () => {
+    const text = defaultUnmetContractSteer({
+      attempt: 1,
+      reprompts: 0,
+      maxReprompts: 2,
+      progress: mark({ settledCount: 3, deliveredCount: 0 }),
+      budget: budget(),
+      describe: 'primes.txt holding the first 20 primes',
+    })
+    expect(text).toContain('The completion check has not passed.')
+    expect(text).toContain('primes.txt holding the first 20 primes')
+    expect(text).toContain('Workers settled: 3. Workers that passed the check: 0.')
+    expect(text).toContain('Then submit the result.')
+  })
+
+  it('says the deliverable is missing when the check describes nothing', () => {
+    const text = defaultUnmetContractSteer({
+      attempt: 1,
+      reprompts: 0,
+      maxReprompts: 1,
+      progress: mark(),
+      budget: budget(),
+    })
+    expect(text).toContain('The deliverable this run owes is still missing.')
   })
 })

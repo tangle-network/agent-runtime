@@ -556,7 +556,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 880 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 889 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -641,6 +641,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 880 exports.
 | `defaultExtractCandidate` | function | The candidate a shot produced, read from its conversation: the LAST `submit_answer` |
 | `defaultSelectWinner` | function | The kernel's winner argmax — best-valid-score, ties broken by earliest index, |
 | `defaultToolDetectors` | function | The default online panel for a tool-call pipe: a worker repeating the same call, or hammering |
+| `defaultUnmetContractSteer` | function | The instruction a completed-but-undelivered drive is re-entered with when the caller supplies no |
 | `defineLeaderboard` | function | Assemble a declarative spec (`cases` + `prompt` + `score`) into a runnable |
 | `definePersona` | function | Build a frozen `Persona`. Fails loud on the executors-supplied invariant: a persona with |
 | `defineStrategy` | function | Author a Strategy from the composable steps — the open, compact way. |
@@ -942,8 +943,11 @@ Import from `@tangle-network/agent-runtime/kernel` — 880 exports.
 | `DownMessageEvent` | interface | A parent→child delivery result (the down-leg): recorded for observability, never pulled back by |
 | `DriveHarness` | interface | How to run an external harness as the DRIVER, with the coordination verbs mounted — the substrate |
 | `DriverAttemptRecord` | interface | One attempt's record — the legible failure the issue's third ask names. Emitted per attempt so |
-| `DriverProgressMark` | interface | The comparable mark used to decide whether an attempt did anything at all. Any field moving |
+| `DriverProgressMark` | interface | The comparable mark used to decide whether an attempt moved the run TOWARD ITS DELIVERABLE. |
+| `DriverReentry` | interface | Why the loop is entering the driver again, and with what. Absent on a first attempt and on |
+| `DriverRepromptPolicy` | interface | How a completed-but-undelivered drive is re-entered. Absent = the historical behavior, where |
 | `DriverRetryPolicy` | interface | How hard the root driver is retried after a transient failure. The defaults retry; a caller |
+| `DriverUnmetContractContext` | interface | What the caller sees when a drive returns with its completion check unmet. |
 | `EdgeTraversal` | interface | One recorded edge traversal — the in-memory row; the journal twin is the `edge` SpawnEvent. |
 | `EqualKArm` | interface | One arm of an equal-k comparison — a labeled trajectory (a `TrajectoryReport` is one arm's whole |
 | `EqualKOnCostOptions` | interface | `equalKOnCost(arms, { tolerance? })` — assert arms are comparable at EQUAL conserved COST |
@@ -1189,6 +1193,10 @@ Import from `@tangle-network/agent-runtime/kernel` — 880 exports.
 | `DownMessageDeliveryOutcome` | type | The exact result of one parent→child delivery attempt. |
 | `DriveHarnessOwnerContext` | type | Trusted manager identity available before its external harness starts. A product uses this to |
 | `DriverAttemptStop` | type | Why the retry loop stopped. `completed` is the only non-failure. |
+| `DriverBudgetReadout` | type | The scope's live conserved-pool readout — the retry's real bound. Indexed off `Scope` so this |
+| `DriverContractState` | type | Whether the run's declared completion check has passed. `'none'` means the caller declared no |
+| `DriverRepromptRefusal` | type | Why a completed drive with an unmet contract was not re-entered. |
+| `DriverUnmetContractDecision` | type | The caller's answer: re-enter the session with `steer`, or end the run here. |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
 | `ExecutionBindingReceipt` | type | One attempt's immutable link from a stable materialization plan to its actual transport. |
@@ -1211,6 +1219,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 880 exports.
 | `NodeId` | type | Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-clock. |
 | `NodeStatus` | type | `'acquiring'` is first-class (M1): a node spends real time + reaps an orphan box |
 | `ObserveSupervisorNodeEvent` | type | Context-aware observer used internally to bind product transactions to the actual live node. |
+| `OnUnmetContract` | type | Compose the re-entry instruction for a completed drive that delivered nothing, or refuse. |
 | `OpenSandboxRunPromptOptions` | type | Prompt options forwarded to every sandbox prompt turn in this run. The |
 | `Outcome` | type | The terminal contract Drew wants: a loop returns a FINISHED deliverable, or the concrete |
 | `Panel` | type | `panel(spec)` — build the M-judge write-only-merge combinator. |

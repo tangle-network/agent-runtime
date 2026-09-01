@@ -42,7 +42,10 @@ import type { PriorCoordination } from './coordination-log'
 import { isLoopbackHost, serveCoordinationMcp } from './coordination-mcp'
 import {
   type DriverAttemptRecord,
+  type DriverProgressMark,
   type DriverRetryPolicy,
+  defaultUnmetContractSteer,
+  type OnUnmetContract,
   runDriverWithRetry,
 } from './driver-retry'
 import type { BusRecord } from './event-bus'
@@ -418,6 +421,17 @@ export interface SupervisorAgentDeps {
   /** Per-attempt record for the external driver — how an operator sees "failed after N attempts"
    *  instead of one backend's last words. */
   readonly onDriverAttempt?: (record: DriverAttemptRecord) => void | Promise<void>
+  /** How many times an EXTERNAL driver that RETURNED with `deliverable` still unmet is re-entered
+   *  on the SAME live session with the unmet items. The harness owns its own turn loop, so it can
+   *  end while the run has delivered nothing — 376 of 376 winning discovery-lab runs (2026-09-01)
+   *  ended on the driver's own completion, and the completion gate could only label that result,
+   *  never change it. A re-prompt reuses the retry path: same scope, same coordination server, same
+   *  live children, same budget/deadline/abort/attempt bounds. Requires `deliverable`; refused for
+   *  a router-brained supervisor, which runs its loop in process. Omit/`0` = never re-prompt. */
+  readonly repromptOnUnmet?: number
+  /** Compose the re-entry instruction for an unmet contract, or return `'stop'` to end the run.
+   *  Requires `repromptOnUnmet >= 1`. Omit = Runtime's own instruction. */
+  readonly onUnmetContract?: OnUnmetContract
   /** Trusted identity for this manager. Required with node-scoped tools or observation. */
   readonly nodeContext?: SupervisorNodeContextSeed
   /** Resolve product-owned tools for this exact manager. Static `extraTools` remain a router-only
@@ -644,6 +658,40 @@ function buildSupervisorAgent(
     )
   }
 
+  if (
+    harness === null &&
+    (deps.repromptOnUnmet !== undefined || deps.onUnmetContract !== undefined)
+  ) {
+    throw new ValidationError(
+      'supervisorAgent: repromptOnUnmet/onUnmetContract apply to an EXTERNAL-harness supervisor ' +
+        'only (profile.harness set). A router-brained supervisor runs its own turn loop in ' +
+        'process, so this option would be silently ignored.',
+    )
+  }
+
+  if (
+    deps.repromptOnUnmet !== undefined &&
+    (!Number.isInteger(deps.repromptOnUnmet) || deps.repromptOnUnmet < 0)
+  ) {
+    throw new ValidationError(
+      'supervisorAgent: repromptOnUnmet must be a non-negative integer (0 = never re-prompt)',
+    )
+  }
+
+  if (deps.onUnmetContract !== undefined && (deps.repromptOnUnmet ?? 0) <= 0) {
+    throw new ValidationError(
+      'supervisorAgent: onUnmetContract needs repromptOnUnmet >= 1 — without a cap the hook is ' +
+        'never consulted',
+    )
+  }
+
+  if ((deps.repromptOnUnmet ?? 0) > 0 && deps.deliverable === undefined) {
+    throw new ValidationError(
+      'supervisorAgent: repromptOnUnmet needs a `deliverable` completion check — with no check ' +
+        'there is no contract that can be unmet, and every run would re-prompt',
+    )
+  }
+
   if (harness === null) {
     // ROUTER arm: the in-process tool-loop. `routerBrain` is an internal detail — a production
     // caller passes a profile, never a hand-built brain. Deterministic source tests use the
@@ -835,17 +883,40 @@ function buildSupervisorAgent(
       try {
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns
-        // and any child's; settlements and an accepted submission are the other two ways an attempt
-        // can have mattered. An attempt that moves none of them is the dead-on-arrival case the
-        // no-progress ceiling stops.
+        // and any child's. Those two channels are the BURN rate, not the goal, so they are reported
+        // beside the contract's verdict and the retry policy reads them together: with a declared
+        // check unmet, spend and settlements alone do not buy another attempt.
         const baseTokensLeft = scope.budget.tokensLeft
+        const contractDeclared = deps.deliverable !== undefined
+        const maxReprompts = deps.repromptOnUnmet ?? 0
+        const readProgress = (): DriverProgressMark => {
+          const settled = mcp.settled()
+          // The same delivered-only rule the finalizer applies: settled `done` AND check-passed.
+          const deliveredCount = settled.filter(
+            (w) => w.status === 'done' && w.valid === true,
+          ).length
+          const submitted = Boolean(mcp.submittedResult())
+          return {
+            poolTokensSpent: baseTokensLeft - scope.budget.tokensLeft,
+            settledCount: settled.length,
+            submitted,
+            deliveredCount,
+            contract: !contractDeclared
+              ? 'none'
+              : submitted || deliveredCount > 0
+                ? 'met'
+                : 'unmet',
+          }
+        }
         await runDriverWithRetry({
-          drive: async () => {
+          drive: async (_attempt, reentry) => {
             try {
               await driveHarness({
                 profile: stableProfile,
                 ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
-                task,
+                // A re-prompt re-enters the SAME session, so the unmet items ARE the turn. The
+                // bridge backend reattaches by durable execution id, exactly as a retry does.
+                task: reentry === undefined ? task : reentry.steer,
                 scope,
                 coordinationMcpUrl: mcp.url,
                 stopSignal: stopController.signal,
@@ -862,14 +933,33 @@ function buildSupervisorAgent(
               if (!mcp.submittedResult() && !mcp.isStopped()) throw error
             }
           },
-          progress: () => ({
-            poolTokensSpent: baseTokensLeft - scope.budget.tokensLeft,
-            settledCount: mcp.settled().length,
-            submitted: Boolean(mcp.submittedResult()),
-          }),
+          progress: readProgress,
           budget: () => scope.budget,
           signal: scope.signal,
           ...(deps.driverRetry ? { policy: deps.driverRetry } : {}),
+          ...(maxReprompts > 0
+            ? {
+                reprompt: {
+                  maxReprompts,
+                  ...(deps.deliverable?.describe === undefined
+                    ? {}
+                    : { describe: deps.deliverable.describe }),
+                  onUnmetContract: async (context) => {
+                    // A run the coordination server STOPPED ended on purpose — the driver called
+                    // `stop`, a stop rule fired, or the turn cap closed it. Re-prompting would
+                    // re-enter a session whose stop signal is already aborted and argue with a
+                    // decision the run already made. Runtime refuses that before the product hook
+                    // is consulted, so no hook can override a declared stop.
+                    if (mcp.isStopped()) return 'stop'
+                    return (
+                      (await deps.onUnmetContract?.(context)) ?? {
+                        steer: defaultUnmetContractSteer(context),
+                      }
+                    )
+                  },
+                },
+              }
+            : {}),
           ...(deps.onDriverAttempt ? { onAttempt: deps.onDriverAttempt } : {}),
         })
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
