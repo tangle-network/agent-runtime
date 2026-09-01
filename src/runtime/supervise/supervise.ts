@@ -1315,6 +1315,110 @@ export interface SuperviseOptions {
   readonly otel?: Omit<SupervisorSpanOptions, 'runId' | 'now'>
 }
 
+/**
+ * Every `SuperviseOptions` key, as data.
+ *
+ * `supervise()` reads the options it knows and leaves the rest untouched, so a key no reader
+ * consults — a typo, or a seam whose name moved in a later version — is discarded in silence: the
+ * call type-checks against a widened value, the run succeeds, and the capability the caller asked
+ * for is simply not there. Nothing downstream can detect that, because nothing downstream knows it
+ * was supposed to happen. {@link assertSuperviseOptionKeys} turns it into a refusal before any
+ * compute, naming the key.
+ *
+ * The two assignments below fail to COMPILE, naming the offender, when this list and
+ * `keyof SuperviseOptions` disagree in either direction — a new option cannot go missing from it,
+ * and a removed one cannot linger.
+ */
+const superviseOptionKeys = [
+  'allowedModels',
+  'analysts',
+  'analyzeOnSettle',
+  'authorizeMessage',
+  'authorizeSpawn',
+  'backend',
+  'blobs',
+  'budget',
+  'childSettleGraceMs',
+  'compaction',
+  'continuityByProfile',
+  'coordination',
+  'deliverable',
+  'driveHarness',
+  'driveHarnessMaterialization',
+  'driverBackend',
+  'driverRetry',
+  'executeExtraTool',
+  'execution',
+  'extraTools',
+  'finalizer',
+  'hooks',
+  'isDriverProfile',
+  'journal',
+  'makeLeafAgent',
+  'makeWorkerAgent',
+  'maxDepth',
+  'maxLiveWorkers',
+  'maxTurns',
+  'now',
+  'onCoordinationEvent',
+  'onDriverAttempt',
+  'onProgressStop',
+  'otel',
+  'peerMail',
+  'perWorker',
+  'probes',
+  'profileSecurity',
+  'registry',
+  'resolveDeliverable',
+  'resolveDriveHarness',
+  'resolveSpawnProfile',
+  'resolveSupervisorTools',
+  'rootDriverFromBackend',
+  'rootHandle',
+  'router',
+  'runDir',
+  'runId',
+  'signal',
+  'stallAfterMs',
+  'stopRule',
+  'watchWorkers',
+] as const
+
+type UnlistedSuperviseOption = Exclude<keyof SuperviseOptions, (typeof superviseOptionKeys)[number]>
+/** A `SuperviseOptions` key missing from `superviseOptionKeys` makes this assignment fail, and the
+ *  compiler error names the key. Add it to the list. */
+const everySuperviseOptionIsListed: UnlistedSuperviseOption extends never
+  ? true
+  : UnlistedSuperviseOption = true
+void everySuperviseOptionIsListed
+
+type StaleSuperviseOptionKey = Exclude<(typeof superviseOptionKeys)[number], keyof SuperviseOptions>
+/** A listed key that `SuperviseOptions` no longer declares makes this assignment fail. Remove it,
+ *  or the check would accept an option no reader consults. */
+const everyListedSuperviseOptionExists: StaleSuperviseOptionKey extends never
+  ? true
+  : StaleSuperviseOptionKey = true
+void everyListedSuperviseOptionExists
+
+const superviseOptionKeySet: ReadonlySet<string> = new Set<string>(superviseOptionKeys)
+
+/**
+ * Refuse a top-level option key `supervise()` reads nowhere, naming it.
+ *
+ * Mirrors `assertExactConfigKeys`, which does the same for one executor configuration: an unknown
+ * field is a caller asking for behavior that will not happen, and the only observable moment is
+ * intake.
+ */
+function assertSuperviseOptionKeys(opts: SuperviseOptions, context: string): void {
+  const unknown = Object.keys(opts).filter((key) => !superviseOptionKeySet.has(key))
+  if (unknown.length > 0) {
+    throw new ConfigError(
+      `${context}: unknown option ${unknown.sort().join(', ')} — no reader consults that name, ` +
+        'so the value would be discarded and the capability it asks for would silently be absent',
+    )
+  }
+}
+
 /** The product-authorized result for one complete spawn request. Attribution is never accepted
  * from the manager itself; it enters only through this trusted callback. */
 export interface AuthorizedSpawn {
@@ -1361,6 +1465,7 @@ function captureDeliverable(
  * Service internals intentionally remain live, while replacing a callback/service on the caller's
  * mutable options object can no longer change an in-flight run. */
 function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOptions {
+  assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
     driverBackend,
