@@ -569,7 +569,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 912 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 913 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -993,6 +993,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 912 exports.
 | `ExecutorProgress` | interface | What an executor OPTIONALLY adds to the scope-derived progress (`Executor.progress()`). Every |
 | `ExecutorRegistry` | interface | The OPEN resolver maps an already-admitted `AgentSpec` to an `ExecutorFactory`. Scope validates |
 | `ExecutorResult` | interface | Terminal artifact of a one-shot `Executor.execute`. |
+| `ExecutorTeardownWarning` | interface | A teardown failure recorded BESIDE a settled result rather than in place of it. |
 | `ExecutorToolCall` | interface | One tool call retained in an executor artifact. Every Runtime-owned executor reports this exact |
 | `FanoutOptions` | interface | `fanout(items, { synthesize? })` — N children spawned in one round (one per item, bounded by |
 | `FanoutSynthesis` | interface | How a fanout's synthesis child is built + read. `synthesisTask` projects the drained child |
