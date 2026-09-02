@@ -35,8 +35,8 @@
  * requirement rather than a preference. This repository set spans TypeScript 6
  * and TypeScript 7, and TypeScript 7 ships no JavaScript compiler API at all —
  * `ts.createProgram` is undefined there. A checker-based extractor would work
- * in one repository and have to be rewritten in the others, which is how three
- * copies of one rule end up with three different bugs. `oxc-parser` presents
+ * in one repository and have to be rewritten in the others, which is how copies
+ * of one rule end up with a different bug each. `oxc-parser` presents
  * the same API on every repository and parses the declaration dialect the
  * build already emits through the same parser family.
  *
