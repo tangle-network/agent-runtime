@@ -15,6 +15,7 @@ import {
   agentProfileSchema,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
+import { type Redactor, resolveRedactor } from '../../redact'
 import type {
   AgentExecutionRef,
   Budget,
@@ -590,6 +591,26 @@ export interface CoordinationToolsOptions {
    * journaled, reloaded, and then forgotten by the only reader that acts on it.
    */
   readonly priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
+  /**
+   * Domain scrub COMPOSED IN FRONT OF the built-in one for every event `read_journal` returns.
+   *
+   * The journal quotes model-authored instruction text and worker output, either of which may carry
+   * a credential the run was given, so the built-in scrub is not something a domain hook may switch
+   * off by accident: `resolveRedactor` runs the custom redactor first and `defaultRedactor`
+   * over its result — the same rule the rest of the runtime applies to trace values. Omit for the
+   * default alone; pass `false` to opt out deliberately. A redactor that throws is a refusal for
+   * that one row (it returns a `redaction-failed` marker), never a reason to return the raw event.
+   */
+  readonly redactJournal?: Redactor | false
+  /**
+   * Rows written by PRIOR processes of this durable run (`PriorCoordination.records`), prepended to
+   * the live bus so `read_journal` answers for the whole run rather than the current process.
+   *
+   * Without it a resumed manager reads a nearly empty journal and concludes it tried nothing —
+   * which is the exact failure the verb exists to prevent. The rows are marked `prior: true` and
+   * are never re-published on the bus: they are evidence, not events to react to.
+   */
+  readonly priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
@@ -639,6 +660,110 @@ export interface WorkerWatchOptions {
  *  MCP client request timeout so the call returns a `pending` liveness snapshot instead of erroring;
  *  the supervisor re-polls until the worker settles. */
 export const DEFAULT_AWAIT_EVENT_TIMEOUT_MS = 15_000
+
+// ── The manager's own journal, read back ────────────────────────────────────────
+//
+// `history()` is the ordered log of every coordination event this manager published — its spawns,
+// its settles, the questions it raised and decided, the steers it authorized, the findings its
+// analysts returned. It was reachable only from the HOST process, so a manager could observe every
+// child and never re-read its own record; a driver that had already tried an approach had no way to
+// see that it had. `read_journal` is that log made agent-readable, under three fences.
+//
+// BOUNDED. A long run's history is far larger than any context window, so the read is paged by an
+// explicit cursor and capped by both a record count and a byte budget. A single oversize record is
+// replaced by a marker rather than dropped, so the cursor always advances past it.
+//
+// REDACTED. The log carries model-authored instruction text and worker output that may quote a
+// credential. Every returned event is passed through a redactor before it leaves; the default is
+// the runtime's own {@link Redactor}.
+//
+// SUBTREE-SCOPED BY CONSTRUCTION, not by a check. Each manager node builds its OWN toolbox over its
+// OWN bus, so `history()` holds that manager's events and no other's. The tool takes no node,
+// worker, run or owner argument, so there is no name a child could pass to reach its parent's log.
+
+/** Default and maximum bounds for one {@link CoordinationTools} journal read. The defaults are
+ *  sized for a driver turn (a page a model can read and still have room to act on); the maxima
+ *  bound what a single tool result may cost even when the caller asks for everything. */
+export const JOURNAL_READ_BOUNDS = Object.freeze({
+  defaultLimit: 50,
+  maxLimit: 500,
+  defaultMaxBytes: 16_384,
+  maxMaxBytes: 262_144,
+})
+
+/** Every `CoordinationEvent` kind `read_journal` can return — the tool advertises this list in its
+ *  JSON Schema AND filters on it, so the schema cannot promise a kind the filter drops. */
+export const journalEventKinds = [
+  'question',
+  'settled',
+  'finding',
+  'steer',
+  'answer',
+  'instruction',
+  'delivery-attempt',
+  'mail',
+  'escalation',
+] as const satisfies ReadonlyArray<CoordinationEvent['type']>
+
+export type JournalEventKind = (typeof journalEventKinds)[number]
+
+/** `satisfies` above proves every listed name IS an event kind; this proves the list is COMPLETE.
+ *  Without it a new `CoordinationEvent` member compiles fine while `read_journal` returns it when
+ *  `kinds` is omitted and refuses it as unknown when `kinds` names it — a filter that hides a row
+ *  the unfiltered read shows. Adding a member without adding it here is now a compile error. */
+export type JournalKindsAreExhaustive = CoordinationEvent['type'] extends JournalEventKind
+  ? true
+  : ['a CoordinationEvent kind is missing from journalEventKinds', CoordinationEvent['type']]
+
+/** The assertion itself. Exported so it cannot be pruned as unused, and typed so an uncovered kind
+ *  fails to compile HERE, naming the missing member, rather than at some later call site. */
+export const journalKindsAreExhaustive: JournalKindsAreExhaustive = true
+
+/** One journal row: its position, the bus stamp, and the REDACTED event.
+ *
+ *  `row` is the CURSOR, not `seq`. A bus `seq` restarts at 0 in every process of a durable run, so
+ *  a seq cursor silently re-reads after a restart; `row` counts from the first record of the run,
+ *  across processes. `seq` stays on the row as the in-process ordering stamp the audit trail uses.
+ *
+ *  `event` is a bare `{ type }` with `oversize` set when the record alone exceeded the read's byte
+ *  budget — the row still carries its position, so a caller paging by `nextRow` advances past it. */
+export interface JournalEntry {
+  readonly row: number
+  readonly seq: number
+  readonly at: number
+  readonly priority: number
+  /** True for a row written by a PRIOR process of this durable run, replayed from the coordination
+   *  log rather than from the live bus. */
+  readonly prior?: true
+  readonly event: unknown
+  /** Present only on a record too large for the byte budget: what was skipped, and how big it is. */
+  readonly oversize?: { readonly type: string; readonly bytes: number }
+}
+
+/** What `read_journal` returns: the page, the cursor to resume from, and the exact bounds that
+ *  produced it. `remaining` counts matching records this page did not reach, so a caller knows
+ *  whether to page again without guessing. */
+export interface JournalPage {
+  readonly entries: ReadonlyArray<JournalEntry>
+  /** Pass as the next call's `sinceRow`. Equals `sinceRow` when the page is empty. */
+  readonly nextRow: number
+  readonly remaining: number
+  /** True when a bound applied — the row limit, the byte budget, or a row elided as oversize. False
+   *  ONLY when this page carried every remaining matching row in full. */
+  readonly truncated: boolean
+  readonly bounds: {
+    readonly sinceRow: number
+    readonly limit: number
+    readonly maxBytes: number
+    /** Bytes the returned rows occupy, measured on the ASSEMBLED rows (stamp included), which is
+     *  what the caller receives. It stays within `maxBytes` in every case but one: a page whose
+     *  FIRST row is oversize emits the marker anyway, because returning nothing would leave the
+     *  cursor unable to advance past that record forever. */
+    readonly usedBytes: number
+  }
+  /** How many rows of this journal were written by PRIOR processes of the run. 0 for a fresh run. */
+  readonly priorRows: number
+}
 
 /**
  * The supervisor-side toolbox returned by {@link createCoordinationTools}: the MCP tool
@@ -729,6 +854,7 @@ export const coordinationVerbNames = [
   'ask_parent',
   'submit_result',
   'stop',
+  'read_journal',
   'list_analysts',
   'run_analyst',
 ] as const
@@ -1916,6 +2042,157 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     })
   }
 
+  // ── read_journal ──────────────────────────────────────────────────────────────
+  //
+  // Reads `bus.history()`, which is this manager's own log and nothing else. Bounds are clamped,
+  // never rejected: a model that asks for 10_000 rows gets `maxLimit` rows and reads the exact
+  // bound it was given back in `bounds`, which is more useful than an error it has to re-plan
+  // around. A kind it cannot name IS an error, because silently dropping an unknown filter would
+  // answer a different question than the one asked.
+  const redactJournalEvent = resolveRedactor(opts.redactJournal)
+  const clampBound = (raw: unknown, field: string, fallback: number, max: number): number => {
+    if (raw === undefined) return fallback
+    if (typeof raw !== 'number' || !Number.isInteger(raw))
+      throw new Error(`coordination tools: "${field}" must be an integer`)
+    return Math.min(Math.max(raw, 1), max)
+  }
+  const journalKinds = (raw: unknown): ReadonlySet<JournalEventKind> | undefined => {
+    if (raw === undefined) return undefined
+    if (!Array.isArray(raw))
+      throw new Error('coordination tools: "kinds" must be an array of event kinds')
+    for (const kind of raw) {
+      if (!(journalEventKinds as ReadonlyArray<unknown>).includes(kind))
+        throw new Error(
+          `coordination tools: "kinds" accepts ${journalEventKinds.join(', ')}; received ${JSON.stringify(kind)}`,
+        )
+    }
+    return new Set(raw as ReadonlyArray<JournalEventKind>)
+  }
+  // DETACHED, then redacted, in that order and unconditionally. Detaching must not depend on which
+  // redactor was configured: `redact: false` or a pass-through domain hook would otherwise hand the
+  // manager live references into `bus.history()`, and in code mode a model-written program holds
+  // that result and can write through it into the run's own audit log. A redactor that throws
+  // yields a marker for that row alone — the manager still learns an event of that kind happened.
+  const redactedRow = (record: BusRecord<CoordinationEvent>): unknown => {
+    try {
+      return redactJournalEvent(detachedFrozen(record.event))
+    } catch (error) {
+      return {
+        type: record.event.type,
+        redactionFailed: error instanceof Error ? error.message : String(error),
+      }
+    }
+  }
+  // Prior-process rows first, then this process's bus. `row` indexes THIS concatenation, so the
+  // cursor is stable across a restart even though the bus `seq` space restarts with it.
+  const priorJournal = opts.priorJournal ?? []
+  const journalRows = (): ReadonlyArray<
+    JournalEntry & { readonly record: BusRecord<CoordinationEvent> }
+  > => {
+    const rows: Array<JournalEntry & { readonly record: BusRecord<CoordinationEvent> }> = []
+    let row = 0
+    for (const record of priorJournal) {
+      rows.push({
+        row: row++,
+        seq: record.seq,
+        at: record.at,
+        priority: record.priority,
+        prior: true,
+        event: undefined,
+        record,
+      })
+    }
+    for (const record of bus.history()) {
+      rows.push({
+        row: row++,
+        seq: record.seq,
+        at: record.at,
+        priority: record.priority,
+        event: undefined,
+        record,
+      })
+    }
+    return rows
+  }
+  const readJournal = (raw: unknown): JournalPage => {
+    const a = raw === undefined ? {} : obj(raw)
+    const sinceRow =
+      a.sinceRow === undefined
+        ? 0
+        : typeof a.sinceRow === 'number' && Number.isInteger(a.sinceRow) && a.sinceRow >= 0
+          ? a.sinceRow
+          : (() => {
+              throw new Error('coordination tools: "sinceRow" must be a non-negative integer')
+            })()
+    const limit = clampBound(
+      a.limit,
+      'limit',
+      JOURNAL_READ_BOUNDS.defaultLimit,
+      JOURNAL_READ_BOUNDS.maxLimit,
+    )
+    const maxBytes = clampBound(
+      a.maxBytes,
+      'maxBytes',
+      JOURNAL_READ_BOUNDS.defaultMaxBytes,
+      JOURNAL_READ_BOUNDS.maxMaxBytes,
+    )
+    const kinds = journalKinds(a.kinds)
+    const matching = journalRows().filter(
+      (candidate) =>
+        candidate.row >= sinceRow && (!kinds || kinds.has(candidate.record.event.type)),
+    )
+
+    const entries: JournalEntry[] = []
+    // Seeded with the array's own two brackets, and each later row adds its separating comma, so
+    // `usedBytes` equals the byte length of the `entries` array the caller receives — not a sum
+    // that ignores the envelope and overshoots the budget by a few bytes on a full page.
+    const envelopeBytes = 2
+    let usedBytes = envelopeBytes
+    let index = 0
+    // A bound APPLIED, which is not the same as "records were left over": an oversize row is
+    // consumed and still elided, so a caller keying completeness off `truncated` must see it.
+    let bounded = false
+    for (; index < matching.length; index++) {
+      if (entries.length >= limit) {
+        bounded = true
+        break
+      }
+      const candidate = matching[index] as (typeof matching)[number]
+      const { record, event: _placeholder, ...stamp } = candidate
+      const row: JournalEntry = { ...stamp, event: redactedRow(record) }
+      // Measured on the ASSEMBLED row, because the stamp is part of what the caller receives; the
+      // event alone under-counts by ~50 bytes a row and a full page then overshoots the budget.
+      const bytes = Buffer.byteLength(safeJsonText(row), 'utf8') + (entries.length === 0 ? 0 : 1)
+      if (usedBytes + bytes > maxBytes) {
+        bounded = true
+        // A row that cannot fit ANY budget would stall the cursor forever, so the first row of a
+        // page is always emitted — as a marker when it is too big to render.
+        if (entries.length > 0) break
+        const marker: JournalEntry = {
+          ...stamp,
+          event: { type: record.event.type },
+          oversize: { type: record.event.type, bytes },
+        }
+        entries.push(marker)
+        usedBytes += Buffer.byteLength(safeJsonText(marker), 'utf8')
+        // The marker is only ever the FIRST row of a page, so it never adds a separator.
+        index++
+        break
+      }
+      entries.push(row)
+      usedBytes += bytes
+    }
+    const last = entries[entries.length - 1]
+    return {
+      entries,
+      nextRow: last === undefined ? sinceRow : last.row + 1,
+      remaining: matching.length - index,
+      truncated: bounded,
+      bounds: { sinceRow, limit, maxBytes, usedBytes },
+      priorRows: priorJournal.length,
+    }
+  }
+
   // A supervised tree exposes one shared capacity reading; a caller-owned legacy scope falls back
   // to this toolbox's direct-child count. The shared reading is what prevents each nested manager
   // from multiplying the same cap independently.
@@ -2747,6 +3024,49 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         notifyStop()
         return Promise.resolve({ stopped: true })
       },
+    },
+    {
+      name: 'read_journal',
+      description: [
+        'Re-read YOUR OWN coordination journal: every spawn you made, every worker that settled,',
+        'every question raised or decided, every steer you authorized, and every analyst finding —',
+        'oldest first, on this node only, including what you did before a restart. Read it before',
+        'deciding what to do next, so you can see what you already tried. Bounded: page with the',
+        'returned `nextRow`, and check `truncated` before concluding you have read everything.',
+      ].join(' '),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sinceRow: {
+            type: 'integer',
+            minimum: 0,
+            description:
+              'First journal row to return (inclusive, 0 = the first record of the run). Pass the previous call’s `nextRow` to continue.',
+          },
+          kinds: {
+            type: 'array',
+            items: { type: 'string', enum: [...journalEventKinds] },
+            description: 'Return only these event kinds. Omit for every kind.',
+          },
+          // No `maximum` here on purpose: the handler CLAMPS an over-large ask and reports the bound
+          // it applied in `bounds`. Declaring a maximum too would make a validating transport reject
+          // the same call the handler is designed to accept and narrow.
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            description: `Maximum rows to return. Default ${JOURNAL_READ_BOUNDS.defaultLimit}; anything above ${JOURNAL_READ_BOUNDS.maxLimit} is clamped to it.`,
+          },
+          maxBytes: {
+            type: 'integer',
+            minimum: 1,
+            description: `Byte budget for the returned rows. Default ${JOURNAL_READ_BOUNDS.defaultMaxBytes}; anything above ${JOURNAL_READ_BOUNDS.maxMaxBytes} is clamped to it.`,
+          },
+        },
+        additionalProperties: false,
+      },
+      // async so an argument the manager got wrong surfaces as a REJECTED tool call the transport
+      // reports back to it, never as a synchronous throw through the server's dispatch.
+      handler: async (raw) => readJournal(raw),
     },
   ]
 

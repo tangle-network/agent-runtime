@@ -40,7 +40,7 @@ import type {
   SupervisorToolInvocationContext,
 } from './supervisor-agent'
 
-/** The seven coordination verbs callable in code, and the `context.verbs` member each maps to. */
+/** The coordination verbs callable in code, and the `context.verbs` member each maps to. */
 const CODE_CALLABLE_VERBS = {
   spawn_worker: 'spawnAgent',
   await_event: 'awaitEvent',
@@ -49,6 +49,7 @@ const CODE_CALLABLE_VERBS = {
   list_questions: 'listQuestions',
   answer_question: 'answerQuestion',
   run_analyst: 'runAnalyst',
+  read_journal: 'readJournal',
 } as const
 
 /** The manager's own lifecycle verbs — never callable from code; `search` names them and why. */

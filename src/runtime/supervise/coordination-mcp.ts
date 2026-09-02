@@ -137,6 +137,9 @@ export async function serveCoordinationMcp(opts: {
   priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
   /** Questions replayed from a prior process of this run — seeds the question ledger. */
   priorQuestions?: ReadonlyArray<QuestionRecord>
+  /** Every coordination record from prior processes of this run — what `read_journal` reads before
+   *  this process's own rows, so a resumed manager sees what it already did. */
+  priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
   /** Product-selected tools already bound to this exact supervisor node. They share this server
    *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
   nodeTools?: ReadonlyArray<McpToolDescriptor>
@@ -206,6 +209,7 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
     ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
+    ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.peerMail

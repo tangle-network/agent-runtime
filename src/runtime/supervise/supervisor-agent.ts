@@ -248,6 +248,9 @@ export interface CoordinationVerbs {
   listQuestions(args: unknown): Promise<unknown>
   answerQuestion(args: unknown): Promise<unknown>
   runAnalyst(args: unknown): Promise<unknown>
+  /** This manager's OWN coordination journal, paged and redacted. A read, so a program may consult
+   *  what it already did without spending a model turn on it. */
+  readJournal(args: unknown): Promise<unknown>
 }
 
 /** Trusted context for one product-tool invocation. The node identity remains the same detached,
@@ -314,6 +317,7 @@ function createVerbSlot(): VerbSlot {
       listQuestions: verb('list_questions'),
       answerQuestion: verb('answer_question'),
       runAnalyst: verb('run_analyst'),
+      readJournal: verb('read_journal'),
     }),
     descriptors(): ReadonlyArray<CoordinationToolFace> {
       if (bound === undefined) {
@@ -885,6 +889,7 @@ function buildSupervisorAgent(
         ...(priorCoordination?.escalations?.length
           ? { priorEscalations: priorCoordination.escalations }
           : {}),
+        ...(priorCoordination?.records.length ? { priorJournal: priorCoordination.records } : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
         onCoordinationTools: (tools) => slot.bind(tools),
       })
