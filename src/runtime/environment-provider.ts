@@ -511,6 +511,10 @@ function createProviderExecutor(
 
   let environment: AgentEnvironment | undefined
   let artifact: ExecutorResult<unknown> | undefined
+  // The stream destroys the environment on settle by default, so a later `teardown` would issue a
+  // SECOND delete against a resource that is already gone. That second call is what the provider
+  // answered 409 to.
+  let destroyed = false
 
   const runtime = options.runtime ?? (provider.name as Runtime)
   // The exact bytes this executor hands to `provider.create`. A `profileForCreate` overlay changes
@@ -585,6 +589,9 @@ function createProviderExecutor(
         onArtifact: (next) => {
           artifact = next
         },
+        onDestroyed: () => {
+          destroyed = true
+        },
       })
     },
     async cancel(request): Promise<ExecutorCancellation> {
@@ -603,10 +610,24 @@ function createProviderExecutor(
         },
       }
     },
-    async teardown(_grace): Promise<{ destroyed: boolean }> {
+    async teardown(_grace): Promise<{ destroyed: boolean; detail?: string }> {
       controller.abort()
-      await environment?.destroy?.()
-      return { destroyed: true }
+      // Already released by the stream's own settle path: re-deleting is the double call that
+      // produced the 409, and the resource is provably gone, so this is a confirmed teardown.
+      if (destroyed || environment === undefined) return { destroyed: true }
+      try {
+        await environment.destroy?.()
+        destroyed = true
+        return { destroyed: true }
+      } catch (error) {
+        // A cleanup this process could not complete is UNCONFIRMED, not a run failure. `destroyed:
+        // false` is exactly what the barrier journals as `teardown-unconfirmed`; throwing here
+        // would instead surface as a failure of the work the executor already finished.
+        return {
+          destroyed: false,
+          detail: `providerAsExecutor(${provider.name}): environment.destroy() failed — ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
     },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
@@ -632,6 +653,9 @@ interface StreamProviderExecutorArgs {
   options: ProviderExecutorOptions
   onEnvironment: (environment: AgentEnvironment) => void
   onArtifact: (artifact: ExecutorResult<unknown>) => void
+  /** The environment was destroyed here, so `teardown` must not DELETE it a second time — the
+   *  double delete is what produced the 409 that used to fail a completed run. */
+  onDestroyed: () => void
 }
 
 async function* streamProviderExecutor(
@@ -661,6 +685,14 @@ async function* streamProviderExecutor(
   let usd = 0
   let text = ''
   let terminal = false
+  // The artifact this turn settled with, once it exists. Its presence is what separates "the work
+  // finished and the resource would not release" from "the work never finished".
+  let settled: ExecutorResult<unknown> | undefined
+  // The body's own failure, held so the `finally` cannot REPLACE it. A `finally` that throws
+  // discards the in-flight exception, so a teardown error would otherwise mask the real cause of a
+  // turn that failed for its own reasons.
+  let failure: unknown
+  let failed = false
   try {
     const toolParts = createSandboxToolPartState()
     for await (const event of environment.stream(turn)) {
@@ -713,15 +745,55 @@ async function* streamProviderExecutor(
       }),
       signal: linked,
     })
-    args.onArtifact({
+    settled = {
       outRef: contentRef(`provider:${args.provider.name}`, result),
       out: result,
       ...(verdict ? { verdict } : {}),
       spent,
-    })
+    }
+    args.onArtifact(settled)
+  } catch (error) {
+    failure = error
+    failed = true
   } finally {
-    if (args.options.destroyOnSettle ?? true) await environment.destroy?.()
+    if (args.options.destroyOnSettle ?? true) {
+      try {
+        await environment.destroy?.()
+        args.onDestroyed()
+      } catch (error) {
+        // ONCE THE TURN HAS SETTLED, TEARDOWN CANNOT CHANGE THE OUTCOME. Measured: a second DELETE
+        // answered 409, the rejection escaped this `finally`, and a run whose turn had completed
+        // (`spent.iterations: 1`, artifact produced) was reported as a failure. The resource fact is
+        // recorded beside the result; the result stands.
+        //
+        // Before the turn settles there is no outcome to protect, so the failure IS the outcome and
+        // is rethrown — a create-then-fail-then-leak path must still fail loudly.
+        if (settled !== undefined) {
+          args.onArtifact({
+            ...settled,
+            teardown: {
+              failed: true,
+              error: error instanceof Error ? error.message : String(error),
+              at: new Date().toISOString(),
+            },
+          })
+        } else if (!failed) {
+          // Nothing settled and the body did not fail on its own: the teardown failure IS the
+          // outcome, so a create-then-leak path still fails loudly.
+          failure = error
+          failed = true
+        } else {
+          // The body already failed. ITS error is the cause a reader needs; the teardown failure
+          // rides along as `cause` rather than displacing it.
+          failure =
+            failure instanceof Error
+              ? Object.assign(failure, { cause: failure.cause ?? error })
+              : failure
+        }
+      }
+    }
   }
+  if (failed) throw failure
 }
 
 function createInputFromSandboxOptions(

@@ -8741,7 +8741,7 @@ cancel operation implements it and answers `unknown` with the reason in `detail`
 
 ##### teardown()
 
-> **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; \}\>
+> **teardown**(`grace`): `Promise`\<\{ `destroyed`: `boolean`; `detail?`: `string`; \}\>
 
 Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
@@ -8754,7 +8754,7 @@ Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 
 ###### Returns
 
-`Promise`\<\{ `destroyed`: `boolean`; \}\>
+`Promise`\<\{ `destroyed`: `boolean`; `detail?`: `string`; \}\>
 
 ##### resultArtifact()
 
@@ -8782,6 +8782,10 @@ driver branched on, its verdict, and the conserved spend. Read once, after settl
 ###### spent
 
 > **spent**: [`Spend`](#spend)
+
+###### teardown?
+
+> `optional` **teardown?**: [`ExecutorTeardownWarning`](runtime.md#executorteardownwarning)
 
 ##### accounting()?
 

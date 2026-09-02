@@ -19226,6 +19226,45 @@ Terminal artifact of a one-shot `Executor.execute`.
 
 > **spent**: [`Spend`](index.md#spend)
 
+##### teardown?
+
+> `optional` **teardown?**: [`ExecutorTeardownWarning`](#executorteardownwarning)
+
+A resource teardown that failed AFTER this result settled. Present ONLY on that path, and it
+ never changes the outcome: the turn completed, the artifact is real, and the spend is what was
+ metered. See [ExecutorTeardownWarning](#executorteardownwarning).
+
+***
+
+### ExecutorTeardownWarning
+
+A teardown failure recorded BESIDE a settled result rather than in place of it.
+
+The measured failure: a provider environment's second DELETE answered 409, the rejection escaped
+the executor's `finally`, and a run whose turn had completed (`spent.iterations: 1`, artifact
+produced) was reported as a failure. Once the stream has yielded its terminal event the result is
+SETTLED; what happens to the resource afterwards is an operational fact about the resource, not a
+verdict on the work. The run keeps its outcome and carries this warning, which is the same
+distinction `teardown-unconfirmed` already draws for a child whose cleanup was never acknowledged.
+
+#### Properties
+
+##### failed
+
+> `readonly` **failed**: `true`
+
+##### error
+
+> `readonly` **error**: `string`
+
+What the teardown threw, as text.
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO timestamp of the failed attempt.
+
 ***
 
 ### ExecutorToolCall

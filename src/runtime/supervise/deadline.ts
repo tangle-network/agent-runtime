@@ -82,7 +82,7 @@ export async function teardownExecutor<Out>(
         ? requestedWaitMs
         : Math.min(requestedWaitMs, deadlineWaitMs)
 
-  let receipt: { destroyed: boolean }
+  let receipt: { destroyed: boolean; detail?: string }
   if (waitMs === undefined) {
     receipt = await work
   } else if (waitMs <= 0) {
@@ -105,6 +105,8 @@ export async function teardownExecutor<Out>(
   }
 
   if (!receipt.destroyed) {
-    throw new ValidationError('executor teardown reported destroyed=false')
+    throw new ValidationError(
+      `executor teardown reported destroyed=false${receipt.detail ? `: ${receipt.detail}` : ''}`,
+    )
   }
 }

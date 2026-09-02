@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.191.0
+
+### A teardown failure is not an outcome
+
+`streamProviderExecutor` released its environment in a `finally`, so ANY teardown error replaced the run's outcome.
+Measured on three real boxes (agent-sdk#280): a second DELETE answered `409`, the rejection escaped the `finally`, and a run whose turn had completed — terminal event yielded, artifact produced, `spent.iterations: 1` — was reported as a failure.
+
+Once the stream has yielded its terminal event the result is SETTLED.
+A teardown failure after that is recorded as an `ExecutorTeardownWarning` on the settle record (`ExecutorResult.teardown`, carrying the error and the time) and never replaces the outcome.
+Before any terminal event there is no outcome to protect, so the failure is still the outcome.
+A turn that failed on its own keeps ITS cause: the teardown error rides along as `cause` instead of displacing it, which a bare `finally` could not do.
+
+The second DELETE is gone too. The stream marks the environment released, so `providerAsExecutor().teardown()` does not delete it again — that double call is what the provider answered `409` to.
+A teardown that genuinely fails now returns `{ destroyed: false, detail }` instead of throwing: unconfirmed cleanup is what the barrier journals as `teardown-unconfirmed`, and throwing would surface as a failure of work the executor already finished.
+`Executor.teardown` gains the optional `detail`, and the deadline check reports it.
+
 ## 0.190.0
 
 ### The harness's own rollout is a spend receipt

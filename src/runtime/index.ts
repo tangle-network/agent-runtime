@@ -1047,6 +1047,7 @@ export type {
   ExecutorProgressEvent,
   ExecutorRegistry,
   ExecutorResult,
+  ExecutorTeardownWarning,
   ExecutorToolCall,
   Handle,
   MaterializedExecutionIdentity,
