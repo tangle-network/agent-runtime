@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.30
+
+Manifest-only: the shared-contract ranges follow the 0.190.0 cohort — `agent-eval` `>=0.173.0 <0.174.0`, `agent-interface` `^2.3.0`, `agent-knowledge` `^13.0.1`, `sandbox` `>=0.36.4 <0.37.0`.
+
 ## 0.8.29
 
 Manifest-only: the shared-contract dependency ranges follow the 0.187.0 cohort — `agent-eval` `^0.172.0`, `agent-interface` `^2.2.0`, `agent-knowledge` `^12.0.0`, `sandbox` `^0.36.3`.
