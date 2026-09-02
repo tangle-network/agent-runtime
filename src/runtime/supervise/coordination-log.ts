@@ -26,6 +26,7 @@ import type {
   AnalystFindingEvent,
   ContinuationInstruction,
   CoordinationEvent,
+  QuestionEscalationRecord,
   QuestionRecord,
 } from '../../mcp/tools/coordination'
 import type { BusRecord } from './event-bus'
@@ -50,6 +51,10 @@ export interface PriorCoordination {
   readonly questions: ReadonlyArray<QuestionRecord>
   /** Every analyst finding the prior process published, publish order. */
   readonly findings: ReadonlyArray<AnalystFindingEvent>
+  /** Every `ask_parent` escalation the prior process made, raise order. An undelivered one names a
+   * question the run raised that nothing above it received — retained so a resuming operator sees
+   * it, never auto-redelivered. */
+  readonly escalations: ReadonlyArray<QuestionEscalationRecord>
   /** Every authorized continuation, in commit order. These are evidence, never replayed to a new
    * worker automatically. */
   readonly continuations: ReadonlyArray<ContinuationInstruction>
@@ -147,6 +152,7 @@ export class FileCoordinationLog implements CoordinationLog {
     }
     const byId = new Map<string, QuestionRecord>()
     const findings: AnalystFindingEvent[] = []
+    const escalations: QuestionEscalationRecord[] = []
     const continuations: ContinuationInstruction[] = []
     const deliveryEvidence: CoordinationDeliveryEvidence[] = []
     const mail: PeerMailEvent[] = []
@@ -198,12 +204,15 @@ export class FileCoordinationLog implements CoordinationLog {
         continuations.push(ev.instruction)
       } else if (ev.type === 'mail') {
         mail.push(ev.mail)
+      } else if (ev.type === 'escalation') {
+        escalations.push(ev.escalation)
       }
     }
     return {
       ...(ownerId !== undefined ? { ownerId } : {}),
       questions: [...byId.values()],
       findings,
+      escalations,
       continuations,
       deliveryEvidence,
       mail,
@@ -217,6 +226,7 @@ function emptyPriorCoordination(ownerId?: CoordinationOwnerId): PriorCoordinatio
     ...(ownerId !== undefined ? { ownerId } : {}),
     questions: [],
     findings: [],
+    escalations: [],
     continuations: [],
     deliveryEvidence: [],
     mail: [],

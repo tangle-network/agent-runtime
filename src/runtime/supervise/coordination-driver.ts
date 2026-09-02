@@ -40,6 +40,7 @@ import {
   coordinationVerbNames,
   createCoordinationTools,
   type DownMessageEvent,
+  type EscalateQuestion,
   type MakeWorkerAgent,
   normalizeAnalyzeOnSettle,
   type SettledWorker,
@@ -125,6 +126,8 @@ export interface DriverAgentOptions {
   /** The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
    *  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings). */
   readonly analysts?: AnalystRegistry
+  /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
+  readonly escalateQuestion?: EscalateQuestion
   /** Analyst kind ids run AUTOMATICALLY when a worker settles `done` — each result re-enters as a
    *  `finding` the driver pulls and composes its next steer from. The UP-leg of the self-improving
    *  loop. Omit/empty = no auto-analysis (status quo). Requires `analysts`. */
@@ -481,7 +484,16 @@ export function createSteerAcknowledger(deps: SteerAcknowledgerDeps): {
   }
 }
 
-function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
+/**
+ * The OPERATOR-facing sentence for a steer outcome, written into the durable acknowledgement file.
+ *
+ * Deliberately separate from `downMessageRefusalReasons`, which is the MANAGER-facing sentence: one
+ * says what happened for someone reading the run afterwards, the other tells a model what to do
+ * next, and merging them would make one audience read the other's copy. They must nonetheless cover
+ * the SAME outcomes, so `tests/kernel/refusal-reasons.test.ts` holds both maps total over
+ * `DownMessageDeliveryOutcome` — a new code cannot land in only one.
+ */
+export function steerAcknowledgementDetail(outcome: DownMessageEvent): string {
   switch (outcome.outcome) {
     case 'delivered':
       return 'the owning manager delivered the steer to the exact live worker'
@@ -889,10 +901,14 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.continuityByProfile ? { continuityByProfile: opts.continuityByProfile } : {}),
         ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
         ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
+        ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
         ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
         ...(opts.replaySettlements ? { replaySettlements: true } : {}),
         ...(opts.priorCoordination?.questions.length
           ? { priorQuestions: opts.priorCoordination.questions }
+          : {}),
+        ...(opts.priorCoordination?.escalations?.length
+          ? { priorEscalations: opts.priorCoordination.escalations }
           : {}),
       })
       await coord.ready()

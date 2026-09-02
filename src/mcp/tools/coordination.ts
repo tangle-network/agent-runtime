@@ -223,6 +223,70 @@ export function normalizeAnalyzeOnSettle(
   return typeof entry === 'string' ? { kind: entry } : entry
 }
 
+/**
+ * Why one parent→child delivery did not land, in the words the MANAGER needs.
+ *
+ * `DownMessageDeliveryOutcome` is the machine code; this is the sentence beside it. A code alone
+ * left the manager to guess whether to retry, spawn, or give up — `already-settled` and
+ * `scope-stopped` look alike and need opposite moves. Every refusal a coordination verb returns
+ * carries a sentence like these, because the manager cannot see the state that produced it.
+ */
+export const downMessageRefusalReasons: Readonly<Record<DownMessageDeliveryOutcome, string>> =
+  Object.freeze({
+    delivered: 'the message reached the worker',
+    'unknown-worker':
+      'no worker of this manager has that id — check observe_agent for the live ids',
+    'already-settled':
+      'that worker already settled, so nothing can reach it — spawn a fresh worker for the follow-up work',
+    'runtime-has-no-inbox':
+      'that worker runs on an executor with no inbox, so it can never receive a message — re-spawn it on a steerable executor if it must be corrected mid-run',
+    'scope-stopped': 'this manager’s scope has stopped, so no further message may be sent from it',
+    'runtime-error':
+      'the executor threw while accepting the message; the worker may or may not have received it',
+  })
+
+/** The result of handing a question this manager cannot answer to whatever is above it. */
+export type QuestionEscalationOutcome =
+  | { readonly delivered: true; readonly to: string }
+  | { readonly delivered: false; readonly reason: string }
+
+/**
+ * Where a question leaves this manager when `ask_parent` is called.
+ *
+ * Absent means NO INBOX IS CONFIGURED above this manager: `ask_parent` then answers `no-parent`
+ * instead of appearing to succeed. That distinction is the whole point of the seam — a manager that
+ * escalates a blocking question and reads a bare receipt BLOCKS on an answer nothing is routing to
+ * it, and a fail-closed stop policy then refuses to let it finish.
+ *
+ * `no-parent` is not "the question vanished". It is still published on the bus and journaled, so an
+ * external answerer watching the run — the coordination MCP's own `answer_question`, an operator
+ * console, a product observer on `onCoordinationEvent` — can still decide it. What `no-parent` says
+ * is that the RUNTIME will carry it nowhere by itself, so the manager must not sit and wait.
+ *
+ * An implementation returns `{ delivered: true, to }` naming who holds the question now, or
+ * `{ delivered: false, reason }`. A THROW is also a refusal: its message becomes the reason, so a
+ * broken parent channel reads as an undelivered escalation, never as a delivered one.
+ */
+export type EscalateQuestion = (
+  question: QuestionRecord,
+) => Promise<QuestionEscalationOutcome> | QuestionEscalationOutcome
+
+/** The operator-facing artifact written for every `ask_parent`: which question left, whether
+ *  anything received it, and — when nothing did — that the manager itself is now the last decider.
+ *  Journaled record-only, so the run's durable coordination log holds every question that was
+ *  raised and went unheard. */
+export interface QuestionEscalationRecord {
+  readonly questionId: string
+  readonly from: string
+  readonly urgency: QuestionUrgency
+  readonly delivered: boolean
+  /** Who holds the question now. Absent when nothing received it. */
+  readonly to?: string
+  /** Why it was not delivered. Absent on a delivered escalation. */
+  readonly reason?: string
+  readonly at: number
+}
+
 /** How a spawn CONTINUES a node's prior work: `'fresh'` starts a brand-new session (the default,
  *  and the only pre-continuity behavior); `'resume'` re-attaches to the node's most recent
  *  SETTLED worker — a NEW live worker is spawned whose spawn context carries the prior worker's
@@ -329,6 +393,10 @@ export type CoordinationEvent =
   | { readonly type: 'instruction'; readonly instruction: ContinuationInstruction }
   | { readonly type: 'delivery-attempt'; readonly attempt: DownMessageDeliveryAttempt }
   | { readonly type: 'mail'; readonly mail: PeerMailEvent }
+  /** A question left this manager through `ask_parent`, and what became of it. Record-only: the
+   *  asker already holds the outcome, and an escalation is evidence for the operator, not an item
+   *  in the inbox the manager pulls from. */
+  | { readonly type: 'escalation'; readonly escalation: QuestionEscalationRecord }
 
 /** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
  * complete worker profile is prepared for one spawn. */
@@ -507,6 +575,21 @@ export interface CoordinationToolsOptions {
    * because both are minted AFTER the pre-journal point. Omit = the authored profile is used.
    */
   readonly resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+  /**
+   * OPT-IN parent channel for `ask_parent`. See {@link EscalateQuestion}.
+   *
+   * Omit and this manager is treated as the TOP of its question chain: `ask_parent` still raises and
+   * journals the question, and answers `escalated: false, outcome: 'no-parent'` so the manager knows
+   * it must decide the question itself rather than wait.
+   */
+  readonly escalateQuestion?: EscalateQuestion
+  /**
+   * Escalations this manager made in a PRIOR process of the same durable run
+   * (`PriorCoordination.escalations`). Seeded verbatim, so after a restart `stop` still knows which
+   * blocking questions reached no parent and still names the way out. Without it the record is
+   * journaled, reloaded, and then forgotten by the only reader that acts on it.
+   */
+  readonly priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
@@ -574,6 +657,9 @@ export interface CoordinationTools {
   submittedResult(): { readonly result: unknown } | undefined
   settled(): ReadonlyArray<SettledWorker>
   questions(): ReadonlyArray<QuestionRecord>
+  /** Every `ask_parent` escalation and what became of it, in raise order. An undelivered one is a
+   *  question this run raised and nothing answered — the operator's read of a run that went quiet. */
+  escalations(): ReadonlyArray<QuestionEscalationRecord>
   /** The full ordered log of every bus event — UP (settled / question / finding), authorized
    *  instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
    *  timestamp, and priority. A receipt is evidence and is never auto-delivered on restart. */
@@ -1679,6 +1765,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     // explicitly rather than through the `down` fallback below: a member with no `down` property
     // spread through that fallback would yield a bare `{ type }` and drop the whole payload.
     if (ev.type === 'mail') return { type: 'mail', ...ev.mail }
+    // Record-only like mail, and with no `down` leg, so it is projected explicitly.
+    if (ev.type === 'escalation') return { type: 'escalation', ...ev.escalation }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
@@ -1760,6 +1848,13 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       )
     return record.question
   }
+  /** The refusal every `answer_question` path returns for an id this manager has no question for.
+   *  A THROW here reaches the manager as a transport error with no vocabulary it can act on, and
+   *  this is the verb the `no-parent` guidance tells it to use — so it names the condition. */
+  const unknownQuestion = (questionId: string) => ({
+    error: 'unknown-question' as const,
+    reason: `this manager has no question with the id ${JSON.stringify(questionId)}; call list_questions for the ids you may decide`,
+  })
   const decideQuestion = (questionId: string, decision: QuestionDecision): QuestionRecord => {
     const idx = questions.findIndex((q) => q.id === questionId)
     if (idx < 0) throw new Error(`unknown questionId ${JSON.stringify(questionId)}`)
@@ -1770,6 +1865,47 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     questions[idx] = next
     return next
   }
+  // ── ask_parent, and the honest answer when nothing is above ───────────────────
+  //
+  // A manager that escalates a BLOCKING question and reads a bare receipt waits for an answer. When
+  // no parent inbox exists, that wait never ends, and a fail-closed stop policy then refuses every
+  // `stop` for the rest of the run — the question is counted as unresolved forever. So the outcome
+  // is stated, every time: `queued-for-parent` when something took the question, `no-parent` when
+  // nothing did, and in the second case the manager is told it is the last decider.
+  const escalations: QuestionEscalationRecord[] = [...(opts.priorEscalations ?? [])]
+  const escalate = async (question: QuestionRecord): Promise<QuestionEscalationRecord> => {
+    let outcome: QuestionEscalationOutcome
+    if (opts.escalateQuestion === undefined) {
+      outcome = {
+        delivered: false,
+        reason:
+          'this manager has no parent inbox in this run, so nothing above it can receive the question',
+      }
+    } else {
+      try {
+        outcome = await opts.escalateQuestion(question)
+      } catch (error) {
+        // A broken parent channel is an UNDELIVERED escalation, never a delivered one: reading a
+        // throw as success is exactly the silent wait this verb exists to remove.
+        outcome = {
+          delivered: false,
+          reason: `the parent channel refused the question: ${error instanceof Error ? error.message : String(error)}`,
+        }
+      }
+    }
+    const record: QuestionEscalationRecord = Object.freeze({
+      questionId: question.id,
+      from: question.from,
+      urgency: question.urgency,
+      delivered: outcome.delivered,
+      ...(outcome.delivered ? { to: outcome.to } : { reason: outcome.reason }),
+      at: Date.now(),
+    })
+    escalations.push(record)
+    await bus.publish({ type: 'escalation', escalation: record }, { queue: false })
+    return record
+  }
+
   const blockingQuestionsForStop = (): QuestionRecord[] => {
     if (questionPolicy === 'auto' || questionPolicy === 'bubble') return []
     return questions.filter((q) => {
@@ -2018,15 +2154,21 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           maxLiveWorkers > 0 &&
           liveWorkerCount() >= maxLiveWorkers
         )
-          return Promise.resolve({
-            error: 'max-live-workers' as const,
-            live: liveWorkerCount(),
-            freeSlots: freeWorkerSlots(),
-          })
+          return Promise.resolve(
+            ((live: number) => ({
+              error: 'max-live-workers' as const,
+              reason: `${live} worker${live === 1 ? ' is' : 's are'} already live, which is this manager's ceiling — await_event until one settles, then spawn`,
+              live,
+              freeSlots: freeWorkerSlots(),
+            }))(liveWorkerCount()),
+          )
         const parsedProfile = agentProfileSchema.safeParse(a.profile)
         if (!parsedProfile.success) {
           return Promise.resolve({
             error: 'invalid-profile' as const,
+            reason: `the profile you wrote is not a valid AgentProfile: ${parsedProfile.error.issues
+              .map((issue) => `${issue.path.join('.') || 'profile'} ${issue.message}`)
+              .join('; ')}`,
             issues: parsedProfile.error.issues.map((issue) => ({
               path: issue.path.join('.'),
               message: issue.message,
@@ -2039,7 +2181,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const continuity = resolveContinuity(parseContinuity(a.continuity), profile.name, key)
         if ('error' in continuity) {
           return Promise.resolve({
+            // `reason` is the contract every refusal carries; `hint` is retained under its old name
+            // for readers that already key on it, and both are the same sentence by construction so
+            // they cannot drift.
             error: continuity.error,
+            reason: continuity.hint,
             hint: continuity.hint,
             live: liveWorkerCount(),
             freeSlots: freeWorkerSlots(),
@@ -2064,6 +2210,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             preflightCounts[refusal.cause] += 1
             return {
               error: 'preflight-refused' as const,
+              reason: `the spawn pre-flight refused this profile (${refusal.cause}): ${refusal.detail}`,
               cause: refusal.cause,
               detail: refusal.detail,
               live: liveWorkerCount(),
@@ -2164,6 +2311,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 // A refusal a driver can ACT on. `usd-unbudgeted` is the one rejection that no
                 // retry can clear, so it says so: without this, a driver reads "budget" and walks
                 // its request down until it gives up.
+                reason:
+                  res.reason === 'usd-unbudgeted'
+                    ? "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd"
+                    : `the conserved pool refused this spawn (${String(res.reason)}); the run has no allocation left to give this worker`,
                 ...(res.reason === 'usd-unbudgeted'
                   ? {
                       hint:
@@ -2199,7 +2350,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           // A worker from a PRIOR process of this run: not in the live nursery, but its committed
           // record is on the resumed view — observable like any settled worker, marked `resumed`.
           const resumed = opts.scope.resume?.view.nodes.find((n) => n.id === id)
-          if (!resumed) return { error: `unknown workerId ${JSON.stringify(id)}` }
+          if (!resumed)
+            return {
+              error: 'unknown-worker' as const,
+              reason: `no worker of this manager has the id ${JSON.stringify(id)}; spawn_worker returns the ids you may observe`,
+            }
           const output = resumed.outRef ? await opts.blobs.get(resumed.outRef) : undefined
           return {
             ...projectNodeEvidence(resumed, true),
@@ -2252,7 +2407,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         }
         return {
           delivered: false,
-          reason: delivery.outcome,
+          outcome: delivery.outcome,
+          reason: downMessageRefusalReasons[delivery.outcome],
           progress: readProgress(workerId) ?? null,
         }
       },
@@ -2331,9 +2487,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         if (typeof a.answer === 'string' && a.answer.length > 0) {
           const answer = a.answer
           const pendingQuestion = questions.find((question) => question.id === questionId)
-          if (pendingQuestion === undefined) {
-            throw new Error(`unknown questionId ${JSON.stringify(questionId)}`)
-          }
+          if (pendingQuestion === undefined) return unknownQuestion(questionId)
           // Route the answer DOWN to the worker that asked, unparking it, and record the down-leg.
           // A blocking question parked the worker, so deliver forcefully — it should resume on the
           // answer immediately, not wait for its next step boundary.
@@ -2367,10 +2521,17 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           return {
             question,
             delivered: delivery.delivered,
-            ...(delivery.delivered ? {} : { reason: delivery.outcome }),
+            ...(delivery.delivered
+              ? {}
+              : {
+                  outcome: delivery.outcome,
+                  reason: downMessageRefusalReasons[delivery.outcome],
+                }),
           }
         }
         if (typeof a.deferReason === 'string' && a.deferReason.length > 0) {
+          if (!questions.some((question) => question.id === questionId))
+            return Promise.resolve(unknownQuestion(questionId))
           return Promise.resolve({
             question: decideQuestion(questionId, {
               kind: 'defer',
@@ -2380,25 +2541,49 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         }
         if (typeof a.escalateTo === 'string' && a.escalateTo.length > 0) {
           if (!isQuestionEscalationTarget(a.escalateTo)) {
-            throw new Error(
-              `answer_question: escalateTo must be one of ${questionEscalationTargets.join(
-                ', ',
-              )}; received ${JSON.stringify(a.escalateTo)}`,
-            )
+            return Promise.resolve({
+              error: 'invalid-escalation-target' as const,
+              reason: `escalateTo must be one of ${questionEscalationTargets.join(', ')}; received ${JSON.stringify(a.escalateTo)}`,
+            })
           }
+          if (!questions.some((question) => question.id === questionId))
+            return Promise.resolve(unknownQuestion(questionId))
           const escalateReason =
             typeof a.escalateReason === 'string' && a.escalateReason.length > 0
               ? a.escalateReason
               : 'driver escalated'
-          return Promise.resolve({
-            question: decideQuestion(questionId, {
-              kind: 'escalate',
-              to: a.escalateTo,
-              reason: escalateReason,
-            }),
+          const decided = decideQuestion(questionId, {
+            kind: 'escalate',
+            to: a.escalateTo,
+            reason: escalateReason,
           })
+          // THE SAME PATH `ask_parent` TAKES, for the same reason. Marking a question 'escalated'
+          // and stopping there is exactly the silent wait this change removes: under `failClosed`
+          // an escalated question still blocks `stop`, so a manager that escalates to a parent that
+          // is not configured would never finish and would never be told why. `escalateTo: 'user'`
+          // addresses the operator, who reads the run record, so only the 'parent' target crosses
+          // the runtime seam.
+          if (a.escalateTo !== 'parent') return Promise.resolve({ question: decided })
+          return escalate(decided).then((escalation) => ({
+            question: decided,
+            escalated: escalation.delivered,
+            outcome: escalation.delivered ? ('queued-for-parent' as const) : ('no-parent' as const),
+            reason: escalation.delivered
+              ? `the question is held by ${escalation.to}`
+              : escalation.reason,
+            ...(escalation.delivered
+              ? {}
+              : {
+                  guidance:
+                    'No inbox above this manager is configured to receive it, so nothing will route an answer back to you. The question stays on the run record for anyone watching. Do not BLOCK on it: answer_question it yourself, or answer_question with deferReason to record that it stays open.',
+                }),
+          }))
         }
-        throw new Error('answer_question: provide answer, deferReason, or escalateTo')
+        return Promise.resolve({
+          error: 'no-decision' as const,
+          reason:
+            'a decision is required: pass `answer` to answer the question, `deferReason` to record that it stays open, or `escalateTo` to hand it further up',
+        })
       },
     },
     {
@@ -2431,7 +2616,23 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             { kind: 'escalate', to: 'parent', reason: 'asked parent' },
           ),
         )
-        return { question: q }
+        const escalation = await escalate(q)
+        return {
+          question: q,
+          escalated: escalation.delivered,
+          outcome: escalation.delivered ? ('queued-for-parent' as const) : ('no-parent' as const),
+          reason: escalation.delivered
+            ? `the question is held by ${escalation.to}`
+            : escalation.reason,
+          ...(escalation.delivered
+            ? {}
+            : {
+                // The artifact is journaled either way; this line is the manager's instruction, and
+                // it is the difference between deciding and waiting forever.
+                guidance:
+                  'Nobody above this manager received the question. It is journaled for the operator, and YOU are the last decider: answer_question it yourself, or answer_question with deferReason to record that it stays open. Do not wait for an answer.',
+              }),
+        }
       },
     },
     ...(deliverable
@@ -2470,12 +2671,27 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               // acceptance, even when this handler is called directly rather than through JSON-RPC.
               const result = structuredClone(a.result)
               let accepted = false
+              // A THROWN check and a FAILED check are both "not delivered" — fail-closed is
+              // unchanged — but they need opposite moves from the manager, and the thrown message
+              // used to be discarded entirely, so a broken oracle read exactly like unfinished
+              // work. The refusal now names which one happened.
+              let thrown: string | undefined
               try {
                 accepted = (await deliverable.check(result)) === true
-              } catch {
+              } catch (error) {
                 accepted = false
+                thrown = error instanceof Error ? error.message : String(error)
               }
-              if (!accepted) return { accepted: false, stop: false }
+              if (!accepted) {
+                return {
+                  accepted: false,
+                  stop: false,
+                  reason:
+                    thrown === undefined
+                      ? `the independent check did not pass on this result${deliverable.describe ? `. Expected: ${deliverable.describe}` : ''}`
+                      : `the independent check THREW, so nothing was accepted: ${thrown}. This is a fault in the check, not necessarily in your result — report it rather than resubmitting unchanged`,
+                }
+              }
               // Two remote callers may submit concurrently. Whichever passing check completes
               // first owns the retained result; a later completion must never overwrite it.
               if (submitted) {
@@ -2505,10 +2721,24 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       handler: (raw) => {
         const blocking = blockingQuestionsForStop()
         if (blocking.length) {
+          // Name the exit as well as the block. A question this manager escalated to nobody
+          // (`no-parent`) will never be answered from above, so "wait for an answer" is not a
+          // strategy — the manager is the last decider and must answer or defer it itself.
+          const unheard = blocking.filter((question) =>
+            escalations.some(
+              (record) => record.questionId === question.id && record.delivered === false,
+            ),
+          )
           return Promise.resolve({
             stopped: false,
-            error: 'unresolved-blocking-questions',
+            error: 'unresolved-blocking-questions' as const,
+            reason:
+              `${blocking.length} blocking question${blocking.length === 1 ? '' : 's'} ${blocking.length === 1 ? 'is' : 'are'} still undecided` +
+              (unheard.length > 0
+                ? `, and ${unheard.length} of them reached no parent — nothing above this manager will answer ${unheard.length === 1 ? 'it' : 'them'}. Decide ${unheard.length === 1 ? 'it' : 'them'} with answer_question (answer, or deferReason to record that it stays open) and stop again.`
+                : '. Decide each with answer_question (answer, deferReason, or escalateTo) and stop again.'),
             questions: blocking,
+            ...(unheard.length > 0 ? { unheardQuestionIds: unheard.map((q) => q.id) } : {}),
           })
         }
         stopped = true
@@ -2542,9 +2772,16 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         const a = obj(raw)
         const id = str(a.workerId, 'workerId')
         const node = nodeForWorker(id)
-        if (!node) return { error: `unknown workerId ${JSON.stringify(id)}` }
+        if (!node)
+          return {
+            error: 'unknown-worker' as const,
+            reason: `no worker of this manager has the id ${JSON.stringify(id)}; spawn_worker returns the ids you may analyze`,
+          }
         if (isLiveNodeStatus(node.status)) {
-          return { error: `worker ${JSON.stringify(id)} has not settled — no trace to analyze yet` }
+          return {
+            error: 'worker-not-settled' as const,
+            reason: `worker ${JSON.stringify(id)} has not settled, so it has no trace to analyze yet — await_event until it settles, then run the lens`,
+          }
         }
         const trace =
           ledger.find((worker) => worker.id === id)?.trace ??
@@ -2558,7 +2795,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           store = await workerTraceAnalysisStore(trace, opts.blobs)
         } catch (error) {
           return {
-            error: error instanceof Error ? error.message : String(error),
+            error: 'trace-unreadable' as const,
+            reason: `the settled worker's trace evidence could not be read: ${error instanceof Error ? error.message : String(error)}`,
             trace,
           }
         }
@@ -2604,6 +2842,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     submittedResult: () => submitted,
     settled: () => ledger,
     questions: () => questions,
+    escalations: () => escalations,
     drainResolved,
     abortWorker,
     ...(peerMail ? { peerMail } : {}),

@@ -28,6 +28,7 @@ import type {
   AuthorizeDownMessage,
   ContinuityMode,
   CoordinationEvent,
+  EscalateQuestion,
   MakeWorkerAgent,
   SpawnPreflight,
   WorkerWatchOptions,
@@ -455,6 +456,9 @@ export interface SupervisorAgentDeps {
   ) => Promise<string | null | undefined>
   /** Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`. */
   readonly analysts?: AnalystRegistry
+  /** Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_parent` reports
+   *  `no-parent` — there is no runtime path that routes a question to a parent by itself. */
+  readonly escalateQuestion?: EscalateQuestion
   /** Analyst kinds run on each worker-settle → a `finding` the driver composes its next steer from
    *  (the self-improving UP-leg). Unset/empty = status quo (no analyst feed). Requires `analysts`. */
   readonly analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
@@ -728,6 +732,7 @@ function buildSupervisorAgent(
         ...(deps.executeExtraTool ? { executeExtraTool: deps.executeExtraTool } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
@@ -865,6 +870,7 @@ function buildSupervisorAgent(
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.analysts ? { analysts: deps.analysts } : {}),
         ...(deps.analyzeOnSettle ? { analyzeOnSettle: deps.analyzeOnSettle } : {}),
+        ...(deps.escalateQuestion ? { escalateQuestion: deps.escalateQuestion } : {}),
         ...(deps.watchWorkers ? { watchWorkers: deps.watchWorkers } : {}),
         ...(deps.stallAfterMs !== undefined ? { stallAfterMs: deps.stallAfterMs } : {}),
         ...(deps.continuityByProfile ? { continuityByProfile: deps.continuityByProfile } : {}),
@@ -875,6 +881,9 @@ function buildSupervisorAgent(
         ...(deps.peerMail ? { peerMail: deps.peerMail } : {}),
         ...(priorCoordination?.questions.length
           ? { priorQuestions: priorCoordination.questions }
+          : {}),
+        ...(priorCoordination?.escalations?.length
+          ? { priorEscalations: priorCoordination.escalations }
           : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
         onCoordinationTools: (tools) => slot.bind(tools),

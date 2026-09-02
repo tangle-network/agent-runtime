@@ -251,6 +251,10 @@ const GRAPH_REFUSED_SUPERVISE_OPTIONS = ['registry'] as const
  */
 const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'backend',
+  // Forwarded, not graph-owned: a graph pins WHICH nodes run, never who answers a question one of
+  // them raises. Without it a graph run's `ask_parent` would always report `no-parent` even when
+  // the caller wired an inbox.
+  'escalateQuestion',
   'rootHandle',
   'signal',
   'execution',

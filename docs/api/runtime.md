@@ -1160,6 +1160,49 @@ Restrict which settled workers feed this lens, by profile name or spawn label. O
 
 ***
 
+### QuestionEscalationRecord
+
+The operator-facing artifact written for every `ask_parent`: which question left, whether
+ anything received it, and — when nothing did — that the manager itself is now the last decider.
+ Journaled record-only, so the run's durable coordination log holds every question that was
+ raised and went unheard.
+
+#### Properties
+
+##### questionId
+
+> `readonly` **questionId**: `string`
+
+##### from
+
+> `readonly` **from**: `string`
+
+##### urgency
+
+> `readonly` **urgency**: [`QuestionUrgency`](mcp.md#questionurgency)
+
+##### delivered
+
+> `readonly` **delivered**: `boolean`
+
+##### to?
+
+> `readonly` `optional` **to?**: `string`
+
+Who holds the question now. Absent when nothing received it.
+
+##### reason?
+
+> `readonly` `optional` **reason?**: `string`
+
+Why it was not delivered. Absent on a delivered escalation.
+
+##### at
+
+> `readonly` **at**: `number`
+
+***
+
 ### WorkerResumeContext
 
 The resume lineage a `'resume'` spawn hands the executor seam
@@ -11742,6 +11785,14 @@ Every question the prior process raised, with answer-status folded in, raise ord
 
 Every analyst finding the prior process published, publish order.
 
+##### escalations
+
+> `readonly` **escalations**: readonly [`QuestionEscalationRecord`](#questionescalationrecord)[]
+
+Every `ask_parent` escalation the prior process made, raise order. An undelivered one names a
+question the run raised that nothing above it received — retained so a resuming operator sees
+it, never auto-redelivered.
+
 ##### continuations
 
 > `readonly` **continuations**: readonly [`ContinuationInstruction`](#continuationinstruction)[]
@@ -13366,6 +13417,21 @@ cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 ###### Inherited from
 
 [`SuperviseOptions`](#superviseoptions).[`resolveSupervisorTools`](#resolvesupervisortools-1)
+
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](#escalatequestion)).
+
+Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
+product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
+`outcome: 'no-parent'` on `ask_parent`, which is the honest reading when nothing above it is
+listening: the runtime routes no question to a parent by itself.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`escalateQuestion`](#escalatequestion-2)
 
 ##### extraTools?
 
@@ -17633,6 +17699,17 @@ chain, join, retry) in one tool call instead of one model turn per verb. Every v
 the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
 cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](#escalatequestion)).
+
+Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
+product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
+`outcome: 'no-parent'` on `ask_parent`, which is the honest reading when nothing above it is
+listening: the runtime routes no question to a parent by itself.
+
 ##### onCoordinationEvent?
 
 > `readonly` `optional` **onCoordinationEvent?**: (`context`, `eventId`, `record`) => `void` \| `Promise`\<`void`\>
@@ -18665,6 +18742,13 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 > `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
 
 Analyst lenses available to the driver (both arms). Required for `analyzeOnSettle`.
+
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_parent` reports
+ `no-parent` — there is no runtime path that routes a question to a parent by itself.
 
 ##### analyzeOnSettle?
 
@@ -22985,6 +23069,46 @@ returns validated `AnalystFinding`s — the schema every upstream consumer alrea
 authored lens like `failuresAnalyst` returns a written brief for the driver and has no findings
 to validate against. The union names both, so the boundary can no longer silently accept an
 unvalidated shape (#630) while the authored lens keeps working.
+
+***
+
+### QuestionEscalationOutcome
+
+> **QuestionEscalationOutcome** = \{ `delivered`: `true`; `to`: `string`; \} \| \{ `delivered`: `false`; `reason`: `string`; \}
+
+The result of handing a question this manager cannot answer to whatever is above it.
+
+***
+
+### EscalateQuestion
+
+> **EscalateQuestion** = (`question`) => `Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\> \| [`QuestionEscalationOutcome`](#questionescalationoutcome)
+
+Where a question leaves this manager when `ask_parent` is called.
+
+Absent means NO INBOX IS CONFIGURED above this manager: `ask_parent` then answers `no-parent`
+instead of appearing to succeed. That distinction is the whole point of the seam — a manager that
+escalates a blocking question and reads a bare receipt BLOCKS on an answer nothing is routing to
+it, and a fail-closed stop policy then refuses to let it finish.
+
+`no-parent` is not "the question vanished". It is still published on the bus and journaled, so an
+external answerer watching the run — the coordination MCP's own `answer_question`, an operator
+console, a product observer on `onCoordinationEvent` — can still decide it. What `no-parent` says
+is that the RUNTIME will carry it nowhere by itself, so the manager must not sit and wait.
+
+An implementation returns `{ delivered: true, to }` naming who holds the question now, or
+`{ delivered: false, reason }`. A THROW is also a refusal: its message becomes the reason, so a
+broken parent channel reads as an undelivered escalation, never as a delivered one.
+
+#### Parameters
+
+##### question
+
+[`QuestionRecord`](mcp.md#questionrecord)
+
+#### Returns
+
+`Promise`\<[`QuestionEscalationOutcome`](#questionescalationoutcome)\> \| [`QuestionEscalationOutcome`](#questionescalationoutcome)
 
 ***
 
@@ -30078,6 +30202,18 @@ Re-publish resume-time settlements through the awaited observer before this serv
 ###### questionPolicy?
 
 [`QuestionPolicy`](mcp.md#questionpolicy)
+
+###### escalateQuestion?
+
+[`EscalateQuestion`](#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`.
+
+###### priorEscalations?
+
+readonly [`QuestionEscalationRecord`](#questionescalationrecord)[]
+
+Escalations replayed from a prior process — seeds what `stop` knows went unheard.
 
 ###### priorQuestions?
 

@@ -1558,6 +1558,21 @@ cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
 
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+
+Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
+product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
+`outcome: 'no-parent'` on `ask_parent`, which is the honest reading when nothing above it is
+listening: the runtime routes no question to a parent by itself.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+
 ##### onCoordinationEvent?
 
 > `readonly` `optional` **onCoordinationEvent?**: (`context`, `eventId`, `record`) => `void` \| `Promise`\<`void`\>

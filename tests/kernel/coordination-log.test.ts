@@ -262,4 +262,42 @@ describe('FileCoordinationLog delivery evidence', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('retains an unheard escalation across processes, so a resuming operator still sees it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'coordination-log-escalation-'))
+    try {
+      const log = new FileCoordinationLog(join(dir, 'coordination.jsonl'))
+      const unheard = {
+        questionId: 'w0:q0',
+        from: 'w0',
+        urgency: 'blocks-run',
+        delivered: false,
+        reason:
+          'this manager has no parent inbox in this run, so nothing above it can receive the question',
+        at: 1_700_000_000_000,
+      } as const
+      const heard = {
+        questionId: 'w1:q0',
+        from: 'w1',
+        urgency: 'blocks-step',
+        delivered: true,
+        to: 'the run operator',
+        at: 1_700_000_000_100,
+      } as const
+
+      await log.append('run-1', stamped(0, { type: 'escalation', escalation: unheard }), 'owner-1')
+      await log.append('run-1', stamped(1, { type: 'escalation', escalation: heard }), 'owner-1')
+      await log.append(
+        'run-1',
+        stamped(2, { type: 'escalation', escalation: { ...unheard, from: 'other' } }),
+        'owner-2',
+      )
+
+      const prior = await log.load('run-1', 'owner-1')
+      expect(prior.escalations).toEqual([unheard, heard])
+      expect(prior.escalations.filter((record) => !record.delivered)).toHaveLength(1)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
