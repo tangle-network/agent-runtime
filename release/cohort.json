@@ -4,20 +4,20 @@
     "agentInterface": {
       "name": "@tangle-network/agent-interface",
       "repository": "tangle-network/agent-sdk",
-      "version": "2.2.0",
-      "ref": "faaa5d7fe4cd085403962139ea4cc553ef964975"
+      "version": "2.3.0",
+      "ref": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
     },
     "agentEval": {
       "name": "@tangle-network/agent-eval",
       "repository": "tangle-network/agent-eval",
-      "version": "0.172.1",
-      "ref": "82379c5b2bde32a1a409d63842f325b71aa15b60"
+      "version": "0.173.0",
+      "ref": "d998e3e02bb570deffeaa380eadd0f115a2e676e"
     },
     "agentKnowledge": {
       "name": "@tangle-network/agent-knowledge",
       "repository": "tangle-network/agent-knowledge",
-      "version": "13.0.0",
-      "ref": "23980bdfb9b3533ef21f06598c9a5a21e3582840"
+      "version": "13.0.1",
+      "ref": "35ec563869f08c56c2711a6c8ad9671cdefcc128"
     }
   }
 }

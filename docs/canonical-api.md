@@ -6,9 +6,9 @@ Run pnpm docs:freshness after editing this file. -->
 
 > **Version 0.190.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.172.1 <0.173.0`.
-> `sandbox` must satisfy `>=0.36.3 <0.37.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.2.0`.
+> `agent-eval` must satisfy `>=0.173.0 <0.174.0`.
+> `sandbox` must satisfy `>=0.36.4 <0.37.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.3.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
