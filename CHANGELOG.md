@@ -2,6 +2,14 @@
 
 ## 0.192.0
 
+### Provider date snapshots retain model identity
+
+Some providers report a resolved model as `<model>-YYYY-MM-DD`, `<model>-YYYYMMDD`, or
+`<model>-YYYY-MM` instead of `<model>@<snapshot>`.
+Runtime now validates those dated forms for identity matching, stream merging, and canonicalization.
+Native dates remain distinct from opaque `@` fingerprints, and a different model family or invalid
+date remains rejected.
+
 ### `runPersonified` forwards `resume`, `rootIdentity` and `maxLiveWorkers`
 
 `RunPersonifiedOptions` carries three new optional fields, each forwarded to the supervisor the way `maxRestarts` is.

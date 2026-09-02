@@ -571,6 +571,17 @@ describe('superviseDispatch', () => {
     })
   })
 
+  it('retains a native dated snapshot in the settled provider identity', () => {
+    const served = 'openai/gpt-5.2-2025-12-11'
+    const result = identityResult(modelEvidence([['gpt-5.2', served]]), {
+      providerModel: modelEvidence([[served]]),
+    })
+    expect(supervisedTreeModelForDispatch(result, movingPiProfile)).toEqual({
+      kind: 'known',
+      model: served,
+    })
+  })
+
   it('ignores a Router-proven pre-provider rejection but keeps ambiguous failures unknown', () => {
     const served = 'tangle-router/deepseek-v4-flash@fp_provider_snapshot_matrix'
     const preProvider = { observations: [], providerDispatch: 'not_started' as const }

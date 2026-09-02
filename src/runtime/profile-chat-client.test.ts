@@ -251,6 +251,29 @@ describe('profileChatClient exact Runtime adapter', () => {
     ).rejects.toThrow(/provider reported model "some-other-model".*requires "deepseek-v4-flash"/u)
   })
 
+  it('refuses a same-leaf response from a different explicit provider', async () => {
+    const client = profileChatClient({
+      profile: {
+        ...profile,
+        model: { provider: 'openai', default: 'openai/gpt-5.2' },
+      },
+      context: 'provider-qualified model identity test',
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://injected.invalid/v1',
+        routerKey: 'injected-transport',
+        complete: async () => ({
+          model: 'anthropic/gpt-5.2-2025-12-11',
+          choices: [{ message: { content: 'wrong provider' } }],
+        }),
+      },
+    })
+
+    await expect(client.chat(request)).rejects.toThrow(
+      /Runtime reported model "anthropic\/gpt-5\.2-2025-12-11".*requires "openai\/gpt-5\.2"/u,
+    )
+  })
+
   it('refuses to claim the requested model when the provider did not report an actual model', async () => {
     await expect(
       clientWith(async () => ({
