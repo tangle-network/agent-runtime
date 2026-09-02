@@ -2,6 +2,26 @@
 
 ## 0.191.0
 
+### A manager can read its own run
+
+`read_journal` returns this manager's own coordination journal — every spawn it made, every worker that settled, every question raised or decided, every steer it authorized, every analyst finding — oldest first.
+`CoordinationTools.history()` already held that log, but only the host process could reach it, so a driver that had already tried an approach had no way to see that it had.
+
+```ts
+read_journal({ sinceRow: 0, kinds: ['settled', 'finding'], limit: 50, maxBytes: 16_384 })
+// -> { entries, nextRow, remaining, truncated, bounds, priorRows }
+```
+
+The read is BOUNDED: a row cursor, a record limit and a byte budget, all clamped rather than refused, with the accepted bound returned in `bounds`.
+A record too large for the whole budget returns an `oversize` marker carrying its position, so the cursor always advances and a page cannot stall.
+`row` counts from the first record of the RUN, not the process, so the cursor survives a restart; `priorJournal` seeds the rows earlier processes wrote.
+
+It is REDACTED: every event passes through `resolveRedactor` — a domain hook composes IN FRONT OF the built-in scrub rather than replacing it — and the detach is unconditional, so a returned row shares no reference with live history whichever redactor is configured.
+
+It is SUBTREE-SCOPED BY CONSTRUCTION: each manager builds its own toolbox over its own bus, and the verb takes no node, worker, run or owner argument, so no name reaches another manager's log.
+
+`readJournal` joins `CoordinationVerbs` and the code-mode API, and `supervisorInstructions()` teaches the verb.
+
 ### A teardown failure is not an outcome
 
 `streamProviderExecutor` released its environment in a `finally`, so ANY teardown error replaced the run's outcome.

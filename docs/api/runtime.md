@@ -18286,6 +18286,23 @@ Arguments and results are the same JSON shapes the MCP tools take and return.
 
 `Promise`\<`unknown`\>
 
+##### readJournal()
+
+> **readJournal**(`args`): `Promise`\<`unknown`\>
+
+This manager's OWN coordination journal, paged and redacted. A read, so a program may consult
+ what it already did without spending a model turn on it.
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
 ***
 
 ### SupervisorToolInvocationContext
@@ -30220,6 +30237,13 @@ Escalations replayed from a prior process — seeds what `stop` knows went unhea
 readonly [`QuestionRecord`](mcp.md#questionrecord)[]
 
 Questions replayed from a prior process of this run — seeds the question ledger.
+
+###### priorJournal?
+
+readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
+
+Every coordination record from prior processes of this run — what `read_journal` reads before
+ this process's own rows, so a resumed manager sees what it already did.
 
 ###### nodeTools?
 

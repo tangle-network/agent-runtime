@@ -4066,6 +4066,30 @@ Escalations this manager made in a PRIOR process of the same durable run
 blocking questions reached no parent and still names the way out. Without it the record is
 journaled, reloaded, and then forgotten by the only reader that acts on it.
 
+##### redactJournal?
+
+> `readonly` `optional` **redactJournal?**: `false` \| [`Redactor`](intelligence.md#redactor)
+
+Domain scrub COMPOSED IN FRONT OF the built-in one for every event `read_journal` returns.
+
+The journal quotes model-authored instruction text and worker output, either of which may carry
+a credential the run was given, so the built-in scrub is not something a domain hook may switch
+off by accident: `resolveRedactor` runs the custom redactor first and `defaultRedactor`
+over its result — the same rule the rest of the runtime applies to trace values. Omit for the
+default alone; pass `false` to opt out deliberately. A redactor that throws is a refusal for
+that one row (it returns a `redaction-failed` marker), never a reason to return the raw event.
+
+##### priorJournal?
+
+> `readonly` `optional` **priorJournal?**: readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
+
+Rows written by PRIOR processes of this durable run (`PriorCoordination.records`), prepended to
+the live bus so `read_journal` answers for the whole run rather than the current process.
+
+Without it a resumed manager reads a nearly empty journal and concludes it tried nothing —
+which is the exact failure the verb exists to prevent. The rows are marked `prior: true` and
+are never re-published on the bus: they are evidence, not events to react to.
+
 ***
 
 ### CoordinationTools
