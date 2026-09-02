@@ -175,7 +175,12 @@ export interface Executor<Out> {
    * Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
    * (`'brutalKill'` = immediate, a number = ms grace, `'infinity'` = await clean exit).
    */
-  teardown(grace: number | 'brutalKill' | 'infinity'): Promise<{ destroyed: boolean }>
+  teardown(grace: number | 'brutalKill' | 'infinity'): Promise<{
+    destroyed: boolean
+    /** Why the resource could not be proven destroyed. Present only with `destroyed: false`, so a
+     *  caller reporting an unconfirmed teardown can name the cause instead of a bare flag. */
+    detail?: string
+  }>
   /**
    * Optional acknowledgement window for a remote cleanup requested as `'brutalKill'`.
    * Local executors keep the short default; remote executors may need bounded network time.
@@ -185,7 +190,13 @@ export interface Executor<Out> {
    * The replay source (B1): the content-addressed `outRef` + the materialized output the
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
    */
-  resultArtifact(): { outRef: string; out: Out; verdict?: DefaultVerdict; spent: Spend }
+  resultArtifact(): {
+    outRef: string
+    out: Out
+    verdict?: DefaultVerdict
+    spent: Spend
+    teardown?: ExecutorTeardownWarning
+  }
   /**
    * Optional accounting split for recursive executors.
    * `reported` is the child-work spend written on this node's settlement; `reservation` is the
@@ -309,6 +320,28 @@ export interface ExecutorResult<Out> {
   out: Out
   verdict?: DefaultVerdict
   spent: Spend
+  /** A resource teardown that failed AFTER this result settled. Present ONLY on that path, and it
+   *  never changes the outcome: the turn completed, the artifact is real, and the spend is what was
+   *  metered. See {@link ExecutorTeardownWarning}. */
+  teardown?: ExecutorTeardownWarning
+}
+
+/**
+ * A teardown failure recorded BESIDE a settled result rather than in place of it.
+ *
+ * The measured failure: a provider environment's second DELETE answered 409, the rejection escaped
+ * the executor's `finally`, and a run whose turn had completed (`spent.iterations: 1`, artifact
+ * produced) was reported as a failure. Once the stream has yielded its terminal event the result is
+ * SETTLED; what happens to the resource afterwards is an operational fact about the resource, not a
+ * verdict on the work. The run keeps its outcome and carries this warning, which is the same
+ * distinction `teardown-unconfirmed` already draws for a child whose cleanup was never acknowledged.
+ */
+export interface ExecutorTeardownWarning {
+  readonly failed: true
+  /** What the teardown threw, as text. */
+  readonly error: string
+  /** ISO timestamp of the failed attempt. */
+  readonly at: string
 }
 
 /**
