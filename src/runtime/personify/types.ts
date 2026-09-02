@@ -34,6 +34,7 @@ import type {
   AgentSpec,
   Budget,
   ExecutorRegistry,
+  NodeExecutionIdentity,
   ResultBlobStore,
   RootHandle,
   SpawnJournal,
@@ -237,6 +238,23 @@ export interface RunPersonifiedOptions<Task, D> {
   /** OTP intensity breaker bounds, forwarded to the supervisor verbatim. */
   readonly maxRestarts?: number
   readonly withinMs?: number
+  /** Forwarded to `SupervisorOpts.maxLiveWorkers`: the hard tree-wide cap on simultaneously
+   *  executing spawned workers. Omit to leave the worker count uncapped. */
+  readonly maxLiveWorkers?: number
+  /**
+   * Forwarded to `SupervisorOpts.resume`: replay the journaled tree for `runId` before beginning
+   * fresh work (keyed spawns that already settled `done` return their committed result and spend
+   * nothing). Needs a journal + blob store that outlive the process and the same `rootIdentity`
+   * the first run recorded. Omit it and a second run under an existing `runId` is refused.
+   */
+  readonly resume?: boolean
+  /**
+   * Forwarded to `SupervisorOpts.rootIdentity`: the exact root profile/task digests the journal
+   * records for this run. A resumable run must pass the SAME identity on the first run and on
+   * the resume — the supervisor refuses a resume without one, and refuses one that differs from
+   * the recorded root.
+   */
+  readonly rootIdentity?: NodeExecutionIdentity
   /** A live root handle to attach (view/signal/abort) before the run starts. */
   readonly handle?: RootHandle<Outcome<D>>
   readonly now?: () => number

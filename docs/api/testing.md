@@ -1008,7 +1008,7 @@ Hard cap on simultaneously executing spawned workers across the WHOLE recursive 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-5)
 
 ##### watchWorkers?
 
@@ -1889,7 +1889,7 @@ Hard cap on simultaneously executing spawned workers across the WHOLE recursive 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-5)
 
 ##### analysts?
 
@@ -2284,7 +2284,7 @@ Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fail
 
 ###### Inherited from
 
-[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`maxLiveWorkers`](runtime.md#maxliveworkers-5)
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`maxLiveWorkers`](runtime.md#maxliveworkers-6)
 
 ##### router?
 

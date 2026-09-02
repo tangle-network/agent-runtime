@@ -1,7 +1,16 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
-import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
-import { ValidationError } from '../../src/errors'
+import { canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  FileResultBlobStore,
+  FileSpawnJournal,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../../src/durable/spawn-journal'
+import { RuntimeRunStateError, ValidationError } from '../../src/errors'
 import {
   fanout,
   flatWidenGate,
@@ -793,5 +802,119 @@ describe('runPersonified · hooks forwarding', () => {
     // so the Scope's notify is a no-op. This is the today-default the change preserves.
     const result = await runShape(persona, angleFanout<string>(), { topic: 'ACME' })
     expect(result.kind).toBe('winner')
+  })
+})
+
+// ── runPersonified · resume / rootIdentity / maxLiveWorkers forwarding ────────────
+//
+// `SupervisorOpts.resume`, `rootIdentity` and `maxLiveWorkers` existed on the keystone but never
+// reached it through this entry point, so a second `runPersonified` under a journaled runId could
+// only throw. Each case below proves the field lands where the supervisor reads it.
+
+describe('runPersonified · resume, rootIdentity and maxLiveWorkers forwarding', () => {
+  let dir: string
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'personify-resume-'))
+  })
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('resume: true re-enters a journaled runId and reaches the same winner (fanout does not key its spawns, so its angles execute again)', async () => {
+    let executions = 0
+    const persona = makePersona<string>('analyst', 'equity analyst', (task) => {
+      executions += 1
+      const i = indexOf(task)
+      return {
+        out: `thesis-${i}`,
+        events: ev(20, 20),
+        verdict: { valid: true, score: 0.3 + i * 0.3 },
+      }
+    })
+    const task = { topic: 'ACME' }
+    // The identity the journal records on the first run; a resume must present the SAME one.
+    const rootIdentity = {
+      profileDigest: canonicalCandidateDigest(persona.root.profile),
+      taskDigest: canonicalCandidateDigest(task),
+    }
+    // Fresh store objects per call over the SAME paths — what a second process would build.
+    const durable = () => ({
+      persona,
+      shape: angleFanout<string>(),
+      task,
+      budget: wideBudget,
+      shapeBudget: wideShapeBudget,
+      runId: 'analyst:durable',
+      rootIdentity,
+      journal: new FileSpawnJournal(join(dir, 'spawn-journal.jsonl')),
+      blobs: new FileResultBlobStore(join(dir, 'blobs')),
+      now: () => 0,
+    })
+
+    const first = expectOutcome(await runPersonified<{ topic: string }, string>(durable()))
+    expect(first.kind).toBe('done')
+    if (first.kind === 'done') expect(first.deliverable).toBe('thesis-2')
+    expect(executions).toBe(3)
+
+    // Omitting `resume` keeps the keystone's guard: the reused runId is refused before any
+    // executor runs. The guard is intentional; only the way past it was missing.
+    const refused = await runPersonified<{ topic: string }, string>(durable()).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(refused).toBeInstanceOf(RuntimeRunStateError)
+    expect((refused as Error).message).toBe(
+      "supervisor: runId 'analyst:durable' already exists; pass resume: true to continue it or use a new runId",
+    )
+    expect(executions).toBe(3)
+
+    // `resume` without `rootIdentity` is refused too — the identity must reach the keystone for
+    // a resume to be possible at all.
+    const { rootIdentity: _omitted, ...anonymous } = durable()
+    await expect(
+      runPersonified<{ topic: string }, string>({ ...anonymous, resume: true }),
+    ).rejects.toThrow(/requires an exact rootIdentity/)
+    expect(executions).toBe(3)
+
+    const resumed = expectOutcome(
+      await runPersonified<{ topic: string }, string>({ ...durable(), resume: true }),
+    )
+    expect(resumed.kind).toBe('done')
+    if (resumed.kind === 'done') expect(resumed.deliverable).toBe('thesis-2')
+    // `fanout` spawns by label, not by key, so keyed replay does not apply: the resumed tree
+    // re-executes its three angles. A keyed shape would leave this at 3.
+    expect(executions).toBe(6)
+  })
+
+  it('maxLiveWorkers reaches the scope: over-cap fanout angles are refused, not queued', async () => {
+    const persona = makePersona<string>('analyst', 'equity analyst', (task) => {
+      const i = indexOf(task)
+      return {
+        out: `thesis-${i}`,
+        events: ev(20, 20),
+        verdict: { valid: true, score: 0.3 + i * 0.3 },
+      }
+    })
+    const events: RuntimeHookEvent[] = []
+    const out = expectOutcome(
+      await runPersonified<{ topic: string }, string>({
+        persona,
+        shape: angleFanout<string>(),
+        task: { topic: 'ACME' },
+        budget: wideBudget,
+        shapeBudget: wideShapeBudget,
+        runId: 'analyst:capped',
+        journal: new InMemorySpawnJournal(),
+        blobs: new InMemoryResultBlobStore(),
+        now: () => 0,
+        maxLiveWorkers: 1,
+        hooks: { onEvent: (event) => void events.push(event) },
+      }),
+    )
+    // The batch fanout spawns all three angles before draining, so with one live slot only
+    // angle 0 is admitted; uncapped, the winner is `thesis-2` (the highest score).
+    expect(events.filter((e) => e.target === 'agent.spawn')).toHaveLength(1)
+    expect(out.kind).toBe('done')
+    if (out.kind === 'done') expect(out.deliverable).toBe('thesis-0')
   })
 })

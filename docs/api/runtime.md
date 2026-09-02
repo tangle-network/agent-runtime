@@ -4894,6 +4894,31 @@ OTP intensity breaker bounds, forwarded to the supervisor verbatim.
 
 > `readonly` `optional` **withinMs?**: `number`
 
+##### maxLiveWorkers?
+
+> `readonly` `optional` **maxLiveWorkers?**: `number`
+
+Forwarded to `SupervisorOpts.maxLiveWorkers`: the hard tree-wide cap on simultaneously
+ executing spawned workers. Omit to leave the worker count uncapped.
+
+##### resume?
+
+> `readonly` `optional` **resume?**: `boolean`
+
+Forwarded to `SupervisorOpts.resume`: replay the journaled tree for `runId` before beginning
+fresh work (keyed spawns that already settled `done` return their committed result and spend
+nothing). Needs a journal + blob store that outlive the process and the same `rootIdentity`
+the first run recorded. Omit it and a second run under an existing `runId` is refused.
+
+##### rootIdentity?
+
+> `readonly` `optional` **rootIdentity?**: [`NodeExecutionIdentity`](#nodeexecutionidentity)
+
+Forwarded to `SupervisorOpts.rootIdentity`: the exact root profile/task digests the journal
+records for this run. A resumable run must pass the SAME identity on the first run and on
+the resume — the supervisor refuses a resume without one, and refuses one that differs from
+the recorded root.
+
 ##### handle?
 
 > `readonly` `optional` **handle?**: [`RootHandle`](#roothandle-2)\<[`Outcome`](#outcome-2)\<`D`\>\>
@@ -13588,7 +13613,7 @@ Hard cap on simultaneously executing spawned workers across the WHOLE recursive 
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`maxLiveWorkers`](#maxliveworkers-4)
+[`SuperviseOptions`](#superviseoptions).[`maxLiveWorkers`](#maxliveworkers-5)
 
 ##### watchWorkers?
 
