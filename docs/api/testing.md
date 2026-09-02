@@ -90,6 +90,12 @@ Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once thi
 The analyst lenses available to the driver. Required for `analyzeOnSettle` (and `run_analyst`).
  Unset → no analyst feed (status quo: the driver gets settled outputs, no findings).
 
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`.
+
 ##### analyzeOnSettle?
 
 > `readonly` `optional` **analyzeOnSettle?**: readonly (`string` \| [`AnalyzeOnSettleRoute`](runtime.md#analyzeonsettleroute))[]
@@ -931,6 +937,21 @@ cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
 
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+
+Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
+product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
+`outcome: 'no-parent'` on `ask_parent`, which is the honest reading when nothing above it is
+listening: the runtime routes no question to a parent by itself.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+
 ##### extraTools?
 
 > `readonly` `optional` **extraTools?**: readonly `object`[]
@@ -1768,6 +1789,21 @@ cap, journal, and bus the MCP verb crosses, at every depth and on both arms.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`resolveSupervisorTools`](runtime.md#resolvesupervisortools-1)
 
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves a manager (see [EscalateQuestion](runtime.md#escalatequestion)).
+
+Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
+product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
+`outcome: 'no-parent'` on `ask_parent`, which is the honest reading when nothing above it is
+listening: the runtime routes no question to a parent by itself.
+
+###### Inherited from
+
+[`SuperviseOptions`](runtime.md#superviseoptions).[`escalateQuestion`](runtime.md#escalatequestion-2)
+
 ##### onCoordinationEvent?
 
 > `readonly` `optional` **onCoordinationEvent?**: (`context`, `eventId`, `record`) => `void` \| `Promise`\<`void`\>
@@ -2418,6 +2454,17 @@ Analyst lenses available to the driver (both arms). Required for `analyzeOnSettl
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`analysts`](runtime.md#analysts-4)
+
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+
+Where an `ask_parent` question goes when it leaves this manager. Omit and `ask_parent` reports
+ `no-parent` — there is no runtime path that routes a question to a parent by itself.
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`escalateQuestion`](runtime.md#escalatequestion-3)
 
 ##### analyzeOnSettle?
 

@@ -49,6 +49,7 @@ import type {
   ContinuityMode,
   CoordinationEvent,
   DownMessageAuthorizationInput,
+  EscalateQuestion,
   MakeWorkerAgent,
   SpawnPreflight,
   WorkerSpawnContext,
@@ -1311,6 +1312,15 @@ export interface SuperviseOptions {
    * the same authorizeSpawn / security / allowedModels gate, pool reservation, `maxLiveWorkers`
    * cap, journal, and bus the MCP verb crosses, at every depth and on both arms. */
   readonly resolveSupervisorTools?: ResolveSupervisorTools
+  /**
+   * Where an `ask_parent` question goes when it leaves a manager (see {@link EscalateQuestion}).
+   *
+   * Installed on EVERY manager of the run, at every depth, so a driver's escalation reaches the
+   * product's own inbox — a UI, an operator queue, a human. Omit and every manager reports
+   * `outcome: 'no-parent'` on `ask_parent`, which is the honest reading when nothing above it is
+   * listening: the runtime routes no question to a parent by itself.
+   */
+  readonly escalateQuestion?: EscalateQuestion
   /** Awaited product transaction hook for every coordination record. `eventId` is stable across a
    * lost acknowledgement and durable restart; the record is not pull-visible until this commits. */
   readonly onCoordinationEvent?: (
@@ -1515,6 +1525,7 @@ const superviseOptionKeys = [
   'journal',
   'makeLeafAgent',
   'makeWorkerAgent',
+  'escalateQuestion',
   'maxDepth',
   'maxLiveWorkers',
   'maxTurns',
@@ -1649,6 +1660,7 @@ const superviseExecutableOptionKeys = [
   'authorizeMessage',
   'authorizeSpawn',
   'driveHarness',
+  'escalateQuestion',
   'executeExtraTool',
   'finalizer',
   'isDriverProfile',
@@ -1756,6 +1768,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     driveHarness,
     resolveDriveHarness,
     resolveSupervisorTools,
+    escalateQuestion,
     onCoordinationEvent,
     executeExtraTool,
     stopRule,
@@ -1875,6 +1888,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
     ...(driveHarness === undefined ? {} : { driveHarness }),
     ...(resolveDriveHarness === undefined ? {} : { resolveDriveHarness }),
     ...(resolveSupervisorTools === undefined ? {} : { resolveSupervisorTools }),
+    ...(escalateQuestion === undefined ? {} : { escalateQuestion }),
     ...(onCoordinationEvent === undefined ? {} : { onCoordinationEvent }),
     ...(executeExtraTool === undefined ? {} : { executeExtraTool }),
     ...(stopRule === undefined ? {} : { stopRule }),

@@ -569,7 +569,7 @@ Import from `@tangle-network/agent-runtime/intelligence` — 171 exports.
 
 ### Execution kernel — recursive atom, supervision, executors, round-synchronous loop
 
-Import from `@tangle-network/agent-runtime/kernel` — 913 exports.
+Import from `@tangle-network/agent-runtime/kernel` — 916 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1070,6 +1070,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 913 exports.
 | `ProvisionedSupervisor` | interface | Handles for one Runtime-owned supervisor and its first interactive worker. |
 | `ProvisionSupervisorConnection` | interface | Caller-supplied provider or Sandbox SDK connection for one supervisor run. |
 | `ProvisionSupervisorRequest` | interface | Input to the public Runtime supervisor provisioner. |
+| `QuestionEscalationRecord` | interface | The operator-facing artifact written for every `ask_parent`: which question left, whether |
 | `ReconnectRetainedInteractiveRunOptions` | interface | Reconstruct one exact provider-owned native coding-agent process. |
 | `ReconnectRetainedRunOptions` | interface | Inputs sufficient to rebuild a control client in a new process. |
 | `RecoverRetainedInteractiveRunOptions` | interface | Recover a start after a pre-create crash or a lost provider response. |
@@ -1233,6 +1234,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 913 exports.
 | `DriverUnmetContractDecision` | type | The caller's answer: re-enter the session with `steer`, or end the run here. |
 | `Environment` | type | A checkable task domain — implement these 5 hooks and the suite does the rest. The |
 | `EqualKOnCost` | type | `equalKOnCost(arms, opts)` — the cross-arm equal-compute check on conserved cost. |
+| `EscalateQuestion` | type | Where a question leaves this manager when `ask_parent` is called. |
 | `ExecutionBindingReceipt` | type | One attempt's immutable link from a stable materialization plan to its actual transport. |
 | `ExecutorConfig` | type | Config for {@link createExecutor}: the backend is DATA — the cost dial a profile, |
 | `ExecutorFactory` | type | Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared) |
@@ -1264,6 +1266,7 @@ Import from `@tangle-network/agent-runtime/kernel` — 913 exports.
 | `ProfileMaterializationReceipt` | type | What the kernel can prove about one node's actual execution plan. |
 | `ProviderModelExecutionEvidence` | type | Durable provider identity evidence, independent from the planned materialization alias. |
 | `ProviderPromptOptions` | type | Per-run Sandbox prompt options for the provider path — the same field, the same name, and the |
+| `QuestionEscalationOutcome` | type | The result of handing a question this manager cannot answer to whatever is above it. |
 | `RecoverRetainedRunResult` | type | Outcome of one recovery attempt from pre-dispatch admission coordinates. |
 | `RenderCorpusToInstructions` | type | `renderCorpusToInstructions(opts)` — the flywheel read-back projection. Async (queries the |
 | `ReservationRejection` | type | Why a reservation was refused. `budget-exhausted` means the pool ran out of a channel it |
@@ -1657,7 +1660,7 @@ Import from `@tangle-network/agent-runtime/testing` — 14 exports.
 
 ### MCP servers — delegate / coordination / detached-session
 
-Import from `@tangle-network/agent-runtime/mcp` — 218 exports.
+Import from `@tangle-network/agent-runtime/mcp` — 222 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -1732,6 +1735,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 218 exports.
 | `DELEGATION_TRACE_MAX_BYTES` | const | Default cap on the serialized trace payload per record, in bytes. |
 | `DELEGATION_TRACE_MAX_SPANS` | const | Default cap on spans retained per delegation record. |
 | `delegationProfiles` | const | Every delegation profile a queued record can carry. One owner: the tool schemas and validators |
+| `downMessageRefusalReasons` | const | Why one parent→child delivery did not land, in the words the MANAGER needs. |
 | `harnessNativeTools` | const | Sourced native sub-agent tool names, keyed by the same `HarnessType` vocabulary the rest of the |
 | `LOCAL_HARNESSES` | const | Every local harness, in table order — the one list `AGENT_RUNTIME_LOCAL_HARNESSES` and any |
 | `MEMORY_FILE_ENV` | const | Env var naming the durable row store file the memory bin loads (the |
@@ -1775,6 +1779,7 @@ Import from `@tangle-network/agent-runtime/mcp` — 218 exports.
 | `McpToolDescriptor` | interface | A callable MCP tool exposed by either stdio server. |
 | `McpTransport` | interface | Stdio-shaped transport used by the shared JSON-RPC server implementation. |
 | `MemoryItem` | interface | One row of agent memory: a crisp lesson/fact with provenance. |
+| `QuestionEscalationRecord` | interface | The operator-facing artifact written for every `ask_parent`: which question left, whether |
 | `ResearchOutputShape` | interface | Provider-neutral research output carried over the MCP boundary. The MCP |
 | `ResolvedMemoryEnv` | interface | What the memory bin resolved from its environment. |
 | `SettledWorker` | interface | A worker the driver has drained via `await_event`. |
@@ -1790,8 +1795,10 @@ Import from `@tangle-network/agent-runtime/mcp` — 218 exports.
 | `DelegationResumeTick` | type | One observation of a detached run, mapped 1:1 from a single-tick driver |
 | `DownMessageDeliveryOutcome` | type | The exact result of one parent→child delivery attempt. |
 | `DriveTurnTick` | type | Structural mirror of the sandbox SDK's `TurnDriveResult` (>= 0.6). |
+| `EscalateQuestion` | type | Where a question leaves this manager when `ask_parent` is called. |
 | `GitRunner` | type | Pluggable git runner (sync) — replaceable in tests. |
 | `LocalHarness` | type | Local coding harness available inside the sandbox — a narrowing of the shared `HarnessType` |
+| `QuestionEscalationOutcome` | type | The result of handing a question this manager cannot answer to whatever is above it. |
 | `ResearchSource` | type | Source families a researcher profile may prefer for a task. One owner: the delegation |
 | `SourcedHarness` | type | A harness with a sourced native tool list. |
 | `UiAuditorDelegate` | type | UI-auditor delegate — fully consumer-injected. agent-runtime ships no |

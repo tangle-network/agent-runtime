@@ -233,13 +233,17 @@ describe('coordination tools', () => {
     })
     const submit = tool(withCheck, 'submit_result')
 
+    // A failed check and a THROWN check are both refusals, and each names which one it was.
     expect(await submit.handler({ result: { answer: 0 } })).toEqual({
       accepted: false,
       stop: false,
+      reason:
+        'the independent check did not pass on this result. Expected: an object whose answer is 42',
     })
-    expect(await submit.handler({ result: { answer: 'throw' } })).toEqual({
+    expect(await submit.handler({ result: { answer: 'throw' } })).toMatchObject({
       accepted: false,
       stop: false,
+      reason: expect.stringContaining('the independent check THREW'),
     })
     expect(withCheck.isStopped()).toBe(false)
     expect(withCheck.submittedResult()).toBeUndefined()
@@ -287,6 +291,8 @@ describe('coordination tools', () => {
     setAdmit(false)
     expect(await tool(tb, 'spawn_worker').handler({ profile: {}, task: 'go' })).toEqual({
       error: 'budget-exhausted',
+      reason:
+        'the conserved pool refused this spawn (budget-exhausted); the run has no allocation left to give this worker',
       live: 1,
       freeSlots: null,
     })
@@ -408,7 +414,13 @@ describe('coordination tools', () => {
       freeSlots: 0,
     })
     // The 2 live workers fill the cap → the 3rd fails closed BEFORE scope.spawn is called.
-    expect(await spawn()).toEqual({ error: 'max-live-workers', live: 2, freeSlots: 0 })
+    expect(await spawn()).toEqual({
+      error: 'max-live-workers',
+      reason:
+        "2 workers are already live, which is this manager's ceiling — await_event until one settles, then spawn",
+      live: 2,
+      freeSlots: 0,
+    })
     expect(spawns).toHaveLength(2)
     // A settled worker frees a slot — mark one terminal and the next spawn admits again.
     live[0]!.status = 'done'
@@ -535,7 +547,13 @@ describe('coordination tools', () => {
       freeSlots: 0,
     })
     // An unrelated new assignment is still correctly fenced.
-    expect(await spawnKeyed('c')).toEqual({ error: 'max-live-workers', live: 1, freeSlots: 0 })
+    expect(await spawnKeyed('c')).toEqual({
+      error: 'max-live-workers',
+      reason:
+        "1 worker is already live, which is this manager's ceiling — await_event until one settles, then spawn",
+      live: 1,
+      freeSlots: 0,
+    })
   })
 
   it('spawn_worker reserves the per-worker default when no budget is given', async () => {
@@ -617,7 +635,9 @@ describe('coordination tools', () => {
       output: { answer: 42 },
     })
     expect(await tool(tb, 'observe_agent').handler({ workerId: 'nope' })).toEqual({
-      error: 'unknown workerId "nope"',
+      error: 'unknown-worker',
+      reason:
+        'no worker of this manager has the id "nope"; spawn_worker returns the ids you may observe',
     })
   })
 
@@ -639,7 +659,8 @@ describe('coordination tools', () => {
     // "this runtime has no inbox at all" instead of seeing a bare false.
     expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
-      reason: 'unknown-worker',
+      outcome: 'unknown-worker',
+      reason: 'no worker of this manager has that id — check observe_agent for the live ids',
       progress: null,
     })
   })
@@ -787,6 +808,12 @@ describe('coordination tools', () => {
     // The exact answer is committed before it is routed down.
     expect(emitted).toMatchObject([
       { type: 'question', question: expect.objectContaining(r.question) },
+      // ask_parent also records what became of the escalation. This manager has no parent, so the
+      // artifact says so — the question is the manager's own to decide.
+      {
+        type: 'escalation',
+        escalation: expect.objectContaining({ questionId: r.question.id, delivered: false }),
+      },
       {
         type: 'instruction',
         instruction: expect.objectContaining({
@@ -815,9 +842,9 @@ describe('coordination tools', () => {
         }),
       },
     ])
-    const receipt = emitted[1]
-    const attempt = emitted[2]
-    const outcome = emitted[3]
+    const receipt = emitted[2]
+    const attempt = emitted[3]
+    const outcome = emitted[4]
     if (
       receipt?.type !== 'instruction' ||
       attempt?.type !== 'delivery-attempt' ||
@@ -856,7 +883,10 @@ describe('coordination tools', () => {
     expect(answer).toMatchObject({
       question: { id: raised.question.id, status: (raised.question as { status: string }).status },
       delivered: false,
-      reason: 'unknown-worker',
+      // The answer path names its unmet condition the same way steer_agent does: the machine code
+      // on `outcome`, the sentence on `reason`.
+      outcome: 'unknown-worker',
+      reason: 'no worker of this manager has that id — check observe_agent for the live ids',
     })
     expect(tb.questions()).toMatchObject([
       { id: raised.question.id, status: (raised.question as { status: string }).status },
@@ -905,7 +935,8 @@ describe('coordination tools', () => {
     ])
     expect(await tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w0' })).toEqual(
       {
-        error: expect.stringContaining('has not settled'),
+        error: 'worker-not-settled',
+        reason: expect.stringContaining('has not settled'),
       },
     )
   })
@@ -932,7 +963,8 @@ describe('coordination tools', () => {
     await expect(
       tool(tb, 'run_analyst').handler({ kind: 'completeness', workerId: 'w1' }),
     ).resolves.toEqual({
-      error: expect.stringContaining('trace evidence is missing'),
+      error: 'trace-unreadable',
+      reason: expect.stringContaining('trace evidence is missing'),
       trace: noTrace,
     })
     expect(analystCalls).toBe(0)
@@ -971,8 +1003,17 @@ describe('coordination tools', () => {
       question: { question: 'nice-to-know?' },
     })
     // The history audit trail recorded both, in publish order, with the bumped priority stamped.
-    expect(tb.history().map((r) => r.priority)).toEqual([0, 20])
-    expect(tb.stats()).toMatchObject({ published: 2, pulled: 2, byKind: { question: 2 } })
+    // Each ask_parent also writes its escalation outcome (record-only, priority 0).
+    expect(
+      tb
+        .history()
+        .filter((r) => r.event.type === 'question')
+        .map((r) => r.priority),
+    ).toEqual([0, 20])
+    expect(tb.stats()).toMatchObject({
+      pulled: 2,
+      byKind: { question: 2, escalation: 2 },
+    })
   })
 
   it('steer_agent routes down + records in history but is never pulled back', async () => {
@@ -995,7 +1036,8 @@ describe('coordination tools', () => {
     // A steer to a worker with no live inbox reports delivered:false, and says why.
     expect(await tool(tb, 'steer_agent').handler({ workerId: 'gone', instruction: 'x' })).toEqual({
       delivered: false,
-      reason: 'unknown-worker',
+      outcome: 'unknown-worker',
+      reason: 'no worker of this manager has that id — check observe_agent for the live ids',
       progress: null,
     })
     // The forceful steer reached the child inbox (down delivery)...
@@ -1134,6 +1176,7 @@ describe('coordination tools', () => {
     // ...and the committed exact instruction sits between question-up and answer-down.
     expect(emitted.map((e) => e.type)).toEqual([
       'question',
+      'escalation',
       'instruction',
       'delivery-attempt',
       'answer',

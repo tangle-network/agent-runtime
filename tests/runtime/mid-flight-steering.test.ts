@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CreateSandboxOptions, SandboxEvent, SandboxInstance } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
+import { downMessageRefusalReasons } from '../../src/mcp/tools/coordination'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import type { Budget } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
@@ -393,8 +394,10 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     const { harness, record } = await runSupervisedSteer(false)
 
     // The single-shot sandbox worker has no inbox — this is the historical behavior, stated.
+    // The refusal carries the machine code AND the sentence that names the unmet condition.
     expect(record.steerResult?.delivered).toBe(false)
-    expect(record.steerResult?.reason).toBe('runtime-has-no-inbox')
+    expect(record.steerResult?.outcome).toBe('runtime-has-no-inbox')
+    expect(record.steerResult?.reason).toBe(downMessageRefusalReasons['runtime-has-no-inbox'])
 
     // And so the proof's assertion is unreachable: nothing the worker did ever changed.
     expect(harness.prompts.some((p) => p.includes(STEER))).toBe(false)

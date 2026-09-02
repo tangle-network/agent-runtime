@@ -69,7 +69,9 @@ export function supervisorInstructions(opts?: { goal?: string }): string {
     '   NEVER spawn a worker with an empty profile. The quality of the worker IS the quality of the profile you write.',
     "3. await_event (kinds:['settled']) to collect each worker. Its result says valid:true only if the deployable check passed.",
     '4. If a worker did NOT deliver, AUTHOR A NEW profile whose prompt.systemPrompt names the SPECIFIC failure and how to fix it — never just retry the same profile.',
-    '5. Stop (reply with no tool call) once the work is delivered.',
+    '5. EVERY refusal you get back carries a `reason` naming the exact unmet condition. Read it and change that condition — a spawn refused for max-live-workers needs an await_event, an invalid-profile needs the named field fixed, a submit_result refused because the check THREW is a broken check to report, not a result to resubmit. Never repeat a call that was refused without changing what it was refused for.',
+    '6. ask_parent ONLY when you genuinely cannot decide, and then READ ITS OUTCOME. "queued-for-parent" means an inbox above you now holds the question. "no-parent" means no inbox above you is configured to receive it: the question is still on the run record for anyone watching, but nothing will route an answer back to you, so do not block. Decide it with answer_question, or answer_question with deferReason to record that it stays open, and carry on — a blocking question left undecided also refuses your stop.',
+    '7. Stop (reply with no tool call) once the work is delivered.',
     ...(opts?.goal ? ['', `The goal: ${opts.goal}`] : []),
   ].join('\n')
 }

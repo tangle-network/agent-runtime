@@ -75,6 +75,18 @@ describe('captureSuperviseOptions carries every callback option', () => {
     }
   })
 
+  it('carries escalateQuestion, so a wired parent inbox is not dropped at intake', () => {
+    // A new callback option is only real if the capture forwards it. `escalateQuestion` decides
+    // whether `ask_parent` reports `queued-for-parent` or `no-parent`, so a dropped one silently
+    // turns every escalation in the tree into "nobody is listening".
+    const escalateQuestion = () => ({ delivered: true as const, to: 'the run operator' })
+    const captured = captureSuperviseOptions({ ...baseOptions(), escalateQuestion })
+    expect(captured.escalateQuestion, 'captureSuperviseOptions dropped escalateQuestion').toBe(
+      escalateQuestion,
+    )
+    expect(SUPERVISE_EXECUTABLE_OPTION_KEYS).toContain('escalateQuestion')
+  })
+
   it('names the option when a callback still reaches the snapshot', () => {
     // The guard that makes the next occurrence a five-second fix. A widened value is the only way
     // to reach it: the option-key check refuses an unknown name first, and every DECLARED callback

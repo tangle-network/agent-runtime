@@ -4047,6 +4047,25 @@ because both are minted AFTER the pre-journal point. Omit = the authored profile
 
 `AgentProfile`
 
+##### escalateQuestion?
+
+> `readonly` `optional` **escalateQuestion?**: [`EscalateQuestion`](runtime.md#escalatequestion)
+
+OPT-IN parent channel for `ask_parent`. See [EscalateQuestion](runtime.md#escalatequestion).
+
+Omit and this manager is treated as the TOP of its question chain: `ask_parent` still raises and
+journals the question, and answers `escalated: false, outcome: 'no-parent'` so the manager knows
+it must decide the question itself rather than wait.
+
+##### priorEscalations?
+
+> `readonly` `optional` **priorEscalations?**: readonly [`QuestionEscalationRecord`](runtime.md#questionescalationrecord)[]
+
+Escalations this manager made in a PRIOR process of the same durable run
+(`PriorCoordination.escalations`). Seeded verbatim, so after a restart `stop` still knows which
+blocking questions reached no parent and still names the way out. Without it the record is
+journaled, reloaded, and then forgotten by the only reader that acts on it.
+
 ***
 
 ### CoordinationTools
@@ -4124,6 +4143,17 @@ readonly [`SettledWorker`](#settledworker)[]
 ###### Returns
 
 readonly [`QuestionRecord`](#questionrecord)[]
+
+##### escalations()
+
+> **escalations**(): readonly [`QuestionEscalationRecord`](runtime.md#questionescalationrecord)[]
+
+Every `ask_parent` escalation and what became of it, in raise order. An undelivered one is a
+ question this run raised and nothing answered — the operator's read of a run that went quiet.
+
+###### Returns
+
+readonly [`QuestionEscalationRecord`](runtime.md#questionescalationrecord)[]
 
 ##### history()
 
@@ -5872,6 +5902,19 @@ Env var overriding the served display name (default 'agent-memory').
 
 Where a question this driver cannot answer goes next. `answer_question` accepts these and
  nothing else, so the decision type states them and nothing else.
+
+***
+
+### downMessageRefusalReasons
+
+> `const` **downMessageRefusalReasons**: `Readonly`\<`Record`\<[`DownMessageDeliveryOutcome`](runtime.md#downmessagedeliveryoutcome), `string`\>\>
+
+Why one parent→child delivery did not land, in the words the MANAGER needs.
+
+`DownMessageDeliveryOutcome` is the machine code; this is the sentence beside it. A code alone
+left the manager to guess whether to retry, spawn, or give up — `already-settled` and
+`scope-stopped` look alike and need opposite moves. Every refusal a coordination verb returns
+carries a sentence like these, because the manager cannot see the state that produced it.
 
 ***
 
@@ -7792,9 +7835,27 @@ Re-exports [DownMessageEvent](runtime.md#downmessageevent)
 
 ***
 
+### EscalateQuestion
+
+Re-exports [EscalateQuestion](runtime.md#escalatequestion)
+
+***
+
 ### MakeWorkerAgent
 
 Re-exports [MakeWorkerAgent](runtime.md#makeworkeragent)
+
+***
+
+### QuestionEscalationOutcome
+
+Re-exports [QuestionEscalationOutcome](runtime.md#questionescalationoutcome)
+
+***
+
+### QuestionEscalationRecord
+
+Re-exports [QuestionEscalationRecord](runtime.md#questionescalationrecord)
 
 ***
 

@@ -16,6 +16,30 @@ The second DELETE is gone too. The stream marks the environment released, so `pr
 A teardown that genuinely fails now returns `{ destroyed: false, detail }` instead of throwing: unconfirmed cleanup is what the barrier journals as `teardown-unconfirmed`, and throwing would surface as a failure of work the executor already finished.
 `Executor.teardown` gains the optional `detail`, and the deadline check reports it.
 
+### Every refusal names its unmet condition
+
+`submit_result` returned a bare `{ accepted: false, stop: false }`, and a check that THREW was swallowed into that same shape — a broken oracle and unfinished work were indistinguishable, so a manager resubmitted instead of reporting.
+Every coordination refusal now carries a mandatory `reason` naming the unmet condition in words, beside a stable machine code in `error`.
+
+`observe_agent` and `run_analyst` move their prose out of `error` into `reason` and adopt codes (`unknown-worker`, `worker-not-settled`, `trace-unreadable`), matching what `spawn_worker` already did.
+`steer_agent` keeps the delivery code on `outcome` and adds the sentence; `downMessageRefusalReasons` holds one per `DownMessageDeliveryOutcome`.
+`submit_result` separates a failed check from a thrown one and surfaces the thrown message, which was previously discarded.
+Fail-closed behavior is unchanged everywhere.
+
+### ask_parent answers no-parent instead of a receipt
+
+`ask_parent` published the question on this manager's own bus and returned a receipt.
+Nothing routes a question to a parent inbox, so at the top of the chain the question reached nobody and the manager waited — and under `failClosed` that blocking question then refused every `stop` for the rest of the run.
+
+`ask_parent` now returns an explicit outcome: `queued-for-parent` when something took the question, `no-parent` when nothing did, with the reason and, on `no-parent`, the instruction that this manager is the last decider and must answer or defer the question itself.
+Either way an `escalation` event is journaled record-only, so the durable coordination log holds every question the run raised and what became of it, and `PriorCoordination.escalations` replays it for an operator.
+
+`CoordinationToolsOptions.escalateQuestion` is the seam a product installs to connect a real parent inbox.
+A throw from it is an UNDELIVERED escalation, never a delivered one.
+`stop`'s refusal names which blocking questions reached no parent and the exact way out, so the wait cannot be silent.
+
+`supervisorInstructions()` teaches both.
+
 ## 0.190.0
 
 ### The harness's own rollout is a spend receipt

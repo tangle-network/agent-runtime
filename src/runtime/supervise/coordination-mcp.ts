@@ -34,7 +34,9 @@ import {
   type CoordinationTools,
   createCoordinationTools,
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+  type EscalateQuestion,
   type MakeWorkerAgent,
+  type QuestionEscalationRecord,
   type QuestionPolicy,
   type QuestionRecord,
   type SettledWorker,
@@ -129,6 +131,10 @@ export async function serveCoordinationMcp(opts: {
   /** Re-publish resume-time settlements through the awaited observer before this server listens. */
   replaySettlements?: boolean
   questionPolicy?: QuestionPolicy
+  /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
+  escalateQuestion?: EscalateQuestion
+  /** Escalations replayed from a prior process — seeds what `stop` knows went unheard. */
+  priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
   /** Questions replayed from a prior process of this run — seeds the question ledger. */
   priorQuestions?: ReadonlyArray<QuestionRecord>
   /** Product-selected tools already bound to this exact supervisor node. They share this server
@@ -197,6 +203,8 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.onEvent ? { onEvent: opts.onEvent } : {}),
     ...(opts.replaySettlements ? { replaySettlements: true } : {}),
     ...(opts.questionPolicy ? { questionPolicy: opts.questionPolicy } : {}),
+    ...(opts.escalateQuestion ? { escalateQuestion: opts.escalateQuestion } : {}),
+    ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),

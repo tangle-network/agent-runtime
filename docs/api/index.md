@@ -12236,7 +12236,7 @@ Mode → configured runner. Partial: only register the modes a
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](runtime.md#peermailevent); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](runtime.md#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](runtime.md#questionescalationrecord); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -12307,6 +12307,16 @@ Present when this steer DELIVERED an analyst's routed findings (an analyzes-edge
 ##### Type Literal
 
 \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](runtime.md#peermailevent); \}
+
+***
+
+##### Type Literal
+
+\{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](runtime.md#questionescalationrecord); \}
+
+A question left this manager through `ask_parent`, and what became of it. Record-only: the
+ asker already holds the outcome, and an escalation is evidence for the operator, not an item
+ in the inbox the manager pulls from.
 
 ***
 
