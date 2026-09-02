@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.192.0
+
+### `runPersonified` forwards `resume`, `rootIdentity` and `maxLiveWorkers`
+
+`RunPersonifiedOptions` carries three new optional fields, each forwarded to the supervisor the way `maxRestarts` is.
+`resume` replays the journaled tree for `runId` before fresh work begins.
+`rootIdentity` is the exact root profile/task identity the journal records; a resumable run passes the same one on the first run and on the resume.
+`maxLiveWorkers` caps the simultaneously executing workers across the whole tree.
+
+Before this, a second `runPersonified` call under a journaled `runId` could only throw `RuntimeRunStateError: supervisor: runId '...' already exists; pass resume: true to continue it or use a new runId`, and the caller had no way to pass `resume`.
+A consumer that never reuses a `runId` needs no change.
+A consumer that resumes a persona run passes `rootIdentity` on the first run as well, because the supervisor refuses a resume without one and refuses one that differs from the recorded root.
+
 ## 0.191.0
 
 ### A manager authors its own trace lens

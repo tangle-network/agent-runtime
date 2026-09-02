@@ -1658,7 +1658,7 @@ Hard cap on simultaneously executing spawned workers across the WHOLE recursive 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`maxLiveWorkers`](runtime.md#maxliveworkers-5)
 
 ##### analysts?
 
