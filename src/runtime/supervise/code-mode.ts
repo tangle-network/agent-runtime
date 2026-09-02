@@ -50,6 +50,7 @@ const CODE_CALLABLE_VERBS = {
   answer_question: 'answerQuestion',
   run_analyst: 'runAnalyst',
   read_journal: 'readJournal',
+  define_analyst: 'defineAnalyst',
 } as const
 
 /** The manager's own lifecycle verbs — never callable from code; `search` names them and why. */

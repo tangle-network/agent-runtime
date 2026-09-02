@@ -42,9 +42,10 @@ function stubScope(): Scope<unknown> {
   } as unknown as Scope<unknown>
 }
 
-/** Every tool the coordination MCP can publish, read off the toolbox it actually builds. Both
- *  conditional families are switched on (`deliverable` mounts `submit_result`, `analysts` mounts
- *  the analyst pair) so no published name can hide from the sweep behind an unset option. */
+/** Every tool the coordination MCP can publish, read off the toolbox it actually builds. Every
+ *  conditional family is switched on (`deliverable` mounts `submit_result`, `analysts` mounts the
+ *  analyst pair, and an `analysts.register` mounts `define_analyst`) so no published name can hide
+ *  from the sweep behind an unset option. */
 function coordinationToolNames(): ReadonlyArray<string> {
   return createCoordinationTools({
     scope: stubScope(),
@@ -55,6 +56,11 @@ function coordinationToolNames(): ReadonlyArray<string> {
     analysts: {
       kinds: [{ id: 'completeness', description: 'unfinished work', area: 'failure-mode' }],
       run: async () => [{ claim: 'x' }],
+      register: (definition) => ({
+        id: definition.id,
+        description: definition.description,
+        area: definition.area,
+      }),
     },
   }).tools.map((tool) => tool.name)
 }

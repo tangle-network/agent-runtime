@@ -15,15 +15,23 @@
  */
 import { randomUUID } from 'node:crypto'
 import {
+  createTraceAnalyst,
   DEFAULT_TRACE_ANALYST_KINDS,
   OUTPUT_VALUE,
   type RegistryRunOpts,
+  type TraceAnalysisEngine,
   type TraceAnalysisStore,
+  type TraceAnalystDefinition,
 } from '@tangle-network/agent-eval'
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import type { AnalystRegistryLike } from '../analyst-loop/types'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
+import type { AnalystRegistryAuthoringLike, AnalystRegistryLike } from '../analyst-loop/types'
 import { ValidationError } from '../errors'
-import type { AnalystRegistry, MakeWorkerAgent } from '../mcp/tools/coordination'
+import type {
+  AnalystKind,
+  AnalystRegistry,
+  AuthoredAnalystDefinition,
+  MakeWorkerAgent,
+} from '../mcp/tools/coordination'
 import type { RouterTransportConfig } from './router-client'
 import {
   type AgenticSurface,
@@ -122,7 +130,7 @@ export function analystsFromRegistry(
     description: string
     area: string
   }> = DEFAULT_TRACE_ANALYST_KINDS,
-  opts?: { runOpts?: RegistryRunOpts },
+  opts?: { runOpts?: RegistryRunOpts; authoring?: AnalystAuthoring },
 ): AnalystRegistry {
   const registered = new Set(registry.list().map((analyst) => analyst.id))
   const missing = kinds.map((kind) => kind.id).filter((id) => !registered.has(id))
@@ -136,6 +144,16 @@ export function analystsFromRegistry(
     description: kind.description,
     area: kind.area,
   }))
+  const authoring = opts?.authoring
+  if (
+    authoring !== undefined &&
+    typeof (registry as Partial<AnalystRegistryAuthoringLike>).register !== 'function'
+  ) {
+    throw new ValidationError(
+      'analystsFromRegistry: `authoring` needs a registry with `register`; pass the agent-eval AnalystRegistry itself, not a read-only shim',
+    )
+  }
+  const authoringRegistry = registry as AnalystRegistryAuthoringLike
   return {
     kinds: adapted,
     run: async (kindId, trace) => {
@@ -146,6 +164,76 @@ export function analystsFromRegistry(
       )
       return result.findings
     },
+    ...(authoring === undefined
+      ? {}
+      : {
+          register: (definition: AuthoredAnalystDefinition): AnalystKind => {
+            // The seat is a REQUEST. `resolveEngine` is the authority: it returns the engine for a
+            // model this run can serve and THROWS for one it cannot, and the coordination layer
+            // turns that message into the manager's refusal reason.
+            const engine = authoring.resolveEngine(definition.model)
+            const analyst = createTraceAnalyst(traceAnalystFromAuthored(definition), {
+              engine,
+              ...(authoring.settlementTimeoutMs === undefined
+                ? {}
+                : { settlementTimeoutMs: authoring.settlementTimeoutMs }),
+            })
+            try {
+              authoringRegistry.register(analyst)
+            } catch (error) {
+              // The registry is shared by every manager of the run, so an id is unique across the
+              // whole tree, not just this manager's menu. Say that, or the manager reads a library
+              // message about a lens it has never been shown and cannot tell what to change.
+              throw new ValidationError(
+                `the lens id ${JSON.stringify(definition.id)} is already registered for this run — analyst ids are shared by every manager in the tree, so pick a more specific id: ${error instanceof Error ? error.message : String(error)}`,
+              )
+            }
+            return { id: definition.id, description: definition.description, area: definition.area }
+          },
+        }),
+  }
+}
+
+/**
+ * What `analystsFromRegistry` needs before a manager may define its own lens.
+ *
+ * Only the ENGINE is asked for, because everything else about a defined lens is already in the
+ * manager's own words. The engine is the model seat plus the recursive investigation loop, and it
+ * cannot come from a tool argument: an `AgentProfile` names a model the run's own model policy has
+ * already fenced, but an analyst engine is host-constructed with host credentials.
+ */
+export interface AnalystAuthoring {
+  /**
+   * Resolve the investigation engine for the seat a definition asked for. `undefined` means the
+   * definition named no seat and wants the run's default engine. THROW to refuse a seat this run
+   * cannot serve — the message is what the manager reads and re-authors from.
+   */
+  readonly resolveEngine: (model: string | undefined) => TraceAnalysisEngine
+  /** Forwarded to `createTraceAnalyst`; omit for its default. */
+  readonly settlementTimeoutMs?: number
+}
+
+/**
+ * Map an authored definition onto the eval definition `createTraceAnalyst` compiles.
+ *
+ * The version is DERIVED from the definition's own canonical digest, never supplied by the manager.
+ * That is what makes an invented lens reproducible: the same authored words always compile to the
+ * same analyst version, two different wordings can never share one, and a finding's `analyst_id`
+ * plus version names the exact text that produced it.
+ */
+function traceAnalystFromAuthored(definition: AuthoredAnalystDefinition): TraceAnalystDefinition {
+  return {
+    id: definition.id,
+    description: definition.description,
+    area: definition.area,
+    version: `1.0.0+authored.${canonicalCandidateDigest(definition).slice(-12)}`,
+    question: definition.question,
+    instructions: definition.instructions,
+    toolGroup: definition.toolGroup,
+    ...(definition.limits === undefined ? {} : { limits: definition.limits }),
+    ...(definition.minimumEvidenceCitations === undefined
+      ? {}
+      : { minimumEvidenceCitations: definition.minimumEvidenceCitations }),
   }
 }
 

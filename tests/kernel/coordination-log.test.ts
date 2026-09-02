@@ -300,4 +300,48 @@ describe('FileCoordinationLog delivery evidence', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('retains an authored analyst definition across processes, exact bytes and digest', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'coordination-log-analyst-'))
+    try {
+      const log = new FileCoordinationLog(join(dir, 'coordination.jsonl'))
+      const record = {
+        definition: {
+          id: 'handoff-loss',
+          description: 'Did a worker lose context the parent had already established?',
+          area: 'coordination',
+          question: 'Where did a child re-derive a fact its parent had already given it?',
+          instructions: 'Read every tool span. Cite the span that shows the re-derivation.',
+          toolGroup: 'discoveryAndRead',
+        },
+        kind: {
+          id: 'handoff-loss',
+          description: 'Did a worker lose context the parent had already established?',
+          area: 'coordination',
+        },
+        digest: `sha256:${'a'.repeat(64)}`,
+        definedAt: 1_700_000_000_000,
+      } as const
+
+      await log.append('run-1', stamped(0, { type: 'analyst-defined', analyst: record }), 'owner-1')
+      // Another owner's definition must not leak into this owner's replay.
+      await log.append(
+        'run-1',
+        stamped(1, {
+          type: 'analyst-defined',
+          analyst: { ...record, kind: { ...record.kind, id: 'other-owner-lens' } },
+        }),
+        'owner-2',
+      )
+
+      const prior = await log.load('run-1', 'owner-1')
+      expect(prior.analystDefinitions).toHaveLength(1)
+      expect(prior.analystDefinitions[0]).toEqual(record)
+      expect(prior.analystDefinitions[0]?.definition.instructions).toBe(
+        record.definition.instructions,
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

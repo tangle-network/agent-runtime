@@ -26,6 +26,7 @@ import type {
   AnalystFindingEvent,
   ContinuationInstruction,
   CoordinationEvent,
+  DefinedAnalystRecord,
   QuestionEscalationRecord,
   QuestionRecord,
 } from '../../mcp/tools/coordination'
@@ -55,6 +56,11 @@ export interface PriorCoordination {
    * question the run raised that nothing above it received — retained so a resuming operator sees
    * it, never auto-redelivered. */
   readonly escalations: ReadonlyArray<QuestionEscalationRecord>
+  /** Every lens the prior process DEFINED at run time, definition order. The exact authored bytes
+   * and their digest, so an invented lens can be re-registered and any finding it produced can be
+   * traced to the words that produced it. Re-registration is the owner's decision, never automatic:
+   * the registry may have changed between processes. */
+  readonly analystDefinitions: ReadonlyArray<DefinedAnalystRecord>
   /** Every authorized continuation, in commit order. These are evidence, never replayed to a new
    * worker automatically. */
   readonly continuations: ReadonlyArray<ContinuationInstruction>
@@ -153,6 +159,7 @@ export class FileCoordinationLog implements CoordinationLog {
     const byId = new Map<string, QuestionRecord>()
     const findings: AnalystFindingEvent[] = []
     const escalations: QuestionEscalationRecord[] = []
+    const analystDefinitions: DefinedAnalystRecord[] = []
     const continuations: ContinuationInstruction[] = []
     const deliveryEvidence: CoordinationDeliveryEvidence[] = []
     const mail: PeerMailEvent[] = []
@@ -206,6 +213,8 @@ export class FileCoordinationLog implements CoordinationLog {
         mail.push(ev.mail)
       } else if (ev.type === 'escalation') {
         escalations.push(ev.escalation)
+      } else if (ev.type === 'analyst-defined') {
+        analystDefinitions.push(ev.analyst)
       }
     }
     return {
@@ -213,6 +222,7 @@ export class FileCoordinationLog implements CoordinationLog {
       questions: [...byId.values()],
       findings,
       escalations,
+      analystDefinitions,
       continuations,
       deliveryEvidence,
       mail,
@@ -227,6 +237,7 @@ function emptyPriorCoordination(ownerId?: CoordinationOwnerId): PriorCoordinatio
     questions: [],
     findings: [],
     escalations: [],
+    analystDefinitions: [],
     continuations: [],
     deliveryEvidence: [],
     mail: [],

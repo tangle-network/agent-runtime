@@ -2012,7 +2012,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-17)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-18)
 
 ##### sandboxId?
 
@@ -3824,6 +3824,22 @@ Epoch ms from the durable terminal record — the resolution a progress-based st
 
 ***
 
+### AnalystDefinitionIssue
+
+One rejected field of an authored analyst definition: which field, and what is wrong with it.
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### message
+
+> `readonly` **message**: `string`
+
+***
+
 ### CoordinationToolsOptions
 
 #### Properties
@@ -4090,6 +4106,26 @@ Without it a resumed manager reads a nearly empty journal and concludes it tried
 which is the exact failure the verb exists to prevent. The rows are marked `prior: true` and
 are never re-published on the bus: they are evidence, not events to react to.
 
+##### maxDefinedAnalysts?
+
+> `readonly` `optional` **maxDefinedAnalysts?**: `number`
+
+Hard cap on lenses THIS manager may define through `define_analyst`. Omit =
+ `ANALYST_DEFINITION_BOUNDS.maxDefinitionsPerManager`; `<= 0` = no cap. Reached, the verb
+ refuses with `error: 'max-defined-analysts'` and names the cap, so a manager that has been
+ defining instead of investigating reads why.
+
+##### priorAnalystDefinitions?
+
+> `readonly` `optional` **priorAnalystDefinitions?**: readonly [`DefinedAnalystRecord`](runtime.md#definedanalystrecord)[]
+
+Lenses this manager DEFINED in a prior process of the same durable run
+(`PriorCoordination.analystDefinitions`). Seeded verbatim: they are on the menu again, they
+count against [CoordinationToolsOptions.maxDefinedAnalysts](#maxdefinedanalysts), and re-defining one is a
+`duplicate-analyst` refusal rather than a silent second registration. Re-registering them with
+the analyst registry is the owner's decision, because the registry may have changed between
+processes; this option only restores what the manager is allowed to believe it already wrote.
+
 ***
 
 ### CoordinationTools
@@ -4178,6 +4214,17 @@ Every `ask_parent` escalation and what became of it, in raise order. An undelive
 ###### Returns
 
 readonly [`QuestionEscalationRecord`](runtime.md#questionescalationrecord)[]
+
+##### definedAnalysts()
+
+> **definedAnalysts**(): readonly [`DefinedAnalystRecord`](runtime.md#definedanalystrecord)[]
+
+Every lens this manager defined at run time, in definition order — the same records published
+ as `analyst-defined` events. Empty when the registry admits no authored lens.
+
+###### Returns
+
+readonly [`DefinedAnalystRecord`](runtime.md#definedanalystrecord)[]
 
 ##### history()
 
@@ -5737,6 +5784,12 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ***
 
+### AnalystToolGroupName
+
+> **AnalystToolGroupName** = *typeof* [`analystToolGroupNames`](#analysttoolgroupnames)\[`number`\]
+
+***
+
 ### DelegateResult
 
 > **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](index.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `error?`: [`DelegateError`](#delegateerror); `spentTotal`: [`Spend`](index.md#spend); \}
@@ -5926,6 +5979,34 @@ Env var overriding the served display name (default 'agent-memory').
 
 Where a question this driver cannot answer goes next. `answer_question` accepts these and
  nothing else, so the decision type states them and nothing else.
+
+***
+
+### analystToolGroupNames
+
+> `const` **analystToolGroupNames**: readonly \[`"all"`, `"discovery"`, `"discoveryAndRead"`, `"discoveryAndSearch"`, `"targeted"`, `"singleTrace"`\]
+
+The trace-tool sets a DEFINED analyst may ask for — the exact group names agent-eval's
+`buildTraceToolsForGroup` accepts, restated here so the `define_analyst` JSON Schema can
+enumerate them for the model that writes one. Named, not free-form, because the group is the
+lens's cost ceiling: `all` grants seven trace tools, `discovery` grants three and no deep reads.
+A name eval does not know throws at registration, which is where the two lists are held together.
+
+***
+
+### ANALYST\_DEFINITION\_BOUNDS
+
+> `const` **ANALYST\_DEFINITION\_BOUNDS**: `Readonly`\<\{ `idPattern`: `RegExp`; `maxDescriptionChars`: `300`; `maxAreaChars`: `64`; `maxQuestionChars`: `1000`; `maxInstructionsChars`: `20000`; `maxModelChars`: `128`; `maxIterations`: `24`; `maxLlmCalls`: `16`; `maxToolCalls`: `96`; `maxOutputChars`: `20000`; `maxEvidenceCitations`: `10`; `maxDefinitionsPerManager`: `8`; \}\>
+
+Every bound `define_analyst` enforces before a definition reaches a registry.
+
+ MOTIVE, stated as numbers, because a fence whose motive cannot be stated is over-engineering:
+ a defined lens spends real model calls from the run's own account on every settle it is routed
+ over, and its `instructions` are re-sent on every one of them. So the two fields that multiply
+ — `instructions` bytes and `maxLlmCalls` — are the ones with hard ceilings, and the ceilings are
+ twice agent-eval's own defaults (`maxIterations` 12, `maxLlmCalls` 8, `maxToolCalls` 48,
+ `maxOutputChars` 10_000): enough headroom for a deeper question than the shipped lenses ask,
+ not enough for one definition to become the dominant cost of a run.
 
 ***
 
@@ -7389,6 +7470,29 @@ Build the generic stdio JSON-RPC tool server.
 
 ***
 
+### parseAuthoredAnalystDefinition()
+
+> **parseAuthoredAnalystDefinition**(`raw`): \{ `definition`: [`AuthoredAnalystDefinition`](index.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
+
+Validate and BOUND one `define_analyst` argument.
+
+Every reason is collected, never short-circuited: a manager re-authoring from a partial list of
+complaints spends a turn per complaint. Numeric limits are CLAMPED rather than rejected — asking
+for 200 tool calls is a mis-estimate, not a malformed definition, and the accepted value is
+returned so the manager reads the ceiling it actually got.
+
+#### Parameters
+
+##### raw
+
+`unknown`
+
+#### Returns
+
+\{ `definition`: [`AuthoredAnalystDefinition`](index.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
+
+***
+
 ### createCoordinationTools()
 
 > **createCoordinationTools**(`opts`): [`CoordinationTools`](#coordinationtools)
@@ -7799,9 +7903,27 @@ Re-exports [AnalystFindingEvent](runtime.md#analystfindingevent)
 
 ***
 
+### AnalystKind
+
+Re-exports [AnalystKind](index.md#analystkind)
+
+***
+
 ### AnalystRegistry
 
 Re-exports [AnalystRegistry](index.md#analystregistry)
+
+***
+
+### AuthoredAnalystDefinition
+
+Re-exports [AuthoredAnalystDefinition](index.md#authoredanalystdefinition)
+
+***
+
+### AuthoredAnalystLimits
+
+Re-exports [AuthoredAnalystLimits](runtime.md#authoredanalystlimits)
 
 ***
 
@@ -7832,6 +7954,12 @@ Re-exports [CoordinationEvent](index.md#coordinationevent)
 ### DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS
 
 Re-exports [DEFAULT_AWAIT_EVENT_TIMEOUT_MS](runtime.md#default_await_event_timeout_ms)
+
+***
+
+### DefinedAnalystRecord
+
+Re-exports [DefinedAnalystRecord](runtime.md#definedanalystrecord)
 
 ***
 

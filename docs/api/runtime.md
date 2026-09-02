@@ -1072,6 +1072,59 @@ Complete cold-readable view of one recursive supervision run.
 
 ***
 
+### AuthoredAnalystLimits
+
+Bounds on the recursive investigation a defined analyst may run. Each field is optional and is
+ clamped to [ANALYST\_DEFINITION\_BOUNDS](mcp.md#analyst_definition_bounds); omitted fields take the engine's own default.
+
+#### Properties
+
+##### maxIterations?
+
+> `readonly` `optional` **maxIterations?**: `number`
+
+##### maxLlmCalls?
+
+> `readonly` `optional` **maxLlmCalls?**: `number`
+
+##### maxToolCalls?
+
+> `readonly` `optional` **maxToolCalls?**: `number`
+
+##### maxOutputChars?
+
+> `readonly` `optional` **maxOutputChars?**: `number`
+
+***
+
+### DefinedAnalystRecord
+
+What the coordination layer records when a definition is admitted: the exact accepted bytes, the
+ kind the registry returned, and a digest over the definition so a finding can be traced back to
+ the words that produced it.
+
+#### Properties
+
+##### definition
+
+> `readonly` **definition**: [`AuthoredAnalystDefinition`](index.md#authoredanalystdefinition)
+
+##### kind
+
+> `readonly` **kind**: [`AnalystKind`](index.md#analystkind)
+
+##### digest
+
+> `readonly` **digest**: `string`
+
+Canonical digest of `definition` — the reproducibility key.
+
+##### definedAt
+
+> `readonly` **definedAt**: `number`
+
+***
+
 ### AnalystFindingEvent
 
 A trace-analyst result re-entered as a message on the bus (the `finding` event kind).
@@ -11080,6 +11133,43 @@ What a surface worker settles with — the surface verdict the driver + delivera
 
 ***
 
+### AnalystAuthoring
+
+What `analystsFromRegistry` needs before a manager may define its own lens.
+
+Only the ENGINE is asked for, because everything else about a defined lens is already in the
+manager's own words. The engine is the model seat plus the recursive investigation loop, and it
+cannot come from a tool argument: an `AgentProfile` names a model the run's own model policy has
+already fenced, but an analyst engine is host-constructed with host credentials.
+
+#### Properties
+
+##### resolveEngine
+
+> `readonly` **resolveEngine**: (`model`) => `TraceAnalysisEngine`
+
+Resolve the investigation engine for the seat a definition asked for. `undefined` means the
+definition named no seat and wants the run's default engine. THROW to refuse a seat this run
+cannot serve — the message is what the manager reads and re-authors from.
+
+###### Parameters
+
+###### model
+
+`string` \| `undefined`
+
+###### Returns
+
+`TraceAnalysisEngine`
+
+##### settlementTimeoutMs?
+
+> `readonly` `optional` **settlementTimeoutMs?**: `number`
+
+Forwarded to `createTraceAnalyst`; omit for its default.
+
+***
+
 ### SurfaceWorkerConfig
 
 How a worker runs the surface task (its router substrate + per-attempt bounds).
@@ -11792,6 +11882,15 @@ Every analyst finding the prior process published, publish order.
 Every `ask_parent` escalation the prior process made, raise order. An undelivered one names a
 question the run raised that nothing above it received — retained so a resuming operator sees
 it, never auto-redelivered.
+
+##### analystDefinitions
+
+> `readonly` **analystDefinitions**: readonly [`DefinedAnalystRecord`](#definedanalystrecord)[]
+
+Every lens the prior process DEFINED at run time, definition order. The exact authored bytes
+and their digest, so an invented lens can be re-registered and any finding it produced can be
+traced to the words that produced it. Re-registration is the owner's decision, never automatic:
+the registry may have changed between processes.
 
 ##### continuations
 
@@ -18292,6 +18391,23 @@ Arguments and results are the same JSON shapes the MCP tools take and return.
 
 This manager's OWN coordination journal, paged and redacted. A read, so a program may consult
  what it already did without spending a model turn on it.
+
+###### Parameters
+
+###### args
+
+`unknown`
+
+###### Returns
+
+`Promise`\<`unknown`\>
+
+##### defineAnalyst()
+
+> **defineAnalyst**(`args`): `Promise`\<`unknown`\>
+
+Define a new trace-analyst lens for this run. Composition, not lifecycle: a program may define
+ a lens and run it over the children it just joined, inside one model turn.
 
 ###### Parameters
 
@@ -29699,6 +29815,10 @@ readonly `object`[] = `DEFAULT_TRACE_ANALYST_KINDS`
 
 `RegistryRunOpts`
 
+###### authoring?
+
+[`AnalystAuthoring`](#analystauthoring)
+
 #### Returns
 
 [`AnalystRegistry`](index.md#analystregistry)
@@ -30244,6 +30364,12 @@ readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](index.md#coordinatione
 
 Every coordination record from prior processes of this run — what `read_journal` reads before
  this process's own rows, so a resumed manager sees what it already did.
+
+###### priorAnalystDefinitions?
+
+readonly [`DefinedAnalystRecord`](#definedanalystrecord)[]
+
+Lenses this manager defined in a prior process — seeds the menu and the definition cap.
 
 ###### nodeTools?
 
@@ -33281,9 +33407,21 @@ The clone is removed after; durable state lives only in the ref.
 
 ## References
 
+### AnalystKind
+
+Re-exports [AnalystKind](index.md#analystkind)
+
+***
+
 ### AnalystRegistry
 
 Re-exports [AnalystRegistry](index.md#analystregistry)
+
+***
+
+### AuthoredAnalystDefinition
+
+Re-exports [AuthoredAnalystDefinition](index.md#authoredanalystdefinition)
 
 ***
 

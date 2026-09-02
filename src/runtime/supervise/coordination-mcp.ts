@@ -34,6 +34,7 @@ import {
   type CoordinationTools,
   createCoordinationTools,
   DEFAULT_AWAIT_EVENT_TIMEOUT_MS,
+  type DefinedAnalystRecord,
   type EscalateQuestion,
   type MakeWorkerAgent,
   type QuestionEscalationRecord,
@@ -140,6 +141,8 @@ export async function serveCoordinationMcp(opts: {
   /** Every coordination record from prior processes of this run — what `read_journal` reads before
    *  this process's own rows, so a resumed manager sees what it already did. */
   priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
+  /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
+  priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
   /** Product-selected tools already bound to this exact supervisor node. They share this server
    *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
   nodeTools?: ReadonlyArray<McpToolDescriptor>
@@ -210,6 +213,9 @@ export async function serveCoordinationMcp(opts: {
     ...(opts.priorEscalations?.length ? { priorEscalations: opts.priorEscalations } : {}),
     ...(opts.priorQuestions?.length ? { priorQuestions: opts.priorQuestions } : {}),
     ...(opts.priorJournal?.length ? { priorJournal: opts.priorJournal } : {}),
+    ...(opts.priorAnalystDefinitions?.length
+      ? { priorAnalystDefinitions: opts.priorAnalystDefinitions }
+      : {}),
     ...(opts.preflightSpawn ? { preflightSpawn: opts.preflightSpawn } : {}),
     ...(opts.resolveSpawnProfile ? { resolveSpawnProfile: opts.resolveSpawnProfile } : {}),
     ...(opts.peerMail

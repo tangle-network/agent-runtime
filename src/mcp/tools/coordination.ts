@@ -133,9 +133,130 @@ export type QuestionPolicy = 'auto' | 'mustDecide' | 'bubble' | 'failClosed'
  */
 export type AnalystLensOutput = ReadonlyArray<AnalystFinding> | { readonly summary: string }
 
+/** One lens on the menu `list_analysts` shows and `run_analyst` resolves. */
+export interface AnalystKind {
+  readonly id: string
+  readonly description: string
+  readonly area: string
+}
+
+/**
+ * The trace-tool sets a DEFINED analyst may ask for — the exact group names agent-eval's
+ * `buildTraceToolsForGroup` accepts, restated here so the `define_analyst` JSON Schema can
+ * enumerate them for the model that writes one. Named, not free-form, because the group is the
+ * lens's cost ceiling: `all` grants seven trace tools, `discovery` grants three and no deep reads.
+ * A name eval does not know throws at registration, which is where the two lists are held together.
+ */
+export const analystToolGroupNames = [
+  'all',
+  'discovery',
+  'discoveryAndRead',
+  'discoveryAndSearch',
+  'targeted',
+  'singleTrace',
+] as const
+
+export type AnalystToolGroupName = (typeof analystToolGroupNames)[number]
+
+/** Bounds on the recursive investigation a defined analyst may run. Each field is optional and is
+ *  clamped to {@link ANALYST_DEFINITION_BOUNDS}; omitted fields take the engine's own default. */
+export interface AuthoredAnalystLimits {
+  readonly maxIterations?: number
+  readonly maxLlmCalls?: number
+  readonly maxToolCalls?: number
+  readonly maxOutputChars?: number
+}
+
+/**
+ * A trace analyst a MANAGER authored at run time: the research question, the policy for answering
+ * it, the trace tools it may use, and the model seat it asks for. Data only.
+ *
+ * DATA, NEVER CODE, is the whole safety argument. `TraceAnalystDefinition` (agent-eval) also
+ * carries `prepareContext` and `postProcess` FUNCTIONS; those are host-authored and are deliberately
+ * absent here, because accepting a function from a tool argument would mean executing model-written
+ * code inside the coordination handler — the one thing every other verb in this file refuses. What a
+ * manager can author is exactly what a prompt can say.
+ *
+ * The model seat is PROPOSED, not granted: {@link AnalystRegistry.register} resolves `model` to an
+ * engine and may refuse it, the same way `preflightSpawn` refuses a worker's model route.
+ */
+export interface AuthoredAnalystDefinition {
+  /** Stable lens id. Lowercase, digits and hyphens; it becomes the `kind` passed to `run_analyst`
+   *  and the `analyst_id` on every finding, so it is the attribution key. */
+  readonly id: string
+  /** One line naming what this lens looks for — what `list_analysts` shows the next manager. */
+  readonly description: string
+  /** The finding area this lens reports under (e.g. `coordination`, `tool-use`, `cost`). */
+  readonly area: string
+  /** The research question, in the manager's own words. */
+  readonly question: string
+  /** How to answer it: evidence rules, what counts as a finding, what to refuse to infer. */
+  readonly instructions: string
+  readonly toolGroup: AnalystToolGroupName
+  /** The model seat the lens should run on. Omit to take the run's default analyst engine. */
+  readonly model?: string
+  readonly limits?: AuthoredAnalystLimits
+  /** Minimum distinct evidence citations per finding. Default 1. */
+  readonly minimumEvidenceCitations?: number
+}
+
+/** Every bound `define_analyst` enforces before a definition reaches a registry.
+ *
+ *  MOTIVE, stated as numbers, because a fence whose motive cannot be stated is over-engineering:
+ *  a defined lens spends real model calls from the run's own account on every settle it is routed
+ *  over, and its `instructions` are re-sent on every one of them. So the two fields that multiply
+ *  — `instructions` bytes and `maxLlmCalls` — are the ones with hard ceilings, and the ceilings are
+ *  twice agent-eval's own defaults (`maxIterations` 12, `maxLlmCalls` 8, `maxToolCalls` 48,
+ *  `maxOutputChars` 10_000): enough headroom for a deeper question than the shipped lenses ask,
+ *  not enough for one definition to become the dominant cost of a run. */
+export const ANALYST_DEFINITION_BOUNDS = Object.freeze({
+  idPattern: /^[a-z0-9][a-z0-9-]{1,63}$/,
+  maxDescriptionChars: 300,
+  maxAreaChars: 64,
+  maxQuestionChars: 1_000,
+  maxInstructionsChars: 20_000,
+  maxModelChars: 128,
+  maxIterations: 24,
+  maxLlmCalls: 16,
+  maxToolCalls: 96,
+  maxOutputChars: 20_000,
+  maxEvidenceCitations: 10,
+  /** Lenses ONE manager may define, counting those it defined in a PRIOR process of a durable run.
+   *  This bounds MENU GROWTH, not spend: a definition costs nothing until `run_analyst` is called,
+   *  so the failure it stops is a manager that keeps re-authoring a lens instead of running one —
+   *  each definition adds a line every later `list_analysts` re-reads. Eight is more than the five
+   *  calibrated lenses agent-eval ships. Per-run analyst SPEND is bounded by the conserved pool the
+   *  engine draws from, not here. */
+  maxDefinitionsPerManager: 8,
+})
+
+/** What the coordination layer records when a definition is admitted: the exact accepted bytes, the
+ *  kind the registry returned, and a digest over the definition so a finding can be traced back to
+ *  the words that produced it. */
+export interface DefinedAnalystRecord {
+  readonly definition: AuthoredAnalystDefinition
+  readonly kind: AnalystKind
+  /** Canonical digest of `definition` — the reproducibility key. */
+  readonly digest: string
+  readonly definedAt: number
+}
+
 export interface AnalystRegistry {
-  readonly kinds: ReadonlyArray<{ id: string; description: string; area: string }>
+  readonly kinds: ReadonlyArray<AnalystKind>
   readonly run: (kindId: string, trace: TraceAnalysisStore) => Promise<AnalystLensOutput>
+  /**
+   * OPT-IN: admit a MANAGER-AUTHORED lens while the run is in flight, so a driver can change the
+   * questions asked of its own children's traces instead of picking from a menu fixed before the
+   * run started. Present = `define_analyst` is mounted; absent = the menu is fixed (the status quo).
+   *
+   * The coordination layer validates and bounds the definition first (see
+   * {@link ANALYST_DEFINITION_BOUNDS}) and refuses a duplicate id, so an implementation receives
+   * only well-formed, in-bounds definitions. It returns the {@link AnalystKind} the lens is now
+   * reachable as; `run_analyst` must resolve that id immediately afterwards. THROWING is the
+   * refusal channel — an unavailable model seat, a policy that forbids authored lenses — and the
+   * message reaches the manager as the tool result's `reason`, so it can re-author.
+   */
+  readonly register?: (definition: AuthoredAnalystDefinition) => Promise<AnalystKind> | AnalystKind
 }
 
 /** A trace-analyst result re-entered as a message on the bus (the `finding` event kind). */
@@ -215,6 +336,174 @@ export interface AnalyzeOnSettleRoute {
   /** Restrict which settled workers feed this lens, by profile name or spawn label. Omit =
    *  every settled `done` worker. */
   readonly over?: ReadonlyArray<string>
+}
+
+/** One rejected field of an authored analyst definition: which field, and what is wrong with it. */
+export interface AnalystDefinitionIssue {
+  readonly path: string
+  readonly message: string
+}
+
+/**
+ * Validate and BOUND one `define_analyst` argument.
+ *
+ * Every reason is collected, never short-circuited: a manager re-authoring from a partial list of
+ * complaints spends a turn per complaint. Numeric limits are CLAMPED rather than rejected — asking
+ * for 200 tool calls is a mis-estimate, not a malformed definition, and the accepted value is
+ * returned so the manager reads the ceiling it actually got.
+ */
+export function parseAuthoredAnalystDefinition(
+  raw: unknown,
+): { definition: AuthoredAnalystDefinition } | { issues: ReadonlyArray<AnalystDefinitionIssue> } {
+  const issues: AnalystDefinitionIssue[] = []
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { issues: [{ path: 'definition', message: 'must be an object' }] }
+  }
+  const o = raw as Record<string, unknown>
+  const bounds = ANALYST_DEFINITION_BOUNDS
+
+  const text = (field: string, max: number): string => {
+    const value = o[field]
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      issues.push({ path: field, message: 'is required and must be a non-empty string' })
+      return ''
+    }
+    const trimmed = value.trim()
+    if (trimmed.length > max) {
+      issues.push({
+        path: field,
+        message: `must be at most ${max} characters (received ${trimmed.length})`,
+      })
+      return ''
+    }
+    return trimmed
+  }
+
+  const id = text('id', 64)
+  if (id.length > 0 && !bounds.idPattern.test(id)) {
+    issues.push({
+      path: 'id',
+      message:
+        'must be 2-64 characters of lowercase letters, digits and hyphens, starting with a letter or digit',
+    })
+  }
+  const description = text('description', bounds.maxDescriptionChars)
+  const area = text('area', bounds.maxAreaChars)
+  const question = text('question', bounds.maxQuestionChars)
+  const instructions = text('instructions', bounds.maxInstructionsChars)
+
+  const toolGroup = o.toolGroup
+  if (!(analystToolGroupNames as ReadonlyArray<unknown>).includes(toolGroup)) {
+    issues.push({
+      path: 'toolGroup',
+      message: `must be one of ${analystToolGroupNames.join(', ')}`,
+    })
+  }
+
+  let model: string | undefined
+  if (o.model !== undefined) {
+    if (typeof o.model !== 'string' || o.model.trim().length === 0) {
+      issues.push({ path: 'model', message: 'must be a non-empty string when present' })
+    } else if (o.model.length > bounds.maxModelChars) {
+      issues.push({ path: 'model', message: `must be at most ${bounds.maxModelChars} characters` })
+    } else {
+      model = o.model.trim()
+    }
+  }
+
+  const clampedLimit = (
+    field: keyof AuthoredAnalystLimits,
+    max: number,
+    source: Record<string, unknown>,
+  ): number | undefined => {
+    const value = source[field]
+    if (value === undefined) return undefined
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      issues.push({ path: `limits.${field}`, message: 'must be a positive integer' })
+      return undefined
+    }
+    return Math.min(value, max)
+  }
+  let limits: AuthoredAnalystLimits | undefined
+  if (o.limits !== undefined) {
+    if (!o.limits || typeof o.limits !== 'object' || Array.isArray(o.limits)) {
+      issues.push({ path: 'limits', message: 'must be an object' })
+    } else {
+      const source = o.limits as Record<string, unknown>
+      const knownLimits = new Set([
+        'maxIterations',
+        'maxLlmCalls',
+        'maxToolCalls',
+        'maxOutputChars',
+      ])
+      for (const key of Object.keys(source)) {
+        if (!knownLimits.has(key)) {
+          issues.push({
+            path: `limits.${key}`,
+            message: `is not an investigation limit (accepted: ${[...knownLimits].join(', ')})`,
+          })
+        }
+      }
+      const maxIterations = clampedLimit('maxIterations', bounds.maxIterations, source)
+      const maxLlmCalls = clampedLimit('maxLlmCalls', bounds.maxLlmCalls, source)
+      const maxToolCalls = clampedLimit('maxToolCalls', bounds.maxToolCalls, source)
+      const maxOutputChars = clampedLimit('maxOutputChars', bounds.maxOutputChars, source)
+      const present = {
+        ...(maxIterations === undefined ? {} : { maxIterations }),
+        ...(maxLlmCalls === undefined ? {} : { maxLlmCalls }),
+        ...(maxToolCalls === undefined ? {} : { maxToolCalls }),
+        ...(maxOutputChars === undefined ? {} : { maxOutputChars }),
+      }
+      if (Object.keys(present).length > 0) limits = present
+    }
+  }
+
+  let minimumEvidenceCitations: number | undefined
+  if (o.minimumEvidenceCitations !== undefined) {
+    const value = o.minimumEvidenceCitations
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+      issues.push({ path: 'minimumEvidenceCitations', message: 'must be a positive integer' })
+    } else {
+      minimumEvidenceCitations = Math.min(value, bounds.maxEvidenceCitations)
+    }
+  }
+
+  // A field this contract does not name is refused rather than dropped: a manager that passed
+  // `prepareContext` must learn the lens will not run its code, not silently get a lens without it.
+  const known = new Set([
+    'id',
+    'description',
+    'area',
+    'question',
+    'instructions',
+    'toolGroup',
+    'model',
+    'limits',
+    'minimumEvidenceCitations',
+  ])
+  for (const key of Object.keys(o)) {
+    if (!known.has(key)) {
+      issues.push({
+        path: key,
+        message: `is not part of an authored analyst definition (accepted: ${[...known].join(', ')})`,
+      })
+    }
+  }
+
+  if (issues.length > 0) return { issues }
+  return {
+    definition: Object.freeze({
+      id,
+      description,
+      area,
+      question,
+      instructions,
+      toolGroup: toolGroup as AnalystToolGroupName,
+      ...(model === undefined ? {} : { model }),
+      ...(limits === undefined ? {} : { limits: Object.freeze(limits) }),
+      ...(minimumEvidenceCitations === undefined ? {} : { minimumEvidenceCitations }),
+    }),
+  }
 }
 
 /** Normalize the two spellings of an analyst-on-settle entry to the route form. */
@@ -398,6 +687,11 @@ export type CoordinationEvent =
    *  asker already holds the outcome, and an escalation is evidence for the operator, not an item
    *  in the inbox the manager pulls from. */
   | { readonly type: 'escalation'; readonly escalation: QuestionEscalationRecord }
+  /** A manager DEFINED a trace analyst (`define_analyst`). Record-only: the manager already has the
+   *  result in its tool return, so queueing it would put its own action in its own inbox. It is the
+   *  run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
+   *  owner the durable log stamps beside them. */
+  | { readonly type: 'analyst-defined'; readonly analyst: DefinedAnalystRecord }
 
 /** Immutable task, allocation, identity attribution, and semantic key supplied while a manager's
  * complete worker profile is prepared for one spawn. */
@@ -611,6 +905,20 @@ export interface CoordinationToolsOptions {
    * are never re-published on the bus: they are evidence, not events to react to.
    */
   readonly priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
+  /** Hard cap on lenses THIS manager may define through `define_analyst`. Omit =
+   *  `ANALYST_DEFINITION_BOUNDS.maxDefinitionsPerManager`; `<= 0` = no cap. Reached, the verb
+   *  refuses with `error: 'max-defined-analysts'` and names the cap, so a manager that has been
+   *  defining instead of investigating reads why. */
+  readonly maxDefinedAnalysts?: number
+  /**
+   * Lenses this manager DEFINED in a prior process of the same durable run
+   * (`PriorCoordination.analystDefinitions`). Seeded verbatim: they are on the menu again, they
+   * count against {@link CoordinationToolsOptions.maxDefinedAnalysts}, and re-defining one is a
+   * `duplicate-analyst` refusal rather than a silent second registration. Re-registering them with
+   * the analyst registry is the owner's decision, because the registry may have changed between
+   * processes; this option only restores what the manager is allowed to believe it already wrote.
+   */
+  readonly priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
 }
 
 /** Why a pre-flight refused a spawn. Each cause is a distinct, separately countable decision. */
@@ -703,6 +1011,7 @@ export const journalEventKinds = [
   'delivery-attempt',
   'mail',
   'escalation',
+  'analyst-defined',
 ] as const satisfies ReadonlyArray<CoordinationEvent['type']>
 
 export type JournalEventKind = (typeof journalEventKinds)[number]
@@ -785,6 +1094,9 @@ export interface CoordinationTools {
   /** Every `ask_parent` escalation and what became of it, in raise order. An undelivered one is a
    *  question this run raised and nothing answered — the operator's read of a run that went quiet. */
   escalations(): ReadonlyArray<QuestionEscalationRecord>
+  /** Every lens this manager defined at run time, in definition order — the same records published
+   *  as `analyst-defined` events. Empty when the registry admits no authored lens. */
+  definedAnalysts(): ReadonlyArray<DefinedAnalystRecord>
   /** The full ordered log of every bus event — UP (settled / question / finding), authorized
    *  instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
    *  timestamp, and priority. A receipt is evidence and is never auto-delivered on restart. */
@@ -857,6 +1169,7 @@ export const coordinationVerbNames = [
   'read_journal',
   'list_analysts',
   'run_analyst',
+  'define_analyst',
 ] as const
 
 /**
@@ -1893,6 +2206,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     if (ev.type === 'mail') return { type: 'mail', ...ev.mail }
     // Record-only like mail, and with no `down` leg, so it is projected explicitly.
     if (ev.type === 'escalation') return { type: 'escalation', ...ev.escalation }
+    // A definition is record-only for the same reason, and carries no `down` leg either.
+    if (ev.type === 'analyst-defined') return { type: 'analyst-defined', ...ev.analyst }
     // Down-leg `steer` is record-only (never queued), so the driver never pulls it; project
     // defensively for completeness.
     return { type: ev.type, ...ev.down }
@@ -2191,6 +2506,74 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
       bounds: { sinceRow, limit, maxBytes, usedBytes },
       priorRows: priorJournal.length,
     }
+  }
+
+  // ── define_analyst ────────────────────────────────────────────────────────────
+  //
+  // A manager writes a lens; this layer bounds it, refuses a name already taken, hands it to the
+  // registry, journals what was admitted, and adds it to the menu. Refusals are tool RESULTS with a
+  // named cause, the same vocabulary `spawn_worker` uses, because a manager that cannot read WHY a
+  // definition was refused re-submits the same one.
+  const definedAnalysts: DefinedAnalystRecord[] = [...(opts.priorAnalystDefinitions ?? [])]
+  const analystMenu = (): ReadonlyArray<AnalystKind> => [
+    ...(opts.analysts?.kinds ?? []),
+    ...definedAnalysts.map((record) => record.kind),
+  ]
+  const maxDefinedAnalysts =
+    opts.maxDefinedAnalysts ?? ANALYST_DEFINITION_BOUNDS.maxDefinitionsPerManager
+  const defineAnalyst = async (raw: unknown): Promise<unknown> => {
+    const register = opts.analysts?.register
+    if (register === undefined) {
+      return {
+        error: 'authoring-unavailable' as const,
+        reason: "this run's analyst registry admits no authored lens",
+      }
+    }
+    if (maxDefinedAnalysts > 0 && definedAnalysts.length >= maxDefinedAnalysts) {
+      return {
+        error: 'max-defined-analysts' as const,
+        reason: `you have defined ${definedAnalysts.length} lenses, the cap for this manager; run the ones you have instead of defining more`,
+        defined: definedAnalysts.map((record) => record.kind.id),
+      }
+    }
+    const parsed = parseAuthoredAnalystDefinition(raw)
+    if ('issues' in parsed) {
+      return {
+        error: 'invalid-definition' as const,
+        reason: parsed.issues.map((issue) => `${issue.path} ${issue.message}`).join('; '),
+        issues: parsed.issues,
+      }
+    }
+    const { definition } = parsed
+    const taken = analystMenu().find((kind) => kind.id === definition.id)
+    if (taken !== undefined) {
+      return {
+        error: 'duplicate-analyst' as const,
+        reason: `the lens id ${JSON.stringify(definition.id)} is already on the menu (${taken.description}); choose a different id or run the existing lens`,
+      }
+    }
+    let kind: AnalystKind
+    try {
+      kind = await register(definition)
+    } catch (error) {
+      // The registry is the authority on the model seat and on whether an authored lens is allowed
+      // at all. Its message is the manager's re-authoring instruction, so it is passed through.
+      return {
+        error: 'register-refused' as const,
+        reason: error instanceof Error ? error.message : String(error),
+      }
+    }
+    const record: DefinedAnalystRecord = Object.freeze({
+      definition,
+      kind: Object.freeze({ id: kind.id, description: kind.description, area: kind.area }),
+      digest: canonicalCandidateDigest(definition),
+      definedAt: Date.now(),
+    })
+    definedAnalysts.push(record)
+    // Record-only: the manager already holds this result, and its own action does not belong in the
+    // inbox it pulls from. The event is the durable artifact — the log stamps the owner beside it.
+    await bus.publish({ type: 'analyst-defined', analyst: record }, { queue: false })
+    return { analyst: record.kind, digest: record.digest, defined: definedAnalysts.length }
   }
 
   // A supervised tree exposes one shared capacity reading; a caller-owned legacy scope falls back
@@ -3073,9 +3456,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
   if (opts.analysts) {
     tools.push({
       name: 'list_analysts',
-      description: 'List trace-analyst lenses available to run over a settled worker.',
+      description:
+        'List trace-analyst lenses available to run over a settled worker — the ones this run was ' +
+        'given plus any you defined with define_analyst.',
       inputSchema: { type: 'object', properties: {} },
-      handler: () => Promise.resolve({ analysts: opts.analysts?.kinds }),
+      handler: () => Promise.resolve({ analysts: analystMenu() }),
     })
     tools.push({
       name: 'run_analyst',
@@ -3120,9 +3505,106 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
             trace,
           }
         }
-        return { findings: await opts.analysts?.run(str(a.kind, 'kind'), store) }
+        // The registry a run installs is SHARED by every manager in the tree, and a lens one
+        // manager defined is registered in it. Without this fence a sibling could run a lens it was
+        // never shown, spending the run's account on another manager's authored instructions. The
+        // menu is the grant: a kind not on it is refused here, before the registry is asked.
+        const kind = str(a.kind, 'kind')
+        if (!analystMenu().some((entry) => entry.id === kind)) {
+          return {
+            error: 'unknown-analyst' as const,
+            reason: `no lens named ${JSON.stringify(kind)} is on this manager's menu; call list_analysts to see what you may run`,
+          }
+        }
+        return { findings: await opts.analysts?.run(kind, store) }
       },
     })
+    if (opts.analysts.register) {
+      tools.push({
+        name: 'define_analyst',
+        description: [
+          'Define a NEW trace-analyst lens for this run, then run it with run_analyst like any',
+          'other. You write the research question, the policy for answering it, which trace tools',
+          'it may use, and the model seat — data only, never code. The definition is journaled, so',
+          'the lens you invented is reproducible and attributed to you.',
+        ].join(' '),
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: {
+              type: 'string',
+              description:
+                'Stable lens id: lowercase letters, digits and hyphens, 2-64 characters. It is the `kind` you pass to run_analyst and the analyst_id on every finding.',
+            },
+            description: {
+              type: 'string',
+              description: `One line naming what this lens looks for. At most ${ANALYST_DEFINITION_BOUNDS.maxDescriptionChars} characters.`,
+            },
+            area: {
+              type: 'string',
+              description:
+                'The finding area this lens reports under, e.g. coordination, tool-use, cost.',
+            },
+            question: {
+              type: 'string',
+              description: `The research question, in your own words. At most ${ANALYST_DEFINITION_BOUNDS.maxQuestionChars} characters.`,
+            },
+            instructions: {
+              type: 'string',
+              description: `How to answer it: evidence rules, what counts as a finding, what to refuse to infer. At most ${ANALYST_DEFINITION_BOUNDS.maxInstructionsChars} characters.`,
+            },
+            toolGroup: {
+              type: 'string',
+              enum: [...analystToolGroupNames],
+              description:
+                'Smallest trace-tool set that can answer the question. discovery = overview/query/count only; discoveryAndRead adds deep reads; discoveryAndSearch adds regex; targeted and singleTrace narrow further; all grants every trace tool.',
+            },
+            model: {
+              type: 'string',
+              description:
+                'The model seat this lens should run on. Omit for the run default. It is a request: registration may refuse a seat this run cannot serve.',
+            },
+            limits: {
+              type: 'object',
+              properties: {
+                maxIterations: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: ANALYST_DEFINITION_BOUNDS.maxIterations,
+                },
+                maxLlmCalls: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: ANALYST_DEFINITION_BOUNDS.maxLlmCalls,
+                },
+                maxToolCalls: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: ANALYST_DEFINITION_BOUNDS.maxToolCalls,
+                },
+                maxOutputChars: {
+                  type: 'integer',
+                  minimum: 1,
+                  maximum: ANALYST_DEFINITION_BOUNDS.maxOutputChars,
+                },
+              },
+              additionalProperties: false,
+              description:
+                'Investigation ceilings. Values above the maximum are clamped, not refused.',
+            },
+            minimumEvidenceCitations: {
+              type: 'integer',
+              minimum: 1,
+              maximum: ANALYST_DEFINITION_BOUNDS.maxEvidenceCitations,
+              description: 'Distinct evidence citations required per finding. Default 1.',
+            },
+          },
+          required: ['id', 'description', 'area', 'question', 'instructions', 'toolGroup'],
+          additionalProperties: false,
+        },
+        handler: async (raw) => defineAnalyst(raw),
+      })
+    }
   }
 
   // Per-child abort by stable reference. Resolution order matches the steer destination rule
@@ -3163,6 +3645,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     settled: () => ledger,
     questions: () => questions,
     escalations: () => escalations,
+    definedAnalysts: () => definedAnalysts,
     drainResolved,
     abortWorker,
     ...(peerMail ? { peerMail } : {}),
