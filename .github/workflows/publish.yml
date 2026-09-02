@@ -239,6 +239,10 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-runtime'
       EXPECTED_VERSION: ${{ needs.verify.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify.outputs.package-sha256 }}
+      # Attest every publish on both the OIDC path and the token fallback. The
+      # `--provenance` flag says the same thing; the variable also covers a
+      # publish an npm lifecycle script starts.
+      NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -249,15 +253,40 @@ jobs:
           name: agent-runtime-package
           path: ${{ runner.temp }}/agent-runtime-package
 
-      # Node 24.18.0 bundles npm 11.16.0, which supports trusted publishing.
-      # This job has no source checkout and runs no dependency or package build.
+
+      # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
+      # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over
+      # OIDC (agent-sdk #284: a repo token whose package scope missed three
+      # packages made every publish 404 on the PUT), so leave it unset.
+      - name: Configure npm auth (OIDC by default, token only when set)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # An empty _authToken line also blocks the exchange, which is why this
+          # job takes no setup-node registry-url. Drop any such line, then write
+          # one back only for a real token.
+          sed -i '/_authToken/d' "$HOME/.npmrc" 2>/dev/null || true
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            npm config set --location=user //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            echo 'NPM_TOKEN is set: publishing with the token fallback, still attested.'
+          else
+            echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
+          fi
+
+      # Node 24.18.0 bundles npm 11.16.0, above the 11.5.1 trusted-publishing
+      # floor. This job has no source checkout and runs no dependency or package
+      # build, so the bundled CLI is the one that does the OIDC exchange.
       # Requires the npmjs Trusted Publisher: org tangle-network, repo
-      # agent-runtime, workflow publish.yml.
+      # agent-runtime, workflow publish.yml, no environment.
       - name: Publish exact Runtime archive
         run: |
           npm_version=$(npm --version)
-          if [[ "$npm_version" != 11.* ]]; then
-            echo "::error::Expected npm 11, received $npm_version."
+          # The OIDC exchange needs npm >= 11.5.1, and npm 12.0.0 ships a
+          # provenance publish that fails with MODULE_NOT_FOUND for sigstore, so
+          # accept only the 11.x line at or above the floor.
+          if [[ "$npm_version" != 11.* ]] ||
+             [ "$(printf '%s\n%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" != 11.5.1 ]; then
+            echo "::error::Expected npm >= 11.5.1 and < 12, received $npm_version."
             exit 1
           fi
           mapfile -t packages < <(find "$RUNNER_TEMP/agent-runtime-package" -maxdepth 1 -type f -name '*.tgz' -print)
@@ -379,6 +408,10 @@ jobs:
       EXPECTED_NAME: '@tangle-network/agent-bench'
       EXPECTED_VERSION: ${{ needs.verify-agent-bench.outputs.release-version }}
       EXPECTED_SHA256: ${{ needs.verify-agent-bench.outputs.package-sha256 }}
+      # Attest every publish on both the OIDC path and the token fallback. The
+      # `--provenance` flag says the same thing; the variable also covers a
+      # publish an npm lifecycle script starts.
+      NPM_CONFIG_PROVENANCE: 'true'
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -389,13 +422,38 @@ jobs:
           name: agent-bench-package
           path: ${{ runner.temp }}/agent-bench-package
 
+
+      # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
+      # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over
+      # OIDC (agent-sdk #284: a repo token whose package scope missed three
+      # packages made every publish 404 on the PUT), so leave it unset.
+      - name: Configure npm auth (OIDC by default, token only when set)
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # An empty _authToken line also blocks the exchange, which is why this
+          # job takes no setup-node registry-url. Drop any such line, then write
+          # one back only for a real token.
+          sed -i '/_authToken/d' "$HOME/.npmrc" 2>/dev/null || true
+          if [ -n "${NPM_TOKEN:-}" ]; then
+            npm config set --location=user //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+            echo 'NPM_TOKEN is set: publishing with the token fallback, still attested.'
+          else
+            echo 'No NPM_TOKEN: publishing through npm trusted publishing (OIDC).'
+          fi
+
       - name: Publish exact agent-bench archive
         run: |
           # Requires the npmjs Trusted Publisher on @tangle-network/agent-bench:
-          # org tangle-network, repo agent-runtime, workflow publish.yml.
+          # org tangle-network, repo agent-runtime, workflow publish.yml, no
+          # environment.
           npm_version=$(npm --version)
-          if [[ "$npm_version" != 11.* ]]; then
-            echo "::error::Expected npm 11, received $npm_version."
+          # The OIDC exchange needs npm >= 11.5.1, and npm 12.0.0 ships a
+          # provenance publish that fails with MODULE_NOT_FOUND for sigstore, so
+          # accept only the 11.x line at or above the floor.
+          if [[ "$npm_version" != 11.* ]] ||
+             [ "$(printf '%s\n%s\n' 11.5.1 "$npm_version" | sort -V | head -1)" != 11.5.1 ]; then
+            echo "::error::Expected npm >= 11.5.1 and < 12, received $npm_version."
             exit 1
           fi
           mapfile -t packages < <(find "$RUNNER_TEMP/agent-bench-package" -maxdepth 1 -type f -name '*.tgz' -print)
