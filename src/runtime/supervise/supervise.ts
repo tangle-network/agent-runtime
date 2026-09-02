@@ -1858,12 +1858,17 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
               }),
         })
 
+  // Rebuilt field by field so a caller's mutable registry object cannot be held live. EVERY
+  // callable field must be listed: an omitted one is silently dropped at intake and the capability
+  // it carries disappears from every manager in the tree with no type error, because the field is
+  // optional. `register` is what mounts `define_analyst`.
   const capturedAnalysts =
     analysts === undefined || typeof analysts === 'string'
       ? analysts
       : Object.freeze({
           kinds: detachedSnapshot(analysts.kinds, 'supervise analyst kinds'),
           run: analysts.run,
+          ...(typeof analysts.register === 'function' ? { register: analysts.register } : {}),
         })
 
   return Object.freeze({

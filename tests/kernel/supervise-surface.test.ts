@@ -10,6 +10,7 @@ import {
 } from '@tangle-network/agent-eval'
 import { describe, expect, it } from 'vitest'
 import type { AnalystRegistryLike } from '../../src/analyst-loop/types'
+import type { AuthoredAnalystDefinition } from '../../src/mcp/tools/coordination'
 import type { AgenticSurface, AgenticTask } from '../../src/runtime/strategy'
 import {
   analystsFromRegistry,
@@ -222,5 +223,100 @@ describe('analystsFromRegistry — the eval registry as a supervise lens', () =>
     expect(lens.kinds).toHaveLength(DEFAULT_TRACE_ANALYST_KINDS.length)
     const findings = await lens.run('failure-mode', toolSpansToTraceAnalysisStore([span]))
     expect(Array.isArray(findings)).toBe(true)
+  })
+
+  const testEngine = (id = 'mock-engine'): TraceAnalysisEngine => ({
+    id,
+    description: 'deterministic test engine',
+    version: '1',
+    executionConfig: { mode: 'test' },
+    analyze: async () => ({
+      answer: 'ok',
+      findings: [],
+      steps: [],
+      usage: { input_tokens: 1, output_tokens: 1, cost_usd: 0 },
+    }),
+  })
+
+  const authored: AuthoredAnalystDefinition = {
+    id: 'handoff-loss',
+    description: 'Did a worker lose context the parent had already established?',
+    area: 'coordination',
+    question: 'Where did a child re-derive a fact its parent had already given it?',
+    instructions: 'Read every tool span. Cite the span that shows the re-derivation.',
+    toolGroup: 'discoveryAndRead',
+  }
+
+  it('grants no register without `authoring` — the menu stays fixed by default', () => {
+    expect(analystsFromRegistry(fakeRegistry()).register).toBeUndefined()
+  })
+
+  it('refuses `authoring` on a registry that cannot register', () => {
+    expect(() =>
+      analystsFromRegistry(fakeRegistry(), DEFAULT_TRACE_ANALYST_KINDS, {
+        authoring: { resolveEngine: () => testEngine() },
+      }),
+    ).toThrow(/needs a registry with `register`/)
+  })
+
+  it('compiles an authored definition into a runnable eval analyst, versioned by its own digest', async () => {
+    const registry = buildDefaultAnalystRegistry({ engine: testEngine() })
+    const seats: Array<string | undefined> = []
+    const lens = analystsFromRegistry(registry, DEFAULT_TRACE_ANALYST_KINDS, {
+      authoring: {
+        resolveEngine: (model) => {
+          seats.push(model)
+          return testEngine(model === undefined ? 'default-seat' : `seat-${model}`)
+        },
+      },
+    })
+    expect(lens.register).toBeDefined()
+
+    const seated: AuthoredAnalystDefinition = { ...authored, model: 'anthropic/claude-opus-4' }
+    const kind = await lens.register?.(seated)
+    expect(kind).toEqual({
+      id: 'handoff-loss',
+      description: authored.description,
+      area: 'coordination',
+    })
+    expect(seats).toEqual(['anthropic/claude-opus-4'])
+
+    // Registered under the id the manager chose, at a version derived from the definition itself —
+    // the same words always compile to the same version, so a finding names the exact text.
+    const entry = registry.list().find((analyst) => analyst.id === 'handoff-loss')
+    expect(entry?.version).toMatch(/^1\.0\.0\+authored\.[0-9a-f]{12}$/)
+
+    const again = buildDefaultAnalystRegistry({ engine: testEngine() })
+    await analystsFromRegistry(again, DEFAULT_TRACE_ANALYST_KINDS, {
+      authoring: { resolveEngine: () => testEngine() },
+    }).register?.(seated)
+    expect(again.list().find((analyst) => analyst.id === 'handoff-loss')?.version).toBe(
+      entry?.version,
+    )
+
+    // And it runs through the same lens path every shipped kind runs through.
+    const produced = await lens.run('handoff-loss', toolSpansToTraceAnalysisStore([span]))
+    expect(Array.isArray(produced)).toBe(true)
+  })
+
+  it('a refused model seat throws out of register, so the caller can report the reason', async () => {
+    const lens = analystsFromRegistry(
+      buildDefaultAnalystRegistry({ engine: testEngine() }),
+      DEFAULT_TRACE_ANALYST_KINDS,
+      {
+        authoring: {
+          resolveEngine: (model) => {
+            if (model !== undefined)
+              throw new Error(`no engine serves model ${JSON.stringify(model)}`)
+            return testEngine()
+          },
+        },
+      },
+    )
+    // `register` may be synchronous, so the refusal is a THROW. The coordination layer awaits it
+    // inside a try/catch and reports the message as the manager's refusal reason either way.
+    expect(() => lens.register?.({ ...authored, model: 'gpt-9' })).toThrow(
+      /no engine serves model "gpt-9"/,
+    )
   })
 })

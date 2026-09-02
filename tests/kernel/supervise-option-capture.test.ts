@@ -87,6 +87,33 @@ describe('captureSuperviseOptions carries every callback option', () => {
     expect(SUPERVISE_EXECUTABLE_OPTION_KEYS).toContain('escalateQuestion')
   })
 
+  it('carries every callable field of the analysts registry, register included', () => {
+    // The SAME defect one level down. `analysts` is an OBJECT option, so the capture rebuilds it
+    // field by field and the callback test above cannot see inside it. `register` is optional, so
+    // omitting it from that rebuild is not a type error — it silently unmounts `define_analyst` on
+    // every manager in the tree while `analystsFromRegistry(..., { authoring })` still looks wired.
+    const run = async () => []
+    const register = (definition: { id: string; description: string; area: string }) => ({
+      id: definition.id,
+      description: definition.description,
+      area: definition.area,
+    })
+    const captured = captureSuperviseOptions({
+      ...baseOptions(),
+      analysts: { kinds: [{ id: 'k', description: 'd', area: 'a' }], run, register },
+    })
+    const analysts = captured.analysts as { run: unknown; register: unknown }
+    expect(analysts.run, 'captureSuperviseOptions dropped analysts.run').toBe(run)
+    expect(analysts.register, 'captureSuperviseOptions dropped analysts.register').toBe(register)
+
+    // A registry with no `register` stays without one: the verb is opt-in.
+    const fixed = captureSuperviseOptions({
+      ...baseOptions(),
+      analysts: { kinds: [{ id: 'k', description: 'd', area: 'a' }], run },
+    })
+    expect((fixed.analysts as { register?: unknown }).register).toBeUndefined()
+  })
+
   it('names the option when a callback still reaches the snapshot', () => {
     // The guard that makes the next occurrence a five-second fix. A widened value is the only way
     // to reach it: the option-key check refuses an unknown name first, and every DECLARED callback

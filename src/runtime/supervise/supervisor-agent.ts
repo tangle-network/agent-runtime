@@ -251,6 +251,9 @@ export interface CoordinationVerbs {
   /** This manager's OWN coordination journal, paged and redacted. A read, so a program may consult
    *  what it already did without spending a model turn on it. */
   readJournal(args: unknown): Promise<unknown>
+  /** Define a new trace-analyst lens for this run. Composition, not lifecycle: a program may define
+   *  a lens and run it over the children it just joined, inside one model turn. */
+  defineAnalyst(args: unknown): Promise<unknown>
 }
 
 /** Trusted context for one product-tool invocation. The node identity remains the same detached,
@@ -318,6 +321,7 @@ function createVerbSlot(): VerbSlot {
       answerQuestion: verb('answer_question'),
       runAnalyst: verb('run_analyst'),
       readJournal: verb('read_journal'),
+      defineAnalyst: verb('define_analyst'),
     }),
     descriptors(): ReadonlyArray<CoordinationToolFace> {
       if (bound === undefined) {
@@ -890,6 +894,9 @@ function buildSupervisorAgent(
           ? { priorEscalations: priorCoordination.escalations }
           : {}),
         ...(priorCoordination?.records.length ? { priorJournal: priorCoordination.records } : {}),
+        ...(priorCoordination?.analystDefinitions?.length
+          ? { priorAnalystDefinitions: priorCoordination.analystDefinitions }
+          : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
         onCoordinationTools: (tools) => slot.bind(tools),
       })

@@ -913,6 +913,9 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         ...(opts.priorCoordination?.records.length
           ? { priorJournal: opts.priorCoordination.records }
           : {}),
+        ...(opts.priorCoordination?.analystDefinitions?.length
+          ? { priorAnalystDefinitions: opts.priorCoordination.analystDefinitions }
+          : {}),
       })
       await coord.ready()
       // Before the first brain turn: a node tool invoked on turn one must already be able to call

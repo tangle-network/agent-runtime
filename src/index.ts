@@ -204,7 +204,9 @@ export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
 // `createSupervisor`, `runAgentRounds`, the combinators) from that subpath.
 export type {
   AgentSpec,
+  AnalystKind,
   AnalystRegistry,
+  AuthoredAnalystDefinition,
   Budget,
   CoordinationEvent,
   Driver,

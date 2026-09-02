@@ -2,6 +2,40 @@
 
 ## 0.191.0
 
+### A manager authors its own trace lens
+
+`AnalystRegistry` was `{ kinds, run }` with no way to add a kind, so the menu of lenses a manager could apply to its children's traces was fixed before `supervise()` started.
+`define_analyst` mounts beside `list_analysts` / `run_analyst` whenever the registry carries the new optional `register`, and its argument is a declarative definition:
+
+```ts
+define_analyst({
+  id: 'handoff-loss',
+  description: 'Did a worker lose context the parent had already established?',
+  area: 'coordination',
+  question: 'Where did a child re-derive a fact its parent had already given it?',
+  instructions: 'Read every tool span. Cite the span that shows the re-derivation.',
+  toolGroup: 'discoveryAndRead',
+  model: 'anthropic/claude-opus-4',
+})
+```
+
+DATA, NEVER CODE.
+`TraceAnalystDefinition` also carries `prepareContext` and `postProcess` functions; those stay host-authored, because accepting a function from a tool argument would run model-written code inside a coordination handler.
+A field the contract does not name is refused, not dropped — inside `limits` as well as at the top level.
+
+`ANALYST_DEFINITION_BOUNDS` is enforced before any registry sees a definition: field byte ceilings, a `toolGroup` enum, investigation ceilings at twice agent-eval's own defaults, and a per-manager cap of eight that survives a resume.
+Numeric limits are clamped rather than refused.
+Every refusal is a tool result with a named cause and a `reason` the manager can re-author from — `invalid-definition` reports every failing field at once, and `register-refused` passes the registry's own message through, so a rejected model seat reaches the model that asked for it.
+`run_analyst` refuses a kind that is not on THIS manager's menu, because the registry is shared by the whole tree and the menu is the grant.
+
+Every accepted definition publishes an `analyst-defined` coordination event: the exact authored bytes, the kind admitted, and a canonical digest.
+`FileCoordinationLog` persists it and `PriorCoordination.analystDefinitions` replays it, so an invented lens is reproducible and attributed to its owner.
+
+`analystsFromRegistry` gains `authoring`, which compiles an authored definition through `createTraceAnalyst` and registers it.
+The analyst version is derived from the definition's own digest, so the same words always compile to the same version and a finding names the exact text that produced it.
+
+`defineAnalyst` joins `CoordinationVerbs` and the code-mode API, and `supervisorInstructions()` teaches the verb.
+
 ### A manager can read its own run
 
 `read_journal` returns this manager's own coordination journal — every spawn it made, every worker that settled, every question raised or decided, every steer it authorized, every analyst finding — oldest first.

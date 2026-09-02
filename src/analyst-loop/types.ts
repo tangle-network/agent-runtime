@@ -12,6 +12,7 @@
  */
 
 import type {
+  Analyst,
   AnalystFinding,
   AnalystRunEvent,
   AnalystRunInputs,
@@ -146,6 +147,16 @@ export interface AnalystRegistryLike {
       [k: string]: unknown
     },
   ): Promise<AnalystRunResult>
+}
+
+/**
+ * Narrow the registry further when a MANAGER may define a lens mid-run: authoring needs `register`
+ * in addition to `list` / `run`. Separate from {@link AnalystRegistryLike} so a registry that only
+ * reads stays assignable where nothing registers, and so a caller that wires `define_analyst` is
+ * required to prove it passed a registry that can accept one. The real class satisfies it trivially.
+ */
+export interface AnalystRegistryAuthoringLike extends AnalystRegistryLike {
+  register(analyst: Analyst): void
 }
 
 /** Narrowed shape we accept for `FindingsStore`. */

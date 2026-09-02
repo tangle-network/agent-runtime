@@ -7385,13 +7385,102 @@ Max research rounds (correct-on-veto remediation). Default 1.
 
 ***
 
+### AnalystKind
+
+One lens on the menu `list_analysts` shows and `run_analyst` resolves.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+##### description
+
+> `readonly` **description**: `string`
+
+##### area
+
+> `readonly` **area**: `string`
+
+***
+
+### AuthoredAnalystDefinition
+
+A trace analyst a MANAGER authored at run time: the research question, the policy for answering
+it, the trace tools it may use, and the model seat it asks for. Data only.
+
+DATA, NEVER CODE, is the whole safety argument. `TraceAnalystDefinition` (agent-eval) also
+carries `prepareContext` and `postProcess` FUNCTIONS; those are host-authored and are deliberately
+absent here, because accepting a function from a tool argument would mean executing model-written
+code inside the coordination handler — the one thing every other verb in this file refuses. What a
+manager can author is exactly what a prompt can say.
+
+The model seat is PROPOSED, not granted: [AnalystRegistry.register](#register) resolves `model` to an
+engine and may refuse it, the same way `preflightSpawn` refuses a worker's model route.
+
+#### Properties
+
+##### id
+
+> `readonly` **id**: `string`
+
+Stable lens id. Lowercase, digits and hyphens; it becomes the `kind` passed to `run_analyst`
+ and the `analyst_id` on every finding, so it is the attribution key.
+
+##### description
+
+> `readonly` **description**: `string`
+
+One line naming what this lens looks for — what `list_analysts` shows the next manager.
+
+##### area
+
+> `readonly` **area**: `string`
+
+The finding area this lens reports under (e.g. `coordination`, `tool-use`, `cost`).
+
+##### question
+
+> `readonly` **question**: `string`
+
+The research question, in the manager's own words.
+
+##### instructions
+
+> `readonly` **instructions**: `string`
+
+How to answer it: evidence rules, what counts as a finding, what to refuse to infer.
+
+##### toolGroup
+
+> `readonly` **toolGroup**: `"all"` \| `"discovery"` \| `"discoveryAndRead"` \| `"discoveryAndSearch"` \| `"targeted"` \| `"singleTrace"`
+
+##### model?
+
+> `readonly` `optional` **model?**: `string`
+
+The model seat the lens should run on. Omit to take the run's default analyst engine.
+
+##### limits?
+
+> `readonly` `optional` **limits?**: [`AuthoredAnalystLimits`](runtime.md#authoredanalystlimits)
+
+##### minimumEvidenceCitations?
+
+> `readonly` `optional` **minimumEvidenceCitations?**: `number`
+
+Minimum distinct evidence citations per finding. Default 1.
+
+***
+
 ### AnalystRegistry
 
 #### Properties
 
 ##### kinds
 
-> `readonly` **kinds**: readonly `object`[]
+> `readonly` **kinds**: readonly [`AnalystKind`](#analystkind)[]
 
 ##### run
 
@@ -7410,6 +7499,31 @@ Max research rounds (correct-on-veto remediation). Default 1.
 ###### Returns
 
 `Promise`\<[`AnalystLensOutput`](runtime.md#analystlensoutput)\>
+
+##### register?
+
+> `readonly` `optional` **register?**: (`definition`) => [`AnalystKind`](#analystkind) \| `Promise`\<[`AnalystKind`](#analystkind)\>
+
+OPT-IN: admit a MANAGER-AUTHORED lens while the run is in flight, so a driver can change the
+questions asked of its own children's traces instead of picking from a menu fixed before the
+run started. Present = `define_analyst` is mounted; absent = the menu is fixed (the status quo).
+
+The coordination layer validates and bounds the definition first (see
+[ANALYST\_DEFINITION\_BOUNDS](mcp.md#analyst_definition_bounds)) and refuses a duplicate id, so an implementation receives
+only well-formed, in-bounds definitions. It returns the [AnalystKind](#analystkind) the lens is now
+reachable as; `run_analyst` must resolve that id immediately afterwards. THROWING is the
+refusal channel — an unavailable model seat, a policy that forbids authored lenses — and the
+message reaches the manager as the tool result's `reason`, so it can re-author.
+
+###### Parameters
+
+###### definition
+
+[`AuthoredAnalystDefinition`](#authoredanalystdefinition)
+
+###### Returns
+
+[`AnalystKind`](#analystkind) \| `Promise`\<[`AnalystKind`](#analystkind)\>
 
 ***
 
@@ -12236,7 +12350,7 @@ Mode → configured runner. Partial: only register the modes a
 
 ### CoordinationEvent
 
-> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](runtime.md#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](runtime.md#questionescalationrecord); \}
+> **CoordinationEvent** = \{ `type`: `"question"`; `question`: [`QuestionRecord`](mcp.md#questionrecord); \} \| \{ `type`: `"settled"`; `worker`: [`SettledWorker`](mcp.md#settledworker); \} \| \{ `type`: `"finding"`; `finding`: [`AnalystFindingEvent`](runtime.md#analystfindingevent); \} \| \{ `type`: `"steer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `analyst?`: `string`; \} \| \{ `type`: `"answer"`; `down`: [`DownMessageEvent`](runtime.md#downmessageevent); `questionId`: `string`; \} \| \{ `type`: `"instruction"`; `instruction`: [`ContinuationInstruction`](runtime.md#continuationinstruction); \} \| \{ `type`: `"delivery-attempt"`; `attempt`: [`DownMessageDeliveryAttempt`](runtime.md#downmessagedeliveryattempt); \} \| \{ `type`: `"mail"`; `mail`: [`PeerMailEvent`](runtime.md#peermailevent); \} \| \{ `type`: `"escalation"`; `escalation`: [`QuestionEscalationRecord`](runtime.md#questionescalationrecord); \} \| \{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](runtime.md#definedanalystrecord); \}
 
 Every message on the one typed pipe. UP (child→parent): question / settled / finding — queued for
  the driver to `pull`. An `instruction` is the pre-delivery authorization receipt and is retained
@@ -12317,6 +12431,17 @@ Present when this steer DELIVERED an analyst's routed findings (an analyzes-edge
 A question left this manager through `ask_parent`, and what became of it. Record-only: the
  asker already holds the outcome, and an escalation is evidence for the operator, not an item
  in the inbox the manager pulls from.
+
+***
+
+##### Type Literal
+
+\{ `type`: `"analyst-defined"`; `analyst`: [`DefinedAnalystRecord`](runtime.md#definedanalystrecord); \}
+
+A manager DEFINED a trace analyst (`define_analyst`). Record-only: the manager already has the
+ result in its tool return, so queueing it would put its own action in its own inbox. It is the
+ run artifact that makes an invented lens reproducible — the exact bytes, their digest, and the
+ owner the durable log stamps beside them.
 
 ***
 
