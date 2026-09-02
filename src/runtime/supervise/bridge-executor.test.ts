@@ -205,12 +205,15 @@ async function startBridgeStub(
   return { url: `http://127.0.0.1:${port}`, server }
 }
 
-function makeExecutor(bridgeUrl: string, modelCredential?: BridgeModelCredential) {
-  const profile: AgentProfile = {
+function makeExecutor(
+  bridgeUrl: string,
+  modelCredential?: BridgeModelCredential,
+  profile: AgentProfile = {
     name: 'bridge-test-worker',
     harness: 'pi',
     model: { provider: 'tangle-router', default: 'glm-5.2' },
-  }
+  },
+) {
   return bridgeExecutor(
     { profile, harness: null },
     {
@@ -577,6 +580,43 @@ describe('bridgeExecutor upstream-error propagation', () => {
       content: 'routed response',
       model: responseModel,
       system_fingerprint: 'fp_a18b46594c_prod0820_fp8_kvcache_20260402',
+    })
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'known',
+      attempts: [{ observations: [responseModel] }],
+      models: [responseModel],
+    })
+  })
+
+  it('accepts a provider-native dated snapshot for a stable profile model', async () => {
+    const responseModel = 'gpt-5.2-2025-12-11'
+    const chunks = [
+      `data: ${JSON.stringify({
+        model: 'pi/tangle-router/gpt-5.2',
+        choices: [{ delta: { content: 'dated' } }],
+      })}`,
+      `data: ${JSON.stringify({
+        model: responseModel,
+        choices: [{ delta: { content: ' snapshot' } }],
+        usage: { prompt_tokens: 10, completion_tokens: 4 },
+      })}`,
+      'data: [DONE]',
+    ]
+    const stub = await startBridgeStub(`${chunks.join('\n\n')}\n\n`)
+    server = stub.server
+    const executor = makeExecutor(stub.url, undefined, {
+      name: 'dated-model-worker',
+      harness: 'pi',
+      model: { provider: 'tangle-router', default: 'gpt-5.2' },
+    })
+
+    await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    expect(executor.resultArtifact().out).toMatchObject({
+      content: 'dated snapshot',
+      model: responseModel,
     })
     expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
       status: 'known',
