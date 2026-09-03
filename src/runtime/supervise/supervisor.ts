@@ -736,13 +736,19 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         // journaled, never re-thrown.
         //
         // #741: a root driver that DIED did not make its children unhealthy. When the run was not
-        // cancelled and the driver failed, `childSettleGraceMs` lets live children reach their own
-        // terminal state (and write what they hold) before the cascade takes them. Bounded by the
-        // run's own deadline, because nothing may outlive that.
-        const settleGraceMs =
-          actOutcome.ok === false && !controller.signal.aborted
-            ? boundedSettleGrace(opts.childSettleGraceMs, rootDeadlineAtMs, now)
-            : 0
+        // cancelled, `childSettleGraceMs` lets live children reach their own terminal state (and
+        // write what they hold) before the cascade takes them. Bounded by the run's own deadline,
+        // because nothing may outlive that.
+        //
+        // The grace covers a root that RETURNED with children still live, not only one that threw.
+        // A harness root ends its turn when it stops speaking; with no re-prompt configured that
+        // return is final, and the children it just spawned were torn down before their first turn
+        // (measured 2026-09-03 on one fleet: 7 of 17 lead runs ended this way, every child at zero
+        // tokens, nothing recorded). `drainLiveChildren` returns at once when nothing is live, so a
+        // root that finished after its children costs nothing here.
+        const settleGraceMs = !controller.signal.aborted
+          ? boundedSettleGrace(opts.childSettleGraceMs, rootDeadlineAtMs, now)
+          : 0
         try {
           teardownUnconfirmed = await drainLiveChildren(openScope, controller, settleGraceMs)
           // The leak is real and must surface, so it is journaled per node — durable evidence a

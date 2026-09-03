@@ -1934,6 +1934,34 @@ describe('supervisor: a driver that died did not make its children unhealthy (#7
     expect(result.tree.nodes.some((node) => node.status === 'done')).toBe(true)
   })
 
+  it('grants the same grace to a root that RETURNED while a child was still live', async () => {
+    // A harness root ends its turn when it stops speaking. Without this the return was final and
+    // the child it had just spawned was aborted before its first unit; with the grace the child
+    // reaches `done` and its spend is conserved onto the run, exactly as for a root that threw.
+    const gate = deferred()
+    const supervisor = createSupervisor<unknown, unknown>()
+    const run = supervisor.run(
+      {
+        name: 'returning-driver',
+        async act(task, scope: Scope<unknown>): Promise<unknown> {
+          scope.spawn(
+            leafAgent('worker', { out: 'w', events: tokensOnly(7, 3, 1), block: gate.promise }),
+            task,
+            { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+          )
+          return 'root-returned-early'
+        },
+      },
+      'task',
+      supervisorOpts({ runId: 'settle-grace-on-return', childSettleGraceMs: 60_000 }),
+    )
+    gate.resolve()
+    const result = await run
+    expect(result.spentTotal.tokens.input).toBe(7)
+    expect(result.spentTotal.tokens.output).toBe(3)
+    expect(result.tree.nodes.some((node) => node.label === 'worker' && node.status === 'done')).toBe(true)
+  })
+
   it('still cascades the abort when the grace expires before the child settles', async () => {
     const neverSettles = deferred()
     const supervisor = createSupervisor<unknown, unknown>()
