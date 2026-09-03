@@ -15,9 +15,8 @@ const [sandboxMajor, sandboxMinor] = sandboxVersion.split('.').map(Number)
 const priorSandboxVersion = `${sandboxMajor}.${sandboxMinor - 1}.0`
 const sandboxCeiling = /<(\d+)\.(\d+)\.0\b/u.exec(sandboxPeerRange)
 if (sandboxCeiling === undefined) throw new Error('Sandbox peer ceiling is missing')
+const currentSandboxVersion = `${sandboxCeiling[1]}.${Number(sandboxCeiling[2]) - 1}.0`
 const nextSandboxVersion = `${sandboxCeiling[1]}.${sandboxCeiling[2]}.0`
-const latestSandboxVersion = sandboxCompatibilityVersions.at(-1)
-if (latestSandboxVersion === undefined) throw new Error('Sandbox compatibility version is missing')
 
 describe('isExactVersionSpec', () => {
   it('reads a bare version as exact', () => {
@@ -65,7 +64,7 @@ describe('rangeAdmits', () => {
     expect(rangeAdmits('>=0.149.0 <0.150.0', '0.150.0')).toBe(false)
     expect(rangeAdmits(sandboxPeerRange, priorSandboxVersion)).toBe(false)
     expect(rangeAdmits(sandboxPeerRange, sandboxVersion)).toBe(true)
-    expect(rangeAdmits(sandboxPeerRange, latestSandboxVersion)).toBe(true)
+    expect(rangeAdmits(sandboxPeerRange, currentSandboxVersion)).toBe(true)
     expect(rangeAdmits(sandboxPeerRange, nextSandboxVersion)).toBe(false)
   })
 
