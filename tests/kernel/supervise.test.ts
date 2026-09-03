@@ -1959,7 +1959,9 @@ describe('supervisor: a driver that died did not make its children unhealthy (#7
     const result = await run
     expect(result.spentTotal.tokens.input).toBe(7)
     expect(result.spentTotal.tokens.output).toBe(3)
-    expect(result.tree.nodes.some((node) => node.label === 'worker' && node.status === 'done')).toBe(true)
+    expect(
+      result.tree.nodes.some((node) => node.label === 'worker' && node.status === 'done'),
+    ).toBe(true)
   })
 
   it('still cascades the abort when the grace expires before the child settles', async () => {
