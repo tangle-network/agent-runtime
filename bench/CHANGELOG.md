@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.31
+
+Manifest-only: the Sandbox dependency range now admits the published 0.37 cohort.
+
 ## 0.8.30
 
 Manifest-only: the shared-contract ranges follow the 0.190.0 cohort — `agent-eval` `>=0.173.0 <0.174.0`, `agent-interface` `^2.3.0`, `agent-knowledge` `^13.0.1`, `sandbox` `>=0.36.4 <0.37.0`.

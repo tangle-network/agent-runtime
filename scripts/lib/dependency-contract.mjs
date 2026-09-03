@@ -15,5 +15,13 @@ if (sandboxFloor === undefined) {
   throw new Error(`cannot derive Sandbox compatibility version from ${sandboxPeerRange}`)
 }
 
+const sandboxCeilingMatch = /<(\d+)\.(\d+)\.0\b/u.exec(sandboxPeerRange)
+const sandboxCurrentMinor = sandboxCeilingMatch === undefined
+  ? undefined
+  : `${sandboxCeilingMatch[1]}.${Number(sandboxCeilingMatch[2]) - 1}.0`
+
 export { sandboxPeerRange }
-export const sandboxCompatibilityVersions = Object.freeze([sandboxFloor])
+export const sandboxCompatibilityVersions = Object.freeze([
+  sandboxFloor,
+  ...(sandboxCurrentMinor && sandboxCurrentMinor !== sandboxFloor ? [sandboxCurrentMinor] : []),
+])
