@@ -80,7 +80,9 @@ describe('supervise skill recursive authority', () => {
 
   it('teaches the profile-owned spawn signal and complete skill propagation', () => {
     expect(supervise).toContain('tools.agent_runtime_coordination_spawn_worker: true')
-    expect(supervise).toContain('Every profile with spawn authority must carry the complete authoring skill')
+    expect(supervise).toContain(
+      'Every profile with spawn authority must carry the complete authoring skill',
+    )
     expect(supervise).toContain('"name": "profile-authoring"')
     expect(supervise).toContain('"failOnError": true')
   })
