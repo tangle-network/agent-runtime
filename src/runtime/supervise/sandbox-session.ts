@@ -58,7 +58,7 @@ import {
   describeToolArgs,
   type ExecutorProgress,
 } from './progress'
-import { createPushTraceSource, decodeToolPart, type TraceSource } from './trace-source'
+import { createPushTraceSource, decodeBoxPart, type TraceSource } from './trace-source'
 import type {
   DefaultVerdict,
   ExecutorCancellation,
@@ -153,7 +153,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     const data = (event as { data?: unknown }).data
     const part = data && typeof data === 'object' ? (data as { part?: unknown }).part : undefined
     if (part !== undefined) {
-      const step = decodeToolPart(part, args.harness)
+      const step = decodeBoxPart(part, args.harness)
       if (step) {
         // The same call streams several frames; count it once so the detector panel and the
         // driver's activity window both see ONE entry per real tool call.
