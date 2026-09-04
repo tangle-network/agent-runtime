@@ -932,7 +932,7 @@ function buildSupervisorAgent(
         }
         await runDriverWithRetry({
           drive: async (attempt, reentry) => {
-            // Every drive after the first is a new execution attempt of the root (#1085).
+            // Every drive after the first is a new execution attempt of the root.
             beginScopeOwnerAttempt(scope, attempt)
             try {
               await driveHarness({
