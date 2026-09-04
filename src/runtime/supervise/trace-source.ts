@@ -306,6 +306,19 @@ export interface SessionTraceBox {
   messages(opts: { sessionId: string }): Promise<ReadonlyArray<SessionMessageLike>>
 }
 
+/**
+ * Decode one part a BOX published. A box publishes every harness's tool calls in the canonical
+ * `ToolPart` shape (the sandbox normalizes them), so that decoder runs first for any harness; the
+ * harness's own raw wire shape is the second reading, for a session that streams unnormalized
+ * parts. Both the session source (`messages()`) and the live stream (`streamPrompt` events) read
+ * box parts, so both decode through here.
+ */
+export function decodeBoxPart(part: unknown, harness?: HarnessType): ToolStepInput | undefined {
+  const p = obj(part)
+  if (!p) return undefined
+  return decodeOpencodePart(p) ?? decodeToolPart(part, harness)
+}
+
 /** The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
  *  calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
  *  black-box harnesses aren't mid-step interruptible, so online steering is the owned-loop's job and a
@@ -321,11 +334,7 @@ export function sandboxSessionTraceSource(
     now?: () => number
   } = {},
 ): TraceSource {
-  // A box publishes every harness's tool calls in the canonical `ToolPart` shape (the sandbox
-  // normalizes them), so that decoder runs first for any harness; the harness's own raw shape is
-  // the second reading, for a session that streams unnormalized parts.
-  const decode = (part: unknown): ToolStepInput | undefined =>
-    decodeOpencodePart(obj(part) ?? {}) ?? decodeToolPart(part, opts.harness)
+  const decode = (part: unknown): ToolStepInput | undefined => decodeBoxPart(part, opts.harness)
   return createPartsTraceSource({
     collectParts: async () => {
       const msgs = await box.messages({ sessionId })
