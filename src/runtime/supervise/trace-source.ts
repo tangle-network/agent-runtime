@@ -306,10 +306,6 @@ export interface SessionTraceBox {
   messages(opts: { sessionId: string }): Promise<ReadonlyArray<SessionMessageLike>>
 }
 
-/** The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
- *  calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
- *  black-box harnesses aren't mid-step interruptible, so online steering is the owned-loop's job and a
- *  live `subscribe` is opt-in (pass `subscribeParts` from `streamPrompt` when the harness streams parts). */
 /**
  * Decode one part a BOX published. A box publishes every harness's tool calls in the canonical
  * `ToolPart` shape (the sandbox normalizes them), so that decoder runs first for any harness; the
@@ -323,6 +319,10 @@ export function decodeBoxPart(part: unknown, harness?: HarnessType): ToolStepInp
   return decodeOpencodePart(p) ?? decodeToolPart(part, harness)
 }
 
+/** The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
+ *  calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
+ *  black-box harnesses aren't mid-step interruptible, so online steering is the owned-loop's job and a
+ *  live `subscribe` is opt-in (pass `subscribeParts` from `streamPrompt` when the harness streams parts). */
 export function sandboxSessionTraceSource(
   box: SessionTraceBox,
   sessionId: string,

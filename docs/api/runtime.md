@@ -32541,6 +32541,11 @@ A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): th
 
 > **sandboxSessionTraceSource**(`box`, `sessionId`, `opts?`): [`TraceSource`](#tracesource-1)
 
+The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
+ calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
+ black-box harnesses aren't mid-step interruptible, so online steering is the owned-loop's job and a
+ live `subscribe` is opt-in (pass `subscribeParts` from `streamPrompt` when the harness streams parts).
+
 #### Parameters
 
 ##### box
