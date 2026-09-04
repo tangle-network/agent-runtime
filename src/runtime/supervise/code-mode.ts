@@ -146,10 +146,10 @@ export function renderCodeModeApi(
 export interface CodeModeRunner {
   run(args: {
     readonly code: string
-    /** The granted operations, already deadline-gated and result-detached by the caller. The
+    /** The granted operations, already cancellation-gated and result-detached by the caller. The
      *  runner exposes these to the program as `api.<name>` and adds nothing else reachable. */
     readonly bindings: Readonly<Record<string, (args: unknown) => Promise<unknown>>>
-    /** Aborts when the whole-program deadline passes or the manager scope cancels. */
+    /** Aborts when the manager cancels or a caller-authored deadline passes. */
     readonly signal: AbortSignal
   }): Promise<{ readonly result: unknown; readonly logs: ReadonlyArray<string> }>
 }
@@ -240,10 +240,9 @@ function detach(value: unknown): unknown {
 // ── The two tools ───────────────────────────────────────────────────────────────
 
 export interface CodeModeOptions {
-  /** Whole-program deadline per `execute` call. Default 60_000. After it passes, the running
-   *  program's next `api` call fails closed, so a runaway loop cannot keep spawning workers the
-   *  model can no longer see. */
-  readonly timeoutMs?: number
+  /** Optional caller-authored deadline for one `execute` call. Omit it to run until the manager
+   *  cancels. A declared deadline aborts the runner and refuses later `api` calls. */
+  readonly timeoutMs?: number | null
 }
 
 /**
@@ -266,7 +265,12 @@ export function codeModeSupervisorTools(
       'codeModeSupervisorTools: a CodeModeRunner is required (no default) — pass unsafeInProcessRunner() for trusted output, or a jailed runner for untrusted models',
     )
   }
-  const timeoutMs = options.timeoutMs ?? 60_000
+  const timeoutMs = options.timeoutMs ?? null
+  if (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+    throw new ValidationError(
+      'codeModeSupervisorTools: timeoutMs must be a positive safe integer or null',
+    )
+  }
 
   const faces = (context: SupervisorToolInvocationContext): ReadonlyArray<CoordinationToolFace> =>
     context
@@ -315,25 +319,30 @@ export function codeModeSupervisorTools(
         // runner is what isolates. See the module doc.
         assertAuthoredCode(code, { context: `code mode (${context.nodeId})` })
 
-        // The whole-program deadline: a local controller linked to the manager scope signal and a
-        // timer. After it fires, every binding fails closed, so no api call lands post-deadline;
-        // the listener is removed in finally so it never outlives this execute call.
-        const deadline = new AbortController()
-        const onScopeAbort = () => deadline.abort(abortReason(context.signal))
-        const timer = setTimeout(
-          () =>
-            deadline.abort(
-              new ValidationError(`code mode: program timed out after ${timeoutMs}ms`),
-            ),
-          timeoutMs,
-        )
-        if (context.signal.aborted) deadline.abort(abortReason(context.signal))
+        // Link execution to the manager's cancellation signal. Add a timer only when the caller
+        // declared one. After either signal fires, every binding fails closed.
+        const execution = new AbortController()
+        let timedOut = false
+        const onScopeAbort = () => execution.abort(abortReason(context.signal))
+        const timer =
+          timeoutMs === null
+            ? null
+            : setTimeout(() => {
+                if (!execution.signal.aborted) {
+                  timedOut = true
+                  execution.abort(
+                    new ValidationError(`code mode: program timed out after ${timeoutMs}ms`),
+                  )
+                }
+              }, timeoutMs)
+        if (context.signal.aborted) execution.abort(abortReason(context.signal))
         else context.signal.addEventListener('abort', onScopeAbort, { once: true })
 
         const bindings: Record<string, (args: unknown) => Promise<unknown>> = {}
         for (const [wire, member] of Object.entries(CODE_CALLABLE_VERBS)) {
           bindings[wire] = async (args: unknown) => {
-            if (deadline.signal.aborted) {
+            if (execution.signal.aborted) {
+              if (!timedOut) throw abortReason(execution.signal)
               throw new ValidationError(
                 `code mode: the execute deadline passed; api.${wire} is refused so no work outlives the call`,
               )
@@ -342,9 +351,9 @@ export function codeModeSupervisorTools(
           }
         }
         try {
-          return await runner.run({ code, bindings, signal: deadline.signal })
+          return await runner.run({ code, bindings, signal: execution.signal })
         } finally {
-          clearTimeout(timer)
+          if (timer !== null) clearTimeout(timer)
           context.signal.removeEventListener('abort', onScopeAbort)
         }
       },

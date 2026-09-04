@@ -1,5 +1,5 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
@@ -1962,6 +1962,92 @@ describe('supervisor: a driver that died did not make its children unhealthy (#7
     expect(
       result.tree.nodes.some((node) => node.label === 'worker' && node.status === 'done'),
     ).toBe(true)
+  })
+
+  it('lets live children continue without an implicit clock when the caller declares no grace limit', async () => {
+    vi.useFakeTimers()
+    try {
+      const gate = deferred()
+      const supervisor = createSupervisor<unknown, unknown>()
+      let settled = false
+      const run = supervisor
+        .run(
+          {
+            name: 'returning-driver',
+            async act(task, scope: Scope<unknown>): Promise<unknown> {
+              scope.spawn(
+                leafAgent('worker', { out: 'w', events: tokensOnly(7, 3, 1), block: gate.promise }),
+                task,
+                { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+              )
+              return 'root-returned-early'
+            },
+          },
+          'task',
+          supervisorOpts({ runId: 'settle-without-clock', childSettleGraceMs: null }),
+        )
+        .finally(() => {
+          settled = true
+        })
+
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+      expect(settled).toBe(false)
+
+      gate.resolve()
+      const result = await run
+      expect(result.spentTotal.tokens.input).toBe(7)
+      expect(result.spentTotal.tokens.output).toBe(3)
+      expect(
+        result.tree.nodes.some((node) => node.label === 'worker' && node.status === 'done'),
+      ).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps an explicit run deadline authoritative over unlimited child settlement', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const neverSettles = deferred()
+      const supervisor = createSupervisor<unknown, unknown>()
+      const run = supervisor.run(
+        {
+          name: 'returning-driver',
+          async act(task, scope: Scope<unknown>): Promise<unknown> {
+            scope.spawn(
+              leafAgent('worker', {
+                out: 'w',
+                events: tokensOnly(7, 3, 1),
+                block: neverSettles.promise,
+              }),
+              task,
+              { budget: { maxIterations: 1, maxTokens: 1000 }, label: 'worker' },
+            )
+            return 'root-returned-before-deadline'
+          },
+        },
+        'task',
+        supervisorOpts({
+          runId: 'settle-until-explicit-deadline',
+          budget: { maxIterations: 2, maxTokens: 2000, deadlineMs: 25 },
+          childSettleGraceMs: null,
+        }),
+      )
+
+      await vi.advanceTimersByTimeAsync(24)
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await run
+      expect(
+        result.tree.nodes.some((node) => node.label === 'worker' && node.status === 'done'),
+      ).toBe(false)
+      expect(vi.getTimerCount()).toBe(0)
+      neverSettles.resolve()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('still cascades the abort when the grace expires before the child settles', async () => {
