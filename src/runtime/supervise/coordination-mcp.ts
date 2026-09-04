@@ -169,9 +169,9 @@ export async function serveCoordinationMcp(opts: {
   /** Pre-journal profile resolution for `preflightSpawn`; see
    *  `CoordinationToolsOptions.resolveSpawnProfile`. */
   resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
-  /** Called with this server's coordination tool descriptors once they exist and BEFORE the
-   *  listener opens — the seam a caller uses to give an already-bound node tool a way to call the
-   *  same verbs in code (`SupervisorToolInvocationContext.verbs`). */
+  /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
+   *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
+   *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
   onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
 }): Promise<CoordinationMcpHandle> {
   const host = opts.host ?? '127.0.0.1'
@@ -228,13 +228,15 @@ export async function serveCoordinationMcp(opts: {
       : {}),
   })
   await coord.ready()
-  // Before the listener opens: a node tool invoked on the first request must already be able to
-  // call these verbs.
-  opts.onCoordinationTools?.(coord.tools)
+  const servedTools = [...coord.tools, ...(opts.nodeTools ?? [])]
   const mcp = createMcpServer({
-    extraTools: [...coord.tools, ...(opts.nodeTools ?? [])],
+    extraTools: servedTools,
     serverName: 'coordination',
   })
+  // Before the listener opens: a node tool invoked on the first request must already be able to
+  // call these verbs. Read back the server's ordered set so every consumer records the exact MCP
+  // surface, including the shared tools that `createMcpServer` mounts before coordination tools.
+  opts.onCoordinationTools?.([...mcp.tools.values()])
 
   const server: Server = createServer((req, res) => {
     if (req.method !== 'POST') {

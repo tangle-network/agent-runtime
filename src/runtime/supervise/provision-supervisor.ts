@@ -39,7 +39,6 @@ import { createRootHandle, createSupervisor } from './supervisor'
 import type { Agent, Budget, Scope, SpawnEvent, SupervisedResult } from './types'
 import { readWorkerInteractiveBinding } from './worker-interactive'
 
-const DEFAULT_TIMEOUT_MS = 60_000
 const DEFAULT_POLL_MS = 25
 const ROOT_MAX_ITERATIONS = 100
 const ROOT_MAX_TOKENS = 100_000
@@ -73,7 +72,7 @@ export interface ProvisionSupervisorRequest {
   readonly workerEnvironment?: InteractiveWorkerEnvironment
   /** Root directory for Runtime-owned `.agent/supervisor` state. */
   readonly workspaceDir?: string
-  /** Maximum wall-clock time for the complete supervisor lifecycle, including cleanup. */
+  /** Maximum wall-clock time for the complete supervisor lifecycle, including cleanup. Omit for no lifecycle deadline. */
   readonly timeoutMs?: number
   /** Poll cadence for lifecycle/control readiness. */
   readonly pollMs?: number
@@ -399,7 +398,7 @@ export async function provisionSupervisor(
 function normalizeRequest(request: ProvisionSupervisorRequest): ProvisionSupervisorRequest & {
   readonly invocationId: string
   readonly task: string
-  readonly timeoutMs: number
+  readonly timeoutMs: number | undefined
   readonly pollMs: number
   readonly profile: AgentProfile
   readonly connection: ProvisionSupervisorConnection
@@ -412,7 +411,8 @@ function normalizeRequest(request: ProvisionSupervisorRequest): ProvisionSupervi
   if (request.connection === undefined) {
     throw new SupervisorProvisionUnavailableError('provider connection is required')
   }
-  const timeoutMs = positiveNumber(request.timeoutMs ?? DEFAULT_TIMEOUT_MS, 'timeoutMs')
+  const timeoutMs =
+    request.timeoutMs === undefined ? undefined : positiveNumber(request.timeoutMs, 'timeoutMs')
   const pollMs = positiveNumber(request.pollMs ?? DEFAULT_POLL_MS, 'pollMs')
   return { ...request, invocationId, task, timeoutMs, pollMs, profile }
 }
@@ -433,12 +433,12 @@ function supervisorIdFor(invocationId: string): string {
   return `runtime-supervisor-${digest.slice('sha256:'.length)}`
 }
 
-/** The root deadline covers the complete supervisor lifecycle from run start through cleanup. */
-function rootBudget(timeoutMs: number): Budget {
+/** A caller-supplied deadline covers the complete supervisor lifecycle from run start through cleanup. */
+function rootBudget(timeoutMs: number | undefined): Budget {
   return {
     maxIterations: ROOT_MAX_ITERATIONS,
     maxTokens: ROOT_MAX_TOKENS,
-    deadlineMs: timeoutMs,
+    ...(timeoutMs === undefined ? {} : { deadlineMs: timeoutMs }),
   }
 }
 
@@ -568,7 +568,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 async function waitForWorkerSpawn(
   worker: Promise<string>,
   run: Promise<SupervisedResult<unknown>>,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
 ): Promise<string> {
   return await withTimeout(
     Promise.race([
@@ -585,7 +585,7 @@ async function waitForWorkerSpawn(
 async function waitForWorkerRunning(
   running: Promise<void>,
   run: Promise<SupervisedResult<unknown>>,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
 ): Promise<void> {
   await withTimeout(
     Promise.race([
@@ -603,7 +603,7 @@ async function waitForInteractiveBinding(
   eventDir: string,
   workerId: string,
   run: Promise<SupervisedResult<unknown>>,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   pollMs: number,
 ): Promise<void> {
   await withTimeout(
@@ -640,7 +640,12 @@ async function pollUntil(
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number | undefined,
+  label: string,
+): Promise<T> {
+  if (timeoutMs === undefined) return await promise
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
     timer = setTimeout(
@@ -694,16 +699,16 @@ async function waitForWorkerTerminal(
   journal: import('./types').SpawnJournal,
   root: string,
   workerId: string,
-  timeoutMs: number,
+  timeoutMs: number | undefined,
   pollMs: number,
 ): Promise<SpawnEvent[]> {
-  const deadline = Date.now() + timeoutMs
+  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs
   for (;;) {
     const events = await journal.loadTree(root)
     if (events !== undefined && workerStatusFromEvents(events, workerId) !== 'running') {
       return events
     }
-    if (Date.now() >= deadline) {
+    if (deadline !== undefined && Date.now() >= deadline) {
       throw unavailable(`Runtime supervisor timed out waiting for worker '${workerId}' to settle`)
     }
     // Cleanup is an explicit lifecycle operation. Keep this bounded poll referenced so a caller

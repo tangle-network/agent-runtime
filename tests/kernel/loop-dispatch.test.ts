@@ -183,6 +183,16 @@ async function startPiBridge(
       )
       return
     }
+    if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ available: true }))
+      return
+    }
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ admission: { active: 0, maxActive: 1 } }))
+      return
+    }
     if (req.method !== 'POST' || req.url !== '/v1/chat/completions') {
       res.writeHead(404)
       res.end()

@@ -121,7 +121,7 @@ import {
   unmeteredSpend,
   zeroTokenUsage,
 } from '../util'
-import { linkAbort } from './abortable'
+import { linkAbort, runAbortable } from './abortable'
 import { priceUnreceiptedWork } from './cost-estimate'
 import { executableAgentProfileSnapshot, executableAgentSpecSnapshot } from './executable-spec'
 import { createInPlaceCliExecutor } from './in-place-cli-executor'
@@ -2366,10 +2366,15 @@ function bridgeGet(
   seam: BridgeSeam,
   path: string,
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{ status: number; body: string }> {
   const target = new URL(`${seam.bridgeUrl.replace(/\/$/, '')}${path}`)
   const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException(`bridge GET ${path} aborted before request`, 'AbortError'))
+      return
+    }
     const req = requestFn(
       target,
       {
@@ -2385,10 +2390,22 @@ function bridgeGet(
         })().catch(reject)
       },
     )
+    const abort = () => req.destroy(new DOMException(`bridge GET ${path} aborted`, 'AbortError'))
+    signal?.addEventListener('abort', abort, { once: true })
     req.on('timeout', () => req.destroy(new Error(`bridge GET ${path} timed out`)))
-    req.on('error', reject)
+    req.on('error', (error) => {
+      signal?.removeEventListener('abort', abort)
+      reject(error)
+    })
+    req.on('close', () => signal?.removeEventListener('abort', abort))
     req.end()
   })
+}
+
+export interface BridgeModelRouteRefusal {
+  readonly detail: string
+  readonly retryable: boolean
+  readonly status?: number
 }
 
 /**
@@ -2396,13 +2413,14 @@ function bridgeGet(
  *
  * The bridge answers exactly this question and 404s `no backend matches model "…"`, which is the
  * error a child would otherwise discover after it was spawned and metered. Returns `undefined`
- * when the route resolves; otherwise the operator-facing reason it did not. FAIL CLOSED: a
- * transport error and an unexpected status are both reasons, never a silent pass.
+ * when the route resolves; otherwise it returns the reason and whether the failure can recover.
+ * A transport error and an unexpected status never become a silent pass.
  */
 export async function bridgeModelRouteRefusal(
   seam: BridgeSeam,
   wireModel: string,
-): Promise<string | undefined> {
+  signal?: AbortSignal,
+): Promise<BridgeModelRouteRefusal | undefined> {
   const base = seam.bridgeUrl.replace(/\/$/, '')
   let answer: { status: number; body: string }
   try {
@@ -2410,28 +2428,44 @@ export async function bridgeModelRouteRefusal(
       seam,
       `/v1/capabilities?model=${encodeURIComponent(wireModel)}`,
       BRIDGE_RUN_STATE_TIMEOUT_MS,
+      signal,
     )
   } catch (error) {
-    return `bridge ${base} did not answer for model ${JSON.stringify(wireModel)}: ${error instanceof Error ? error.message : String(error)}`
+    if (signal?.aborted) throw error
+    return {
+      detail: `bridge ${base} did not answer for model ${JSON.stringify(wireModel)}: ${error instanceof Error ? error.message : String(error)}`,
+      retryable: true,
+    }
   }
   if (answer.status === 200) return undefined
-  return answer.status === 404
-    ? `bridge ${base} routes no backend for model ${JSON.stringify(wireModel)}`
-    : `bridge ${base} answered ${answer.status} for model ${JSON.stringify(wireModel)}`
+  if (answer.status === 404) {
+    return {
+      detail: `bridge ${base} routes no backend for model ${JSON.stringify(wireModel)}`,
+      retryable: false,
+      status: answer.status,
+    }
+  }
+  return {
+    detail: `bridge ${base} answered ${answer.status} for model ${JSON.stringify(wireModel)}`,
+    retryable: answer.status === 408 || answer.status === 429 || answer.status >= 500,
+    status: answer.status,
+  }
 }
 
 /**
- * `GET /health` → `admission.{active,maxActive}`, or `undefined` when the bridge does not report
- * them. ADVISORY by nature — admission fills and drains — so an unanswered or admission-less
- * `/health` is not evidence about capacity and must not be read as one.
+ * Read the default bulk lane from `GET /health`. Runtime sends no reserved-client header, so
+ * overall capacity can look free while the lane this request will use is already full. Older
+ * bridges expose only the overall counters; those retain the prior fallback.
  */
-export async function bridgeAdmissionRead(
+export async function bridgeAdmissionRefusal(
   seam: BridgeSeam,
-): Promise<{ active: number; maxActive: number } | undefined> {
+  signal?: AbortSignal,
+): Promise<string | undefined> {
   let answer: { status: number; body: string }
   try {
-    answer = await bridgeGet(seam, '/health', BRIDGE_RUN_STATE_TIMEOUT_MS)
-  } catch {
+    answer = await bridgeGet(seam, '/health', BRIDGE_RUN_STATE_TIMEOUT_MS, signal)
+  } catch (error) {
+    if (signal?.aborted) throw error
     return undefined
   }
   let parsed: unknown
@@ -2440,14 +2474,47 @@ export async function bridgeAdmissionRead(
   } catch {
     return undefined
   }
-  const admission = (parsed as { admission?: { active?: unknown; maxActive?: unknown } } | null)
-    ?.admission
+  const admission = (
+    parsed as {
+      admission?: {
+        active?: unknown
+        maxActive?: unknown
+        bulkMaxActive?: unknown
+        activeByClass?: { bulk?: unknown }
+      }
+    } | null
+  )?.admission
   const active = admission?.active
   const maxActive = admission?.maxActive
-  if (typeof active !== 'number' || typeof maxActive !== 'number' || maxActive <= 0) {
+  const bulkActive = admission?.activeByClass?.bulk
+  const bulkMaxActive = admission?.bulkMaxActive
+  if (
+    typeof bulkActive === 'number' &&
+    Number.isFinite(bulkActive) &&
+    bulkActive >= 0 &&
+    typeof bulkMaxActive === 'number' &&
+    Number.isFinite(bulkMaxActive) &&
+    bulkMaxActive >= 0
+  ) {
+    if (bulkActive < bulkMaxActive) return undefined
+    const total =
+      typeof active === 'number' && typeof maxActive === 'number'
+        ? ` (total active ${active} of maxActive ${maxActive})`
+        : ''
+    return `bridge ${seam.bridgeUrl.replace(/\/$/, '')} bulk admission is full: active ${bulkActive} of bulkMaxActive ${bulkMaxActive}${total}`
+  }
+  if (
+    typeof active !== 'number' ||
+    !Number.isFinite(active) ||
+    active < 0 ||
+    typeof maxActive !== 'number' ||
+    !Number.isFinite(maxActive) ||
+    maxActive <= 0 ||
+    active < maxActive
+  ) {
     return undefined
   }
-  return { active, maxActive }
+  return `bridge ${seam.bridgeUrl.replace(/\/$/, '')} admission is full: active ${active} of maxActive ${maxActive}`
 }
 
 /** `GET /v1/runs/:id` — the bridge's durable-run registry read. Resolves `undefined` for any
@@ -2626,7 +2693,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
   // Turn 0 is the task; later turns carry the folded steer/answer as the next prompt
   // on the SAME session. `nextPrompt` is undefined once there's nothing pending.
   let nextPrompt: string | undefined = taskToPrompt(args.task)
-  for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; t += 1) {
+  for (let t = 0; args.maxTurns === 0 || t < args.maxTurns; ) {
     if (args.stopSignal?.aborted) {
       observation.note = 'settled after completion request'
       break
@@ -2675,6 +2742,58 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       external.removeEventListener('abort', abortTurn)
       if (timer) clearTimeout(timer)
     }
+
+    // Prove this bridge can accept the turn before allocating a remote run id. A refusal still
+    // becomes an attempt with explicit no-dispatch evidence. Keeping the active-run map empty is
+    // what prevents teardown from cancelling work the bridge never accepted.
+    let initialModelCredential: ResolvedBridgeModelCredential | undefined
+    const preflightSignal =
+      args.stopSignal === undefined
+        ? turnController.signal
+        : AbortSignal.any([turnController.signal, args.stopSignal])
+    try {
+      await assertBridgeExecutionCapabilities(
+        seam,
+        preflightSignal,
+        args.runtimeAttachments !== undefined,
+      )
+      if (preflightSignal.aborted) {
+        throw new DOMException('bridgeExecutor: aborted before bridge dispatch', 'AbortError')
+      }
+      initialModelCredential = await runAbortable(
+        () => resolveBridgeModelCredential(seam.modelCredential, 'bridgeExecutor'),
+        preflightSignal,
+        'bridgeExecutor: credential preflight aborted',
+      )
+      if (preflightSignal.aborted) {
+        throw new DOMException('bridgeExecutor: aborted before bridge dispatch', 'AbortError')
+      }
+    } catch (error) {
+      if (args.stopSignal?.aborted) {
+        cleanup()
+        observation.note = 'settled after completion request'
+        break
+      }
+      const interruptedBeforeDispatch =
+        interruptSig.aborted && !args.signal.aborted && !args.controller.signal.aborted
+      try {
+        args.onProviderAttemptStart()
+        args.onProviderDispatchNotStarted()
+      } finally {
+        cleanup()
+      }
+      if (interruptedBeforeDispatch) {
+        observation.note = `turn ${turns + 1} interrupted before dispatch, resuming`
+        continue
+      }
+      throw error
+    }
+    if (args.stopSignal?.aborted) {
+      observation.note = 'settled after completion request'
+      cleanup()
+      break
+    }
+    args.onProviderAttemptStart()
 
     const activeRun: ActiveBridgeRun = {
       id: `bridge-run-${randomUUID()}`,
@@ -2728,20 +2847,12 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       }
     }
     try {
-      // A completion request may arrive while the previous turn is still streaming. The current
-      // request owns the provider receipt and terminal materialization, so let it drain before
-      // checking the request at the next turn boundary.
-      if (args.stopSignal?.aborted) {
-        observation.note = 'settled after completion request'
-        break
-      }
-      args.onProviderAttemptStart()
       for await (const chunk of streamDurableBridgeRun({
         seam,
+        initialModelCredential,
         profile: args.profile,
         sessionId: args.sessionId,
         body: requestBody,
-        requiresRuntimeAttachments: args.runtimeAttachments !== undefined,
         signal: turnController.signal,
         run: activeRun,
         maxReconnects: args.maxReconnects,
@@ -2931,6 +3042,7 @@ async function* streamBridgeSession(args: StreamBridgeArgs): AsyncIterable<Usage
       interrupted = true
     }
     turns += 1
+    t += 1
     observation.turns = turns
     observation.activity.push({ at: Date.now(), kind: 'turn', label: `turn ${turns}` })
     // A turn whose stream carried no usage frame is not a free turn: cli-bridge's own
@@ -3214,11 +3326,10 @@ const BRIDGE_BRUTAL_KILL_WAIT_MS = 150
 
 interface StreamDurableBridgeRunArgs {
   seam: ResolvedBridgeSeam
+  initialModelCredential?: ResolvedBridgeModelCredential
   profile: AgentProfile
   sessionId: string
   body: unknown
-  /** The body carries `runtime_attachments`; the bridge must advertise that channel. */
-  requiresRuntimeAttachments: boolean
   signal: AbortSignal
   run: ActiveBridgeRun
   maxReconnects: number
@@ -3235,17 +3346,24 @@ interface StreamDurableBridgeRunArgs {
 async function* streamDurableBridgeRun(
   args: StreamDurableBridgeRunArgs,
 ): AsyncIterable<BridgeStreamChunk> {
-  await assertBridgeExecutionCapabilities(args.seam, args.signal, args.requiresRuntimeAttachments)
   let reconnects = 0
   let pendingUpstreamError: Error | undefined
 
   for (;;) {
     let res: BridgeResponse
     try {
+      const modelCredential =
+        args.run.transportAttempts === 0
+          ? args.initialModelCredential
+          : await runAbortable(
+              () => resolveBridgeModelCredential(args.seam.modelCredential, 'bridgeExecutor'),
+              args.signal,
+              'bridgeExecutor: reconnect credential lookup aborted',
+            )
       args.run.transportAttempts += 1
       res = await bridgeStreamPost(args.seam.bridgeUrl, {
         bearer: args.seam.bridgeBearer,
-        modelCredential: args.seam.modelCredential,
+        modelCredential,
         sessionId: args.sessionId,
         runId: args.run.id,
         afterEventId: args.run.lastEventId,
@@ -3375,7 +3493,7 @@ async function* streamDurableBridgeRun(
  * is not evidence about the process that will receive the next POST. The terminal receipt remains
  * mandatory because the bridge can still restart between this GET and the run request. */
 async function assertBridgeExecutionCapabilities(
-  seam: BridgeSeam,
+  seam: ResolvedBridgeSeam,
   signal: AbortSignal,
   requiresRuntimeAttachments: boolean,
 ): Promise<void> {
@@ -3446,6 +3564,24 @@ async function assertBridgeExecutionCapabilities(
       )
     }
   }
+
+  const routeRefusal = await bridgeModelRouteRefusal(seam, seam.model, signal)
+  if (routeRefusal !== undefined) {
+    if (routeRefusal.retryable) {
+      throw new BackendTransportError('bridge', `bridgeExecutor: ${routeRefusal.detail}`, {
+        ...(routeRefusal.status === undefined ? {} : { status: routeRefusal.status }),
+        providerDispatch: 'not_started',
+      })
+    }
+    throw new ValidationError(`bridgeExecutor: ${routeRefusal.detail}`)
+  }
+
+  const admissionRefusal = await bridgeAdmissionRefusal(seam, signal)
+  if (admissionRefusal !== undefined) {
+    throw new BackendTransportError('bridge', `bridgeExecutor: ${admissionRefusal}`, {
+      providerDispatch: 'not_started',
+    })
+  }
 }
 
 /** The subset of `Response` `streamBridgeSession` consumes: status gate, an error
@@ -3460,7 +3596,7 @@ interface BridgeResponse {
 
 interface BridgeStreamPostArgs {
   bearer: string
-  modelCredential?: BridgeModelCredential
+  modelCredential?: ResolvedBridgeModelCredential
   sessionId: string
   runId: string
   afterEventId: number
@@ -3483,7 +3619,6 @@ interface BridgeStreamPostArgs {
  * shared `parseSseChatStream` consumes it unchanged.
  */
 async function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promise<BridgeResponse> {
-  const modelCredential = await resolveBridgeModelCredential(args.modelCredential, 'bridgeExecutor')
   const target = new URL(`${url.replace(/\/$/, '')}/v1/chat/completions`)
   const payload = JSON.stringify(args.body)
   const requestFn = target.protocol === 'https:' ? httpsRequest : httpRequest
@@ -3502,11 +3637,11 @@ async function bridgeStreamPost(url: string, args: BridgeStreamPostArgs): Promis
           ...args.traceHeaders,
           'content-type': 'application/json',
           authorization: `Bearer ${args.bearer}`,
-          ...(modelCredential === undefined
+          ...(args.modelCredential === undefined
             ? {}
             : {
-                [bridgeModelCredentialHeader]: modelCredential.token,
-                [bridgeModelBaseUrlHeader]: modelCredential.baseUrl,
+                [bridgeModelCredentialHeader]: args.modelCredential.token,
+                [bridgeModelBaseUrlHeader]: args.modelCredential.baseUrl,
               }),
           'x-session-id': args.sessionId,
           'x-run-id': args.runId,

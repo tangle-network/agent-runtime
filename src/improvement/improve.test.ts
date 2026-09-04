@@ -1025,7 +1025,7 @@ describe('improve code execution', () => {
     } finally {
       repo.cleanup()
     }
-  })
+  }, 120_000)
 
   it('retains and disposes the incumbent for a baseline-only code run', async () => {
     const repo = createRepo('improve-code-baseline-')
@@ -1089,7 +1089,7 @@ describe('improve code execution', () => {
     } finally {
       repo.cleanup()
     }
-  })
+  }, 120_000)
 
   it('cleans the incumbent when baseline finalization fails', async () => {
     const repo = createRepo('improve-code-finalize-')

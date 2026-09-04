@@ -15299,7 +15299,7 @@ Root directory for Runtime-owned `.agent/supervisor` state.
 
 > `readonly` `optional` **timeoutMs?**: `number`
 
-Maximum wall-clock time for the complete supervisor lifecycle, including cleanup.
+Maximum wall-clock time for the complete supervisor lifecycle, including cleanup. Omit for no lifecycle deadline.
 
 ##### pollMs?
 
@@ -30437,9 +30437,9 @@ Pre-journal profile resolution for `preflightSpawn`; see
 
 (`tools`) => `void`
 
-Called with this server's coordination tool descriptors once they exist and BEFORE the
- listener opens — the seam a caller uses to give an already-bound node tool a way to call the
- same verbs in code (`SupervisorToolInvocationContext.verbs`).
+Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
+ opens — the seam a caller uses to give an already-bound node tool a way to call the same
+ verbs in code (`SupervisorToolInvocationContext.verbs`).
 
 #### Returns
 

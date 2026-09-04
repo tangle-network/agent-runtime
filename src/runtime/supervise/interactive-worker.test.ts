@@ -294,7 +294,7 @@ describe('workerFromInteractiveProvider', () => {
 })
 
 describe('provisionSupervisor', () => {
-  it('provisions a real root and worker, exposes controls, attaches, and cleans up exactly once', async () => {
+  it('provisions a real root and worker without a lifecycle deadline', async () => {
     const fixture = interactiveProviderFixture()
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-'))
     try {
@@ -306,7 +306,6 @@ describe('provisionSupervisor', () => {
           metadata: { purpose: 'provision-test' },
         },
         workspaceDir: root,
-        timeoutMs: 5_000,
         pollMs: 2,
         profile,
         connection: { provider: fixture.provider },
@@ -471,7 +470,7 @@ describe('provisionSupervisor', () => {
     }
   })
 
-  it('uses timeoutMs for the live lifecycle after worker admission', async () => {
+  it('uses caller-supplied timeoutMs for the live lifecycle after worker admission', async () => {
     const fixture = interactiveProviderFixture()
     const root = mkdtempSync(join(tmpdir(), 'agent-runtime-provision-deadline-'))
     try {

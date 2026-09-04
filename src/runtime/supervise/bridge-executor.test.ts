@@ -16,7 +16,7 @@ import {
   materializeTreeView,
   replaySpawnTree,
 } from '../../durable/spawn-journal'
-import { BackendTransportError } from '../../errors'
+import { BackendTransportError, ValidationError } from '../../errors'
 import { spendFromUsageEvents } from './budget'
 import { classifyDriverFailure } from './driver-retry'
 import {
@@ -26,6 +26,7 @@ import {
 import {
   type BridgeModelCredential,
   bridgeExecutor,
+  bridgeStopSignalKey,
   captureReusableExecutorConfig,
   createExecutor,
   createExecutorRegistry,
@@ -37,17 +38,30 @@ const TEST_RUN_DIGEST = `sha256:${'b'.repeat(64)}`
 const TEST_WORKSPACE_DIGEST = `sha256:${'a'.repeat(64)}`
 
 function respondBridgeCapabilities(req: IncomingMessage, res: ServerResponse): boolean {
-  if (req.method !== 'GET' || req.url !== '/') return false
-  res.writeHead(200, { 'content-type': 'application/json' })
-  res.end(
-    JSON.stringify({
-      capabilities: {
-        profileMaterialization: 'cli-bridge.profile-materialization.v2',
-        usageCostProvenance: 'cli-bridge.usage-cost.v1',
-      },
-    }),
-  )
-  return true
+  if (req.method !== 'GET') return false
+  if (req.url === '/') {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(
+      JSON.stringify({
+        capabilities: {
+          profileMaterialization: 'cli-bridge.profile-materialization.v2',
+          usageCostProvenance: 'cli-bridge.usage-cost.v1',
+        },
+      }),
+    )
+    return true
+  }
+  if (req.url?.startsWith('/v1/capabilities?model=')) {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ available: true }))
+    return true
+  }
+  if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ admission: { active: 0, maxActive: 4 } }))
+    return true
+  }
+  return false
 }
 
 /**
@@ -425,6 +439,425 @@ describe('bridgeExecutor upstream-error propagation', () => {
       ),
     ).rejects.toThrow(/does not advertise cli-bridge\.profile-materialization\.v2/u)
     expect(posts).toBe(0)
+  })
+
+  it('refuses an unroutable manager profile before any model POST', async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined }> = []
+    server = createServer((req, res) => {
+      requests.push({ method: req.method, url: req.url })
+      if (req.method === 'GET' && req.url === '/') {
+        respondBridgeCapabilities(req, res)
+        return
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'no backend matches model' }))
+        return
+      }
+      res.writeHead(500)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+
+    const failure = await drain(
+      executor.execute(
+        'must not dispatch',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toMatchObject({
+      message: expect.stringMatching(/routes no backend for model "pi\/tangle-router\/glm-5\.2"/u),
+    })
+    expect(failure).toBeInstanceOf(ValidationError)
+    expect(classifyDriverFailure(failure)).toBe('terminal')
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+    expect(requests).toEqual([
+      { method: 'GET', url: '/' },
+      {
+        method: 'GET',
+        url: '/v1/capabilities?model=pi%2Ftangle-router%2Fglm-5.2',
+      },
+    ])
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'unknown',
+      attempts: [{ observations: [], providerDispatch: 'not_started' }],
+      models: [],
+      reason: 'provider-model-missing',
+    })
+  })
+
+  it('classifies a temporarily unavailable manager route as transient before any model POST', async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined }> = []
+    server = createServer((req, res) => {
+      requests.push({ method: req.method, url: req.url })
+      if (req.method === 'GET' && req.url === '/') {
+        respondBridgeCapabilities(req, res)
+        return
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+        res.writeHead(503, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'backend is not ready' }))
+        return
+      }
+      res.writeHead(500)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+
+    const failure = await drain(
+      executor.execute(
+        'must not dispatch',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toMatchObject({
+      message: expect.stringMatching(/answered 503 for model "pi\/tangle-router\/glm-5\.2"/u),
+    })
+    expect(failure).toBeInstanceOf(BackendTransportError)
+    expect((failure as BackendTransportError).status).toBe(503)
+    expect(classifyDriverFailure(failure)).toBe('transient')
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+    expect(requests).toEqual([
+      { method: 'GET', url: '/' },
+      {
+        method: 'GET',
+        url: '/v1/capabilities?model=pi%2Ftangle-router%2Fglm-5.2',
+      },
+    ])
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'unknown',
+      attempts: [{ observations: [], providerDispatch: 'not_started' }],
+      models: [],
+      reason: 'provider-model-missing',
+    })
+  })
+
+  it('resumes a forceful steer that interrupts preflight without cancelling an uncreated run', async () => {
+    let routeReads = 0
+    let markFirstRouteRead!: () => void
+    const firstRouteRead = new Promise<void>((resolve) => {
+      markFirstRouteRead = resolve
+    })
+    const requestBodies: Array<Record<string, unknown>> = []
+    const cancelledRuns: string[] = []
+    server = createServer(async (req, res) => {
+      if (req.method === 'GET' && req.url === '/') {
+        respondBridgeCapabilities(req, res)
+        return
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+        routeReads += 1
+        if (routeReads === 1) {
+          markFirstRouteRead()
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ available: true }))
+        return
+      }
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ admission: { active: 0, maxActive: 4 } }))
+        return
+      }
+      const cancelledId = cancelledRunId(req.url)
+      if (cancelledId !== undefined) {
+        cancelledRuns.push(cancelledId)
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(terminalCancelBody(cancelledId))
+        return
+      }
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+      requestBodies.push(body)
+      const runId = String(body.run_id)
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        ...durableRunHeaders(runId),
+      })
+      res.end(
+        numberSseDataFrames(
+          bridgeProtocolSse(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: 'resumed answer' } }], usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.01 } })}\n\ndata: [DONE]\n\n`,
+            body,
+          ),
+        ),
+      )
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+    const draining = drain(
+      executor.execute(
+        'discard this plan',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    )
+
+    await firstRouteRead
+    expect(executor.deliver?.({ steer: 'use the corrected plan', interrupt: true })).toBe(true)
+    await draining
+
+    expect(routeReads).toBe(2)
+    expect(requestBodies).toHaveLength(1)
+    expect(requestBodies[0]?.messages).toEqual([
+      { role: 'user', content: expect.stringContaining('use the corrected plan') },
+    ])
+    expect(cancelledRuns).toEqual([])
+    expect(executor.resultArtifact().out).toMatchObject({ content: 'resumed answer' })
+  })
+
+  it('settles a stopped hanging preflight without recording an attempt or sending a POST', async () => {
+    const stop = new AbortController()
+    const executeAbort = new AbortController()
+    const requests: string[] = []
+    let markCapabilityRead!: () => void
+    const capabilityRead = new Promise<void>((resolve) => {
+      markCapabilityRead = resolve
+    })
+    server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`)
+      if (req.method === 'GET' && req.url === '/') {
+        markCapabilityRead()
+        req.once('aborted', () => res.destroy())
+        return
+      }
+      res.writeHead(500)
+      res.end('unexpected request')
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = bridgeExecutor(
+      {
+        profile: {
+          name: 'stopped-preflight',
+          harness: 'pi',
+          model: { provider: 'tangle-router', default: 'glm-5.2' },
+        },
+        harness: null,
+      },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: `http://127.0.0.1:${port}`,
+            bridgeBearer: 'test-bearer',
+          },
+          [bridgeStopSignalKey]: stop.signal,
+        },
+      },
+    )
+    const draining = drain(
+      executor.execute('stop before dispatch', executeAbort.signal) as AsyncIterable<UsageEvent>,
+    )
+
+    await capabilityRead
+    stop.abort('completion requested')
+    const outcome = await Promise.race([
+      draining.then(
+        () => 'settled' as const,
+        () => 'rejected' as const,
+      ),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ])
+    if (outcome !== 'settled') {
+      executeAbort.abort('test cleanup')
+      await draining.catch(() => undefined)
+    }
+
+    expect(outcome).toBe('settled')
+    expect(requests).toEqual(['GET /'])
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toBeUndefined()
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+  })
+
+  it('preserves a caller abort during route preflight without sending a model POST', async () => {
+    const executeAbort = new AbortController()
+    const requests: string[] = []
+    let markRouteRead!: () => void
+    const routeRead = new Promise<void>((resolve) => {
+      markRouteRead = resolve
+    })
+    server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`)
+      if (req.method === 'GET' && req.url === '/') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            capabilities: {
+              profileMaterialization: 'cli-bridge.profile-materialization.v2',
+              usageCostProvenance: 'cli-bridge.usage-cost.v1',
+            },
+          }),
+        )
+        return
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+        markRouteRead()
+        req.once('aborted', () => res.destroy())
+        return
+      }
+      res.writeHead(500)
+      res.end('unexpected request')
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+    const draining = drain(
+      executor.execute(
+        'stop during route preflight',
+        executeAbort.signal,
+      ) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+
+    await routeRead
+    executeAbort.abort('caller stopped the route preflight')
+
+    await expect(draining).resolves.toMatchObject({ name: 'AbortError' })
+    expect(requests).toEqual(['GET /', 'GET /v1/capabilities?model=pi%2Ftangle-router%2Fglm-5.2'])
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+  })
+
+  it('settles a stopped credential preflight without allocating a remote run', async () => {
+    const stop = new AbortController()
+    const requests: string[] = []
+    let releaseCredential!: () => void
+    const credentialBlocked = new Promise<void>((resolve) => {
+      releaseCredential = resolve
+    })
+    let markCredentialRead!: () => void
+    const credentialRead = new Promise<void>((resolve) => {
+      markCredentialRead = resolve
+    })
+    server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`)
+      if (respondBridgeCapabilities(req, res)) return
+      res.writeHead(500)
+      res.end('unexpected request')
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = bridgeExecutor(
+      {
+        profile: {
+          name: 'stopped-credential-preflight',
+          harness: 'pi',
+          model: { provider: 'tangle-router', default: 'glm-5.2' },
+        },
+        harness: null,
+      },
+      {
+        signal: new AbortController().signal,
+        seams: {
+          bridge: {
+            bridgeUrl: `http://127.0.0.1:${port}`,
+            bridgeBearer: 'test-bearer',
+            modelCredential: {
+              key: 'MODEL_GATEWAY_TOKEN',
+              baseUrlKey: 'MODEL_GATEWAY_BASE_URL',
+              provider: {
+                get: async (key: string) => {
+                  markCredentialRead()
+                  await credentialBlocked
+                  return key === 'MODEL_GATEWAY_TOKEN'
+                    ? 'model-token'
+                    : 'https://router.tangle.tools/v1'
+                },
+              },
+            },
+          },
+          [bridgeStopSignalKey]: stop.signal,
+        },
+      },
+    )
+    const draining = drain(
+      executor.execute(
+        'stop before credential dispatch',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    )
+
+    await credentialRead
+    stop.abort('completion requested')
+    const outcome = await Promise.race([
+      draining.then(
+        () => 'settled' as const,
+        () => 'rejected' as const,
+      ),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ])
+    releaseCredential()
+    await draining.catch(() => undefined)
+
+    expect(outcome).toBe('settled')
+    expect(requests).toEqual([
+      'GET /',
+      'GET /v1/capabilities?model=pi%2Ftangle-router%2Fglm-5.2',
+      'GET /health',
+    ])
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toBeUndefined()
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+  })
+
+  it('refuses a full bridge before any model POST', async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined }> = []
+    server = createServer((req, res) => {
+      requests.push({ method: req.method, url: req.url })
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ admission: { active: 2, maxActive: 2 } }))
+        return
+      }
+      if (respondBridgeCapabilities(req, res)) return
+      res.writeHead(500)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const executor = makeExecutor(`http://127.0.0.1:${port}`)
+
+    const failure = await drain(
+      executor.execute(
+        'must not dispatch',
+        new AbortController().signal,
+      ) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toMatchObject({
+      message: expect.stringMatching(/admission is full: active 2 of maxActive 2/u),
+    })
+    expect(classifyDriverFailure(failure)).toBe('transient')
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
+    expect(requests).toEqual([
+      { method: 'GET', url: '/' },
+      {
+        method: 'GET',
+        url: '/v1/capabilities?model=pi%2Ftangle-router%2Fglm-5.2',
+      },
+      { method: 'GET', url: '/health' },
+    ])
+    expect(runtimeOwnedExecutorProviderEvidence(executor)).toEqual({
+      status: 'unknown',
+      attempts: [{ observations: [], providerDispatch: 'not_started' }],
+      models: [],
+      reason: 'provider-model-missing',
+    })
   })
 
   it('rejects a v2 bridge that completes without its terminal profile acknowledgement', async () => {
@@ -892,6 +1325,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
         executor.execute('must refuse', new AbortController().signal) as AsyncIterable<UsageEvent>,
       ),
     ).rejects.toThrow(/no usable value for 'MODEL_GATEWAY_TOKEN'/u)
+    await expect(executor.teardown('brutalKill')).resolves.toEqual({ destroyed: true })
     expect(posts).toBe(0)
   })
 
@@ -1449,6 +1883,101 @@ describe('bridgeExecutor upstream-error propagation', () => {
     await draining
     expect(cancelledRuns).toEqual([chatRequests[0]?.body.run_id])
     expect(liveRuns.size).toBe(0)
+  })
+
+  it('cancels a live bridge run when an interrupted reconnect credential lookup hangs', async () => {
+    const requestBodies: Array<Record<string, unknown>> = []
+    const cancelledRuns: string[] = []
+    let markReconnectCredentialRead!: () => void
+    const reconnectCredentialRead = new Promise<void>((resolve) => {
+      markReconnectCredentialRead = resolve
+    })
+    let releaseReconnectCredential!: () => void
+    const reconnectCredentialBlocked = new Promise<void>((resolve) => {
+      releaseReconnectCredential = resolve
+    })
+    let markCancelSeen!: () => void
+    const cancelSeen = new Promise<void>((resolve) => {
+      markCancelSeen = resolve
+    })
+    server = createServer(async (req, res) => {
+      if (respondBridgeCapabilities(req, res)) return
+      const cancelledId = cancelledRunId(req.url)
+      if (cancelledId !== undefined) {
+        cancelledRuns.push(cancelledId)
+        markCancelSeen()
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          ...durableRunHeaders(cancelledId),
+        })
+        res.end(terminalCancelBody(cancelledId))
+        return
+      }
+      const chunks: Buffer[] = []
+      for await (const chunk of req) chunks.push(Buffer.from(chunk))
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
+      requestBodies.push(body)
+      const runId = String(body.run_id)
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        ...durableRunHeaders(runId),
+      })
+      if (requestBodies.length === 1) {
+        res.end(
+          `id: 1\n${bridgeProtocolSse(`data: ${JSON.stringify({ usage: { prompt_tokens: 2, completion_tokens: 1 } })}\n\n`, body)}`,
+        )
+        return
+      }
+      res.end(
+        numberSseDataFrames(
+          bridgeProtocolSse(
+            `data: ${JSON.stringify({ choices: [{ delta: { content: 'resumed after cancel' } }], usage: { prompt_tokens: 3, completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`,
+            body,
+          ),
+        ),
+      )
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    let tokenReads = 0
+    const executor = makeExecutor(`http://127.0.0.1:${port}`, {
+      key: 'MODEL_GATEWAY_TOKEN',
+      baseUrlKey: 'MODEL_GATEWAY_BASE_URL',
+      provider: {
+        get: async (key) => {
+          if (key === 'MODEL_GATEWAY_TOKEN') {
+            tokenReads += 1
+            if (tokenReads === 2) {
+              markReconnectCredentialRead()
+              await reconnectCredentialBlocked
+            }
+            return 'reconnect-secret'
+          }
+          return 'https://router.tangle.tools/v1'
+        },
+      },
+    })
+    const draining = drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    )
+
+    await reconnectCredentialRead
+    expect(
+      executor.deliver?.({ steer: 'resume after cancelling the lost reader', interrupt: true }),
+    ).toBe(true)
+    const cancellation = await Promise.race([
+      cancelSeen.then(() => 'seen' as const),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 250)),
+    ])
+    releaseReconnectCredential()
+
+    expect(cancellation).toBe('seen')
+    await draining
+    expect(cancelledRuns).toEqual([requestBodies[0]?.run_id])
+    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies[1]?.messages).toEqual([
+      { role: 'user', content: expect.stringContaining('resume after cancelling the lost reader') },
+    ])
   })
 
   it('interrupts an active response body, accounts its partial usage, and resumes with the steer', async () => {

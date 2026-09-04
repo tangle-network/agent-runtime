@@ -44,6 +44,31 @@ vi.mock('node:http', async () => {
             cb(response)
             return
           }
+          if (
+            (opts as { method?: string }).method === 'GET' &&
+            url.pathname === '/v1/capabilities'
+          ) {
+            const response = new PassThrough() as Readable & {
+              statusCode?: number
+              headers?: Record<string, string>
+            }
+            response.statusCode = 200
+            response.headers = { 'content-type': 'application/json' }
+            response.end(JSON.stringify({ available: true }))
+            cb(response)
+            return
+          }
+          if ((opts as { method?: string }).method === 'GET' && url.pathname === '/health') {
+            const response = new PassThrough() as Readable & {
+              statusCode?: number
+              headers?: Record<string, string>
+            }
+            response.statusCode = 200
+            response.headers = { 'content-type': 'application/json' }
+            response.end(JSON.stringify({ admission: { active: 0, maxActive: 1 } }))
+            cb(response)
+            return
+          }
           const payload = JSON.parse(body || '{}') as Record<string, unknown>
           if (!bridgeHttpHandler) throw new Error('bridgeHttpHandler not set')
           const res = bridgeHttpHandler(payload) as Readable & {
