@@ -36,15 +36,29 @@ Use only fields the selected backend can materialize.
     "default": "gpt-5.6-sol",
     "reasoningEffort": "xhigh"
   },
-  "metadata": {
-    "role": "driver"
+  "tools": {
+    "agent_runtime_coordination_spawn_worker": true
+  },
+  "resources": {
+    "failOnError": true,
+    "skills": [
+      {
+        "kind": "inline",
+        "name": "profile-authoring",
+        "content": "<complete profile-authoring SKILL.md bytes>"
+      }
+    ]
   }
 }
 ```
 
 The example shows placement, not required values.
-Use `metadata.role: 'driver'` only when this child should author and supervise descendants.
-Omit that role for a leaf.
+Replace the example skill content with the exact bytes the parent received.
+Declare `tools.agent_runtime_coordination_spawn_worker: true` only when this child can create descendants.
+That declaration is the recursion signal; names, descriptions, prompts, and metadata never grant authority.
+Every profile with spawn authority must carry the complete authoring skill in `resources.skills`.
+Also declare every other coordination or work tool the child needs by its visible name.
+Omit spawn authority and the authoring skill for an ordinary leaf.
 
 The task argument names the concrete artifact and a check that can fail.
 The profile names how the agent works and which capabilities it receives.
