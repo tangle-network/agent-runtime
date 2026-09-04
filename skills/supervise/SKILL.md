@@ -32,8 +32,8 @@ Use only fields the selected backend can materialize.
     "appendSystemPrompt": "Return a claim table with source locations, contradictions, unknowns, and a reproducible rejection check."
   },
   "model": {
-  "provider": "openai",
-  "default": "gpt-5.6-sol",
+    "provider": "openai",
+    "default": "gpt-5.6-sol",
     "reasoningEffort": "xhigh"
   },
   "metadata": {
