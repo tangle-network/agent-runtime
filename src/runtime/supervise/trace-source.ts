@@ -232,11 +232,14 @@ export function createPartsTraceSource(opts: {
   subscribeParts?: (onPart: (part: unknown) => void) => () => void
   /** The harness whose decoder to use (e.g. 'opencode'); omit to try every registered adapter. */
   harness?: HarnessType
+  /** How one part becomes a tool step; defaults to the harness's adapter (or every adapter). */
+  decode?: (part: unknown) => ToolStepInput | undefined
   runId?: string
   now?: () => number
 }): TraceSource {
   const runId = opts.runId ?? `parts-${runSeq++}`
   const now = opts.now ?? Date.now
+  const decode = opts.decode ?? ((part: unknown) => decodeToolPart(part, opts.harness))
   const subs = new Set<(span: ToolSpan) => void>()
   // De-dup the repeated transitions a harness streams for one call (pending/running/completed + a
   // `raw`-wrapped copy all decode to the same terminal step) — one span per callId.
@@ -246,7 +249,7 @@ export function createPartsTraceSource(opts: {
   const startLive = () => {
     if (unsub || !opts.subscribeParts) return
     unsub = opts.subscribeParts((part) => {
-      const step = decodeToolPart(part, opts.harness)
+      const step = decode(part)
       if (!step) return
       if (step.callId) {
         if (seenLive.has(step.callId)) return
@@ -279,7 +282,7 @@ export function createPartsTraceSource(opts: {
       const spans: ToolSpan[] = []
       const seen = new Set<string>()
       for (const part of parts) {
-        const step = decodeToolPart(part, opts.harness)
+        const step = decode(part)
         if (!step) continue
         if (step.callId) {
           if (seen.has(step.callId)) continue
@@ -318,12 +321,18 @@ export function sandboxSessionTraceSource(
     now?: () => number
   } = {},
 ): TraceSource {
+  // A box publishes every harness's tool calls in the canonical `ToolPart` shape (the sandbox
+  // normalizes them), so that decoder runs first for any harness; the harness's own raw shape is
+  // the second reading, for a session that streams unnormalized parts.
+  const decode = (part: unknown): ToolStepInput | undefined =>
+    decodeOpencodePart(obj(part) ?? {}) ?? decodeToolPart(part, opts.harness)
   return createPartsTraceSource({
     collectParts: async () => {
       const msgs = await box.messages({ sessionId })
       return msgs.flatMap((m) => (m.parts ? [...m.parts] : []))
     },
     ...(opts.harness ? { harness: opts.harness } : {}),
+    decode,
     ...(opts.subscribeParts ? { subscribeParts: opts.subscribeParts } : {}),
     runId: opts.runId ?? `box-${sessionId}`,
     ...(opts.now ? { now: opts.now } : {}),
