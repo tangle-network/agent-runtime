@@ -176,3 +176,54 @@ describe('createPushTraceSource — owned-loop path', () => {
     expect((await source.collect())[0]?.status).toBe('ok')
   })
 })
+
+describe('sandboxSessionTraceSource — a claude-code box publishes canonical ToolParts', () => {
+  it('decodes the box-normalized `type: "tool"` parts under harness claude-code', async () => {
+    // What a live box returns from `messages()` for a claude-code session: the canonical ToolPart,
+    // not the raw Anthropic `tool_use` block the bridge streams.
+    const box = {
+      async messages() {
+        return [
+          {
+            parts: [
+              { type: 'text', text: 'looking' },
+              {
+                id: 'toolu_01',
+                type: 'tool',
+                callID: 'toolu_01',
+                tool: 'Bash',
+                state: { status: 'completed', input: { command: 'pwd' }, output: '/home/agent' },
+              },
+              {
+                id: 'toolu_02',
+                type: 'tool',
+                callID: 'toolu_02',
+                tool: 'Read',
+                state: { status: 'failed', input: { file_path: 'x' }, error: 'ENOENT' },
+              },
+            ],
+          },
+        ]
+      },
+    }
+    const spans = await sandboxSessionTraceSource(box, 'loop-sess-1', {
+      harness: 'claude-code',
+    }).collect()
+    expect(spans.map((s) => s.toolName)).toEqual(['Bash', 'Read'])
+    expect(spans.map((s) => s.status)).toEqual(['ok', 'error'])
+  })
+
+  it('still reads a raw Anthropic tool_use block when a session streams unnormalized parts', async () => {
+    const box = {
+      async messages() {
+        return [
+          { parts: [{ type: 'tool_use', id: 'toolu_09', name: 'Grep', input: { pattern: 'x' } }] },
+        ]
+      },
+    }
+    const spans = await sandboxSessionTraceSource(box, 'loop-sess-2', {
+      harness: 'claude-code',
+    }).collect()
+    expect(spans.map((s) => s.toolName)).toEqual(['Grep'])
+  })
+})
