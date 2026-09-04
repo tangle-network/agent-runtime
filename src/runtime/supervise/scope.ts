@@ -1591,7 +1591,8 @@ interface OwnerMaterializationState {
   readonly root: NodeId
   readonly nodeId: NodeId
   readonly runtime: NodeSnapshot['runtime']
-  readonly attemptId: string
+  /** Rotated by `beginScopeOwnerAttempt` on every driver attempt after the first (#1085). */
+  attemptId: string
   readonly authoredProfile?: unknown
   readonly authoredProfileDigest?: Sha256Digest
   readonly prior?: ProfileMaterializationReceipt
@@ -1691,6 +1692,28 @@ export async function recordScopeOwnerMaterialization(
 }
 
 /** @internal Kernel identity for constructing the exact deferred owner executor. */
+/**
+ * @internal A new driver attempt of the scope owner — a retry after a failed drive, or a re-prompt
+ * after an unmet completion check — is a new execution attempt and gets a fresh kernel-minted
+ * attempt id. Before this the second drive reported its binding under the first drive's id, the
+ * spawn journal refused it as a duplicate execution binding, and the driver read that refusal as a
+ * transient failure and retried into the same wall (#1085: measured on one fleet, 10 attempts of
+ * "spawn journal corrupted: duplicate execution binding" per run until the operator killed it).
+ * Returns the id the attempt will report under, or undefined when the scope owner is not a
+ * deferred runtime-owned root (nothing to rotate). The first attempt keeps the id minted at run
+ * start, so journals of runs that never re-drive are byte-identical to before.
+ */
+export function beginScopeOwnerAttempt(scope: Scope<unknown>, attempt: number): string | undefined {
+  const state = ownerMaterializationStates.get(scope)
+  if (state === undefined) return undefined
+  if (attempt > 1) {
+    state.attemptId = newExecutionAttemptId(state.nodeId)
+    state.bindingPublished = false
+    state.publishedThisProcess = false
+  }
+  return state.attemptId
+}
+
 export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNodeContext {
   const state = ownerMaterializationState(scope)
   return Object.freeze({

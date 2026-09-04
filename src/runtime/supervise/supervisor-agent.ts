@@ -53,6 +53,7 @@ import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import { createInbox } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
+import { beginScopeOwnerAttempt } from './scope'
 import {
   assertExecutableAgentProfile,
   concreteProfileModel,
@@ -930,7 +931,9 @@ function buildSupervisorAgent(
           }
         }
         await runDriverWithRetry({
-          drive: async (_attempt, reentry) => {
+          drive: async (attempt, reentry) => {
+            // Every drive after the first is a new execution attempt of the root (#1085).
+            beginScopeOwnerAttempt(scope, attempt)
             try {
               await driveHarness({
                 profile: stableProfile,
