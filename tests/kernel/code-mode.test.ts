@@ -7,7 +7,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import {
   codeModeSupervisorTools,
@@ -166,7 +166,7 @@ describe('the sandbox — bindings are the only capability', () => {
   })
 })
 
-describe('the execute deadline gates api calls — no work outlives the call (surgical)', () => {
+describe('caller-authored execution deadlines and manager cancellation', () => {
   /** A minimal invocation context: a call-counting `verbs`, a live signal, a coordinationTools
    *  face. Enough to drive the execute handler without a full supervise run. */
   function fakeContext(signal: AbortSignal, onSpawn: () => void) {
@@ -204,6 +204,39 @@ describe('the execute deadline gates api calls — no work outlives the call (su
       >['handler']
     >[1]
   }
+
+  it('an omitted deadline keeps running until the manager cancels', async () => {
+    vi.useFakeTimers()
+    try {
+      let executionSignal: AbortSignal | undefined
+      const runner = {
+        run: ({ signal }: { signal: AbortSignal }) => {
+          executionSignal = signal
+          return new Promise<never>((_resolve, reject) => {
+            if (signal.aborted) reject(signal.reason)
+            else signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+          })
+        },
+      }
+      const tools = codeModeSupervisorTools(runner)([] as never)
+      const execute = tools.find((tool) => tool.name === 'execute')
+      if (!execute) throw new Error('no execute tool')
+      const manager = new AbortController()
+      const pending = execute.handler(
+        { code: 'await new Promise(() => {})' },
+        fakeContext(manager.signal, () => {}),
+      )
+      const observed = pending.catch((error: unknown) => error)
+
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+      expect(executionSignal?.aborted).toBe(false)
+
+      manager.abort(new Error('manager cancelled'))
+      await expect(observed).resolves.toMatchObject({ message: 'manager cancelled' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('a program that spawns in a loop is halted by the deadline; the count is bounded and it rejects', async () => {
     const tools = codeModeSupervisorTools(unsafeInProcessRunner(), { timeoutMs: 30 })([] as never)
@@ -245,7 +278,7 @@ describe('the execute deadline gates api calls — no work outlives the call (su
           spawns += 1
         }),
       ),
-    ).rejects.toThrow(/deadline passed|scope cancelled/)
+    ).rejects.toThrow(/scope cancelled/)
     expect(spawns).toBe(0)
   })
 })

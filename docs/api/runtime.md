@@ -11784,14 +11784,14 @@ Where model-written code runs. THE isolation boundary — see the module doc: th
 
 `Readonly`\<`Record`\<`string`, (`args`) => `Promise`\<`unknown`\>\>\>
 
-The granted operations, already deadline-gated and result-detached by the caller. The
+The granted operations, already cancellation-gated and result-detached by the caller. The
  runner exposes these to the program as `api.<name>` and adds nothing else reachable.
 
 ###### signal
 
 `AbortSignal`
 
-Aborts when the whole-program deadline passes or the manager scope cancels.
+Aborts when the manager cancels or a caller-authored deadline passes.
 
 ###### Returns
 
@@ -11805,11 +11805,10 @@ Aborts when the whole-program deadline passes or the manager scope cancels.
 
 ##### timeoutMs?
 
-> `readonly` `optional` **timeoutMs?**: `number`
+> `readonly` `optional` **timeoutMs?**: `number` \| `null`
 
-Whole-program deadline per `execute` call. Default 60_000. After it passes, the running
- program's next `api` call fails closed, so a runaway loop cannot keep spawning workers the
- model can no longer see.
+Optional caller-authored deadline for one `execute` call. Omit it to run until the manager
+ cancels. A declared deadline aborts the runner and refuses later `api` calls.
 
 ***
 
