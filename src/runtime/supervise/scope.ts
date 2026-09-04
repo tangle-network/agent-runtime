@@ -1591,7 +1591,8 @@ interface OwnerMaterializationState {
   readonly root: NodeId
   readonly nodeId: NodeId
   readonly runtime: NodeSnapshot['runtime']
-  readonly attemptId: string
+  /** Rotated by `beginScopeOwnerAttempt` on every driver attempt after the first. */
+  attemptId: string
   readonly authoredProfile?: unknown
   readonly authoredProfileDigest?: Sha256Digest
   readonly prior?: ProfileMaterializationReceipt
@@ -1691,6 +1692,26 @@ export async function recordScopeOwnerMaterialization(
 }
 
 /** @internal Kernel identity for constructing the exact deferred owner executor. */
+/**
+ * @internal Each driver attempt of the scope owner is its own execution attempt. A driver retry
+ * after a failed drive, and the `repromptOnUnmet` re-entry after an unmet completion check, both
+ * run the harness again and report a new execution binding; the journal keys owner bindings by
+ * attempt id, so every attempt after the first is given a fresh kernel-minted id and its
+ * published flags are cleared, and the new binding lands beside the earlier ones. The first
+ * attempt keeps the id minted at run start. Returns the id the attempt reports under, or
+ * undefined when the scope owner is not a deferred runtime-owned root.
+ */
+export function beginScopeOwnerAttempt(scope: Scope<unknown>, attempt: number): string | undefined {
+  const state = ownerMaterializationStates.get(scope)
+  if (state === undefined) return undefined
+  if (attempt > 1) {
+    state.attemptId = newExecutionAttemptId(state.nodeId)
+    state.bindingPublished = false
+    state.publishedThisProcess = false
+  }
+  return state.attemptId
+}
+
 export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNodeContext {
   const state = ownerMaterializationState(scope)
   return Object.freeze({

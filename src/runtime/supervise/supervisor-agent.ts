@@ -61,6 +61,7 @@ import {
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
 import { supervisorPolicyPrompt } from './prompt-registry'
+import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
   createProgressTracker,
@@ -930,7 +931,9 @@ function buildSupervisorAgent(
           }
         }
         await runDriverWithRetry({
-          drive: async (_attempt, reentry) => {
+          drive: async (attempt, reentry) => {
+            // Every drive after the first is a new execution attempt of the root.
+            beginScopeOwnerAttempt(scope, attempt)
             try {
               await driveHarness({
                 profile: stableProfile,
