@@ -1463,13 +1463,13 @@ export interface SupervisorOpts {
   readonly maxRestarts?: number
   readonly withinMs?: number
   /**
-   * How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
-   * cascades the abort into them (#741). A root that dies did not make its children unhealthy: a
-   * child mid-unit holds work already paid for, and killing it instantly discards everything it has
-   * not yet written. The window applies ONLY to a driver failure on an un-cancelled run, and never
-   * extends past the run's own deadline. Omit/`0` = the historical immediate teardown.
+   * How long live children may keep running after the root driver returns or fails, before the join
+   * barrier cascades the abort into them (#741). A child mid-unit holds work already paid for, and
+   * killing it instantly discards everything it has not yet written. `null` waits until children
+   * settle or the caller cancels. An explicit run deadline always wins. Omit/`0` = immediate
+   * teardown.
    */
-  readonly childSettleGraceMs?: number
+  readonly childSettleGraceMs?: number | null
   /**
    * Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
    * one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`

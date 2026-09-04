@@ -1290,12 +1290,11 @@ export interface SuperviseOptions {
    *  owes and reports how many workers passed the check. */
   readonly onUnmetContract?: OnUnmetContract
   /**
-   * How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
-   * cascades the abort into them. A root that died did not make its children unhealthy: a child
-   * mid-unit holds work already paid for, and an immediate cascade discards everything it has not
-   * yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+   * How long live children may keep running after the root driver returns or fails, before the join
+   * barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
+   * An explicit run deadline always wins. Omit/`0` = immediate teardown.
    */
-  readonly childSettleGraceMs?: number
+  readonly childSettleGraceMs?: number | null
   /** Resolve one custom external-harness session per trusted manager identity. Use this instead of
    * `driveHarness` when recursive managers must be independently steerable. */
   readonly resolveDriveHarness?: ResolveDriveHarness
