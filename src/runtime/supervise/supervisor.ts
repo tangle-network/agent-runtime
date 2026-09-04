@@ -1062,7 +1062,7 @@ function wrapJournalForBreaker(journal: SpawnJournal, breaker: IntensityBreaker)
 async function drainLiveChildren(
   scope: Scope<unknown>,
   controller: AbortController,
-  settleGraceMs = 0,
+  settleGraceMs: number | null = 0,
 ): Promise<ReadonlyArray<UnconfirmedTeardown>> {
   // Armed wait-states count here even though they are deliberately excluded from `inFlight`: a
   // wait holds no executor, but it DOES hold a live timer, so a run that returns without
@@ -1075,13 +1075,13 @@ async function drainLiveChildren(
   // children finish in the meantime. Exactly ONE cursor reader either way: the grace never races
   // `next()`, it only decides when the abort lands.
   let graceTimer: ReturnType<typeof setTimeout> | undefined
-  if (settleGraceMs > 0 && !controller.signal.aborted) {
+  if (settleGraceMs !== null && settleGraceMs > 0 && !controller.signal.aborted) {
     graceTimer = setTimeout(
       () => controller.abort('root driver failed; child settle grace expired'),
       settleGraceMs,
     )
     graceTimer.unref?.()
-  } else if (!controller.signal.aborted) {
+  } else if (settleGraceMs !== null && !controller.signal.aborted) {
     // Same event as the grace-timer branch above, so it carries the same named reason: one
     // path stating why and the other going silent is what put identical deaths in two
     // different diagnostic buckets.
@@ -1127,13 +1127,15 @@ function describeUnconfirmed(scope: Scope<unknown>): string {
   }`
 }
 
-/** The settle window a failed driver's children actually get: the caller's grace, never past the
- *  run's own deadline. `0` (the default) keeps the historical immediate cascade. */
+/** The settle window a driver's children actually get: the caller's grace, never past an explicit
+ *  run deadline. `null` means no timer. `0` (the default) cascades immediately. */
 function boundedSettleGrace(
-  graceMs: number | undefined,
+  graceMs: number | null | undefined,
   deadlineAtMs: number,
   now: () => number,
-): number {
+): number | null {
+  if (graceMs === null && deadlineAtMs <= 0) return null
+  if (graceMs === null) return Math.max(0, deadlineAtMs - now())
   if (graceMs === undefined || graceMs <= 0) return 0
   if (deadlineAtMs <= 0) return graceMs
   return Math.max(0, Math.min(graceMs, deadlineAtMs - now()))

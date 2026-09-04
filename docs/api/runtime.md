@@ -11784,14 +11784,14 @@ Where model-written code runs. THE isolation boundary — see the module doc: th
 
 `Readonly`\<`Record`\<`string`, (`args`) => `Promise`\<`unknown`\>\>\>
 
-The granted operations, already deadline-gated and result-detached by the caller. The
+The granted operations, already cancellation-gated and result-detached by the caller. The
  runner exposes these to the program as `api.<name>` and adds nothing else reachable.
 
 ###### signal
 
 `AbortSignal`
 
-Aborts when the whole-program deadline passes or the manager scope cancels.
+Aborts when the manager cancels or a caller-authored deadline passes.
 
 ###### Returns
 
@@ -11805,11 +11805,10 @@ Aborts when the whole-program deadline passes or the manager scope cancels.
 
 ##### timeoutMs?
 
-> `readonly` `optional` **timeoutMs?**: `number`
+> `readonly` `optional` **timeoutMs?**: `number` \| `null`
 
-Whole-program deadline per `execute` call. Default 60_000. After it passes, the running
- program's next `api` call fails closed, so a runaway loop cannot keep spawning workers the
- model can no longer see.
+Optional caller-authored deadline for one `execute` call. Omit it to run until the manager
+ cancels. A declared deadline aborts the runner and refuses later `api` calls.
 
 ***
 
@@ -13491,12 +13490,11 @@ Compose the re-entry instruction for an unmet contract, or return `'stop'` to en
 
 ##### childSettleGraceMs?
 
-> `readonly` `optional` **childSettleGraceMs?**: `number`
+> `readonly` `optional` **childSettleGraceMs?**: `number` \| `null`
 
-How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
-cascades the abort into them. A root that died did not make its children unhealthy: a child
-mid-unit holds work already paid for, and an immediate cascade discards everything it has not
-yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+How long live children may keep running after the root driver returns or fails, before the join
+barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
+An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 ###### Inherited from
 
@@ -17788,12 +17786,11 @@ Compose the re-entry instruction for an unmet contract, or return `'stop'` to en
 
 ##### childSettleGraceMs?
 
-> `readonly` `optional` **childSettleGraceMs?**: `number`
+> `readonly` `optional` **childSettleGraceMs?**: `number` \| `null`
 
-How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
-cascades the abort into them. A root that died did not make its children unhealthy: a child
-mid-unit holds work already paid for, and an immediate cascade discards everything it has not
-yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+How long live children may keep running after the root driver returns or fails, before the join
+barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
+An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 ##### resolveDriveHarness?
 
@@ -20286,13 +20283,13 @@ trips the supervisor to `no-winner` rather than restarting forever.
 
 ##### childSettleGraceMs?
 
-> `readonly` `optional` **childSettleGraceMs?**: `number`
+> `readonly` `optional` **childSettleGraceMs?**: `number` \| `null`
 
-How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
-cascades the abort into them (#741). A root that dies did not make its children unhealthy: a
-child mid-unit holds work already paid for, and killing it instantly discards everything it has
-not yet written. The window applies ONLY to a driver failure on an un-cancelled run, and never
-extends past the run's own deadline. Omit/`0` = the historical immediate teardown.
+How long live children may keep running after the root driver returns or fails, before the join
+barrier cascades the abort into them (#741). A child mid-unit holds work already paid for, and
+killing it instantly discards everything it has not yet written. `null` waits until children
+settle or the caller cancels. An explicit run deadline always wins. Omit/`0` = immediate
+teardown.
 
 ##### resume?
 

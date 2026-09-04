@@ -1507,12 +1507,11 @@ Compose the re-entry instruction for an unmet contract, or return `'stop'` to en
 
 ##### childSettleGraceMs?
 
-> `readonly` `optional` **childSettleGraceMs?**: `number`
+> `readonly` `optional` **childSettleGraceMs?**: `number` \| `null`
 
-How long live children may keep running after the ROOT DRIVER FAILED, before the join barrier
-cascades the abort into them. A root that died did not make its children unhealthy: a child
-mid-unit holds work already paid for, and an immediate cascade discards everything it has not
-yet written. Bounded by the run's own deadline. Omit/`0` = immediate teardown.
+How long live children may keep running after the root driver returns or fails, before the join
+barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
+An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 ###### Inherited from
 

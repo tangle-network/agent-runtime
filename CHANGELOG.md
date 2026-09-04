@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.193.0
+
+### Omitted code-mode deadlines no longer stop work
+
+`CodeModeOptions.timeoutMs` now accepts `null`, and an omitted value no longer creates a
+60-second deadline.
+Code-mode programs continue until the manager cancels them or a caller supplies a positive
+`timeoutMs`.
+Consumers that require a wall-clock limit must now declare it explicitly.
+
+### Live children can settle without a clock
+
+`SuperviseOptions.childSettleGraceMs` and `SupervisorOpts.childSettleGraceMs` now accept `null`.
+That value keeps the join open until every child settles or the caller cancels the run.
+An explicit run deadline still bounds the join.
+Omitted and zero values retain immediate teardown.
+
 ## 0.192.0
 
 ### Provider date snapshots retain model identity
