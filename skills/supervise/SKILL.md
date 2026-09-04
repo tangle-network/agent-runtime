@@ -27,11 +27,13 @@ Use only fields the selected backend can materialize.
 {
   "name": "source-skeptic-v1",
   "description": "Challenge one candidate claim against primary evidence.",
+  "harness": "codex",
   "prompt": {
     "appendSystemPrompt": "Return a claim table with source locations, contradictions, unknowns, and a reproducible rejection check."
   },
   "model": {
-    "default": "<allowed-model-id>",
+    "provider": "openai",
+    "default": "gpt-5.6-sol",
     "reasoningEffort": "xhigh"
   },
   "metadata": {
