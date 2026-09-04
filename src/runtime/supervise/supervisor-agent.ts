@@ -53,7 +53,6 @@ import type { BusRecord } from './event-bus'
 import { bestDelivered, runFinalizer, runTree, type SupervisorFinalizer } from './finalizer'
 import { createInbox } from './inbox'
 import { attestRuntimeOwnedScopeOwner, runtimeOwnedScopeOwnerRuntime } from './materialization'
-import { beginScopeOwnerAttempt } from './scope'
 import {
   assertExecutableAgentProfile,
   concreteProfileModel,
@@ -62,6 +61,7 @@ import {
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
 import { supervisorPolicyPrompt } from './prompt-registry'
+import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
   createProgressTracker,
