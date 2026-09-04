@@ -77,7 +77,14 @@ interface FakeBridgeRoutes {
   /** Wire ids this bridge routes. Any other id 404s. Omit = route everything. */
   routedModels?: ReadonlySet<string>
   /** Admission counters `/health` reports. Omit = report no admission snapshot at all. */
-  admission?: { active: number; maxActive: number }
+  admission?: {
+    active: number
+    maxActive: number
+    bulkMaxActive?: number
+    activeByClass?: { bulk: number; reserved: number }
+  }
+  /** Every request at the bridge boundary, before the fake handles it. */
+  onRequest?: (request: { method: string | undefined; url: string | undefined }) => void
 }
 
 function createBridgeServer(
@@ -86,6 +93,7 @@ function createBridgeServer(
 ): Server {
   const sessionBindings = new Map<string, string>()
   return createServer((req, res) => {
+    routes.onRequest?.({ method: req.method, url: req.url })
     if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities')) {
       const model = new URL(req.url, 'http://bridge.test').searchParams.get('model') ?? ''
       if (routes.routedModels && !routes.routedModels.has(model)) {
@@ -417,6 +425,241 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       },
     ])
     expect(() => handle.deliver({ steer: 'after completion' })).toThrow()
+  })
+
+  it('meters an interrupted preflight as zero spend before the resumed paid attempt', async () => {
+    const runId = 'bridge-preflight-meter-order'
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    const handle = createRootHandle<unknown>()
+    let routeReads = 0
+    let markFirstRouteRead!: () => void
+    const firstRouteRead = new Promise<void>((resolve) => {
+      markFirstRouteRead = resolve
+    })
+    const requests: BridgeRequest[] = []
+    server = createServer(async (req, res) => {
+      if (req.method === 'GET' && req.url === '/') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            capabilities: {
+              profileMaterialization: 'cli-bridge.profile-materialization.v2',
+              usageCostProvenance: 'cli-bridge.usage-cost.v1',
+              runtimeAttachments: { mcp: true },
+            },
+          }),
+        )
+        return
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+        routeReads += 1
+        if (routeReads === 1) {
+          markFirstRouteRead()
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ available: true }))
+        return
+      }
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ admission: { active: 0, maxActive: 4 } }))
+        return
+      }
+      const body = await readJson(req)
+      requests.push(body)
+      const servedModel = 'openai/test@fp_preflight_resume'
+      const stream = [
+        `data: ${JSON.stringify({ model: servedModel, choices: [{ delta: { content: 'served' } }] })}`,
+        `data: ${JSON.stringify({
+          model: servedModel,
+          usage: { prompt_tokens: 3, completion_tokens: 1, cost: 0.01 },
+        })}`,
+        'data: [DONE]',
+        '',
+      ].join('\n\n')
+      respondWithBridgeStream(res, body, stream)
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const running = supervise(codexTestProfile('bridge-root', 'Lead.'), 'Choose.', {
+      rootHandle: handle,
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { enabled: false },
+      journal,
+      runId,
+    })
+
+    await firstRouteRead
+    expect(handle.deliver({ steer: 'use the corrected plan', interrupt: true })).toBe(true)
+    await running
+
+    expect(routeReads).toBe(2)
+    expect(requests).toHaveLength(1)
+    const metered = events.filter(
+      (event): event is Extract<typeof event, { kind: 'metered' }> =>
+        event.kind === 'metered' && event.id === runId,
+    )
+    expect(metered).toHaveLength(2)
+    expect(metered[0]).toMatchObject({
+      spend: { iterations: 0, tokens: { input: 0, output: 0 }, usd: 0 },
+      providerModel: {
+        attempts: [{ observations: [], providerDispatch: 'not_started' }],
+      },
+    })
+    expect(metered[1]).toMatchObject({
+      spend: { tokens: { input: 3, output: 1 }, usd: 0.01 },
+      providerModel: {
+        attempts: [{ observations: ['openai/test@fp_preflight_resume'] }],
+      },
+    })
+  })
+
+  it('retries a transient root route preflight before allocating a remote run', async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined }> = []
+    let routeReads = 0
+    server = createServer(async (req, res) => {
+      requests.push({ method: req.method, url: req.url })
+      if (req.method === 'GET' && req.url === '/') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify({
+            capabilities: {
+              profileMaterialization: 'cli-bridge.profile-materialization.v2',
+              usageCostProvenance: 'cli-bridge.usage-cost.v1',
+              runtimeAttachments: { mcp: true },
+            },
+          }),
+        )
+        return
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/v1/capabilities?model=')) {
+        routeReads += 1
+        res.writeHead(routeReads === 1 ? 503 : 200, { 'content-type': 'application/json' })
+        res.end(
+          JSON.stringify(routeReads === 1 ? { error: 'backend is warming' } : { available: true }),
+        )
+        return
+      }
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ admission: { active: 0, maxActive: 4 } }))
+        return
+      }
+      const body = await readJson(req)
+      respondWithBridgeStream(res, body, successStream('managed after route recovery'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const attempts: DriverAttemptRecord[] = []
+
+    const result = await supervise(codexTestProfile('bridge-root', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { initialBackoffMs: 1 },
+      onDriverAttempt: (attempt) => void attempts.push(attempt),
+    })
+
+    expect(attempts.map((attempt) => attempt.stop ?? attempt.classification)).toEqual([
+      'transient',
+      'completed',
+    ])
+    expect(result.kind === 'no-winner' ? result.reason : 'winner').not.toBe('driver-failed')
+    expect(requests).toEqual([
+      { method: 'GET', url: '/' },
+      { method: 'GET', url: '/v1/capabilities?model=codex%2Fopenai%2Ftest' },
+      { method: 'GET', url: '/' },
+      { method: 'GET', url: '/v1/capabilities?model=codex%2Fopenai%2Ftest' },
+      { method: 'GET', url: '/health' },
+      { method: 'POST', url: '/v1/chat/completions' },
+    ])
+  })
+
+  it('records the exact served root MCP tools in bridge materialization evidence', async () => {
+    const servedToolSets: Array<
+      Array<{ name: string; description?: string; inputSchema?: unknown }>
+    > = []
+    const journal = new InMemorySpawnJournal()
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+      if (coordination?.url === undefined) {
+        throw new Error('root bridge request did not mount the coordination MCP')
+      }
+      const response = await fetch(coordination.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'listed-tools',
+          method: 'tools/list',
+          params: {},
+        }),
+      })
+      const payload = (await response.json()) as {
+        result?: { tools?: Array<{ name: string; description?: string; inputSchema?: unknown }> }
+      }
+      if (!response.ok || payload.result?.tools === undefined) {
+        throw new Error('coordination MCP did not return tools/list')
+      }
+      servedToolSets.push(payload.result.tools)
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const rootProfile = codexTestProfile('tool-evidence-root', 'Lead with exact tool evidence.')
+
+    await supervise(rootProfile, 'Choose.', {
+      backend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      journal,
+      runId: 'bridge-tool-evidence',
+      resolveSupervisorTools: async () => [
+        {
+          name: 'read_root_evidence',
+          description: 'Read one root-scoped evidence record',
+          inputSchema: { type: 'object', properties: { id: { type: 'string' } } },
+          handler: async () => ({ value: 'not-called' }),
+        },
+      ],
+    })
+
+    expect(servedToolSets).toHaveLength(1)
+    const servedNames = servedToolSets[0]?.map((tool) => tool.name) ?? []
+    expect(servedNames).toContain('spawn_worker')
+    expect(servedNames).toContain('read_root_evidence')
+    expect(new Set(servedNames).size).toBe(servedNames.length)
+    const events = await journal.loadTree('bridge-tool-evidence')
+    const materialized = events?.find(
+      (event) => event.kind === 'materialized' && event.id === 'bridge-tool-evidence',
+    )
+    expect(
+      materialized?.kind === 'materialized'
+        ? materialized.receipt.platformAttachmentsDigest
+        : undefined,
+    ).toBe(
+      canonicalCandidateDigest({
+        'agent-runtime-coordination': {
+          kind: 'coordination-mcp',
+          transport: 'http',
+          tools: servedToolSets[0],
+        },
+      }),
+    )
   })
 
   it('maxTurns caps the bridge manager turns; the same run without it keeps resuming', async () => {
@@ -910,6 +1153,94 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(refusal).toBeDefined()
     expect(refusal).toContain('model-route')
     expect(refusal).toContain('pi/tangle-router/deepseek-v4-flash')
+  })
+
+  it('refuses a bulk-full root bridge in a split topology with known zero spend and no remote run', async () => {
+    const bridgeRequests: Array<{ method: string | undefined; url: string | undefined }> = []
+    server = createBridgeServer(
+      (_req, res) => {
+        res.writeHead(500)
+        res.end('unexpected request')
+      },
+      {
+        admission: {
+          active: 3,
+          maxActive: 4,
+          bulkMaxActive: 3,
+          activeByClass: { bulk: 3, reserved: 0 },
+        },
+        onRequest: (request) => bridgeRequests.push(request),
+      },
+    )
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const events: SpawnEvent[] = []
+    const attempts: DriverAttemptRecord[] = []
+    const result = await supervise(codexTestProfile('root', 'Lead.'), 'Choose.', {
+      backend: {
+        backend: 'sandbox',
+        sandboxClient: {
+          create: async () => {
+            throw new Error('split topology must not create a worker box')
+          },
+        },
+      },
+      driverBackend: {
+        backend: 'bridge',
+        bridgeUrl: `http://127.0.0.1:${port}`,
+        bridgeBearer: 'test-token',
+      },
+      budget: { maxIterations: 4, maxTokens: 10_000 },
+      driverRetry: { enabled: false },
+      journal: recordingJournal(events),
+      runId: 'split-root-full-bridge',
+      onDriverAttempt: (attempt) => void attempts.push(attempt),
+    })
+
+    expect(result.kind).toBe('no-winner')
+    if (result.kind !== 'no-winner') return
+    expect(result.reason).toBe('driver-failed')
+    expect(attempts).toMatchObject([
+      { classification: 'transient', stop: 'retry-disabled', madeProgress: false },
+    ])
+    expect(bridgeRequests).toEqual([
+      { method: 'GET', url: '/' },
+      {
+        method: 'GET',
+        url: '/v1/capabilities?model=codex%2Fopenai%2Ftest',
+      },
+      { method: 'GET', url: '/health' },
+    ])
+    expect(result.rootProviderModel).toEqual({
+      status: 'unknown',
+      attempts: [{ observations: [], providerDispatch: 'not_started' }],
+      models: [],
+      reason: 'provider-model-missing',
+    })
+    expect(result.providerModel).toEqual(result.rootProviderModel)
+    expect(result.spentTotal).toMatchObject({
+      iterations: 0,
+      tokens: { input: 0, output: 0 },
+      tokensKnown: true,
+      usd: 0,
+      usdKnown: true,
+    })
+    expect(
+      events.filter(
+        (event): event is Extract<SpawnEvent, { kind: 'metered' }> => event.kind === 'metered',
+      ),
+    ).toMatchObject([
+      {
+        spend: {
+          iterations: 0,
+          tokens: { input: 0, output: 0 },
+          usd: 0,
+        },
+        providerModel: {
+          attempts: [{ observations: [], providerDispatch: 'not_started' }],
+        },
+      },
+    ])
   })
 
   it('refuses into a full bridge and reports the refusal count', async () => {

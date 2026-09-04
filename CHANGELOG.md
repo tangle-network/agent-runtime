@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.193.1
+
+### Bridge roots refuse unavailable work before allocation
+
+Bridge roots now check model routing and their bulk admission lane before Runtime allocates a remote run identity.
+Temporary route failures remain retryable, while an unrouted model remains terminal.
+Pre-dispatch refusals record trusted zero spend and never send a cancellation for work that did not start.
+Credential reads and interrupted preflights also complete before Runtime allocates the remote identity.
+Caller cancellation remains an abort through route and admission reads.
+
+### Provisioned supervisors no longer expire by default
+
+`ProvisionSupervisorRequest.timeoutMs` now creates a lifecycle deadline only when the caller supplies it.
+Omitting it lets the worker continue until cleanup or cancellation.
+
 ## 0.193.0
 
 ### Omitted code-mode deadlines no longer stop work

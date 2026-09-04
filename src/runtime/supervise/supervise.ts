@@ -60,7 +60,7 @@ import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
-import { unmeteredSpend } from '../util'
+import { unmeteredSpend, zeroSpend } from '../util'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
@@ -96,7 +96,7 @@ import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from 
 import {
   type BridgeSeam,
   bindReusableExecutorExecutionId,
-  bridgeAdmissionRead,
+  bridgeAdmissionRefusal,
   bridgeModelRouteRefusal,
   bridgeRuntimeAttachmentsKey,
   bridgeStopSignalKey,
@@ -584,10 +584,9 @@ function unmountedCoordinationTools(profile: AgentProfile): readonly string[] {
  *   question and 404s `no backend matches model "…"`. FAIL CLOSED: any answer that is not a route
  *   refuses, including a transport error or an unexpected status, because a pre-flight that skips
  *   itself on an error is the silent admission it exists to remove.
- * - `bridge-full` — `GET /health` → `admission.active >= admission.maxActive`. ADVISORY by
- *   nature (admission can fill or drain a moment later), so only a POSITIVE reading of fullness
- *   refuses: a `/health` that does not answer, or answers without an admission snapshot, is not
- *   evidence that the bridge is full and admits the spawn.
+ * - `bridge-full` — `GET /health` checks the bulk lane that an unreserved Runtime request uses.
+ *   Older bridges fall back to the overall admission counters. Capacity is advisory, so only a
+ *   positive reading of fullness refuses the spawn.
  */
 function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
   return async (profile) => {
@@ -606,14 +605,9 @@ function bridgeSpawnPreflight(seam: BridgeSeam): SpawnPreflight {
       }
     }
     const routeRefusal = await bridgeModelRouteRefusal(seam, wireModel)
-    if (routeRefusal !== undefined) return { cause: 'model-route', detail: routeRefusal }
-    const admission = await bridgeAdmissionRead(seam)
-    if (admission && admission.active >= admission.maxActive) {
-      return {
-        cause: 'bridge-full',
-        detail: `bridge ${seam.bridgeUrl.replace(/\/$/, '')} admission is full: active ${admission.active} of maxActive ${admission.maxActive}`,
-      }
-    }
+    if (routeRefusal !== undefined) return { cause: 'model-route', detail: routeRefusal.detail }
+    const admissionRefusal = await bridgeAdmissionRefusal(seam)
+    if (admissionRefusal !== undefined) return { cause: 'bridge-full', detail: admissionRefusal }
     return undefined
   }
 }
@@ -773,6 +767,19 @@ function driveHarnessFromBackend(
     }
     const meterPending = async (forceUnknown = false) => {
       if (pendingUsage.length === 0) return
+      // A forceful steer can finish one preflight attempt before the resumed turn produces usage.
+      // Consume those explicit no-dispatch attempts first, so the paid batch keeps its own served
+      // identity instead of inheriting the oldest positional evidence.
+      for (;;) {
+        const evidence = runtimeOwnedExecutorProviderEvidence(executor)
+        const next = evidence?.attempts[meteredProviderAttempts]
+        if (next?.providerDispatch !== 'not_started') break
+        await meterRuntimeOwnedProviderAttempt(scope, zeroSpend(), providerEvidenceForNextMeter(), {
+          role: 'driver',
+          runtime: executor.runtime,
+          telemetry: 'known-zero-before-dispatch',
+        })
+      }
       const batch = pendingUsage
       pendingUsage = []
       const measured = spendFromUsageEvents(batch)
@@ -985,13 +992,22 @@ function driveHarnessFromBackend(
           // Persist one unknown-cost marker for every unmetered attempt; dropping a later model
           // observation would let an earlier model appear homogeneous by accident.
           for (;;) {
-            const attempts = runtimeOwnedExecutorProviderEvidence(executor)?.attempts.length ?? 0
+            const evidence = runtimeOwnedExecutorProviderEvidence(executor)
+            const attempts = evidence?.attempts.length ?? 0
             if (attempts <= meteredProviderAttempts) break
+            const providerDispatchDidNotStart =
+              evidence?.attempts[meteredProviderAttempts]?.providerDispatch === 'not_started'
             await meterRuntimeOwnedProviderAttempt(
               scope,
-              unmeteredSpend(0),
+              providerDispatchDidNotStart ? zeroSpend() : unmeteredSpend(0),
               providerEvidenceForNextMeter(),
-              { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
+              {
+                role: 'driver',
+                runtime: executor.runtime,
+                telemetry: providerDispatchDidNotStart
+                  ? 'known-zero-before-dispatch'
+                  : 'unknown-after-failure',
+              },
             )
           }
           if (meteredProviderAttempts === 0) {

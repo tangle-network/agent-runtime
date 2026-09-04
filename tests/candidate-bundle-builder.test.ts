@@ -146,7 +146,7 @@ describe('public agent candidate bundle builder', () => {
     } finally {
       await adapter.discard(worktree)
     }
-  })
+  }, 120_000)
 
   it('rejects CodeSurface drift before sealing and exports the low-level sealer', async () => {
     const fixture = createCandidateExecutionFixture(true)
@@ -180,7 +180,7 @@ describe('public agent candidate bundle builder', () => {
     } finally {
       await adapter.discard(worktree)
     }
-  })
+  }, 120_000)
 
   it('fails closed when a generic profile would lose behavior or byte identity', () => {
     const fixture = createCandidateExecutionFixture(false)

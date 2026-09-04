@@ -290,7 +290,7 @@ export interface CoordinationToolFace {
  */
 interface VerbSlot {
   readonly verbs: CoordinationVerbs
-  readonly descriptors: () => ReadonlyArray<CoordinationToolFace>
+  readonly descriptors: () => ReadonlyArray<Omit<McpToolDescriptor, 'handler'>>
   bind(tools: ReadonlyArray<McpToolDescriptor>): void
 }
 
@@ -324,7 +324,7 @@ function createVerbSlot(): VerbSlot {
       readJournal: verb('read_journal'),
       defineAnalyst: verb('define_analyst'),
     }),
-    descriptors(): ReadonlyArray<CoordinationToolFace> {
+    descriptors(): ReadonlyArray<Omit<McpToolDescriptor, 'handler'>> {
       if (bound === undefined) {
         throw new ValidationError(
           "supervisorAgent: coordinationTools() was called before this manager's coordination tools were bound",
@@ -332,11 +332,7 @@ function createVerbSlot(): VerbSlot {
       }
       return Object.freeze(
         bound.map(({ name, description, inputSchema }) =>
-          Object.freeze({
-            name,
-            ...(description === undefined ? {} : { description }),
-            ...(inputSchema === undefined ? {} : { inputSchema }),
-          }),
+          Object.freeze({ name, description, inputSchema }),
         ),
       )
     },
@@ -902,6 +898,7 @@ function buildSupervisorAgent(
         onCoordinationTools: (tools) => slot.bind(tools),
       })
       ledger = mcp
+      const coordinationTools = slot.descriptors()
       try {
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns
@@ -944,11 +941,7 @@ function buildSupervisorAgent(
                 scope,
                 coordinationMcpUrl: mcp.url,
                 stopSignal: stopController.signal,
-                coordinationTools: (nodeTools ?? []).map(({ name, description, inputSchema }) => ({
-                  name,
-                  description,
-                  inputSchema,
-                })),
+                coordinationTools,
               })
             } catch (error) {
               // Once the injected check has accepted a result, a later backend shutdown/timeout

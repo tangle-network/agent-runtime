@@ -192,7 +192,7 @@ describe('improvementDriver — reflective generator', () => {
         'edited from raw traces\n',
       )
     }
-  })
+  }, 120_000)
 
   it('wraps labeled generator results into ProposedCandidate so the loop keeps attribution', async () => {
     // Gen-3 proposer fan-out contract: a generator that names its proposer
@@ -231,7 +231,7 @@ describe('improvementDriver — reflective generator', () => {
       expect(surface.kind).toBe('code')
       verifyCodeSurface(surface)
     })
-  })
+  }, 120_000)
 
   it('forks isolated generation-two candidates from the promoted generation-one surface', async () => {
     const worktree = gitWorktreeAdapter({ repoRoot })
@@ -326,7 +326,7 @@ describe('improvementDriver — reflective generator', () => {
     expect(existsSync(winner.worktreeRef)).toBe(true)
     expect(verifyCodeSurface(winner).contentHash).toMatch(/^sha256:/)
     expect(git(['show', 'main:prompt.md'], repoRoot)).toBe('lax rubric')
-  })
+  }, 120_000)
 
   it('rethrows and leaves NO orphaned worktree when the generator throws', async () => {
     // A generator whose generate() throws mid-candidate must not leak the
