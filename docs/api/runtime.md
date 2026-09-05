@@ -13037,8 +13037,9 @@ documentation from `SuperviseOptions`, which is the one owner of both.
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
 WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
- `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
- becomes a nested supervisor instead, whose own leaves are derived the same way.
+ `supervise()`, which derives every authorized leaf from it. A node that declares
+ `agent_runtime_coordination_spawn_worker` becomes a nested supervisor instead, whose own
+ leaves are derived the same way.
 
 ##### driverBackend?
 
@@ -13058,8 +13059,8 @@ WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim
 
 Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
- Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node
- declared `role: 'driver'` still becomes a nested supervisor even under an offline leaf.
+ Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node that
+ declares the spawn tool still becomes a nested supervisor even under an offline leaf.
 
 ##### brain?
 
@@ -13171,9 +13172,9 @@ digests itself from the exact detached values it executes.
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized backend-derived child. The callback runs
+after spawn authorization and receives a detached immutable context. It may return `undefined`
+to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
 
 ###### Parameters
 
@@ -13318,29 +13319,6 @@ The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 [`SuperviseOptions`](#superviseoptions).[`authorizeSpawn`](#authorizespawn-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`isDriverProfile`](#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
@@ -13468,9 +13446,9 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a completion check. A
+recursive manager receives the check selected for its exact assignment. Refused for a
+router-brained manager, which runs its turn loop in process. Omit/`0` = never.
 
 ###### Inherited from
 
@@ -13909,7 +13887,7 @@ Default instruction for direct `execute(undefined, signal)` calls. An execution-
 
 **`Experimental`**
 
-Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default).
+Optional wall-clock cap per harness subprocess (ms). Omit it for no timer.
 
 ##### runHarness?
 
@@ -15407,8 +15385,8 @@ Options for a supervised run context.
 
 > `readonly` `optional` **withDriver?**: `boolean`
 
-Wrap the executor registry with `withDriverExecutor` so a spawned child marked
-`role: 'driver'` resolves to the recursive driver-executor (agents driving agents
+Wrap the executor registry with `withDriverExecutor` so a child constructed by `driverChild`
+resolves to the recursive driver-executor (agents driving agents
 over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
 leaf workers. Default `false`.
 
@@ -17440,9 +17418,9 @@ The independent completion check for backend-derived workers and direct supervis
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized backend-derived child. The callback runs
+after spawn authorization and receives a detached immutable context. It may return `undefined`
+to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
 
 ###### Parameters
 
@@ -17621,25 +17599,6 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 [`AuthorizedDownMessage`](#authorizeddownmessage)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
@@ -17772,9 +17731,9 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a completion check. A
+recursive manager receives the check selected for its exact assignment. Refused for a
+router-brained manager, which runs its turn loop in process. Omit/`0` = never.
 
 ##### onUnmetContract?
 
@@ -18658,9 +18617,15 @@ How to run an external harness as the DRIVER, with the coordination verbs mounte
 
 `AgentProfile`
 
-The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
- `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
- so hoisting a resolved prompt onto it would make a profile its own validator refuses).
+The exact provider-visible projection. Runtime-owned coordination tool declarations are
+ removed only when their descriptors are actually mounted; send this profile to the provider.
+
+###### authoredProfile
+
+`AgentProfile`
+
+The immutable canonical profile Runtime admitted. Use it only to bind receipts or audit
+ authority; never send it to a provider, because it contains Runtime-owned declarations.
 
 ###### systemPrompt?
 
@@ -18772,6 +18737,22 @@ Runtime-owned sink for provider identity observed by this manager's own turns.
 > `readonly` `optional` **deliverable?**: [`DeliverableSpec`](#deliverablespec)\<`unknown`\>
 
 Independent completion check for direct driver work (`submit_result`).
+
+##### onAcceptedSubmission?
+
+> `readonly` `optional` **onAcceptedSubmission?**: (`result`) => `void`
+
+Receives a result only after this manager's completion check accepted it.
+
+###### Parameters
+
+###### result
+
+`unknown`
+
+###### Returns
+
+`void`
 
 ##### maxLiveWorkers?
 
@@ -19614,7 +19595,14 @@ Scope snapshots this value and computes the durable receipt; callers never provi
 
 > `readonly` **effectiveProfile**: `AgentProfile`
 
-Complete profile after trusted runtime-owned attachments or backend overlays were applied.
+Complete profile the provider actually receives after Runtime consumes its own declarations.
+
+##### authoredProfile?
+
+> `readonly` `optional` **authoredProfile?**: `AgentProfile`
+
+Canonical profile admitted by Runtime when it differs from the provider-visible profile.
+ Its digest must equal the kernel-owned authored profile digest for the node.
 
 ##### backend
 
@@ -21057,7 +21045,7 @@ Override the base ref the worktree is cut from (default `HEAD`).
 
 **`Experimental`**
 
-Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default).
+Optional wall-clock cap per harness subprocess (ms). Omit it for no timer.
 
 ##### codexReproducible?
 
@@ -26412,24 +26400,12 @@ How long a worker may produce no metered activity before a `progress()` read cal
 
 ***
 
-### supervisorPolicyPrompt
-
-> `const` **supervisorPolicyPrompt**: [`RegisteredPrompt`](#registeredprompt)
-
-THE supervisor policy — one stance, both front doors. The work-vs-delegate rule is conditional
-on capability (work tools present or not), which is what dissolves the old contradiction: "do
-small work yourself" was written for a supervisor WITH work tools, "you do not do the work" for
-one WITHOUT — one policy states both branches explicitly.
-
-***
-
 ### delegatesWorkerBriefPrompt
 
 > `const` **delegatesWorkerBriefPrompt**: [`RegisteredPrompt`](#registeredprompt)
 
 Default DELEGATES-edge directive: the standing instruction a worker receives with every
-traversal of a delegates edge that names this surface. Seeded from the bounded-brief knowledge
-in the supervisor policy, phrased for the RECEIVING side of the edge.
+traversal of a delegates edge that names this surface.
 
 ***
 
@@ -29908,13 +29884,8 @@ Narrow an untyped `spawn_worker` profile argument to an `AuthoredProfile`, or nu
 
 > **supervisorInstructions**(`opts?`): `string`
 
-The supervisor SKILL — the how-to the supervisor reads (its system prompt). THE optimizable
- surface: editing this changes how the supervisor designs every agent it spawns.
-
- The POLICY paragraph is the registry's one `supervisor/policy` entry — the same stance
- `defaultSupervisorPrompt` carries — so both front doors run the same work-vs-delegate rule;
- this function ADDS the profile-authoring skill (how to WRITE the workers it spawns), which is
- additive craft, not a different policy.
+The supervisor skill: an explicit profile-authoring instruction, never an implicit Runtime
+policy. Editing this text changes how a profile designs the descendants it spawns.
 
 #### Parameters
 
@@ -30395,6 +30366,13 @@ readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
 
 Product-selected tools already bound to this exact supervisor node. They share this server
  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
+
+###### toolNames
+
+readonly `string`[]
+
+Exact bare tool names to expose from the coordination and node-tool set. Runtime never
+ grants an implicit complete tool set. An unknown name fails before the listener opens.
 
 ###### peerMail?
 

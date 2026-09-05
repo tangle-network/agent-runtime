@@ -58,7 +58,7 @@ export interface InPlaceCliExecutorOptions {
   /** Default instruction for direct `execute(undefined, signal)` calls. An execution-time task
    *  is authoritative. Omit when the caller always supplies the task to `execute`. */
   taskPrompt?: string
-  /** Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default). */
+  /** Optional wall-clock cap per harness subprocess (ms). Omit it for no timer. */
   harnessTimeoutMs?: number
   /** Test seam — inject the harness runner so unit tests script a `LocalHarnessResult`. */
   runHarness?: typeof runLocalHarness

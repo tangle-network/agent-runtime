@@ -97,6 +97,10 @@ function parityCell(index: number, shots: number): CellSpec {
     reviewerProfile: {
       name: 'reviewer',
       harness: 'cli-base',
+      tools: {
+        agent_runtime_coordination_spawn_worker: true,
+        agent_runtime_coordination_await_event: true,
+      },
       model: {
         provider: 'scripted',
         default: 'scripted/parity-reviewer',

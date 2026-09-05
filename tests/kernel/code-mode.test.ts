@@ -24,7 +24,7 @@ import type {
   Spend,
 } from '../../src/runtime/supervise/types'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const SPEND: Spend = { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }
 
@@ -300,7 +300,10 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
       return { workers: spawned.length, outputs: settled.map((event) => event.status) }
     `
     const res = await superviseWithTestBrain(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'search', 'execute'),
+      }),
       'coordinate the build',
       {
         budget: { maxIterations: 30, maxTokens: 100_000 },
@@ -333,7 +336,10 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
   it('search answers the LIVE grant: the rendered API is the spawn_worker the verbs actually serve', async () => {
     let rendered = ''
     const res = await superviseWithTestBrain(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('spawn_worker', 'search'),
+      }),
       'look around',
       {
         budget: { maxIterations: 10, maxTokens: 50_000 },

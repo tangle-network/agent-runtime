@@ -14,6 +14,7 @@ import {
   type SuperviseRegistryTable,
   workerFromBackend,
 } from '../../src/runtime/supervise/supervise'
+import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -24,7 +25,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 
@@ -97,11 +98,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { content: 'done' },
     ])
     const result = await supervise(
-      rootProfile({ prompt: { systemPrompt: 'drive the worker' } }),
+      rootProfile({
+        prompt: { systemPrompt: 'drive the worker' },
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      }),
       'solve it',
       { budget, makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }), brain },
     )
-    expect(result.kind).toBe('winner')
+    expect(result.kind, JSON.stringify(result)).toBe('winner')
   })
 
   it('cascades the caller abort signal through the root and every live child', async () => {
@@ -141,19 +145,23 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         executorSpec: spec,
       } as Agent<unknown, unknown> & { executorSpec: AgentSpec }
     }
-    const running = supervise(rootProfile(), 'solve it', {
-      budget,
-      signal: controller.signal,
-      makeWorkerAgent: blockedLeaf,
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
-          ],
-        },
-        { toolCalls: [{ name: 'await_event', arguments: {} }] },
-      ]),
-    })
+    const running = supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      'solve it',
+      {
+        budget,
+        signal: controller.signal,
+        makeWorkerAgent: blockedLeaf,
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+        ]),
+      },
+    )
 
     await childStarted
     controller.abort()
@@ -175,23 +183,27 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     })
     const seen: Array<ReadonlyArray<Record<string, unknown>>> = []
     let turn = 0
-    const running = supervise(rootProfile(), 'solve it', {
-      budget,
-      rootHandle: handle,
-      makeWorkerAgent: () => deliveringLeaf('unused', {}),
-      brain: async (messages) => {
-        seen.push(messages)
-        turn += 1
-        if (turn === 1) {
-          entered()
-          await releaseFirstTurn
-          return {
-            toolCalls: [{ id: 'list', name: 'list_questions', arguments: JSON.stringify({}) }],
+    const running = supervise(
+      rootProfile({ tools: runtimeToolDeclarations('list_questions') }),
+      'solve it',
+      {
+        budget,
+        rootHandle: handle,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        brain: async (messages) => {
+          seen.push(messages)
+          turn += 1
+          if (turn === 1) {
+            entered()
+            await releaseFirstTurn
+            return {
+              toolCalls: [{ id: 'list', name: 'list_questions', arguments: JSON.stringify({}) }],
+            }
           }
-        }
-        return { content: 'stopped after reading the steer', toolCalls: [] }
+          return { content: 'stopped after reading the steer', toolCalls: [] }
+        },
       },
-    })
+    )
 
     await firstTurnEntered
     expect(handle.deliver({ junk: true })).toBe(false)
@@ -217,7 +229,10 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { content: 'must not need another turn' },
     ])
     const result = await supervise(
-      rootProfile({ prompt: { systemPrompt: 'solve or delegate' } }),
+      rootProfile({
+        prompt: { systemPrompt: 'solve or delegate' },
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
       'solve it directly',
       {
         budget,
@@ -232,6 +247,69 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+  })
+
+  it('uses a child-specific completion check when a managed child submits its own result', async () => {
+    let childCheckCalls = 0
+    const child = testAgentProfile('specialist', {
+      harness: 'opencode',
+      tools: runtimeToolDeclarations('submit_result'),
+    })
+    const call = async (url: string, name: string, args: Record<string, unknown>) => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: name,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+      })
+      return response.json()
+    }
+    const driveHarness: DriveHarness = async ({ profile, coordinationMcpUrl }) => {
+      if (profile.name === 'root') {
+        await call(coordinationMcpUrl, 'spawn_worker', { profile: child, task: 'solve' })
+        await call(coordinationMcpUrl, 'await_event', {})
+        return
+      }
+      await call(coordinationMcpUrl, 'submit_result', { result: { answer: 42 } })
+    }
+
+    const result = await supervise(
+      testAgentProfile('root', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      }),
+      'delegate',
+      {
+        budget,
+        perWorker: { maxIterations: 4, maxTokens: 10_000 },
+        makeLeafAgent: () => deliveringLeaf('unused', {}),
+        driveHarness,
+        // The run-wide check deliberately rejects the child's output. A profile-managed child
+        // must instead receive the check selected for its exact authorized assignment.
+        deliverable: { check: () => false },
+        resolveDeliverable: (input) =>
+          input.profile.name === 'specialist'
+            ? {
+                check: (value) => {
+                  childCheckCalls += 1
+                  return (
+                    typeof value === 'object' &&
+                    value !== null &&
+                    (value as { answer?: unknown }).answer === 42
+                  )
+                },
+              }
+            : undefined,
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+    expect(childCheckCalls).toBe(1)
   })
 
   it('runDir makes the run durable and resumable; unset stays in-memory', async () => {
@@ -254,10 +332,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
       }
 
-      const first = await supervise(rootProfile(), 'solve it', {
-        ...opts,
-        brain: script(),
-      })
+      const first = await supervise(
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        'solve it',
+        {
+          ...opts,
+          brain: script(),
+        },
+      )
       expect(first.kind).toBe('winner')
 
       // The journal really landed on disk with the settled child, not in a process-lifetime map.
@@ -272,10 +354,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       // A second `supervise()` against the SAME runDir + runId takes the resume path. Without the
       // `resume` flag threaded through, this would fail loud in `beginTree` ("already begun at …,
       // refusing to overwrite") because the wall-clock `at` differs between the two calls.
-      const second = await supervise(rootProfile(), 'solve it', {
-        ...opts,
-        brain: script(),
-      })
+      const second = await supervise(
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        'solve it',
+        {
+          ...opts,
+          brain: script(),
+        },
+      )
       expect(second.kind).toBe('winner')
     } finally {
       await rm(dir, { recursive: true, force: true })
@@ -321,18 +407,22 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         runDir: dir,
         onCoordinationEvent,
       }
-      const first = await supervise(rootProfile(), 'solve it', {
-        ...common,
-        brain: scriptedBrain([
-          {
-            toolCalls: [
-              { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
-            ],
-          },
-          { toolCalls: [{ name: 'await_event', arguments: {} }] },
-          { content: 'stop after the observer error' },
-        ]),
-      })
+      const first = await supervise(
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        'solve it',
+        {
+          ...common,
+          brain: scriptedBrain([
+            {
+              toolCalls: [
+                { name: 'spawn_worker', arguments: { profile: workerProfile(), task: 'go' } },
+              ],
+            },
+            { toolCalls: [{ name: 'await_event', arguments: {} }] },
+            { content: 'stop after the observer error' },
+          ]),
+        },
+      )
       expect(first.kind).toBe('no-winner')
       expect(physicalWrites).toBe(1)
       expect(observations.length).toBeGreaterThan(0)
@@ -347,10 +437,14 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
         expect(replayCommitted).toBe(true)
         return replayScript(...args)
       }
-      const second = await supervise(rootProfile(), 'solve it', {
-        ...common,
-        brain: replayBrain,
-      })
+      const second = await supervise(
+        rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+        'solve it',
+        {
+          ...common,
+          brain: replayBrain,
+        },
+      )
 
       expect(second.kind).toBe('winner')
       expect(physicalWrites).toBe(1)
@@ -364,50 +458,54 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
   it('gives two attempts of one keyed assignment distinct worker and event identities', async () => {
     let attempt = 0
     const events: Array<{ eventId: string; workerId: string; assignmentId?: string }> = []
-    const result = await supervise(rootProfile(), 'retry once', {
-      budget,
-      makeWorkerAgent: () =>
-        attempt++ === 0
-          ? failingLeaf('same-worker', 'first attempt failed')
-          : deliveringLeaf('same-worker', { answer: 42 }),
-      brain: scriptedBrain([
-        {
-          toolCalls: [
-            {
-              name: 'spawn_worker',
-              arguments: {
-                profile: workerProfile('same-worker'),
-                task: 'go',
-                key: 'same-assignment',
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      'retry once',
+      {
+        budget,
+        makeWorkerAgent: () =>
+          attempt++ === 0
+            ? failingLeaf('same-worker', 'first attempt failed')
+            : deliveringLeaf('same-worker', { answer: 42 }),
+        brain: scriptedBrain([
+          {
+            toolCalls: [
+              {
+                name: 'spawn_worker',
+                arguments: {
+                  profile: workerProfile('same-worker'),
+                  task: 'go',
+                  key: 'same-assignment',
+                },
               },
-            },
-          ],
-        },
-        { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
-        {
-          toolCalls: [
-            {
-              name: 'spawn_worker',
-              arguments: {
-                profile: workerProfile('same-worker'),
-                task: 'go',
-                key: 'same-assignment',
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+          {
+            toolCalls: [
+              {
+                name: 'spawn_worker',
+                arguments: {
+                  profile: workerProfile('same-worker'),
+                  task: 'go',
+                  key: 'same-assignment',
+                },
               },
-            },
-          ],
+            ],
+          },
+          { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
+          { content: 'done' },
+        ]),
+        onCoordinationEvent: (_context, eventId, record) => {
+          if (record.event.type !== 'settled') return
+          events.push({
+            eventId,
+            workerId: record.event.worker.id,
+            assignmentId: record.event.worker.assignmentId,
+          })
         },
-        { toolCalls: [{ name: 'await_event', arguments: { kinds: ['settled'] } }] },
-        { content: 'done' },
-      ]),
-      onCoordinationEvent: (_context, eventId, record) => {
-        if (record.event.type !== 'settled') return
-        events.push({
-          eventId,
-          workerId: record.event.worker.id,
-          assignmentId: record.event.worker.assignmentId,
-        })
       },
-    })
+    )
 
     expect(result.kind).toBe('winner')
     expect(events).toHaveLength(2)
@@ -580,17 +678,21 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       },
       { content: 'profile was refused' },
     ])
-    const result = await supervise(rootProfile(), 't', {
-      budget,
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: 'http://127.0.0.1:1',
-        bridgeBearer: 'unused',
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
+      't',
+      {
+        budget,
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: 'http://127.0.0.1:1',
+          bridgeBearer: 'unused',
+        },
+        brain,
+        journal,
+        runId: 'unsafe-profile',
       },
-      brain,
-      journal,
-      runId: 'unsafe-profile',
-    })
+    )
 
     expect(result.kind).toBe('no-winner')
     const events = await journal.loadTree('unsafe-profile')
@@ -623,17 +725,21 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
       { content: 'profile was refused' },
     ])
 
-    const result = await supervise(rootProfile(), 't', {
-      budget,
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: 'http://127.0.0.1:1',
-        bridgeBearer: 'unused',
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker') }),
+      't',
+      {
+        budget,
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: 'http://127.0.0.1:1',
+          bridgeBearer: 'unused',
+        },
+        brain,
+        journal,
+        runId: `unsafe-${profile.name}`,
       },
-      brain,
-      journal,
-      runId: `unsafe-${profile.name}`,
-    })
+    )
 
     expect(result.kind).toBe('no-winner')
     const events = await journal.loadTree(`unsafe-${profile.name}`)
@@ -1144,33 +1250,41 @@ describe('supervise — the code-valued options are nameable, so a run configura
       { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
       { content: 'must not need another turn' },
     ])
-    const result = await supervise(rootProfile(), 'solve it directly', {
-      budget,
-      makeWorkerAgent: () => deliveringLeaf('unused', {}),
-      brain,
-      deliverable: 'answer-is-42',
-      registry: {
-        deliverables: table({
-          'answer-is-42': { check: (v) => (v as { answer?: unknown }).answer === 42 },
-        }),
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('submit_result') }),
+      'solve it directly',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        brain,
+        deliverable: 'answer-is-42',
+        registry: {
+          deliverables: table({
+            'answer-is-42': { check: (v) => (v as { answer?: unknown }).answer === 42 },
+          }),
+        },
       },
-    })
+    )
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
   })
 
   it('a NAMED finalizer decides the run output', async () => {
-    const result = await supervise(rootProfile(), 'solve it', {
-      budget,
-      makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
-      brain: spawnAwaitStop(),
-      finalizer: 'count-delivered',
-      registry: {
-        finalizers: table({
-          'count-delivered': (ctx) => ({ deliveredCount: ctx.delivered.length }),
-        }),
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      'solve it',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
+        brain: spawnAwaitStop(),
+        finalizer: 'count-delivered',
+        registry: {
+          finalizers: table({
+            'count-delivered': (ctx) => ({ deliveredCount: ctx.delivered.length }),
+          }),
+        },
       },
-    })
+    )
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual({ deliveredCount: 1 })
   })
@@ -1231,13 +1345,17 @@ describe('supervise — the code-valued options are nameable, so a run configura
         return { check: () => true }
       },
     }
-    const result = await supervise(rootProfile(), 'solve it', {
-      budget,
-      makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
-      brain: spawnAwaitStop(),
-      finalizer: 'count-delivered',
-      registry: { finalizers: lazy, deliverables },
-    })
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      'solve it',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
+        brain: spawnAwaitStop(),
+        finalizer: 'count-delivered',
+        registry: { finalizers: lazy, deliverables },
+      },
+    )
     expect(result.kind === 'winner' ? result.out : null).toEqual({ deliveredCount: 1 })
     // The deliverables table was never consulted: `opts.deliverable` named nothing, so nothing
     // in it was constructed or resolved.
@@ -1245,12 +1363,16 @@ describe('supervise — the code-valued options are nameable, so a run configura
   })
 
   it('a non-string option value is untouched (existing callers keep passing values)', async () => {
-    const result = await supervise(rootProfile(), 'solve it', {
-      budget,
-      makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
-      brain: spawnAwaitStop(),
-      finalizer: (ctx) => ({ deliveredCount: ctx.delivered.length }),
-    })
+    const result = await supervise(
+      rootProfile({ tools: runtimeToolDeclarations('spawn_worker', 'await_event') }),
+      'solve it',
+      {
+        budget,
+        makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
+        brain: spawnAwaitStop(),
+        finalizer: (ctx) => ({ deliveredCount: ctx.delivered.length }),
+      },
+    )
     expect(result.kind === 'winner' ? result.out : null).toEqual({ deliveredCount: 1 })
   })
 })
@@ -1331,27 +1453,34 @@ describe('supervise — peerMail threads from options through both supervisor ar
   it('supervise({ peerMail: true }) hands every backend-derived worker a peerMailUrl', async () => {
     const seen: Array<string | undefined> = []
     const makeLeaf = workerFromBackend(offlineBackend)
-    await supervise(testAgentProfile('root', { harness: 'opencode' }), 'fan out', {
-      budget,
-      makeWorkerAgent: (profile, context) => {
-        seen.push(context?.peerMailUrl)
-        return makeLeaf(profile, context)
+    await supervise(
+      testAgentProfile('root', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+      }),
+      'fan out',
+      {
+        budget,
+        makeWorkerAgent: (profile, context) => {
+          seen.push(context?.peerMailUrl)
+          return makeLeaf(profile, context)
+        },
+        peerMail: true,
+        driveHarness: async ({ coordinationMcpUrl }) => {
+          await callTool(coordinationMcpUrl, 'spawn_worker', {
+            profile: workerProfile('w1'),
+            task: 'go',
+          })
+          await callTool(coordinationMcpUrl, 'spawn_worker', {
+            profile: workerProfile('w2'),
+            task: 'go',
+          })
+          await callTool(coordinationMcpUrl, 'await_event', {})
+          await callTool(coordinationMcpUrl, 'await_event', {})
+          await callTool(coordinationMcpUrl, 'stop', {})
+        },
       },
-      peerMail: true,
-      driveHarness: async ({ coordinationMcpUrl }) => {
-        await callTool(coordinationMcpUrl, 'spawn_worker', {
-          profile: workerProfile('w1'),
-          task: 'go',
-        })
-        await callTool(coordinationMcpUrl, 'spawn_worker', {
-          profile: workerProfile('w2'),
-          task: 'go',
-        })
-        await callTool(coordinationMcpUrl, 'await_event', {})
-        await callTool(coordinationMcpUrl, 'await_event', {})
-        await callTool(coordinationMcpUrl, 'stop', {})
-      },
-    })
+    )
     expect(seen).toHaveLength(2)
     for (const url of seen) {
       expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
@@ -1372,23 +1501,30 @@ describe('supervise — peerMail threads from options through both supervisor ar
 
   it('refuses a router-brained nested driver as a loud spawn error, not a silent no-mail run', async () => {
     const spawnReplies: unknown[] = []
-    await supervise(testAgentProfile('root', { harness: 'opencode' }), 'delegate', {
-      budget,
-      backend: offlineBackend,
-      peerMail: true,
-      driveHarness: async ({ coordinationMcpUrl }) => {
-        spawnReplies.push(
-          await callTool(coordinationMcpUrl, 'spawn_worker', {
-            profile: testAgentProfile('lead', {
-              harness: 'cli-base',
-              metadata: { role: 'driver' },
+    await supervise(
+      testAgentProfile('root', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'stop'),
+      }),
+      'delegate',
+      {
+        budget,
+        backend: offlineBackend,
+        peerMail: true,
+        driveHarness: async ({ coordinationMcpUrl }) => {
+          spawnReplies.push(
+            await callTool(coordinationMcpUrl, 'spawn_worker', {
+              profile: testAgentProfile('lead', {
+                harness: 'cli-base',
+                tools: runtimeToolDeclarations('spawn_worker'),
+              }),
+              task: 'coordinate',
             }),
-            task: 'coordinate',
-          }),
-        )
-        await callTool(coordinationMcpUrl, 'stop', {})
+          )
+          await callTool(coordinationMcpUrl, 'stop', {})
+        },
       },
-    })
+    )
     expect(spawnReplies).toHaveLength(1)
     expect(JSON.stringify(spawnReplies[0])).toContain(
       'peerMail is only served by a harness-brained supervisor',

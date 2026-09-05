@@ -746,6 +746,27 @@ describe('runLocalHarness', () => {
     expect(result.killedBySignal).toBe('SIGTERM')
   })
 
+  it('does not arm a deadline when timeoutMs is omitted', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = makeFakeChild({ neverClose: true })
+      const run = runLocalHarness({
+        harness: 'claude-code',
+        cwd: '/tmp/wt',
+        taskPrompt: 'stay available until the caller cancels',
+        spawn: () => child,
+      })
+
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1)
+      expect(child.kill).not.toHaveBeenCalled()
+
+      child.emit('close', 0, null)
+      await expect(run).resolves.toMatchObject({ timedOut: false, aborted: false })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('SIGKILLs the entire process group when it ignores SIGTERM', async () => {
     vi.useFakeTimers()
     const child = makeFakeChild({

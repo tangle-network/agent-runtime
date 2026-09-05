@@ -7,10 +7,8 @@ import {
   supervisorInstructions,
 } from '../../src/runtime/supervise/authoring'
 import { driverAgent } from '../../src/runtime/supervise/coordination-driver'
-import { supervisorPolicyPrompt } from '../../src/runtime/supervise/prompt-registry'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
-import { defaultSupervisorPrompt } from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -110,6 +108,7 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
       blobs,
       makeWorkerAgent: makeWorker,
       perWorker,
+      toolNames: ['spawn_worker', 'await_event'],
       systemPrompt: supervisorInstructions({ goal: 'evaluate an arithmetic expression' }), // the SKILL is the supervisor's prompt
       maxTurns: 8,
     })
@@ -168,21 +167,17 @@ describe('supervisor authoring — the supervisor DESIGNS each worker (profile),
 
   it('the skill is the supervisor prompt and demands authored (non-empty) profiles', () => {
     const skill = supervisorInstructions()
-    expect(skill).toContain('You are a supervisor')
+    expect(skill).toContain('delegation craft is AUTHORING')
     expect(skill).toContain('spawn_worker')
     expect(skill.toLowerCase()).toContain('never spawn a worker with an empty profile')
   })
 
-  it('both front doors carry the ONE registry policy — entry point no longer selects the stance', () => {
-    // The package used to ship two contradictory defaults: the router arm's "do small work
-    // YOURSELF" vs the delegate door's "you do NOT do the work yourself". This is the
-    // discriminating check: the exact policy text is a shared block of BOTH prompts, and the old
-    // contradictory opener is gone.
-    expect(defaultSupervisorPrompt).toBe(supervisorPolicyPrompt.text)
-    expect(supervisorInstructions()).toContain(supervisorPolicyPrompt.text)
-    expect(supervisorInstructions()).not.toContain('You do NOT do the work yourself')
-    expect(defaultSupervisorPrompt).not.toContain(
-      'Do small, sequential work YOURSELF when you have work tools',
-    )
+  it('teaches capability-based recursion instead of a role convention', () => {
+    const skill = supervisorInstructions()
+    expect(skill).toContain('agent_runtime_coordination_spawn_worker')
+    expect(skill).toContain('resources.skills entry')
+    expect(skill).toContain('resources.failOnError: true')
+    expect(skill).toContain('metadata may describe the work')
+    expect(skill).not.toContain('metadata.role')
   })
 })

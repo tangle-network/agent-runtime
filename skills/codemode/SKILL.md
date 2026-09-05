@@ -23,8 +23,8 @@ In a coding harness you already have the whole capability: a shell, a filesystem
 
 ## Boundaries That Are Not Yours To Move
 
-Spawning, steering, and settling agents go through your coordination tools, never through a script.
-A script that reaches those verbs over HTTP bypasses the budget pool and the journal, so the run's spend and record lie.
+Code may spawn or steer only through Runtime-provided API bindings such as `api.spawn_worker`.
+Never reach coordination verbs over HTTP or create a second scheduler; that bypasses the budget pool and journal.
 An operation that costs money must run where the runtime meters it; do not wrap metered work in a script that hides the spend.
 The lint on authored code refuses imports, `process`, and network access; it is a lint, not a sandbox, so treat generated code you did not review as untrusted.
 

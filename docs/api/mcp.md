@@ -1886,7 +1886,7 @@ Optional per-delegation typecheck command. Same shape as `testCmd`.
 
 **`Experimental`**
 
-Wall-clock cap per harness subprocess (ms). Default 5min.
+Optional wall-clock cap per harness subprocess (ms). Omit it for no timer.
 
 ##### postCheckTimeoutMs?
 
@@ -2295,7 +2295,8 @@ Absolute host paths that reproducible Codex must not read. The normalized set is
 
 **`Experimental`**
 
-Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry.
+Optional wall-clock kill deadline (ms). Omit it for no timer. A positive value sends
+ SIGTERM on expiry.
 
 ##### maxOutputBytes?
 

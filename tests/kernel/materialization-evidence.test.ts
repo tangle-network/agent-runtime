@@ -354,11 +354,7 @@ describe('kernel-owned materialization evidence', () => {
       { name: 'silent-manager', act: async () => ({ shouldNotWin: true }) },
       'cli',
     )
-    const child = driverChild(
-      testAgentProfile('manager', { metadata: { role: 'driver' } }),
-      silentManager,
-      journal,
-    )
+    const child = driverChild(testAgentProfile('manager'), silentManager, journal)
     const executors = withDriverExecutor(createExecutorRegistry())
 
     await runOneChild(child, journal, 'missing-deferred', executors)

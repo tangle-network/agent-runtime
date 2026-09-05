@@ -26,7 +26,6 @@
  */
 
 import {
-  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   type Sha256Digest,
   sha256DigestSchema,
@@ -864,13 +863,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             runtime: executor.runtime,
             declaration: pending.declaration,
           })
-          if (
-            plannedReceipt.status !== 'known' ||
-            plannedReceipt.effectiveProfileDigest !== plannedReceipt.authoredProfileDigest
-          ) {
-            throw new ValidationError(
-              'scope.spawn: pending executor changed the authored AgentProfile before execution',
-            )
+          if (plannedReceipt.status !== 'known') {
+            throw new ValidationError('scope.spawn: pending executor returned an unknown receipt')
           }
           let recorded = false
           pendingEvidence = {
@@ -890,11 +884,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               })
               if (finalReceipt.status !== 'known') {
                 throw new ValidationError('scope.spawn: terminal materialization remained unknown')
-              }
-              if (finalReceipt.effectiveProfileDigest !== finalReceipt.authoredProfileDigest) {
-                throw new ValidationError(
-                  'scope.spawn: external executor changed the authored AgentProfile',
-                )
               }
               const finalBinding = knownExecutionBindingReceipt(finalReceipt, acknowledgedBinding)
               await appendNodeMaterialization(args, id, ordinal, finalReceipt, finalBinding, now)
@@ -1640,11 +1629,6 @@ export async function recordScopeOwnerMaterialization(
     if (bindingInput.attemptId !== state.attemptId) {
       throw new ValidationError(
         'scope owner execution binding does not use the kernel-minted attempt id',
-      )
-    }
-    if (canonicalAgentProfileDigest(declaration.effectiveProfile) !== state.authoredProfileDigest) {
-      throw new ValidationError(
-        'scope owner stable effective profile conflicts with its admitted authored profile',
       )
     }
     receipt = knownMaterializationReceipt({

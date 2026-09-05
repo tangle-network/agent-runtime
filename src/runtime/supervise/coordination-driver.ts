@@ -120,6 +120,8 @@ export interface DriverAgentOptions {
   /** Independent completion check for work the driver performs itself. When present, the driver
    *  receives `submit_result`; the first passing submission ends the loop and becomes the output. */
   readonly deliverable?: DeliverableSpec<unknown>
+  /** Receives a result only after this manager's completion check accepted it. */
+  readonly onAcceptedSubmission?: (result: unknown) => void
   /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
    *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
   readonly maxLiveWorkers?: number
@@ -156,6 +158,9 @@ export interface DriverAgentOptions {
   /** Product-selected tools already bound to this exact supervisor node. The same descriptors are
    *  served over MCP for external supervisors; this arm projects them into router ToolSpecs. */
   readonly nodeTools?: ReadonlyArray<McpToolDescriptor>
+  /** Exact bare names to expose from the coordination, node-tool, and direct-work-tool set.
+   *  Runtime never grants an implicit complete tool set. */
+  readonly toolNames: ReadonlyArray<string>
   /** WORK tools the driver may call DIRECTLY (alongside the coordination verbs) — so the driver is
    *  not a pure manager but a full agent that can ACT (do simple work itself) OR SPAWN (delegate).
    *  Each is a router tool spec; their names must not collide with the coordination verbs. Pair with
@@ -827,6 +832,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
   if (typeof opts.brain !== 'function') {
     throw new ValidationError('driverAgent: opts.brain must be a function')
   }
+  if (!Array.isArray(opts.toolNames)) {
+    throw new ValidationError('driverAgent: toolNames must name every granted tool explicitly')
+  }
+  if (new Set(opts.toolNames).size !== opts.toolNames.length) {
+    throw new ValidationError('driverAgent: toolNames contains a duplicate name')
+  }
   // Fail loud on a half-wired work-tool seam: extra tool specs with no executor (or an executor
   // with no specs the model can see) is a silent no-op the house rules forbid.
   if ((opts.extraTools?.length ?? 0) > 0 && typeof opts.executeExtraTool !== 'function') {
@@ -918,9 +929,32 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           : {}),
       })
       await coord.ready()
+      const availableTools = [...coord.tools, ...(opts.nodeTools ?? [])]
+      const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
+      const extraByName = new Map((opts.extraTools ?? []).map((tool) => [tool.name, tool]))
+      const selectedNames = opts.toolNames
+      const selectedTools = selectedNames.map((name) => {
+        const descriptor = availableByName.get(name)
+        if (descriptor !== undefined) return { kind: 'descriptor' as const, descriptor }
+        const extra = extraByName.get(name)
+        if (extra === undefined) {
+          throw new ValidationError(
+            `driverAgent: requested tool ${JSON.stringify(name)} is unavailable`,
+          )
+        }
+        return { kind: 'extra' as const, extra }
+      })
+      const modelTools = selectedTools.flatMap((selected) =>
+        selected.kind === 'descriptor' ? [selected.descriptor] : [],
+      )
+      const selectedExtraNames = new Set(
+        selectedTools.flatMap((selected) =>
+          selected.kind === 'extra' ? [selected.extra.name] : [],
+        ),
+      )
       // Before the first brain turn: a node tool invoked on turn one must already be able to call
       // these verbs.
-      opts.onCoordinationTools?.(coord.tools)
+      opts.onCoordinationTools?.(modelTools)
       // The worker-cancel acknowledger, mounted only for a durable run that named its layout dir.
       // It runs inside this existing turn loop — the one place that already runs every turn and
       // already holds the child handles — so external cancellation needs no second lifetime.
@@ -957,24 +991,26 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           )
         }
       }
-      const byName = new Map<string, McpToolDescriptor>(
-        [...coord.tools, ...(opts.nodeTools ?? [])].map((t) => [t.name, t]),
+      const byName = new Map<string, McpToolDescriptor>(modelTools.map((tool) => [tool.name, tool]))
+      const toolSpecs: ToolSpec[] = selectedTools.map((selected) =>
+        selected.kind === 'descriptor'
+          ? {
+              type: 'function' as const,
+              function: {
+                name: selected.descriptor.name,
+                description: selected.descriptor.description,
+                parameters: selected.descriptor.inputSchema,
+              },
+            }
+          : {
+              type: 'function' as const,
+              function: {
+                name: selected.extra.name,
+                description: selected.extra.description,
+                parameters: selected.extra.parameters,
+              },
+            },
       )
-      const toolSpecs: ToolSpec[] = [
-        ...coord.tools.map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.inputSchema },
-        })),
-        ...(opts.nodeTools ?? []).map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.inputSchema },
-        })),
-        // Work tools the driver calls DIRECTLY — so it can ACT, not only delegate.
-        ...(opts.extraTools ?? []).map((t) => ({
-          type: 'function' as const,
-          function: { name: t.name, description: t.description, parameters: t.parameters },
-        })),
-      ]
       const system =
         typeof opts.systemPrompt === 'function' ? opts.systemPrompt(task) : opts.systemPrompt
 
@@ -1144,7 +1180,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         execute: async (name, args) => {
           // WORK FIRST: a work tool the driver runs itself (act). A non-null return is handled here;
           // null/undefined means "not mine" → fall through to the coordination dispatch (spawn/await/…).
-          if (opts.executeExtraTool) {
+          if (opts.executeExtraTool && selectedExtraNames.has(name)) {
             const worked = await runExtraTool(opts.executeExtraTool, name, args)
             if (worked !== null && worked !== undefined) return worked
           }
@@ -1230,7 +1266,10 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
       // check workers face. Raw driver prose remains ineligible. The first passing submission wins;
       // otherwise finalize over delivered children as before.
       const submitted = coord.submittedResult()
-      if (submitted) return submitted.result
+      if (submitted) {
+        opts.onAcceptedSubmission?.(submitted.result)
+        return submitted.result
+      }
       return runFinalizer(opts.finalizer ?? bestDelivered, {
         settled: coord.settled(),
         blobs: opts.blobs,
@@ -1320,7 +1359,8 @@ function hasPriorCoordination(prior?: PriorCoordination): boolean {
     (prior.questions.length > 0 ||
       prior.findings.length > 0 ||
       prior.continuations.length > 0 ||
-      prior.deliveryEvidence.length > 0)
+      prior.deliveryEvidence.length > 0 ||
+      prior.records.some((record) => record.event.type === 'submission'))
   )
 }
 

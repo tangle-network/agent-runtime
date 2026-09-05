@@ -1,10 +1,14 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import {
   type DriverAgentOptions,
   driverAgent,
 } from '../../src/runtime/supervise/coordination-driver'
+import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -106,6 +110,10 @@ function hangingWorkerLeaf(name: string): Agent<unknown, unknown> {
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
+const spawnAndAwait = ['spawn_worker', 'await_event'] as const
+const spawnOnly = ['spawn_worker'] as const
+const listQuestionsOnly = ['list_questions'] as const
+
 function driverOpts(
   name: string,
   brain: ToolLoopChat,
@@ -117,6 +125,7 @@ function driverOpts(
     blobs: SHARED_BLOBS,
     makeWorkerAgent,
     perWorker,
+    toolNames: spawnAndAwait,
     systemPrompt: `drive the worker to do: <task>`,
     maxTurns: 8,
   }
@@ -420,6 +429,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
 
     const root = driverAgent({
       ...driverOpts('root', chat, () => worker),
+      toolNames: spawnOnly,
       compaction: { thresholdTokens: 1 },
     })
     const result = await createSupervisor<unknown, unknown>().run(root, 'keep track of work', {
@@ -474,6 +484,7 @@ function bounds0Opts(name: string, brain: ToolLoopChat): DriverAgentOptions {
     blobs: SHARED_BLOBS,
     makeWorkerAgent: dummyWorker,
     perWorker,
+    toolNames: listQuestionsOnly,
     systemPrompt: 'drive',
     maxTurns: 0,
   }
@@ -498,6 +509,7 @@ describe('driverAgent — maxTurns=0 lifts the turn cap; the conserved pool + de
       makeWorkerAgent: dummyWorker,
       // A worker needs more tokens than the whole run pool holds → no worker is ever affordable.
       perWorker: { maxIterations: 4, maxTokens: 5000 },
+      toolNames: listQuestionsOnly,
       systemPrompt: 'drive',
       maxTurns: 0,
     }
@@ -598,6 +610,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     )
     const opts: DriverAgentOptions = {
       ...driverOpts('root', chat, dummyWorker),
+      toolNames: ['echo'],
       extraTools: [echoTool],
       executeExtraTool: async (name, args) => {
         workCalls.push({ name, args })
@@ -642,6 +655,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     )
     const root = driverAgent({
       ...driverOpts('root', chat, dummyWorker),
+      toolNames: ['submit_result'],
       deliverable: {
         describe: 'an object whose answer is 42',
         check: (result) => (result as { answer?: unknown }).answer === 42,
@@ -664,6 +678,91 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     expect(tree.filter((e) => e.kind === 'spawned' && e.id !== 'direct-submit')).toEqual([])
   })
 
+  it('recovers an accepted direct result after the driver dies before it settles', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const runId = 'direct-submit-recovery'
+    const rootIdentity = {
+      profileDigest: canonicalCandidateDigest({ name: 'direct-submit-recovery-root' }),
+      taskDigest: canonicalCandidateDigest({ task: 'solve it' }),
+    }
+    const logDir = await mkdtemp(join(tmpdir(), 'direct-submit-recovery-'))
+    const log = new FileCoordinationLog(join(logDir, 'coordination.jsonl'))
+    let checks = 0
+    let resumedBrainCalls = 0
+    const deliverable = {
+      check: (result: unknown) => {
+        checks += 1
+        return (result as { answer?: unknown }).answer === 42
+      },
+    }
+    try {
+      const interrupted = driverAgent({
+        ...driverOpts(
+          'root',
+          scriptedBrain([
+            { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
+          ]),
+          dummyWorker,
+        ),
+        toolNames: ['submit_result'],
+        deliverable,
+        onEvent: (_event, record) => log.append(runId, record, 'root'),
+        // The submission acknowledgement has returned to the driver. Throw before the root scope
+        // settles to model a coordinator process that dies in exactly that window.
+        onAcceptedSubmission: () => {
+          throw new Error('simulated coordinator loss after accepted submission')
+        },
+      })
+      const first = await createSupervisor<unknown, unknown>().run(interrupted, 'solve it', {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId,
+        journal,
+        blobs: SHARED_BLOBS,
+        executors: createExecutorRegistry(),
+        rootIdentity,
+        maxDepth: 2,
+        now: () => 0,
+      })
+      expect(first.kind).toBe('no-winner')
+
+      const priorCoordination = await log.load(runId, 'root')
+      expect(priorCoordination.records.map((record) => record.event.type)).toEqual(['submission'])
+
+      const resumed = driverAgent({
+        ...driverOpts(
+          'root',
+          async () => {
+            resumedBrainCalls += 1
+            throw new Error('a recovered accepted result must not call the driver again')
+          },
+          dummyWorker,
+        ),
+        toolNames: ['submit_result'],
+        deliverable,
+        priorCoordination,
+      })
+      const second = await createSupervisor<unknown, unknown>().run(resumed, 'solve it', {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId,
+        journal,
+        blobs: SHARED_BLOBS,
+        executors: createExecutorRegistry(),
+        rootIdentity,
+        maxDepth: 2,
+        resume: true,
+        now: () => 0,
+      })
+
+      expect(second.kind).toBe('winner')
+      if (second.kind === 'winner') expect(second.out).toEqual({ answer: 42 })
+      expect(checks).toBe(1)
+      expect(resumedBrainCalls).toBe(0)
+    } finally {
+      await rm(logDir, { recursive: true, force: true })
+    }
+  })
+
   it('the work tool is tried FIRST; a null return falls through to the coordination dispatch', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
@@ -675,6 +774,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     const chat = scriptedBrain([benignTurn, { content: 'done' }], seen)
     const opts: DriverAgentOptions = {
       ...driverOpts('root', chat, dummyWorker),
+      toolNames: ['list_questions', 'echo'],
       extraTools: [echoTool],
       executeExtraTool: async (name) => {
         if (name === 'list_questions') extraSawCoordVerb = true
@@ -692,9 +792,9 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
       now: () => 0,
     })
 
-    // The executor was consulted first (saw the verb name) but returned null, so the coordination
-    // tool actually ran — its result (a questions list, never the string "echoed") came back.
-    expect(extraSawCoordVerb).toBe(true)
+    // An ungranted work handler is never invoked for a coordination verb. The coordination tool
+    // still runs and returns its questions list, rather than leaking an unselected product action.
+    expect(extraSawCoordVerb).toBe(false)
     const lastConvo = seen[seen.length - 1]!
     expect(lastConvo.some((m) => m.role === 'tool' && String(m.content) === 'echoed')).toBe(false)
   })
@@ -715,6 +815,29 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     }
     // The collision guard fires eagerly — NOT buried in a swallowed act() throw.
     expect(() => driverAgent(opts)).toThrow(/collides with a coordination verb/)
+  })
+
+  it('refuses a product node tool that shadows spawn_worker before any brain turn', () => {
+    const opts: DriverAgentOptions = {
+      ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
+      nodeTools: [
+        {
+          name: 'spawn_worker',
+          description: 'must not shadow coordination',
+          inputSchema: { type: 'object' },
+          handler: async () => ({}),
+        },
+      ],
+    }
+    expect(() => driverAgent(opts)).toThrow(/node tool "spawn_worker" collides/)
+  })
+
+  it('refuses duplicate explicit tool grants at construction', () => {
+    const opts: DriverAgentOptions = {
+      ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
+      toolNames: ['list_questions', 'list_questions'],
+    }
+    expect(() => driverAgent(opts)).toThrow(/toolNames contains a duplicate name/)
   })
 
   it('reserves submit_result even when no independent check is configured', () => {

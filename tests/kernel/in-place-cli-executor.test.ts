@@ -348,6 +348,7 @@ describe('createExecutor({ backend: "cli-in-place" })', () => {
     expect(seen[0]?.taskPrompt).toBe('TASK_PROMPT_4d10')
     expect(argv).toContain('TASK_PROMPT_4d10')
     expect(argv).not.toContain('{"prompt"')
+    expect(seen[0]).not.toHaveProperty('timeoutMs')
     expect(readFileSync(join(workspacePath, 'program.mjs'), 'utf8')).toBe(
       'export const version = 1\n',
     )

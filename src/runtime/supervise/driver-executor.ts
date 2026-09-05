@@ -78,6 +78,9 @@ interface DriverSpec extends AgentSpec {
   /** The shared journal the nested tree is one tree key inside (so the executor can
    *  begin its nested tree + sum its spend off the same record). */
   readonly journal: SpawnJournal
+  /** Reads whether this manager accepted a direct result through its assignment's completion
+   *  check. The check itself runs in the manager, exactly once, before this executor settles. */
+  readonly acceptedSubmission?: () => boolean
 }
 
 /**
@@ -92,6 +95,7 @@ export function driverChild<Out>(
   driver: Agent<unknown, Out>,
   journal: SpawnJournal,
   execution?: AgentExecutionRef,
+  acceptedSubmission?: () => boolean,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
   const rawSpec: DriverSpec = {
@@ -101,6 +105,7 @@ export function driverChild<Out>(
     driverRuntime,
     driver: driver as Agent<unknown, unknown>,
     journal,
+    ...(acceptedSubmission ? { acceptedSubmission } : {}),
   }
   const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
   const deliver = driver.deliver?.bind(driver)
@@ -227,11 +232,10 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
           reported: childWork,
           reservation: addSpend(childWork, meteredSpend ?? zeroSpend()),
         }
-        // Completion propagation follows both facts: the subtree delivered at least one valid
-        // child, and this manager's finalizer actually accepted an output. A custom finalizer may
-        // refuse an otherwise valid child because product state is incomplete; that refusal must
-        // remain invalid when the nested manager settles into its parent.
-        const verdict = deriveDeliveryVerdict(settled, out)
+        // A manager may finish work itself through an assignment-selected completion check. That
+        // accepted submission is already independent evidence, so carry it to this settlement
+        // instead of requiring an unrelated nested child or running the check again.
+        const verdict = deriveDeliveryVerdict(settled, out, spec.acceptedSubmission?.() === true)
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           out,
@@ -405,16 +409,19 @@ async function safeRollup(
   }
 }
 
-/** Derive the driver child's delivery verdict from its DIRECT children's settlements and the
- *  manager's actual finalized output: `valid` iff a direct child delivered AND the finalizer
- *  returned a defined output;
+/** Derive the driver child's delivery verdict from an accepted direct submission, or from its
+ *  DIRECT children's settlements and the manager's actual finalized output: `valid` iff the
+ *  manager's own assignment check accepted a submission, or a direct child delivered AND the
+ *  finalizer returned a defined output;
  *  `score` = the best delivered score. Returns `undefined` when no child settled at all (the
  *  driver itself produced nothing to bubble a verdict from). Fail-closed: a child whose verdict
  *  carried no `valid` counts as not-delivered. */
 function deriveDeliveryVerdict(
   settled: ReadonlyArray<{ status: 'done' | 'down'; verdict?: DefaultVerdict }>,
   finalizedOutput: unknown,
+  acceptedSubmission: boolean,
 ): DefaultVerdict | undefined {
+  if (acceptedSubmission) return { valid: true, score: 1 }
   let sawChild = false
   let anyValid = false
   let bestValidScore: number | undefined

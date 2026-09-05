@@ -90,6 +90,7 @@ async function main(): Promise<void> {
         blobs,
         makeWorkerAgent: () => deliveringLeaf('w', { ok: true }),
         perWorker: { maxIterations: 4, maxTokens: 2000 },
+        toolNames: ['spawn_worker', 'await_event', 'stop'],
       })
       console.error(`[probe] coordination MCP live at ${mcp.url}`)
       try {

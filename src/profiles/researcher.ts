@@ -143,7 +143,7 @@ export function researcherProfile(options: ResearcherProfileOptions & { task?: R
     description: base.description ?? "Source-grounded research agent. Propose-don't-apply.",
     prompt: { ...base.prompt, systemPrompt },
     tools: { web_search: true, fs: true, shell: true, ...base.tools },
-    metadata: { ...base.metadata, role: 'researcher' },
+    metadata: { ...base.metadata, specialty: 'researcher' },
   }
   const output: OutputAdapter<ResearchOutput> = { parse: parseResearcherEvents }
   const validator: Validator<ResearchOutput> = options.task

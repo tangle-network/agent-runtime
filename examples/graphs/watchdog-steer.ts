@@ -50,7 +50,17 @@ export function watchdogSteer(): { graph: AgentGraph; opts: RunGraphTestOptions 
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: offlineProfile('driver', 'Watch and steer.') },
+      {
+        id: 'driver',
+        profile: {
+          ...offlineProfile('driver', 'Watch and steer.'),
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+            agent_runtime_coordination_steer_agent: true,
+          },
+        },
+      },
       { id: 'builder', profile: offlineProfile('builder', 'Build.') },
     ],
     edges: [{ kind: 'delegates', from: 'driver', to: 'builder', directive: brief }],

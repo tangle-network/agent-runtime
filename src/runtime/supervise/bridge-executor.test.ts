@@ -1422,7 +1422,7 @@ describe('bridgeExecutor upstream-error propagation', () => {
       },
       hooks: { afterTool: [{ command: './record-result', blocking: true }] },
       modes: { adversarial: { prompt: 'Try to falsify the leading claim.' } },
-      metadata: { role: 'driver', source: 'test-fixture' },
+      metadata: { source: 'test-fixture' },
     }
     const executor = bridgeExecutor(
       { profile, harness: null },

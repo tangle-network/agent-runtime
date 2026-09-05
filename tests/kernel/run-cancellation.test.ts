@@ -27,7 +27,14 @@ import { scriptedBrain } from './scripted-brain'
 import { testAgentProfile } from './test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
-const rootProfile = (): AgentProfile => testAgentProfile('root', { harness: 'cli-base' })
+const rootProfile = (): AgentProfile =>
+  testAgentProfile('root', {
+    harness: 'cli-base',
+    tools: {
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+    },
+  })
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /** A worker that runs until its per-child signal aborts — so the run is genuinely live when the

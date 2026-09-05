@@ -857,7 +857,6 @@ export {
   type PromptRegistry,
   promptHandle,
   type RegisteredPrompt,
-  supervisorPolicyPrompt,
 } from './supervise/prompt-registry'
 // One-call durable Runtime owner for external clients that need a real root, one interactive worker,
 // the worker control acknowledger, and an exact cleanup receipt. Braid consumes this surface and

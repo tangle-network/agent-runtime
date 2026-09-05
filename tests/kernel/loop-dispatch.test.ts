@@ -27,6 +27,7 @@ import type {
   SupervisedResult,
 } from '../../src/runtime/supervise/types'
 import { refineDriver } from './refine-driver'
+import { runtimeToolDeclarations } from './test-agent-profile'
 
 interface Task {
   goal: string
@@ -466,6 +467,7 @@ describe('superviseDispatch', () => {
     name: 'pi-moving',
     harness: 'pi',
     model: { provider: 'tangle-router', default: 'deepseek-v4-flash' },
+    tools: runtimeToolDeclarations('submit_result'),
   }
 
   function movingPiDispatch(bridgeUrl: string) {
@@ -829,6 +831,7 @@ describe('superviseDispatch', () => {
         name: 'recursive-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: runtimeToolDeclarations('submit_result'),
       },
       { id: 'recursive', kind: 'task' },
       fake.ctx,
@@ -895,6 +898,7 @@ describe('superviseDispatch', () => {
         name: 'partial-cache-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: runtimeToolDeclarations('submit_result'),
       },
       { id: 'partial-cache', kind: 'task' },
       fake.ctx,
@@ -958,6 +962,7 @@ describe('superviseDispatch', () => {
         name: 'mixed-cache-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: runtimeToolDeclarations('submit_result'),
       },
       { id: 'mixed-cache', kind: 'task' },
       fake.ctx,
@@ -1011,6 +1016,7 @@ describe('superviseDispatch', () => {
         name: 'unknown-usage-root',
         harness: 'cli-base',
         model: { provider: 'offline', default: 'test-model@2026-08-11' },
+        tools: runtimeToolDeclarations('submit_result'),
       },
       { id: 'unknown-usage', kind: 'task' },
       fake.ctx,
@@ -1171,6 +1177,7 @@ describe('superviseDispatch', () => {
           name: 'glm-root',
           harness: 'cli-base',
           model: { provider: 'zai', default: 'glm-root@2026-08-11' },
+          tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'submit_result'),
         },
         { id: 'mixed-model', kind: 'task' },
         fake.ctx,

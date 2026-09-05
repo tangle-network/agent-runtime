@@ -140,6 +140,7 @@ async function runTwoSiblings(
           return scriptedWorker(name, context, script)
         },
         perWorker: { maxIterations: 4, maxTokens: 1000 },
+        toolNames: ['spawn_worker', 'await_event'],
         peerMail: limits ? { limits } : true,
         onEvent: (event) => {
           events.push(event)

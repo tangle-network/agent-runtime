@@ -15,7 +15,7 @@ import type {
   Spend,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
@@ -97,6 +97,7 @@ describe('pursuit projection usage and totals', () => {
       const executed = await supervisePursuit(
         testAgentProfile('usage-root', {
           prompt: { systemPrompt: 'Delegate twice, wait for both, then stop.' },
+          tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
         }),
         'measure two workers exactly once',
         {

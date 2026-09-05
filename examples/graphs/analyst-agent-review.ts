@@ -27,7 +27,16 @@ export function analystAgentReview(): { graph: AgentGraph; opts: RunGraphTestOpt
   // ── The topology: plain data (the analyst is the 'reviewer' NODE, not a registry lens) ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: offlineProfile('driver', 'Drive the build.') },
+      {
+        id: 'driver',
+        profile: {
+          ...offlineProfile('driver', 'Drive the build.'),
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+          },
+        },
+      },
       { id: 'implementer', profile: offlineProfile('implementer', 'Build.') },
       {
         id: 'reviewer',

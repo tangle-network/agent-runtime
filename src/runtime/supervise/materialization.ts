@@ -75,6 +75,7 @@ interface UnknownReceiptInput {
 
 const declarationKeys = new Set([
   'effectiveProfile',
+  'authoredProfile',
   'backend',
   'model',
   'execution',
@@ -379,6 +380,13 @@ export function knownMaterializationReceipt(
   if (!effectiveProfile.success) {
     throw new ValidationError('executor materialization: effectiveProfile must be an AgentProfile')
   }
+  const authoredProfile =
+    declaration.authoredProfile === undefined
+      ? effectiveProfile
+      : agentProfileSchema.safeParse(declaration.authoredProfile)
+  if (!authoredProfile.success) {
+    throw new ValidationError('executor materialization: authoredProfile must be an AgentProfile')
+  }
   assertNonEmpty(declaration.backend, 'backend')
   assertNonEmpty(declaration.materializer, 'materializer')
   assertNonEmpty(declaration.execution?.kind, 'execution.kind')
@@ -390,6 +398,11 @@ export function knownMaterializationReceipt(
   let platformAttachmentsDigest: Sha256Digest | undefined
   try {
     effectiveProfileDigest = canonicalAgentProfileDigest(effectiveProfile.data)
+    if (canonicalAgentProfileDigest(authoredProfile.data) !== input.authoredProfileDigest) {
+      throw new ValidationError(
+        'executor materialization: authoredProfile conflicts with the admitted AgentProfile',
+      )
+    }
     materializationPlanDigest = canonicalCandidateDigest(jsonWireSnapshot(declaration.plan))
     platformAttachmentsDigest =
       declaration.platformAttachments === undefined

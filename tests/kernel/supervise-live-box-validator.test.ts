@@ -41,7 +41,7 @@ import type {
 import type { Validator } from '../../src/runtime/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // ── The box ───────────────────────────────────────────────────────────────────
 
@@ -180,6 +180,7 @@ async function superviseWithSeam(
     testAgentProfile('root', {
       harness: 'cli-base',
       prompt: { systemPrompt: 'drive the worker' },
+      tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
     }),
     'solve it',
     {
