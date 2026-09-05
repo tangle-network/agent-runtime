@@ -71,6 +71,7 @@ import {
   type PromptRegistry,
 } from './prompt-registry'
 import { type SuperviseOptions, supervise, superviseWithTestBrain } from './supervise'
+import { coordinationProfileToolPrefix } from './supervisor-agent'
 import type { Budget, NodeId, ResultBlobStore, SpawnJournal, SupervisedResult } from './types'
 
 // ── The algebra ────────────────────────────────────────────────────────────────
@@ -264,7 +265,6 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'driverBackend',
   'profileSecurity',
   'authorizeSpawn',
-  'isDriverProfile',
   'router',
   'driveHarness',
   'driverRetry',
@@ -402,8 +402,9 @@ function forwardedSuperviseOptions(
  */
 export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSuperviseOption> {
   /** WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
-   *  `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
-   *  becomes a nested supervisor instead, whose own leaves are derived the same way. */
+   *  `supervise()`, which derives every authorized leaf from it. A node that declares
+   *  `agent_runtime_coordination_spawn_worker` becomes a nested supervisor instead, whose own
+   *  leaves are derived the same way. */
   readonly backend?: Exclude<SuperviseOptions['backend'], undefined>
   /** WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim (see
    *  `SuperviseOptions.driverBackend`). Needed when the root node's profile declares an external
@@ -415,8 +416,8 @@ export interface RunGraphOptions extends Pick<SuperviseOptions, GraphInheritedSu
   readonly driverBackend?: Exclude<SuperviseOptions['driverBackend'], undefined>
   /** Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
    *  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
-   *  Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node
-   *  declared `role: 'driver'` still becomes a nested supervisor even under an offline leaf. */
+   *  Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node that
+   *  declares the spawn tool still becomes a nested supervisor even under an offline leaf. */
   readonly makeLeafAgent?: MakeWorkerAgent
   /** The ROOT driver's inference seam — a caller-owned `ToolLoopChat` that makes every root
    *  model call. Use it when the root's decisions must be caller-owned orchestration (a
@@ -586,6 +587,13 @@ function validateGraph(
     )
   }
   const root = requireNode(roots[0] as string, 'root resolution')
+  if (root.profile.tools?.[`${coordinationProfileToolPrefix}spawn_worker`] !== true) {
+    throw new ValidationError(
+      `runGraph: root node '${root.id}' has delegates edges but does not declare ` +
+        `${JSON.stringify(`${coordinationProfileToolPrefix}spawn_worker`)} — the graph cannot ` +
+        'spawn any declared worker',
+    )
+  }
   for (const edge of delegates) {
     if (edge.from !== root.id) {
       throw new ValidationError(
@@ -848,10 +856,9 @@ export function superviseAgentGraph(
 
   // ── Node pinning + delegates spawn traversals (the authorizeSpawn wrapper) ──
   // Pinning lives in `authorizeSpawn`, which the kernel runs BEFORE it decides whether a child is
-  // a leaf or a nested supervisor. That is what lets a node declared `role: 'driver'` become a real
-  // supervisor carrying its canonical profile: the kernel's `isDriver` reads the PINNED profile,
-  // not the driver-authored `{ name }` stub. (It used to live in `makeWorkerAgent`, a leaf-only
-  // seam, which made every node a leaf no matter what its profile declared — #965.)
+  // a leaf or a nested supervisor. That is what lets a node declaring the spawn tool become a real
+  // supervisor carrying its canonical profile: the kernel reads the PINNED profile, not the
+  // driver-authored `{ name }` stub.
   const nodeByWorkerId = new Map<string, NodeId>()
   const pendingByAssignment = new Map<string, EdgeTraversal>()
   type SpawnAuthorizationInput = Parameters<NonNullable<SuperviseOptions['authorizeSpawn']>>[0]

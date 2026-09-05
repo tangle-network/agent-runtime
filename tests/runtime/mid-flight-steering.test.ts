@@ -32,6 +32,7 @@ import type { Budget } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { SandboxClient } from '../../src/runtime/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
+import { withRuntimeTools } from '../kernel/test-agent-profile'
 
 const WRONG = 'legacy/wrong.ts'
 const RIGHT = 'core/right.ts'
@@ -39,12 +40,20 @@ const STEER = `stop editing ${WRONG} — the change belongs in ${RIGHT}`
 const ANSWER = `continue in ${RIGHT}`
 
 const budget: Budget = { maxIterations: 200, maxTokens: 400_000 }
-const rootProfile = {
-  name: 'root',
-  harness: 'cli-base' as const,
-  model: { provider: 'offline', default: 'offline/supervisor' },
-  prompt: { systemPrompt: 'drive one coder and correct it' },
-}
+const rootProfile = withRuntimeTools(
+  {
+    name: 'root',
+    harness: 'cli-base' as const,
+    model: { provider: 'offline', default: 'offline/supervisor' },
+    prompt: { systemPrompt: 'drive one coder and correct it' },
+  },
+  'spawn_worker',
+  'observe_agent',
+  'steer_agent',
+  'await_event',
+  'ask_parent',
+  'answer_question',
+)
 const coderProfile = {
   name: 'coder',
   harness: 'opencode' as const,

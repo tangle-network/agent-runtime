@@ -36,6 +36,17 @@ function codexProfile(name: string): AgentProfile {
   }
 }
 
+function codexManagerProfile(name: string): AgentProfile {
+  return {
+    ...codexProfile(name),
+    tools: {
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+      agent_runtime_coordination_stop: true,
+    },
+  }
+}
+
 function routerProfile(name: string): AgentProfile {
   return {
     name,
@@ -242,7 +253,7 @@ describe('supervise — peer mail mounts on the backend-derived worker path', ()
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
 
-    const result = await supervise(codexProfile('lead'), 'fan out and compare notes', {
+    const result = await supervise(codexManagerProfile('lead'), 'fan out and compare notes', {
       backend: {
         backend: 'bridge',
         bridgeUrl: `http://127.0.0.1:${port}`,

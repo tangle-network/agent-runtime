@@ -15,7 +15,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervise, supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 const zeroCost = { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 }
 const knownZero = {
@@ -198,21 +198,25 @@ describe('supervise tree-wide worker capacity', () => {
     makeWorkerAgent = (profile, context) => {
       const depth = profileDepth(profile)
       constructedDepths.push(depth)
-      if (profile.metadata?.role !== 'driver')
+      if (profile.tools?.agent_runtime_coordination_spawn_worker !== true)
         return trackedLeaf(profile.name ?? 'leaf', activity, 50)
 
       const childProfiles: AgentProfile[] =
         depth === 1
           ? [
-              testAgentProfile(`${profile.name}-sub-manager`, {
-                harness: 'cli-base',
-                metadata: { role: 'driver', depth: 2 },
-              }),
+              withRuntimeTools(
+                testAgentProfile(`${profile.name}-sub-manager`, {
+                  harness: 'cli-base',
+                  metadata: { depth: 2 },
+                }),
+                'spawn_worker',
+                'await_event',
+              ),
             ]
           : [0, 1].map((index) =>
               testAgentProfile(`${profile.name}-leaf-${index}`, {
                 harness: 'cli-base',
-                metadata: { role: 'worker', depth: 3 },
+                metadata: { depth: 3 },
               }),
             )
       const brain = scriptedBrain([
@@ -254,10 +258,14 @@ describe('supervise tree-wide worker capacity', () => {
         toolCalls: [0, 1].map((index) => ({
           name: 'spawn_worker',
           arguments: {
-            profile: testAgentProfile(`manager-${index}`, {
-              harness: 'cli-base',
-              metadata: { role: 'driver', depth: 1 },
-            }),
+            profile: withRuntimeTools(
+              testAgentProfile(`manager-${index}`, {
+                harness: 'cli-base',
+                metadata: { depth: 1 },
+              }),
+              'spawn_worker',
+              'await_event',
+            ),
             task: `run branch ${index}`,
           },
         })),
@@ -268,7 +276,11 @@ describe('supervise tree-wide worker capacity', () => {
     ])
 
     const result = await supervise(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      withRuntimeTools(
+        testAgentProfile('root', { harness: 'cli-base' }),
+        'spawn_worker',
+        'await_event',
+      ),
       'run a three-level tree',
       {
         budget: { maxIterations: 500, maxTokens: 500_000 },

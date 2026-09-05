@@ -9,11 +9,8 @@
  * optimizer names a handle and the TEXT is swappable, sweepable, and diffable without a code
  * change. Graph edges (`runGraph`) carry handles, never inline prose.
  *
- * ONE policy per role, whichever front door builds it: the seeded `supervisor/policy` entry is the
- * single supervisor stance. The package previously shipped two contradictory defaults — the router
- * arm's "do small work YOURSELF" (`defaultSupervisorPrompt`) versus the delegate front door's "you
- * do NOT do the work yourself" (`supervisorInstructions`) — selected by entry point. Both now
- * derive from the one entry here; which door you enter no longer decides the policy.
+ * The seeded `supervisor/policy` entry is one optional supervisor stance. Explicit authoring helpers
+ * resolve the same entry, while Runtime never injects it into an AgentProfile that omitted it.
  *
  * @experimental
  */
@@ -120,7 +117,7 @@ export function createPromptRegistry(seed?: ReadonlyArray<RegisteredPrompt>): Pr
 // ── Seeded kernel surfaces ─────────────────────────────────────────────────────
 //
 // The knowledge below was previously hardcoded inside builder functions
-// (`defaultSupervisorPrompt`, `supervisorInstructions`, the steering-driver continuation
+// (`supervisorInstructions`, the steering-driver continuation
 // parameters). Seeding it here makes each surface a versioned optimization target; the builders
 // now DERIVE from these entries instead of owning the text.
 

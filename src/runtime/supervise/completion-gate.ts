@@ -89,6 +89,7 @@ export function gateOnDeliverable<Out>(
     // contract: only expose a method the inner executor actually implements.
     ...(inner.progress ? { progress: () => inner.progress?.() } : {}),
     ...(inner.traceSource ? { traceSource: () => inner.traceSource?.() } : {}),
+    ...(inner.accounting ? { accounting: () => inner.accounting?.() } : {}),
     ...(inner.metered ? { metered: () => inner.metered?.() } : {}),
     execute(task, signal) {
       const r = inner.execute(task, signal)

@@ -40,6 +40,7 @@ import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ValidationError } from '../../errors'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
+import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { executableAgentSpecSnapshot } from './executable-spec'
 import {
   attestRuntimeOwnedDeferredExecutor,
@@ -72,12 +73,14 @@ import type {
 export { driverRuntime } from './tree-key'
 
 /** A driver child's spec carries the `Agent` to run inside the nested scope. */
-interface DriverSpec extends AgentSpec {
+interface DriverSpec<Out = unknown> extends AgentSpec {
   readonly driverRuntime: typeof driverRuntime
-  readonly driver: Agent<unknown, unknown>
+  readonly driver: Agent<unknown, Out>
   /** The shared journal the nested tree is one tree key inside (so the executor can
    *  begin its nested tree + sum its spend off the same record). */
   readonly journal: SpawnJournal
+  /** The parent-selected check for this manager's complete output. */
+  readonly deliverable?: DeliverableSpec<Out>
 }
 
 /**
@@ -92,17 +95,19 @@ export function driverChild<Out>(
   driver: Agent<unknown, Out>,
   journal: SpawnJournal,
   execution?: AgentExecutionRef,
+  deliverable?: DeliverableSpec<Out>,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
-  const rawSpec: DriverSpec = {
+  const rawSpec: DriverSpec<Out> = {
     profile,
     harness: null,
     ...(execution ? { execution } : {}),
     driverRuntime,
-    driver: driver as Agent<unknown, unknown>,
+    driver,
     journal,
+    ...(deliverable ? { deliverable: captureDriverDeliverable(deliverable) } : {}),
   }
-  const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
+  const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec<Out>
   const deliver = driver.deliver?.bind(driver)
   return {
     name,
@@ -274,9 +279,24 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
   }
   const treeOwner = attestNestedDriverTreeOwner(executor)
   const ownerRuntime = runtimeOwnedScopeOwnerRuntime(driver)
-  return ownerRuntime === undefined
-    ? treeOwner
-    : attestRuntimeOwnedDeferredExecutor(treeOwner, ownerRuntime)
+  const owned =
+    ownerRuntime === undefined
+      ? treeOwner
+      : attestRuntimeOwnedDeferredExecutor(treeOwner, ownerRuntime)
+  return spec.deliverable === undefined ? owned : gateOnDeliverable(owned, spec.deliverable)
+}
+
+function captureDriverDeliverable<Out>(deliverable: DeliverableSpec<Out>): DeliverableSpec<Out> {
+  if (typeof deliverable !== 'object' || deliverable === null || Array.isArray(deliverable)) {
+    throw new ValidationError('driverChild: deliverable must be an object')
+  }
+  if (typeof deliverable.check !== 'function') {
+    throw new ValidationError('driverChild: deliverable.check must be a function')
+  }
+  return Object.freeze({
+    check: deliverable.check,
+    ...(deliverable.describe === undefined ? {} : { describe: deliverable.describe }),
+  })
 }
 
 /**

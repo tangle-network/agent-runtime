@@ -281,6 +281,20 @@ describe('caller-authored execution deadlines and manager cancellation', () => {
     ).rejects.toThrow(/scope cancelled/)
     expect(spawns).toBe(0)
   })
+
+  it('execute exposes only the coordination operations in the live declared grant', async () => {
+    const tools = codeModeSupervisorTools(unsafeInProcessRunner())([] as never)
+    const execute = tools.find((tool) => tool.name === 'execute')
+    if (!execute) throw new Error('no execute tool')
+    const controller = new AbortController()
+
+    await expect(
+      execute.handler(
+        { code: 'return await api.await_event({})' },
+        fakeContext(controller.signal, () => {}),
+      ),
+    ).rejects.toThrow(/not in the granted API/)
+  })
 })
 
 describe('code mode over a REAL supervise() — the dynamic workflow, kernel-metered', () => {
@@ -300,7 +314,15 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
       return { workers: spawned.length, outputs: settled.map((event) => event.status) }
     `
     const res = await superviseWithTestBrain(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+          agent_runtime_coordination_search: true,
+          agent_runtime_coordination_execute: true,
+        },
+      }),
       'coordinate the build',
       {
         budget: { maxIterations: 30, maxTokens: 100_000 },
@@ -333,7 +355,13 @@ describe('code mode over a REAL supervise() — the dynamic workflow, kernel-met
   it('search answers the LIVE grant: the rendered API is the spawn_worker the verbs actually serve', async () => {
     let rendered = ''
     const res = await superviseWithTestBrain(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_search: true,
+        },
+      }),
       'look around',
       {
         budget: { maxIterations: 10, maxTokens: 50_000 },

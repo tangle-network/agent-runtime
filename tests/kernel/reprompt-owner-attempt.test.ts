@@ -13,7 +13,7 @@ import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
 import type { Agent, Budget, ExecutorExecutionBinding } from '../../src/runtime/supervise/types'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
@@ -63,11 +63,14 @@ describe('a re-prompted root is a new execution attempt (#1085)', () => {
     // refused it as "duplicate execution binding", and the driver retried into the same wall.
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
-    const profile = testAgentProfile('sup', {
-      harness: 'pi',
-      model: { provider: 'offline', default: 'test/model' },
-      prompt: { systemPrompt: 'solve or delegate' },
-    })
+    const profile = withRuntimeTools(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        model: { provider: 'offline', default: 'test/model' },
+        prompt: { systemPrompt: 'solve or delegate' },
+      }),
+      'submit_result',
+    )
     const reported: string[] = []
     const driveHarness: DriveHarness = async ({ coordinationMcpUrl, scope }) => {
       const { attemptId } = scopeOwnerExecutorNodeContext(scope)

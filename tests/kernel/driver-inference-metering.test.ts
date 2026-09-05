@@ -25,7 +25,7 @@ import type {
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { RuntimeHookEvent } from '../../src/runtime-hooks'
 import { type ScriptedTurn, scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 // ── A worker leaf with a known, fixed spend (no network/LLM) ─────────────────────
 function workerLeaf(
@@ -114,10 +114,7 @@ describe("driver inference metering — the driver's own tokens count against th
       },
     }
     const nested = driverChild(
-      testAgentProfile('nested', {
-        harness: 'cli-base',
-        metadata: { role: 'driver' },
-      }),
+      withRuntimeTools(testAgentProfile('nested', { harness: 'cli-base' }), 'spawn_worker'),
       nestedDriver,
       journal,
     )
@@ -273,7 +270,7 @@ describe("driver inference metering — the driver's own tokens count against th
       profile: AgentProfile,
       context?: { readonly budget: Budget },
     ): Agent<unknown, unknown> {
-      if (profile.metadata?.kind === 'driver') {
+      if (profile.tools?.agent_runtime_coordination_spawn_worker === true) {
         if (!context) throw new Error('driver spawn context missing')
         const childBudget: Budget = {
           maxIterations: context.budget.maxIterations,
@@ -281,17 +278,14 @@ describe("driver inference metering — the driver's own tokens count against th
           ...(context.budget.maxUsd !== undefined ? { maxUsd: context.budget.maxUsd / 4 } : {}),
         }
         return driverChild(
-          testAgentProfile('mid', {
-            harness: 'cli-base',
-            metadata: { kind: 'driver' },
-          }),
+          withRuntimeTools(testAgentProfile('mid', { harness: 'cli-base' }), 'spawn_worker'),
           driverAgent(driverOf('mid', meteredChat(midTurns), childBudget)),
           journal,
         )
       }
       return worker
     }
-    const midProfile = testAgentProfile('mid', { metadata: { kind: 'driver' } })
+    const midProfile = withRuntimeTools(testAgentProfile('mid'), 'spawn_worker')
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
@@ -396,24 +390,21 @@ describe("driver inference metering — the driver's own tokens count against th
       profile: AgentProfile,
       context?: { readonly budget: Budget },
     ): Agent<unknown, unknown> {
-      if (profile.metadata?.kind === 'driver') {
+      if (profile.tools?.agent_runtime_coordination_spawn_worker === true) {
         if (!context) throw new Error('driver spawn context missing')
         const childBudget: Budget = {
           maxIterations: context.budget.maxIterations,
           maxTokens: Math.max(1, Math.floor(context.budget.maxTokens / 4)),
         }
         return driverChild(
-          testAgentProfile('mid', {
-            harness: 'cli-base',
-            metadata: { kind: 'driver' },
-          }),
+          withRuntimeTools(testAgentProfile('mid', { harness: 'cli-base' }), 'spawn_worker'),
           driverAgent(driverOf('mid', meteredChat(midTurns), childBudget)),
           journal,
         )
       }
       return worker
     }
-    const midProfile = testAgentProfile('mid', { metadata: { kind: 'driver' } })
+    const midProfile = withRuntimeTools(testAgentProfile('mid'), 'spawn_worker')
     // root driver inference = 100/50 + 50/30 + 20/10 = 170/90 tokens, $0.02.
     const rootChat = meteredChat([
       {
@@ -461,7 +452,7 @@ describe("driver inference metering — the driver's own tokens count against th
     // A sub-driver that meters turn 0 (40/20) then CRASHES (chat throws) on turn 1 — the crash
     // settles it `down`, which must STILL re-home the partial inference it durably metered.
     const makeAgent = (profile: AgentProfile): Agent<unknown, unknown> => {
-      if (profile.metadata?.kind === 'driver') {
+      if (profile.tools?.agent_runtime_coordination_spawn_worker === true) {
         let t = 0
         const crashingChat: ToolLoopChat = async () => {
           t += 1
@@ -473,10 +464,7 @@ describe("driver inference metering — the driver's own tokens count against th
           throw new Error('sub-driver network crash')
         }
         return driverChild(
-          testAgentProfile('mid', {
-            harness: 'cli-base',
-            metadata: { kind: 'driver' },
-          }),
+          withRuntimeTools(testAgentProfile('mid', { harness: 'cli-base' }), 'spawn_worker'),
           driverAgent({
             name: 'mid',
             brain: crashingChat,
@@ -497,7 +485,7 @@ describe("driver inference metering — the driver's own tokens count against th
           {
             name: 'spawn_worker',
             arguments: {
-              profile: testAgentProfile('mid', { metadata: { kind: 'driver' } }),
+              profile: withRuntimeTools(testAgentProfile('mid'), 'spawn_worker'),
               task: 'go',
             },
           },

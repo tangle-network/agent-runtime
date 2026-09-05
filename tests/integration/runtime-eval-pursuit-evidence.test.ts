@@ -18,7 +18,7 @@ import type {
   ExecutorResult,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from '../kernel/test-agent-profile'
 
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
@@ -89,10 +89,15 @@ describe('Runtime pursuit -> Eval evidence', () => {
 
     try {
       const executed = await supervisePursuit(
-        testAgentProfile('evidence-root', {
-          harness: 'opencode',
-          prompt: { systemPrompt: 'Delegate once, wait for the result, then stop.' },
-        }),
+        withRuntimeTools(
+          testAgentProfile('evidence-root', {
+            harness: 'opencode',
+            prompt: { systemPrompt: 'Delegate once, wait for the result, then stop.' },
+          }),
+          'spawn_worker',
+          'await_event',
+          'stop',
+        ),
         'produce independently measurable output',
         {
           pursuitId,

@@ -476,8 +476,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // The semantic-key registry (`SpawnOpts.key`): every keyed assignment's current state, seeded
   // from the prior journal on resume and updated live as keyed children spawn and settle. This is
   // what makes a keyed spawn idempotent per key across process lifetimes: `done` returns the
-  // committed result, `live` refuses a concurrent duplicate, `down`/`in-doubt` spawn fresh but
-  // say so explicitly.
+  // committed result, `live` refuses a concurrent duplicate, `down` retries after a terminal
+  // receipt, and `in-doubt` refuses until the exact prior execution is recovered.
   type KeyState =
     | { readonly state: 'live'; readonly id: NodeId; readonly identity: NodeExecutionIdentity }
     | {
@@ -585,7 +585,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (existing?.state === 'down') {
         prior = { state: 'retried', priorId: existing.id, reason: existing.reason }
       } else if (existing?.state === 'in-doubt') {
-        prior = { state: 'lost', priorId: existing.id }
+        // A durable start with no terminal receipt does not prove the remote execution stopped.
+        // Do not reserve or construct a replacement that could run beside it.
+        return { ok: false, reason: 'in-doubt' }
       }
     }
 

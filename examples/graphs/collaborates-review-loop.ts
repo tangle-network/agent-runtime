@@ -48,7 +48,13 @@ export function collaboratesReviewLoop(): { graph: AgentGraph; opts: RunGraphTes
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'driver', profile: offlineProfile('driver', 'Drive the loop.') },
+      {
+        id: 'driver',
+        profile: offlineProfile('driver', 'Drive the loop.', {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+        }),
+      },
       { id: 'implementer', profile: offlineProfile('implementer', 'Build.') },
       { id: 'reviewer', profile: offlineProfile('reviewer', 'Review.') },
     ],

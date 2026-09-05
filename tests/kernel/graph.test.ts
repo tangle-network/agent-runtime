@@ -36,7 +36,7 @@
  *      the live channel), resume-under-a-key, and nonsense values or analyzes edges carrying
  *      continuity refused at validation.
  *  11. Pinning is spawn AUTHORIZATION (#965): the kernel classifies the PINNED profile, so a node
- *      declared `role: 'driver'` becomes a supervisor instead of silently running as a leaf; a
+ *      declaring the spawn tool becomes a supervisor instead of silently running as a leaf; a
  *      caller's authorizeSpawn sees the canonical profile; steers stay live without a filter.
  *  12. resolveSupervisorTools passthrough: RunGraphOptions forwards the product-tool resolver to
  *      supervise(), so a declared graph's root mounts the SAME product tools a supervise() run
@@ -108,6 +108,12 @@ interface LeafOptions {
   /** Settle `done` with an INVALID verdict — a completed worker that delivered nothing usable. */
   invalid?: boolean
 }
+
+const graphDriverTools = {
+  agent_runtime_coordination_spawn_worker: true,
+  agent_runtime_coordination_await_event: true,
+  agent_runtime_coordination_steer_agent: true,
+} as const
 
 /** A leaf agent whose PROFILE (what the graph pinned + the directive) is captured for assertion.
  *  `opts` may be one option set for every node, or per-node-name option sets. `contexts` captures
@@ -191,13 +197,17 @@ function leafSeam(
   }
 }
 
-const twoNodeGraph = (over?: Partial<AgentGraph>): AgentGraph => ({
+const twoNodeGraph = (
+  over?: Partial<AgentGraph>,
+  extraDriverTools: AgentProfile['tools'] = {},
+): AgentGraph => ({
   nodes: [
     {
       id: 'driver',
       profile: testAgentProfile('driver', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'Drive the worker until it delivers.' },
+        tools: { ...graphDriverTools, ...extraDriverTools },
       }),
     },
     {
@@ -221,6 +231,31 @@ const twoNodeGraph = (over?: Partial<AgentGraph>): AgentGraph => ({
 })
 
 describe('runGraph — the 2-node cyclic case over supervise()', () => {
+  it('refuses a delegates graph whose root profile does not declare spawn authority', () => {
+    const graph = twoNodeGraph({
+      nodes: [
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', {
+            harness: 'cli-base',
+            tools: { agent_runtime_coordination_await_event: true },
+          }),
+        },
+        {
+          id: 'worker',
+          profile: testAgentProfile('worker'),
+        },
+      ],
+    })
+
+    expect(() =>
+      productionRunGraph(graph, {
+        makeLeafAgent: leafSeam([]),
+        brain: scriptedBrain([]),
+      }),
+    ).toThrow(/root node 'driver'.*agent_runtime_coordination_spawn_worker/)
+  })
+
   it('authors a working topology as plain data in ≤ 20 LOC and ledgers every traversal', async () => {
     // ── The authored topology: 14 lines of plain data (the ≤20 LOC acceptance bar) ──
     const graph: AgentGraph = {
@@ -230,6 +265,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
           profile: testAgentProfile('driver', {
             harness: 'cli-base',
             prompt: { systemPrompt: 'Drive.' },
+            tools: graphDriverTools,
           }),
         },
         {
@@ -594,6 +630,7 @@ describe('runGraph — analyzes edges (analysts are environment, findings get a 
           profile: testAgentProfile('driver', {
             harness: 'cli-base',
             prompt: { systemPrompt: 'Drive both.' },
+            tools: graphDriverTools,
           }),
         },
         {
@@ -856,6 +893,7 @@ describe('runGraph — analyst NODES (the analyzes lens as a tool-equipped agent
         profile: testAgentProfile('driver', {
           harness: 'cli-base',
           prompt: { systemPrompt: 'Drive.' },
+          tools: graphDriverTools,
         }),
       },
       {
@@ -1133,17 +1171,20 @@ describe('runGraph — every supervise option a graph does not own reaches super
       }
       return { content: 'done', toolCalls: [] }
     }
-    const res = await runGraph(twoNodeGraph(), {
-      runId: 'gx',
-      makeLeafAgent: leafSeam([]),
-      extraTools: [
-        { name: 'measure_rung', description: 'Measure one rung', parameters: { type: 'object' } },
-      ],
-      // Returning null for anything but the extra tool is the contract: a non-null answer
-      // swallows the coordination verb and the root can never spawn.
-      executeExtraTool: async (name) => (name === 'measure_rung' ? '{"measured":true}' : null),
-      brain,
-    })
+    const res = await runGraph(
+      twoNodeGraph(undefined, { agent_runtime_coordination_measure_rung: true }),
+      {
+        runId: 'gx',
+        makeLeafAgent: leafSeam([]),
+        extraTools: [
+          { name: 'measure_rung', description: 'Measure one rung', parameters: { type: 'object' } },
+        ],
+        // Returning null for anything but the extra tool is the contract: a non-null answer
+        // swallows the coordination verb and the root can never spawn.
+        executeExtraTool: async (name) => (name === 'measure_rung' ? '{"measured":true}' : null),
+        brain,
+      },
+    )
     expect(res.result.kind).toBe('winner')
     expect(mounted[0]).toContain('measure_rung')
     expect(mounted[0]).toContain('spawn_worker')
@@ -1167,20 +1208,24 @@ describe('runGraph — every supervise option a graph does not own reaches super
   })
 })
 
-describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a supervisor (#965)', () => {
+describe('runGraph — pinning is spawn authorization, so a node can be a supervisor (#965)', () => {
   // The kernel decides leaf-vs-supervisor from the profile it has AFTER `authorizeSpawn` and
   // BEFORE the leaf seam. Pinning used to live in the leaf seam, so every node was a leaf no
   // matter what its canonical profile declared. Now the kernel classifies the PINNED profile.
 
-  it("the kernel's driver decision reads the node's pinned metadata, not the driver's stub", async () => {
-    // `isDriverProfile` receives the post-authorization context. If pinning had not happened yet
-    // it would see `{ name: 'lead' }` with no metadata; it sees the canonical node profile.
-    const seenByClassifier: Array<{ name?: string; role?: unknown; systemPrompt?: string }> = []
+  it("the kernel reads the pinned profile's spawn declaration, not the driver's stub", async () => {
+    const received: AgentProfile[] = []
     const graph = twoNodeGraph({
       nodes: [
         {
           id: 'driver',
-          profile: testAgentProfile('driver', { harness: 'cli-base' }),
+          profile: testAgentProfile('driver', {
+            harness: 'cli-base',
+            tools: {
+              agent_runtime_coordination_spawn_worker: true,
+              agent_runtime_coordination_await_event: true,
+            },
+          }),
         },
         {
           id: 'lead',
@@ -1202,44 +1247,54 @@ describe('runGraph — pinning is spawn AUTHORIZATION, so a node can be a superv
     })
     await runGraph(graph, {
       runId: 'gsup',
-      makeLeafAgent: leafSeam([]),
-      isDriverProfile: (ctx) => {
-        seenByClassifier.push({
-          name: ctx.profile.name,
-          role: ctx.profile.metadata?.role,
-          systemPrompt: ctx.profile.prompt?.systemPrompt,
-        })
-        // Answer "leaf" so the run completes offline: a nested supervisor needs a router brain.
-        return false
-      },
+      makeLeafAgent: leafSeam(received),
       brain: scriptedBrain([
         {
           toolCalls: [
-            { name: 'spawn_worker', arguments: { profile: { name: 'lead' }, task: 'coordinate' } },
+            {
+              name: 'spawn_worker',
+              arguments: {
+                profile: {
+                  name: 'lead',
+                  tools: { agent_runtime_coordination_spawn_worker: true },
+                },
+                task: 'coordinate',
+              },
+            },
           ],
         },
         { toolCalls: [{ name: 'await_event', arguments: {} }] },
         { content: 'done' },
       ]),
     })
-    expect(seenByClassifier).toEqual([
-      { name: 'lead', role: 'driver', systemPrompt: 'You run a sub-team.' },
-    ])
+    expect(received).toHaveLength(1)
+    expect(received[0]).toMatchObject({
+      name: 'lead',
+      prompt: { systemPrompt: 'You run a sub-team.' },
+      metadata: { role: 'driver' },
+    })
+    expect(received[0]?.tools?.agent_runtime_coordination_spawn_worker).not.toBe(true)
   })
 
-  it('a node declared role:driver is classified a SUPERVISOR by default — it no longer runs as a leaf', async () => {
-    // Default classification (`metadata.role === 'driver'`) over the pinned profile. Offline, the
-    // nested supervisor is then refused for lack of a router brain — and that refusal is the proof:
-    // before this fix the same node silently ran as a leaf and the run completed `winner`.
+  it('a node declaring the spawn tool becomes a supervisor instead of running as a leaf', async () => {
     const received: AgentProfile[] = []
     const graph = twoNodeGraph({
       nodes: [
-        { id: 'driver', profile: testAgentProfile('driver', { harness: 'cli-base' }) },
+        {
+          id: 'driver',
+          profile: testAgentProfile('driver', {
+            harness: 'cli-base',
+            tools: {
+              agent_runtime_coordination_spawn_worker: true,
+              agent_runtime_coordination_await_event: true,
+            },
+          }),
+        },
         {
           id: 'lead',
           profile: testAgentProfile('lead', {
             harness: 'cli-base',
-            metadata: { role: 'driver' },
+            tools: { agent_runtime_coordination_spawn_worker: true },
           }),
         },
       ],
@@ -1381,26 +1436,29 @@ describe('runGraph — resolveSupervisorTools passthrough (product tools on a de
       }
       return { content: 'done', toolCalls: [] }
     }
-    const res = await runGraph(twoNodeGraph(), {
-      runId: 'gt',
-      makeLeafAgent: leafSeam([]),
-      resolveSupervisorTools: async () => [
-        {
-          name: 'kb_record',
-          description: 'Record one claim in the product ledger',
-          inputSchema: {
-            type: 'object',
-            properties: { claim: { type: 'string' } },
-            required: ['claim'],
+    const res = await runGraph(
+      twoNodeGraph(undefined, { agent_runtime_coordination_kb_record: true }),
+      {
+        runId: 'gt',
+        makeLeafAgent: leafSeam([]),
+        resolveSupervisorTools: async () => [
+          {
+            name: 'kb_record',
+            description: 'Record one claim in the product ledger',
+            inputSchema: {
+              type: 'object',
+              properties: { claim: { type: 'string' } },
+              required: ['claim'],
+            },
+            handler: async (raw, context) => {
+              handled.push({ raw, runId: context.runId, nodeId: context.nodeId })
+              return { recorded: true }
+            },
           },
-          handler: async (raw, context) => {
-            handled.push({ raw, runId: context.runId, nodeId: context.nodeId })
-            return { recorded: true }
-          },
-        },
-      ],
-      brain,
-    })
+        ],
+        brain,
+      },
+    )
 
     expect(res.result.kind).toBe('winner')
     // Mounted alongside the coordination verbs, not instead of them.
@@ -1560,6 +1618,7 @@ describe('runGraph — driverBackend selects WHERE the root harness brain runs',
           profile: testAgentProfile('driver', {
             harness: 'codex',
             prompt: { systemPrompt: 'Drive the worker until it delivers.' },
+            tools: graphDriverTools,
           }),
         },
         {
@@ -1729,6 +1788,7 @@ describe('runGraph — the caller-brain seam on the production surface (#694 opt
           profile: testAgentProfile('driver', {
             harness: 'codex',
             prompt: { systemPrompt: 'Drive.' },
+            tools: graphDriverTools,
           }),
         },
         {
@@ -2152,7 +2212,14 @@ describe('runGraph — validation fails loud before any compute', () => {
     // would make every analyzes edge over/to this node silently never match.
     const graph = twoNodeGraph({
       nodes: [
-        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
+        {
+          id: 'driver',
+          profile: {
+            name: 'driver',
+            prompt: { systemPrompt: 'Drive.' },
+            tools: graphDriverTools,
+          },
+        },
         { id: 'worker', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
       ],
     })
@@ -2178,7 +2245,14 @@ describe('runGraph — validation fails loud before any compute', () => {
     }
     const graph = twoNodeGraph({
       nodes: [
-        { id: 'driver', profile: { name: 'driver', prompt: { systemPrompt: 'Drive.' } } },
+        {
+          id: 'driver',
+          profile: {
+            name: 'driver',
+            prompt: { systemPrompt: 'Drive.' },
+            tools: graphDriverTools,
+          },
+        },
         { id: 'builder', profile: { name: 'builder', prompt: { systemPrompt: 'Build.' } } },
         { id: 'fixer', profile: { name: 'fixer', prompt: { systemPrompt: 'Fix.' } } },
       ],

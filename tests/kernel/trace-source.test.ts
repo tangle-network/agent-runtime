@@ -6,6 +6,26 @@ import {
   type SessionTraceBox,
   sandboxSessionTraceSource,
 } from '../../src/runtime'
+import { toToolSpan } from '../../src/runtime/supervise/trace-source'
+
+describe('toToolSpan — tool timing', () => {
+  it('keeps an observed duration', () => {
+    const span = toToolSpan(
+      { toolName: 'run_python', args: {}, status: 'ok', startedAt: 1000, endedAt: 1250 },
+      'run',
+      0,
+      1000,
+    )
+    expect(span.startedAt).toBe(1000)
+    expect(span.endedAt).toBe(1250)
+  })
+
+  it('uses one instant when timing is absent', () => {
+    const span = toToolSpan({ toolName: 'run_python', args: {}, status: 'ok' }, 'run', 1, 2000)
+    expect(span.startedAt).toBe(2000)
+    expect(span.endedAt).toBe(2000)
+  })
+})
 
 describe('decodeToolPart — validated against the LIVE opencode shape', () => {
   it('decodes a real opencode tool part (tool=name string, state.input, state.status, callID)', () => {

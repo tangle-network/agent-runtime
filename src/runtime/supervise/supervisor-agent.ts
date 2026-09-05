@@ -60,7 +60,6 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
-import { supervisorPolicyPrompt } from './prompt-registry'
 import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -71,16 +70,19 @@ import {
 } from './stop-rules'
 import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
 
-/** The standing strategy a router-brained supervisor runs with when its profile names no
- *  `systemPrompt`. The brain's competence IS this prompt: without it the brain has the coordination
- *  verbs but no policy for WHEN to use them, and either over-spawns or stalls. A profile may override
- *  it for a specific topology.
- *
- *  This is the registry's ONE supervisor policy (`supervisor/policy`), not this module's own text:
- *  the delegate front door (`supervisorInstructions`) derives from the same entry, so which front
- *  door built the supervisor no longer decides its work-vs-delegate policy — the package used to
- *  ship two contradictory defaults selected by entry point. */
-export const defaultSupervisorPrompt = supervisorPolicyPrompt.text
+export const coordinationMcpAlias = 'agent-runtime-coordination'
+export const coordinationProfileToolPrefix = `${coordinationMcpAlias.replaceAll('-', '_')}_`
+
+/** Bare Runtime tool names explicitly enabled by one exact profile. */
+export function declaredRuntimeToolNames(profile: AgentProfile): ReadonlyArray<string> {
+  return Object.freeze(
+    Object.entries(profile.tools ?? {})
+      .filter(
+        ([name, enabled]) => enabled === true && name.startsWith(coordinationProfileToolPrefix),
+      )
+      .map(([name]) => name.slice(coordinationProfileToolPrefix.length)),
+  )
+}
 
 /** A supervisor is an exact canonical AgentProfile; no looser model/prompt shape exists. */
 export type SupervisorProfile = AgentProfile
@@ -137,22 +139,15 @@ function assertRouterArmResourcePolicy(profile: SupervisorProfile): void {
  * The standing instruction both arms run under: `prompt.systemPrompt`, then canonical prompt and
  * resource instruction lines.
  * `undefined` only when the profile names none at all.
- *
  */
-function resolveSupervisorSystemPrompt(
-  profile: SupervisorProfile,
-  activePrompt?: string,
-): string | undefined {
+function resolveSupervisorSystemPrompt(profile: SupervisorProfile): string | undefined {
   const promptSystem = profile.prompt?.systemPrompt
-  // Instruction lines are APPENDED to the active prompt, so a profile that names only
-  // instructions keeps whatever prompt the arm would otherwise run — never replaces it.
-  const base = promptSystem ?? activePrompt
   const lines = [
     ...(profile.prompt?.instructions ?? []),
     ...resourceInstructionLines(profile.resources?.instructions),
   ]
-  if (lines.length === 0) return base
-  return (base !== undefined ? [base, ...lines] : lines).join('\n')
+  if (lines.length === 0) return promptSystem
+  return (promptSystem !== undefined ? [promptSystem, ...lines] : lines).join('\n')
 }
 
 /** Resolve the model after refusing any incomplete execution identity. */
@@ -632,9 +627,10 @@ function buildSupervisorAgent(
   const harness = agentHarness(stableProfile.harness) ?? null
   // The prompt is consumed by BOTH arms, so it resolves here; the model id is router-arm-only and
   // resolves inside that arm, so a harness supervisor never touches a field it does not use.
-  // No fallback at this site: the harness supplies its own standing prompt, and the router arm
-  // re-resolves against its default below so instruction lines append to that default.
+  // No fallback at this site. Both arms receive only the prompt and instruction bytes declared by
+  // the profile.
   const profilePrompt = resolveSupervisorSystemPrompt(stableProfile)
+  const runtimeToolNames = declaredRuntimeToolNames(stableProfile)
 
   // Bind safety is a BUILD-time fault, not a run-time one: it must throw before any compute, on the
   // same synchronous path as the other configuration guards. The binding is SNAPSHOT here and the
@@ -725,12 +721,11 @@ function buildSupervisorAgent(
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
         perWorker: deps.perWorker,
-        // Resolved against the router's own default, so a profile naming only instruction
-        // lines appends them to that default instead of replacing it.
-        systemPrompt:
-          resolveSupervisorSystemPrompt(stableProfile, defaultSupervisorPrompt) ??
-          defaultSupervisorPrompt,
+        // An omitted prompt means no standing system text. Runtime executes the exact profile and
+        // never chooses a research policy for it.
+        systemPrompt: resolveSupervisorSystemPrompt(stableProfile) ?? '',
         ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+        toolNames: runtimeToolNames,
         ...(nodeTools?.length ? { nodeTools } : {}),
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
@@ -895,6 +890,7 @@ function buildSupervisorAgent(
           ? { priorAnalystDefinitions: priorCoordination.analystDefinitions }
           : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
+        toolNames: runtimeToolNames,
         onCoordinationTools: (tools) => slot.bind(tools),
       })
       ledger = mcp

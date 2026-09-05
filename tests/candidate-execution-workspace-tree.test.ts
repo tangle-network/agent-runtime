@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, symlink, truncate, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -124,16 +124,17 @@ describe('describeWorkspaceTree', () => {
   it('refuses an entry that vanishes mid-walk by default and records it under the exclude policy', async () => {
     // The window this reproduces is the real one: an entry that the parent directory read NAMED and
     // that is gone by the time the walk reaches it. `big.bin` holds the walk open for the whole
-    // window — the root read names both entries after three filesystem calls, then thirty-two
-    // sequential one-mebibyte reads run before `zz.txt` is stat-ed — so one unlink issued a few
-    // milliseconds in lands inside it every time.
-    const bigBytes = 32 * 1024 * 1024
+    // window — the root read names both entries after three filesystem calls, then 512 sequential
+    // one-mebibyte reads run before `zz.txt` is stat-ed — so one unlink issued 50 milliseconds in
+    // lands inside it every time.
+    const bigBytes = 512 * 1024 * 1024
     const vanish = async (options?: Parameters<typeof describeWorkspaceTree>[1]) => {
       const root = await makeRoot()
-      await write(root, 'big.bin', 'x'.repeat(bigBytes))
+      await write(root, 'big.bin', 'x')
+      await truncate(join(root, 'big.bin'), bigBytes)
       await write(root, 'zz.txt', 'about to disappear\n')
       const walking = describeWorkspaceTree(root, options ?? {})
-      await new Promise((resolve) => setTimeout(resolve, 5))
+      await new Promise((resolve) => setTimeout(resolve, 50))
       await unlink(join(root, 'zz.txt'))
       return walking
     }

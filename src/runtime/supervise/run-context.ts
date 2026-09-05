@@ -10,9 +10,9 @@
  * It exists to kill the boilerplate every offline/local supervised run repeats by
  * hand — three constructors threaded into `SupervisorOpts` — and to single-source the
  * ONE wiring invariant that is easy to get wrong: when the root is the recursive
- * `driverAgent` LLM-driver brain AND it may spawn DRIVER children (agents
- * driving agents), the registry MUST be wrapped with `withDriverExecutor` so a
- * `role: 'driver'` child resolves to the nested-scope executor — and that SAME blob
+ * `driverAgent` LLM-driver brain AND it may spawn recursive children, the registry
+ * MUST be wrapped with `withDriverExecutor` so a child whose profile declares the
+ * spawn tool resolves to the nested-scope executor — and that SAME blob
  * store MUST be the one passed to `driverAgent({ blobs })`, or the driver
  * reads from a different store than the scope writes to. Pass `{ withDriver: true }`
  * and reuse the returned `blobs` for both.
@@ -38,10 +38,9 @@ import type { ExecutorRegistry, ResultBlobStore, SpawnJournal } from './types'
 /** Options for a supervised run context. */
 export interface InMemoryRunContextOptions {
   /**
-   * Wrap the executor registry with `withDriverExecutor` so a spawned child marked
-   * `role: 'driver'` resolves to the recursive driver-executor (agents driving agents
-   * over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
-   * leaf workers. Default `false`.
+   * Wrap the executor registry with `withDriverExecutor` so a spawned child whose profile
+   * declares the spawn tool resolves to the recursive driver-executor over a nested `Scope`
+   * on the same conserved pool. Leave `false` for a flat tree of leaf workers. Default `false`.
    */
   readonly withDriver?: boolean
 }

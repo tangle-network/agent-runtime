@@ -23,7 +23,14 @@ const rootProfile = (): SupervisorProfile =>
 const graph = (): AgentGraph =>
   ({
     nodes: [
-      { id: 'root', profile: { name: 'root', harness: 'cli-base' } },
+      {
+        id: 'root',
+        profile: {
+          name: 'root',
+          harness: 'cli-base',
+          tools: { agent_runtime_coordination_spawn_worker: true },
+        },
+      },
       { id: 'worker', profile: { name: 'worker', harness: 'cli-base' } },
     ],
     edges: [

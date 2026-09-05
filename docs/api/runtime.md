@@ -783,6 +783,70 @@ readonly [`EdgeTraversal`](#edgetraversal)[]
 
 > `readonly` **result**: [`SupervisedResult`](index.md#supervisedresult)\<`unknown`\>
 
+***
+
+### TangleSandboxCodeModeRunner
+
+Execute code mode in a fresh egress-blocked Tangle Sandbox.
+
+This class deliberately takes a caller-owned client.  Runtime never reads
+credentials from the environment and never creates a second coordinator.
+
+#### Implements
+
+- [`CodeModeRunner`](#codemoderunner)
+
+#### Constructors
+
+##### Constructor
+
+> **new TangleSandboxCodeModeRunner**(`options`): [`TangleSandboxCodeModeRunner`](#tanglesandboxcodemoderunner)
+
+###### Parameters
+
+###### options
+
+[`TangleSandboxCodeModeRunnerOptions`](#tanglesandboxcodemoderunneroptions)
+
+###### Returns
+
+[`TangleSandboxCodeModeRunner`](#tanglesandboxcodemoderunner)
+
+#### Methods
+
+##### run()
+
+> **run**(`__namedParameters`): `Promise`\<\{ `result`: `unknown`; `logs`: readonly `string`[]; \}\>
+
+###### Parameters
+
+###### \_\_namedParameters
+
+###### code
+
+`string`
+
+###### bindings
+
+`Readonly`\<`Record`\<`string`, (`args`) => `Promise`\<`unknown`\>\>\>
+
+The granted operations, already cancellation-gated and result-detached by the caller. The
+ runner exposes these to the program as `api.<name>` and adds nothing else reachable.
+
+###### signal
+
+`AbortSignal`
+
+Aborts when the manager cancels or a caller-authored deadline passes.
+
+###### Returns
+
+`Promise`\<\{ `result`: `unknown`; `logs`: readonly `string`[]; \}\>
+
+###### Implementation of
+
+[`CodeModeRunner`](#codemoderunner).[`run`](#run-2)
+
 ## Interfaces
 
 ### SpawnForestTree
@@ -13037,8 +13101,9 @@ documentation from `SuperviseOptions`, which is the one owner of both.
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](#executorconfig)
 
 WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
- `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
- becomes a nested supervisor instead, whose own leaves are derived the same way.
+ `supervise()`, which derives every authorized leaf from it. A node that declares
+ `agent_runtime_coordination_spawn_worker` becomes a nested supervisor instead, whose own
+ leaves are derived the same way.
 
 ##### driverBackend?
 
@@ -13058,8 +13123,8 @@ WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim
 
 Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
- Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node
- declared `role: 'driver'` still becomes a nested supervisor even under an offline leaf.
+ Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node that
+ declares the spawn tool still becomes a nested supervisor even under an offline leaf.
 
 ##### brain?
 
@@ -13171,9 +13236,9 @@ digests itself from the exact detached values it executes.
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized child. The callback runs after spawn
+authorization, receives a detached immutable context, and may return `undefined` to use the
+run-wide `deliverable`. It applies to both leaves and recursive managers.
 
 ###### Parameters
 
@@ -13318,29 +13383,6 @@ The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 [`SuperviseOptions`](#superviseoptions).[`authorizeSpawn`](#authorizespawn-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](#superviseoptions).[`isDriverProfile`](#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
@@ -13468,9 +13510,10 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a selected completion
+check. A recursive manager may receive the run-wide check or one selected by
+`resolveDeliverable`. Router-brained managers run their turn loop in process and do not use
+this option. Omit/`0` = never.
 
 ###### Inherited from
 
@@ -13659,10 +13702,10 @@ Instruction receipts are evidence and are never delivered automatically to a rep
 worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
 
 The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -15407,10 +15450,9 @@ Options for a supervised run context.
 
 > `readonly` `optional` **withDriver?**: `boolean`
 
-Wrap the executor registry with `withDriverExecutor` so a spawned child marked
-`role: 'driver'` resolves to the recursive driver-executor (agents driving agents
-over a nested `Scope` on the same conserved pool). Leave `false` for a flat tree of
-leaf workers. Default `false`.
+Wrap the executor registry with `withDriverExecutor` so a spawned child whose profile
+declares the spawn tool resolves to the recursive driver-executor over a nested `Scope`
+on the same conserved pool. Leave `false` for a flat tree of leaf workers. Default `false`.
 
 ***
 
@@ -17440,9 +17482,9 @@ The independent completion check for backend-derived workers and direct supervis
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized child. The callback runs after spawn
+authorization, receives a detached immutable context, and may return `undefined` to use the
+run-wide `deliverable`. It applies to both leaves and recursive managers.
 
 ###### Parameters
 
@@ -17621,25 +17663,6 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 [`AuthorizedDownMessage`](#authorizeddownmessage)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](#routertransportconfig)
@@ -17772,9 +17795,10 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a selected completion
+check. A recursive manager may receive the run-wide check or one selected by
+`resolveDeliverable`. Router-brained managers run their turn loop in process and do not use
+this option. Omit/`0` = never.
 
 ##### onUnmetContract?
 
@@ -17971,10 +17995,10 @@ Instruction receipts are evidence and are never delivered automatically to a rep
 worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
 
 The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -19105,6 +19129,43 @@ Abort the whole run — the seam a run-scoped cancel request is applied through 
 
 ***
 
+### TangleSandboxCodeModeRunnerOptions
+
+Bounds for the terminal protocol.  They limit untrusted terminal output, not
+execution time.  Cancellation remains caller-owned through `CodeModeRunner`.
+
+#### Properties
+
+##### client
+
+> `readonly` **client**: [`TangleSandboxCodeModeClient`](#tanglesandboxcodemodeclient)
+
+##### maxFrameBytes?
+
+> `readonly` `optional` **maxFrameBytes?**: `number`
+
+Largest decoded JSON protocol message, including the submitted program.
+
+##### maxOutputBytes?
+
+> `readonly` `optional` **maxOutputBytes?**: `number`
+
+Largest aggregate raw PTY output accepted from one program.
+
+##### maxLogs?
+
+> `readonly` `optional` **maxLogs?**: `number`
+
+Largest number of console records returned beside the program result.
+
+##### maxPendingCalls?
+
+> `readonly` `optional` **maxPendingCalls?**: `number`
+
+Largest number of host binding calls that may wait at once.
+
+***
+
 ### WorkerToolTraceArtifact
 
 Bytes stored under `WorkerTraceEvidence.traceRef`.
@@ -19772,10 +19833,10 @@ Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
 idempotent per key: once a child spawned under a key settles `done` — in this process or in a
 journaled prior one — spawning the same key returns that committed result (`prior.state:
 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-or was journaled as started-but-never-settled spawns FRESH but says so explicitly
-(`prior.state: 'retried' | 'lost'`), and a key that is currently LIVE is refused
-(`'duplicate-key'`) — the same assignment can never run twice concurrently. Unkeyed spawns
-(the default) are position-identified and always run.
+spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
+journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
+still exist and must be recovered before replacement. A key that is currently LIVE is refused
+(`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
 
 ***
 
@@ -19917,9 +19978,9 @@ resumed run that was not waiting.
 
 Keyed assignments from the prior journal: `SpawnOpts.key` → what the journal proves about it.
 `completed`/`down` carry the rehydrated settlement; `in-doubt` means the spawn was journaled
-but no settlement ever landed — the process died with it in flight. `Scope.spawn` consults
-this so a keyed re-spawn resolves instead of duplicating (see `SpawnOpts.key`). Empty when no
-prior spawn carried a key.
+but no settlement ever landed — the process died with it in flight. `Scope.spawn` refuses a
+keyed replacement in that state, rather than duplicate a possibly live remote execution. Empty
+when no prior spawn carried a key.
 
 ##### priorSpend
 
@@ -19968,7 +20029,7 @@ Identity recorded when this key was first admitted. Every reuse must match it ex
 
 ##### state
 
-> `readonly` **state**: `"completed"` \| `"down"` \| `"in-doubt"`
+> `readonly` **state**: `"completed"` \| `"in-doubt"` \| `"down"`
 
 ##### settled?
 
@@ -24763,6 +24824,14 @@ Resolve an external harness for one exact Runtime-owned manager identity.
 
 ***
 
+### TangleSandboxCodeModeClient
+
+> **TangleSandboxCodeModeClient** = `Pick`\<`Sandbox`, `"create"`\>
+
+The caller owns credentials and supplies the published Sandbox client.
+
+***
+
 ### WorkerInteractiveUnavailableReason
 
 > **WorkerInteractiveUnavailableReason** = `"unknown-node"` \| `"not-live"` \| `"executor-exposes-no-interactive-session"` \| `"provider-has-no-interactive-contract"` \| `"interactive-session-not-started"` \| `"interactive-binding-not-found"` \| `"interactive-binding-stale"` \| `"interactive-provider-not-registered"`
@@ -25139,11 +25208,11 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
- no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, or a `key` that
- is still LIVE in this scope (the same assignment may not run twice concurrently).
+ no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
+ still LIVE in this scope, or a key whose prior remote execution has no terminal receipt.
 
 `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
@@ -25153,18 +25222,15 @@ refuses every amount until the ROOT budget names a `maxUsd`.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](index.md#settled)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \} \| \{ `state`: `"lost"`; `priorId`: [`NodeId`](#nodeid-6); \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](index.md#settled)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
-references the prior settled node and `settled` is the committed result. `'retried'` /
-`'lost'` DID spawn fresh: the prior attempt settled `down` (retried) or was journaled as
-started but never settled — the process died with it in flight and the built-in executors
-cannot re-attach to a dead process's work, so the result is explicitly in doubt (lost), never
-silently duplicated. On restart, an in-doubt attempt's full declared reservation is charged and
-its telemetry remains unknown; a fresh retry is admitted only from safely remaining capacity.
-An executor that CAN re-attach to a still-running external execution extends this union with an
-adoption state; none of the built-ins can today.
+references the prior settled node and `settled` is the committed result. `'retried'` DID spawn
+fresh because the prior attempt settled `down`. A start with no terminal receipt is not a prior
+result: `spawn` refuses it as `'in-doubt'`, retains its charged reservation, and requires exact
+process recovery before replacement. An executor that can re-attach to a still-running external
+execution may later add an adoption state; none of the built-ins can today.
 
 #### Type Parameters
 
@@ -30399,6 +30465,13 @@ readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
 
 Product-selected tools already bound to this exact supervisor node. They share this server
  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
+
+###### toolNames?
+
+readonly `string`[]
+
+Exact bare tool names to expose from the coordination and node-tool set. Omit to expose the
+ complete set for direct low-level callers. An unknown name fails before the listener opens.
 
 ###### peerMail?
 

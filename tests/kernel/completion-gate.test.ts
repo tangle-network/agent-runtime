@@ -329,6 +329,10 @@ describe('gateOnDeliverable — forwards the live-observation surfaces so a gate
         note: 'turn 3, editing',
       }),
       traceSource: () => traceSource,
+      accounting: () => ({
+        reported: { iterations: 3, tokens: { input: 9, output: 9 }, usd: 0.02, ms: 6 },
+        reservation: { iterations: 5, tokens: { input: 13, output: 13 }, usd: 0.03, ms: 11 },
+      }),
       metered: () => ({ iterations: 2, tokens: { input: 4, output: 4 }, usd: 0.01, ms: 5 }),
     }
   }
@@ -345,11 +349,13 @@ describe('gateOnDeliverable — forwards the live-observation surfaces so a gate
     expect(p?.pendingMessages).toBe(1)
   })
 
-  it('forwards traceSource() and metered() through the wrapper', () => {
+  it('forwards traceSource(), accounting(), and metered() through the wrapper', () => {
     const inner = observableWorker()
     const gated = gateOnDeliverable(inner, { check: () => true })
     expect(typeof gated.traceSource).toBe('function')
     expect(gated.traceSource?.()).toBe(inner.traceSource?.())
+    expect(typeof gated.accounting).toBe('function')
+    expect(gated.accounting?.()).toEqual(inner.accounting?.())
     expect(typeof gated.metered).toBe('function')
     expect(gated.metered?.()).toEqual(inner.metered?.())
   })
@@ -362,6 +368,7 @@ describe('gateOnDeliverable — forwards the live-observation surfaces so a gate
     const gated = gateOnDeliverable(bare, { check: () => true })
     expect(gated.progress).toBeUndefined()
     expect(gated.traceSource).toBeUndefined()
+    expect(gated.accounting).toBeUndefined()
     expect(gated.metered).toBeUndefined()
   })
 })

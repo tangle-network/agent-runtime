@@ -664,14 +664,14 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     expect(tree.filter((e) => e.kind === 'spawned' && e.id !== 'direct-submit')).toEqual([])
   })
 
-  it('the work tool is tried FIRST; a null return falls through to the coordination dispatch', async () => {
+  it('does not send a coordination call through a product work-tool executor', async () => {
     SHARED_BLOBS = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     const seen: SeenMessages = []
     let extraSawCoordVerb = false
 
-    // The driver calls a coordination verb (list_questions). The work executor returns null for it,
-    // so the call must fall through to the real coordination tool — not be swallowed.
+    // The driver calls a coordination verb. The product executor may run only declared product
+    // tools, so Runtime routes this call directly to the coordination implementation.
     const chat = scriptedBrain([benignTurn, { content: 'done' }], seen)
     const opts: DriverAgentOptions = {
       ...driverOpts('root', chat, dummyWorker),
@@ -692,9 +692,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
       now: () => 0,
     })
 
-    // The executor was consulted first (saw the verb name) but returned null, so the coordination
-    // tool actually ran — its result (a questions list, never the string "echoed") came back.
-    expect(extraSawCoordVerb).toBe(true)
+    expect(extraSawCoordVerb).toBe(false)
     const lastConvo = seen[seen.length - 1]!
     expect(lastConvo.some((m) => m.role === 'tool' && String(m.content) === 'echoed')).toBe(false)
   })

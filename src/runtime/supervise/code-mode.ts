@@ -339,12 +339,14 @@ export function codeModeSupervisorTools(
         else context.signal.addEventListener('abort', onScopeAbort, { once: true })
 
         const bindings: Record<string, (args: unknown) => Promise<unknown>> = {}
-        for (const [wire, member] of Object.entries(CODE_CALLABLE_VERBS)) {
-          bindings[wire] = async (args: unknown) => {
+        for (const face of faces(context)) {
+          const member = CODE_CALLABLE_VERBS[face.name as keyof typeof CODE_CALLABLE_VERBS]
+          if (member === undefined) continue
+          bindings[face.name] = async (args: unknown) => {
             if (execution.signal.aborted) {
               if (!timedOut) throw abortReason(execution.signal)
               throw new ValidationError(
-                `code mode: the execute deadline passed; api.${wire} is refused so no work outlives the call`,
+                `code mode: the execute deadline passed; api.${face.name} is refused so no work outlives the call`,
               )
             }
             return detach(await context.verbs[member](args))

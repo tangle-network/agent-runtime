@@ -43,7 +43,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from '../kernel/test-agent-profile'
 
 async function jsonRpc(url: string, method: string, params: unknown): Promise<unknown> {
   const r = await fetch(url, {
@@ -558,10 +558,14 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
       }
     }
     const root = supervisorAgent(
-      testAgentProfile('sup', {
-        harness: 'opencode',
-        prompt: { systemPrompt: 'delegate, do not solve' },
-      }),
+      withRuntimeTools(
+        testAgentProfile('sup', {
+          harness: 'opencode',
+          prompt: { systemPrompt: 'delegate, do not solve' },
+        }),
+        'spawn_worker',
+        'await_event',
+      ),
       {
         blobs,
         makeWorkerAgent: () => {

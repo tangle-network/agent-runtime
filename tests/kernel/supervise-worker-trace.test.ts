@@ -38,7 +38,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -480,10 +480,14 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
   async function superviseOnce(exporter?: OtelExporter) {
     const fake = fakeSandboxClient()
     const result = await supervise(
-      testAgentProfile('root', {
-        harness: 'cli-base',
-        prompt: { systemPrompt: 'drive the worker' },
-      }),
+      withRuntimeTools(
+        testAgentProfile('root', {
+          harness: 'cli-base',
+          prompt: { systemPrompt: 'drive the worker' },
+        }),
+        'spawn_worker',
+        'await_event',
+      ),
       'solve it',
       {
         budget: { maxIterations: 100, maxTokens: 100_000 },

@@ -6,13 +6,11 @@
  *
  * Phase `1` SIGKILLs itself from inside the brain the instant it has pulled three settlements — no
  * unwinding, no flush. Phase `2` is a brand-new process pointed at the SAME dir + runId. Phase
- * `control` runs the identical script start-to-finish in a fresh directory: the uninterrupted
- * baseline the crash-then-resume pair must match.
+ * `control` runs the identical script start-to-finish in a fresh directory.
  *
  * Every phase runs the SAME brain script — five keyed workers, then pull events until idle. The
- * brain is deliberately NOT resume-aware: it re-issues the identical plan every time. Skipping the
- * committed work is therefore the RUNTIME's job (`spawn_worker`'s `key` resolving against the
- * journal), which is exactly the property under test.
+ * brain is deliberately NOT resume-aware: it re-issues the identical plan every time. The runtime
+ * must return committed work and refuse a potentially live prior execution, never duplicate it.
  */
 
 import { appendFileSync } from 'node:fs'
@@ -26,6 +24,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
+import { withRuntimeTools } from '../kernel/test-agent-profile'
 import { supervise } from './runtime-with-test-brain'
 
 const [dir, runId, phase] = process.argv.slice(2)
@@ -112,8 +111,14 @@ function leafAgent(
 const brainUsage = { input: 100, output: 20 }
 
 let spawnedPlan = false
+let observedToolResultCount = 0
+const inDoubtRefusals: string[] = []
 const brain: ToolLoopChat = async (messages) => {
   const toolResults = messages.filter((m) => m.role === 'tool').map((m) => String(m.content ?? ''))
+  for (const result of toolResults.slice(observedToolResultCount)) {
+    if (result.includes('"error":"in-doubt"')) inDoubtRefusals.push(result)
+  }
+  observedToolResultCount = toolResults.length
   const settlementsPulled = toolResults.filter((t) => t.includes('"type":"settled"')).length
 
   // PHASE 1 CRASH: three assignments are committed (their blob + `settled` record are fsynced
@@ -147,22 +152,26 @@ const brain: ToolLoopChat = async (messages) => {
   }
 }
 
-const result = await supervise(offlineProfile('root'), 'five assignments', {
-  budget: { maxIterations: 200, maxTokens: 500_000 },
-  // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
-  // fifth spawn and make this a four-worker test.
-  perWorker: { maxIterations: 5, maxTokens: 10_000 },
-  makeWorkerAgent: (profile) => {
-    const name = String((profile as { name?: unknown } | undefined)?.name ?? '')
-    const w = workers.find((x) => x.key === name)
-    if (w === undefined) throw new Error(`unknown worker profile ${JSON.stringify(profile)}`)
-    return leafAgent(w.key, w.out, w.score, phase === '1' && hangsInPhase1.has(w.key))
+const result = await supervise(
+  withRuntimeTools(offlineProfile('root'), 'spawn_worker', 'await_event'),
+  'five assignments',
+  {
+    budget: { maxIterations: 200, maxTokens: 500_000 },
+    // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
+    // fifth spawn and make this a four-worker test.
+    perWorker: { maxIterations: 5, maxTokens: 10_000 },
+    makeWorkerAgent: (profile) => {
+      const name = String((profile as { name?: unknown } | undefined)?.name ?? '')
+      const w = workers.find((x) => x.key === name)
+      if (w === undefined) throw new Error(`unknown worker profile ${JSON.stringify(profile)}`)
+      return leafAgent(w.key, w.out, w.score, phase === '1' && hangsInPhase1.has(w.key))
+    },
+    brain,
+    runId,
+    runDir: dir,
+    now: () => (phase === '2' ? 2_000 : 1_000),
   },
-  brain,
-  runId,
-  runDir: dir,
-  now: () => (phase === '2' ? 2_000 : 1_000),
-})
+)
 
 process.stdout.write(
   `${JSON.stringify({
@@ -175,5 +184,6 @@ process.stdout.write(
       .filter((n) => n.status === 'done')
       .map((n) => n.label)
       .sort(),
+    inDoubtRefusals,
   })}\n`,
 )

@@ -59,6 +59,16 @@ function routerTestProfile(name: string, systemPrompt?: string): AgentProfile {
   }
 }
 
+function withRuntimeTools(profile: AgentProfile, ...names: readonly string[]): AgentProfile {
+  const tools = { ...profile.tools }
+  for (const name of names) tools[`agent_runtime_coordination_${name}`] = true
+  return { ...profile, tools }
+}
+
+function recursiveTestProfile(profile: AgentProfile): AgentProfile {
+  return withRuntimeTools(profile, 'spawn_worker', 'await_event')
+}
+
 /**
  * The fake bridge enforces the real one's exact session binding: cli-bridge records the canonical
  * AgentProfile digest plus the model on a session's first request and answers 400 to any later
@@ -617,7 +627,13 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     })
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
-    const rootProfile = codexTestProfile('tool-evidence-root', 'Lead with exact tool evidence.')
+    const rootProfile: AgentProfile = {
+      ...codexTestProfile('tool-evidence-root', 'Lead with exact tool evidence.'),
+      tools: {
+        agent_runtime_coordination_spawn_worker: true,
+        agent_runtime_coordination_read_root_evidence: true,
+      },
+    }
 
     await supervise(rootProfile, 'Choose.', {
       backend: {
@@ -640,8 +656,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
 
     expect(servedToolSets).toHaveLength(1)
     const servedNames = servedToolSets[0]?.map((tool) => tool.name) ?? []
-    expect(servedNames).toContain('spawn_worker')
-    expect(servedNames).toContain('read_root_evidence')
+    expect(servedNames).toEqual(['spawn_worker', 'read_root_evidence'])
     expect(new Set(servedNames).size).toBe(servedNames.length)
     const events = await journal.loadTree('bridge-tool-evidence')
     const materialized = events?.find(
@@ -660,6 +675,114 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         },
       }),
     )
+  })
+
+  it('refuses an unknown declared Runtime tool before any bridge model request', async () => {
+    const requests: Array<{ method: string | undefined; url: string | undefined }> = []
+    server = createBridgeServer(
+      (_req, res) => {
+        res.writeHead(500)
+        res.end('a model request must not reach this handler')
+      },
+      { onRequest: (request) => void requests.push(request) },
+    )
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const result = await supervise(
+      {
+        ...codexTestProfile('unknown-runtime-tool-root', 'Lead.'),
+        tools: { agent_runtime_coordination_not_a_real_tool: true },
+      },
+      'Choose.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+      },
+    )
+
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'driver-failed' })
+    expect(requests.filter((request) => request.method === 'POST')).toEqual([])
+  })
+
+  it('refuses an unknown declared Runtime tool before a router brain call', async () => {
+    let brainCalls = 0
+    const result = await supervise(
+      {
+        ...routerTestProfile('unknown-runtime-tool-router', 'Lead.'),
+        tools: { agent_runtime_coordination_not_a_real_tool: true },
+      },
+      'Choose.',
+      {
+        budget: { maxIterations: 4, maxTokens: 10_000 },
+        makeWorkerAgent: () => {
+          throw new Error('the refused root must not spawn')
+        },
+        brain: async () => {
+          brainCalls += 1
+          return { content: 'must not run', toolCalls: [] }
+        },
+      },
+    )
+
+    expect(result).toMatchObject({ kind: 'no-winner' })
+    expect(brainCalls).toBe(0)
+  })
+
+  it('refuses an unknown recursive-child tool before child admission', async () => {
+    const events: SpawnEvent[] = []
+    const journal = recordingJournal(events)
+    let turn = 0
+    let leafFactoryCalls = 0
+    const result = await supervise(
+      recursiveTestProfile(routerTestProfile('declared-tool-parent', 'Lead.')),
+      'Choose.',
+      {
+        budget: { maxIterations: 8, maxTokens: 20_000 },
+        perWorker: { maxIterations: 2, maxTokens: 2_000 },
+        journal,
+        runId: 'unknown-recursive-child-tool',
+        makeLeafAgent: () => {
+          leafFactoryCalls += 1
+          throw new Error('a refused child must not reach the leaf factory')
+        },
+        brain: async () => {
+          turn += 1
+          if (turn === 1) {
+            return {
+              toolCalls: [
+                {
+                  name: 'spawn_worker',
+                  arguments: {
+                    profile: {
+                      ...routerTestProfile('bad-runtime-tool-child'),
+                      tools: {
+                        agent_runtime_coordination_spawn_worker: true,
+                        agent_runtime_coordination_not_a_real_tool: true,
+                      },
+                    },
+                    task: 'work',
+                  },
+                },
+              ],
+            }
+          }
+          return { content: 'stop', toolCalls: [] }
+        },
+      },
+    )
+
+    expect(result.kind).toBe('no-winner')
+    expect(leafFactoryCalls).toBe(0)
+    expect(
+      events.filter(
+        (event) => event.kind === 'spawned' && event.id !== 'unknown-recursive-child-tool',
+      ),
+    ).toEqual([])
   })
 
   it('maxTurns caps the bridge manager turns; the same run without it keeps resuming', async () => {
@@ -838,7 +961,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     }> = []
     let turn = 0
     const result = await supervise(
-      routerTestProfile('root', 'Run all checks.'),
+      recursiveTestProfile(routerTestProfile('root', 'Run all checks.')),
       'Compare implementation and evaluation evidence.',
       {
         backend: {
@@ -976,7 +1099,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const toolResults: string[] = []
     let turn = 0
     const result = await supervise(
-      routerTestProfile('root', 'Delegate the work.'),
+      recursiveTestProfile(routerTestProfile('root', 'Delegate the work.')),
       'Delegate the work.',
       {
         backend: {
@@ -1044,46 +1167,50 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const events: SpawnEvent[] = []
     const journal = recordingJournal(events)
     let turn = 0
-    await supervise(routerTestProfile('root', 'Delegate the work.'), 'Delegate the work.', {
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: `http://127.0.0.1:${port}`,
-        bridgeBearer: 'test-token',
-      },
-      budget: { maxIterations: 8, maxTokens: 8_000 },
-      perWorker: { maxIterations: 2, maxTokens: 1_000 },
-      journal,
-      runId: 'pi-prompt-admitted',
-      brain: async () => {
-        turn += 1
-        if (turn === 1) {
-          return {
-            toolCalls: [
-              {
-                id: 'spawn',
-                name: 'spawn_worker',
-                arguments: JSON.stringify({
-                  profile: {
-                    name: 'pi-worker',
-                    harness: 'pi',
-                    model: { provider: 'tangle-router', default: 'glm-5.2' },
-                    prompt: { systemPrompt: 'You are the worker. Ignore your own prompt.' },
-                  },
-                  task: 'do the work',
-                  key: 'pi-worker',
-                }),
-              },
-            ],
+    await supervise(
+      recursiveTestProfile(routerTestProfile('root', 'Delegate the work.')),
+      'Delegate the work.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 8, maxTokens: 8_000 },
+        perWorker: { maxIterations: 2, maxTokens: 1_000 },
+        journal,
+        runId: 'pi-prompt-admitted',
+        brain: async () => {
+          turn += 1
+          if (turn === 1) {
+            return {
+              toolCalls: [
+                {
+                  id: 'spawn',
+                  name: 'spawn_worker',
+                  arguments: JSON.stringify({
+                    profile: {
+                      name: 'pi-worker',
+                      harness: 'pi',
+                      model: { provider: 'tangle-router', default: 'glm-5.2' },
+                      prompt: { systemPrompt: 'You are the worker. Ignore your own prompt.' },
+                    },
+                    task: 'do the work',
+                    key: 'pi-worker',
+                  }),
+                },
+              ],
+            }
           }
-        }
-        if (turn === 2) {
-          return {
-            toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
+          if (turn === 2) {
+            return {
+              toolCalls: [{ id: 'await', name: 'await_event', arguments: JSON.stringify({}) }],
+            }
           }
-        }
-        return { content: 'done', toolCalls: [] }
+          return { content: 'done', toolCalls: [] }
+        },
       },
-    })
+    )
 
     // Same replacement intent, a harness whose launcher owns `--system-prompt`: it spawns and the
     // bridge is asked to run it.
@@ -1109,7 +1236,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const journal = recordingJournal(events)
     const toolResults: string[] = []
     let turn = 0
-    await supervise(routerTestProfile('root', 'Delegate.'), 'Delegate.', {
+    await supervise(recursiveTestProfile(routerTestProfile('root', 'Delegate.')), 'Delegate.', {
       backend: {
         backend: 'bridge',
         bridgeUrl: `http://127.0.0.1:${port}`,
@@ -1259,7 +1386,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const journal = recordingJournal(events)
     const toolResults: string[] = []
     let turn = 0
-    await supervise(routerTestProfile('root', 'Delegate.'), 'Delegate.', {
+    await supervise(recursiveTestProfile(routerTestProfile('root', 'Delegate.')), 'Delegate.', {
       backend: {
         backend: 'bridge',
         bridgeUrl: `http://127.0.0.1:${port}`,
@@ -1318,7 +1445,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const journal = recordingJournal(events)
     const toolResults: string[] = []
     let turn = 0
-    await supervise(routerTestProfile('root', 'Delegate.'), 'Delegate.', {
+    await supervise(recursiveTestProfile(routerTestProfile('root', 'Delegate.')), 'Delegate.', {
       backend: {
         backend: 'bridge',
         bridgeUrl: `http://127.0.0.1:${port}`,
@@ -1424,7 +1551,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         }
       },
     }
-    const profile = routerTestProfile('root')
+    const profile = recursiveTestProfile(routerTestProfile('root'))
     try {
       const first = await supervise(profile, 'resume the exact result', {
         ...common,
@@ -1446,17 +1573,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     }
   })
 
-  it('runs PI → nested supervisor → worker without dropping any authored profile axis', async () => {
+  it('runs root → declared recursive child → leaf without dropping any authored profile axis', async () => {
     const requests: BridgeRequest[] = []
     const journal = new InMemorySpawnJournal()
     const resolvedDeliverables: string[] = []
-    const classifications: Array<{
-      name: string | undefined
-      metadataRole: unknown
-      experimentId: string | undefined
-      frozen: boolean
-      isDriver: boolean
-    }> = []
     const authorizations: Array<{
       depth: number
       frozen: boolean
@@ -1480,7 +1600,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                 harness: 'codex',
                 prompt: { systemPrompt: 'Supervise one empirical worker.' },
                 model: { provider: 'openai', default: 'gpt-5.6', reasoningEffort: 'high' },
-                tools: { shell: true },
+                tools: {
+                  shell: true,
+                  agent_runtime_coordination_spawn_worker: true,
+                  agent_runtime_coordination_await_event: true,
+                },
                 resources: {
                   skills: [
                     {
@@ -1495,8 +1619,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   critic: { description: 'Find a confound', prompt: 'Challenge the result.' },
                 },
                 modes: { adversarial: { prompt: 'Try to falsify the claim.' } },
-                // Deliberately false model-authored authority: product authorization below makes
-                // this profile recursive even though the authored metadata calls it a worker.
+                // The declared coordination tool grants recursion. Metadata carries no authority.
                 metadata: { role: 'worker', depth: 1, family: 'scientific-method' },
               },
               task: 'Run one experiment and return its measured result.',
@@ -1524,8 +1647,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
                   ],
                   failOnError: true,
                 },
-                // Deliberately false in the other direction: model-authored metadata cannot make a
-                // profile recursive when product authorization classifies it as a leaf.
+                // Role metadata cannot make a profile recursive without the declared tool.
                 metadata: { role: 'driver', depth: 2, family: 'scientific-method' },
               },
               task: 'Measure the system and report RESULT=42.',
@@ -1557,7 +1679,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       harness: 'codex',
       prompt: { systemPrompt: 'Choose and supervise the most informative experiment.' },
       model: { provider: 'openai', default: 'gpt-5.6', reasoningEffort: 'xhigh' },
-      tools: { web: true },
+      tools: {
+        web: true,
+        agent_runtime_coordination_spawn_worker: true,
+        agent_runtime_coordination_await_event: true,
+      },
       mcp: {
         literature: { transport: 'http', url: 'https://papers.example.test/mcp' },
       },
@@ -1615,25 +1741,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
           },
         }
       },
-      isDriverProfile: (input) => {
-        const isDriver = input.execution.correlation?.experimentId === 'experiment-1'
-        classifications.push({
-          name: input.profile.name,
-          metadataRole: input.profile.metadata?.role,
-          experimentId: input.execution.correlation?.experimentId,
-          frozen:
-            Object.isFrozen(input) &&
-            Object.isFrozen(input.profile) &&
-            Object.isFrozen(input.parent) &&
-            Object.isFrozen(input.parentIdentity) &&
-            Object.isFrozen(input.execution) &&
-            Object.isFrozen(input.execution.correlation) &&
-            Object.isFrozen(input.task) &&
-            Object.isFrozen(input.budget),
-          isDriver,
-        })
-        return isDriver
-      },
       resolveDeliverable: (input) => {
         resolvedDeliverables.push(input.profile.name ?? 'unnamed')
         return undefined
@@ -1659,7 +1766,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     expect(new Set(requests.map((request) => request.session_id)).size).toBe(3)
 
     const pi = requests[0]!.agent_profile
-    expect(pi.tools).toEqual({ web: true })
+    expect(pi.tools).toEqual({
+      web: true,
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+    })
     expect(pi.mcp).toEqual({
       literature: { transport: 'http', url: 'https://papers.example.test/mcp' },
     })
@@ -1668,6 +1779,11 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     })
 
     const nested = requests[1]!.agent_profile
+    expect(nested.tools).toEqual({
+      shell: true,
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+    })
     expect(nested.resources?.skills?.[0]).toMatchObject({ name: 'experimental-method' })
     expect(nested.subagents?.critic?.prompt).toBe('Challenge the result.')
     expect(nested.modes?.adversarial?.prompt).toBe('Try to falsify the claim.')
@@ -1702,23 +1818,7 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         task: 'Measure the system and report RESULT=42.',
       },
     ])
-    expect(classifications).toEqual([
-      {
-        name: 'methods-supervisor',
-        metadataRole: 'worker',
-        experimentId: 'experiment-1',
-        frozen: true,
-        isDriver: true,
-      },
-      {
-        name: 'experiment-worker',
-        metadataRole: 'driver',
-        experimentId: 'experiment-2',
-        frozen: true,
-        isDriver: false,
-      },
-    ])
-    expect(resolvedDeliverables).toEqual(['experiment-worker'])
+    expect(resolvedDeliverables).toEqual(['methods-supervisor', 'experiment-worker'])
 
     const rootEvents = await journal.loadTree('identity-run')
     expect(JSON.stringify(rootEvents)).not.toContain(backend.bridgeUrl)
@@ -1783,6 +1883,85 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       candidateDigest: canonicalCandidateDigest({ candidate: 'experiment-worker' }),
       correlation: { pursuitId: 'pursuit-1', experimentId: 'experiment-2' },
     })
+  })
+
+  it('lets a recursive child submit its own checked result without spawning a descendant', async () => {
+    const resolvedDeliverables: string[] = []
+    const managerSessions: string[] = []
+    const journal = new InMemorySpawnJournal()
+    server = createBridgeServer(async (req, res) => {
+      const body = await readJson(req)
+      const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+      if (!coordination?.url) throw new Error('recursive profile did not receive coordination')
+
+      if (body.agent_profile.name === 'root-manager') {
+        await callCoordination(coordination.url, 'spawn_worker', {
+          profile: withRuntimeTools(
+            codexTestProfile('research-manager', 'Research and synthesize the answer.'),
+            'spawn_worker',
+            'submit_result',
+          ),
+          task: 'Return an independently checked answer of 42.',
+        })
+        await callCoordination(coordination.url, 'await_event', {})
+      } else {
+        managerSessions.push(body.session_id)
+        if (managerSessions.length === 2) {
+          await callCoordination(coordination.url, 'submit_result', {
+            result: { answer: 42, source: 'manager-direct-work' },
+          })
+        }
+      }
+      respondWithBridgeStream(res, body, successStream('managed'))
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+
+    const result = await supervise(
+      withRuntimeTools(
+        codexTestProfile('root-manager', 'Own the result.'),
+        'spawn_worker',
+        'await_event',
+      ),
+      'Return the checked result.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 8, maxTokens: 40_000 },
+        journal,
+        runId: 'recursive-manager-direct-work',
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (value) => (value as { answer?: unknown }).answer === 42,
+        },
+        repromptOnUnmet: 1,
+        resolveDeliverable: (input) => {
+          resolvedDeliverables.push(input.profile.name ?? 'unnamed')
+          return undefined
+        },
+      },
+    )
+
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') {
+      expect(result.out).toEqual({ answer: 42, source: 'manager-direct-work' })
+    }
+    expect(resolvedDeliverables).toEqual(['research-manager'])
+    expect(managerSessions).toHaveLength(2)
+    expect(new Set(managerSessions).size).toBe(1)
+    const rootEvents = (await journal.loadTree('recursive-manager-direct-work')) ?? []
+    expect(
+      rootEvents.find(
+        (event) => event.kind === 'settled' && event.id !== 'recursive-manager-direct-work',
+      ),
+    ).toMatchObject({ status: 'done', verdict: { valid: true } })
+    const nestedEvents =
+      (await journal.loadTree('recursive-manager-direct-work/recursive-manager-direct-work:s0')) ??
+      []
+    expect(nestedEvents.filter((event) => event.kind === 'spawned')).toEqual([])
   })
 
   it('isolates identical concurrent managers but reuses one durable manager session on restart', async () => {
@@ -1961,6 +2140,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       harness: 'cli-base',
       model: { provider: 'tangle-router', default: 'safe-model' },
       prompt: { systemPrompt: 'Use the worker.' },
+      tools: {
+        agent_runtime_coordination_spawn_worker: true,
+        agent_runtime_coordination_await_event: true,
+      },
     }
     const backend = {
       backend: 'bridge' as const,
@@ -2001,7 +2184,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         expect(input.budget).toMatchObject({ maxIterations: 2, maxTokens: 100 })
         return { profile: input.profile }
       },
-      isDriverProfile: () => false,
     }
 
     const run = supervise(rootProfile, { pursuit: 'original-task' }, options)
@@ -2018,7 +2200,6 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
       callbackCalls.push('replacement-authorizer')
       return { profile: input.profile }
     }
-    options.isDriverProfile = () => true
     options.brain = async () => ({ content: 'replacement', toolCalls: [] })
     releaseFirstTurn()
 
@@ -2079,21 +2260,25 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const { port } = server.address() as AddressInfo
     const runId = 'accepted-submit-terminal-error'
 
-    const result = await supervise(codexTestProfile('pi-leader', 'Lead.'), 'Choose.', {
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: `http://127.0.0.1:${port}`,
-        bridgeBearer: 'test-token',
+    const result = await supervise(
+      withRuntimeTools(codexTestProfile('pi-leader', 'Lead.'), 'submit_result'),
+      'Choose.',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 2, maxTokens: 200_000 },
+        deliverable: {
+          describe: 'an object whose answer is 42',
+          check: (value) => (value as { answer?: unknown }).answer === 42,
+        },
+        driverRetry: { enabled: false },
+        journal,
+        runId,
       },
-      budget: { maxIterations: 2, maxTokens: 200_000 },
-      deliverable: {
-        describe: 'an object whose answer is 42',
-        check: (value) => (value as { answer?: unknown }).answer === 42,
-      },
-      driverRetry: { enabled: false },
-      journal,
-      runId,
-    })
+    )
 
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
@@ -2306,6 +2491,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
         model: { provider: 'openai', default: 'gpt-5.6' },
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+        },
       },
       'Choose the next experiment.',
       {
@@ -2430,6 +2619,10 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
         harness: 'codex',
         prompt: { systemPrompt: 'Lead the pursuit.' },
         model: { provider: 'openai', default: 'gpt-5.6' },
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+        },
       },
       'Choose the next experiment.',
       {

@@ -44,7 +44,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { runGraph } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { testAgentProfile, withRuntimeTools } from './test-agent-profile'
 
 // ── Offline leaf: records the order stages actually ran in ────────────────────────
 
@@ -152,10 +152,14 @@ describe('model-decided composition — the graph family', () => {
     nodes: [
       {
         id: 'driver',
-        profile: testAgentProfile('driver', {
-          harness: 'cli-base',
-          prompt: { systemPrompt: 'Drive the worker until it delivers.' },
-        }),
+        profile: withRuntimeTools(
+          testAgentProfile('driver', {
+            harness: 'cli-base',
+            prompt: { systemPrompt: 'Drive the worker until it delivers.' },
+          }),
+          'spawn_worker',
+          'await_event',
+        ),
       },
       {
         id: 'worker',
