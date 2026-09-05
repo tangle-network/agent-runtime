@@ -6,9 +6,8 @@
  * resumes on the same `runId` + `runDir` and re-issues the IDENTICAL plan — the brain is not
  * resume-aware, so every skip has to come from the runtime.
  *
- * What must hold: exactly two units of work remain, no already-completed worker executes a second
- * time, and the resumed run's final output and worker spend equal an uninterrupted control run's.
- * The spend equality is the real bar — it is what "did not pay twice" means in a number.
+ * What must hold: no replacement starts for a worker whose prior remote execution has no terminal
+ * receipt. The resumed run keeps that work visible as unknown and charges its declared ceiling.
  */
 
 import { spawn } from 'node:child_process'
@@ -37,6 +36,7 @@ interface PhaseReport {
   readonly spentTotal: Spend
   readonly spentBreakdown?: { driverInference: Spend; childWork: Spend }
   readonly settledNodes: string[]
+  readonly inDoubtRefusals: string[]
 }
 
 async function runPhase(dir: string, runId: string, phase: Phase): Promise<PhaseExit> {
@@ -71,7 +71,7 @@ async function execLog(dir: string, phase: Phase): Promise<string[]> {
   }
 }
 
-describe('resume-aware built-in driver — a killed coordinator resumes without re-paying', () => {
+describe('resume-aware built-in driver — a killed coordinator never duplicates unknown work', () => {
   let dir: string
   let controlDir: string
   beforeEach(async () => {
@@ -83,7 +83,7 @@ describe('resume-aware built-in driver — a killed coordinator resumes without 
     await rm(controlDir, { recursive: true, force: true })
   })
 
-  it('five workers, three settled, coordinator killed: exactly two re-run and the output + worker spend match an uninterrupted control run', {
+  it('five workers, three settled, coordinator killed: the two unknown assignments are refused without new execution', {
     timeout: 180_000,
   }, async () => {
     const runId = 'five-assignments'
@@ -123,37 +123,49 @@ describe('resume-aware built-in driver — a killed coordinator resumes without 
     expect(second.code, `phase 2 stderr: ${second.stderr}`).toBe(0)
     const resumed = JSON.parse(second.stdout.trim()) as PhaseReport
 
-    // THE CLAIM: exactly two units of work remained, and not one already-completed worker ran
-    // its model call again.
-    const rerun = await execLog(dir, '2')
-    expect(rerun).toHaveLength(2)
-    expect(rerun).toEqual(['w4', 'w5'])
-    for (const done of ['w1', 'w2', 'w3']) expect(rerun).not.toContain(done)
+    // The safety boundary: phase 2 starts no replacement. The two keyed requests return an
+    // action-oriented refusal instead of treating an absent receipt as proof of death.
+    expect(await execLog(dir, '2')).toEqual([])
+    expect(resumed.inDoubtRefusals).toHaveLength(2)
+    for (const refusal of resumed.inDoubtRefusals) {
+      expect(refusal).toContain('"error":"in-doubt"')
+      expect(refusal).toContain('no replacement was started')
+    }
 
-    // The finalize spans both processes: all five assignments are in the tree, and the winner
-    // is `w5` — reachable only by combining phase 1's committed work with phase 2's.
+    // Phase 2 emits no `spawned` records. The original five semantic assignments remain the
+    // whole tree, with only the three terminal records the journal can prove.
+    const afterResume = (await journal.loadTree(runId)) ?? []
+    const resumedSpawnedKeys = afterResume
+      .filter((e): e is Extract<typeof e, { kind: 'spawned' }> => e.kind === 'spawned')
+      .map((e) => e.key)
+      .filter((k): k is string => k !== undefined)
+      .sort()
+    expect(resumedSpawnedKeys).toEqual(['w1', 'w2', 'w3', 'w4', 'w5'])
+
+    // The default finalizer may select the best independently verified settled artifact. It does
+    // not invent terminal records for the two unknown assignments or claim their work completed.
     expect(resumed.kind).toBe('winner')
-    expect(resumed.settledNodes).toEqual(['w1', 'w2', 'w3', 'w4', 'w5'])
+    expect(resumed.out).toBe('W3')
+    expect(resumed.out).not.toBe(controlReport.out)
+    expect(resumed.settledNodes).toEqual(['w1', 'w2', 'w3'])
 
-    // The output matches control. Spend does not pretend the two killed executions were free:
-    // their missing receipts are charged at both declared ceilings and marked unknown.
-    expect(resumed.out).toBe(controlReport.out)
-    expect(resumed.spentBreakdown?.childWork.iterations).toBe(15)
+    // Spend does not pretend the two killed executions were free: their missing receipts remain
+    // charged at both declared ceilings and their telemetry remains unknown.
+    expect(resumed.spentBreakdown?.childWork.iterations).toBe(13)
     expect(resumed.spentBreakdown?.childWork.tokens).toEqual({
-      input: 20_050,
-      output: 50,
+      input: 20_030,
+      output: 30,
       cacheBreakdownKnown: false,
     })
     expect(resumed.spentBreakdown?.childWork.tokensKnown).toBe(false)
     expect(resumed.spentBreakdown?.childWork.usdKnown).toBe(false)
-    expect(resumed.spentBreakdown?.childWork.usd).toBeCloseTo(0.05, 10)
+    expect(resumed.spentBreakdown?.childWork.usd).toBeCloseTo(0.03, 10)
 
-    // The ONLY channel that differs is the coordinator's own inference: a restarted coordinator
-    // re-plans, and those turns are real cost the journal keeps rather than hides. Asserted as a
-    // strict inequality so the test would fail if that cost were ever silently dropped.
+    // The resumed coordinator still has a metered inference record. Refusing unknown work may use
+    // fewer turns than an uninterrupted control, but neither path may hide the coordinator cost.
     const resumedBrain = resumed.spentBreakdown?.driverInference.tokens.input ?? 0
     const controlBrain = controlReport.spentBreakdown?.driverInference.tokens.input ?? 0
     expect(controlBrain).toBeGreaterThan(0)
-    expect(resumedBrain).toBeGreaterThan(controlBrain)
+    expect(resumedBrain).toBeGreaterThan(0)
   })
 })

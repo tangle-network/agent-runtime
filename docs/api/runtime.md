@@ -13659,10 +13659,10 @@ Instruction receipts are evidence and are never delivered automatically to a rep
 worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
 
 The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -17971,10 +17971,10 @@ Instruction receipts are evidence and are never delivered automatically to a rep
 worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
 
 The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
 
 `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
 resumable run per directory but collides across concurrent runs sharing one `runDir`.
@@ -19772,10 +19772,10 @@ Semantic identity of this assignment ACROSS process lifetimes. A keyed spawn is
 idempotent per key: once a child spawned under a key settles `done` — in this process or in a
 journaled prior one — spawning the same key returns that committed result (`prior.state:
 'completed'`) instead of paying for the work again. A key whose prior attempt settled `down`
-or was journaled as started-but-never-settled spawns FRESH but says so explicitly
-(`prior.state: 'retried' | 'lost'`), and a key that is currently LIVE is refused
-(`'duplicate-key'`) — the same assignment can never run twice concurrently. Unkeyed spawns
-(the default) are position-identified and always run.
+spawns fresh and says so explicitly (`prior.state: 'retried'`). A key whose prior attempt was
+journaled as started but never settled is refused (`'in-doubt'`): the remote execution may
+still exist and must be recovered before replacement. A key that is currently LIVE is refused
+(`'duplicate-key'`). Unkeyed spawns (the default) are position-identified and always run.
 
 ***
 
@@ -19917,9 +19917,9 @@ resumed run that was not waiting.
 
 Keyed assignments from the prior journal: `SpawnOpts.key` → what the journal proves about it.
 `completed`/`down` carry the rehydrated settlement; `in-doubt` means the spawn was journaled
-but no settlement ever landed — the process died with it in flight. `Scope.spawn` consults
-this so a keyed re-spawn resolves instead of duplicating (see `SpawnOpts.key`). Empty when no
-prior spawn carried a key.
+but no settlement ever landed — the process died with it in flight. `Scope.spawn` refuses a
+keyed replacement in that state, rather than duplicate a possibly live remote execution. Empty
+when no prior spawn carried a key.
 
 ##### priorSpend
 
@@ -19968,7 +19968,7 @@ Identity recorded when this key was first admitted. Every reuse must match it ex
 
 ##### state
 
-> `readonly` **state**: `"completed"` \| `"down"` \| `"in-doubt"`
+> `readonly` **state**: `"completed"` \| `"in-doubt"` \| `"down"`
 
 ##### settled?
 
@@ -25139,11 +25139,11 @@ Deterministic node id — `${parent}:s${seq}` from the cursor order, never wall-
 
 ### SpawnRejection
 
-> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
+> **SpawnRejection** = `"budget-exhausted"` \| `"usd-unbudgeted"` \| `"depth-exceeded"` \| `"duplicate-key"` \| `"in-doubt"` \| `"invalid-identity"` \| `"key-conflict"` \| `"max-live-workers"` \| `"scope-aborted"`
 
 Fail-closed spawn rejections: an exhausted pool, a dollar request against a root that budgets
- no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, or a `key` that
- is still LIVE in this scope (the same assignment may not run twice concurrently).
+ no dollars, an exceeded recursion ceiling, a full tree-wide worker allocation, a `key` that is
+ still LIVE in this scope, or a key whose prior remote execution has no terminal receipt.
 
 `usd-unbudgeted` is separate from `budget-exhausted` because the two call for opposite
  responses: an exhausted pool may admit a smaller request, while an unbudgeted dollar channel
@@ -25153,18 +25153,14 @@ refuses every amount until the ROOT budget names a `maxUsd`.
 
 ### SpawnPrior
 
-> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](index.md#settled)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \} \| \{ `state`: `"lost"`; `priorId`: [`NodeId`](#nodeid-6); \}
+> **SpawnPrior**\<`Out`\> = \{ `state`: `"completed"`; `settled`: [`Settled`](index.md#settled)\<`Out`\> & `object`; \} \| \{ `state`: `"retried"`; `priorId`: [`NodeId`](#nodeid-6); `reason`: `string`; \}
 
 What a KEYED spawn resolved to when the key had a prior attempt. Absent on a fresh key (and on
 every unkeyed spawn). `'completed'` is the exactly-once path: NOTHING was spawned — the handle
-references the prior settled node and `settled` is the committed result. `'retried'` /
-`'lost'` DID spawn fresh: the prior attempt settled `down` (retried) or was journaled as
-started but never settled — the process died with it in flight and the built-in executors
-cannot re-attach to a dead process's work, so the result is explicitly in doubt (lost), never
-silently duplicated. On restart, an in-doubt attempt's full declared reservation is charged and
-its telemetry remains unknown; a fresh retry is admitted only from safely remaining capacity.
-An executor that CAN re-attach to a still-running external execution extends this union with an
-adoption state; none of the built-ins can today.
+references the prior settled node and `settled` is the committed result. `'retried'` DID spawn
+fresh because the prior attempt settled `down`. A start with no terminal receipt is not a prior
+result: `spawn` refuses it as `'in-doubt'`, retains its charged reservation, and requires exact
+recovery before a replacement can run.
 
 #### Type Parameters
 

@@ -6,13 +6,11 @@
  *
  * Phase `1` SIGKILLs itself from inside the brain the instant it has pulled three settlements — no
  * unwinding, no flush. Phase `2` is a brand-new process pointed at the SAME dir + runId. Phase
- * `control` runs the identical script start-to-finish in a fresh directory: the uninterrupted
- * baseline the crash-then-resume pair must match.
+ * `control` runs the identical script start-to-finish in a fresh directory.
  *
  * Every phase runs the SAME brain script — five keyed workers, then pull events until idle. The
- * brain is deliberately NOT resume-aware: it re-issues the identical plan every time. Skipping the
- * committed work is therefore the RUNTIME's job (`spawn_worker`'s `key` resolving against the
- * journal), which is exactly the property under test.
+ * brain is deliberately NOT resume-aware: it re-issues the identical plan every time. The runtime
+ * must return committed work and refuse a potentially live prior execution, never duplicate it.
  */
 
 import { appendFileSync } from 'node:fs'
@@ -112,8 +110,14 @@ function leafAgent(
 const brainUsage = { input: 100, output: 20 }
 
 let spawnedPlan = false
+let observedToolResultCount = 0
+const inDoubtRefusals: string[] = []
 const brain: ToolLoopChat = async (messages) => {
   const toolResults = messages.filter((m) => m.role === 'tool').map((m) => String(m.content ?? ''))
+  for (const result of toolResults.slice(observedToolResultCount)) {
+    if (result.includes('"error":"in-doubt"')) inDoubtRefusals.push(result)
+  }
+  observedToolResultCount = toolResults.length
   const settlementsPulled = toolResults.filter((t) => t.includes('"type":"settled"')).length
 
   // PHASE 1 CRASH: three assignments are committed (their blob + `settled` record are fsynced
@@ -175,5 +179,6 @@ process.stdout.write(
       .filter((n) => n.status === 'done')
       .map((n) => n.label)
       .sort(),
+    inDoubtRefusals,
   })}\n`,
 )

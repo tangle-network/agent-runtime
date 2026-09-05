@@ -476,8 +476,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   // The semantic-key registry (`SpawnOpts.key`): every keyed assignment's current state, seeded
   // from the prior journal on resume and updated live as keyed children spawn and settle. This is
   // what makes a keyed spawn idempotent per key across process lifetimes: `done` returns the
-  // committed result, `live` refuses a concurrent duplicate, `down`/`in-doubt` spawn fresh but
-  // say so explicitly.
+  // committed result, `live` refuses a concurrent duplicate, `down` retries after a terminal
+  // receipt, and `in-doubt` refuses until the exact prior execution is recovered.
   type KeyState =
     | { readonly state: 'live'; readonly id: NodeId; readonly identity: NodeExecutionIdentity }
     | {
@@ -540,10 +540,10 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     const task = detachedSnapshot(rawTask, 'scope.spawn task')
     const opts = detachedSnapshot(rawOpts, 'scope.spawn options')
 
-    // A key is an identity claim, not merely a cache label. On every reuse, prepare the requested
-    // agent far enough to derive the authorized profile/task identity, then compare it with the
-    // journal before returning an old result or retrying old work. No executor is resolved,
-    // constructed, reserved, or run on the completed path.
+    // A key is an identity claim, not merely a cache label. An in-doubt start has no terminal
+    // receipt, so it refuses before touching a lazy factory. Every other reuse prepares the
+    // requested agent far enough to compare its authorized profile/task identity with the journal.
+    // No executor is resolved, constructed, reserved, or run on the completed path.
     let prior: SpawnPrior<C> | undefined
     let prepared:
       | {
@@ -565,6 +565,11 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
     if (opts.key !== undefined) {
       const existing = keyed.get(opts.key)
+      if (existing?.state === 'in-doubt') {
+        // A durable start with no terminal receipt does not prove the remote execution stopped.
+        // Do not invoke a lazy factory, reserve, or construct a replacement beside it.
+        return { ok: false, reason: 'in-doubt' }
+      }
       if (existing !== undefined) {
         prepared = prepare()
         if (!isCompleteIdentity(prepared.identity)) {
@@ -584,8 +589,6 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
       if (existing?.state === 'down') {
         prior = { state: 'retried', priorId: existing.id, reason: existing.reason }
-      } else if (existing?.state === 'in-doubt') {
-        prior = { state: 'lost', priorId: existing.id }
       }
     }
 

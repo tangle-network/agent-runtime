@@ -2749,9 +2749,10 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         'many workers are still in flight — settle or steer one before spawning another. ' +
         'Pass a `key` naming the assignment to make it run-once ACROSS restarts: a key that ' +
         'already completed returns the finished result (`resumed: "completed"` — no work re-runs, ' +
-        'nothing is spent), a key whose prior attempt failed or was lost with a dead process ' +
-        'spawns fresh and says so (`resumed: "retried" | "lost"`), and a key still running is ' +
-        'refused (`error: "duplicate-key"`). ' +
+        'nothing is spent), a key whose prior attempt failed (`down`) spawns fresh and says so ' +
+        '(`resumed: "retried"`), and a key with no terminal receipt is refused ' +
+        '(`error: "in-doubt"`) until its exact prior execution is recovered. A key still running ' +
+        'is refused (`error: "duplicate-key"`). ' +
         'Returns `freeSlots`: how many MORE workers you can start right now (`null` = uncapped). ' +
         'While `freeSlots > 0` there is idle capacity — call this again to fill it rather than ' +
         'waiting; parallel workers finish the run sooner than one at a time.',
@@ -2932,7 +2933,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
           }
         }
         // A `completed` key returned above, so any prior still attached here is a real re-run:
-        // `retried` (the prior attempt failed) or `lost` (it died in flight with its process).
+        // `retried` means the prior attempt reached a terminal down receipt.
         const priorHistory =
           res.ok && res.prior !== undefined && res.prior.state !== 'completed'
             ? {
@@ -2944,8 +2945,8 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
         // Report the REMAINING capacity alongside the spawn, so one tool call tells the driver
         // both "it started" and "you can still open N more" — the feedback that lets it fill
         // slots instead of opening one worker per turn. `null` = uncapped. A fresh spawn under a
-        // key with a failed/lost prior attempt carries that history (`resumed`/`priorWorkerId`),
-        // so a re-run is always explicit, never a silent duplicate.
+        // key with a failed prior attempt carries that history (`resumed`/`priorWorkerId`), so a
+        // re-run is always explicit. An in-doubt prior is refused above and never duplicated.
         return Promise.resolve(
           res.ok
             ? {
@@ -2974,7 +2975,9 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 reason:
                   res.reason === 'usd-unbudgeted'
                     ? "this run's root budget declares no maxUsd, so a child budget naming maxUsd can never be admitted at any amount — spawn with a budget that omits maxUsd"
-                    : `the conserved pool refused this spawn (${String(res.reason)}); the run has no allocation left to give this worker`,
+                    : res.reason === 'in-doubt'
+                      ? 'this key has a prior worker recorded as started without a terminal receipt; no replacement was started because that remote worker may still be running — inspect or recover the exact prior execution before retrying'
+                      : `the conserved pool refused this spawn (${String(res.reason)}); the run has no allocation left to give this worker`,
                 ...(res.reason === 'usd-unbudgeted'
                   ? {
                       hint:
@@ -2983,7 +2986,11 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                         'fail identically. Spawn with a budget that omits maxUsd, or ask the caller ' +
                         'to give the run a root maxUsd.',
                     }
-                  : {}),
+                  : res.reason === 'in-doubt'
+                    ? {
+                        hint: 'Do not retry this key. Use the recorded prior worker identity to inspect or recover that exact execution. A terminal receipt or explicit recovery is required before replacement work can start.',
+                      }
+                    : {}),
                 live: liveWorkerCount(),
                 freeSlots: freeWorkerSlots(),
               },
