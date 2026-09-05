@@ -200,8 +200,9 @@ recipe and evaluation ID. This is the **outer flywheel**: the controller is lear
 not hand-written. Optimize against the **multi-objective vector** (§0.5.2) — *correct,
 fast, secure, cheap* — Pareto, **not** a pre-collapsed scalar; each component is graded
 by its own deployable checker (tests · clock · scanner · cost meter), with the external
-write-only judge as the fixed anchor on the *correctness* axis so the recursion can't
-Goodhart. **Status:** the loop today carries a single `score` per attempt (§6's
+write-only judge as an independent check on the *correctness* axis.
+That check still requires validation against the domain objective; a fixed score can remain an inadequate proxy.
+**Status:** the loop today carries a single `score` per attempt (§6's
 `adapter.judge`) — collapsing the vector at the boundary is the open gap to close before
 the optimizer can trade objectives honestly.
 Candidate surfaces include complete profiles, executable strategies, working evaluations, curricula, and the learning method itself.
@@ -261,8 +262,9 @@ being squatted on.
     never feeds a steer or a selection.
 - **Selector (distinct):** the deployable, learnable component that picks among candidates at
   inference (vote / verifier-rerank). A verifier-grounded selector (`verifierGroundedSelect` in
-  `bench/src/selector.ts`) is built and measured — see `docs/architecture-interpretations.md` §2
-  for its current evidence status. The law stands regardless: the selector is never the judge.
+  `bench/src/selector.ts`) is implemented.
+  Consult its dated experiment records and subsequent corrections before making a capability claim.
+  Final assessment remains separate from the policy that chooses an answer.
 
 ---
 

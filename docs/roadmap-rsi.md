@@ -4,7 +4,7 @@ Companion to [architecture.md](./architecture.md) (the spine) and [architecture-
 
 ## The principle: make it measurable before you build it
 
-**Gate A** tests within-run steering ([architecture-interpretations.md §5](./architecture-interpretations.md#5-gate-a--the-decision-gate-for-the-recursive-driver-layer)):
+**Gate A** tests within-run steering ([architecture-interpretations.md §5](./architecture-interpretations.md#5-gate-a--a-diagnostic-for-within-run-steering)):
 
 > Does a trace-informed driver beat random attempts under the same answer selection method, at equal actual resources, with enough evidence to distinguish useful improvement?
 
@@ -96,7 +96,8 @@ Runs in **parallel** to Phases 1–2 (bench-only, no kernel code). This is the k
 
 - **Build a `RefineLoopSpec<WikiState, AcquisitionCtx>`** over `runRefineLoop` (`refine-loop.ts:44-63`): `setup` = open/create the vault; `prompt(round, history)` = the maintainer directive folding prior pages + open contradictions; `runShot` variants = (i) an `llm-wiki` maintainer+critic (ingest → propose page edits → lint contradictions/staleness/orphans) and (ii) a `bad`-CLI browser source-fetcher reusing `bench/src/browser/adapters/bad.ts` for web data/video/images; `judge` = the critic's lint verdict; `teardown` = flush the vault.
 - **Propose through `runAnalystLoop`, measure through `runKnowledgeImprovementJob`, and write only through `createKnowledgeImprovementActivationExecutor`.** Analysis never mutates the live knowledge tree.
-- **The gap signal must be STRUCTURAL** — graph topology, citation/embedding density, redundancy-discounted coverage — **not an LLM vibe.** A miscalibrated acquisition function underperforms random sampling ([interpretations §3.2](./architecture-interpretations.md#32-active-learning--experimental-design)); the structural signal is what makes this active learning rather than coverage-greedy ingestion.
+- **Validate gap signals against outcomes.** Structural features and model judgments are possible inputs to problem selection.
+  Neither establishes useful practice without a downstream comparison ([interpretations §3](./architecture-interpretations.md#3-five-interpretations)).
 - **No mocks** — real vault, real `bad` runs (repo doctrine).
 - Source-selection is authored as a `defineStrategy` program (`src/runtime/strategy.ts`) driven over the `Scope`/`Supervisor`.
 
