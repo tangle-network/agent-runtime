@@ -1243,7 +1243,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
 
 /**
  * The factual context a resumed driver starts from — everything the durable stores prove about
- * the prior process(es): committed settlements, per-key states (completed / lost / failed),
+ * the prior process(es): committed settlements, per-key states (completed / in-doubt / failed),
  * re-armed waits, carried-over questions/findings/continuation receipts, and spend already paid.
  * Injected as the brain's first user-context on a resumed run so it continues from unresolved work;
  * old continuation receipts are evidence and are never auto-delivered.
@@ -1269,7 +1269,7 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
   const byState = (state: 'completed' | 'in-doubt' | 'down') =>
     [...resume.keys].filter(([, v]) => v.state === state)
   const completed = byState('completed')
-  const lost = byState('in-doubt')
+  const inDoubt = byState('in-doubt')
   const failed = byState('down')
   if (completed.length > 0) {
     lines.push(
@@ -1278,11 +1278,11 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
       ...completed.map(([k, v]) => `- ${k} → ${v.id} (${v.label})`),
     )
   }
-  if (lost.length > 0) {
+  if (inDoubt.length > 0) {
     lines.push(
       '',
-      'Keys LOST in flight with the prior process — this is the unresolved work; spawn_worker with the same key starts a fresh attempt:',
-      ...lost.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
+      'Keys IN DOUBT — a prior process recorded them as started but never recorded a terminal receipt. Do NOT spawn a replacement under these keys; inspect or recover each exact prior execution first:',
+      ...inDoubt.map(([k, v]) => `- ${k} (prior attempt ${v.id}, ${v.label})`),
     )
   }
   if (failed.length > 0) {

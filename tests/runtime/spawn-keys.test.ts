@@ -9,7 +9,9 @@
 
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { createScope, deriveNodeExecutionIdentity } from '../../src/runtime/supervise/scope'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type {
   Agent,
@@ -19,6 +21,7 @@ import type {
   Scope,
   UsageEvent,
 } from '../../src/runtime/supervise/types'
+import { zeroSpend } from '../../src/runtime/util'
 import { testAgentProfile } from '../kernel/test-agent-profile'
 
 /** Counts its own executions so "did this key run again?" is a number, not an inference. `gate`,
@@ -233,5 +236,51 @@ describe('semantic spawn keys', () => {
       await scope.next()
       return 'done'
     })
+  })
+
+  it('an in-doubt key refuses before a lazy replacement factory can run', () => {
+    const original = countingLeaf('unknown', 'U', { n: 0 })
+    const identity = deriveNodeExecutionIdentity(original.executorSpec, 'task')
+    if (identity === undefined)
+      throw new Error('test fixture requires a complete execution identity')
+
+    const scope = createScope<string>({
+      parentId: 'resumed',
+      root: 'resumed',
+      pool: createBudgetPool({ maxIterations: 50, maxTokens: 100_000 }, 0),
+      journal: new InMemorySpawnJournal(),
+      blobs: new InMemoryResultBlobStore(),
+      executors: createExecutorRegistry(),
+      seams: {},
+      depth: 0,
+      signal: new AbortController().signal,
+      now: () => 0,
+      resumeFrom: {
+        settled: [],
+        view: { root: 'resumed', nodes: [], inFlight: 0, waiting: 0 },
+        maxSpawnOrdinal: 0,
+        maxCursorSeq: 0,
+        maxWaitOrdinal: 0,
+        waits: [],
+        keys: new Map([
+          ['assignment-1', { id: 'resumed:s0', label: 'unknown', identity, state: 'in-doubt' }],
+        ]),
+        priorSpend: { childWork: zeroSpend(), driverInference: zeroSpend() },
+      },
+    })
+    let factoryCalls = 0
+
+    const retry = scope.spawn(
+      () => {
+        factoryCalls += 1
+        return countingLeaf('replacement', 'R', { n: 0 })
+      },
+      'changed task',
+      { budget: childBudget, label: 'replacement', key: 'assignment-1' },
+    )
+
+    expect(retry).toEqual({ ok: false, reason: 'in-doubt' })
+    expect(factoryCalls).toBe(0)
+    expect(scope.budget.tokensLeft).toBe(100_000)
   })
 })

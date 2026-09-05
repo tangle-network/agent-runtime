@@ -1410,10 +1410,10 @@ export interface SuperviseOptions {
    * worker. The final result spans both processes' work. Unset = in-memory, fresh every call.
    *
    * The boundary that remains: work that was IN FLIGHT when the process died is not recovered —
-   * the built-in executors cannot re-attach to a dead process's executions. Each such assignment
-   * resumes as explicitly lost/in-doubt, its full declared reservation is charged conservatively,
-   * and its token/dollar telemetry remains unknown. A retry is admitted only from safely remaining
-   * capacity, so restart cannot mint a fresh budget or slide the original absolute deadline.
+   * the built-in executors cannot re-attach to a dead process's executions. Each such keyed
+   * assignment resumes as `in-doubt`, its full declared reservation stays charged, and its
+   * token/dollar telemetry remains unknown. Runtime refuses a replacement under that key until the
+   * exact prior execution is recovered, so restart cannot duplicate work or slide the deadline.
    *
    * `runId` matters here: it defaults to the constant `'supervise'`, which is fine for a single
    * resumable run per directory but collides across concurrent runs sharing one `runDir`.
