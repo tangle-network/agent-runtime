@@ -176,6 +176,7 @@ async function main(): Promise<void> {
         blobs,
         makeWorkerAgent: (raw) => makeWorker(raw, ws, n++),
         perWorker: { maxIterations: 2, maxTokens: 200_000 },
+        toolNames: ['spawn_worker', 'await_event', 'stop'],
       })
       // The supervisor's cwd carries the REAL skill file (opencode loads it from the cwd skill dirs).
       const supCwd = mkdtempSync(join(tmpdir(), 'e2e-sup-'))

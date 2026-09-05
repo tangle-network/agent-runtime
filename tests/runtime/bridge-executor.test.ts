@@ -34,7 +34,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { runGraph } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
 
 // `bridgeExecutor` POSTs each turn over the `node:http` core client, not global
 // `fetch`: the bridge runs a harness CLI and streams only once it starts
@@ -1821,6 +1821,7 @@ describe('workerFromBackend continuity — bridge session re-attachment', () => 
           profile: testAgentProfile('driver', {
             harness: 'cli-base',
             prompt: { systemPrompt: 'Drive the worker until it delivers.' },
+            tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
           }),
         },
         { id: 'worker', profile: exactBridgeProfile('worker', 'safe-model') },

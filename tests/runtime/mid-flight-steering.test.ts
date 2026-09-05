@@ -32,6 +32,7 @@ import type { Budget } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import type { SandboxClient } from '../../src/runtime/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
+import { runtimeToolDeclarations } from '../kernel/test-agent-profile'
 
 const WRONG = 'legacy/wrong.ts'
 const RIGHT = 'core/right.ts'
@@ -44,6 +45,17 @@ const rootProfile = {
   harness: 'cli-base' as const,
   model: { provider: 'offline', default: 'offline/supervisor' },
   prompt: { systemPrompt: 'drive one coder and correct it' },
+  tools: runtimeToolDeclarations('spawn_worker', 'observe_agent', 'steer_agent', 'await_event'),
+}
+const messageAuthorityRootProfile = {
+  ...rootProfile,
+  tools: runtimeToolDeclarations(
+    'spawn_worker',
+    'steer_agent',
+    'ask_parent',
+    'answer_question',
+    'await_event',
+  ),
 }
 const coderProfile = {
   name: 'coder',
@@ -310,7 +322,7 @@ describe('mid-flight steering — a supervisor observes a live worker and change
     const harness = createFakeHarness()
     const record: { steer?: Record<string, unknown>; answer?: Record<string, unknown> } = {}
     try {
-      await supervise(rootProfile, 'change the right module', {
+      await supervise(messageAuthorityRootProfile, 'change the right module', {
         budget,
         backend: backend(harness, true),
         brain: missingMessageAuthorityBrain(harness, record),

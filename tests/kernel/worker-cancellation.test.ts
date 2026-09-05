@@ -111,6 +111,7 @@ function driverOpts(
     blobs,
     makeWorkerAgent,
     perWorker,
+    toolNames: ['spawn_worker', 'await_event', 'list_questions'],
     systemPrompt: 'drive',
     maxTurns: 12,
     ...extra,

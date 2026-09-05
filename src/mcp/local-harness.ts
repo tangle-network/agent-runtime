@@ -426,7 +426,8 @@ export interface RunLocalHarnessOptions {
   /** Absolute host paths that reproducible Codex must not read. The normalized set is compiled
    *  into the controlled permission profile and its digest is returned in execution evidence. */
   codexReadDeniedPaths?: ReadonlyArray<string>
-  /** Wall-clock kill deadline (ms). Default 5 min. Subprocess SIGTERMed on expiry. */
+  /** Optional wall-clock kill deadline (ms). Omit it for no timer. A positive value sends
+   *  SIGTERM on expiry. */
   timeoutMs?: number
   /** Newest stdout/stderr bytes retained per stream. Default 64 MiB. */
   maxOutputBytes?: number
@@ -539,7 +540,6 @@ export interface LocalHarnessResult {
   evidence?: CodexExecutionEvidence
 }
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024
 const processKillGraceMs = 250
 const processGroupExitConfirmMs = 1_000
@@ -620,7 +620,7 @@ export async function runLocalHarness(
   if (options.codexReadDeniedPaths !== undefined && !options.codexReproducible) {
     throw new Error('runLocalHarness: codexReadDeniedPaths requires codexReproducible')
   }
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timeoutMs = options.timeoutMs
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
   if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 0) {
     throw new Error('runLocalHarness: maxOutputBytes must be a non-negative safe integer')
@@ -747,7 +747,7 @@ export async function runLocalHarness(
       }
 
       timer =
-        timeoutMs > 0
+        timeoutMs !== undefined && timeoutMs > 0
           ? setTimeout(() => {
               timedOut = true
               void terminate()

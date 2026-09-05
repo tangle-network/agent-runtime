@@ -21,9 +21,9 @@
 
 import { createServer, type Server } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
-import { ConfigError } from '../../errors'
+import { ConfigError, ValidationError } from '../../errors'
 import type { JsonRpcMessage } from '../../mcp/protocol'
-import { createMcpServer, type McpToolDescriptor } from '../../mcp/server'
+import type { McpToolDescriptor } from '../../mcp/server'
 import { createStdioToolServer, type StdioToolServer } from '../../mcp/tool-server'
 import {
   type AnalystRegistry,
@@ -146,6 +146,9 @@ export async function serveCoordinationMcp(opts: {
   /** Product-selected tools already bound to this exact supervisor node. They share this server
    *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
   nodeTools?: ReadonlyArray<McpToolDescriptor>
+  /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
+   *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
+  toolNames: ReadonlyArray<string>
   /**
    * OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
    * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
@@ -228,14 +231,43 @@ export async function serveCoordinationMcp(opts: {
       : {}),
   })
   await coord.ready()
-  const servedTools = [...coord.tools, ...(opts.nodeTools ?? [])]
-  const mcp = createMcpServer({
-    extraTools: servedTools,
+  const reservedNames = new Set<string>(coord.tools.map((tool) => tool.name))
+  for (const tool of opts.nodeTools ?? []) {
+    if (reservedNames.has(tool.name)) {
+      throw new ValidationError(
+        `serveCoordinationMcp: node tool ${JSON.stringify(tool.name)} shadows a coordination verb or another node tool`,
+      )
+    }
+    reservedNames.add(tool.name)
+  }
+  const availableTools = [...coord.tools, ...(opts.nodeTools ?? [])]
+  const availableByName = new Map(availableTools.map((tool) => [tool.name, tool]))
+  if (!Array.isArray(opts.toolNames)) {
+    throw new ValidationError(
+      'serveCoordinationMcp: toolNames must name every granted tool explicitly',
+    )
+  }
+  const selectedNames = opts.toolNames
+  if (new Set(selectedNames).size !== selectedNames.length) {
+    throw new ValidationError('serveCoordinationMcp: toolNames contains a duplicate name')
+  }
+  const servedTools = selectedNames.map((name) => {
+    const tool = availableByName.get(name)
+    if (tool === undefined) {
+      throw new ValidationError(
+        `serveCoordinationMcp: requested tool ${JSON.stringify(name)} is unavailable`,
+      )
+    }
+    return tool
+  })
+  const mcp = createStdioToolServer({
     serverName: 'coordination',
+    serverVersion: '1',
+    tools: servedTools,
   })
   // Before the listener opens: a node tool invoked on the first request must already be able to
   // call these verbs. Read back the server's ordered set so every consumer records the exact MCP
-  // surface, including the shared tools that `createMcpServer` mounts before coordination tools.
+  // surface.
   opts.onCoordinationTools?.([...mcp.tools.values()])
 
   const server: Server = createServer((req, res) => {

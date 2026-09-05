@@ -37,7 +37,7 @@ export interface InProcessExecutorOptions {
   testCmd?: string
   /** Optional per-delegation typecheck command. Same shape as `testCmd`. */
   typecheckCmd?: string
-  /** Wall-clock cap per harness subprocess (ms). Default 5min. */
+  /** Optional wall-clock cap per harness subprocess (ms). Omit it for no timer. */
   harnessTimeoutMs?: number
   /** Wall-clock cap per test/typecheck subprocess (ms). Default 2min. */
   postCheckTimeoutMs?: number
@@ -70,7 +70,6 @@ interface VirtualSandbox extends SandboxInstance {
   }
 }
 
-const DEFAULT_HARNESS_TIMEOUT_MS = 5 * 60 * 1000
 const DEFAULT_POSTCHECK_TIMEOUT_MS = 2 * 60 * 1000
 
 /**
@@ -162,7 +161,9 @@ export function createInProcessExecutor(options: InProcessExecutorOptions): Dele
             harness: localHarness,
             taskPrompt,
             runId,
-            harnessTimeoutMs: options.harnessTimeoutMs ?? DEFAULT_HARNESS_TIMEOUT_MS,
+            ...(options.harnessTimeoutMs !== undefined
+              ? { harnessTimeoutMs: options.harnessTimeoutMs }
+              : {}),
             checkTimeoutMs: options.postCheckTimeoutMs ?? DEFAULT_POSTCHECK_TIMEOUT_MS,
             ...(options.testCmd !== undefined ? { testCmd: options.testCmd } : {}),
             ...(options.typecheckCmd !== undefined ? { typecheckCmd: options.typecheckCmd } : {}),

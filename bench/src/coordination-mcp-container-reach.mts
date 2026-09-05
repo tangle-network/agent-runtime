@@ -118,6 +118,7 @@ async function main(): Promise<void> {
         blobs,
         makeWorkerAgent: () => trivialWorker('w'),
         perWorker: { maxIterations: 4, maxTokens: 2000 },
+        toolNames: ['spawn_worker', 'await_event'],
         host: HOST_BIND,
       })
       // Docker containers reach the host through the bridge gateway, not the 0.0.0.0 bind URL.

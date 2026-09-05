@@ -32,10 +32,11 @@ async function main(): Promise<void> {
       name: 'supervisor',
       harness: 'cli-base', // in-process router brain (the supervisor calls spawn/await/stop)
       model: { provider: 'tangle-router', default: model },
-      // This demo overrides the shipped `defaultSupervisorPrompt` on purpose: the default tells a
-      // supervisor to do SMALL work itself, but this supervisor has no work tools and the completion
-      // oracle only credits a DELIVERED child — so we force the delegation path the example teaches.
-      // Real supervisors with work tools want the default (do-small-work-yourself / spawn-when-large).
+      tools: {
+        agent_runtime_coordination_spawn_worker: true,
+        agent_runtime_coordination_await_event: true,
+        agent_runtime_coordination_stop: true,
+      },
       prompt: {
         systemPrompt:
           'You are a supervisor. Produce the deliverable by delegating:\n' +

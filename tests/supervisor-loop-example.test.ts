@@ -75,6 +75,10 @@ describe('supervisor-loop example — supervise() on the scripted brain (offline
         prompt: {
           systemPrompt: 'You are a supervisor. Spawn a worker, await it, and stop on delivery.',
         },
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+        },
       },
       demoGoal,
       {

@@ -17,7 +17,7 @@ describe('researcher profile execution authority', () => {
       name: 'researcher-exact',
       harness: 'opencode',
       model: { provider: 'zai', default: 'glm-5.1' },
-      metadata: { role: 'researcher' },
+      metadata: { specialty: 'researcher' },
       tools: { web_search: true, fs: true, shell: false },
     })
     expect(profile.prompt?.systemPrompt).toContain('source-grounded knowledge items')

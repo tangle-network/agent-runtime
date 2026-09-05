@@ -60,7 +60,6 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
-import { supervisorPolicyPrompt } from './prompt-registry'
 import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -71,16 +70,66 @@ import {
 } from './stop-rules'
 import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
 
-/** The standing strategy a router-brained supervisor runs with when its profile names no
- *  `systemPrompt`. The brain's competence IS this prompt: without it the brain has the coordination
- *  verbs but no policy for WHEN to use them, and either over-spawns or stalls. A profile may override
- *  it for a specific topology.
+/** Runtime-owned coordination is mounted under this MCP alias. */
+export const coordinationMcpAlias = 'agent-runtime-coordination'
+
+/** A profile declares Runtime-owned tools with this provider-neutral prefix. */
+export const coordinationProfileToolPrefix = `${coordinationMcpAlias.replaceAll('-', '_')}_`
+
+const coordinationVerbNameSet = new Set<string>(coordinationVerbNames)
+
+/** Bare Runtime tool names explicitly enabled by one exact profile. */
+export function declaredRuntimeToolNames(profile: AgentProfile): ReadonlyArray<string> {
+  const names = Object.entries(profile.tools ?? {})
+    .filter(([name, enabled]) => enabled === true && name.startsWith(coordinationProfileToolPrefix))
+    .map(([name]) => name.slice(coordinationProfileToolPrefix.length))
+  // Tool maps are sets in AgentProfile. Normalize their order before a provider sees a tool list or
+  // Runtime records an attachment, so equivalent authored maps cannot change model behavior.
+  return Object.freeze([...new Set(names)].sort())
+}
+
+/** Describe Runtime declarations that cannot resolve without a product tool provider. */
+export function runtimeToolDeclarationError(
+  profile: AgentProfile,
+  hasProductToolResolver: boolean,
+): string | undefined {
+  const unresolved = declaredRuntimeToolNames(profile).filter(
+    (name) => !coordinationVerbNameSet.has(name),
+  )
+  if (unresolved.length === 0 || hasProductToolResolver) return undefined
+  return `the profile declares ${unresolved
+    .map((name) => JSON.stringify(`${coordinationProfileToolPrefix}${name}`))
+    .join(', ')}, but this run has no resolveSupervisorTools provider for those tools`
+}
+
+/** Runtime owns this attachment alias. An authored entry would make the provider mount ambiguous. */
+export function assertNoReservedCoordinationMcpAlias(profile: AgentProfile, context: string): void {
+  if (profile.mcp?.[coordinationMcpAlias] === undefined) return
+  throw new ValidationError(
+    `${context}: profile MCP alias ${JSON.stringify(coordinationMcpAlias)} is reserved for Runtime coordination`,
+  )
+}
+
+/**
+ * Project one canonical profile to the profile a provider may receive.
  *
- *  This is the registry's ONE supervisor policy (`supervisor/policy`), not this module's own text:
- *  the delegate front door (`supervisorInstructions`) derives from the same entry, so which front
- *  door built the supervisor no longer decides its work-vs-delegate policy — the package used to
- *  ship two contradictory defaults selected by entry point. */
-export const defaultSupervisorPrompt = supervisorPolicyPrompt.text
+ * The reserved prefix is Runtime-owned in its entirety. A `true` declaration must resolve to a
+ * mounted Runtime or product descriptor before execution; a `false` declaration grants nothing.
+ * Neither is a provider-native tool. Stripping the whole namespace keeps a false or refused grant
+ * from becoming an invented harness capability during strict materialization.
+ */
+export function providerVisibleProfile(profile: AgentProfile): AgentProfile {
+  if (profile.tools === undefined) return profile
+  const providerTools = Object.fromEntries(
+    Object.entries(profile.tools).filter(
+      ([name]) => !name.startsWith(coordinationProfileToolPrefix),
+    ),
+  )
+  if (Object.keys(providerTools).length === Object.keys(profile.tools).length) return profile
+  if (Object.keys(providerTools).length > 0) return { ...profile, tools: providerTools }
+  const { tools: _runtimeTools, ...withoutTools } = profile
+  return withoutTools
+}
 
 /** A supervisor is an exact canonical AgentProfile; no looser model/prompt shape exists. */
 export type SupervisorProfile = AgentProfile
@@ -137,22 +186,15 @@ function assertRouterArmResourcePolicy(profile: SupervisorProfile): void {
  * The standing instruction both arms run under: `prompt.systemPrompt`, then canonical prompt and
  * resource instruction lines.
  * `undefined` only when the profile names none at all.
- *
  */
-function resolveSupervisorSystemPrompt(
-  profile: SupervisorProfile,
-  activePrompt?: string,
-): string | undefined {
+function resolveSupervisorSystemPrompt(profile: SupervisorProfile): string | undefined {
   const promptSystem = profile.prompt?.systemPrompt
-  // Instruction lines are APPENDED to the active prompt, so a profile that names only
-  // instructions keeps whatever prompt the arm would otherwise run — never replaces it.
-  const base = promptSystem ?? activePrompt
   const lines = [
     ...(profile.prompt?.instructions ?? []),
     ...resourceInstructionLines(profile.resources?.instructions),
   ]
-  if (lines.length === 0) return base
-  return (base !== undefined ? [base, ...lines] : lines).join('\n')
+  if (lines.length === 0) return promptSystem
+  return (promptSystem !== undefined ? [promptSystem, ...lines] : lines).join('\n')
 }
 
 /** Resolve the model after refusing any incomplete execution identity. */
@@ -367,10 +409,12 @@ export type ObserveSupervisorNodeEvent = (
  *  so the harness calls spawn_worker / await_event / stop as native tools over the live scope. */
 export interface DriveHarness {
   (args: {
-    /** The caller's profile, EXACTLY as passed to `supervisorAgent` — never rewritten. A canonical
-     *  `AgentProfile` stays schema-valid here (the canonical schema rejects unknown top-level keys,
-     *  so hoisting a resolved prompt onto it would make a profile its own validator refuses). */
+    /** The exact provider-visible projection. Runtime-owned coordination tool declarations are
+     *  removed only when their descriptors are actually mounted; send this profile to the provider. */
     readonly profile: SupervisorProfile
+    /** The immutable canonical profile Runtime admitted. Use it only to bind receipts or audit
+     *  authority; never send it to a provider, because it contains Runtime-owned declarations. */
+    readonly authoredProfile: SupervisorProfile
     /** The standing instruction assembled from the profile: its system prompt in either spelling,
      *  plus the `prompt.instructions` and `resources.instructions` lines. Absent when the profile
      *  names none — the harness's own default then applies. This, not `profile.systemPrompt`, is
@@ -409,6 +453,8 @@ export interface SupervisorAgentDeps {
   readonly onProviderModel?: (model: string | undefined) => void
   /** Independent completion check for direct driver work (`submit_result`). */
   readonly deliverable?: DeliverableSpec<unknown>
+  /** Receives a result only after this manager's completion check accepted it. */
+  readonly onAcceptedSubmission?: (result: unknown) => void
   /** Hard cap on simultaneously-LIVE workers across both arms — `spawn_worker` fails closed once
    *  this many are in flight (a concurrency fence on top of the conserved-pool fence; bounds live
    *  boxes/sandboxes, not total work). Omit/`<= 0` = no cap. */
@@ -618,6 +664,11 @@ function buildSupervisorAgent(
   const stableRouter =
     deps.router === undefined ? undefined : snapshotRouterTransportConfig(deps.router)
   const resolveTools = deps.resolveSupervisorTools
+  assertNoReservedCoordinationMcpAlias(stableProfile, 'supervisorAgent')
+  const runtimeToolError = runtimeToolDeclarationError(stableProfile, resolveTools !== undefined)
+  if (runtimeToolError !== undefined) {
+    throw new ValidationError(`supervisorAgent: ${runtimeToolError}`)
+  }
   const observeNodeEvent = deps.observeNodeEvent
   const nodeContextSeed =
     deps.nodeContext === undefined
@@ -632,9 +683,10 @@ function buildSupervisorAgent(
   const harness = agentHarness(stableProfile.harness) ?? null
   // The prompt is consumed by BOTH arms, so it resolves here; the model id is router-arm-only and
   // resolves inside that arm, so a harness supervisor never touches a field it does not use.
-  // No fallback at this site: the harness supplies its own standing prompt, and the router arm
-  // re-resolves against its default below so instruction lines append to that default.
+  // No fallback at this site. Both arms receive only the prompt and instruction bytes declared by
+  // the profile.
   const profilePrompt = resolveSupervisorSystemPrompt(stableProfile)
+  const runtimeToolNames = declaredRuntimeToolNames(stableProfile)
 
   // Bind safety is a BUILD-time fault, not a run-time one: it must throw before any compute, on the
   // same synchronous path as the other configuration guards. The binding is SNAPSHOT here and the
@@ -725,12 +777,12 @@ function buildSupervisorAgent(
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
         perWorker: deps.perWorker,
-        // Resolved against the router's own default, so a profile naming only instruction
-        // lines appends them to that default instead of replacing it.
-        systemPrompt:
-          resolveSupervisorSystemPrompt(stableProfile, defaultSupervisorPrompt) ??
-          defaultSupervisorPrompt,
+        // An omitted prompt means no standing system text. Runtime executes the exact profile and
+        // never chooses a research policy for it.
+        systemPrompt: resolveSupervisorSystemPrompt(stableProfile) ?? '',
         ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
+        ...(deps.onAcceptedSubmission ? { onAcceptedSubmission: deps.onAcceptedSubmission } : {}),
+        toolNames: runtimeToolNames,
         ...(nodeTools?.length ? { nodeTools } : {}),
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
@@ -895,10 +947,15 @@ function buildSupervisorAgent(
           ? { priorAnalystDefinitions: priorCoordination.analystDefinitions }
           : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
+        toolNames: runtimeToolNames,
         onCoordinationTools: (tools) => slot.bind(tools),
       })
       ledger = mcp
       const coordinationTools = slot.descriptors()
+      const providerProfile = detachedSnapshot(
+        providerVisibleProfile(stableProfile),
+        'supervisorAgent provider-visible profile',
+      )
       try {
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns
@@ -933,7 +990,8 @@ function buildSupervisorAgent(
             beginScopeOwnerAttempt(scope, attempt)
             try {
               await driveHarness({
-                profile: stableProfile,
+                profile: providerProfile,
+                authoredProfile: stableProfile,
                 ...(profilePrompt !== undefined ? { systemPrompt: profilePrompt } : {}),
                 // A re-prompt re-enters the SAME session, so the unmet items ARE the turn. The
                 // bridge backend reattaches by durable execution id, exactly as a retry does.
@@ -985,7 +1043,10 @@ function buildSupervisorAgent(
         // Direct work is eligible only through `submit_result`, after the injected independent
         // check passes. Raw harness prose remains ineligible.
         const submitted = mcp.submittedResult()
-        if (submitted) return submitted.result
+        if (submitted) {
+          deps.onAcceptedSubmission?.(submitted.result)
+          return submitted.result
+        }
         // The deliverable comes from the finalizer seam over DELIVERED children only — never the
         // harness's own output (Foreman 0/18). Default keep-best.
         return await runFinalizer(deps.finalizer ?? bestDelivered, {

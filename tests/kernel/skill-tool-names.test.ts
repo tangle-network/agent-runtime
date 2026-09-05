@@ -74,3 +74,18 @@ describe('shipped skills name no harness-native tool', () => {
     ).toEqual([])
   })
 })
+
+describe('supervise skill recursive authority', () => {
+  const supervise = readFileSync(join(skillsRoot, 'supervise', 'SKILL.md'), 'utf8')
+
+  it('teaches profile-owned recursion and profile-authoring skill propagation', () => {
+    expect(supervise).toContain('agent_runtime_coordination_spawn_worker: true')
+    expect(supervise).toContain('profile-authoring/SKILL.md')
+    expect(supervise).toContain('resources.failOnError: true')
+    expect(supervise).toContain('Every profile that can spawn workers carries')
+  })
+
+  it('does not grant recursion through role metadata', () => {
+    expect(supervise).not.toMatch(/metadata\.role|role\s*:\s*['"]driver['"]|"role"\s*:\s*"driver"/)
+  })
+})

@@ -106,6 +106,10 @@ function hangingWorkerLeaf(name: string): Agent<unknown, unknown> {
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
 
+const spawnAndAwait = ['spawn_worker', 'await_event'] as const
+const spawnOnly = ['spawn_worker'] as const
+const listQuestionsOnly = ['list_questions'] as const
+
 function driverOpts(
   name: string,
   brain: ToolLoopChat,
@@ -117,6 +121,7 @@ function driverOpts(
     blobs: SHARED_BLOBS,
     makeWorkerAgent,
     perWorker,
+    toolNames: spawnAndAwait,
     systemPrompt: `drive the worker to do: <task>`,
     maxTurns: 8,
   }
@@ -420,6 +425,7 @@ describe('driverAgent — the driver BRAIN (LLM tool-loop drives real spawns)', 
 
     const root = driverAgent({
       ...driverOpts('root', chat, () => worker),
+      toolNames: spawnOnly,
       compaction: { thresholdTokens: 1 },
     })
     const result = await createSupervisor<unknown, unknown>().run(root, 'keep track of work', {
@@ -474,6 +480,7 @@ function bounds0Opts(name: string, brain: ToolLoopChat): DriverAgentOptions {
     blobs: SHARED_BLOBS,
     makeWorkerAgent: dummyWorker,
     perWorker,
+    toolNames: listQuestionsOnly,
     systemPrompt: 'drive',
     maxTurns: 0,
   }
@@ -498,6 +505,7 @@ describe('driverAgent — maxTurns=0 lifts the turn cap; the conserved pool + de
       makeWorkerAgent: dummyWorker,
       // A worker needs more tokens than the whole run pool holds → no worker is ever affordable.
       perWorker: { maxIterations: 4, maxTokens: 5000 },
+      toolNames: listQuestionsOnly,
       systemPrompt: 'drive',
       maxTurns: 0,
     }
@@ -598,6 +606,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     )
     const opts: DriverAgentOptions = {
       ...driverOpts('root', chat, dummyWorker),
+      toolNames: ['echo'],
       extraTools: [echoTool],
       executeExtraTool: async (name, args) => {
         workCalls.push({ name, args })
@@ -642,6 +651,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     )
     const root = driverAgent({
       ...driverOpts('root', chat, dummyWorker),
+      toolNames: ['submit_result'],
       deliverable: {
         describe: 'an object whose answer is 42',
         check: (result) => (result as { answer?: unknown }).answer === 42,
@@ -675,6 +685,7 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     const chat = scriptedBrain([benignTurn, { content: 'done' }], seen)
     const opts: DriverAgentOptions = {
       ...driverOpts('root', chat, dummyWorker),
+      toolNames: ['list_questions', 'echo'],
       extraTools: [echoTool],
       executeExtraTool: async (name) => {
         if (name === 'list_questions') extraSawCoordVerb = true
@@ -692,9 +703,9 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
       now: () => 0,
     })
 
-    // The executor was consulted first (saw the verb name) but returned null, so the coordination
-    // tool actually ran — its result (a questions list, never the string "echoed") came back.
-    expect(extraSawCoordVerb).toBe(true)
+    // An ungranted work handler is never invoked for a coordination verb. The coordination tool
+    // still runs and returns its questions list, rather than leaking an unselected product action.
+    expect(extraSawCoordVerb).toBe(false)
     const lastConvo = seen[seen.length - 1]!
     expect(lastConvo.some((m) => m.role === 'tool' && String(m.content) === 'echoed')).toBe(false)
   })
@@ -715,6 +726,29 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     }
     // The collision guard fires eagerly — NOT buried in a swallowed act() throw.
     expect(() => driverAgent(opts)).toThrow(/collides with a coordination verb/)
+  })
+
+  it('refuses a product node tool that shadows spawn_worker before any brain turn', () => {
+    const opts: DriverAgentOptions = {
+      ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
+      nodeTools: [
+        {
+          name: 'spawn_worker',
+          description: 'must not shadow coordination',
+          inputSchema: { type: 'object' },
+          handler: async () => ({}),
+        },
+      ],
+    }
+    expect(() => driverAgent(opts)).toThrow(/node tool "spawn_worker" collides/)
+  })
+
+  it('refuses duplicate explicit tool grants at construction', () => {
+    const opts: DriverAgentOptions = {
+      ...driverOpts('root', scriptedBrain([{ content: 'x' }], []), dummyWorker),
+      toolNames: ['list_questions', 'list_questions'],
+    }
+    expect(() => driverAgent(opts)).toThrow(/toolNames contains a duplicate name/)
   })
 
   it('reserves submit_result even when no independent check is configured', () => {

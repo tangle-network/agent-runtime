@@ -113,6 +113,7 @@ async function main(): Promise<void> {
         blobs,
         makeWorkerAgent,
         perWorker: { maxIterations: 40, maxTokens: 200_000 },
+        toolNames: ['spawn_worker', 'observe_agent', 'await_event', 'stop'],
         host: '0.0.0.0',
         onEvent: (event) => logEvent('bus', event),
       })

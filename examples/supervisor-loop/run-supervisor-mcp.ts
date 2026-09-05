@@ -141,6 +141,7 @@ async function main(): Promise<void> {
           describe: `worker output contains ${expectedAnswer}`,
         }),
         perWorker: { maxIterations: 2, maxTokens: 200_000 },
+        toolNames: ['spawn_worker', 'await_event', 'stop'],
       })
       try {
         console.log(`[mcp] coordination server at ${mcp.url}`)

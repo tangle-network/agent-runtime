@@ -96,6 +96,9 @@ function meteredChat(turns: ScriptedTurn[]): ToolLoopChat {
 }
 
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
+const spawnAndAwait = ['spawn_worker', 'await_event'] as const
+const spawnOnly = ['spawn_worker'] as const
+const listQuestionsOnly = ['list_questions'] as const
 
 describe("driver inference metering — the driver's own tokens count against the conserved pool", () => {
   it('charges a nested worker once and releases the manager reservation', async () => {
@@ -116,7 +119,6 @@ describe("driver inference metering — the driver's own tokens count against th
     const nested = driverChild(
       testAgentProfile('nested', {
         harness: 'cli-base',
-        metadata: { role: 'driver' },
       }),
       nestedDriver,
       journal,
@@ -184,6 +186,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: () => worker,
       perWorker,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: 8,
     }
@@ -243,6 +246,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: makeAgent,
       perWorker: workerBudget,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: 8,
     })
@@ -366,6 +370,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: makeAgent,
       perWorker: workerBudget,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: 8,
     })
@@ -483,6 +488,7 @@ describe("driver inference metering — the driver's own tokens count against th
             blobs,
             makeWorkerAgent: makeAgent,
             perWorker,
+            toolNames: listQuestionsOnly,
             systemPrompt: 'drive',
             maxTurns: 8,
           }),
@@ -515,6 +521,7 @@ describe("driver inference metering — the driver's own tokens count against th
         blobs,
         makeWorkerAgent: makeAgent,
         perWorker,
+        toolNames: spawnAndAwait,
         systemPrompt: 'drive',
         maxTurns: 8,
       }),
@@ -569,6 +576,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
       perWorker: { maxIterations: 4, maxTokens: 500 },
+      toolNames: listQuestionsOnly,
       systemPrompt: 'drive',
       maxTurns: 0, // unlimited turn count — the pool is the only bound
     }
@@ -623,6 +631,7 @@ describe("driver inference metering — the driver's own tokens count against th
         blobs,
         makeWorkerAgent: () => workerLeaf('unused', { input: 1, output: 1 }),
         perWorker: workerBudget,
+        toolNames: spawnOnly,
         systemPrompt: 'drive',
         maxTurns: 0,
       }),
@@ -670,6 +679,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 10, output: 5 }),
       perWorker,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: 8,
     }
@@ -741,6 +751,7 @@ describe("driver inference metering — the driver's own tokens count against th
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
       perWorker: { maxIterations: 4, maxTokens: 100 },
+      toolNames: listQuestionsOnly,
       systemPrompt: 'drive',
       maxTurns: 0,
     }
@@ -928,6 +939,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
       blobs,
       makeWorkerAgent: () => workerLeaf('w', { input: 10, output: 5 }),
       perWorker,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: 8,
     }
@@ -1000,6 +1012,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
         blobs,
         makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
         perWorker,
+        toolNames: [],
         systemPrompt: 'drive',
         maxTurns: 4,
       }),
@@ -1047,6 +1060,7 @@ describe('unmetered turns are impossible — a turn with unknown usage is record
         blobs,
         makeWorkerAgent: () => workerLeaf('w', { input: 1, output: 1 }),
         perWorker,
+        toolNames: listQuestionsOnly,
         systemPrompt: 'drive',
         maxTurns: 8,
       }),

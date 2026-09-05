@@ -244,6 +244,7 @@ describe('ask_parent at the top of the chain', () => {
       blobs,
       makeWorkerAgent,
       perWorker,
+      toolNames: ['ask_parent'],
       host: '127.0.0.1',
       escalateQuestion: (question: { question: string }) => {
         received.push(question.question)

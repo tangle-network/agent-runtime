@@ -330,7 +330,6 @@ describe('supervision restart and resource safety', () => {
           driverChild(
             testAgentProfile('nested-manager', {
               harness: 'cli-base',
-              metadata: { role: 'driver' },
             }),
             nested,
             journal,
@@ -875,7 +874,6 @@ describe('supervision restart and resource safety', () => {
           driverChild(
             testAgentProfile('manager', {
               harness: 'cli-base',
-              metadata: { role: 'driver' },
             }),
             nestedDriver,
             journal,
@@ -1053,7 +1051,6 @@ describe('supervision restart and resource safety', () => {
           driverChild(
             testAgentProfile('unknown-manager', {
               harness: 'cli-base',
-              metadata: { role: 'driver' },
             }),
             nestedDriver,
             journal,

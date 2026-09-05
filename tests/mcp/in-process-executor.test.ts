@@ -65,17 +65,18 @@ describe('createInProcessExecutor', () => {
       diffShortstat: ' 1 file changed, 1 insertion(+), 0 deletions(-)\n',
       baseSha: 'abc1234',
     }
+    const runHarness = vi.fn(async () => ({
+      exitCode: 0,
+      stdout: 'wrote util.ts',
+      stderr: '',
+      killedBySignal: null,
+      durationMs: 100,
+      timedOut: false,
+    }))
     const exec = createInProcessExecutor({
       repoRoot: '/workspace',
       runGit: makeFakeGit(state),
-      runHarness: vi.fn(async () => ({
-        exitCode: 0,
-        stdout: 'wrote util.ts',
-        stderr: '',
-        killedBySignal: null,
-        durationMs: 100,
-        timedOut: false,
-      })),
+      runHarness,
     })
 
     const box = await createBox(exec)
@@ -107,6 +108,7 @@ describe('createInProcessExecutor', () => {
     expect(result.checks?.typecheck).toBeUndefined()
     expect(state.worktreesCreated.length).toBe(1)
     expect(state.worktreesRemoved.length).toBe(1)
+    expect(runHarness.mock.calls[0]?.[0]).not.toHaveProperty('timeoutMs')
   })
 
   it('uses each exact profile harness across create() calls', async () => {

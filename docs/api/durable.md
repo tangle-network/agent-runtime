@@ -1077,9 +1077,9 @@ The independent completion check for backend-derived workers and direct supervis
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized backend-derived child. The callback runs
+after spawn authorization and receives a detached immutable context. It may return `undefined`
+to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
 
 ###### Parameters
 
@@ -1298,29 +1298,6 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeMessage`](runtime.md#authorizemessage-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
@@ -1485,9 +1462,9 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a completion check. A
+recursive manager receives the check selected for its exact assignment. Refused for a
+router-brained manager, which runs its turn loop in process. Omit/`0` = never.
 
 ###### Inherited from
 

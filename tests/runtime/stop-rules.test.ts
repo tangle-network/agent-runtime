@@ -43,7 +43,9 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from '../kernel/scripted-brain'
-import { testAgentProfile } from '../kernel/test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-profile'
+
+const spawnAndAwait = ['spawn_worker', 'await_event'] as const
 
 async function jsonRpc(url: string, method: string, params: unknown): Promise<unknown> {
   const r = await fetch(url, {
@@ -379,6 +381,7 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
       blobs,
       makeWorkerAgent,
       perWorker: perUnit,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: opts.maxTurns,
       ...(opts.stopRule ? { stopRule: opts.stopRule } : {}),
@@ -452,6 +455,7 @@ describe('driverAgent stopRule — evaluated after the hard ceilings, never inst
         return scoredLeaf(`w${spawned}`, 0.5)
       },
       perWorker: perUnit,
+      toolNames: spawnAndAwait,
       systemPrompt: 'drive',
       maxTurns: 50,
       stopRule: never,
@@ -561,6 +565,7 @@ describe('external-arm stopRule — the harness arm stops on the settle that pla
       testAgentProfile('sup', {
         harness: 'opencode',
         prompt: { systemPrompt: 'delegate, do not solve' },
+        tools: runtimeToolDeclarations(...spawnAndAwait),
       }),
       {
         blobs,
