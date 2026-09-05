@@ -1,103 +1,49 @@
 ---
 name: loop-writer
-description: Write a custom control policy only when current runtime composition APIs cannot express it.
+description: Build a custom execution policy only when maintained Runtime composition cannot express it.
 ---
 
 # Loop Writer
 
-Use this only for a control policy that the shipped high-level APIs cannot express.
-Read `docs/canonical-api.md`, current exports, the implementation, and the nearest test before writing code.
-Do not copy signatures from this skill.
+Use this for a required execution policy that maintained Runtime APIs cannot express.
+Read the [current decision table](https://github.com/tangle-network/agent-runtime/blob/main/docs/canonical-api.md), [exports](https://github.com/tangle-network/agent-runtime/blob/main/package.json), selected implementation, and nearest test.
+If an existing entrypoint fits, use it and stop.
+A wrapper that only renames inputs or outputs does not justify a custom loop.
 
-## Choose The Existing Path First
+## Define the missing behavior
 
-| Need | Existing path |
-|---|---|
-| One product chat turn | `handleChatTurn(...)` |
-| One task or bounded multi-turn task | `runAgentTask(...)` or `runAgentTaskStream(...)` |
-| Two or more actors taking turns | `defineConversation(...)` and `runConversation(...)` |
-| A driver coordinating workers | `supervise(...)` or `superviseSurface(...)` |
-| Parallel or fixed composition | `fanout(...)`, `pipeline(...)`, `panel(...)`, `verify(...)`, or `loopUntil(...)` |
-| Parallel repository workers with isolated branches | `worktreeFanout(...)` |
-| Repeated work in a graded tool environment | `runAgentic(...)` |
-| Equal-budget comparison over that environment | `runBenchmark(...)` |
-| Low-level round policy with custom planning and stopping | `runAgentRounds(...)` |
+Name the consumer, required decision, and why existing composition cannot express it.
+Reuse Runtime's execution, accounting, cancellation, questions, and recovery contracts.
+The custom policy chooses work and continuation from the task and checked prior outcomes.
+It must not introduce another scheduler or measurement system.
 
-If an existing row fits, use it and stop.
-Do not create another wrapper solely to rename inputs or results.
+Keep planning separate from consequential writes.
+The caller owns credentials, persistence, and authority; executors return observed artifacts; independent checks decide whether those artifacts satisfy the task.
+A model score cannot override failed objective checks, denied actions, or service failures.
 
-## Custom Loop Contract
+## Preserve observable state
 
-A custom loop has five explicit parts:
+Represent successful delivery, exhausted resources, cancellation, unresolved questions, execution failure, and interrupted recovery where they apply.
+Keep measurement and service errors distinct from agent failure.
+Retain task and attempt identities, artifacts, spend, and the reason for continuing or stopping.
+Resume from durable facts and reconcile uncertain writes before retrying.
 
-```text
-task -> plan work -> execute attempts -> check outcomes -> continue or stop
-```
+Steering and questions use the existing typed events and delivery records.
+Keep unanswered required questions visible.
+Parallel workers receive isolated state or an explicit shared-mutation contract.
+Children remain within parent authority and the same accounting and cancellation rules.
 
-Keep ownership separate:
+## Prove the policy
 
-- The driver chooses work and termination from task plus prior outcomes.
-- Executors run attempts and return observed artifacts.
-- Objective checks determine whether an artifact is usable.
-- Trace emission records plans, attempts, tool effects, checks, spend, and decisions.
-- The caller owns policy, budgets, credentials, persistence, and side-effect authority.
+Test the custom decision on a representative real task.
+Exercise its relevant failure and recovery paths, including rejected output followed by correction, resource exhaustion, cancellation, and duplicate-side-effect prevention.
+Use existing contract tests for unchanged Runtime behavior; add checks that distinguish the new policy.
 
-The driver must not mutate product state while planning.
-An LLM score must not override failed builds, tests, missing evidence, denied permissions, or service errors.
-
-## Required States
-
-Model every terminal and resumable state explicitly:
-
-- succeeded with the accepted artifact;
-- exhausted by rounds, tokens, money, time, or concurrency;
-- cancelled by the caller;
-- blocked on a question or permission;
-- failed before an attempt;
-- failed during execution or checking;
-- interrupted with enough durable state to resume safely.
-
-Use stable run, attempt, task, and parent IDs.
-Persist the accepted artifact, every attempted artifact identity, spend, and final reason.
-Resume from durable facts, not an in-memory counter or summary alone.
-
-## Steering And Questions
-
-Steering is a typed input to a running or replacement attempt.
-Record who sent it, why, which evidence motivated it, whether delivery succeeded, and which attempt consumed it.
-
-Questions are explicit events.
-Route them to the responsible parent or user, preserve unanswered blockers, and fail closed when a required answer is unavailable.
-Do not bury a permission request in free-form worker output.
-
-## Parallel And Recursive Work
-
-Give parallel workers isolated state unless shared mutation is the point of the task.
-For repository changes, use one worktree per worker and explicit merge outcomes.
-For external writes, use idempotency keys and product-owned transactions.
-
-Recursive supervisors use the same budget, cancellation, trace, question, and completion contracts at every depth.
-Do not grant a child more authority than its parent.
-
-## Tests
-
-Cover:
-
-- success on the first and later rounds;
-- invalid output followed by a corrected attempt;
-- every budget limit;
-- abort propagation to in-flight work;
-- service and check failures remaining distinct from agent failure;
-- unresolved blocking questions;
-- interrupted run recovery without duplicate side effects;
-- deterministic replay of decisions from saved outcomes where supported.
-
-## Completion
-
-The change is complete when the public entrypoint is smaller than the policy it replaces, all states above are observable, a real task exercises the custom behavior, and package typecheck, tests, build, docs, and package verification pass.
+Complete when the required behavior works through its public entrypoint, final and resumable states remain observable, and the relevant package and consumer checks pass.
+Report the exact missing capability supplied, retained Runtime contracts, real result, and limits.
 
 ## Then consider
 
 - `critical-audit` when the loop changes a public contract or authority boundary.
-- `eval-engineering` when the loop's stopping condition needs a new evaluation case.
-- `verify` before publishing the package.
+- `eval-engineering` when the stopping condition lacks an adequate evaluation case.
+- `verify` when implementation is complete and release checks remain.

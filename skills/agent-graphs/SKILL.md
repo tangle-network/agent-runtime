@@ -1,139 +1,44 @@
 ---
 name: agent-graphs
-description: Author runGraph programs from AgentProfiles and versioned prompt directives.
+description: Author fixed AgentGraph roles with explicit delegation, analysis, completion, and budgets.
 ---
 
-# Agent graphs
+# Agent Graphs
 
-Use this skill when every role is known before execution and the relationship between roles must be reviewable as data.
-The output is an `AgentGraph` executed by `runGraph`, not a new coordinator or workflow framework.
+Use `runGraph` when roles are known before execution and their relationships must be explicit Runtime data.
+Use a smaller maintained composition when it provides the required behavior.
+Use dynamic supervision when the agent must discover or create roles while working.
+A request for review alone does not require a graph.
 
-## Choose the existing entry point
+Read the current [API decision table](https://github.com/tangle-network/agent-runtime/blob/main/docs/canonical-api.md), [AgentGraph contract](https://github.com/tangle-network/agent-runtime/blob/main/src/runtime/supervise/graph.ts), and a relevant [runnable example](https://github.com/tangle-network/agent-runtime/tree/main/examples/graphs).
+These distinguish the fixed AgentGraph API from other graph or supervision contracts.
 
-| Need | Use |
-| --- | --- |
-| Known roles with versioned work and analysis instructions | `runGraph` |
-| A standard fixed shape such as parallel attempts, a chain, or a review panel | `fanout`, `pipeline`, `verify`, or `panel` |
-| A model decides which workers to create while it works | `supervise` |
-| One profile can complete the task directly | Run that profile without composition |
+## Author the required relationships
 
-Do not force a dynamic task into a static graph.
-Do not use a graph when a smaller shipped primitive already expresses the work.
+Define the artifact and independent completion check before choosing roles.
+Give each required role a complete AgentProfile and capabilities appropriate to its task.
+Preserve requested parallel instances and independent reviewers rather than collapsing their distinct work into a root prompt.
 
-### Strict authoring decisions (Do not under-graph)
+When authoring nodes, directives, traversal limits, or analyst routes, read [the graph contract](references/authoring.md).
+The runtime validates structure and prompt references before execution.
+Keep the shared budget, per-worker allocation, concurrency, and supported limits in their actual API fields.
+Use measured execution cost when available; do not turn a prior run into a universal minimum budget.
 
-- **Cheapness is not the dialect test:** Do not bail to `single-agent` just because a brief sounds trivial (e.g., "write a one-line file"). If the brief implies roles, observers, or a specific tight budget, author the graph.
-- **Identical-Role Parallelism:** If a brief requests N parallel instances of the same role, you MUST create N distinct worker nodes and N `delegates` edges. Do not collapse identical parallel workers into a single node.
-- **Mandatory Analysts:** If a brief requires independent observation, review, or post-settle findings (e.g., "neutral decider", "review by two perspectives", "watch the worker"), you MUST author `analyzes` edges. Do not omit analysts and attempt to merge their logic into the root's prompt.
-- **Caps are not stops:** Do not use an analysis edge `maxTraversals` cap as a global stop condition. To stop after N findings, use `deliverable.check` or `maxTraversals` on a `delegates` edge.
+## Prove the graph
 
-## Author the complete contract
+Use the maintained example pattern with injected test execution to check routes, directives, traversal limits, and both successful and rejected completion.
+Then exercise the intended backend, profiles, tools, and completion check on a real representative task.
+Offline control-flow tests do not establish that a real agent solves the task.
 
-An `AgentGraph` has four required fields: `nodes`, `edges`, `deliverable`, and `budget`.
-`runGraph(graph, options)` validates graph structure and prompt references before it spends compute.
+Inspect the terminal result, complete cost and token accounting, edge delivery records, exhausted edges, and journal evidence.
+An expected edge with zero traversals did not exercise its intended relationship.
+Unknown usage is missing evidence, not zero cost.
+A passing check proves only the outcome it actually tests.
 
-### Nodes
-
-Each node is `{ id, profile }`, where `profile` is a complete canonical `AgentProfile`.
-Set `profile.name` equal to `id` because Runtime uses that value to select and route the node.
-Put the standing role in `profile.prompt.systemPrompt` and capabilities in the profile's tools, MCP, resources, hooks, and subagents.
-Do not rebuild profile materialization in graph code.
-
-### Delegation edges
-
-A delegation edge is `{ kind: 'delegates', from, to, directive, maxTraversals? }`.
-The directive is a registered, versioned `PromptHandle`, such as `promptHandle('delegates/research-brief/v1')`.
-Each spawn and each later steer over the same edge consumes one traversal.
-The default cap is `defaultEdgeTraversalCap`; exhaustion refuses further delegation.
-
-The current graph form has one root and a static set of worker nodes.
-Every delegation edge starts at the root, and each worker has exactly one incoming delegation edge.
-Use a new directive version to change a brief instead of adding a second edge to the same worker.
-
-### Analysis edges
-
-An analysis edge is `{ kind: 'analyzes', analyst, over, to, directive, maxTraversals? }`.
-It runs after a listed worker settles and routes findings to one node.
-
-`analyst` has two supported forms:
-
-- A lens id from `options.analysts` runs a caller-supplied analysis function.
-- A graph node id runs that node's pinned `AgentProfile` as a tool-equipped analyst.
-
-An analyst node has no incoming delegation edge, so the root cannot hand it ordinary work.
-An id cannot be both a registered lens and an analyst node.
-`over` lists delegated worker nodes only; Runtime refuses the root and analyst nodes because neither settles as an ordinary worker.
-An analysis traversal cap records excess findings as `unpropagated`; it does not stop the run.
-
-### Completion and budget
-
-`deliverable.check(output)` is the independent completion test.
-It must accept a genuinely complete result and reject junk.
-Put the concrete mission in `deliverable.describe`; Runtime uses that text as the root's task.
-
-`budget` is one conserved pool for the full graph.
-Set `options.perWorker` explicitly from the actual executor cost.
-Size each allocation from measurements of the actual profile, mounted context, tools, and task shape when those measurements exist.
-Do not turn one run's cumulative spend into a universal harness minimum; Runtime enforces the caller's conserved pool, not guessed per-harness floors.
-Analyst nodes spend from the same pool and need the same honest accounting as ordinary workers.
-
-## Authoring procedure
-
-1. **Classify correctly:** Verify if this needs `single-agent`, `dynamic-workflow`, or a static `runGraph`. If independent review or parallel workers are requested, use `runGraph`.
-2. **Define completion first:** Write the completion test and its description.
-3. **Select entry point:** Choose the smallest shipped entry point from the table above.
-4. **Define Roles:** Give every distinct role one complete `AgentProfile`. If N parallel instances of a role are requested, create N nodes. Merge roles only if their standing prompts and capabilities are identical.
-5. **Register directives:** Register a versioned directive for every edge.
-6. **Delegate work:** Add one delegation edge per ordinary worker from the root.
-7. **Attach analysts:** Add `analyzes` edges only when findings must be produced independently after a worker settles. Do not skip this if the brief asked for a watcher/reviewer.
-8. **Size the pool:** Set budget, per-worker allocation, traversal caps, time, and concurrency from comparable measured runs when available.
-9. **Prove and inspect:** Run the structure offline, then run the real backend and inspect its result.
-
-## Prove the graph before spending
-
-Use an injected `brain` plus `makeWorkerAgent` to exercise graph structure without a network call.
-Cover invalid profiles, unknown directives, impossible analysis routes, traversal exhaustion, successful completion, and rejected junk.
-Start from the runnable programs in `examples/graphs/` rather than creating a second graph runner.
-
-Offline execution proves control flow only.
-A real task must still use the intended backend, profiles, tools, completion test, and budget before claiming the graph solves that task.
-
-## Read the complete result
-
-| Field | Meaning |
-| --- | --- |
-| `result.result.kind` and `reason` | Whether a result won and why execution ended |
-| `result.result.spentTotal` | Tokens and money, including whether each total is known |
-| `result.ledger` | Every delivered, stripped, empty, or unpropagated edge traversal with byte counts |
-| `result.exhaustedEdges` | Every edge whose cap was reached, including normal lifecycle endings |
-| Journal `edge` events | Durable copies of traversal evidence |
-
-Zero traversals on an expected edge means the graph did not exercise that relationship.
-`usdKnown: false` means cost is missing, not free.
-A passing completion test proves only what that test checks.
-
-## Common mistakes
-
-- Bailing to `single-agent` because a brief sounds trivial, instead of respecting requested roles.
-- Collapsing N requested parallel identical roles into a single worker node.
-- Skipping `analyzes` edges when an observer or reviewer is explicitly requested.
-- Putting the task only in a spawn prompt instead of `deliverable.describe`.
-- Giving a node a `profile.name` different from its id.
-- Delegating ordinary work to an analyst node.
-- Listing the root or an analyst node in `analyzes.over`.
-- Using an analysis cap as a stop condition.
-- Allowing a driver-authored spawn profile to add capabilities instead of defining them on the pinned node profile.
-- Reading only thrown cap errors and missing `result.exhaustedEdges` on budget or cancellation endings.
-- Treating unknown spend as zero.
-- Claiming recursive or runtime-discovered structure when the current graph is a static root with workers and analysts.
-
-## Improve only after measurement
-
-Runtime already optimizes one inline skill through `improve(profile, { surface: 'skills', skills: { resourceName }, ... })`.
-Put the exact skill bytes in `profile.resources.skills`, set `profile.resources.failOnError: true`, supply disjoint development and final-test tasks, and pass a complete Agent Eval optimization method.
-Do not create a graph-specific optimizer, campaign runner, candidate store, or promotion path.
+When measuring a proposed change to this skill, read [measurement](references/measurement.md) before reusing its historical cases or results.
+Ordinary graph construction does not require an optimization campaign.
 
 ## Then consider
 
-- `loop-writer` when the required dynamic structure still cannot be expressed by `supervise` or another shipped primitive; pass the exact missing behavior and the completion test.
-- `verify` before publishing a graph consumer; pass the real backend command, expected result fields, and failure cases.
+- `loop-writer` when a required dynamic policy cannot be expressed through existing Runtime APIs.
+- `verify` when the real task works and publishing or consumer integration checks remain.

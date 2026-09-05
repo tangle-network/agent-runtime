@@ -13,8 +13,9 @@ Do not use it for general coding quality or subjective output.
 - `TARGET`: a pinned package version, repository commit, or release.
 - `OUT`: the path for one candidate JSON object.
 
-Read `bench/src/generate-eval/schema.ts` and `bench/src/generate-eval/certify.ts` before authoring the candidate.
+Read the current [candidate schema](https://github.com/tangle-network/agent-runtime/blob/main/bench/src/generate-eval/schema.ts) and [execution checks](https://github.com/tangle-network/agent-runtime/blob/main/bench/src/generate-eval/certify.ts) before authoring the candidate.
 Those files define the current format and checks.
+Use a maintained target for new cases, then freeze its exact identity so later runs compare the same behavior.
 
 ## Build One Case
 
