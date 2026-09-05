@@ -92,14 +92,21 @@ export function declaredRuntimeToolNames(profile: AgentProfile): ReadonlyArray<s
 export function runtimeToolDeclarationError(
   profile: AgentProfile,
   hasProductToolResolver: boolean,
+  mountedStaticToolNames: ReadonlyArray<string> = [],
 ): string | undefined {
+  const mountedStaticToolNameSet = new Set(mountedStaticToolNames)
   const unresolved = declaredRuntimeToolNames(profile).filter(
-    (name) => !coordinationVerbNameSet.has(name),
+    (name) =>
+      !coordinationVerbNameSet.has(name) &&
+      !hasProductToolResolver &&
+      !mountedStaticToolNameSet.has(name),
   )
-  if (unresolved.length === 0 || hasProductToolResolver) return undefined
+  if (unresolved.length === 0) return undefined
   return `the profile declares ${unresolved
     .map((name) => JSON.stringify(`${coordinationProfileToolPrefix}${name}`))
-    .join(', ')}, but this run has no resolveSupervisorTools provider for those tools`
+    .join(
+      ', ',
+    )}, but this run has no resolveSupervisorTools provider or router-mounted static tool for those tools`
 }
 
 /** Runtime owns this attachment alias. An authored entry would make the provider mount ambiguous. */
@@ -665,7 +672,14 @@ function buildSupervisorAgent(
     deps.router === undefined ? undefined : snapshotRouterTransportConfig(deps.router)
   const resolveTools = deps.resolveSupervisorTools
   assertNoReservedCoordinationMcpAlias(stableProfile, 'supervisorAgent')
-  const runtimeToolError = runtimeToolDeclarationError(stableProfile, resolveTools !== undefined)
+  const harness = agentHarness(stableProfile.harness) ?? null
+  // `extraTools` is mounted only by the router tool-loop. An external harness receives product
+  // tools only through its coordination MCP, so it must have a node-scoped resolver instead.
+  const runtimeToolError = runtimeToolDeclarationError(
+    stableProfile,
+    resolveTools !== undefined,
+    harness === null ? deps.extraTools?.map((tool) => tool.name) : undefined,
+  )
   if (runtimeToolError !== undefined) {
     throw new ValidationError(`supervisorAgent: ${runtimeToolError}`)
   }
@@ -680,7 +694,6 @@ function buildSupervisorAgent(
     )
   }
   const name = stableProfile.name ?? 'supervisor'
-  const harness = agentHarness(stableProfile.harness) ?? null
   // The prompt is consumed by BOTH arms, so it resolves here; the model id is router-arm-only and
   // resolves inside that arm, so a harness supervisor never touches a field it does not use.
   // No fallback at this site. Both arms receive only the prompt and instruction bytes declared by
@@ -957,6 +970,13 @@ function buildSupervisorAgent(
         'supervisorAgent provider-visible profile',
       )
       try {
+        // A restored `submission` record proves this manager's completion check already accepted
+        // the value. Return it before starting another harness process.
+        const recoveredSubmission = mcp.submittedResult()
+        if (recoveredSubmission) {
+          deps.onAcceptedSubmission?.(recoveredSubmission.result)
+          return recoveredSubmission.result
+        }
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns
         // and any child's. Those two channels are the BURN rate, not the goal, so they are reported

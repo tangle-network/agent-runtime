@@ -4,6 +4,7 @@ import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable
 import { ConfigError } from '../../src/errors'
 import type { MakeWorkerAgent } from '../../src/mcp/tools/coordination'
 import type { RouterTransportConfig } from '../../src/runtime/router-client'
+import type { PriorCoordination } from '../../src/runtime/supervise/coordination-log'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -11,6 +12,7 @@ import {
   coordinationMcpAlias,
   type DriveHarness,
   declaredRuntimeToolNames,
+  supervisorAgent as publicSupervisorAgent,
   type ResolveSupervisorTools,
   resolveSupervisorProfile,
   type SupervisorProfile,
@@ -183,6 +185,99 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     expect(harnessCalls).toBe(0)
   })
 
+  it('public router supervisors mount a profile-declared static tool, while external supervisors refuse it', async () => {
+    const measureRung = {
+      name: 'measure_rung',
+      description: 'Measure one research rung',
+      parameters: {
+        type: 'object',
+        properties: { subject: { type: 'string' } },
+        required: ['subject'],
+      },
+    }
+    const mounted: string[][] = []
+    const calls: Array<Record<string, unknown>> = []
+    let turns = 0
+    const blobs = new InMemoryResultBlobStore()
+    const router = publicSupervisorAgent(
+      testAgentProfile('router', {
+        harness: 'cli-base',
+        model: { provider: 'offline', default: 'offline-test-model' },
+        tools: runtimeToolDeclarations('measure_rung'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        extraTools: [measureRung],
+        executeExtraTool: async (_name, args) => {
+          calls.push(args)
+          return '{"rung":4}'
+        },
+        maxTurns: 2,
+        router: {
+          routerBaseUrl: 'http://offline.test/v1',
+          routerKey: 'test',
+          complete: async (body) => {
+            mounted.push(
+              ((body.tools as Array<{ function: { name: string } }> | undefined) ?? []).map(
+                (tool) => tool.function.name,
+              ),
+            )
+            turns += 1
+            return turns === 1
+              ? {
+                  model: 'offline-test-model',
+                  choices: [
+                    {
+                      message: {
+                        content: null,
+                        tool_calls: [
+                          {
+                            id: 'measure-1',
+                            function: {
+                              name: 'measure_rung',
+                              arguments: '{"subject":"candidate-a"}',
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                  usage: { prompt_tokens: 4, completion_tokens: 2 },
+                }
+              : {
+                  model: 'offline-test-model',
+                  choices: [{ message: { content: 'measured', tool_calls: [] } }],
+                  usage: { prompt_tokens: 4, completion_tokens: 2 },
+                }
+          },
+        },
+      },
+    )
+
+    await runSupervisor(router, blobs, new InMemorySpawnJournal())
+    expect(mounted).toEqual([['measure_rung'], ['measure_rung']])
+    expect(calls).toEqual([{ subject: 'candidate-a' }])
+
+    expect(() =>
+      publicSupervisorAgent(
+        testAgentProfile('external', {
+          harness: 'opencode',
+          tools: runtimeToolDeclarations('measure_rung'),
+        }),
+        {
+          blobs: new InMemoryResultBlobStore(),
+          makeWorkerAgent: () => deliveringLeaf('unused', {}),
+          perWorker,
+          extraTools: [measureRung],
+          executeExtraTool: async () => '{"rung":4}',
+          driveHarness: async () => undefined,
+        },
+      ),
+    ).toThrow(/no resolveSupervisorTools provider or router-mounted static tool/u)
+  })
+
   it('refuses an authored MCP entry under the Runtime coordination alias', () => {
     let harnessCalls = 0
     expect(() =>
@@ -247,6 +342,58 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const result = await runSupervisor(root, blobs, journal)
     expect(result.kind).toBe('winner')
     if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+  })
+
+  it('SANDBOX arm returns a recovered direct result before starting another harness', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let harnessCalls = 0
+    let checks = 0
+    const priorCoordination: PriorCoordination = {
+      questions: [],
+      findings: [],
+      escalations: [],
+      analystDefinitions: [],
+      continuations: [],
+      deliveryEvidence: [],
+      mail: [],
+      records: [
+        {
+          seq: 0,
+          at: 0,
+          priority: 0,
+          event: { type: 'submission', result: { answer: 42 } },
+        },
+      ],
+    }
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'pi',
+        prompt: { systemPrompt: 'solve or delegate' },
+        tools: runtimeToolDeclarations('submit_result'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker,
+        driveHarness: async () => {
+          harnessCalls += 1
+        },
+        deliverable: {
+          check: (result) => {
+            checks += 1
+            return (result as { answer?: unknown }).answer === 42
+          },
+        },
+        priorCoordination,
+      },
+    )
+
+    const result = await runSupervisor(root, blobs, journal)
+    expect(result.kind).toBe('winner')
+    if (result.kind === 'winner') expect(result.out).toEqual({ answer: 42 })
+    expect(checks).toBe(0)
+    expect(harnessCalls).toBe(0)
   })
 
   it('SANDBOX arm stops the active harness before a provider turn after accepted submission', async () => {

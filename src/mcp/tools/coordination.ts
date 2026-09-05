@@ -672,6 +672,10 @@ export type CoordinationEvent =
   | { readonly type: 'question'; readonly question: QuestionRecord }
   | { readonly type: 'settled'; readonly worker: SettledWorker }
   | { readonly type: 'finding'; readonly finding: AnalystFindingEvent }
+  /** A direct manager result that passed its injected completion check. Record-only: the caller
+   *  already received the tool response, and a restarted manager restores this exact accepted
+   *  result instead of running the check or its harness again. */
+  | { readonly type: 'submission'; readonly result: unknown }
   | {
       readonly type: 'steer'
       readonly down: DownMessageEvent
@@ -1005,6 +1009,7 @@ export const journalEventKinds = [
   'question',
   'settled',
   'finding',
+  'submission',
   'steer',
   'answer',
   'instruction',
@@ -1411,10 +1416,26 @@ function spawnProfileArg(): Record<string, unknown> {
 /** Build the driver's MCP tools over a live scope. */
 export function createCoordinationTools(opts: CoordinationToolsOptions): CoordinationTools {
   const deliverable = opts.deliverable
-  let stopped = false
-  let reason: string | undefined
+  // An accepted direct result is a terminal fact, not an in-process callback. A durable observer
+  // appends the `submission` record before the tool responds, so a fresh manager can restore it
+  // after a crash in the response-to-driver window.
+  const priorSubmission =
+    deliverable === undefined
+      ? undefined
+      : opts.priorJournal?.find(
+          (
+            record,
+          ): record is BusRecord<Extract<CoordinationEvent, { readonly type: 'submission' }>> =>
+            record.event.type === 'submission',
+        )
+  let stopped = priorSubmission !== undefined
+  let reason: string | undefined = priorSubmission === undefined ? undefined : 'result-accepted'
   let stopNotified = false
-  let submitted: { readonly result: unknown } | undefined
+  let submitted: { readonly result: unknown } | undefined =
+    priorSubmission === undefined
+      ? undefined
+      : detachedFrozen({ result: priorSubmission.event.result })
+  let submissionInFlight: Promise<void> | undefined
   let questionSeq = 0
   const ledger: SettledWorker[] = []
   const questions: QuestionRecord[] = [...(opts.priorQuestions ?? [])]
@@ -2197,6 +2218,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     }
     if (ev.type === 'question') return { type: 'question', question: ev.question }
     if (ev.type === 'finding') return { type: 'finding', ...ev.finding }
+    if (ev.type === 'submission') return { type: 'submission', result: ev.result }
     if (ev.type === 'answer') return { type: 'answer', ...ev.down, questionId: ev.questionId }
     if (ev.type === 'instruction') return { type: 'instruction', ...ev.instruction }
     if (ev.type === 'delivery-attempt') return { type: 'delivery-attempt', ...ev.attempt }
@@ -3369,10 +3391,35 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                 }
               }
 
-              submitted = Object.freeze({ result })
-              stopped = true
-              reason = 'result-accepted'
-              notifyStop()
+              // Persist before acknowledging. The first caller that reaches this point owns the
+              // result while the append is in flight; a concurrent caller waits for the same
+              // durable fact instead of appending a second passing result.
+              if (submissionInFlight) {
+                await submissionInFlight
+                return {
+                  accepted: true,
+                  retained: 'earlier-passing-result',
+                  stop: true,
+                }
+              }
+              const acceptedSubmission = detachedFrozen({ result })
+              const commit = bus
+                .publish(
+                  { type: 'submission', result: acceptedSubmission.result },
+                  { queue: false },
+                )
+                .then(() => {
+                  submitted = acceptedSubmission
+                  stopped = true
+                  reason = 'result-accepted'
+                  notifyStop()
+                })
+              submissionInFlight = commit
+              try {
+                await commit
+              } finally {
+                if (submissionInFlight === commit) submissionInFlight = undefined
+              }
               return { accepted: true, retained: 'this-result', stop: true }
             },
           } satisfies McpToolDescriptor,

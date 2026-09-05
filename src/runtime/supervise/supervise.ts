@@ -2719,7 +2719,8 @@ function superviseInternal(
       (priorCoordination.questions.length > 0 ||
         priorCoordination.findings.length > 0 ||
         priorCoordination.continuations.length > 0 ||
-        priorCoordination.deliveryEvidence.length > 0)
+        priorCoordination.deliveryEvidence.length > 0 ||
+        priorCoordination.records.some((record) => record.event.type === 'submission'))
         ? { priorCoordination }
         : {}),
       ...(finalizer ? { finalizer } : {}),

@@ -1,10 +1,14 @@
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
 import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import {
   type DriverAgentOptions,
   driverAgent,
 } from '../../src/runtime/supervise/coordination-driver'
+import { FileCoordinationLog } from '../../src/runtime/supervise/coordination-log'
 import { driverChild, withDriverExecutor } from '../../src/runtime/supervise/driver-executor'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -672,6 +676,91 @@ describe('driverAgent — the driver can ACT (call work tools itself), not only 
     expect(seen).toHaveLength(2)
     const tree = (await journal.loadTree('direct-submit')) as SpawnEvent[]
     expect(tree.filter((e) => e.kind === 'spawned' && e.id !== 'direct-submit')).toEqual([])
+  })
+
+  it('recovers an accepted direct result after the driver dies before it settles', async () => {
+    SHARED_BLOBS = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    const runId = 'direct-submit-recovery'
+    const rootIdentity = {
+      profileDigest: canonicalCandidateDigest({ name: 'direct-submit-recovery-root' }),
+      taskDigest: canonicalCandidateDigest({ task: 'solve it' }),
+    }
+    const logDir = await mkdtemp(join(tmpdir(), 'direct-submit-recovery-'))
+    const log = new FileCoordinationLog(join(logDir, 'coordination.jsonl'))
+    let checks = 0
+    let resumedBrainCalls = 0
+    const deliverable = {
+      check: (result: unknown) => {
+        checks += 1
+        return (result as { answer?: unknown }).answer === 42
+      },
+    }
+    try {
+      const interrupted = driverAgent({
+        ...driverOpts(
+          'root',
+          scriptedBrain([
+            { toolCalls: [{ name: 'submit_result', arguments: { result: { answer: 42 } } }] },
+          ]),
+          dummyWorker,
+        ),
+        toolNames: ['submit_result'],
+        deliverable,
+        onEvent: (_event, record) => log.append(runId, record, 'root'),
+        // The submission acknowledgement has returned to the driver. Throw before the root scope
+        // settles to model a coordinator process that dies in exactly that window.
+        onAcceptedSubmission: () => {
+          throw new Error('simulated coordinator loss after accepted submission')
+        },
+      })
+      const first = await createSupervisor<unknown, unknown>().run(interrupted, 'solve it', {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId,
+        journal,
+        blobs: SHARED_BLOBS,
+        executors: createExecutorRegistry(),
+        rootIdentity,
+        maxDepth: 2,
+        now: () => 0,
+      })
+      expect(first.kind).toBe('no-winner')
+
+      const priorCoordination = await log.load(runId, 'root')
+      expect(priorCoordination.records.map((record) => record.event.type)).toEqual(['submission'])
+
+      const resumed = driverAgent({
+        ...driverOpts(
+          'root',
+          async () => {
+            resumedBrainCalls += 1
+            throw new Error('a recovered accepted result must not call the driver again')
+          },
+          dummyWorker,
+        ),
+        toolNames: ['submit_result'],
+        deliverable,
+        priorCoordination,
+      })
+      const second = await createSupervisor<unknown, unknown>().run(resumed, 'solve it', {
+        budget: { maxIterations: 100, maxTokens: 100_000 },
+        runId,
+        journal,
+        blobs: SHARED_BLOBS,
+        executors: createExecutorRegistry(),
+        rootIdentity,
+        maxDepth: 2,
+        resume: true,
+        now: () => 0,
+      })
+
+      expect(second.kind).toBe('winner')
+      if (second.kind === 'winner') expect(second.out).toEqual({ answer: 42 })
+      expect(checks).toBe(1)
+      expect(resumedBrainCalls).toBe(0)
+    } finally {
+      await rm(logDir, { recursive: true, force: true })
+    }
   })
 
   it('the work tool is tried FIRST; a null return falls through to the coordination dispatch', async () => {

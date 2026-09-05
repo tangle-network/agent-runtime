@@ -215,12 +215,14 @@ describe('coordination tools', () => {
 
     const checked: unknown[] = []
     const stopReasons: Array<string | undefined> = []
+    const events: CoordinationEvent[] = []
     const withCheck = createCoordinationTools({
       scope,
       blobs,
       makeWorkerAgent,
       perWorker: { maxIterations: 1, maxTokens: 10 },
       onStop: (reason) => stopReasons.push(reason),
+      onEvent: (event) => events.push(event),
       deliverable: {
         describe: 'an object whose answer is 42',
         check(result) {
@@ -270,6 +272,47 @@ describe('coordination tools', () => {
     expect(checked).toHaveLength(3)
     expect(stopReasons).toEqual(['result-accepted'])
     expect(withCheck.submittedResult()).toEqual({ result: { answer: 42 } })
+    expect(events).toEqual([{ type: 'submission', result: { answer: 42 } }])
+  })
+
+  it('commits one passing submission when concurrent callers race the durable append', async () => {
+    const { scope } = mockScope()
+    const events: CoordinationEvent[] = []
+    let appendStarted!: () => void
+    const appending = new Promise<void>((resolve) => {
+      appendStarted = resolve
+    })
+    let releaseAppend!: () => void
+    const appendReleased = new Promise<void>((resolve) => {
+      releaseAppend = resolve
+    })
+    const tb = createCoordinationTools({
+      scope,
+      blobs,
+      makeWorkerAgent,
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      onEvent: async (event) => {
+        events.push(event)
+        appendStarted()
+        await appendReleased
+      },
+      deliverable: { check: () => true },
+    })
+    const submit = tool(tb, 'submit_result')
+
+    const first = submit.handler({ result: { winner: 'first' } })
+    await appending
+    const second = submit.handler({ result: { winner: 'second' } })
+    releaseAppend()
+
+    await expect(first).resolves.toEqual({ accepted: true, retained: 'this-result', stop: true })
+    await expect(second).resolves.toEqual({
+      accepted: true,
+      retained: 'earlier-passing-result',
+      stop: true,
+    })
+    expect(events).toEqual([{ type: 'submission', result: { winner: 'first' } }])
+    expect(tb.submittedResult()).toEqual({ result: { winner: 'first' } })
   })
 
   it('spawn_worker returns workerId and fails closed when admission fails', async () => {
