@@ -1,20 +1,21 @@
 import { createHash } from 'node:crypto'
-import { canonicalJson } from '@tangle-network/agent-eval'
-import type { AgentCandidateEmbeddedArtifact, Sha256Digest } from '@tangle-network/agent-interface'
+import {
+  type AgentCandidateEmbeddedArtifact,
+  canonicalCandidateBytes,
+  type Sha256Digest,
+} from '@tangle-network/agent-interface'
 
-import { contentAddress } from '../durable/spawn-journal'
 import type { CanonicalCandidateDocument } from './types'
 
+export { canonicalCandidateBytes }
+
+/** Use native hashing for workspace archives. */
 export function sha256Bytes(bytes: Uint8Array): Sha256Digest {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`
 }
 
-export function canonicalCandidateBytes(value: unknown): Uint8Array {
-  return Buffer.from(canonicalJson(value), 'utf8')
-}
-
 export function canonicalCandidateDigest(value: unknown): Sha256Digest {
-  return contentAddress(value) as Sha256Digest
+  return sha256Bytes(canonicalCandidateBytes(value))
 }
 
 /** Returns a detached, deeply frozen JSON value with canonical number normalization. */
@@ -28,16 +29,15 @@ export function canonicalCandidateDocument<T extends { digest: Sha256Digest }>(
   valueWithoutDigest: Omit<T, 'digest'>,
 ): CanonicalCandidateDocument<T> {
   const bytes = canonicalCandidateBytes(valueWithoutDigest)
-  const digest = canonicalCandidateDigest(valueWithoutDigest)
-  if (sha256Bytes(bytes) !== digest) {
-    throw new Error('canonical candidate serializers disagree on document digest')
-  }
-  const storedBytes = Uint8Array.from(bytes)
-  const value = immutableCandidateValue({ ...valueWithoutDigest, digest }) as T
+  const digest = sha256Bytes(bytes)
+  const value = deepFreezeCandidate({
+    ...JSON.parse(Buffer.from(bytes).toString('utf8')),
+    digest,
+  }) as T
   return Object.freeze({
     value,
     get bytes(): Uint8Array {
-      return Uint8Array.from(storedBytes)
+      return Uint8Array.from(bytes)
     },
     digest,
   })

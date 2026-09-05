@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import type {
   AgentCandidateGitPatch,
   AgentCandidateWorkspaceManifestMaterial,
+  Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -25,7 +26,10 @@ import {
 import {
   canonicalCandidateBytes,
   canonicalCandidateDigest,
+  canonicalCandidateDocument,
   embeddedCandidateArtifact,
+  omitTopLevelDigest,
+  sha256Bytes,
 } from '../src/candidate-execution/digest'
 import { verifyCandidateCode } from '../src/candidate-execution/git-materialize'
 
@@ -83,11 +87,48 @@ function codeFixture(fixture: ReturnType<typeof repositoryFixture>): AgentCandid
 }
 
 describe('candidate canonical bytes and artifacts', () => {
-  it('uses the existing stable content address for exact canonical bytes', () => {
+  it('preserves canonical bytes and persisted candidate digests', () => {
     const first = { z: [3, { b: true, a: 'x' }], a: -0 }
     const second = { a: 0, z: [3, { a: 'x', b: true }] }
     expect(canonicalCandidateBytes(first)).toEqual(canonicalCandidateBytes(second))
     expect(canonicalCandidateDigest(first)).toBe(canonicalCandidateDigest(second))
+    expect(Buffer.from(canonicalCandidateBytes(first)).toString('utf8')).toBe(
+      '{"a":0,"z":[3,{"a":"x","b":true}]}',
+    )
+    expect(canonicalCandidateDigest(first)).toBe(
+      'sha256:81a9344f7f972ea820b2d8b32c7a2d9a5edf1822eddb6817a52442b69eb6f6a0',
+    )
+  })
+
+  it.each([undefined, NaN, Infinity, new Date(0), '\uD800'])(
+    'refuses non-JSON candidate material %s',
+    (payload) => {
+      const material = { payload }
+      expect(() => canonicalCandidateBytes(material)).toThrow()
+      expect(() => canonicalCandidateDigest(material)).toThrow()
+      expect(() => canonicalCandidateDocument(material)).toThrow()
+    },
+  )
+
+  it('binds the frozen document to its captured bytes when input reads change', () => {
+    let reads = 0
+    const document = canonicalCandidateDocument<{
+      digest: Sha256Digest
+      payload: { read: number }
+    }>({
+      get payload() {
+        return { read: ++reads }
+      },
+    })
+    const material = omitTopLevelDigest(document.value)
+    expect(JSON.parse(Buffer.from(document.bytes).toString('utf8'))).toEqual(material)
+    expect(sha256Bytes(document.bytes)).toBe(document.digest)
+    expect(canonicalCandidateDigest(material)).toBe(document.digest)
+    expect(Object.isFrozen(document.value)).toBe(true)
+    expect(Object.isFrozen(material.payload)).toBe(true)
+
+    document.bytes.fill(0)
+    expect(sha256Bytes(document.bytes)).toBe(document.digest)
   })
 
   it('rejects an artifact whose claimed hash does not match its bytes', async () => {
