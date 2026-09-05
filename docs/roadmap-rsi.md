@@ -4,13 +4,16 @@ Companion to [architecture.md](./architecture.md) (the spine) and [architecture-
 
 ## The principle: make it measurable before you build it
 
-Building the recursive-driver layer is gated on **Gate A** (the inner GO/NO-GO) from [architecture-interpretations.md §5](./architecture-interpretations.md#5-the-decision-gate):
+**Gate A** tests within-run steering ([architecture-interpretations.md §5](./architecture-interpretations.md#5-gate-a--the-decision-gate-for-the-recursive-driver-layer)):
 
-> Build the adaptive driver only if, at **equal worker-compute** (Σ rollouts × turns — `k` counts ROLLOUTS, each of which may be a full multi-turn/stateful trajectory), a **trace+findings-fed** driver scored by a **sound non-oracle selector** beats **random@k** selected by that *same* selector — significantly, and surviving selector test-retest.
+> Does a trace-informed driver beat random attempts under the same answer selection method, at equal actual resources, with enough evidence to distinguish useful improvement?
 
-**Gate A is NOT the project-success criterion.** Project success is **Gate B** — the cross-run flywheel slope on a **multi-objective** (correct · fast · secure · cheap, each its own deployable checker), verifier-graded score ([learning-flywheel.md](./learning-flywheel.md), [architecture.md §0.5](./architecture.md)). Gate A only decides whether the *within-run adaptive driver* is worth building; a failed Gate A deletes within-run steering, never the corpus+controller product. **Note the asymmetry in this roadmap:** Phases 0–4 below are all instrumented for Gate A (within-run, single-objective correctness) — that is the cheap, buildable diagnostic. Gate B (the across-run policy curve on a multi-objective task stream) is the actual success criterion and is **not yet instrumented**; standing it up is the durable next step, not a replay over the existing single-objective corpus.
+Project success is **Gate B**: improvement across projects under the criteria in [architecture.md §0.5](./architecture.md#05-what-we-are-building-and-what-better-means-the-four-claims).
+Apply [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) before using Gate A to reject a mechanism or choose another experiment.
+The phase map below records the within-run investigation; it does not make that investigation a prerequisite for testing learning across projects.
 
-So the phases are ordered to make each step measurable on an honest baseline *before* the next is built. Build order: **honest baseline → the cheap win (selector) → wire the intelligence (analyses) → grow the language (ISA) → the use case (acquisition)**. The cleanup and doc tracks run in parallel because they are additive-safe.
+The phases organize that investigation around measurable behavior.
+Use the canonical experiment scope when choosing a different order or testing interacting mechanisms together.
 
 > **Status (updated POWER-16).** The canonical "drive an agent" path is the **agent-driver**:
 > an `AgentProfile` driving another via `createCoordinationTools`
@@ -41,7 +44,7 @@ So the phases are ordered to make each step measurable on an honest baseline *be
 |---|---|---|---|---|---|
 | **0** | Honest baseline + preconditions (no kernel change) | — | Every runner reports `random@k` at equal k; corpus has a measurable discordant-pair rate | low | **done** — `runPool` landed (`bench/src/run-pool.ts`); the corpus + `corpus-report.mts` BH-FDR path is the `random@k`-control measurement surface |
 | **1** | Deployable non-oracle selector | 0 | `selector@k > random@k` significant (paired bootstrap + BH), low test-retest flip rate, on a frozen held-out split | low–med | **built + measured** — verifier-grounded selector positive on HumanEval (+12pp verifier−sc CI [+4,+22] / +18pp random−blind, BH-sig, n=50 k=4); answer-agreement negative (finsearch −8.2pp, aec −9.4pp) |
-| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A** (inner GO/NO-GO for the recursive-driver layer): `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, significant, survives test-retest — NOT flywheel success (Gate B) | med | the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools`); Gate A itself **ran on the Supervisor substrate, then RETRACTED to a tie at power** (header note) |
+| **2** | Wire `analyses → driver` (the missing edge) | 0, 1 | **Gate A**: compare within-run steering under the [canonical experiment scope](./architecture.md#9-build-order-and-experiment-scope) | med | the diagnosis→steer edge lives on the agent-driver (`observe()` → `createCoordinationTools`); Gate A itself **ran on the Supervisor substrate, then RETRACTED to a tie at power** (header note) |
 | **3** | Grow the ISA (`select` then `seq`) | 2 | A strategy expressing `select`/`seq` beats a flat one on the same harness | med (3a) / high (3b) | **superseded** — `defineStrategy` (`src/runtime/strategy.ts`) is the richer program space: a strategy is ordinary code with arbitrary sequencing and branching |
 | **4** | Acquisition adapter (research use case) | 0, 1 (parallel to 2) | Active acquisition beats random acquisition on the deployable coverage-vs-budget curve under a *structural* gap signal | med–high | open |
 
@@ -74,7 +77,8 @@ At audit time the selector was **faked with the judge**: `defaultSelectWinner` (
 
 The load-bearing edge. **Status: lives on the agent-driver.** The diagnosis→decision edge runs on the **agent-driver**: a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate type from `@tangle-network/agent-eval` — **never redefined**, the layering rule) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`. The `runAgentRounds` kernel (`src/runtime/run-loop.ts`) stays analyst-free. **No bench feeds the findings-fed treatment arm against the `random@k` control under the Phase-1 selector live yet** — that is the remaining work on this substrate.
 
-**Exit gate — Gate A (inner GO/NO-GO).** `refine@k-with-findings > random@k` at equal compute under the Phase-1 selector, statistically significant, surviving selector test-retest. **If it fails:** stop building the *within-run recursive-driver layer* — ship Phases 0–1 + Phase 4 (agentic RAG with a verifier) and delete the *steering machinery*. The recursive-driver layer is unjustified overhead unless this clears. **This is scoped to within-run steering only — it is NOT the flywheel-success criterion (Gate B, [learning-flywheel.md](./learning-flywheel.md)); a failed Gate A never deletes the corpus+controller product.**
+**Exit criterion — Gate A.** `refine@k-with-findings > random@k` at equal actual resources under the Phase-1 selector, with statistical support and repeatable selection.
+Apply [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) when interpreting a result below the useful threshold.
 
 **Gate A status: TIE at power (POWER-16), on the `Scope`/`Supervisor` substrate** — the n=16 "+16.4pp cleared" signal (depth-steered continuation, analyst-fed via `observe()`, vs blind breadth at equal compute under keep-best scoring) collapsed to depth−breadth +4.7pp CI [−1.9, +11.4] at n=48 (header note). At most a small effect, not a cleared keystone; the program pivoted off it.
 

@@ -36,16 +36,14 @@
 > corpus, the gain survives a **frozen-controller control** (re-running an earlier controller shows
 > no slope), it is significant at adequate n (paired-bootstrap + BH), and it is graded by a
 > **deployable checker** — never the answer oracle or the write-only judge. *Multi-objective* is
-> load-bearing: success is a vector (correct · fast · secure · cheap), and **each objective ships
-> its own deployable checker** — tests, a clock, a scanner, a cost meter. That is what gives the
-> flywheel honest, cheap, oracle-free signal on real work at every step (and what depth/continuation
-> steers on). This OUTER-loop slope is THE success criterion. The
+> load-bearing: success is a vector (correct · fast · secure · cheap), with evidence scoped to each objective.
+> Tests, clocks, scanners, and cost meters provide partial measurements; record each check's coverage and unverified assumptions.
+> This OUTER-loop slope is THE success criterion. The
 > within-run "trace+findings-fed controller beats the blind same-compute baseline under a non-oracle
 > selector at **equal compute**" question is a separate, narrower diagnostic — **Gate A**, the
-> GO/NO-GO for building the recursive-driver layer (see [roadmap-rsi.md](./roadmap-rsi.md)). A failed
-> Gate A deletes within-run steering only; it never touches this corpus+controller product. Equal
-> compute (Σ rollouts × turns per arm) is the anti-confound guard in both gates and is **silent on
-> statefulness**: the budget may be spent as one deep trajectory, K shallow attempts, or any mix.
+> comparison for within-run steering, scoped by [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
+> Compare actual resource use in both tests, including learning costs over the declared project horizon.
+> The budget may fund one deep trajectory, several shallow attempts, or a mixture.
 
 ## The flywheel
 
@@ -111,9 +109,8 @@ It is real (not vapor) only under three constraints:
    is *why* the integrity rule (judge never feeds steering/selection) is non-negotiable.
 2. **Shared corpus `D`.** Improvements persist and are evidenced *across* levels — a level-1
    gain shows up in the corpus the level-0 runs produced.
-3. **Rung-by-rung earning.** Level *n* is real iff it **measurably lifts level n−1 on `J`**.
-   Recursion is real ∝ rungs earned; skip a rung and you stack noise on noise. (We are at L0
-   with ~0 confirmed signal — so the stack is the north star, built strictly bottom-up.)
+3. **Evidence per learning level.** Level *n* contributes only when it **measurably lifts level n−1 on `J`**.
+   This requirement concerns evidence; construction and comparison follow [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
 
 **This subsumes everything in this repo and this design:** the worker, the `f(trace)` steer,
 the controller-as-signatures, GEPA, `meta-harness`, AND the **skill-governor** (which skill to
@@ -229,9 +226,8 @@ A separate final-test partition is required because source labels alone cannot p
 - **Eval economics is the moonshot bottleneck, not controller cleverness.** Build the offline
   corpus/replay so search is affordable. Don't build the optimizer cathedral over a metric
   you can only sample a few hundred times with overlapping CIs.
-- **Prove signal per rung before escalating cost.** random → fixed → `LLM(trace)` →
-  agentic-driver. Each rung must beat *compute-matched* random before the next is justified.
-  Don't jump to the unbounded agentic driver to (expensively) re-derive that more-compute ≈ 0.
+- **Choose a decisive test before escalating cost.**
+  Follow [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) for complete mechanisms, combinations, resource accounting, and rejection conditions.
 
 ## Honest status (updated 2026-06-10)
 

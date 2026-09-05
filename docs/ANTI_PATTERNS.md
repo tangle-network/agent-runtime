@@ -6,15 +6,12 @@ These are repo-level failure modes that have already cost time or produced
 misleading confidence. If a proposal repeats one, stop and ask what proof would
 make the work legitimate.
 
-## Mechanism Ahead Of The Gate
+## Mechanism Without A Decisive Test
 
-Do not build per-branch adaptive sub-agents, learned planners, corpus promotion,
-outer-flywheel machinery, or other high-ceiling mechanisms before a positive
-gate result. Expressiveness was the closed gap; evidence is the open one.
-
-Required proof: a measured non-blind topology beats blind compute at equal k,
-under a deployable selector, on a domain with a correctable middle band, with
-reported discordant pairs and multiple-comparison discipline.
+Build the smallest complete path that can exercise the claimed mechanism before scaling the implementation or experiment.
+Use [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) to define the comparison and the conditions for rejecting it.
+A single-run steering result does not decide whether learning across projects works.
+Test necessary combinations together, then remove components to identify their contribution.
 
 ## Facade Before Substrate Join
 
