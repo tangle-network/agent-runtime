@@ -70,12 +70,10 @@
 The asset is the **corpus**, not any single result. A run that shows no within-run effect
 still contributes data; the learnable structure emerges in the aggregate.
 
-The read side is not free: **naively priming** the worker context with prior-run prose
-records measures **negative** (−11.6pp with a worsening slope; the context-pollution and
-instance-transfer falsifiers both fired). The surviving read-side design is
-**verifier-gated, relevance-weighted accretion of certified programs** — store strategies
-that passed a checker, not facts —
-[docs/research/leapfrog-program.md §S3](./research/leapfrog-program.md).
+Retained information has value only when its use improves later work.
+The [recorded accretion experiment](./research/leapfrog-program.md) compared specific forms of prior-run context and checked program reuse.
+Its negative context result does not reject all facts, retrieval policies, or combinations of memory and planning changes.
+Measure the exact information retrieved, its use, and subsequent task outcomes before selecting a retention policy.
 
 ## The lifting generalization: recursive self-improvement
 
@@ -110,13 +108,13 @@ Ln : improve "how to improve" at level n−1          (same tuple, lifted)
 `(π, τ, J, D, O)` structure; only the object-of-optimization changes.
 
 It is real (not vapor) only under three constraints:
-1. **External anchor.** A fixed `J` at the base. Without it the recursion Goodharts — each
-   level games the metric. The **write-only judge is the keystone of the entire stack**; that
-   is *why* the integrity rule (judge never feeds steering/selection) is non-negotiable.
-2. **Shared corpus `D`.** Improvements persist and are evidenced *across* levels — a level-1
-   gain shows up in the corpus the level-0 runs produced.
-3. **Evidence per learning level.** Level *n* contributes only when it **measurably lifts level n−1 on `J`**.
-   This requirement concerns evidence; construction and comparison follow [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
+1. **Independent assessment.** Each improvement claim needs assessment outside the adaptive decisions being tested.
+   Working evaluations can guide learning and can change; they cannot establish their own improvement merely by making success easier.
+2. **Retained evidence and lineage.** Record which exact prior results and candidate states informed later work.
+   Storage can remain domain-specific while experiments share evidence contracts.
+3. **Evidence per learning level.** Judge a candidate learner by the subsequent specialists, evaluations, or learning processes it produces.
+   Use repeated outcomes over the declared horizon; an exploratory step need not improve immediately.
+   Construction and comparison follow [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
 
 **This subsumes everything in this repo and this design:** the worker, the `f(trace)` steer,
 the controller-as-signatures, GEPA, `meta-harness`, AND the **skill-governor** (which skill to

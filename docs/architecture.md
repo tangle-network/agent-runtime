@@ -335,23 +335,15 @@ sequential steer used sparingly.
 
 ## 11. Empirical status — lives in the ledger
 
-Every measured number — the FinSearchComp rung-0 arms, the Gate-A
-clear-then-retraction under the POWER-16 rule, the GEPA-over-analyst-prompt null,
-the selector results, and the SOTA comparison tables — lives in
-`.evolve/current.json` (the live science state) and the memory ledger. This doc
-keeps only the two distilled findings that are mechanism, not state:
+Keep measured results in the dated evidence records and the active state in `.evolve/current.json`.
+Interpret each result against its exact tasks, implementation, information, resources, and stopping rule.
+A result for stateless retrieval, code generation, or one stateful benchmark does not establish a universal domain boundary.
+A within-run comparison does not decide the value of repeated domain learning or evaluation engineering.
 
-**The domain-boundary law:** within-run steering is **negative on stateless
-retrieval** (FinSearchComp rung-0), **null-to-negative on stateless codegen**
-(HumanEval steer gate null at equal k; exec-grounded self-repair −17.1pp,
-CI [−26.8, −7.3]), and **positive on stateful agentic domains** with a correctable
-middle band, scored keep-best (EOPS). The boundary variable is state + the
-inability to cheaply resample.
-
-**Honesty law:** our loop is **not a new method class** — sequential-refine =
-Reflexion / CRITIC / FLARE; fanout-vote = self-consistency /
-best-of-N-with-verifier. We benchmark *against* those and claim no novelty for
-the scaffold; the moat is transfer (§8).
+Known inference methods remain useful comparison baselines.
+Combining those methods does not establish algorithmic novelty or a capability gain.
+The product claims in §8 concern specialist outcomes, repeatable domain learning, better evaluation, and improvement of the learning process.
+Each requires evidence at the claimed level.
 
 ---
 
