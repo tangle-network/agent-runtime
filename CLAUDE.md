@@ -80,7 +80,9 @@ Headline entrypoints: `runAgentTask`/`runAgentTaskStream` (`src/run.ts`), the mu
 
 ## Self-improvement state & discipline (.evolve/ + the gate)
 
-This repo is the empirical home of the RSI/learning-flywheel thesis, but **mechanism is not evidence**. The binding question is the **gate**: *does any non-blind topology beat blind compute at EQUAL k, under a deployable (non-oracle) selector, on a domain with a correctable middle band, at significant n (paired-bootstrap + BH)?*
+The product is an agent system that improves its decisions and learning methods across runs.
+Before choosing experiments or deleting mechanisms, read [architecture.md §0.5 and §9](./docs/architecture.md) for success criteria and experiment scope.
+Single-run comparisons test specific mechanisms; they do not decide whether capability compounds across projects.
 
 **The live science state — every number, what's proven/disproven, the current goal — lives in `.evolve/current.json` + the `memory/` evidence ledger. Read them; do not mirror them here.** `docs/eval-substrate.md` holds the north star (the RSI runtime + its eval substrate) and the measurement non-negotiables.
 

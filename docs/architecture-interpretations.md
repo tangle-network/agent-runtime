@@ -178,11 +178,11 @@ The strongest good-faith case: what's wired is the losing half (self-refine) ste
 
 ## 5. Gate A — the decision gate for the recursive-driver layer
 
-Build the adaptive driver **only if** this comes back positive:
+Test within-run steering with this diagnostic:
 
 > On a held-out benchmark, at **equal worker-compute budget** (`k` counts worker ROLLOUTS — each may be a full multi-turn/stateful trajectory, not a single shot), does a **trace + analyst-findings-fed** driver, scored by a **sound non-oracle selector**, beat **blind random@k** selected by that *same* selector — by a statistically significant margin (n large enough for p < 0.05) that **survives test-retest of the selector**?
 
-Until `refine@k-with-findings > random@k at equal compute under a non-oracle selector`, the recursive-driver layer is unjustified overhead and only the minimal honest version (§6) should be built.
+Use [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) for resource accounting, mechanism activation, and the conditions for rejecting the tested design.
 
 **Measured: cleared at small n, then RETRACTED to a TIE at power (POWER-16).** On
 EnterpriseOps-Gym itsm, depth-steered continuation (analyst-fed, `observe()`) beat blind
@@ -194,7 +194,9 @@ to a tie when powered, and the program pivoted off this anchor (numbers:
 codegen** (HumanEval), **positive on stateful agentic domains** with a correctable
 middle band scored keep-best (EOPS).
 
-**Gate A ≠ project success.** Gate A is the inner GO/NO-GO for *one* component (the within-run driver). The product-success gate is **Gate B** — a positive cross-run score-vs-run slope under a frozen-controller control ([learning-flywheel.md](./learning-flywheel.md)), which is currently **UNMEASURED** (cf. the zero cross-benchmark-transfer admission, §6). A failed Gate A deletes within-run steering; it never bears on Gate B.
+**Gate A tests one mechanism under specified conditions.**
+Product success is **Gate B**: improvement across runs against an unchanged controller ([learning-flywheel.md](./learning-flywheel.md)).
+The historical results above do not establish whether that improvement occurs.
 
 ---
 
@@ -206,7 +208,9 @@ The **minimal honest version** survives every critique and yields the proven mor
 2. **A deployable, non-oracle selector** scoring each ingest on *trace-observable structural* signal — citation coverage, contradiction-lint pass, staleness, novelty-vs-existing-wiki. This is the missing piece that makes best-of-N actually pay, and it is the same build as landing the *selector ≠ judge* firewall.
 3. **The `llm-wiki` maintainer+critic** as the dedup / cite / lint sink (already exists as a skill).
 
-Then run the §5 gate. If a findings-fed driver beats random@k at equal k under that sound selector, the adaptive driver earns its complexity and is built on top — and this surface becomes the first honest validation of the RSI thesis. If not, ship 1+2+3 — agentic RAG with a verifier — and delete the steering machinery with a clear conscience.
+Run the §5 diagnostic to assess within-run steering under those conditions.
+Apply [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) before retaining, rejecting, or combining the tested mechanisms.
+Test learning across projects separately before claiming that capability compounds.
 
 ---
 

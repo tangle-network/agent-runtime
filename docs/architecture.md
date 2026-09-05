@@ -25,6 +25,10 @@
 Four claims define the system. The sections below are mechanism in service of these;
 if a section drifts from one of these, the claim wins and the section is wrong.
 
+The target is a persistent research and engineering system that completes complex software and produces independently checked research.
+It can revise its methods, tools, and organization, then retain changes that improve later work.
+Recursive self-improvement includes improving how those changes are discovered and tested.
+
 1. **The atom is a decision, not a spawn.** At every level an agent faces the same
    question: given the solution so far, the feedback so far, and the budget left, what
    is the best next move — *keep working · branch · split · get a second opinion · run
@@ -34,12 +38,12 @@ if a section drifts from one of these, the claim wins and the section is wrong.
    AND cheap. Success is **multi-objective**; we do not collapse it to one number until
    forced to. Today every judge returns a single `score` — that is the **gap to close**,
    not the design (§6, §5).
-3. **Each objective carries its own checker — that is what makes this trainable.**
-   *Fastest* is graded by a clock, *most secure* by a scanner, *correct* by the tests.
-   The objective **is** a deployable verifier (§1's *verifier*, distinct from the oracle
-   and the write-only judge). So the loop has honest, cheap signal at every step, on real
-   work, **without an answer key** — that is the gift the multi-objective framing buys,
-   and the reason depth/continuation has something sound to steer on.
+3. **Each objective needs evidence with explicit limits.**
+   Clocks measure elapsed time; tests exercise specified behavior; scanners detect specified security failures.
+   Passing a check establishes only what that check covers.
+   Research can require proof checking, independent replication, or new experiments when no answer key exists.
+   Agents can author working checks, while independent assessment tests the final claims and records unverified assumptions.
+   The quality and cost of that evidence are part of the research problem.
 4. **The improvement that counts is the policy getting better across runs.** Two things
    improve on two clocks (§2). *Within* a run the **solution** climbs (the artifact gets
    better round over round). *Across* runs the **decision policy** climbs — it remembers
@@ -145,8 +149,8 @@ runs — and *that across-run slope is the success criterion* (**Gate B**, defin
 trace-fed driver beat a blind same-compute baseline under a non-oracle selector at equal
 compute* (**Gate A**, defined in
 [architecture-interpretations.md §5](./architecture-interpretations.md)) — is a separate,
-narrower diagnostic; a failed Gate A deletes within-run steering, never the corpus+policy
-product. Live results for both gates: `.evolve/current.json` + the memory ledger.
+narrower diagnostic governed by the experiment scope in §9.
+Live results for both gates: `.evolve/current.json` + the memory ledger.
 
 ---
 
@@ -270,7 +274,10 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
 
 ---
 
-## 9. Build order (rung discipline — do not skip)
+## 9. Build order and experiment scope
+
+Choose the smallest complete experiment that can test the claimed advantage.
+The mechanisms below are experiment options; an earlier option winning is not a prerequisite for testing a later option.
 
 1. **Atom instance, inference-time.** Driver (`llm-call`, fed by a trace-analyst
    report) steers a worker over k shots; a **selector** picks the answer
@@ -280,13 +287,25 @@ across benchmarks**. Infra is the cost of entry; transfer is the company.
    one-shot artifact structurally cannot exhibit continuation — the rung-0 "steering loses"
    result is bench-specific, not domain-general). Status: see the ledger
    (`.evolve/current.json`).
-2. **Escalate the driver to `sandbox-agent` (auto-research)** — only if rung 1
-   beats compute-matched random.
+2. **Give the driver execution access through `sandbox-agent` (auto-research).**
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.
 4. **Composition lift** — `fork`/coordinator/nested (driver-of-drivers).
 5. **Cross-benchmark transfer** — one learned controller, many benchmarks. The moat.
 
-Each rung must beat compute-matched random before the next is funded.
+Test combinations when the claimed benefit depends on interactions between delegation, retained knowledge, continued work, or learned decisions.
+Remove components in controlled comparisons to identify their contribution.
+An isolated component losing does not establish that the combination cannot help.
+
+Measure the hardest independently checked work completed, results across resource budgets, and improvement across successive projects.
+Use equal actual resources within each comparison and keep model versions and task difficulty controlled.
+Report learning costs separately and include them in total costs over the declared project horizon.
+
+Reject a mechanism only within the conditions tested.
+The task must exercise the conditions where an advantage is claimed.
+The mechanism must run observably, and the assessment must detect the smallest useful effect.
+Use enough paired cases and a declared stopping rule to support the decision.
+When those conditions hold and the effect is below the useful threshold, reject or simplify that mechanism for those conditions.
+If a test condition is missing, record what remains untested and name the missing condition before further work.
 
 ---
 
