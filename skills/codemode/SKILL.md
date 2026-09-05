@@ -1,49 +1,37 @@
 ---
 name: codemode
-description: Batch mechanical tool work as one program so loops and intermediates stay out of context.
+description: Batch mechanical tool work in code while preserving judgment, authorization, and accounting.
 ---
 
 # Codemode
 
-Use this policy when a task needs three or more mechanical tool or command calls whose intermediate results need no judgment.
-One call per model turn spends a round trip per step and pushes every intermediate value through the context window.
-Write one program instead: the loop, the branch, and the intermediates stay in the program, and only the decision-relevant summary returns.
+Batch stretches of mechanical tool work whose intermediate results require no judgment.
+Keep decisions that could change the plan in the agent's turn.
 
-This is the pattern the ecosystem calls code mode (Cloudflare's Code Mode, Anthropic's code execution with MCP, the CodeAct paper).
-In a coding harness you already have the whole capability: a shell, a filesystem, and the tools this profile grants.
+## Batch the work
 
-## Run The Work
+Identify independent calls and the points where an observed result must change the next action.
+Use the session's permitted execution tool to hold intermediate data in variables or workspace files.
+Return the decision-relevant values, failures, and artifact locations.
+Inspect every result; a successful batch must not hide a failed item.
+Retain results needed later instead of rerunning expensive work to recover them.
 
-1. List the calls the task needs and mark which results require your judgment.
-2. Put every judgment-free stretch into one script; keep each judgment point in your own turn.
-3. Hold intermediates in variables or files inside the workspace, never in your reply.
-4. Make the script print only the decision-relevant summary: counts, failures, the final value.
-5. Prefer one script that fans out over N items to N separate tool calls with identical shape.
-6. Stop batching the moment a result changes what you would do next; read it, decide, then batch again.
+Respect each tool's concurrency, cancellation, and authorization contract.
+A batch does not expand the permission of its individual operations.
+Meter paid operations on the owning execution path and preserve their usage records.
+Keep dependent actions sequential unless their contract supports safe composition.
 
-## Boundaries That Are Not Yours To Move
+## Runtime-supervised code
 
-Code may spawn or steer only through Runtime-provided API bindings such as `api.spawn_worker`.
-Never reach coordination verbs over HTTP or create a second scheduler; that bypasses the budget pool and journal.
-An operation that costs money must run where the runtime meters it; do not wrap metered work in a script that hides the spend.
-The lint on authored code refuses imports, `process`, and network access; it is a lint, not a sandbox, so treat generated code you did not review as untrusted.
+When configuring code execution for a Runtime supervisor, read [the execution boundary](references/runtime-execution.md).
+That branch supplies a generated API over Runtime's existing coordination tools and requires an explicit runner.
+For ordinary shell or session-tool batching, no additional runtime is needed.
 
-## Router-Brained Supervisors
-
-A raw chat model has no shell, so give it the runtime's code mode: pass `codeModeSupervisorTools()` as `resolveSupervisorTools` and the supervisor's tool surface becomes `search` and `execute`.
-`search` answers a TypeScript API generated from the live coordination grant; `execute` runs the model's program through a caller-supplied runner, and every `api.spawn_worker` call crosses the kernel's pool, authorization, and journal.
-Supply a jailed runner for an untrusted model: the in-process runner is not an isolation boundary.
-The lifecycle verbs (`submit_result`, `stop`, `ask_parent`) stay model tools: the program does the mechanics, the model keeps the judgment.
-
-## Common Mistakes
-
-- Batching a step whose output should have changed your plan, then discovering it three steps later.
-- Printing a whole dataset into the reply instead of writing it to a file and printing the summary.
-- Re-running an expensive script to re-read a value the first run already produced; write results to files.
-- Moving supervision into a script because the coordination verbs are reachable over local HTTP.
+Complete the requested work and inspect the resulting artifact.
+Code reduces mechanical round trips; it does not replace judgment or prove the quality of the result.
 
 ## Then consider
 
-- `supervise` when the batched work is really delegation to workers with their own judgment.
-- `agent-graphs` when the shape of the work is a fixed topology rather than one agent's loop.
-- `loop-writer` when no shipped composition API can express the control policy you need.
+- `supervise` when the work needs workers with their own judgment.
+- `agent-graphs` when fixed roles require explicit Runtime relationships and shared accounting.
+- `loop-writer` when no maintained composition expresses the required control policy.
