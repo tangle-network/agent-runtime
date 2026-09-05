@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { harvestCorpus } from '../src/runtime/harvest-corpus'
 import { observe } from '../src/runtime/observe'
 
 const observerProfile = {
@@ -78,6 +79,68 @@ describe('runtime observe', () => {
         },
         { profile: observerProfile, executor: observerExecutor(content) },
       ),
-    ).rejects.toThrow(/observe findings: every finding must match AnalystFinding/)
+    ).rejects.toThrow(/observe response: findings\[0\] does not match/)
+  })
+
+  it.each([
+    'provider refused the request',
+    'null',
+    '[]',
+    '{}',
+    '{"findings":null}',
+    '{"findings":[],"error":"provider unavailable"}',
+    '{"findings":[null]}',
+  ])('rejects an invalid observer response: %s', async (content) => {
+    await expect(
+      observe(
+        { task: 'Inspect the run.', output: 'done', trace: [] },
+        { profile: observerProfile, executor: observerExecutor(content) },
+      ),
+    ).rejects.toThrow(/observe response:/)
+  })
+
+  it('accepts an explicit empty findings array', async () => {
+    const result = await observe(
+      { task: 'Inspect the run.', output: 'done', trace: [] },
+      { profile: observerProfile, executor: observerExecutor('{"findings":[]}') },
+    )
+    expect(result.findings).toEqual([])
+    expect(result.report).toContain('clean run')
+  })
+
+  it('reports failed corpus persistence through the harvest per-run failure channel', async () => {
+    const content = JSON.stringify({
+      findings: [
+        {
+          area: 'verification',
+          severity: 'high',
+          claim: 'A check was skipped.',
+          recommended_action: 'Run the check.',
+          audience: 'agent',
+          confidence: 0.9,
+        },
+      ],
+    })
+    const report = await harvestCorpus({
+      runs: [
+        { task: 'Inspect the run.', output: 'done', trace: [], runId: 'failed-save' },
+        { task: 'Inspect the run.', output: 'done', trace: [], runId: 'saved' },
+      ],
+      profile: observerProfile,
+      executor: observerExecutor(content),
+      corpus: {
+        append: async (record) =>
+          record.runId === 'failed-save'
+            ? { succeeded: false, error: 'storage unavailable' }
+            : { succeeded: true },
+        query: async () => [],
+      },
+    })
+    expect(report).toMatchObject({
+      runsObserved: 1,
+      findings: 1,
+      learned: 1,
+      failures: [{ runId: 'failed-save', error: expect.stringContaining('storage unavailable') }],
+    })
   })
 })

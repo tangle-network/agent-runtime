@@ -169,11 +169,11 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
     parsed.map((f) =>
       makeProposalFinding({
         analyst_id: observerId,
-        area: `${f.area}`,
+        area: f.area,
         severity: f.severity,
         claim: f.claim,
         recommended_action: f.recommended_action,
-        confidence: typeof f.confidence === 'number' ? f.confidence : 0.5,
+        confidence: f.confidence,
         evidence_refs: [],
         // The observer reads behavior, never a final evaluation result.
         derived_from_judge: false,
@@ -201,7 +201,12 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
         evidence: [{ kind: 'finding', uri: f.finding_id }],
       }
       const r = await opts.corpus.append(record)
-      if (r.succeeded) learned.push(record)
+      if (!r.succeeded) {
+        throw new Error(
+          `observe corpus append failed for '${record.id}' after storing ${learned.length}/${findings.length} findings: ${r.error}`,
+        )
+      }
+      learned.push(record)
     }
   }
 
@@ -236,12 +241,43 @@ function parseFindings(content: string): RawFinding[] {
   let obj: unknown
   try {
     obj = JSON.parse(content)
-  } catch {
-    const m = content.match(/\{[\s\S]*\}/)
-    obj = m ? JSON.parse(m[0]) : { findings: [] }
+  } catch (error) {
+    throw new Error('observe response: expected a JSON object with findings', { cause: error })
   }
-  const arr = (obj as { findings?: unknown }).findings
-  return Array.isArray(arr) ? (arr as RawFinding[]) : []
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    throw new Error('observe response: expected a JSON object with findings')
+  }
+  const response = obj as Record<string, unknown>
+  if (
+    !Array.isArray(response.findings) ||
+    Object.keys(response).some((key) => key !== 'findings')
+  ) {
+    throw new Error('observe response: expected only a findings array')
+  }
+  const schema = findingsSchema.schema.properties.findings.items
+  for (const [index, value] of response.findings.entries()) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new Error(`observe response: findings[${index}] must be an object`)
+    }
+    const finding = value as Record<string, unknown>
+    const invalidField =
+      Object.keys(finding).some((key) => !schema.required.some((field) => field === key)) ||
+      ['area', 'claim', 'recommended_action'].some(
+        (key) => typeof finding[key] !== 'string' || finding[key].trim().length === 0,
+      ) ||
+      !schema.properties.severity.enum.some((severity) => severity === finding.severity) ||
+      !schema.properties.audience.enum.some((audience) => audience === finding.audience) ||
+      typeof finding.confidence !== 'number' ||
+      !Number.isFinite(finding.confidence) ||
+      finding.confidence < 0 ||
+      finding.confidence > 1
+    if (invalidField) {
+      throw new Error(
+        `observe response: findings[${index}] does not match the required finding schema`,
+      )
+    }
+  }
+  return response.findings as RawFinding[]
 }
 
 /** Operator-facing report, split by who should act. The agent block is the

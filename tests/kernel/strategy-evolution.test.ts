@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { minimumPairsForPairedDeltaTest } from '@tangle-network/agent-eval'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { canonicalCandidateDigest } from '../../src/candidate-execution/digest'
 import type { BenchmarkReport } from '../../src/runtime/run-benchmark'
 import type { AgenticSurface, AgenticTask } from '../../src/runtime/strategy'
 import { sample } from '../../src/runtime/strategy'
@@ -606,7 +607,11 @@ describe('checkpoint and resume', () => {
     populationSize: 1,
     baselines: [sample],
     minPairedTasks: 6,
-    checkpoint: { path: ckptPath, resume: true },
+    checkpoint: {
+      path: ckptPath,
+      resume: true,
+      executionRef: canonicalCandidateDigest({ fixture: 'shot-counting-evolution-v1' }),
+    },
     outDir: mkdtempSync(join(tmpdir(), 'evolution-test-')),
     ...extra,
   })
@@ -656,6 +661,125 @@ describe('checkpoint and resume', () => {
       runStrategyEvolution(baseCfg(second.chat, ckptPath, { trainN: 8 })),
     ).rejects.toThrow(/design mismatch/)
   })
+
+  it.each([
+    { objective: 'cost' },
+    { holdoutOffset: 100 },
+    { worker: { ...worker, workerProfile: testAgentProfile('different-worker') } },
+    { environment: { ...shotCountingSurface(), name: 'different-environment' } },
+    { band: { holdoutPoolN: 12 } },
+    { minPairedTasks: 20 },
+  ])('rejects changed behavior before resumed evaluation: %j', async (change) => {
+    stubWorkerRouter()
+    const path = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+    await runStrategyEvolution(baseCfg(scriptedChat([fenced(twoShotDepthModule)]).chat, path))
+    const phases: string[] = []
+    const author = scriptedChat(['SHOULD NEVER BE CALLED'])
+    await expect(
+      runStrategyEvolution(
+        baseCfg(author.chat, path, {
+          ...change,
+          onPhase: async (phase: string) => {
+            phases.push(phase)
+          },
+        }),
+      ),
+    ).rejects.toThrow(/design mismatch/)
+    expect(phases).toEqual([])
+    expect(author.seen).toEqual([])
+  })
+
+  it('requires execution identity and rejects a changed callback dependency reference', async () => {
+    const path = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+    const author = scriptedChat([fenced(twoShotDepthModule)])
+    await expect(
+      runStrategyEvolution(
+        baseCfg(author.chat, path, {
+          checkpoint: { path, resume: true },
+        }),
+      ),
+    ).rejects.toThrow(/executionRef must be/)
+    expect(author.seen).toEqual([])
+    stubWorkerRouter()
+    await runStrategyEvolution(baseCfg(author.chat, path))
+    await expect(
+      runStrategyEvolution(
+        baseCfg(author.chat, path, {
+          checkpoint: {
+            path,
+            resume: true,
+            executionRef: canonicalCandidateDigest({ fixture: 'changed-transport' }),
+          },
+        }),
+      ),
+    ).rejects.toThrow(/design mismatch/)
+  })
+
+  it.each(['train', 'holdout'])(
+    'rejects changed %s payloads with the same task IDs',
+    async (slice) => {
+      stubWorkerRouter()
+      const path = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+      await runStrategyEvolution(baseCfg(scriptedChat([fenced(twoShotDepthModule)]).chat, path))
+      const author = scriptedChat(['SHOULD NEVER BE CALLED'])
+      const phases: string[] = []
+      const changedTasks = async (offset: number, n: number) =>
+        (await sliceTasks([])(offset, n)).map((task) =>
+          (slice === 'train' ? offset === 0 : offset > 0)
+            ? { ...task, userPrompt: 'A different problem under the same task ID.' }
+            : task,
+        )
+      await expect(
+        runStrategyEvolution(
+          baseCfg(author.chat, path, {
+            tasks: changedTasks,
+            onPhase: async (phase: string) => {
+              phases.push(phase)
+            },
+          }),
+        ),
+      ).rejects.toThrow(new RegExp(`${slice} task payloads changed`))
+      expect(phases).toEqual([])
+      expect(author.seen).toEqual([])
+    },
+  )
+
+  it('rejects changed authored module bytes before importing the resumed candidate', async () => {
+    stubWorkerRouter()
+    const path = join(mkdtempSync(join(tmpdir(), 'evolution-ckpt-')), 'ckpt.json')
+    const report = await runStrategyEvolution(
+      baseCfg(scriptedChat([fenced(twoShotDepthModule)]).chat, path),
+    )
+    const file = report.generations[0]!.candidates[0]!.file!
+    writeFileSync(file, 'throw new Error("changed candidate was imported")\n')
+    await expect(
+      runStrategyEvolution(baseCfg(scriptedChat(['UNUSED']).chat, path)),
+    ).rejects.toThrow(/authored source changed/)
+  })
+
+  it.each(['overlap', 'duplicate', 'short'])(
+    'rejects invalid task partitions: %s',
+    async (kind) => {
+      stubWorkerRouter()
+      const author = scriptedChat([fenced(twoShotDepthModule)])
+      const phases: string[] = []
+      const cfg = baseCfg(author.chat, join(tmpdir(), 'unused-checkpoint'), {
+        checkpoint: undefined,
+        tasks: async (offset: number, n: number) => {
+          const tasks = await sliceTasks([])(kind === 'overlap' ? 0 : offset, n)
+          if (kind === 'duplicate') return tasks.map((task) => ({ ...task, id: 'duplicate' }))
+          return kind === 'short' ? tasks.slice(1) : tasks
+        },
+        onPhase: async (phase: string) => {
+          phases.push(phase)
+        },
+      })
+      await expect(runStrategyEvolution(cfg)).rejects.toThrow(
+        /must be disjoint|must be non-empty and unique|must supply exactly/,
+      )
+      expect(phases).not.toContain('holdout')
+    },
+  )
 
   it('onPhase fires before every benchmark phase in order', async () => {
     stubWorkerRouter()

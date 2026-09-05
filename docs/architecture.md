@@ -28,6 +28,10 @@ if a section drifts from one of these, the claim wins and the section is wrong.
 The target is a persistent research and engineering system that completes complex software and produces independently checked research.
 It can revise its methods, tools, and organization, then retain changes that improve later work.
 Recursive self-improvement includes improving how those changes are discovered and tested.
+Domain specialists can succeed without generalizing outside their intended tasks.
+A domain learning process can repeatedly improve specialists and its working evaluations across many rollouts and objectives.
+A meta-agent can improve that process and learn to construct effective learning processes in other domains.
+The reusable knowledge can be how to learn, even when the resulting specialists remain domain-specific.
 
 1. **The atom is a decision, not a spawn.** At every level an agent faces the same
    question: given the solution so far, the feedback so far, and the budget left, what
@@ -44,15 +48,13 @@ Recursive self-improvement includes improving how those changes are discovered a
    Research can require proof checking, independent replication, or new experiments when no answer key exists.
    Agents can author working checks, while independent assessment tests the final claims and records unverified assumptions.
    The quality and cost of that evidence are part of the research problem.
-4. **The improvement that counts is the policy getting better across runs.** Two things
-   improve on two clocks (§2). *Within* a run the **solution** climbs (the artifact gets
-   better round over round). *Across* runs the **decision policy** climbs — it remembers
-   which decisions, on which kinds of problems, produced good multi-objective outcomes,
-   and chooses better next time. **That across-run curve is RSI, and it is THE success
-   criterion** (Gate B — defined in [learning-flywheel.md](./learning-flywheel.md), §2
-   here). A single within-run result beating a blind baseline at equal compute (Gate A)
-   is **one narrow diagnostic**, not the goal — do not read it as the verdict on the
-   product.
+4. **Measure improvement at the level being changed.**
+   A specialist improves on fresh tasks within its domain.
+   A domain learner improves when it reliably produces better specialists, working evaluations, or research outcomes.
+   A meta-agent improves when its learning decisions produce better domain learning processes.
+   Transfer of a learning process to new domains is a further claim; specialist transfer is optional.
+   Each claim needs independent evidence and complete resource accounting over its declared horizon.
+   The within-run comparison (Gate A) and across-run comparison (Gate B) test specific claims, not the entire product.
 
 ---
 
@@ -189,7 +191,7 @@ the enforcing code, in §13.3 (`assertTraceDerivedFindings`).
 
 ---
 
-## 5. GEPA at every level
+## 5. Optimization at each learning level
 
 The optimizer `O` improves any `Agent`'s `context`+prompt and the program shape,
 from the shared corpus, **held-out gated** (train ∩ selection ∩ final test = ∅, enforced by
@@ -201,10 +203,10 @@ by its own deployable checker (tests · clock · scanner · cost meter), with th
 write-only judge as the fixed anchor on the *correctness* axis so the recursion can't
 Goodhart. **Status:** the loop today carries a single `score` per attempt (§6's
 `adapter.judge`) — collapsing the vector at the boundary is the open gap to close before
-the optimizer can trade objectives honestly. The analyst-prompt coordinate measured
-flat; the live outer-loop lever is **program/strategy space** (`defineStrategy` +
-`authorStrategy`) — see
-[docs/research/optimization-space.md](./research/optimization-space.md) and the ledger.
+the optimizer can trade objectives honestly.
+Candidate surfaces include complete profiles, executable strategies, working evaluations, curricula, and the learning method itself.
+Use the current evidence ledger to choose a method and experiment for the intended domain and objective.
+A result for one coordinate or task family does not decide the value of every other learning process.
 
 ---
 
@@ -266,11 +268,10 @@ being squatted on.
 
 ## 8. The moat (honest)
 
-The inference-program scaffold (compound AI systems / DSPy-style) is becoming
-**table stakes** — others will have it. The defensible bet is the **cross-
-benchmark learning flywheel + recursive self-improvement**, anchored by the
-external write-only judge, where a controller **learns the program and transfers
-across benchmarks**. Infra is the cost of entry; transfer is the company.
+The technical bet includes specialist capability, repeatable domain learning, and agents that improve how learning processes are constructed.
+Accumulated experiment records and executable learning procedures can improve future domain work.
+Those procedures can also transfer to other domains without requiring the specialists they produce to generalize.
+The value and transfer of each learned procedure require their own evidence.
 
 ---
 
@@ -290,13 +291,15 @@ The mechanisms below are experiment options; an earlier option winning is not a 
 2. **Give the driver execution access through `sandbox-agent` (auto-research).**
 3. **GEPA** the driver/analyst `context`+prompts, held-out gated.
 4. **Composition lift** — `fork`/coordinator/nested (driver-of-drivers).
-5. **Cross-benchmark transfer** — one learned controller, many benchmarks. The moat.
+5. **Domain learning and meta-learning** — repeatedly improve specialists and working evaluations; separately test learning-process reuse in new domains.
 
 Test combinations when the claimed benefit depends on interactions between delegation, retained knowledge, continued work, or learned decisions.
 Remove components in controlled comparisons to identify their contribution.
 An isolated component losing does not establish that the combination cannot help.
 
 Measure the hardest independently checked work completed, results across resource budgets, and improvement across successive projects.
+Evaluate working-evaluation changes against independent outcomes and their effect on subsequent learning.
+Use fresh tasks within a domain for specialist and domain-learning claims; use fresh domains for learning-process transfer claims.
 Use equal actual resources within each comparison and keep model versions and task difficulty controlled.
 Report learning costs separately and include them in total costs over the declared project horizon.
 

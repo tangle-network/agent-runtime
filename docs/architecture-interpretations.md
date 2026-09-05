@@ -78,7 +78,7 @@ The discipline that the architecture leans on — *selector ≠ judge*, judge wr
 | **Test-time-compute / search** | Driver = search controller, selector = ranking, judge = oracle reward | Only if a *learned* controller beats fixed best-of-N | Controller is open-loop; refine loses to flat sampling at matched budget |
 | **Active learning / experimental design** | Driver = acquisition function picking the next most-informative source | **Yes — it makes the goal measurable**; the best frame for the research use case | Needs a *calibrated* gap signal; today "gap" is an LLM vibe |
 | **Program synthesis** | Driver = JIT emitting a topology program; runAgentRounds = interpreter | Only if the ISA grows `seq`/nesting and the emitter reads an IR | It's a **3-opcode flat enum**, not a DSL; GEPA tunes a prompt comment, not the emitter |
-| **Two-timescale / RSI** | Inner answers; outer rewrites the answerer from traces + judge | Only with the missing wire **and** a cross-benchmark transfer test | RSI is the **shape, not the system**; no transfer test exists |
+| **Domain learning / meta-learning** | Improve specialists, working evaluations, and the process that trains them | Repeatable gains within the intended domain; process transfer is a separate claim | Existing components need a joined learning process and evidence appropriate to each level |
 | **Skeptic / Occam** | self-refine (loses) steering best-of-N (wins) | No — vocabulary, not capability | Overclaims past "untested ≠ disproven" for a trace-fed driver |
 
 ### 3.1 Test-time-compute / search
@@ -143,7 +143,12 @@ Breaks: the load-bearing assumption — a **calibrated** gap signal — is absen
 
 ### 3.4 Two-timescale / recursive self-improvement
 
-Inner fast loop drives an answer now; outer slow loop (`improve()` with an official GEPA or SkillOpt method) rewrites policy from accumulated traces + judge scores, measures the exact candidate on final-test tasks hidden from the method, and requires an explicit activation. The recursion is real *in shape* — the optimiser is an atom editing an atom's policy — but cross-benchmark transfer remains unproven. The frame's value is its sharp corpus-vs-policy split: **wiki growth is an input to inference; only prompt/tool/policy rewrites are RSI.** The research-acquisition loop is RSI only if findings about *which acquisition move paid off* rewrite the driver's acquisition policy and the resulting profile wins on fresh tasks.
+The fast loop improves an answer; the domain learning process improves specialists, working evaluations, and future experimental decisions.
+`improve()` supplies bounded search and final comparisons, while activation remains explicit.
+Stored knowledge can improve domain work, and changes to acquisition policy can improve the process that produces that knowledge.
+Each claim needs its own task outcome evidence.
+A meta-agent can learn how to construct these domain learning processes without requiring the resulting specialists to generalize.
+Cross-domain reuse of the learning process is a further experiment, not a prerequisite for useful domain learning.
 
 ### 3.5 Skeptic / Occam (adversarial)
 

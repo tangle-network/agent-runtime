@@ -1,4 +1,4 @@
-# The Continual Cross-Benchmark Learning Flywheel
+# Continual Domain Learning and Meta-Learning
 
 > **In plain terms:** This is a design-rationale doc — it explains *why* this project is built
 > to get better the more it runs, not how to use the package day to day. It's for a developer
@@ -19,17 +19,16 @@
 >
 > - **Inner loop (within-run):** a controller steers a worker over k attempts on a single
 >   task — refine/fanout/stop. Useful, but NOT the product, and not where the moonshot lives.
-> - **Outer loop (the FLYWHEEL — the product):** every eval run, across every benchmark,
->   generates `(state, trace, steer, outcome, cost)` data that accumulates into a durable
->   corpus; the **controller** learns from *all of it*; that improves future runs across
->   *all* benchmarks; which generates more data.
+> - **Outer loop:** domain work generates `(state, trace, steer, outcome, cost)` records.
+>   A domain learner uses those records to improve specialists, working evaluations, and its own experimental decisions.
+>   A meta-agent can learn how to construct and improve those domain learning processes.
 >
-> It is **NOT only within-run self-improvement.** Self-improvement is **cross-run and
-> cross-benchmark**, compounding over time. A run that shows zero within-run effect still
-> feeds the corpus; the learnable structure emerges in the aggregate. The asset is the
-> corpus and the controller it trains — never any single result.
+> Sustained improvement within one domain is valuable in its own right.
+> A specialist need not transfer to another domain.
+> The transferable knowledge can be the procedure that trains specialists and improves their evaluations.
+> Failed experiments can inform that procedure when their evidence survives and affects later decisions.
 
-> **Success — the one definition (Gate B).** The flywheel works iff, across repeated runs on a
+> **Across-run policy improvement (Gate B).** One test of the domain learner asks whether, across repeated runs on a
 > persistent, checkable, long-horizon task family, the deployed controller's verifier-graded
 > **multi-objective** score improves **run-over-run** (run N+1 starts above run N at **matched
 > per-run compute**), the only changed variable is that the controller learned from the accumulated
@@ -38,11 +37,12 @@
 > **deployable checker** — never the answer oracle or the write-only judge. *Multi-objective* is
 > load-bearing: success is a vector (correct · fast · secure · cheap), with evidence scoped to each objective.
 > Tests, clocks, scanners, and cost meters provide partial measurements; record each check's coverage and unverified assumptions.
-> This OUTER-loop slope is THE success criterion. The
+> This tests one learning claim; evaluation quality, learning-process quality, and process transfer require separate comparisons.
+> The
 > within-run "trace+findings-fed controller beats the blind same-compute baseline under a non-oracle
 > selector at **equal compute**" question is a separate, narrower diagnostic — **Gate A**, the
 > comparison for within-run steering, scoped by [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
-> Compare actual resource use in both tests, including learning costs over the declared project horizon.
+> Compare actual resource use in both tests, including learning and evaluation-development costs over the declared horizon.
 > The budget may fund one deep trajectory, several shallow attempts, or a mixture.
 
 ## The flywheel
@@ -78,6 +78,12 @@ that passed a checker, not facts —
 [docs/research/leapfrog-program.md §S3](./research/leapfrog-program.md).
 
 ## The lifting generalization: recursive self-improvement
+
+The object being improved can be a complete domain learning process.
+It can produce specialized AgentProfiles, improved working evaluations, and the next experimental policy.
+The process can learn within one domain before, or without, being reused elsewhere.
+When it is reused, measure whether it constructs a useful learner in the new domain rather than expecting the old specialist to generalize.
+Working evaluations may evolve, while independent assessment tests whether those changes better detect meaningful success and failure.
 
 The flywheel is one instance of a more general object. Name the loop:
 

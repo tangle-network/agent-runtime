@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.193.1` and `@tangle-network/agent-eval@0.173.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.195.0` and `@tangle-network/agent-eval@0.174.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -1950,7 +1950,7 @@ Import from `@tangle-network/agent-eval` — 58 exports.
 
 ### CAMPAIGN — profile matrix, gates, improvement loop
 
-Import from `@tangle-network/agent-eval/campaign` — 408 exports.
+Import from `@tangle-network/agent-eval/campaign` — 409 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -2051,6 +2051,7 @@ Import from `@tangle-network/agent-eval/campaign` — 408 exports.
 | `sequentialPairedGate` | function | Anytime-valid sequential paired gate. Conforms to the existing `Gate` |
 | `skillOptOptimizationMethod` | function | Run Microsoft's SkillOpt trainer as a complete optimization method. |
 | `surfaceContentHash` | function | Full SHA-256 content identity for a prompt or finalized code surface. |
+| `surfaceDispatchRef` | function | Bind a campaign cache entry to the exact surface and caller-owned execution revision. |
 | `surfaceHash` | function | Short loop key derived from the same content identity as provenance. |
 | `tangleTracesRoot` | function | The shared, out-of-repo root for campaign/benchmark run bundles. Keeping run |
 | `traceAnalystQualityJudge` | function | _(no summary — add a TSDoc line at the declaration)_ |

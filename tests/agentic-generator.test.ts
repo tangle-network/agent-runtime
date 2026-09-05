@@ -488,6 +488,57 @@ describe('agenticGenerator exact Runtime execution', () => {
     )
   })
 
+  it.each(['unstaged', 'staged'])('rejects %s edits to only a tracked diagnosis', async (state) => {
+    const diagnosisPath = '.improve/raw-trace-diagnosis.md'
+    mkdirSync(join(repoRoot, '.improve'))
+    writeFileSync(join(repoRoot, diagnosisPath), 'Previous diagnosis.\n')
+    git(['add', diagnosisPath], repoRoot)
+    git(['commit', '-q', '-m', 'test: track diagnosis'], repoRoot)
+    const dispositions: AgenticGeneratorShotDisposition[] = []
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: routedExecutor(({ worktreePath }) => {
+        writeFileSync(join(worktreePath, diagnosisPath), `${TRACE_PATH}\nA revised diagnosis.\n`)
+        if (state === 'staged') git(['add', diagnosisPath], worktreePath)
+      }),
+      buildPrompt,
+      onShotDisposition: (_receipt, disposition) => dispositions.push(disposition),
+    })
+    const worktreePath = await candidateWorktree(`diagnosis-only-${state}`)
+
+    const result = await generator.generate(generateArgs(worktreePath, RAW_TRACE_FINDINGS))
+
+    expect(result.applied).toBe(false)
+    expect(dispositions.map((disposition) => disposition.kind)).toEqual(['rejected'])
+    expect(readFileSync(join(worktreePath, 'app.ts'), 'utf8')).toBe('export const x = 1\n')
+  })
+
+  it('accepts a renamed source file alongside a tracked diagnosis edit', async () => {
+    const diagnosisPath = '.improve/raw-trace-diagnosis.md'
+    mkdirSync(join(repoRoot, '.improve'))
+    writeFileSync(join(repoRoot, diagnosisPath), 'Previous diagnosis.\n')
+    git(['add', diagnosisPath], repoRoot)
+    git(['commit', '-q', '-m', 'test: track diagnosis'], repoRoot)
+    const renamedPath = ' renamed\napp.ts '
+    const generator = agenticGenerator({
+      profile: PROFILE,
+      executorForWorktree: routedExecutor(({ worktreePath }) => {
+        git(['mv', 'app.ts', renamedPath], worktreePath)
+        writeFileSync(
+          join(worktreePath, diagnosisPath),
+          `${TRACE_PATH}\nRenamed the source file.\n`,
+        )
+      }),
+      buildPrompt,
+    })
+    const worktreePath = await candidateWorktree('renamed-source')
+
+    const result = await generator.generate(generateArgs(worktreePath, RAW_TRACE_FINDINGS))
+
+    expect(result.applied).toBe(true)
+    expect(readFileSync(join(worktreePath, renamedPath), 'utf8')).toBe('export const x = 1\n')
+  })
+
   it('requires a substantive edit and exact trace citation in raw-trace mode', async () => {
     const prompts: string[] = []
     const generator = agenticGenerator({

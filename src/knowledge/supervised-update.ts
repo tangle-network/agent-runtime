@@ -1,6 +1,5 @@
 import { agentProfileSchema } from '@tangle-network/agent-interface'
 import type { RagKnowledgeUpdateResult } from '@tangle-network/agent-knowledge'
-import { RESEARCHER_SYSTEM_PROMPT } from '../profiles/researcher'
 import type { DeliverableSpec } from '../runtime/supervise/completion-gate'
 import { assertExecutableAgentProfile } from '../runtime/supervise/model-policy'
 import type { ExecutorConfig } from '../runtime/supervise/runtime'
@@ -131,19 +130,9 @@ export async function runSupervisedKnowledgeUpdate(
 ): Promise<SupervisedKnowledgeUpdateResult> {
   const exactSupervisor = agentProfileSchema.parse(options.supervisorProfile) as SupervisorProfile
   assertExecutableAgentProfile(exactSupervisor, 'runSupervisedKnowledgeUpdate')
-  const baseInstructions = exactSupervisor.prompt?.systemPrompt ?? RESEARCH_SUPERVISOR_SYSTEM_PROMPT
-  const workerContract = RESEARCHER_SYSTEM_PROMPT
-  const systemPrompt = workerContract
-    ? `${baseInstructions}\n\nEach researcher worker you spawn follows this contract:\n${workerContract}`
-    : baseInstructions
-
-  const profile: SupervisorProfile = {
-    ...exactSupervisor,
-    prompt: { ...exactSupervisor.prompt, systemPrompt },
-  }
   const run = options.runSupervised ?? supervise
   const task = formatSupervisedKnowledgeTask(options)
-  const supervised = await run(profile, task, {
+  const supervised = await run(exactSupervisor, task, {
     ...options.superviseOptions,
     budget: options.budget,
     backend: options.backend,

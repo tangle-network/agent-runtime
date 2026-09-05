@@ -4,9 +4,10 @@
  * optimization strategy as code; the caller gates it like any human-built candidate
  * (runBenchmark + a frozen holdout).
  *
- * Structurally safe by construction: the authored body composes shot()/critique() and
- * spends through the Supervisor's conserved pool — it can be wrong, but it cannot
- * Goodhart the check (it never sees the verifiers) and it cannot win by overspending.
+ * Brokered shot()/critique() calls spend through the Supervisor's conserved pool.
+ * Source validation checks obvious forbidden operations; it is not an execution sandbox.
+ * Code that uses other execution paths can access state or spend outside that pool.
+ * Callers must provide isolation when authored code requires an enforced boundary.
  *
  * The authored module is written to `outDir` and dynamically imported — run under a
  * TS-capable loader (tsx) since models often emit type annotations.
@@ -26,16 +27,20 @@ export const strategyAuthorContract = `
 You author an OPTIMIZATION STRATEGY for an agentic loop system. A strategy decides how to
 spend a compute budget to beat a task's deployable check. You compose exactly two steps:
 
-  shot(spec?: { handle?, messages?, steer?, persona?, tools? }): Promise<ShotResult | null>
+  shot(spec?: { handle?, messages?, steer?, profile?, tools? }): Promise<ShotResult | null>
     Runs ONE worker attempt (a bounded tool loop) over an artifact.
     - omit handle  => the shot opens its OWN fresh artifact and closes it after (a sample).
     - pass handle  => the shot CONTINUES that artifact (state accumulates across shots).
     - messages     => the carried conversation (pass the previous ShotResult.messages to continue).
     - steer        => a corrective instruction injected before the shot.
-    - persona      => { systemPrompt?, model? } — give THIS shot its own role and/or model
-      (multi-agent strategies: a researcher shot then an engineer shot, a panel of k
-      personas over one budget). On a fresh shot the systemPrompt replaces the task's; on
-      a carried conversation it arrives as a hand-off message. Same conserved budget.
+    - profile      => a complete AgentProfile — give THIS shot its own instructions,
+      model, skills, tools, hooks, and subagents. Include name, harness, and
+      model: { provider, default }; put standing instructions in prompt.systemPrompt.
+      For example: { ...opts.workerProfile, name: 'researcher',
+        prompt: { ...opts.workerProfile.prompt,
+          systemPrompt: 'Inspect the evidence before proposing a change.' } }.
+      Choose an available model from the current execution setup. Omit profile to use
+      the worker's exact profile. Every shot spends from the same conserved budget.
     - tools        => string[] — restrict THIS shot to a subset of the task's tools by
       name (focus an explore shot on read-only tools, an execute shot on write tools).
       Restriction-only; unknown names make the shot fail. ALWAYS select from
@@ -73,7 +78,7 @@ Rules:
 - The module must be EXACTLY this shape (no other imports, no commentary outside code):
 
 import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
-export default defineStrategy('your-strategy-name', async ({ surface, task, budget, shot, critique, listTools }) => {
+export default defineStrategy('your-strategy-name', async ({ surface, task, opts, budget, shot, critique, listTools }) => {
   // your composition (listTools comes from the destructured context — it is NOT a global)
 })
 `

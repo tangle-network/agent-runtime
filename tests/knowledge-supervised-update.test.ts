@@ -81,10 +81,30 @@ describe('knowledge supervisor integration', () => {
     expect(result.metadata.root).toBe('/kb/candidate')
     expect(captured?.task).toContain('Goal: candidate goal')
     expect(captured?.task).toContain('Knowledge base root: /kb/candidate')
-    expect(captured?.profile.name).toBe('knowledge-research-supervisor')
-    expect(captured?.profile.prompt?.systemPrompt).toContain(
-      'Each researcher worker you spawn follows this contract',
+    expect(captured?.profile).toEqual(supervisorProfile)
+    expect(captured?.task).toContain(
+      'Update files under the knowledge base root only. Stop when the readiness check passes.',
     )
+  })
+
+  it('executes the supplied supervisor prompt unchanged', async () => {
+    const profile: SupervisorProfile = {
+      ...supervisorProfile,
+      prompt: { systemPrompt: 'Apply source-backed updates with the configured knowledge tools.' },
+    }
+    await runSupervisedKnowledgeUpdate({
+      root: '/kb/candidate',
+      goal: 'fill support gaps',
+      readiness: () => true,
+      budget: { maxIterations: 2, maxTokens: 1000 },
+      supervisorProfile: profile,
+      runSupervised: async (executed, task) => {
+        expect(executed).toEqual(profile)
+        expect(task).toContain('Goal: fill support gaps')
+        expect(task).toContain('Knowledge base root: /kb/candidate')
+        return winner()
+      },
+    })
   })
 
   it('formats supervisor tasks with the KB root, findings, and metadata', () => {
