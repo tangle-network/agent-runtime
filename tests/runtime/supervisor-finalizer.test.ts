@@ -45,6 +45,16 @@ function offlineProfile(name: string): AgentProfile {
   }
 }
 
+function driverProfile(): AgentProfile {
+  return {
+    ...offlineProfile('root'),
+    tools: {
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+    },
+  }
+}
+
 const emptyTree: TreeView = { root: 'r', nodes: [], inFlight: 0, waiting: 0 }
 const poolReadout: Scope<unknown>['budget'] = {
   tokensLeft: budget.maxTokens,
@@ -261,7 +271,7 @@ const makeWorker = (profile: unknown) => {
 
 describe('SupervisorFinalizer — end to end through supervise()', () => {
   it('the default keeps the delivered answer over a higher-scoring unchecked one', async () => {
-    const result = await supervise(offlineProfile('root'), 'task', {
+    const result = await supervise(driverProfile(), 'task', {
       budget,
       perWorker: { maxIterations: 5, maxTokens: 10_000 },
       makeWorkerAgent: makeWorker,
@@ -272,7 +282,7 @@ describe('SupervisorFinalizer — end to end through supervise()', () => {
   })
 
   it('an opted-in collectDelivered changes the SHAPE without ever widening eligibility', async () => {
-    const result = await supervise(offlineProfile('root'), 'task', {
+    const result = await supervise(driverProfile(), 'task', {
       budget,
       perWorker: { maxIterations: 5, maxTokens: 10_000 },
       makeWorkerAgent: makeWorker,
@@ -286,7 +296,7 @@ describe('SupervisorFinalizer — end to end through supervise()', () => {
   })
 
   it('a run whose only high scorer is unchecked is a no-winner, not a rescued output', async () => {
-    const result = await supervise(offlineProfile('root'), 'task', {
+    const result = await supervise(driverProfile(), 'task', {
       budget,
       perWorker: { maxIterations: 5, maxTokens: 10_000 },
       makeWorkerAgent: () => leaf('unchecked', 'UNCHECKED-PROSE', 0.99, false),

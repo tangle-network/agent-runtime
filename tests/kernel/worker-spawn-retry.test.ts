@@ -17,7 +17,7 @@ import {
 } from '../../src/runtime/supervise/worker-retry'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 /**
  * The exact message the bridge records when a worker spawn queues past the host executor's single
@@ -250,7 +250,10 @@ describe('supervise({ workerRetry })', () => {
     const leaf = flakyLeaf({ name: 'w1', failures: 1, reason: ACQUIRE_TIMEOUT })
     const retries: WorkerSpawnRetryAttempt[] = []
     const result = await supervise(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      }),
       'delegate one unit',
       {
         budget,
@@ -277,7 +280,10 @@ describe('supervise({ workerRetry })', () => {
   it('loses the same worker when no retry policy is declared', async () => {
     const leaf = flakyLeaf({ name: 'w1', failures: 1, reason: ACQUIRE_TIMEOUT })
     const result = await supervise(
-      testAgentProfile('root', { harness: 'cli-base' }),
+      testAgentProfile('root', {
+        harness: 'cli-base',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
+      }),
       'delegate one unit',
       {
         budget,

@@ -21,7 +21,16 @@ export function bestOfN(): { graph: AgentGraph; opts: RunGraphTestOptions } {
   // ── The topology: plain data ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'lead', profile: offlineProfile('lead', 'Keep the best.') },
+      {
+        id: 'lead',
+        profile: {
+          ...offlineProfile('lead', 'Keep the best.'),
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+          },
+        },
+      },
       { id: 'coder-a', profile: offlineProfile('coder-a', 'Minimal diff.') },
       { id: 'coder-b', profile: offlineProfile('coder-b', 'Full rewrite.') },
     ],

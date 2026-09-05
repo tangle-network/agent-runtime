@@ -151,22 +151,32 @@ const brain: ToolLoopChat = async (messages) => {
   }
 }
 
-const result = await supervise(offlineProfile('root'), 'five assignments', {
-  budget: { maxIterations: 200, maxTokens: 500_000 },
-  // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
-  // fifth spawn and make this a four-worker test.
-  perWorker: { maxIterations: 5, maxTokens: 10_000 },
-  makeWorkerAgent: (profile) => {
-    const name = String((profile as { name?: unknown } | undefined)?.name ?? '')
-    const w = workers.find((x) => x.key === name)
-    if (w === undefined) throw new Error(`unknown worker profile ${JSON.stringify(profile)}`)
-    return leafAgent(w.key, w.out, w.score, phase === '1' && hangsInPhase1.has(w.key))
+const result = await supervise(
+  {
+    ...offlineProfile('root'),
+    tools: {
+      agent_runtime_coordination_spawn_worker: true,
+      agent_runtime_coordination_await_event: true,
+    },
   },
-  brain,
-  runId,
-  runDir: dir,
-  now: () => (phase === '2' ? 2_000 : 1_000),
-})
+  'five assignments',
+  {
+    budget: { maxIterations: 200, maxTokens: 500_000 },
+    // Explicit per-worker ceiling: the default is a quarter of the pool, which would starve the
+    // fifth spawn and make this a four-worker test.
+    perWorker: { maxIterations: 5, maxTokens: 10_000 },
+    makeWorkerAgent: (profile) => {
+      const name = String((profile as { name?: unknown } | undefined)?.name ?? '')
+      const w = workers.find((x) => x.key === name)
+      if (w === undefined) throw new Error(`unknown worker profile ${JSON.stringify(profile)}`)
+      return leafAgent(w.key, w.out, w.score, phase === '1' && hangsInPhase1.has(w.key))
+    },
+    brain,
+    runId,
+    runDir: dir,
+    now: () => (phase === '2' ? 2_000 : 1_000),
+  },
+)
 
 process.stdout.write(
   `${JSON.stringify({

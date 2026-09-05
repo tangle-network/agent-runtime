@@ -14,7 +14,7 @@ import type {
   UsageEvent,
 } from '../../src/runtime/supervise/types'
 import { supervisorAgent } from '../helpers/runtime-with-test-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // A real (simple) delivering leaf — NOT a mock of the MCP path; the HTTP→MCP→Scope.spawn is real.
 function deliveringLeaf(name: string, out: unknown): Agent<unknown, unknown> {
@@ -68,6 +68,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
           blobs,
           makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
           perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+          toolNames: ['spawn_worker', 'await_event'],
         })
         try {
           const toolsList = await jsonRpc(mcp.url, 'tools/list', {})
@@ -118,6 +119,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       blobs: new InMemoryResultBlobStore(),
       makeWorkerAgent: () => deliveringLeaf('unused', {}),
       perWorker: { maxIterations: 1, maxTokens: 1 },
+      toolNames: ['spawn_worker', 'read_binding'],
       onCoordinationTools: (tools) => {
         boundNames = tools.map((tool) => tool.name)
       },
@@ -141,7 +143,6 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       expect(called.error).toBeUndefined()
       expect(boundBeforeFirstCall).toBe(true)
       expect(boundNames).toContain('spawn_worker')
-      expect(boundNames).toContain('await_event')
     } finally {
       await mcp.close()
     }
@@ -155,6 +156,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
       blobs: new InMemoryResultBlobStore(),
       makeWorkerAgent: () => deliveringLeaf('unused', {}),
       perWorker: { maxIterations: 1, maxTokens: 1 },
+      toolNames: ['spawn_worker', 'lookup_evidence'],
       nodeTools: [
         {
           name: 'lookup_evidence',
@@ -198,6 +200,7 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
         blobs: new InMemoryResultBlobStore(),
         makeWorkerAgent: () => deliveringLeaf('unused', {}),
         perWorker: { maxIterations: 1, maxTokens: 1 },
+        toolNames: [],
         nodeTools: [
           {
             name: 'spawn_worker',
@@ -208,6 +211,18 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
         ],
       }),
     ).rejects.toThrow(/spawn_worker.*shadows/)
+  })
+
+  it('refuses duplicate explicit tool grants before opening a listener', async () => {
+    await expect(
+      serveCoordinationMcp({
+        scope: {} as Scope<unknown>,
+        blobs: new InMemoryResultBlobStore(),
+        makeWorkerAgent: () => deliveringLeaf('unused', {}),
+        perWorker: { maxIterations: 1, maxTokens: 1 },
+        toolNames: ['spawn_worker', 'spawn_worker'],
+      }),
+    ).rejects.toThrow(/toolNames contains a duplicate name/)
   })
 })
 
@@ -255,6 +270,7 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
       blobs: new InMemoryResultBlobStore(),
       makeWorkerAgent: () => deliveringLeaf('w', {}),
       perWorker: { maxIterations: 1, maxTokens: 10 } as Budget,
+      toolNames: ['spawn_worker'],
       ...extra,
     })
 
@@ -366,16 +382,22 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
       }
       await jsonRpc(coordinationMcpUrl, 'tools/call', { name: 'stop', arguments: {} })
     }
-    const root = supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
-      blobs,
-      makeWorkerAgent: (_profile, context) => {
-        mailUrls.push(context?.peerMailUrl)
-        return deliveringLeaf('w', { answer: 1 })
+    const root = supervisorAgent(
+      testAgentProfile('sup', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event', 'stop'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: (_profile, context) => {
+          mailUrls.push(context?.peerMailUrl)
+          return deliveringLeaf('w', { answer: 1 })
+        },
+        perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
+        driveHarness,
+        peerMail: true,
       },
-      perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
-      driveHarness,
-      peerMail: true,
-    })
+    )
     const result = await createSupervisor<unknown, unknown>().run(root, 'solve', {
       budget: { maxIterations: 100, maxTokens: 100_000 },
       runId: 'mail-mcp',

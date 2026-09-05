@@ -489,7 +489,7 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
 - The in-process driver brain is `driverAgent` (`supervise/coordination-driver.ts`) running the owned tool-loop executor `routerToolsInlineExecutor` (`supervise/runtime.ts`).
   A driver/supervisor's brain is driven from its `AgentProfile`: prompt + model for the deliberately narrow in-process router arm, or the complete materialized profile for an external-harness arm.
 - **REAL** — `supervise(profile, task, { backend })` validates and freezes every authored child profile before budget reservation, applies shared security plus optional product authorization, and preserves the authorized profile through execution (`supervise/supervise.ts`).
-  A child marked `metadata.role: 'driver'` recursively becomes another supervisor over the same budget; every other child resolves to a leaf.
+  A child that declares `tools.agent_runtime_coordination_spawn_worker: true` recursively becomes another supervisor over the same budget; every other child resolves to a leaf.
 - **REAL** — a local external-harness supervisor runs automatically through a `bridge` `driverBackend ?? backend` that mounts the live coordination MCP under one reserved alias.
   The endpoint travels as a runtime attachment beside the AgentProfile (`runtime_attachments.mcp` on the cli-bridge request), never inside it, so a rebound ephemeral port cannot move the profile digest a durable bridge session is bound to.
   cli-bridge must advertise `capabilities.runtimeAttachments.mcp`; a bridge that does not is refused before the first paid turn.

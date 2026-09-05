@@ -76,6 +76,22 @@ Per-child budget reserved from the conserved pool on each spawn.
 Independent completion check for work the driver performs itself. When present, the driver
  receives `submit_result`; the first passing submission ends the loop and becomes the output.
 
+##### onAcceptedSubmission?
+
+> `readonly` `optional` **onAcceptedSubmission?**: (`result`) => `void`
+
+Receives a result only after this manager's completion check accepted it.
+
+###### Parameters
+
+###### result
+
+`unknown`
+
+###### Returns
+
+`void`
+
 ##### maxLiveWorkers?
 
 > `readonly` `optional` **maxLiveWorkers?**: `number`
@@ -165,6 +181,13 @@ The driver's stance — a string, or built from the task (the worker-driver prom
 
 Product-selected tools already bound to this exact supervisor node. The same descriptors are
  served over MCP for external supervisors; this arm projects them into router ToolSpecs.
+
+##### toolNames
+
+> `readonly` **toolNames**: readonly `string`[]
+
+Exact bare names to expose from the coordination, node-tool, and direct-work-tool set.
+ Runtime never grants an implicit complete tool set.
 
 ##### extraTools?
 
@@ -389,8 +412,9 @@ and a run-scoped request stays unanswered.
 > `readonly` `optional` **backend?**: [`ExecutorConfig`](runtime.md#executorconfig)
 
 WHERE worker nodes run — the executor backend. Provide this OR `makeLeafAgent`. Forwarded to
- `supervise()`, which derives every authorized LEAF from it; a node declared `role: 'driver'`
- becomes a nested supervisor instead, whose own leaves are derived the same way.
+ `supervise()`, which derives every authorized leaf from it. A node that declares
+ `agent_runtime_coordination_spawn_worker` becomes a nested supervisor instead, whose own
+ leaves are derived the same way.
 
 ###### Inherited from
 
@@ -418,8 +442,8 @@ WHERE the ROOT node's harness brain runs — forwarded to `supervise()` verbatim
 
 Leaf-execution override (offline tests / advanced). `runGraph` still owns node pinning,
  directive delivery, and the edge ledger AROUND this seam — only the leaf `act` is yours.
- Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node
- declared `role: 'driver'` still becomes a nested supervisor even under an offline leaf.
+ Slots INSIDE the kernel's authorized path (`SuperviseOptions.makeLeafAgent`), so a node that
+ declares the spawn tool still becomes a nested supervisor even under an offline leaf.
 
 ###### Inherited from
 
@@ -567,9 +591,9 @@ digests itself from the exact detached values it executes.
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized backend-derived child. The callback runs
+after spawn authorization and receives a detached immutable context. It may return `undefined`
+to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
 
 ###### Parameters
 
@@ -714,29 +738,6 @@ The EFFECTIVE continuity of this spawn, resolved by the coordination layer.
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeSpawn`](runtime.md#authorizespawn-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
@@ -864,9 +865,9 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a completion check. A
+recursive manager receives the check selected for its exact assignment. Refused for a
+router-brained manager, which runs its turn loop in process. Omit/`0` = never.
 
 ###### Inherited from
 
@@ -1307,9 +1308,9 @@ The independent completion check for backend-derived workers and direct supervis
 
 > `readonly` `optional` **resolveDeliverable?**: (`input`) => [`DeliverableSpec`](runtime.md#deliverablespec)\<`unknown`\> \| `undefined`
 
-Resolve the completion check for one exact authorized backend-derived leaf. The callback runs
-after spawn authorization and driver classification, receives a detached immutable context,
-and may return `undefined` to use the run-wide `deliverable`. Driver profiles never call it.
+Resolve the completion check for one exact authorized backend-derived child. The callback runs
+after spawn authorization and receives a detached immutable context. It may return `undefined`
+to use the run-wide `deliverable`; a managed child receives its selected check for direct work.
 
 ###### Parameters
 
@@ -1528,29 +1529,6 @@ authorized task. The exact worker identity and detached bytes are recorded befor
 
 [`SuperviseOptions`](runtime.md#superviseoptions).[`authorizeMessage`](runtime.md#authorizemessage-1)
 
-##### isDriverProfile?
-
-> `readonly` `optional` **isDriverProfile?**: (`input`) => `boolean`
-
-Decide whether an authorized child becomes another supervisor. By default only
- `metadata.role === 'driver'` does. Products receive the same frozen post-authorization
- context as `resolveDeliverable`, so trusted execution/assignment authority can override
- model-authored metadata without a side channel.
-
-###### Parameters
-
-###### input
-
-[`AuthorizedSpawnContext`](runtime.md#authorizedspawncontext)
-
-###### Returns
-
-`boolean`
-
-###### Inherited from
-
-[`SuperviseOptions`](runtime.md#superviseoptions).[`isDriverProfile`](runtime.md#isdriverprofile-1)
-
 ##### router?
 
 > `readonly` `optional` **router?**: [`RouterTransportConfig`](runtime.md#routertransportconfig)
@@ -1715,9 +1693,9 @@ A re-prompt is the retry path, not a second loop: same scope, same coordination 
 live children, and the same budget, deadline, abort, and `driverRetry.maxAttempts` bounds. A
 run the coordination server already stopped is never re-prompted — that stop was a decision.
 
-Requires `deliverable`, and applies to the ROOT manager — the one that declares the run's
-completion check. A recursive manager declares none of its own, so it is left unchanged.
-Refused for a router-brained root, which runs its turn loop in process. Omit/`0` = never.
+Requires `deliverable`, and applies to every external manager with a completion check. A
+recursive manager receives the check selected for its exact assignment. Refused for a
+router-brained manager, which runs its turn loop in process. Omit/`0` = never.
 
 ###### Inherited from
 
@@ -2271,6 +2249,26 @@ Independent completion check for direct driver work (`submit_result`).
 ###### Inherited from
 
 [`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`deliverable`](runtime.md#deliverable-5)
+
+##### onAcceptedSubmission?
+
+> `readonly` `optional` **onAcceptedSubmission?**: (`result`) => `void`
+
+Receives a result only after this manager's completion check accepted it.
+
+###### Parameters
+
+###### result
+
+`unknown`
+
+###### Returns
+
+`void`
+
+###### Inherited from
+
+[`SupervisorAgentDeps`](runtime.md#supervisoragentdeps).[`onAcceptedSubmission`](runtime.md#onacceptedsubmission)
 
 ##### maxLiveWorkers?
 

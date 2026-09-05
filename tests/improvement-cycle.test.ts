@@ -1095,7 +1095,7 @@ describe('agent improvement lifecycle', { timeout: 30_000 }, () => {
     expect(activationResult.outcome.status).toBe('applied')
     expect(profile.prompt?.systemPrompt).not.toBe('PROMOTED')
     await result.improvement.dispose()
-  }, 15_000)
+  })
 
   it('rejects an experiment that substitutes a different candidate', async () => {
     const seed = createCandidateExperimentFixture()

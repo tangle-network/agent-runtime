@@ -58,10 +58,16 @@ export function userSimConversation(): {
     nodes: [
       {
         id: 'user-sim',
-        profile: offlineProfile(
-          'user-sim',
-          'You are Ada, a busy founder buying a team plan. Terse. SSO is non-negotiable.',
-        ),
+        profile: {
+          ...offlineProfile(
+            'user-sim',
+            'You are Ada, a busy founder buying a team plan. Terse. SSO is non-negotiable.',
+          ),
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+          },
+        },
       },
       {
         id: 'product-agent',

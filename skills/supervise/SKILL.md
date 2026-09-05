@@ -28,21 +28,39 @@ Use only fields the selected backend can materialize.
   "name": "source-skeptic-v1",
   "description": "Challenge one candidate claim against primary evidence.",
   "prompt": {
-    "appendSystemPrompt": "Return a claim table with source locations, contradictions, unknowns, and a reproducible rejection check."
+    "systemPrompt": "Return a claim table with source locations, contradictions, unknowns, and a reproducible rejection check."
   },
   "model": {
     "default": "<allowed-model-id>",
     "reasoningEffort": "xhigh"
   },
-  "metadata": {
-    "role": "driver"
+  "tools": {
+    "agent_runtime_coordination_spawn_worker": true,
+    "agent_runtime_coordination_await_event": true
+  },
+  "resources": {
+    "failOnError": true,
+    "skills": [
+      {
+        "kind": "inline",
+        "name": "profile-authoring/SKILL.md",
+        "content": "<the complete profile-authoring skill text>"
+      }
+    ]
   }
 }
 ```
 
 The example shows placement, not required values.
-Use `metadata.role: 'driver'` only when this child should author and supervise descendants.
-Omit that role for a leaf.
+Every agent is the same `AgentProfile` shape.
+An agent becomes a recursive lead only by declaring `agent_runtime_coordination_spawn_worker: true`.
+Declare each other Runtime verb it will use, such as `await_event`, `steer_agent`, or `read_journal`.
+Runtime mounts only the declared bare verbs through its coordination surface; the provider receives a profile projection without Runtime-owned declarations.
+Metadata can describe the work, but it never grants execution authority.
+Every profile that can spawn workers carries the complete profile-authoring skill in `resources.skills`.
+Make that resource an immutable inline snapshot or a pinned reference, and set `resources.failOnError: true`.
+This is taught through the profile, not injected or enforced by Runtime: the authored profile remains the complete record of why it can delegate.
+Omit Runtime coordination tools for a leaf.
 
 The task argument names the concrete artifact and a check that can fail.
 The profile names how the agent works and which capabilities it receives.
@@ -74,7 +92,7 @@ Inspect the artifact and its independent completion result.
 Preserve exact profile identities, assignment keys, parent-child links, continuations, costs, failures, and unknown accounting.
 Worker prose cannot promote its own result.
 
-Use `submit_result` only when the attached completion check can validate the root's own artifact.
+Use `submit_result` only when the attached completion check can validate this agent's own artifact.
 Calling `stop` ends coordination; it does not turn missing evidence into success.
 
 ## Exact contracts

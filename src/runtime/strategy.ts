@@ -17,8 +17,8 @@
  * Both are an `Agent` whose `act` spawns leaf shots through `scope.spawn` and reacts via
  * `scope.next()` — so the conserved budget pool meters them (equal-k by construction), the journal
  * records the tree, and the same primitive nests. `runAgentic` runs the chosen driver through
- * `createSupervisor().run`. The leaf (one shot over a handle) is resolved per-spawn from a
- * surface-closed registry — the open `Executor` seam, not bespoke per-benchmark glue.
+ * `createSupervisor().run`. Each leaf carries its own per-spawn executor factory over the open
+ * `Executor` seam, rather than using profile metadata to select behavior.
  */
 
 import type { ChatClient } from '@tangle-network/agent-eval'
@@ -36,16 +36,13 @@ import {
   concreteModelId,
   profileModelExecutionSettings,
 } from './supervise/model-policy'
-import { createExecutor } from './supervise/runtime'
+import { createExecutor, createExecutorRegistry } from './supervise/runtime'
 import { createSupervisor } from './supervise/supervisor'
 import type {
   Agent,
   AgentSpec,
   Budget,
   Executor,
-  ExecutorContext,
-  ExecutorFactory,
-  ExecutorRegistry,
   ExecutorResult,
   ExecutorToolCall,
   Scope,
@@ -459,7 +456,7 @@ async function renderCorpusReadback(opts: AgenticOptions): Promise<string> {
   return `Relevant learned facts from prior attempts:\n${rendered.join('\n')}`
 }
 
-// ── Leaf executors (one shot / one analyst), resolved per-spawn from the surface ──
+// ── Leaf executors (one shot / one analyst), constructed per spawn from the surface ──
 
 /** Measured result of one strategy shot. */
 export interface StrategyShotResult {
@@ -587,49 +584,32 @@ function analystExecutor(opts: AgenticOptions): Executor<unknown> {
   }
 }
 
-/**
- * Registry dispatching on the child's role tag — fresh executor per spawn (no
- * shared-instance race). `withDriverExecutor` wraps it so a `role:'driver'` child resolves
- * to the recursive driver-executor (a child that drives its OWN children — agents drive
- * agents) before this leaf dispatch; `shot`/`analyst` children resolve to their leaf
- * executors here unchanged.
- */
-function agenticRegistry(surface: AgenticSurface, opts: AgenticOptions): ExecutorRegistry {
-  const leaves: ExecutorRegistry = {
-    register() {
-      throw new Error('agenticRegistry: register unsupported')
-    },
-    resolve<Out>(spec: AgentSpec) {
-      const role = (spec.profile.metadata as { role?: string } | undefined)?.role
-      const factory: ExecutorFactory<Out> = (_s: AgentSpec, _ctx: ExecutorContext) =>
-        (role === 'analyst' ? analystExecutor(opts) : shotExecutor(surface, opts)) as Executor<Out>
-      return { succeeded: true as const, value: factory }
-    },
-  }
-  return withDriverExecutor(leaves)
-}
-
 function leaf(
   name: string,
-  role: 'shot' | 'analyst',
+  kind: 'shot' | 'analyst',
   profile: AgentProfile,
+  surface: AgenticSurface,
+  opts: AgenticOptions,
 ): Agent<unknown, Outcome<unknown>> {
-  const exactProfile = exactAgenticProfile(profile, `agentic ${role}`)
+  const exactProfile = exactAgenticProfile(profile, `agentic ${kind}`)
   const agent = {
     name,
     executorSpec: {
       profile: {
         ...exactProfile,
         name,
-        metadata: { ...exactProfile.metadata, role },
       },
       harness: null,
+      // The execution behavior is a trusted, per-spawn factory. It is not profile metadata, so
+      // changing a descriptive profile field can never select a different Runtime authority path.
+      executorFactory: () =>
+        (kind === 'analyst'
+          ? analystExecutor(opts)
+          : shotExecutor(surface, opts)) as Executor<unknown>,
     } as AgentSpec,
     act(): Promise<Outcome<unknown>> {
-      // SPAWNED, not run: its `executorSpec` (role shot/analyst) resolves a leaf executor
-      // the scope drives. `act` is never called for a spawned child; it fails loud if
-      // mis-used as a root. A `role:'driver'` child instead resolves to the recursive
-      // driver-executor (agents drive agents) — see `withDriverExecutor`.
+      // SPAWNED, not run: its `executorSpec` resolves its per-spawn leaf executor. `act` is never
+      // called for a spawned child; it fails loud if mis-used as a root.
       throw new Error(`agentic: spawned child "${name}" was run directly (the executor drives it)`)
     },
   }
@@ -692,7 +672,7 @@ export function depthStrategy(
       let shots = 0
       try {
         for (shots = 0; shots < cfg.maxShots; shots += 1) {
-          const child = leaf(`shot:${shots}`, 'shot', opts.workerProfile)
+          const child = leaf(`shot:${shots}`, 'shot', opts.workerProfile, surface, opts)
           const memorySteer = await renderCorpusReadback(opts)
           const steer = [shots === 0 ? undefined : pendingSteer, memorySteer]
             .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
@@ -714,6 +694,8 @@ export function depthStrategy(
             `analyst:${shots}`,
             'analyst',
             opts.analystProfile ?? opts.workerProfile,
+            surface,
+            opts,
           )
           const aRes = scope.spawn(
             aChild,
@@ -762,7 +744,7 @@ export function breadthStrategy(
       let opened = 0
       for (let k = 0; k < cfg.width; k += 1) {
         const res = scope.spawn(
-          leaf(`rollout:${k}`, 'shot', opts.workerProfile),
+          leaf(`rollout:${k}`, 'shot', opts.workerProfile, _surface, opts),
           { task } as ShotTask,
           {
             budget: perChild(innerTurns),
@@ -938,7 +920,7 @@ export function defineStrategy<Result extends StrategyResult>(
           async shot(spec) {
             const profile = spec?.profile ?? opts.workerProfile
             const innerTurns = profileTurnLimit(profile, 'authored strategy shot')
-            const child = leaf(`shot:${seq}`, 'shot', profile)
+            const child = leaf(`shot:${seq}`, 'shot', profile, surface, opts)
             seq += 1
             const res = scope.spawn(
               child,
@@ -972,6 +954,8 @@ export function defineStrategy<Result extends StrategyResult>(
               `analyst:${seq}`,
               'analyst',
               opts.analystProfile ?? opts.workerProfile,
+              surface,
+              opts,
             )
             seq += 1
             const res = scope.spawn(
@@ -990,6 +974,8 @@ export function defineStrategy<Result extends StrategyResult>(
               `analyst:${seq}`,
               'analyst',
               opts.analystProfile ?? opts.workerProfile,
+              surface,
+              opts,
             )
             seq += 1
             const res = scope.spawn(
@@ -1176,7 +1162,7 @@ export async function runAgentic<Result extends StrategyResult = StrategyResult>
     runId: `agentic:${strategy.name}:${opts.task.id}`,
     journal: new InMemorySpawnJournal(),
     blobs: new InMemoryResultBlobStore(),
-    executors: agenticRegistry(opts.surface, exactOpts),
+    executors: withDriverExecutor(createExecutorRegistry()),
     maxDepth: 3,
     ...(opts.hooks ? { hooks: opts.hooks } : {}),
   })

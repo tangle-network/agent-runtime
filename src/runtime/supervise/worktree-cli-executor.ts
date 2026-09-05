@@ -65,7 +65,7 @@ export interface WorktreeCliExecutorOptions {
   runId?: string
   /** Override the base ref the worktree is cut from (default `HEAD`). */
   baseRef?: string
-  /** Wall-clock cap per harness subprocess (ms). Default 5 min (the `runLocalHarness` default). */
+  /** Optional wall-clock cap per harness subprocess (ms). Omit it for no timer. */
   harnessTimeoutMs?: number
   /** Run Codex with an ephemeral session, isolated config/instructions, network disabled, and
    *  JSONL usage capture. Requires `profile.harness: 'codex'`; metered by default. */

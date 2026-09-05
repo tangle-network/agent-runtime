@@ -26,6 +26,20 @@ Malformed responses and failed lesson writes remain errors in observation and ha
 Corpus records are detached immutable values, and file appends serialize conflicting IDs across processes.
 Supervised knowledge updates execute the supplied profile without appending fixed research instructions.
 
+## 0.194.0
+
+### Profiles own recursive authority
+
+Runtime now derives managed-node authority from each `AgentProfile` tool declaration.
+A profile can use a Runtime coordination tool without a fixed role, and it can recurse only when it declares `agent_runtime_coordination_spawn_worker`.
+Runtime no longer exports `supervisorPolicyPrompt` or injects a default supervisor policy.
+Consumers must put their working instructions in the profile they run.
+
+### Accepted direct submissions survive restart
+
+`submit_result` now records an accepted result before it responds.
+A resumed manager returns that result without starting another router or harness session, and concurrent passing submissions retain one accepted result.
+
 ## 0.193.1
 
 ### Bridge roots refuse unavailable work before allocation

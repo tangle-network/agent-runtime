@@ -78,6 +78,7 @@ function options(
     blobs,
     makeWorkerAgent,
     perWorker: { maxIterations: 2, maxTokens: 100 },
+    toolNames: ['spawn_worker', 'await_event', 'list_questions'],
     systemPrompt: 'drive',
     maxTurns: 8,
     controlDir,

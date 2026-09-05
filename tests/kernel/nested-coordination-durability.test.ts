@@ -11,7 +11,10 @@ import type {
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
+
+const rootTools = runtimeToolDeclarations('spawn_worker', 'await_event', 'steer_agent')
+const managerTools = runtimeToolDeclarations('list_questions', 'ask_parent')
 
 async function callTool(
   url: string,
@@ -44,7 +47,7 @@ async function callTool(
 function rootBrain() {
   const manager = testAgentProfile('identical-manager', {
     harness: 'codex',
-    metadata: { role: 'driver' },
+    tools: managerTools,
   })
   return scriptedBrain([
     {
@@ -108,6 +111,7 @@ describe('nested supervisor coordination durability', () => {
     }
     const profile = testAgentProfile('root', {
       harness: 'cli-base',
+      tools: rootTools,
       prompt: { systemPrompt: 'Run both managers.' },
     })
 
@@ -172,7 +176,7 @@ describe('nested supervisor coordination durability', () => {
       if (turn === 1) {
         const manager = testAgentProfile('identical-manager', {
           harness: 'codex',
-          metadata: { role: 'driver' },
+          tools: managerTools,
         })
         return {
           toolCalls: [
@@ -223,6 +227,7 @@ describe('nested supervisor coordination durability', () => {
     await supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
+        tools: rootTools,
         prompt: { systemPrompt: 'Run both managers.' },
       }),
       'root task',
@@ -270,6 +275,7 @@ describe('nested supervisor coordination durability', () => {
     await supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
+        tools: rootTools,
         prompt: { systemPrompt: 'Run both managers.' },
       }),
       'root task',
@@ -294,7 +300,7 @@ describe('nested supervisor coordination durability', () => {
                   arguments: {
                     profile: testAgentProfile('identical-manager', {
                       harness: 'codex',
-                      metadata: { role: 'driver' },
+                      tools: managerTools,
                     }),
                     task: 'same task',
                     key: 'manager-a',
@@ -305,7 +311,7 @@ describe('nested supervisor coordination durability', () => {
                   arguments: {
                     profile: testAgentProfile('identical-manager', {
                       harness: 'codex',
-                      metadata: { role: 'driver' },
+                      tools: managerTools,
                     }),
                     task: 'same task',
                     key: 'manager-b',

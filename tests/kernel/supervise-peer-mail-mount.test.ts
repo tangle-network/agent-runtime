@@ -4,6 +4,7 @@ import { type AgentProfile, canonicalAgentProfileDigest } from '@tangle-network/
 import { afterEach, describe, expect, it } from 'vitest'
 import { workerFromBackend } from '../../src/runtime/supervise/supervise'
 import { supervise } from '../helpers/runtime-with-test-brain'
+import { runtimeToolDeclarations } from './test-agent-profile'
 
 /**
  * `peerMail: true` mints one capability URL per spawn. This file proves the runtime also MOUNTS it
@@ -27,12 +28,13 @@ interface BridgeRequest {
   runtime_attachments?: { mcp: Record<string, { transport?: string; url?: string }> }
 }
 
-function codexProfile(name: string): AgentProfile {
+function codexProfile(name: string, tools?: AgentProfile['tools']): AgentProfile {
   return {
     name,
     harness: 'codex',
     prompt: { systemPrompt: `Act as ${name}.` },
     model: { provider: 'openai', default: 'gpt-5.6' },
+    ...(tools ? { tools } : {}),
   }
 }
 
@@ -242,15 +244,19 @@ describe('supervise — peer mail mounts on the backend-derived worker path', ()
     await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
     const { port } = server.address() as AddressInfo
 
-    const result = await supervise(codexProfile('lead'), 'fan out and compare notes', {
-      backend: {
-        backend: 'bridge',
-        bridgeUrl: `http://127.0.0.1:${port}`,
-        bridgeBearer: 'test-token',
+    const result = await supervise(
+      codexProfile('lead', runtimeToolDeclarations('spawn_worker', 'await_event', 'stop')),
+      'fan out and compare notes',
+      {
+        backend: {
+          backend: 'bridge',
+          bridgeUrl: `http://127.0.0.1:${port}`,
+          bridgeBearer: 'test-token',
+        },
+        budget: { maxIterations: 12, maxTokens: 200_000 },
+        peerMail: true,
       },
-      budget: { maxIterations: 12, maxTokens: 200_000 },
-      peerMail: true,
-    })
+    )
 
     expect(result.kind).not.toBe('error')
     expect(mailUrls).toHaveLength(2)

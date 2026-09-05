@@ -155,7 +155,7 @@ describe('profile materialization contracts', () => {
       hooks: { afterTool: [{ command: './capture-result' }] },
       modes: { adversarial: { prompt: 'Try to falsify the claim.' } },
       confidential: { sealed: true },
-      metadata: { role: 'driver' },
+      metadata: { source: 'materialization-test' },
       extensions: { codex: { sandbox: 'workspace-write' } },
     }
 

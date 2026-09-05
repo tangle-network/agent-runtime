@@ -399,7 +399,7 @@ describe('agent improvement profile delivery', () => {
           tools: { Read: true },
           permissions: { shell: 'deny' },
           maxSteps: 4,
-          metadata: { role: 'critic' },
+          metadata: { specialty: 'critic' },
         },
       },
       resources: {

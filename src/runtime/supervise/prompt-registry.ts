@@ -9,11 +9,8 @@
  * optimizer names a handle and the TEXT is swappable, sweepable, and diffable without a code
  * change. Graph edges (`runGraph`) carry handles, never inline prose.
  *
- * ONE policy per role, whichever front door builds it: the seeded `supervisor/policy` entry is the
- * single supervisor stance. The package previously shipped two contradictory defaults — the router
- * arm's "do small work YOURSELF" (`defaultSupervisorPrompt`) versus the delegate front door's "you
- * do NOT do the work yourself" (`supervisorInstructions`) — selected by entry point. Both now
- * derive from the one entry here; which door you enter no longer decides the policy.
+ * A profile or graph may opt into one of these versioned texts. Runtime does not select a standing
+ * supervisor policy when the profile omits one.
  *
  * @experimental
  */
@@ -119,50 +116,9 @@ export function createPromptRegistry(seed?: ReadonlyArray<RegisteredPrompt>): Pr
 
 // ── Seeded kernel surfaces ─────────────────────────────────────────────────────
 //
-// The knowledge below was previously hardcoded inside builder functions
-// (`defaultSupervisorPrompt`, `supervisorInstructions`, the steering-driver continuation
-// parameters). Seeding it here makes each surface a versioned optimization target; the builders
-// now DERIVE from these entries instead of owning the text.
-
-/**
- * THE supervisor policy — one stance, both front doors. The work-vs-delegate rule is conditional
- * on capability (work tools present or not), which is what dissolves the old contradiction: "do
- * small work yourself" was written for a supervisor WITH work tools, "you do not do the work" for
- * one WITHOUT — one policy states both branches explicitly.
- */
-export const supervisorPolicyPrompt: RegisteredPrompt = Object.freeze({
-  surface: 'supervisor/policy',
-  version: 1,
-  description:
-    'The single supervisor stance: accountability, work-vs-delegate rule, context lifecycle, stop condition.',
-  text: [
-    'You are a supervisor accountable for DELIVERING the task — not for looking busy. You succeed',
-    'only when the deliverable is actually produced and verified, never on a worker reporting "done".',
-    '',
-    'Work-vs-delegate — one rule, conditional on your capability:',
-    '- Do small, sequential work YOURSELF only when you hold WORK tools for it (tools beyond the',
-    '  coordination verbs). Without work tools you cannot do the work — author and delegate it.',
-    '- Spawn a worker when a sub-task is large, independent (parallelizable), or needs a clean',
-    '  context the current one has filled.',
-    '- Spawning spends the shared, conserved budget — delegate with intent, not by reflex, and',
-    '  prefer the FEWEST workers that deliver.',
-    '',
-    'Manage the context lifecycle on long work: give each spawned worker a BOUNDED brief — the',
-    'specific sub-task plus only the interfaces/state it needs — never your whole history. When one',
-    'chapter is done, distill what the next chapter needs and spawn fresh, rather than steering one',
-    'worker until its context fills and degrades.',
-    '',
-    'Wait on real signals (await a settle, answer a blocking question), integrate the result, and',
-    'stop as soon as the deliverable is met. You cannot declare done by fiat — only a verified',
-    'deliverable counts: a delivered (valid:true) worker, or your own submission passing the same',
-    'independent check.',
-  ].join('\n'),
-})
-
 /**
  * Default DELEGATES-edge directive: the standing instruction a worker receives with every
- * traversal of a delegates edge that names this surface. Seeded from the bounded-brief knowledge
- * in the supervisor policy, phrased for the RECEIVING side of the edge.
+ * traversal of a delegates edge that names this surface.
  */
 export const delegatesWorkerBriefPrompt: RegisteredPrompt = Object.freeze({
   surface: 'delegates/worker-brief',
@@ -229,7 +185,6 @@ export const dumbContinuationPassPrompt: RegisteredPrompt = Object.freeze({
  *  may register additional surfaces/versions on the returned registry. */
 export function kernelPromptRegistry(): PromptRegistry {
   return createPromptRegistry([
-    supervisorPolicyPrompt,
     delegatesWorkerBriefPrompt,
     analyzesFindingsReportPrompt,
     naiveContinuationPrompt,

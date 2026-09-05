@@ -33,7 +33,16 @@ export function shotLoopResumed(): {
   // ── The topology: plain data — continuity is one field on the edge ──
   const graph: AgentGraph = {
     nodes: [
-      { id: 'reviewer', profile: offlineProfile('reviewer', 'Verify.') },
+      {
+        id: 'reviewer',
+        profile: {
+          ...offlineProfile('reviewer', 'Verify.'),
+          tools: {
+            agent_runtime_coordination_spawn_worker: true,
+            agent_runtime_coordination_await_event: true,
+          },
+        },
+      },
       { id: 'coder', profile: offlineProfile('coder', 'Make tests pass.') },
     ],
     edges: [

@@ -38,7 +38,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { supervise } from '../helpers/runtime-with-test-brain'
 import { scriptedBrain } from './scripted-brain'
-import { testAgentProfile } from './test-agent-profile'
+import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -483,6 +483,7 @@ describe('supervise({ backend, otel }) stamps its workers too', () => {
       testAgentProfile('root', {
         harness: 'cli-base',
         prompt: { systemPrompt: 'drive the worker' },
+        tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
       }),
       'solve it',
       {

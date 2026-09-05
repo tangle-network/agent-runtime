@@ -123,6 +123,7 @@ describe('gateOnDeliverable — the leaf completion-oracle (valid ⟺ the delive
 
 // ── End-to-end: the honest settle through a real driver + the recursion ───────────────────
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1000 }
+const spawnAndAwait = ['spawn_worker', 'await_event'] as const
 let blobs = new InMemoryResultBlobStore()
 
 function driverOpts(
@@ -130,7 +131,16 @@ function driverOpts(
   brain: ToolLoopChat,
   makeWorkerAgent: (p: AgentProfile) => Agent<unknown, unknown>,
 ): DriverAgentOptions {
-  return { name, brain, blobs, makeWorkerAgent, perWorker, systemPrompt: 'drive', maxTurns: 8 }
+  return {
+    name,
+    brain,
+    blobs,
+    makeWorkerAgent,
+    perWorker,
+    toolNames: spawnAndAwait,
+    systemPrompt: 'drive',
+    maxTurns: 8,
+  }
 }
 
 /** A leaf worker whose executor is gated on a deliverable — `out` is delivered ONLY if `check` passes. */

@@ -545,8 +545,11 @@ export interface MaterializedExecutionIdentity {
  * Scope snapshots this value and computes the durable receipt; callers never provide digests.
  */
 export interface ExecutorMaterialization {
-  /** Complete profile after trusted runtime-owned attachments or backend overlays were applied. */
+  /** Complete profile the provider actually receives after Runtime consumes its own declarations. */
   readonly effectiveProfile: AgentProfile
+  /** Canonical profile admitted by Runtime when it differs from the provider-visible profile.
+   *  Its digest must equal the kernel-owned authored profile digest for the node. */
+  readonly authoredProfile?: AgentProfile
   /** Concrete backend or harness selected for this run. */
   readonly backend: string
   /** Exact selected model, or an explicit unknown reason. */

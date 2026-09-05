@@ -22,6 +22,11 @@ Source references below describe these exact starting revisions unless a repair 
 | [agent-eval](https://github.com/tangle-network/agent-eval/tree/f8e3da285b6286386699a196733e9c0c27c20cfd) | `f8e3da285b6286386699a196733e9c0c27c20cfd` | `0.173.3` |
 | [agent-knowledge](https://github.com/tangle-network/agent-knowledge/tree/390f2da9883e55cc86a8985167324d8b1f10894a) | `390f2da9883e55cc86a8985167324d8b1f10894a` | `13.0.1` |
 
+Runtime main advanced to `bd7a2f3f15a93ee286684c5bc6b88c00df9b72de` during the audit.
+The repair branch includes that change, including profile-owned recursive authority and durable acceptance of direct submissions.
+The source findings below retain their original revision boundary.
+The final integration checks use the combined implementation.
+
 `R`, `E`, and `K` in source references mean these Runtime, Eval, and Knowledge revisions.
 Runtime coverage includes all 24 production files under `src/improvement`, plus execution, adoption, strategy evolution, observation, and memory serving.
 Eval coverage includes native search, complete methods, Python adapters, final comparisons, provenance, costs, and related learning utilities.
@@ -206,6 +211,37 @@ Counting exported function names alone would confuse useful adapters with duplic
 | Runtime candidate experiments/activation | Compare and adopt exact executable versions | Search quality or a continuing learning schedule |
 | `withIntelligence` | Delivery and observation integration | A closed continuing learner by itself |
 
+### Evaluation engineering: execution versus analysis
+
+Evaluation engineering is part of the learning process and can itself be improved.
+The inventory must distinguish functions that execute feedback from functions that analyze supplied records.
+
+| Existing component | Executed behavior | Evidence still needed |
+| --- | --- | --- |
+| Eval `llmJudge` and `ensembleJudge` | Run supplied judging instructions and record results and costs | Calibration against independently established outcomes |
+| Eval `BehaviorExplorer` and `fuzzAgent` | Generate scenarios from current findings, evaluate them, update an archive, and repeat | That the discovered practice improves the specialist on fresh domain work |
+| Runtime data creation example | Generates tasks, samples solvers, judges attempts, and passes rejection reasons to the next proposal | The example's solvers are scripted; useful learning from generated data remains unmeasured |
+| Runtime generated-case certification | Runs reference commands in a temporary checkout and separately tests a model without tools | Validity beyond the specified coding-case checks |
+| Eval `calibrateJudge` and continuous calibration | Compute agreement, error, and uncertainty from supplied labels and scores | Callers must execute judges and decide what to change |
+| Eval curriculum and case-discrimination utilities | Allocate or rank supplied cases from historical scores | Learning gains caused by the selected practice |
+| Eval known-failure examples and catch rates | Construct controlled examples and compare judge results with sealed labels | Callers must execute the judge and protect labels from the judged process |
+| Eval predictive validity and sentinel reports | Compare scores with external outcomes and report drift or stale calibration | Callers must collect outcomes, run experiments, and update evaluation behavior |
+| Eval `PredictiveValidityResearcher` | Suggests rubric experiments and stores a plan | It does not execute the plan; `evaluateChange` returns no runs and does not promote |
+| Eval `runRLCampaign` | Runs a campaign and exports rewards, preferences, and training rows | It does not invoke training or repeat training and evaluation |
+
+Sources: `E:src/llm-judge.ts:114`, `src/judge-panel.ts:88`, `src/fuzz/explorer.ts:55`, `src/judge-calibration.ts:53`, `src/rl/active-curriculum.ts:79`, `src/meta-eval/plants.ts:110`, `src/meta-eval/rubric-predictive-validity.ts:107`, `src/meta-eval/sentinel.ts:349`, `src/rl/predictive-validity-researcher.ts:161`, and `src/rl/rl-campaign.ts:153`.
+Runtime callers: `R:examples/agentic-data-creation/agentic-data-creation.ts:276`, `:359`; `examples/agentic-data-creation/run.ts:65`; `bench/src/generate-eval/certify.ts:141`.
+
+The existing execution callback can run a complete domain learning episode and return its produced specialist and retained state.
+An outer evaluation must execute that exact specialist; scoring a description of the proposed specialist would test narration.
+All inner learning, judging, execution, and failed episodes must remain in the outer resource and outcome records.
+The callback type can express this composition, but it does not implement those obligations automatically.
+
+The audit corrected the `PredictiveValidityResearcher` comment that promised automatic rubric updates.
+It preserved the implementation's actual responsibility: propose experiments for a caller to execute.
+The repaired scenario-search allocation uses observed history while preserving original scenario IDs in its records.
+These corrections concern actual feedback and API meaning; they do not establish state-of-the-art evaluation learning.
+
 ## Reproduced failures and their consequences
 
 Each measured row describes a controlled reproduction, not a frequency estimate.
@@ -219,20 +255,23 @@ The repair and verification record is maintained with the changes and regression
 | E3 | P1 | Final comparison drops 2 failed candidate executions from a designed 4-cell set and reports score 1, lift +.5 | Measured through `compareOptimizationMethods`; `E:compare-optimization-methods.ts:332` | Require exact case, repetition, and judge coverage |
 | E4 | P1 | Reusing one run directory with GOOD then BAD returns BAD with GOOD's score 1 and `ship`, with zero new executions | Measured through native `selfImprove`; `E:run-optimization.ts:239`, `:454`; `run-improvement-loop.ts:171` | Include the measured surface in every cache identity |
 | E5 | P1 | A baseline measured by an old judge at 0 is reused against a new candidate at .5 although the new judge would give the baseline 1 | Measured through premeasured baseline import; `E:run-optimization.ts:688` | Require the complete evaluator and execution revision |
-| E6 | P1 | An optimizer reports $17 estimated/incomplete cost; the run reports $0 and complete accounting | Measured through `selfImprove`; `E:self-improve.ts:676`, `:828` | Reconcile reported search cost with recorded calls and retain uncertainty |
+| E6 | P1 | An optimizer reports $17 estimated/incomplete cost; the run reports $0 and complete accounting. A repair review also found $3 recorded with a $0 complete result | Measured through `selfImprove`; `E:src/contract/self-improve.ts:676`, `:828`; review probes compare method reports with actual recorded calls | Reconcile each method's reported cost with its attributed calls, including parallel methods; retain incomplete accounting |
 | E7 | P2 | Native history labels the point estimate .25 as the exact interval [.25, .25] for case scores 1, 0, 0, 0 | Measured through native `selfImprove`; `E:src/campaign/presets/run-optimization.ts:553` | Return null for unestimated uncertainty; retain actual final-test statistics |
+| E8 | P2 | An unchanged result includes the same final campaign twice: 2 executions costing $2 become 4 executions costing $4 in its insight | Measured through `selfImprove`; `E:src/contract/self-improve.ts:835`; independent probe checks dispatches, recorded calls, costs, and tokens | Include an identical final campaign once in both method and proposer results |
+| E9 | P2 | Scenario-search history uses real IDs while allocation asks for `*`; the second round repeats 10/10 evaluations despite different observed variance | Measured across 40 evaluations; `E:src/fuzz/explorer.ts:146`; `src/rl/active-curriculum.ts:90`; pooled history gives 8/12 | Pool observations by search cell when allocating; preserve exact IDs in stored records |
 | R1 | P2 | A modified tracked diagnosis file is classified as substantive code because Git's leading status space is trimmed | Measured with real Git; `R:src/improvement/agentic-generator.ts:1019` | Parse Git status without deleting path characters |
 | R2 | P1 | Strategy resume returns an old promoted result after task payloads, objective, model, environment, and final offset change | Measured: zero author calls and benchmark phases; `R:src/runtime/strategy-evolution.ts:397` | Bind resume to exact serializable inputs and explicit callback revision |
 | R3 | P2 | Strategy author instructions teach `shot({persona})`, but the executable API accepts `shot({profile})` | Source-verified mismatch: `R:src/runtime/strategy-author.ts:29`; `strategy.ts:847` | Teach the actual complete-profile API and execute its example |
 | R4 | P1 | Malformed observation JSON becomes an empty findings array and “clean run” | Measured through `observe`; `R:src/runtime/observe.ts:235` | Validate the complete response and preserve parse failures |
 | R5 | P1 | Lesson storage fails, but harvest reports one observed run, one finding, zero learned records, and no failures | Measured through harvest/observe; `R:src/runtime/observe.ts:203` | Propagate acknowledged storage errors to existing failure reporting |
-| R6 | P1 | Conflicting same-ID file appends both succeed, then subsequent reads reject the corrupted log | Measured with concurrent file stores; `R:src/runtime/personify/corpus.ts` | Lock the full read/check/append transaction across processes |
-| R7 | P2 | Mutating the caller's tags after append changes the stored lesson | Measured through `InMemoryCorpus`; same source | Retain detached immutable records |
+| R6 | P1 | Conflicting same-ID file appends both succeed, then subsequent reads reject the corrupted log | Measured with concurrent file stores; `R:src/runtime/personify/corpus.ts:213` | Lock the full read/check/append transaction across processes |
+| R7 | P2 | Mutating the caller's tags after append changes the stored lesson | Measured through `InMemoryCorpus`; `R:src/runtime/personify/corpus.ts:171` | Retain detached immutable records |
 | R8 | P1 | Reflective generation ignores an aborted signal, hides draft/apply failures, and reports an incomplete patch batch as applied | Measured with real patches; `R:src/improvement/reflective-generator.ts:28` | Use candidate-bound drafting, cancellation, base checks, and atomic patch application |
 | K1 | P1 | KB acquisition and update receive no findings because diagnosis runs afterward | Measured Linux lifecycle: acquire → update → diagnose; `K:src/kb-improvement/evaluation.ts` | Carry one lifecycle state from diagnosis through construction and final evaluation |
 | K2 | P2 | An unchanged empty KB with no outcome tests gets five dimensions equal to 1 and stages as candidate-ready | Measured Linux KB probe; `K:src/kb-improvement/evaluation.ts:510` | Omit unmeasured dimensions and identify the scope of configured checks |
 | K3 | P1 | Research stops after 1 of 4 allowed rounds while the actual driver reports incomplete, producing no further steering | Measured real research driver plus verified loop; `K:src/verified-research-loop.ts:327` | Respect driver completion and fold remaining research work |
 | K4 | P2 | Runtime appends a worker policy to the exact supplied supervisor; that policy forbids writes while the task requires writes | Source-verified and exercised by adapter tests; `R:src/knowledge/supervised-update.ts:132`; `profiles/researcher.ts:349` | Execute the caller profile unchanged |
+| K5 | P2 | A caller requires diagnosis but explicitly enables no phases; candidate work succeeds without executing the required phase | Measured through Linux lifecycle tests; `K:src/kb-improvement/evaluation.ts:51`; `tests/kb-improvement/lifecycle.test.ts:18` on repaired source | Reject required-but-disabled phases before candidate work, including final evaluation phases |
 
 K2 is not a live promotion bypass.
 `candidate-ready` stages a detached candidate that passed the configured checks.
@@ -450,6 +489,7 @@ Requiring every valuable question to have a simple deterministic score would unn
 | Delete | Perfect values for absent measurements | Missing evidence must remain missing |
 | Delete | Hidden worker instructions appended during supervisor execution | They override the actual change surface and can contradict the task |
 | Delete | Silent partial-patch and lesson-storage success | They erase the failure signal needed for learning |
+| Delete | Duplicate unchanged-candidate campaign summaries and automatic-training claims unsupported by execution | They inflate measurements or misstate API behavior |
 | Simplify | Final comparison coverage and candidate identity | These are shared measurement rules, not algorithm choices |
 | Simplify after equivalent execution is joined | Duplicate release measurement | Reuse exact compatible evidence; preserve fresh tests when conditions differ |
 | Simplify through common records | Strategy evolution and code search lifecycle | Preserve search mechanisms while removing duplicated decision/accounting conventions |
@@ -462,6 +502,8 @@ Requiring every valuable question to have a simple deterministic score would unn
 
 No new learning scheduler, memory service, optimizer facade, or universal scalar is justified by the reproduced bugs.
 The useful work is joining existing paths and removing conflicting meanings.
+The RAG phase implementation moved into an internal module while its public API stayed in place.
+That file move is not a deletion; the deleted behavior is reconstructing and merging disconnected lifecycle states.
 
 ## Experiments for the different learning claims
 
