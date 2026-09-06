@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.195.1
+
+Provider failures now settle as failures.
+An explicit provider `error` event, a failed status frame, or a failed terminal frame gives that managed child a failed outcome and preserves the nested provider error code.
+Runtime no longer records such a child as `done`.
+Incomplete token receipts keep `tokensKnown: false` and retain the reported floors.
+A recoverable child task failure does not fail the parent turn.
+Candidate-execution fixtures use protected trace writes.
+
 ## 0.195.0
 
 Learning results now use Eval 0.174 and Knowledge 14.
