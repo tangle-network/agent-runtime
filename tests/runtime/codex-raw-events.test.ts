@@ -25,6 +25,7 @@ import { runAgentRounds } from '../../src/runtime'
 import { decodeHarnessUsage } from '../../src/runtime/harness-usage'
 import {
   canonicalStreamEventFromSandboxEvent,
+  createSandboxUsageLedger,
   extractLlmCallEvent,
   sumSandboxUsage,
 } from '../../src/runtime/sandbox-events'
@@ -289,6 +290,34 @@ describe('the post-hoc reader stays pure — an unreadable receipt never throws'
     expect(usage.input).toBe(30)
     expect(usage.output).toBe(9)
     expect(usage.tokensKnown).toBe(false)
+  })
+})
+
+describe('the ledger boundary — an unreadable receipt is an unknown spend, never a throw', () => {
+  it('returns a receipt marked unknown with the decode message, and still credits a readable one', () => {
+    // Whether the work SUCCEEDED and whether its spend was MEASURED are different facts, so the
+    // ledger answers a receipt it cannot read the way it answers one it can: as a receipt. Every
+    // consumer then marks the spend unknown through the fold it already applies, and none of them
+    // decides on its own whether an unreadable counter fails the turn (agent-runtime#1027).
+    const ledger = createSandboxUsageLedger('codex')
+    expect(ledger.observe(codexTurn({ output_tokens: 5 }), 'codex-worker')).toEqual({
+      type: 'llm_call',
+      model: 'codex-worker',
+      tokensKnown: false,
+      usdKnown: false,
+      tokensUnknownReason: expect.stringMatching(
+        /codex turn\.completed: usage\.input_tokens must be a non-negative safe integer/,
+      ),
+    })
+    // A receipt the ledger CAN read in the same turn is still a floor the turn spent.
+    const readable = {
+      input_tokens: 10,
+      cached_input_tokens: 0,
+      output_tokens: 4,
+      reasoning_output_tokens: 0,
+    }
+    expect(ledger.observe(codexTurn(readable), 'codex-worker')).toBeUndefined()
+    expect(ledger.settleTurn('codex-worker')).toMatchObject({ tokensIn: 10, tokensOut: 4 })
   })
 })
 
@@ -597,5 +626,31 @@ describe('the leaf kernel — one runAgentRounds iteration over a codex box', ()
 
     expect(result.iterations[0]?.error?.message).toMatch(/stream dropped/)
     expect(result.tokenUsage).toMatchObject({ input: 15575, output: 5, cacheRead: 11008 })
+  })
+
+  it('settles an iteration whose usage receipt is unreadable instead of failing the batch', async () => {
+    // A counter the ledger cannot read is a measurement fact, not an outcome fact. The iteration
+    // keeps the outcome the box reported and its tokens read as unknown. Before the ledger owned
+    // this policy the decode error failed the iteration and, as a ValidationError, aborted the
+    // whole batch: a correct answer became a failed run (agent-runtime#1027).
+    const broken = [
+      ...codexSession.slice(0, 9),
+      codexTurn({ output_tokens: 5 }),
+      ...codexSession.slice(10),
+    ]
+    const result = await runAgentRounds<string, string, 'continue' | 'done'>({
+      driver: scriptedDriver<string, string>({ planner: oneRound, maxIterations: 1 }),
+      agentRuns,
+      output,
+      task: 'start',
+      ctx: { sandboxClient: codexBox(broken) },
+      maxIterations: 1,
+    })
+
+    const iteration = result.iterations[0]
+    expect(iteration?.error).toBeUndefined()
+    expect(iteration?.output).toBe('done')
+    expect(iteration?.sandboxOutcome?.status).toBe('success')
+    expect(result.tokenUsage).toMatchObject({ input: 0, output: 0, tokensKnown: false })
   })
 })

@@ -376,6 +376,8 @@ export type RuntimeStreamEvent =
       tokensOut?: number
       /** False when the numeric token subtotal is incomplete or absent. */
       tokensKnown?: false
+      /** Why `tokensKnown` is false when a harness receipt was present but unreadable. */
+      tokensUnknownReason?: string
       costUsd?: number
       /** False when `costUsd` is only an observed floor, estimate, or absent. */
       usdKnown?: false
