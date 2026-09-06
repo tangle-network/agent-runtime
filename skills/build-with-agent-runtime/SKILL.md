@@ -1,136 +1,50 @@
 ---
 name: build-with-agent-runtime
-description: Choose and compose current runtime, eval, knowledge, and interface APIs before adding wrappers.
+description: Choose maintained runtime APIs and compose execution, evaluation, and controlled improvement.
 ---
 
-# Build with agent-runtime
+# Build with Agent Runtime
 
-Use this skill before writing product-local agent infrastructure.
-The goal is one portable agent definition, one execution path, one measurement system, and one reviewed activation path.
+Build on the maintained execution path while keeping product policy and storage in the consumer.
+Read the current [API decision table](https://github.com/tangle-network/agent-runtime/blob/main/docs/canonical-api.md) and [package exports](https://github.com/tangle-network/agent-runtime/blob/main/package.json).
+Follow the chosen entrypoint to its implementation and nearest runnable example.
+For an existing consumer, confirm the actual installed package supports the chosen contract.
 
-## Read first
+## Choose by the required outcome
 
-1. Read `docs/canonical-api.md` for the current decision table.
-2. Check exports in `src/index.ts`, `src/runtime/index.ts`, `src/improvement/index.ts`, `src/intelligence/index.ts`, and `src/knowledge/index.ts`.
-3. Read the nearest runnable example.
-4. Treat source as authoritative when docs disagree, then correct the stale doc in the same change.
-
-## Ownership
+Use the existing entrypoint for one turn, a bounded task, fixed composition, dynamic supervision, or a measured improvement.
+Avoid copying the API catalog into product code or creating a wrapper that only renames it.
 
 | Concern | Owner |
 |---|---|
-| Portable prompt, skills, tools, MCP, hooks, subagents, model hints | `AgentProfile` from `@tangle-network/agent-interface` |
-| Agent execution, supervision, budgets, streaming, candidate execution | `@tangle-network/agent-runtime` |
-| Tasks, graders, search, paired statistics, cost and latency comparison | `@tangle-network/agent-eval` |
-| Sources, retrieval, citations, freshness, memory adapters, knowledge promotion | `@tangle-network/agent-knowledge` |
-| Product records, permissions, funding, UI, and atomic storage writes | The consuming product |
+| Portable prompt, skills, tools, MCP, hooks, and model hints | AgentProfile from agent-interface |
+| Execution, supervision, budgets, streaming, and candidate execution | Agent-runtime |
+| Cases, grading, search, statistics, and comparison | Agent-eval |
+| Retrieval, citations, freshness, memory stores, and knowledge promotion | Agent-knowledge |
+| Users, permissions, funding, UI, persistence, and atomic writes | The product |
 
-Do not move shared measurement into Runtime or product code.
-Do not move product storage transactions into a provider-neutral package.
+Keep measurement in Eval and product storage transactions in the consumer.
+Use the same agent definition and execution path in the product and its evaluation.
 
-## Choose the entry point
+## Integrate the selected capability
 
-| Need | Use |
-|---|---|
-| One product chat turn | `handleChatTurn(...)` |
-| One normalized streamed agent turn | `streamAgentTurn(...)` and `collectAgentTurn(...)` |
-| One task or multi-turn loop | `runAgentTask(...)`, `runAgentTaskStream(...)`, or `runAgentRounds(...)` |
-| Supervisor and workers | `supervise(...)` or `superviseSurface(...)` |
-| Static roles with versioned delegation and analysis directives | `runGraph(...)` |
-| Parallel work with a shared budget | `fanout(...)` |
-| Fixed composition | `pipeline(...)`, `panel(...)`, or `verify(...)` |
-| Product benchmark | `defineLeaderboard(...)` |
-| Profile matrix | `expandProfileAxes(...)` and `runProfileMatrix(...)` from agent-eval |
-| Search one agent surface | `improve(...)` |
-| Analyze traces through a measured proposal | `proposeAgentImprovement(...)` |
-| Review and authorize an exact proposal | `reviewAgentImprovementProposal(...)` and `createAgentImprovementActivation(...)` |
-| Apply or restore an approved candidate | `executeAgentImprovementActivation(...)` with a product transaction |
-| Build a knowledge candidate | `runKnowledgeImprovementJob(...)` |
-| Apply a knowledge candidate | `createKnowledgeImprovementActivationExecutor(...)` through the same activation path |
-| Observe and pull approved changes on a live agent | `withIntelligence(...)` |
+Search for the existing product adapter and current package usage before adding infrastructure.
+Supply only the policy, storage, credential, and execution-placement boundaries the consumer needs.
+Preserve explicit failures, cost and usage capture, cancellation, and recovery behavior.
 
-## Improvement flow
+When changing prompts, skills, code, or knowledge through measured search, read [improvement and activation](references/improvement.md) before implementing that path.
+Ordinary execution work does not need an optimizer or activation workflow.
 
-`improve(profile, options)` searches one surface and returns a detached winner.
-It never changes a profile, document, repository, memory store, or knowledge base.
+## Prove the integration
 
-For a profile field, pass one complete agent-eval `OptimizationMethod`, explicit train, selection, and final-test partitions, judges, and the candidate execution function.
-Use `officialGepa(...)` with an explicit recipe when upstream GEPA should own search.
-Use `officialSkillOpt(...)` when Microsoft's SkillOpt should own search.
-Both require `evaluationId`; change it whenever dispatch, judges, models, or scoring behavior changes.
-Resumable runs accept `never`, `if-compatible`, or `required` and reuse state only when agent-eval derives the same run identity.
-Runtime has no local prompt, skill, memory, or profile optimizer fallback.
-Code uses Runtime's isolated worktrees and returns a sealed patch candidate.
-Knowledge uses `runKnowledgeImprovementJob(...)` and returns paired snapshots.
-
-Use `proposeAgentImprovement(...)` for a production proposal.
-It performs these steps in order:
-
-1. Analyze completed traces.
-2. Search for a candidate on development tasks.
-3. Build the frozen baseline, candidate, and held-back work.
-4. Return only baseline, candidate, held-back tasks, and policy; Runtime adds the optimizer ancestry and seals the final experiment.
-5. Reject the experiment if its candidate differs from the search winner.
-6. Run baseline and candidate on the same held-back tasks.
-7. Produce findings, confidence intervals, quality, cost, latency, and a decision.
-
-After a person or tenant policy approves the proposal, call `createAgentImprovementActivation(...)` with target identities, funding owner, authority, intent, and expiry.
-Runtime derives the expected current digests from the measured experiment.
-Call `executeAgentImprovementActivation(...)` with one product-owned transaction that compares current state, writes every target atomically, and stores the result under the activation digest.
-Pass a read-only reconciliation function so retries can distinguish committed, uncommitted, and uncertain outcomes.
-
-Never apply a change from analyst confidence alone.
-Never measure one candidate and apply another.
-Never let search code write live state.
-Never treat a lost response as a failed write without reconciling it.
-
-## Surface rules
-
-- Prompt changes `profile.prompt` only and requires a complete method.
-- Skill optimization selects one inline skill by `skills.resourceName`, requires a complete method, and requires profile resources to fail closed.
-- Curated memory changes `profile.resources.instructions`; retrieval stores and memory databases belong in the knowledge flow.
-- Tools, MCP, hooks, subagents, curated memory, rollout policy, and whole-profile changes require a complete method.
-- Code candidates must come from the Runtime worktree path so patch identity and cleanup stay intact.
-- Workflow files are code surfaces. Parameter sweeps belong in a complete agent-eval method.
-- Knowledge candidates remain detached until the shared activation path applies or restores their frozen snapshots.
-
-## Product integration
-
-The product supplies only the pieces that vary by deployment:
-
-- How traces and current profiles are loaded.
-- How exact candidate execution is placed on compute.
-- How proposal, review, activation, and result records are persisted.
-- How a target is changed atomically.
-- Who may approve, reject, request changes, fund, apply, or restore.
-- How those records and actions appear in the UI or API.
-
-The product must not recreate candidate hashing, paired comparison, confidence intervals, review binding, expiry, retry identity, or result validation.
-
-## Do not duplicate
-
-- Do not write a provider-specific profile wrapper; extend `AgentProfile` and its materializer.
-- Do not write a second optimizer loop; pass a complete agent-eval method to `improve(...)`.
-- Do not use Runtime's code generator to approximate GEPA, SkillOpt, or another upstream profile optimizer.
-- Do not write a second candidate catalog; persist the immutable proposal records.
-- Do not let an analyst or adapter commit, push, open a pull request, or edit a live store.
-- Do not hand-roll SSE parsing, usage totals, profile matrices, bootstrap statistics, sandbox acquisition, or worktree cleanup.
-- Do not attach completed Runtime totals to an Eval campaign. Use `loopDispatch` or `loopCampaignDispatch` so admission and receipt capture surround the paid work.
-- Do not add a product-local approval format for knowledge, code, or profile changes.
-
-## Finish
-
-- The same agent definition runs in product and measurement paths.
-- The held-back tasks were not visible during search.
-- Candidate identity is checked before execution and again before activation.
-- Quality, cost, latency, sample count, and uncertainty are retained.
-- Rejection and request-changes are first-class outcomes.
-- Activation is authorized, expiring, idempotent, and reconcilable.
-- No customer write, message, trigger, or billing occurs in read-only proof mode.
-- Public examples, package exports, generated API docs, type checks, tests, build, and package verification pass.
+Run a real task through the selected backend and inspect its result and execution evidence.
+Test the changed contract's denial, failure, cancellation, or recovery cases as applicable.
+An in-process test proves only its own path; it does not prove a deployed sandbox path.
+Run the repository's required checks, public-import checks when exports change, and the consumer's affected flow.
+Report retained product adapters, adopted exports, observable results, and unchecked boundaries.
 
 ## Then consider
 
-- Use `build-with-agent-knowledge` when agents should improve retrieval, memory, or a knowledge base.
-- Use `critical-audit` when the change introduces or alters a public contract.
-- Use `verify` before publishing or adopting the package in a product.
+- `build-with-agent-knowledge` when the remaining work concerns retrieval or memory integration.
+- `critical-audit` when a changed public contract needs independent review.
+- `verify` when implementation is complete and release checks remain.
