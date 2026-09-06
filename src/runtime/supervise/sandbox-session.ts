@@ -227,30 +227,24 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
     // charged once. `settleTurn` resets it, so each turn accounts independently.
     const usageLedger = createSandboxUsageLedger(args.harness)
     let usageFailure: string | undefined
-    // A receipt the ledger cannot read marks the SPEND unknown, never the stream failed. The
-    // worker keeps running, because a decode problem that aborted a live session would throw away
-    // the work the session had already done, and it settles on its own outcome with
-    // `tokensKnown: false` plus this message. The first message is kept: it names the receipt that
-    // could not be read, and a later one adds no fact.
-    const readUsage = (
-      read: () => (RuntimeStreamEvent & { type: 'llm_call' }) | undefined,
-    ): (RuntimeStreamEvent & { type: 'llm_call' }) | undefined => {
-      try {
-        return read()
-      } catch (err) {
-        tokensKnown = false
-        const message = err instanceof Error ? err.message : String(err)
-        usageFailure ??= message
-        activity.push({ at: now(), kind: 'note', label: 'usage-unreadable', detail: message })
-        return undefined
-      }
-    }
     function* creditCall(call: RuntimeStreamEvent & { type: 'llm_call' }): Generator<UsageEvent> {
       const callTokensKnown =
         call.tokensKnown !== false &&
         typeof call.tokensIn === 'number' &&
         typeof call.tokensOut === 'number'
       if (!callTokensKnown) tokensKnown = false
+      // A receipt the ledger could not read marks the SPEND unknown, never the stream failed: the
+      // worker keeps running and settles on its own outcome with `tokensKnown: false` plus this
+      // message. The first message is kept: it names the receipt, and a later one adds no fact.
+      if (call.tokensUnknownReason !== undefined) {
+        usageFailure ??= call.tokensUnknownReason
+        activity.push({
+          at: now(),
+          kind: 'note',
+          label: 'usage-unreadable',
+          detail: call.tokensUnknownReason,
+        })
+      }
       const input = call.tokensIn ?? 0
       const output = call.tokensOut ?? 0
       if (input || output || !callTokensKnown) {
@@ -332,18 +326,14 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           for await (const event of events) {
             outcomeTracker.observe(event)
             for (const progress of recordEvent(event)) yield { kind: 'progress', progress }
-            const call = readUsage(() =>
-              usageLedger.observe(event, spec.name ?? String(args.harness)),
-            )
+            const call = usageLedger.observe(event, spec.name ?? String(args.harness))
             if (call) {
               sawLlmCall = true
               yield* creditCall(call)
             }
             assertSandboxServedModel(event, requested)
           }
-          const harnessCall = readUsage(() =>
-            usageLedger.settleTurn(spec.name ?? String(args.harness)),
-          )
+          const harnessCall = usageLedger.settleTurn(spec.name ?? String(args.harness))
           if (harnessCall) {
             sawLlmCall = true
             yield* creditCall(harnessCall)
@@ -353,9 +343,7 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
           cleanup()
           // A forceful steer ends the turn mid-stream. The harness receipt the turn already
           // reported is credited, because those tokens were spent whatever ended the turn.
-          const abortedCall = readUsage(() =>
-            usageLedger.settleTurn(spec.name ?? String(args.harness)),
-          )
+          const abortedCall = usageLedger.settleTurn(spec.name ?? String(args.harness))
           if (abortedCall) yield* creditCall(abortedCall)
           // Re-plan ONLY when a forceful steer (not external teardown) aborted the turn: the
           // steer is already queued, so loop back and fold it. Anything else is fatal.

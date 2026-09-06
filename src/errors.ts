@@ -85,6 +85,13 @@ export class BackendTransportError extends AgentEvalError {
    */
   readonly providerDispatch?: 'not_started'
   /**
+   * The upstream's own error class when it names one (the bridge's `parse_error`,
+   * `not_configured`, a provider's `invalid_request_error`). A class the upstream never
+   * retries is a decision about the request, so a retry policy may read it where no
+   * status arrived.
+   */
+  readonly upstreamCode?: string
+  /**
    * Truncated upstream response body (≤2 KiB) when available. Diagnostic
    * only — surfaces in `backend_error.error.body` and `final.error.body`
    * so operators can see "free_tier_limit", "invalid_api_key", etc. without
@@ -98,6 +105,7 @@ export class BackendTransportError extends AgentEvalError {
     options?: {
       cause?: unknown
       status?: number
+      upstreamCode?: string
       body?: string
       providerDispatch?: 'not_started'
     },
@@ -105,6 +113,7 @@ export class BackendTransportError extends AgentEvalError {
     super('config', message, options)
     this.backend = backend
     this.status = options?.status
+    this.upstreamCode = options?.upstreamCode
     this.body = options?.body
     this.providerDispatch = options?.providerDispatch
   }
