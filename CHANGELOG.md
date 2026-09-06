@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.196.0
+
+The sandbox usage ledger no longer throws on a harness receipt it cannot read.
+`observe` returns a receipt with `tokensKnown: false` and the new optional `tokensUnknownReason` field on the `llm_call` event.
+A consumer that caught the decoder's `ValidationError` reads those fields instead.
+The leaf kernel and `driveBoxTurn` settle such a turn on its own outcome; the steerable session and `sumSandboxUsage` behave as before.
+`BackendTransportError` carries `upstreamCode`, the bridge's own error class.
+Driver retry settles `parse_error`, `not_configured`, and `capability_denied` after one attempt, so a profile that cannot materialize is no longer re-driven.
+A delegates traversal charges `maxTraversals` only when a worker binds; a keyed re-spawn that deduplicates to a completed result spends nothing.
+
 ## 0.195.1
 
 Provider failures now settle as failures.

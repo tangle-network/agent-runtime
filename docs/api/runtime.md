@@ -8235,6 +8235,9 @@ events. Call [SandboxUsageLedger.observe](#observe-3) for every event of a turn,
 [SandboxUsageLedger.settleTurn](#settleturn) once at the turn boundary; settling also resets the
 ledger for the next turn, so one ledger serves a whole multi-turn session.
 
+The ledger never throws on a receipt it cannot read: `observe` returns a receipt with
+`tokensKnown: false` and `tokensUnknownReason`, so one policy serves every consumer.
+
 #### Methods
 
 ##### observe()
@@ -28885,8 +28888,8 @@ own event — and a `runProfileMatrix` dispatch can report it to `ctx.cost`:
 Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
 matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
 
-Pure by contract, like the extractors it folds: it never throws. A harness receipt it cannot read
-is skipped, the result reports `tokensKnown: false`, and `tokensUnknownReason` carries the decode
+Pure by contract, like the ledger it folds: it never throws. A harness receipt the ledger cannot
+read leaves the result at `tokensKnown: false` with `tokensUnknownReason` carrying the decode
 message — an unreadable receipt is a different fact from a turn that reported no usage, and a
 post-hoc reader that threw would lose the whole failed turn it exists to report.
 
@@ -30651,7 +30654,8 @@ driver's own terms.
 Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
 anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
 because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
-having a bad moment, while a 401/404/422 is a request that will fail identically forever.
+having a bad moment, while a 401/404/422 is a request that will fail identically forever. The
+bridge's own never-retry classes are terminal whether or not a status rides with them.
 
 #### Parameters
 
