@@ -26,6 +26,9 @@ Runtime main advanced to `bd7a2f3f15a93ee286684c5bc6b88c00df9b72de` during the a
 The repair branch includes that change, including profile-owned recursive authority and durable acceptance of direct submissions.
 The source findings below retain their original revision boundary.
 The final integration checks use the combined implementation.
+The repair branch also includes the subsequent skills-only main commit `11b6dea0`.
+Its maintained skill checks and the regenerated Runtime build passed after integration.
+The later instruction-only main commit `2707e232` also merges cleanly and is included.
 
 `R`, `E`, and `K` in source references mean these Runtime, Eval, and Knowledge revisions.
 Runtime coverage includes all 24 production files under `src/improvement`, plus execution, adoption, strategy evolution, observation, and memory serving.
@@ -36,11 +39,40 @@ Public callsites and nearby applications were searched to distinguish implemente
 Defect probes used real public functions with deterministic callbacks, real Git worktrees, and real filesystem storage.
 KB snapshot probes ran in a local Linux container because the exact snapshot implementation intentionally refuses macOS.
 These tests measure implementation behavior, not model intelligence or defect prevalence.
-No paid model experiment, production deployment, or current same-task comparison against another learning system ran during this audit.
+No paid model experiment, application deployment, or current same-task comparison against another learning system ran during this audit.
 
 Primary research was checked through paper abstracts, official repository documentation, package metadata, and selected implementation contracts.
 This is a mechanism comparison, not a systematic literature review or a benchmark ranking.
 Upstream performance claims were not independently reproduced and are not assigned to this system.
+
+## Repair verification and compatibility
+
+The audit records 22 repaired defects: 12 high severity and 10 medium severity.
+These are distinct findings, not a production failure rate.
+The [audit manifest](../../.agent/critical-audit/2026-09-05-learning-system/manifest.json) retains counts, source anchors, failed attempts, exclusions, and evidence limits.
+Focused tests overlap full suites and must not be added to their counts.
+
+| Package | Implementation check | Release evidence |
+| --- | --- | --- |
+| Eval 0.174.0 | 5,763 JavaScript tests passed, three skipped; separate official integrations and Python checks passed | [PR 738](https://github.com/tangle-network/agent-eval/pull/738), [CI](https://github.com/tangle-network/agent-eval/actions/runs/33987395502), [npm and PyPI publication](https://github.com/tangle-network/agent-eval/actions/runs/34012602635) |
+| Knowledge 14.0.0 | 862 tests passed, seven conditional skips; two separate official optimizer checks passed | [PR 190](https://github.com/tangle-network/agent-knowledge/pull/190), [CI](https://github.com/tangle-network/agent-knowledge/actions/runs/34013062769), [npm publication](https://github.com/tangle-network/agent-knowledge/actions/runs/34013280992) |
+| Runtime 0.195.0 | Prior local integration at `5d617002`: 3,561 tests passed, nine skipped, with four workers | Final checks against the published dependencies and package publication remain in progress at this report revision |
+
+Runtime's prior full run used Node 24.11.1 and the locally built repaired dependencies.
+Later main integrations changed only instructions and skills.
+The environment refresh removed the original local logs; the manifest explicitly distinguishes prior terminal observations from retained CI evidence.
+Knowledge's Ubuntu CI exercises snapshot operations that intentionally refuse macOS.
+Paid-network and other conditional skips remain excluded from the corresponding implementation claims.
+
+Eval now distinguishes complete-method results from native-proposer results through `result.mode`.
+Consumers that use native generations must narrow that type before reading them.
+Runtime strategy checkpoints require an explicit `checkpoint.executionRef` for dependencies that cannot be serialized.
+Reflective code generators require `createImprovementProposalSource(context)` so drafts use the current checkout, cancellation signal, and cost account.
+Knowledge 14 preserves lifecycle feedback and omits dimensions that were not measured.
+The exact dependency commits and compatible ranges are pinned in `release/cohort.json`, the workspace catalog, and the lockfile.
+
+Installed-package probes use deterministic callbacks and fixture scores.
+They test candidate selection, cache identity, accounting, and state propagation; they do not demonstrate model learning quality.
 
 ## What the system must learn
 

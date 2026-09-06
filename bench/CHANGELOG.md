@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.32
+
+The dependency ranges now require Runtime 0.195.0, Eval 0.174, and Knowledge 14.
+
 ## 0.8.31
 
 Manifest-only: the Sandbox dependency range now admits the published 0.37 cohort.
