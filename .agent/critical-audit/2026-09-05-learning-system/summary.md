@@ -2,7 +2,7 @@
 
 **Approve the repairs for the 22 identified source defects: 12 HIGH and 10 MEDIUM.**
 This verdict does not establish continuing learning, meta-learning, or state-of-the-art performance.
-Runtime CI, merge, and publication remain pending separately.
+Runtime 0.195.0 is live; its downloaded archive matches the verified CI archive and its fresh installed-package checks passed.
 Knowledge 14.0.0 is live; its retained owner proof and terminal CI results are embedded in [manifest.json](manifest.json).
 Eval 0.174.0 is live; its retained release proof is embedded in [manifest.json](manifest.json).
 
@@ -10,7 +10,7 @@ The stronger direction is a reusable domain learning process that changes specia
 Reuse exact executable candidates, common measurement records, retained experience, and exact adoption.
 Preserve alternative search methods and the three packages' distinct responsibilities.
 The broader joined process is proposed, not implemented by these defect repairs.
-See the [committed full analysis](https://github.com/tangle-network/agent-runtime/blob/7fe89641322dc1d0e60dc8c4d66472d786320558/docs/research/learning-system-audit-2026-09-05.md).
+See the [committed full analysis](https://github.com/tangle-network/agent-runtime/blob/04882843646fb7838c788ec14a190bda28bc9c5a/docs/research/learning-system-audit-2026-09-05.md).
 
 The initial revisions are Runtime `a16d8a3b91481b140cb552e373d5bde98b34af05`, Eval `f8e3da285b6286386699a196733e9c0c27c20cfd`, and Knowledge `390f2da9883e55cc86a8985167324d8b1f10894a`.
 Every source link below pins that original revision.
@@ -80,8 +80,14 @@ The manifest resolves every proof ID and preserves earlier failed attempts separ
 | K-publish | 857 passed, 12 conditional skips; 87 files passed, 3 skipped; separate official optimizer step: 2 passed | [Publish](https://github.com/tangle-network/agent-knowledge/actions/runs/34013280992); five live-source cases skipped because the network flag is absent |
 | K-main-ci | Both jobs succeeded at merged 30878397 | [Main CI](https://github.com/tangle-network/agent-knowledge/actions/runs/34013245408); no combined count inferred |
 | K-registry | Installed 14.0.0; two research rounds; expected steering and callback order; zero provider calls | Owner smoke: macOS, Node 24.11.1, Interface 2.0.0; Linux-only phase result is null |
-| R-final-package | Package, source/example typechecks, 701-file lint, docs/workflow/version/Prime checks passed | Parent terminal results at 7fe89641; Runtime CI and publication pending |
+| R-final-package | Package, source/example typechecks, 701-file lint, docs/workflow/version/Prime checks passed | Parent terminal results at 7fe89641; later CI and publication are recorded separately |
 | R-cohort | 128 public imports; four exact archives; Sandbox 0.36.4 and 0.37.0; process exit 0 | Parent report embedded in manifest; Interface 2.3.0; archive SHA-256 values are distinct from registry hashes |
+| R-ci | 3,564 passed, six skipped; 281 files passed, two skipped; all four jobs passed | [PR CI](https://github.com/tangle-network/agent-runtime/actions/runs/34014117530); Ubuntu 24.04.4, Node 22, published dependencies |
+| R-main-ci | 3,564 passed, six skipped; all four jobs passed | [Merged CI](https://github.com/tangle-network/agent-runtime/actions/runs/34014551060); source tree matches the PR |
+| R-publish | 3,564 passed, six skipped; verification and npm upload passed | [Publication](https://github.com/tangle-network/agent-runtime/actions/runs/34014586429); registry processing delayed initial reads |
+| R-upstream | Seven of seven public contracts passed | [Tagged checks](https://github.com/tangle-network/agent-runtime/actions/runs/34014586446); all result fields retained in the manifest |
+| R-registry | Verified archive bytes; five behavior checks passed; 11 scripted completions; zero model calls | macOS, Node 24.11.1, registry-installed packages; one copy of each declared dependency |
+| B-registry | Bench 0.8.32 archive bytes match CI; root and adapter imports passed | [Publication](https://github.com/tangle-network/agent-runtime/actions/runs/34015299697); installed dependency versions and copy counts retained |
 
 Focused and full results overlap and must not be added.
 The earlier corrected Knowledge focused runs do not constitute a full-suite pass; the final CI and Publish runs are recorded separately.
@@ -90,4 +96,6 @@ Public CI, package, and publication checks remain distinct from source repair ap
 Runtime integrated main `2707e2321e7b26b0e71efacb86ebdf3ddd23adac` through `7f05654a69441db1bd135e8545787af785cde4a2`.
 That merge changes AGENTS.md and CLAUDE.md only.
 The report and released dependency pins are committed at `7fe89641322dc1d0e60dc8c4d66472d786320558`.
-Runtime publication remains pending.
+Runtime merged at `3394955db984a81879208ed0f1a56e5102d73693` and publishes as `v0.195.0`.
+The publication job uses a verified archive, so npm has no `gitHead` field.
+Archive bytes and registry provenance identify the checked source without inventing that missing field.

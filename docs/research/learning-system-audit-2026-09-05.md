@@ -56,13 +56,28 @@ Focused tests overlap full suites and must not be added to their counts.
 | --- | --- | --- |
 | Eval 0.174.0 | 5,763 JavaScript tests passed, three skipped; separate official integrations and Python checks passed | [PR 738](https://github.com/tangle-network/agent-eval/pull/738), [CI](https://github.com/tangle-network/agent-eval/actions/runs/33987395502), [npm and PyPI publication](https://github.com/tangle-network/agent-eval/actions/runs/34012602635) |
 | Knowledge 14.0.0 | 862 tests passed, seven conditional skips; two separate official optimizer checks passed | [PR 190](https://github.com/tangle-network/agent-knowledge/pull/190), [CI](https://github.com/tangle-network/agent-knowledge/actions/runs/34013062769), [npm publication](https://github.com/tangle-network/agent-knowledge/actions/runs/34013280992) |
-| Runtime 0.195.0 | Prior local integration at `5d617002`: 3,561 tests passed, nine skipped, with four workers | Final checks against the published dependencies and package publication remain in progress at this report revision |
+| Runtime 0.195.0 | Ubuntu CI: 3,564 tests passed, six skipped; separate official integrations, package checks, and Bench passed | [PR 1104](https://github.com/tangle-network/agent-runtime/pull/1104), [CI](https://github.com/tangle-network/agent-runtime/actions/runs/34014117530), [npm publication](https://github.com/tangle-network/agent-runtime/actions/runs/34014586429) |
 
-Runtime's prior full run used Node 24.11.1 and the locally built repaired dependencies.
+Runtime's prior full run passed 3,561 tests with nine skips on Node 24.11.1 and locally built repaired dependencies.
+Its Ubuntu CI used Node 22 and the published dependencies.
+That run includes three Linux-only Knowledge tests excluded on macOS; both runs contain 3,570 tests.
 Later main integrations changed only instructions and skills.
 The environment refresh removed the original local logs; the manifest explicitly distinguishes prior terminal observations from retained CI evidence.
 Knowledge's Ubuntu CI exercises snapshot operations that intentionally refuse macOS.
 Paid-network and other conditional skips remain excluded from the corresponding implementation claims.
+Knowledge's publication suite passed 857 tests with 12 skips; its PR CI additionally enabled five live-source tests.
+Both Knowledge workflows also passed two separate official optimizer cases.
+Runtime's Bench check passed 67 TypeScript test files, the Pier bridge, and five separate package-runner tests.
+These file counts and test counts use different units and must not be added.
+The Runtime comparison of exact package archives passed 128 public imports with Sandbox 0.36.4 and 0.37.0.
+Runtime merged as `3394955db984a81879208ed0f1a56e5102d73693`; its tree exactly matches the checked PR commit `4a9cb538`.
+The downloaded Runtime archive exactly matches the verified CI archive.
+Its registry provenance identifies the same source commit and publishing run.
+A fresh npm installation passed the five behavior checks: immutable lessons, malformed observation rejection, valid-empty acceptance, persistence failure reporting, and exact Knowledge profiles.
+The probe used 11 scripted completions and no model inference.
+All seven [tagged public-contract checks](https://github.com/tangle-network/agent-runtime/actions/runs/34014586446) also passed.
+The companion [Bench 0.8.32 release](https://github.com/tangle-network/agent-runtime/actions/runs/34015299697) is published with the repaired dependency ranges.
+Its downloaded archive matches the verified CI archive, and fresh root and adapter imports passed with the published Runtime.
 
 Eval now distinguishes complete-method results from native-proposer results through `result.mode`.
 Consumers that use native generations must narrow that type before reading them.
