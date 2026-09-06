@@ -336,6 +336,9 @@ export function extractLlmCallEvent(
  * events. Call {@link SandboxUsageLedger.observe} for every event of a turn, then
  * {@link SandboxUsageLedger.settleTurn} once at the turn boundary; settling also resets the
  * ledger for the next turn, so one ledger serves a whole multi-turn session.
+ *
+ * The ledger never throws on a receipt it cannot read: `observe` returns a receipt with
+ * `tokensKnown: false` and `tokensUnknownReason`, so one policy serves every consumer.
  */
 export interface SandboxUsageLedger {
   /** Account one event. Returns the canonical usage receipt to credit now, if the event is one. */
@@ -359,7 +362,23 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
         sawCanonical = true
         return call
       }
-      const usage = decodeHarnessUsage(event, harness)
+      let usage: HarnessUsage | undefined
+      try {
+        usage = decodeHarnessUsage(event, harness)
+      } catch (err) {
+        // A receipt the ledger cannot read is a measurement fact, not an outcome fact. It is
+        // answered like any other receipt, marked unknown with the decode message, so every
+        // consumer marks the spend unknown through the fold it already applies and none decides
+        // on its own whether an unreadable counter fails the turn. Before the ledger owned this,
+        // the leaf kernel failed the iteration and, as a ValidationError, the whole batch.
+        return {
+          type: 'llm_call',
+          model: agentRunName,
+          tokensKnown: false,
+          usdKnown: false,
+          tokensUnknownReason: err instanceof Error ? err.message : String(err),
+        }
+      }
       // Every report of the turn is kept: a stream carrying more than one is more than one
       // charge, and keeping only the last would drop tokens the provider billed.
       if (usage) held.push(usage)
@@ -440,8 +459,8 @@ function harnessUsageLlmCall(
  * Without this a cell reads `{tokens:0, cost:0}` and the backend-integrity guard correctly aborts the
  * matrix as a stub. `agentRunName` is the fallback model label for cost-only events (default `'agent'`).
  *
- * Pure by contract, like the extractors it folds: it never throws. A harness receipt it cannot read
- * is skipped, the result reports `tokensKnown: false`, and `tokensUnknownReason` carries the decode
+ * Pure by contract, like the ledger it folds: it never throws. A harness receipt the ledger cannot
+ * read leaves the result at `tokensKnown: false` with `tokensUnknownReason` carrying the decode
  * message — an unreadable receipt is a different fact from a turn that reported no usage, and a
  * post-hoc reader that threw would lose the whole failed turn it exists to report.
  */
@@ -474,27 +493,19 @@ export function sumSandboxUsage(
     costUsd += call.costUsd ?? 0
     if (call.tokensKnown === false) tokensKnown = false
     if (call.usdKnown === false) usdKnown = false
+    // The FIRST decode message is kept: it names the receipt the ledger could not read, and a
+    // later one from the same turn does not make the answer any more unknown.
+    unreadable ??= call.tokensUnknownReason
     if (call.estimatedCostUsd !== undefined) {
       estimatedCostUsd += call.estimatedCostUsd
       sawEstimate = true
     }
   }
-  // The FIRST decode message is kept: it names the receipt the reader could not read, and a later
-  // one from the same turn does not make the answer any more unknown.
-  const readable = <T>(read: () => T): T | undefined => {
-    try {
-      return read()
-    } catch (err) {
-      tokensKnown = false
-      unreadable ??= err instanceof Error ? err.message : String(err)
-      return undefined
-    }
-  }
   for (const ev of events) {
-    const call = readable(() => ledger.observe(ev, agentRunName))
+    const call = ledger.observe(ev, agentRunName)
     if (call) credit(call)
   }
-  const harnessCall = readable(() => ledger.settleTurn(agentRunName))
+  const harnessCall = ledger.settleTurn(agentRunName)
   if (harnessCall) credit(harnessCall)
   return {
     input,

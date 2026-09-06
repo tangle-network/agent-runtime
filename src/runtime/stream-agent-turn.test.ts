@@ -182,6 +182,24 @@ describe('streamAgentTurn: box backend', () => {
     expect(turn.usage).toEqual({ input: 7, output: 3, usdKnown: false })
   })
 
+  it('settles a turn whose harness receipt is unreadable with its spend unknown', async () => {
+    // A counter the ledger cannot read is a measurement fact, not an outcome fact: the turn keeps
+    // the outcome the box reported and its tokens read as unknown (agent-runtime#1027).
+    const box = await makeBox([
+      { type: 'message.part.updated', data: { part: { type: 'text' }, delta: 'OK' } },
+      { type: 'raw', data: { type: 'turn.completed', usage: { output_tokens: 5 } } },
+      { type: 'result', data: { finalText: 'OK' } },
+      doneEvent(),
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'answer' }),
+    )
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('OK')
+    expect(turn.usage).toEqual({ input: 0, output: 0, tokensKnown: false, usdKnown: false })
+  })
+
   it('collectAgentTurn round-trips the terminal summary', async () => {
     const box = await makeBox([
       { type: 'message.part.updated', data: { part: { type: 'text' }, delta: '42' } },
