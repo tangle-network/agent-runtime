@@ -820,7 +820,16 @@ export function superviseAgentGraph(
   // ── Ledger state ──
   const ledger: EdgeTraversal[] = []
   const journaled = new Set<EdgeTraversal>()
+  // Per-edge ordinals: every row takes the next one, so the ledger reads as one full sequence.
   const traversalCounts = new Map<string, number>()
+  // What the caps judge, kept apart from the ordinals: a spawn row is charged when a live worker
+  // BINDS it, never when it is authorized. scope.spawn runs the factory (this graph's
+  // authorizeSpawn) before it decides duplicate-key, key-conflict, or a completed keyed result,
+  // so a row that never binds advanced no cycle and must leave the backstop untouched (#1005).
+  const capSpend = new Map<string, number>()
+  const spend = (edge: string): void => {
+    capSpend.set(edge, (capSpend.get(edge) ?? 0) + 1)
+  }
   const exhausted = new Set<string>()
   // The subset of `exhausted` that REFUSED work. Only a delegates cap closes the spawn cycle, so
   // only it can be the reason a run ended winnerless — an analyzes cap refuses nothing.
@@ -845,12 +854,30 @@ export function superviseAgentGraph(
     journalWrites.push(write)
     return write
   }
-  const record = (entry: Omit<EdgeTraversal, 'traversal'>, journalNow: boolean): EdgeTraversal => {
+  // A FINAL row (its recipient already live, or a refusal) is journaled and charged on record; a
+  // provisional spawn row is both only once the `agent.spawn` hook binds it to a worker.
+  // A provisional spawn row that never bound a live worker states the same truth every
+  // unpropagated row states — the directive never reached a worker — so it is rewritten in place
+  // rather than minted as a new outcome; its ordinal stands and the edge cap was never charged.
+  const settleUnbound = (pending: EdgeTraversal): Promise<void> => {
+    const refused: EdgeTraversal = {
+      ...pending,
+      outcome: 'unpropagated',
+      bytes: 0,
+      reason: `no-live-worker-bound (spawn refused after the factory, or a keyed re-spawn deduplicated to a completed result; ${pending.bytes} composed bytes never crossed)`,
+    }
+    ledger[ledger.indexOf(pending)] = refused
+    return appendJournal(refused, `graph:${refused.to}`)
+  }
+  const record = (entry: Omit<EdgeTraversal, 'traversal'>, final: boolean): EdgeTraversal => {
     const count = (traversalCounts.get(entry.edge) ?? 0) + 1
     traversalCounts.set(entry.edge, count)
     const row: EdgeTraversal = { ...entry, traversal: count }
     ledger.push(row)
-    if (journalNow) void appendJournal(row, row.workerId ?? `graph:${row.to}`)
+    if (final) {
+      spend(row.edge)
+      void appendJournal(row, row.workerId ?? `graph:${row.to}`)
+    }
     return row
   }
 
@@ -894,7 +921,7 @@ export function superviseAgentGraph(
     const edge = delegatesByWorker.get(node.id) as Extract<GraphEdge, { kind: 'delegates' }>
     const id = edgeId(edge)
     const cap = edge.maxTraversals ?? defaultEdgeTraversalCap
-    const used = traversalCounts.get(id) ?? 0
+    const used = capSpend.get(id) ?? 0
     // The EFFECTIVE spawn mode the coordination layer resolved (per-call override, else this
     // edge's declared default, else fresh) — stamped on the row so the ledger states how each
     // hop continued, never how it was merely configured to.
@@ -938,6 +965,11 @@ export function superviseAgentGraph(
       },
       false,
     )
+    // A keyed assignment id is stable across re-spawns, so a row still pending under it was
+    // never bound (the `agent.spawn` hook would have cleared it): settle it now, before this
+    // authorization takes its slot, or the earlier phantom stays `delivered` forever.
+    const stale = pendingByAssignment.get(input.assignmentId)
+    if (stale !== undefined) void settleUnbound(stale)
     pendingByAssignment.set(input.assignmentId, row)
     // The delegation directive is a STANDING instruction of this traversal: appended to the
     // node's canonical prompt instructions, so the worker runs under node profile + edge
@@ -1081,7 +1113,7 @@ export function superviseAgentGraph(
   }
   const analyzesCapReached = (edge: Extract<GraphEdge, { kind: 'analyzes' }>): boolean => {
     const cap = edge.maxTraversals ?? defaultEdgeTraversalCap
-    const used = traversalCounts.get(edgeId(edge)) ?? 0
+    const used = capSpend.get(edgeId(edge)) ?? 0
     if (used < cap) return false
     exhausted.add(edgeId(edge))
     return true
@@ -1207,6 +1239,7 @@ export function superviseAgentGraph(
       const bound: EdgeTraversal = { ...pending, workerId: payload.childId }
       ledger[ledger.indexOf(pending)] = bound
       nodeByWorkerId.set(payload.childId, bound.to)
+      spend(bound.edge)
       return appendJournal(bound, payload.childId)
     },
   }
@@ -1255,18 +1288,10 @@ export function superviseAgentGraph(
     // NEW worker went live: the spawn was refused after the factory (identity conflict, runtime
     // floor) or a keyed re-spawn deduplicated to an already-completed result (prepare() runs the
     // factory, no hook fires). Both state the same truth every unpropagated row states — the
-    // directive never reached a live worker — so rewrite rather than mint a new outcome. Then
-    // settle every journal write, so the ledger's journal twin is complete when this returns.
-    for (const pending of pendingByAssignment.values()) {
-      const refused: EdgeTraversal = {
-        ...pending,
-        outcome: 'unpropagated',
-        bytes: 0,
-        reason: `no-live-worker-bound (spawn refused after the factory, or a keyed re-spawn deduplicated to a completed result; ${pending.bytes} composed bytes never crossed)`,
-      }
-      ledger[ledger.indexOf(pending)] = refused
-      await appendJournal(refused, `graph:${refused.to}`)
-    }
+    // directive never reached a live worker — so rewrite rather than mint a new outcome; the row
+    // kept its ordinal and was never charged to the edge cap. Then settle every journal write, so
+    // the ledger's journal twin is complete when this returns.
+    for (const pending of pendingByAssignment.values()) await settleUnbound(pending)
     pendingByAssignment.clear()
     await Promise.all(journalWrites)
 

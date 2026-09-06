@@ -537,6 +537,54 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
     expect(twin).toHaveLength(1)
     expect(twin[0]).toMatchObject({ outcome: 'unpropagated', id: 'graph:worker' })
   })
+
+  it('a keyed re-spawn that binds no worker spends nothing against the delegates cap', async () => {
+    // #1005's flow: the worker seat completed, then the driver re-spawned the same key under
+    // maxTraversals = 2 — each deduplicated to the completed result, no new worker. scope.spawn
+    // runs the factory (the graph's authorizeSpawn) BEFORE it decides the dedup, so every phantom
+    // re-spawn used to drain the cap: the second was REFUSED and the edge read as exhausted.
+    const keyedSpawn = {
+      toolCalls: [
+        {
+          name: 'spawn_worker',
+          arguments: { profile: { name: 'worker' }, task: 'build it', key: 'build' },
+        },
+      ],
+    }
+    const res = await runGraph(
+      twoNodeGraph({
+        edges: [
+          {
+            kind: 'delegates',
+            from: 'driver',
+            to: 'worker',
+            directive: promptHandle('delegates/worker-brief/v1'),
+            maxTraversals: 2,
+          },
+        ],
+      }),
+      {
+        makeLeafAgent: leafSeam([]),
+        brain: scriptedBrain([
+          keyedSpawn,
+          { toolCalls: [{ name: 'await_event', arguments: {} }] },
+          keyedSpawn, // deduplicated to the completed seat: no worker binds
+          keyedSpawn, // deduplicated again — the re-spawn the pre-fix cap refused
+          { content: 'done' },
+        ]),
+      },
+    )
+    expect(res.exhaustedEdges).toEqual([])
+    const rows = res.ledger.filter((row) => row.kind === 'delegates')
+    expect(rows.map((row) => [row.traversal, row.outcome])).toEqual([
+      [1, 'delivered'],
+      [2, 'unpropagated'],
+      [3, 'unpropagated'],
+    ])
+    // Both phantom rows state the dedup, never a cap refusal: the ordinal ran past the cap while
+    // the cap itself was spent exactly once — by the one worker that went live.
+    for (const row of rows.slice(1)) expect(row.reason).toContain('no-live-worker-bound')
+  })
 })
 
 describe('runGraph — analyzes edges (analysts are environment, findings get a destination)', () => {
