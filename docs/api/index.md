@@ -6234,7 +6234,7 @@ Number of generations explored by Runtime's code path.
 
 ##### raw
 
-> **raw**: `SelfImproveResult`\<`TScenario`, `TArtifact`\>
+> **raw**: `SelfImproveProposerResult`\<`TScenario`, `TArtifact`\>
 
 #### Methods
 
@@ -6626,11 +6626,66 @@ Findings to fall back to when the generation had NO failing cells, so a
 
 ### ReflectiveGeneratorOptions
 
-#### Properties
+#### Methods
 
-##### improvementProposalSource
+##### createImprovementProposalSource()
 
-> **improvementProposalSource**: [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
+> **createImprovementProposalSource**(`context`): [`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
+
+Bind proposal reads and paid calls to this candidate's worktree and account.
+
+###### Parameters
+
+###### context
+
+###### worktreePath
+
+`string`
+
+The candidate worktree — a clean checkout of the current incumbent.
+
+###### findings
+
+readonly `ProposalFinding`[]
+
+Search or production findings explicitly admitted for proposal use.
+
+###### maxShots
+
+`number`
+
+DEPTH: max iterations the generator may take (agentic uses this; the
+ reflective generator ignores it).
+
+###### signal
+
+`AbortSignal`
+
+###### generation?
+
+`number`
+
+Generation coordinates supplied by Runtime's internal code candidate driver.
+
+###### candidateIndex?
+
+`number`
+
+###### costLedger?
+
+`CostLedgerHandle`
+
+Shared run-wide paid-call account supplied by agent-eval 0.117+.
+
+###### costPhase?
+
+`string`
+
+Receipt attribution phase supplied alongside `costLedger`.
+
+###### Returns
+
+[`ImprovementProposalSource`](analyst-loop.md#improvementproposalsource)\<[`SurfaceImprovementEdit`](agent.md#surfaceimprovementedit)\>
 
 ***
 

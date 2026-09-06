@@ -435,9 +435,55 @@ describe('promotionGate', () => {
 // ── The author/optimizer addressability surface ───────────────────────────────────
 
 describe('addressable optimization coordinates', () => {
-  it('the author contract exposes persona (multi-agent strategies are authorable)', () => {
-    expect(strategyAuthorContract).toContain('persona')
-    expect(strategyAuthorContract).toContain('systemPrompt')
+  it('the author contract teaches a shot profile that changes the actual worker', async () => {
+    const captured = stubRouter()
+    const profile = testAgentProfile('strategy-author', {
+      harness: 'cli-base',
+      model: { provider: 'offline', default: 'author-model' },
+    })
+    const code = `import { defineStrategy } from '@tangle-network/agent-runtime/kernel'
+export default defineStrategy('specialist', async ({ shot, opts }) => {
+  await shot({ profile: { ...opts.workerProfile, name: 'researcher',
+    model: { ...opts.workerProfile.model, default: 'specialist-model' },
+    prompt: { ...opts.workerProfile.prompt, systemPrompt: 'SPECIALIST_INSTRUCTION' } } })
+  return { score: 0, resolved: false, completions: 1, progression: [], shots: 1 }
+})`
+    const { strategy } = await authorStrategy({
+      profile,
+      executor: {
+        backend: 'router',
+        routerBaseUrl: 'http://router.test/v1',
+        routerKey: 'test-key',
+        complete: async (request) => {
+          const prompt = JSON.stringify(request.messages)
+          expect(prompt).toContain('steer?, profile?, tools?')
+          expect(prompt).toContain('opts.workerProfile')
+          expect(prompt).not.toContain('persona?')
+          return {
+            choices: [{ message: { content: `\`\`\`ts\n${code}\n\`\`\`` } }],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+            model: profile.model?.default,
+          }
+        },
+      },
+      environmentName: 'fixture',
+      lossesJson: '[]',
+      budget: 1,
+      outDir: mkdtempSync(join(tmpdir(), 'authored-profile-test-')),
+    })
+    await runAgentic({
+      surface: fixtureSurface(() => ({ passes: 1, total: 1 })),
+      task,
+      ...worker,
+      strategy,
+      budget: 1,
+    })
+    expect(captured).toHaveLength(1)
+    expect(captured[0]).toMatchObject({ model: 'specialist-model' })
+    expect(captured[0]!.messages).toContainEqual({
+      role: 'system',
+      content: 'SPECIALIST_INSTRUCTION',
+    })
   })
 
   it('analystProfile routes the critique call to the critic model, not the worker', async () => {

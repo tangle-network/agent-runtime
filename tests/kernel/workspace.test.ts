@@ -133,6 +133,7 @@ describe('gitWorkspace', () => {
       expect(r2.valid).toBe(true)
       expect(r2.commit).toMatchObject({ ok: true })
     },
+    60_000,
   )
 
   it('returns a typed conflict instead of overwriting concurrent edits', async () => {

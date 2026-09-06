@@ -13,7 +13,7 @@ import {
   type Scenario,
   type SelfImproveBudget,
   type SelfImproveOptions,
-  type SelfImproveResult,
+  type SelfImproveProposerResult,
   type SurfaceProposer,
   selfImprove,
 } from '@tangle-network/agent-eval/contract'
@@ -260,7 +260,7 @@ export async function runCodeImprovement<TScenario extends Scenario, TArtifact>(
   const budget: SelfImproveBudget =
     gate === 'none' ? { ...sharedOptions.budget, generations: 0 } : { ...sharedOptions.budget }
 
-  let raw: SelfImproveResult<TScenario, TArtifact>
+  let raw: SelfImproveProposerResult<TScenario, TArtifact>
   try {
     raw = await selfImprove<TScenario, TArtifact>({
       ...sharedOptions,

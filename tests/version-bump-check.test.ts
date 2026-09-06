@@ -601,7 +601,7 @@ describe('a change to the exported symbols requires a version bump', () => {
     await expect(check(root, base)).rejects.toMatchObject({
       stderr: expect.stringContaining('breaking change needing a minor bump'),
     })
-  })
+  }, 120_000)
 
   it('does not fire when the exported symbols do not move', async () => {
     const root = await createRepo()

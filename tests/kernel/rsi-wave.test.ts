@@ -162,6 +162,21 @@ describe('cross-run corpus (G2)', () => {
     if (!conflict.succeeded) expect(conflict.error).toMatch(/conflict/)
   })
 
+  it('detaches and freezes nested corpus fields', async () => {
+    const corpus = new InMemoryCorpus()
+    const tags = ['original']
+    const evidence = [{ kind: 'trace', uri: 'trace:original' }]
+    expect(await corpus.append(record({ tags, evidence }))).toEqual({ succeeded: true })
+
+    tags.push('injected')
+    evidence[0]!.uri = 'trace:mutated'
+    const [saved] = await corpus.query({})
+    expect(saved?.tags).toEqual(['original'])
+    expect(saved?.evidence).toEqual([{ kind: 'trace', uri: 'trace:original' }])
+    expect(Reflect.set(saved!.tags, 0, 'changed')).toBe(false)
+    expect(Reflect.set(saved!.evidence![0]!, 'uri', 'trace:changed')).toBe(false)
+  })
+
   it('renderCorpusToInstructions projects facts into a FRESH profile (input unchanged)', async () => {
     const corpus = new InMemoryCorpus()
     await corpus.append(record({ id: 'a', confidence: 0.95, claim: 'fact A', rationale: 'why A' }))

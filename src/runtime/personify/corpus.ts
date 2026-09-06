@@ -24,6 +24,7 @@ import {
   prepareJsonlAppend,
   writeAllBytes,
 } from '../../durable/jsonl-file'
+import { detachedFrozen } from '../supervise/snapshot'
 import type {
   Corpus,
   CorpusFilter,
@@ -171,14 +172,16 @@ export class InMemoryCorpus implements Corpus {
   async append(
     record: CorpusRecord,
   ): Promise<{ succeeded: true } | { succeeded: false; error: string }> {
+    let snapshot: CorpusRecord
     try {
       assertCorpusRecord(record, 'append: record')
+      snapshot = detachedFrozen(record)
     } catch (err) {
       return { succeeded: false, error: err instanceof Error ? err.message : String(err) }
     }
-    const existing = this.byId.get(record.id)
+    const existing = this.byId.get(snapshot.id)
     if (existing) {
-      if (recordsEqual(existing, record)) return { succeeded: true }
+      if (recordsEqual(existing, snapshot)) return { succeeded: true }
       return {
         succeeded: false,
         error:
@@ -186,7 +189,7 @@ export class InMemoryCorpus implements Corpus {
           'a learned fact is append-only — re-mint the id or reconcile before re-appending',
       }
     }
-    this.byId.set(record.id, freeze(record))
+    this.byId.set(snapshot.id, snapshot)
     return { succeeded: true }
   }
 
@@ -215,27 +218,46 @@ export class FileCorpus implements Corpus {
   ): Promise<{ succeeded: true } | { succeeded: false; error: string }> {
     try {
       assertCorpusRecord(record, 'append: record')
-    } catch (err) {
-      return { succeeded: false, error: err instanceof Error ? err.message : String(err) }
-    }
-    let stored: Map<string, CorpusRecord>
-    try {
-      stored = await this.load()
-    } catch (err) {
-      return { succeeded: false, error: err instanceof Error ? err.message : String(err) }
-    }
-    const existing = stored.get(record.id)
-    if (existing) {
-      if (recordsEqual(existing, record)) return { succeeded: true }
-      return {
-        succeeded: false,
-        error:
-          `corpus conflict: id '${record.id}' is already stored in ${this.path} with a different ` +
-          'record; a learned fact is append-only — re-mint the id or reconcile before re-appending',
+      const snapshot = detachedFrozen(record)
+      const fs = await import('node:fs/promises')
+      const { dirname } = await import('node:path')
+      const { tryAcquireAtomicFileLock } = await import('@tangle-network/agent-eval/ledger-core')
+      await fs.mkdir(dirname(this.path), { recursive: true })
+      // Create the file before resolving it so aliases share a lock on the first append too.
+      const file = await fs.open(this.path, 'a')
+      await file.close()
+      const canonicalPath = await fs.realpath(this.path)
+      const deadline = Date.now() + 5000
+      for (;;) {
+        const acquisition = tryAcquireAtomicFileLock({ lockPath: `${canonicalPath}.lock` })
+        if (!acquisition.acquired) {
+          if (Date.now() >= deadline) {
+            throw new Error(`corpus append lock unavailable after 5000ms: ${canonicalPath}`)
+          }
+          await new Promise((resolve) => setTimeout(resolve, 25))
+          continue
+        }
+        try {
+          const stored = await this.load(canonicalPath)
+          const existing = stored.get(snapshot.id)
+          if (existing) {
+            if (recordsEqual(existing, snapshot)) return { succeeded: true }
+            return {
+              succeeded: false,
+              error:
+                `corpus conflict: id '${snapshot.id}' is already stored in ${canonicalPath} with a different ` +
+                'record; a learned fact is append-only — re-mint the id or reconcile before re-appending',
+            }
+          }
+          await this.appendLine(canonicalPath, snapshot)
+          return { succeeded: true }
+        } finally {
+          acquisition.lock.release()
+        }
       }
+    } catch (err) {
+      return { succeeded: false, error: err instanceof Error ? err.message : String(err) }
     }
-    await this.appendLine(record)
-    return { succeeded: true }
   }
 
   async query(filter: CorpusFilter): Promise<ReadonlyArray<CorpusRecord>> {
@@ -243,11 +265,11 @@ export class FileCorpus implements Corpus {
     return applyFilter([...stored.values()], filter)
   }
 
-  private async load(): Promise<Map<string, CorpusRecord>> {
+  private async load(path = this.path): Promise<Map<string, CorpusRecord>> {
     const fs = await import('node:fs/promises')
     let text: string
     try {
-      text = await fs.readFile(this.path, 'utf8')
+      text = await fs.readFile(path, 'utf8')
     } catch (err) {
       if (isNoEntError(err)) return new Map()
       throw err
@@ -264,17 +286,15 @@ export class FileCorpus implements Corpus {
             'an append-only corpus must never hold a conflicting re-append under one id',
         )
       }
-      byId.set(parsed.id, freeze(parsed))
+      byId.set(parsed.id, detachedFrozen(parsed))
     }
     return byId
   }
 
-  private async appendLine(record: CorpusRecord): Promise<void> {
+  private async appendLine(path: string, record: CorpusRecord): Promise<void> {
     const fs = await import('node:fs/promises')
-    const path = await import('node:path')
-    await fs.mkdir(path.dirname(this.path), { recursive: true })
-    const needsSeparator = await prepareJsonlAppend(this.path)
-    const fh = await fs.open(this.path, 'a')
+    const needsSeparator = await prepareJsonlAppend(path)
+    const fh = await fs.open(path, 'a')
     try {
       await writeAllBytes(fh, `${needsSeparator ? '\n' : ''}${JSON.stringify(record)}\n`)
       await fh.sync()
@@ -339,10 +359,4 @@ export async function renderCorpusToInstructions(
  *  metric/score/verdict text is synthesized (the corpus holds facts, not selector evidence). */
 function renderLine(record: CorpusRecord): string {
   return record.rationale ? `${record.claim} (${record.rationale})` : record.claim
-}
-
-// ── Internal helpers ───────────────────────────────────────────────────────────
-
-function freeze(record: CorpusRecord): CorpusRecord {
-  return Object.freeze({ ...record })
 }

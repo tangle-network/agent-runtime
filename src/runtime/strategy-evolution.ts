@@ -25,8 +25,14 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
-import type { AgentProfile } from '@tangle-network/agent-interface'
+import type { AgentProfile, Sha256Digest } from '@tangle-network/agent-interface'
+import {
+  canonicalCandidateDigest,
+  immutableCandidateValue,
+  sha256Bytes,
+} from '../candidate-execution/digest'
 import type { RuntimeHooks } from '../runtime-hooks'
 import { profileChatClient } from './profile-chat-client'
 import { type PromotionVerdict, promotionGate } from './promotion-gate'
@@ -142,6 +148,11 @@ export interface StrategyEvolutionConfig {
   checkpoint?: {
     path: string
     resume?: boolean
+    /** Digest of execution dependencies: environment, baseline code, transports, callbacks,
+     * and external state such as a corpus. Update it when any dependency changes.
+     * Runtime hashes profiles, settings, JSON task payloads, and authored bytes separately;
+     * it cannot infer callback behavior or external state. */
+    executionRef: Sha256Digest
   }
   /** Called before each benchmark phase (gen0, gen1…, band-screen, holdout, reproduce).
    *  The seam for environment recycling — no artifacts span phases, so a runner may
@@ -153,6 +164,9 @@ export interface StrategyEvolutionConfig {
 
 /** The on-disk phase ledger — everything needed to skip completed phases on resume. */
 interface EvolutionCheckpoint {
+  fingerprint: Sha256Digest
+  trainDigest: Sha256Digest
+  holdoutPoolDigest?: Sha256Digest
   gen0?: BenchmarkReport
   gen0Champion?: ChampionPick
   generations: EvolutionGeneration[]
@@ -172,6 +186,8 @@ export interface ChampionPick {
 export interface EvolutionCandidate {
   name: string
   file?: string
+  /** Digest of the exact authored module evaluated in this generation. */
+  sourceSha256?: Sha256Digest
   gzipBits?: number
   codeChars?: number
   /** Present when this author attempt failed (recorded, never silent). */
@@ -392,30 +408,89 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   const byName = new Map<string, Strategy>(baselines.map((s) => [s.name, s]))
   const codeByName = new Map<string, string>()
 
-  // Endurance: the phase ledger. Resume refuses a checkpoint from a different design
-  // (silently mixing configs would corrupt every downstream comparison).
-  const fingerprint = {
-    trainN: cfg.trainN,
-    holdoutN: cfg.holdoutN,
-    budget,
-    generations,
-    populationSize,
+  for (const [label, count] of Object.entries({ trainN: cfg.trainN, holdoutN: cfg.holdoutN })) {
+    if (!Number.isSafeInteger(count) || count < 1) {
+      throw new Error(`evolution: ${label} must be a positive integer`)
+    }
   }
+  const holdoutOffset = cfg.holdoutOffset ?? 0
+  if (!Number.isSafeInteger(holdoutOffset) || holdoutOffset < 0) {
+    throw new Error('evolution: holdoutOffset must be a non-negative integer')
+  }
+  if (baselines.length === 0 || byName.size !== baselines.length) {
+    throw new Error('evolution: baselines must have non-empty, unique names')
+  }
+  if (cfg.checkpoint && !/^sha256:[0-9a-f]{64}$/.test(cfg.checkpoint.executionRef)) {
+    throw new Error('evolution checkpoint: executionRef must be a lowercase sha256:<64 hex> digest')
+  }
+  const fingerprint = cfg.checkpoint
+    ? canonicalCandidateDigest({
+        schemaVersion: 2,
+        executionRef: cfg.checkpoint?.executionRef ?? null,
+        environment: cfg.environment.name,
+        trainN: cfg.trainN,
+        holdoutN: cfg.holdoutN,
+        holdoutOffset,
+        budget,
+        concurrency,
+        generations,
+        populationSize,
+        baselines: baselines.map((baseline) => baseline.name),
+        objective: cfg.objective ?? 'score',
+        scoreTolerance: cfg.scoreTolerance ?? 0.05,
+        champion: policy,
+        championEpsilon: epsilon,
+        minPairedTasks: cfg.minPairedTasks ?? null,
+        band: cfg.band ?? null,
+        lossesDetail: cfg.lossesDetail ?? 'exact',
+        reproducerCheck: cfg.reproducerCheck ?? null,
+        modelPreflight: cfg.modelPreflight !== false,
+        modelPreflightTimeoutMs: cfg.modelPreflightTimeoutMs ?? null,
+        worker: {
+          routerBaseUrl: cfg.worker.routerBaseUrl,
+          profile: cfg.worker.workerProfile,
+          analystProfile: cfg.worker.analystProfile ?? cfg.worker.workerProfile,
+          corpusTags: cfg.worker.corpusTags ?? [],
+          corpusReadback: cfg.worker.corpusReadback ?? null,
+        },
+        author: {
+          profile: cfg.author.profile,
+          fallbackProfile: cfg.author.fallbackProfile ?? null,
+          executorBackend: cfg.author.executor.backend,
+        },
+        authorContract: strategyAuthorContract,
+      })
+    : undefined
   let ckpt: EvolutionCheckpoint | undefined
   if (cfg.checkpoint?.resume && existsSync(cfg.checkpoint.path)) {
-    const raw = JSON.parse(readFileSync(cfg.checkpoint.path, 'utf8')) as EvolutionCheckpoint & {
-      fingerprint?: typeof fingerprint
-    }
-    if (JSON.stringify(raw.fingerprint) !== JSON.stringify(fingerprint)) {
+    const raw = JSON.parse(readFileSync(cfg.checkpoint.path, 'utf8')) as EvolutionCheckpoint
+    if (raw.fingerprint !== fingerprint) {
       throw new Error(
-        `evolution resume: checkpoint design mismatch — checkpoint ${JSON.stringify(raw.fingerprint)} vs config ${JSON.stringify(fingerprint)}; delete ${cfg.checkpoint.path} or match the config`,
+        `evolution resume: checkpoint design mismatch at ${cfg.checkpoint.path}; use a new checkpoint or restore the original execution dependencies`,
       )
     }
     ckpt = raw
   }
-  const save = (state: EvolutionCheckpoint): void => {
+
+  const train = checkedTaskSlice(
+    await cfg.tasks(0, cfg.trainN),
+    cfg.trainN,
+    'train',
+    !!cfg.checkpoint,
+  )
+  const trainDigest = cfg.checkpoint ? canonicalCandidateDigest(train) : undefined
+  if (ckpt && ckpt.trainDigest !== trainDigest) {
+    throw new Error('evolution resume: train task payloads changed')
+  }
+  let holdoutPoolDigest: Sha256Digest | undefined
+  const save = (
+    state: Omit<EvolutionCheckpoint, 'fingerprint' | 'trainDigest' | 'holdoutPoolDigest'>,
+  ): void => {
     if (cfg.checkpoint)
-      writeFileSync(cfg.checkpoint.path, JSON.stringify({ ...state, fingerprint }, null, 1))
+      writeFileSync(
+        cfg.checkpoint.path,
+        JSON.stringify({ ...state, fingerprint, trainDigest, holdoutPoolDigest }, null, 1),
+      )
   }
 
   let modelsPreflighted = false
@@ -439,7 +514,6 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     return report
   }
 
-  const train = await cfg.tasks(0, cfg.trainN)
   // One probe round-trip lists the domain's tools so the author can write tool-focused
   // shots (shot({tools})) — names + descriptions, never the implementations.
   const probeTask = train[0]
@@ -491,15 +565,24 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
   // so report keys stay stable across the restart).
   for (const row of generationRows) {
     for (const c of row.candidates) {
-      if (!c.file || c.error) continue
-      const mod = (await import(`file://${c.file}`)) as { default?: Strategy }
+      if (c.error) continue
+      if (!c.file || !c.sourceSha256) {
+        throw new Error(`evolution resume: missing source identity for '${c.name}'`)
+      }
+      const bytes = readFileSync(c.file)
+      if (sha256Bytes(bytes) !== c.sourceSha256) {
+        throw new Error(`evolution resume: authored source changed for '${c.name}' (${c.file})`)
+      }
+      const sourceUrl = pathToFileURL(c.file)
+      sourceUrl.searchParams.set('sha256', c.sourceSha256)
+      const mod = (await import(sourceUrl.href)) as { default?: Strategy }
       if (!mod.default || typeof mod.default.driver !== 'function') {
         throw new Error(
           `evolution resume: ${c.file} no longer exports a Strategy — cannot restore "${c.name}"`,
         )
       }
       byName.set(c.name, renameStrategy(mod.default, c.name))
-      codeByName.set(c.name, readFileSync(c.file, 'utf8'))
+      codeByName.set(c.name, bytes.toString('utf8'))
     }
   }
   let authoredOk = generationRows.reduce(
@@ -557,6 +640,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
         candidates.push({
           name: unique,
           file: authored.file,
+          sourceSha256: sha256Bytes(Buffer.from(authored.code)),
           gzipBits: gzipSync(Buffer.from(authored.code)).length * 8,
           codeChars: authored.code.length,
         })
@@ -609,7 +693,21 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
 
   // The promotion decision: ONE fresh slice the search never touched, drawn after all
   // authoring is done. The gate, not the search policy, owns this verdict.
-  const holdoutOffset = cfg.trainN + (cfg.holdoutOffset ?? 0)
+  const poolN = cfg.band?.holdoutPoolN ?? cfg.holdoutN
+  const pool = checkedTaskSlice(
+    await cfg.tasks(cfg.trainN + holdoutOffset, poolN),
+    poolN,
+    'holdout',
+    !!cfg.checkpoint,
+  )
+  const trainIds = new Set(train.map((task) => task.id))
+  if (pool.some((task) => trainIds.has(task.id))) {
+    throw new Error('evolution: train and holdout task IDs must be disjoint')
+  }
+  holdoutPoolDigest = cfg.checkpoint ? canonicalCandidateDigest(pool) : undefined
+  if (ckpt?.holdout && ckpt.holdoutPoolDigest !== holdoutPoolDigest) {
+    throw new Error('evolution resume: holdout task payloads changed')
+  }
   let holdoutTasks: AgenticTask[] = []
   let bandInfo: EvolutionBandInfo | undefined
   if (ckpt?.holdout && ckpt.verdict) {
@@ -617,7 +715,6 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     // the reproducer still needs to bench on them.
     bandInfo = ckpt.band
     if (cfg.reproducerCheck && codeByName.has(incumbent.name)) {
-      const pool = await cfg.tasks(holdoutOffset, cfg.band?.holdoutPoolN ?? cfg.holdoutN)
       const gateIds = new Set(ckpt.holdout.perTask.map((r) => r.taskId))
       holdoutTasks = pool.filter((t) => gateIds.has(t.id))
     }
@@ -630,7 +727,6 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     const reference = baselines[0]
     if (!reference)
       throw new Error('evolution band: baselines[0] required as the screening reference')
-    const pool = await cfg.tasks(holdoutOffset, cfg.band.holdoutPoolN)
     const screen = await bench('band-screen', pool, [reference])
     const refScores = screen.perTask
       .filter((r) => r.cells?.[reference.name])
@@ -645,7 +741,7 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     holdoutTasks = kept.slice(0, cfg.holdoutN)
     bandInfo = { screened: refScores.length, inBand: kept.length, refScores }
   } else {
-    holdoutTasks = await cfg.tasks(holdoutOffset, cfg.holdoutN)
+    holdoutTasks = pool
   }
   let holdout: BenchmarkReport
   let verdict: PromotionVerdict
@@ -756,4 +852,25 @@ export async function runStrategyEvolution(cfg: StrategyEvolutionConfig): Promis
     ...(reproduction ? { reproduction } : {}),
     trajectory,
   }
+}
+
+function checkedTaskSlice(
+  tasks: AgenticTask[],
+  count: number,
+  label: string,
+  snapshot: boolean,
+): AgenticTask[] {
+  if (!Number.isSafeInteger(count) || count < 1 || tasks.length !== count) {
+    throw new Error(
+      `evolution: ${label} must supply exactly ${count} tasks; received ${tasks.length}`,
+    )
+  }
+  const ids = new Set<string>()
+  for (const task of tasks) {
+    if (typeof task.id !== 'string' || !task.id.trim() || ids.has(task.id)) {
+      throw new Error(`evolution: ${label} task IDs must be non-empty and unique`)
+    }
+    ids.add(task.id)
+  }
+  return snapshot ? immutableCandidateValue(tasks) : tasks
 }

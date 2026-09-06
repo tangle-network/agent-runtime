@@ -1,166 +1,112 @@
-# The Continual Cross-Benchmark Learning Flywheel
+# Continual Domain Learning and Meta-Learning
 
-> **In plain terms:** This is a design-rationale doc — it explains *why* this project is built
-> to get better the more it runs, not how to use the package day to day. It's for a developer
-> who wants the big-picture research bet before reading the code. The one idea to take home:
-> every test run saves a full record of what the agent did and how well it scored, and a
-> learning component studies *all* of those saved records to steer future runs better — so the
-> real asset is the growing library of run records plus the component trained on it, never any
-> single test result.
+This document describes the learning objective, not a claim that the complete process has been demonstrated.
+[Architecture.md](./architecture.md) defines execution responsibilities and experiment scope.
+The [learning audit](./research/learning-system-audit-2026-09-05.md) distinguishes implemented behavior, reproduced defects, and unmeasured capability.
 
-> **Start with [`architecture.md`](./architecture.md)** — it's the main map of how the system
-> fits together: one recursive `Agent` building block, two speeds of improvement (fast within a
-> single run, slow across many runs), evals plugged in as adapters, and the rule that the
-> component choosing the best answer is never the one scoring it. This doc is the deeper dive
-> into the theory and the long-term competitive edge — the `(π,τ,J,D,O)` recursion and the
-> hard-won discipline behind it. Where the two disagree, `architecture.md` wins.
+A specialist, its domain learning process, and the method that constructs that process are all useful objects of improvement.
+A specialist can remain specific to its domain.
+The reusable knowledge can be how to build and run a successful learning process elsewhere.
 
-> The core thesis of this project. There are **two loops, and the product is the outer one.**
->
-> - **Inner loop (within-run):** a controller steers a worker over k attempts on a single
->   task — refine/fanout/stop. Useful, but NOT the product, and not where the moonshot lives.
-> - **Outer loop (the FLYWHEEL — the product):** every eval run, across every benchmark,
->   generates `(state, trace, steer, outcome, cost)` data that accumulates into a durable
->   corpus; the **controller** learns from *all of it*; that improves future runs across
->   *all* benchmarks; which generates more data.
->
-> It is **NOT only within-run self-improvement.** Self-improvement is **cross-run and
-> cross-benchmark**, compounding over time. A run that shows zero within-run effect still
-> feeds the corpus; the learnable structure emerges in the aggregate. The asset is the
-> corpus and the controller it trains — never any single result.
+| Object | What changes | Evidence of improvement |
+| --- | --- | --- |
+| Specialist | Its profile, code, tools, knowledge, memory use, or execution policy | Better results on fresh work within its intended domain |
+| Domain learner | Problem selection, diagnosis, candidate construction, working evaluations, and retention decisions | Better specialists or domain outcomes across repeated learning episodes |
+| Meta-learner | How domain learning processes are constructed and improved | Better learning processes on the domains and objectives covered by the claim |
 
-> **Success — the one definition (Gate B).** The flywheel works iff, across repeated runs on a
-> persistent, checkable, long-horizon task family, the deployed controller's verifier-graded
-> **multi-objective** score improves **run-over-run** (run N+1 starts above run N at **matched
-> per-run compute**), the only changed variable is that the controller learned from the accumulated
-> corpus, the gain survives a **frozen-controller control** (re-running an earlier controller shows
-> no slope), it is significant at adequate n (paired-bootstrap + BH), and it is graded by a
-> **deployable checker** — never the answer oracle or the write-only judge. *Multi-objective* is
-> load-bearing: success is a vector (correct · fast · secure · cheap), with evidence scoped to each objective.
-> Tests, clocks, scanners, and cost meters provide partial measurements; record each check's coverage and unverified assumptions.
-> This OUTER-loop slope is THE success criterion. The
-> within-run "trace+findings-fed controller beats the blind same-compute baseline under a non-oracle
-> selector at **equal compute**" question is a separate, narrower diagnostic — **Gate A**, the
-> comparison for within-run steering, scoped by [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
-> Compare actual resource use in both tests, including learning costs over the declared project horizon.
-> The budget may fund one deep trajectory, several shallow attempts, or a mixture.
+Transfer of the specialist and transfer of its learning process are different claims.
+Useful repeated learning within one domain requires neither.
+Working evaluations can improve at each level, subject to independent assessment of their quality.
 
 ## The flywheel
 
-```
-   ┌──────────────────────────────────────────────────────────────────────┐
-   │                                                                        │
-   ▼                                                                        │
- RUN evals across MANY benchmarks (coding, research, terminal, browser, …)  │
-   │   each run = a driver/controller steering a worker over k attempts     │
-   │                                                                        │
-   ▼                                                                        │
- RECORD the full tuple per attempt → a durable, queryable CORPUS            │
-   (state · prompt/steer · TRACE · output · judge verdict · cost/turns)     │
-   │                                                                        │
-   ▼                                                                        │
- LEARN the controller from the WHOLE corpus (offline, cross-benchmark)      │
-   trace-aware, multi-objective GEPA/optimizer over the steer/topology      │
-   signatures — optimize for SUCCESS and CLEAN/FAST trace                   │
-   │                                                                        │
-   ▼                                                                        │
- BETTER controller → ships into the next runs ───────────────────────────► ┘
-```
+A domain learner consumes an objective, execution tools, current specialists, prior experience, and resources.
+It produces evaluated specialist candidates, working evaluations, experiment records, and updated learning state.
+Its decisions include what to investigate, what to change, how to measure it, and what to retain.
 
-The asset is the **corpus**, not any single result. A run that shows no within-run effect
-still contributes data; the learnable structure emerges in the aggregate.
+The process becomes continuous when retained evidence changes a later decision or candidate.
+Writing a record alone does not establish learning.
+An outer evaluation must execute the produced specialist and its exact retained state.
+Scoring the learner's explanation of that specialist tests a different outcome.
 
-The read side is not free: **naively priming** the worker context with prior-run prose
-records measures **negative** (−11.6pp with a worsening slope; the context-pollution and
-instance-transfer falsifiers both fired). The surviving read-side design is
-**verifier-gated, relevance-weighted accretion of certified programs** — store strategies
-that passed a checker, not facts —
-[docs/research/leapfrog-program.md §S3](./research/leapfrog-program.md).
+Retained information is useful when its use improves later work.
+Record what was retrieved, how it was used, and the subsequent result.
+A useful change can require memory and planning changes together.
+Preserve informative failures and alternative candidates even when they do not qualify for immediate adoption.
 
 ## The lifting generalization: recursive self-improvement
 
-The flywheel is one instance of a more general object. Name the loop:
+One description of a learning loop is `L = (π, τ, J, D, O)`:
 
-```
-L = (π, τ, J, D, O)
-    π  policy      — produces behavior
-    τ  trace       — the behavior + its full execution record
-    J  judge       — EXTERNAL, write-only score (the anchor)
-    D  corpus      — accumulated (τ, score), shared memory
-    O  optimizer   — D → π′  (a better policy)
-```
+| Term | Meaning |
+| --- | --- |
+| `π` | The executable object being improved |
+| `τ` | Its behavior and execution record |
+| `J` | Independent assessment for the current improvement claim |
+| `D` | Retained experience and candidate lineage |
+| `O` | The procedure that uses experience to propose and select changed objects |
 
-**The lift:** `O` is itself a policy → `L` can take `L` as its `π`. The loop is
-**self-similar across levels**, where level *n*'s policy is *"how to optimize level n−1"*:
+The procedure `O` can itself become the object `π` of another experiment.
+Its result is then judged through the specialists or learning processes it produces.
+Working evaluations can be part of that changeable procedure.
+An independent assessment remains outside the adaptive decisions it tests.
 
-```
-L0 : improve the WORKER's behavior on a task        (π = worker)
-L1 : improve the CONTROLLER / steer-function f      (π = L0's optimizer)   ← the flywheel
-L2 : improve the OPTIMIZER that learns f            (π = L1's optimizer)   ← meta-harness/meta-GEPA
-Ln : improve "how to improve" at level n−1          (same tuple, lifted)
-```
+This recursion describes a possible composition, not evidence of recursive improvement.
+Three obligations remain at every level:
 
-**Recursive self-improvement = this loop closed on itself.** Every level is the *identical*
-`(π, τ, J, D, O)` structure; only the object-of-optimization changes.
+1. Execute the exact candidate and retain its state and outcome records.
+2. Include all inner work, incomplete episodes, and unmeasured costs in the outer account.
+3. Assess the claimed outcome independently of the search decisions that selected the candidate.
 
-It is real (not vapor) only under three constraints:
-1. **External anchor.** A fixed `J` at the base. Without it the recursion Goodharts — each
-   level games the metric. The **write-only judge is the keystone of the entire stack**; that
-   is *why* the integrity rule (judge never feeds steering/selection) is non-negotiable.
-2. **Shared corpus `D`.** Improvements persist and are evidenced *across* levels — a level-1
-   gain shows up in the corpus the level-0 runs produced.
-3. **Evidence per learning level.** Level *n* contributes only when it **measurably lifts level n−1 on `J`**.
-   This requirement concerns evidence; construction and comparison follow [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope).
+A fixed final score can still be an inadequate proxy for the domain objective.
+Validate its coverage and failure detection; independence alone does not establish validity.
+Storage can remain domain-specific while experiments share identity and evidence contracts.
+A single physical store or one search algorithm is not required.
 
-**This subsumes everything in this repo and this design:** the worker, the `f(trace)` steer,
-the controller-as-signatures, GEPA, `meta-harness`, AND the **skill-governor** (which skill to
-run next = an L1 policy; learning the governor from skill-run outcomes = L2) are all slices of
-one structure — *a uniform recursive optimization stack over policies-with-traces, anchored by
-external judges, backed by a shared corpus.* That is what "imagining bigger" resolves to.
+## Evaluation engineering is part of learning
 
-**Benchmark BOTH — in fact, ALL levels.** Every level is an independent toggle, so you
-*ablate* to measure each level's marginal lift on `J`:
+A learner can generate cases, construct judging instructions, create executable checks, and change its practice distribution.
+Those working evaluations can guide its next intervention.
+An improved evaluation can expose more failures and lower the current specialist's score.
+Its value depends on detection quality and subsequent domain learning, not an easier score for the current specialist.
 
-```
-   within-run refine {on,off}  ×  cross-run learned controller {on,off}  ×  meta {on,off}
-```
+Use independent outcomes, controlled defects, new failure cases, and external assessment to test evaluation changes.
+Calibration statistics analyze observations supplied by a caller.
+They do not execute judges, collect domain outcomes, or train a specialist by themselves.
+Disagreement and score variance can identify questions to investigate without proving which practice will improve the agent.
 
-The corpus + external judge make every level measurable in isolation and in combination —
-which is how you *prove* a recursive system is real instead of asserting it.
+Cases used to construct evaluations or choose learning policies become development evidence for those decisions.
+Keep final assessment separate at the level whose improvement is claimed.
+Fresh tasks within a domain can assess a specialist or domain learner.
+A claim about process transfer requires an appropriate comparison in new domains.
 
-## Vocabulary (one node type, recursive)
+## Across-run evidence
 
-- **Worker** — does the task (opencode / a browser agent / a coding agent). A black-box
-  multi-turn agent: one "attempt" is a full agentic rollout, not one LLM turn.
-- **Controller (driver)** — shapes *how* the task gets done across attempts. Expressed as a
-  program of **signatures** (DSPy/ax sense):
-  - `steerPolicy : (trace, history) → steer`  ← the optimizable core (the "f")
-  - `topologyPolicy : history → refine | fanout | stop`
-  - `stopPolicy : history → continue | done`
-  The worker is an **opaque tool** the controller calls. Driver and worker are the same node
-  type in two modes (execute vs. author-sub-topology); the recursion bottoms out at execution.
-- **Judge** — the benchmark's terminal scorer. **Write-only**: it scores the controller's
-  final chosen output and is NEVER an input to steering/selection (else it's an oracle =
-  cheating). Deterministic (SWE/terminal) or verified-stable LLM (research).
+The across-run comparison, also called Gate B, tests learning over a declared sequence or horizon.
+Compare active learning with an appropriate frozen or reference process under the same objectives and recorded resource conditions.
+Evaluate repeated episodes from explicit initial states.
+Useful exploration need not improve every intermediate version.
 
-## The steer is `f(trace)` — a searchable space of signatures
+Gate A tests the narrower question of steering within one task.
+Passing that test is not a prerequisite for every form of domain learning.
+Use [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) to choose the comparison and conditions for rejecting the tested mechanism.
 
-`steer` is not a fixed string. It is `f(prior trace, prior answer, history) → context`, and
-`f` is a **pluggable, benchmarkable knob** — the "variety of signatures":
+| Dimension | Observation |
+| --- | --- |
+| Domain outcome | Checked task results, failures, and uncertainty |
+| Resources | Learning, execution, evaluation development, retrieval, checking, and retained-state costs |
+| Retention | Earlier abilities after updates |
+| Learning decisions | Prior evidence that changed an experiment, candidate, or procedure |
+| Evaluation quality | Independently checked detection, ranking, coverage, and downstream learning |
+| Transfer, when claimed | Reconstruction of useful learning in unfamiliar domains |
+| Adoption | The exact version measured and the exact version used later |
 
-| `f` | what the next attempt is told | carries failure info? |
-|---|---|---|
-| `∅` (random@k) | the bare task again (k independent tries) | no — compute control |
-| fixed directive (hand / GEPA-learned) | a static instruction | no |
-| `LLM(trace)` (analyst) | a targeted steer from the actual failure | **yes** ← where signal likely lives |
-| compressed trace report | key metrics/errors, denoised | yes |
-| **agentic driver** | a full agent investigates (subagents, code audit) → steer | yes (max power, max cost) |
+Compare combinations when the claimed benefit depends on interacting components.
+Remove components to identify their contributions after proving the complete mechanism executes.
+A null result needs adequate measurement sensitivity and observed mechanism activation before it can reject the tested explanation.
 
-The same `f(trace)` plugs into **two places**: (1) runtime — what the worker sees next; and
-(2) **GEPA reflection input** — what the optimizer sees to rewrite the steer (canonical,
-trace-aware GEPA). Benchmarking `f`s = finding the best trace representation.
+## Candidate input must name its source
 
-**Candidate input must name its source.**
 Every finding used to generate a candidate is a `ProposalFinding`.
 `proposal_origin: 'production'` means the finding came from observed production behavior.
 `proposal_origin: 'search'` means it came from development work during candidate search.
@@ -170,158 +116,30 @@ Final evaluation results have no allowed proposal origin and never feed candidat
 
 `derived_from_judge` remains descriptive metadata.
 Search-time judge feedback is valid when it is explicitly marked `proposal_origin: 'search'`.
-The final judge result is still isolated from search.
+The final judge result remains isolated from search.
 A separate final-test partition is required because source labels alone cannot prevent overfitting.
-
-## Architecture layers (ranked by leverage)
-
-1. **Eval + corpus substrate (the GATE).** Cheap, reliable, **trace-rich** evaluation; the
-   `RunRecord` corpus written by *every* run; deterministic judges where possible; an
-   **offline replay + reward-model layer** so the controller space can be searched WITHOUT a
-   live rollout per candidate (agent-eval `./rl`: `buildRlDataset`, off-policy estimation,
-   reward modeling). *This is the bottleneck. Without it, nothing above is reachable —
-   GEPA can search any space only if you can afford the metric evals.*
-2. **Controller-as-signature-program.** steer/topology/stop as jointly-optimizable
-   signatures; worker as opaque tool. The compiled-program controller lives
-   as a `defineStrategy`/`authorStrategy` program (`src/runtime/strategy.ts`) driven over
-   the `Scope`/`Supervisor`.
-3. **Trace-aware, multi-objective optimizer.** GEPA/MIPRO reflecting on **traces** (not
-   pass/fail), optimizing for **correctness AND clean/fast trace** (Pareto). `meta-harness`
-   is the code-level search engine that sits HERE — it evolves controller *code* on a Pareto
-   frontier, and it only works once layer 1 makes the metric cheap + discriminating.
-   **Measured (2026-06-09): the analyst-prompt coordinate is flat** — a 3-generation GEPA
-   run over the `observe()` analyst prompt tied the default exactly on a frozen holdout.
-   The searchable space that remains live at this layer is the **strategy program itself**
-   (`defineStrategy` + `authorStrategy`), not the analyst prompt.
-4. **Cross-domain.** Optimize ONE controller across coding/research/terminal/browser. If the
-   learned steering **transfers**, that's the moonshot. If not, you get N per-domain
-   flywheels — still useful, but the "one controller, many benchmarks" claim *requires*
-   transfer, and that is the open empirical risk.
-
-## Discipline (hard-won; violate these and the flywheel learns noise)
-
-- **The flywheel amplifies whatever you feed it.** Clean `(trace, reward)` tuples → real
-  structure. Noise (unverified judge, infra-corrupted traces, confounded outcomes) → a bigger
-  pile of noise with false confidence. **Clean data > more data.** Rigor is what makes the
-  corpus *learnable*, not bureaucracy.
-- **Confounds before causal claims.** A delta where treatment gets more compute than control
-  is not a causal result. Steering must always be measured against its **`random@k` compute
-  control** as a sibling benchmark arm, so the isolated effect is `refine@k − random@k` at equal
-  k. The steer itself is concrete: an analyst-derived per-shot string carried shot-to-shot
-  (`buildSteerContext` builds it; the strategy loop threads it as `pendingSteer`), never a
-  free-floating prompt edit. Verify the judge is deterministic (re-judge test). Exclude
-  infra-errored cells; retry transient drops. (See the false "+20pp = steering proven" — it was
-  compute + infra + an untested judge.)
-- **Pre-register the primary metric; correct the family; spend the holdout once.** The ablation
-  grid (steering arms × directives × benchmarks, plus compute controls) tests *many* contrasts —
-  each independent "CI excludes 0" inflates the family-wise false-positive rate (garden of forking
-  paths). The PRIMARY hypothesis (`steering = refineX − random > 0`) is pre-registered; every
-  reported contrast is **Benjamini-Hochberg corrected within its family** (`corpus-report.mts`),
-  and a result counts only if it clears the family FDR — never on its own CI. Separate a reusable
-  **exploration** set (rank candidates freely, BH-corrected) from a **frozen confirmation holdout**
-  spent once per *locked* candidate; this is what `compareOptimizationMethods` enforces by keeping
-  the final-test partition out of the optimization method (memorization read as generalization is the default failure otherwise).
-- **"Validates the concept" ≠ "validates the product."** A hand-rolled refine loop proves
-  refinement helps, NOT that `runAgentRounds`/the controller does. Route through the real kernel.
-- **Eval economics is the moonshot bottleneck, not controller cleverness.** Build the offline
-  corpus/replay so search is affordable. Don't build the optimizer cathedral over a metric
-  you can only sample a few hundred times with overlapping CIs.
-- **Choose a decisive test before escalating cost.**
-  Follow [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) for complete mechanisms, combinations, resource accounting, and rejection conditions.
-
-## Honest status (updated 2026-06-10)
-
-- **Stateful agentic (EnterpriseOps-Gym itsm, 2026-06-09): Gate A POSITIVE.** On the
-  canonical loop — `Scope`/`Supervisor` + the `observe()` analyst + `defineStrategy`
-  (`src/runtime/strategy.ts`), not the `runAgentRounds` path — depth-steered continuation beats
-  breadth (blind best-of-K) at equal compute under keep-best checkpoint scoring:
-  **+16.4pp CI [+5.3, +29.8]**, 6 wins / 0 losses, n=16, deepseek-v4-pro; replicated
-  **+8.3pp** on a disjoint task slice.
-- **Stateless codegen (HumanEval, 2026-06-08): null-to-negative.** observe→steer does not
-  beat blind resampling at equal k (n=82, paired bootstrap; compute alone +12.2pp
-  significant); exec-grounded self-repair is significantly **negative** (−17.1pp,
-  CI [−26.8, −7.3]).
-- **The domain-boundary law (supersedes any "steering loses everywhere" reading of the
-  rung-0 entry below):** within-run steering is negative on stateless retrieval
-  (FinSearchComp), null-to-negative on stateless codegen (HumanEval), **positive on
-  stateful agentic domains** with a correctable middle band, scored keep-best (EOPS).
-  The boundary variable is state + the inability to cheaply resample.
-- **Analyst-prompt GEPA (2026-06-09): NULL.** A 3-generation prompt search + frozen
-  holdout tied the default `observe()` analyst exactly (the search winner's +12.6pp was
-  holdout-overfit). The analyst-prompt coordinate is flat; the live outer-loop lever is
-  program/strategy space (`defineStrategy` + `authorStrategy`).
-- **Corpus read-side priming (naive): NEGATIVE** (−11.6pp, worsening slope) — see the
-  read-side note under "The flywheel" and
-  [leapfrog-program.md §S3](./research/leapfrog-program.md).
-- Evidence map + ranked portfolio:
-  [docs/research/optimization-space.md](./research/optimization-space.md).
-
-### Earlier entries (2026-06-03)
-
-- **Coding (SWE-bench):** refine ≈ blind (net 1 rescue / 1 break, n=23). Directional, NOT
-  proven — high blind baseline (~74%, likely *contamination* on popular repos) leaves ~no
-  correctable middle band, and there was no `random@k` control. SWE-bench is a weak instrument
-  here.
-- **Research (FinSearchComp): rung-0 settled, and the answer is NO.** The first
-  adequately-powered, confound-controlled, judge-verified 3-way through the real `runAgentRounds`
-  (n=40, 20 T2 + 20 T3, gpt-5 worker + verified-deterministic judge, 0 infra-excluded):
-  - blind 37.5% → random@3 **60.0%** → refineHand@3 50.0% → refineGepa@3 45.0%.
-  - **more-compute** (random − blind) = **+22.5pp**, 95% CI [+7.5, +40.0], p=0.008 (13/40
-    discordant) — trying again robustly helps.
-  - **steering** (refineX − random) is **negative on every slice, both directives**:
-    refineHand −10.0pp (CI [−25, +5], p=0.25), refineGepa −15.0pp (CI [−27.5, −2.5], p=0.032).
-    The GEPA harm is nominally significant but does **not** survive BH across the 2 steering
-    arms (q≈0.064) — so the disciplined claim is *no benefit + a consistent negative trend*,
-    NOT "significantly harms". Mechanism: the inner opencode agent already self-corrects in its
-    own rollout; an external refine directive adds a chance to BREAK a correct answer, while
-    `random@k` (independent retries, any-pass) captures the more-attempts benefit without that
-    downside. The earlier "+7.1pp held-out" was n=8 noise; this supersedes it.
-
-    > `random@k` / `refineHand@k` / `refineGepa@k` are **condition labels for strategy runs**
-    > recorded in the corpus (the controller column), not importable symbols — `refineGepa@k`
-    > names "the refine strategy steered by a GEPA-authored prompt, k attempts."
-  - Subtype splits (n=20 each) are underpowered — even more-compute is not significant on T3
-    alone (CI [−5, +35]). T2 mirrors the aggregate (more-compute +30pp sig; steering ≤0).
-- **Terminal-Bench:** adapter+judge + blind-vs-refine wired (reuses tb's open-source opencode
-  agent + verifier). Bench-orchestrated (tb owns containers) — the exception that does NOT
-  route through `runAgentRounds`.
-- **Net:** the first clean rung-0 measurement **contradicts** the flywheel's core premise on
-  this domain — a within-run steer does NOT beat compute-matched random; compute does. This is
-  one benchmark, one worker, two directives (incl. a GEPA-learned one that also fails), so it
-  bounds the *within-run inner loop*, not the cross-run outer flywheel. But it is a real,
-  controlled NO where there was only confounded YES before — the instrument now works, and it
-  says: do not escalate to costlier steers on this benchmark to re-derive that more-compute wins.
-
-## Build sequence
-
-1. **Corpus capture** (this is the foundation): every bench run persists full `RunRecord`s
-   (prompt/steer · trace · output · verdict · cost) into one durable store — *stop the
-   boolean-only scorecards that delete the fuel.*
-2. **Rung-0/1 signal:** does `random@k` get beaten by *any* `f` (fixed, then `LLM(trace)`),
-   confound-controlled, judge-verified, infra-reliable?
-3. **Offline replay + reward model** over the corpus → controller search becomes affordable.
-4. **Controller-as-signatures + trace-aware multi-objective GEPA / meta-harness** searches the
-   `f`/topology space over the corpus; validate winners live.
-5. **Cross-domain transfer** — one controller, many benchmarks. The moonshot.
 
 ## Where the pieces live
 
-- Kernel + controller seam: `src/runtime/` — the `runAgentRounds` kernel (`run-loop.ts`, one
-  leaf execution backend) and the canonical agent-driver:
-  `createCoordinationTools` (`src/mcp/tools/coordination.ts`) over the `Scope`/`Supervisor`
-  substrate (`src/runtime/supervise/`), with `runAgentic`/`defineStrategy`/`runPersonified`.
-- **The published optimization suite**: `@tangle-network/agent-runtime/kernel` (source:
-  `src/runtime/`):
-  `Environment`/`Strategy`/`defineStrategy`/`ShotSpec.profile` (`strategy.ts`), `runBenchmark`
-  (`run-benchmark.ts`), `createVerifierEnvironment`/`createMcpEnvironment`,
-  `harvestCorpus`, `authorStrategy` (`strategy-author.ts`), `auditIntent`, and
-  `promotionGate` (`promotion-gate.ts` — the seeded paired-bootstrap holdout gate over
-  agent-eval's `heldoutSignificance`: evidence floor 6 paired tasks, the CI lower bound
-  must clear the threshold).
-- Benchmarks + workers + experiments: `bench/` (`benchmarks/*`, `worker-*`,
-  `terminal-compare.ts`, `corpus-report.mts`). The gen0 → `authorStrategy` → gen1 →
-  rotating-disjoint-holdout runner (the minimal single-objective Gate-B form) over
-  `authorStrategy` (`src/runtime/strategy-author.ts`) + the seeded `promotionGate` is open work.
-- Substrate optimizer/corpus primitives: `@tangle-network/agent-eval` (`OptimizationMethod`,
-  `compareOptimizationMethods`, `gepaOptimizationMethod`, `skillOptOptimizationMethod`,
-  `heldoutSignificance`, `RunRecord`/trace-store, `./rl`).
+| Concern | Existing implementation | Composition boundary |
+| --- | --- | --- |
+| Agent-driven work | `Scope`, `Supervisor`, and `createCoordinationTools` | A supplied profile owns working decisions and recursive authority |
+| Profile and code improvement | Runtime `improve()` and Eval complete methods or native proposer search | The caller supplies domain execution and objectives |
+| Executable strategy search | `defineStrategy`, `authorStrategy`, and `runStrategyEvolution` | Programs and their archive remain explicit; this is not a complete domain learner by itself |
+| Observation and retention | `observe`, `Corpus`, and Knowledge state and retrieval | The caller must connect retained evidence to later decisions and measured outcomes |
+| Evaluation engineering | Eval judges, scenario search, calibration, and known-failure checks | Executing a utility does not establish the quality of the resulting evaluation or learning process |
+| Exact measurement and adoption | Runtime candidate experiments, proposals, and activation | Search output must remain bound to the exact version measured and adopted |
+
+The [learning audit](./research/learning-system-audit-2026-09-05.md) gives precise source references and the missing connections.
+Use those existing components before adding an orchestration facade.
+
+## Historical evidence
+
+The [earlier version](https://github.com/tangle-network/agent-runtime/blob/a16d8a3b91481b140cb552e373d5bde98b34af05/docs/learning-flywheel.md) records earlier steering, prompt-search, and context-reuse results.
+The [optimization portfolio](./research/optimization-space.md) and [accretion experiment](./research/leapfrog-program.md) provide additional experiment context.
+Read dated records and subsequent corrections before repeating or rejecting a mechanism.
+
+Those comparisons apply to their recorded tasks, versions, information, and resources.
+A null prompt search does not eliminate all prompt changes.
+A negative context treatment does not eliminate all memory policies.
+A within-task result does not decide whether specialists, evaluations, or learning procedures improve across repeated domain work.

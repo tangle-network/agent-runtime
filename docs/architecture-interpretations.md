@@ -1,237 +1,103 @@
 # Architecture — Five Interpretations and the Coherence Verdict
 
-Companion to [architecture.md](./architecture.md) (the spine) and [learning-flywheel.md](./learning-flywheel.md) (the moat thesis). Where `architecture.md` states *what the system is meant to be*, this doc stress-tests *whether it coheres* — by reading the same atom through five independent lenses, including an adversarial one, and recording where each framing holds and where it breaks. The five lenses converge on one diagnosis and one decision gate; that convergence is the point.
+This document tests the design in [architecture.md](./architecture.md) through five lenses.
+The [learning audit](./research/learning-system-audit-2026-09-05.md) records the inspected revisions, reproduced defects, repairs, and capability limits.
 
-`Status`: both of this doc's load-bearing gaps have since been resolved — the analyst→driver edge is live on the **agent-driver** (a parent `AgentProfile` reads `observe()` findings and steers its child via `createCoordinationTools` over the `Scope`/`Supervisor`), and **Gate A (§5) has been run**: cleared at small n, then retracted to a tie at power (numbers: `.evolve/current.json` + the memory ledger). The lens analysis below is kept as the stress-test it was; the per-claim corrections are inline. See the evidence anchors (§7) for file:line.
+## 1. The learning objective
 
----
+The system should improve specialists, domain learning processes, working evaluations, and the methods that construct those processes.
+A specialist can succeed within its intended domain without generalizing elsewhere.
+The transferable knowledge can be the process that constructs and trains a successful specialist.
 
-## 1. The honest one-liner
+These claims require different comparisons.
+Better task execution, repeated domain learning, better evaluation, and transfer of a learning process are separate outcomes.
+One result cannot establish or reject all four.
 
-Strip the vocabulary and the built system is **best-of-N sampling + a selector + offline prompt-tuning (GEPA)**, with an *intrinsic self-refine* toggle bolted on — and **the refine toggle is the half that loses**. The "recursive adaptive driver" that would make it more than that is real in shape but not wired. The entire gap is one missing edge:
+## 2. Common execution and evidence
 
-> The driver never reads the analyst's findings. It decides from an exit code, not a diagnosis.
+Runtime executes exact profiles, code candidates, and authored strategies.
+Eval runs searches and measurements.
+Knowledge preserves source-backed state and supplies retrieval and research operations.
+The package boundaries express useful responsibilities.
 
-Everything below is an elaboration of that sentence from a different angle.
+The common unit should identify the candidate, its retained state, the objective, execution conditions, observations, and resources.
+Search methods can share those facts while retaining different selection rules, archives, and exploration policies.
+A complete method should not be reranked by a second optimizer that changes its decision.
 
-*(Status: the diagnosis→steer edge lives on the agent-driver — a parent `AgentProfile` reads
-`observe()` findings and steers its child via `createCoordinationTools` over the
-`Scope`/`Supervisor`. The within-run question the gate poses has been answered there,
-positively at small n then retracted to a TIE at power — §5.)*
-
----
-
-## 2. Master diagram — the atom, the two timescales, the missing wire
-
-```
-  OUTER LOOP  (slow, cross-task)  =  OPTIMISATION
-  ┌────────────────────────────────────────────────────────────┐
-  │  traces + corpus ─▶ runAnalystLoop / GEPA                    │
-  │                         │                                    │
-  │              proposeFromFindings                             │
-  │                 ╱               ╲                            │
-  │   knowledge proposals    surface proposals                   │
-  │       (wiki pages)          (prompt / tool / rubric)         │
-  │        = CORPUS              = POLICY   ◀─ the ONLY RSI path  │
-  │            │                     │                           │
-  │   ┌────────┴─┐  held-out   ┌─────▼──────┐                    │
-  │   │  JUDGE   │════delta═══▶│ gate: ship? │                   │
-  │   │write-only│ (never read └─────┬──────┘                    │
-  │   └──────────┘  by inner)        │ promote (OFFLINE only)    │
-  └──────────────────────────────────┼──────────────────────────┘
-                                      │  new policy
-  INNER LOOP (fast, within-task) = INFERENCE
-  ┌───────────────────────────────────▼──────────────────────────┐
-  │  plan() ─▶ {refine | fanout | stop} ─▶ workers ─▶ selector     │
-  │    ▲ reads history verdict.score ✓          │                 │
-  │    │                                         └▶ TODAY = JUDGE  │
-  │    ╳  analyses[] → plan(): the kernel-side wire was DELETED;    │
-  │       the edge now lives on the agent-driver (observe()→steer)  │
-  └───────────────────────────────────────────────────────────────┘
-   The ╳ was the gap when the lenses ran: the driver decided from a
-   return code. The string-prompt planner that carried it is gone; the
-   diagnosis→steer edge now lives on the Scope/Supervisor agent-driver.
-```
-
-Two structural facts as of the original audit, with their current status:
-
-1. The diagnosis→decision edge lives on the **agent-driver**:
-   a parent `AgentProfile` consumes `observe()` findings (`AnalystFinding`, the substrate
-   type) and steers its child via `createCoordinationTools` (`src/mcp/tools/coordination.ts`)
-   over the `Scope`/`Supervisor` — so an agent decides from the diagnosis, not the verdict
-   score alone. Honest status: the steer path is live on the Supervisor substrate (§5).
-2. The selector ranked with the **judge's score** — an oracle. The deployable, no-oracle
-   selector has since been **built and measured**: a **verifier-grounded** selector is
-   positive on a deployable-checker domain (HumanEval: verifier-pick captures the full
-   oracle ceiling and beats self-consistency, BH-significant), while answer-agreement
-   selectors are negative (finsearch, aec). The selector needs a runnable checker, not
-   answer-vote. Numbers: `.evolve/current.json` + the memory ledger.
-
-The discipline that the architecture leans on — *selector ≠ judge*, judge write-only — is exactly what keeps the outer loop from optimising toward its own grader. The temptation to wire the judge into ranking (it is the cheapest, strongest selector) is the thing the design must resist; the moat depends on resisting it.
-
----
+An existing execution callback can run a domain learning episode and return the specialists it produced.
+That callback still must execute those specialists, retain their exact state, and account for all inner work.
+The ability to represent the callback does not establish that a complete learning process has been demonstrated.
 
 ## 3. Five interpretations
 
-| Lens | One-liner | Does it add anything over the boring baseline? | Where it breaks |
-|---|---|---|---|
-| **Test-time-compute / search** | Driver = search controller, selector = ranking, judge = oracle reward | Only if a *learned* controller beats fixed best-of-N | Controller is open-loop; refine loses to flat sampling at matched budget |
-| **Active learning / experimental design** | Driver = acquisition function picking the next most-informative source | **Yes — it makes the goal measurable**; the best frame for the research use case | Needs a *calibrated* gap signal; today "gap" is an LLM vibe |
-| **Program synthesis** | Driver = JIT emitting a topology program; runAgentRounds = interpreter | Only if the ISA grows `seq`/nesting and the emitter reads an IR | It's a **3-opcode flat enum**, not a DSL; GEPA tunes a prompt comment, not the emitter |
-| **Two-timescale / RSI** | Inner answers; outer rewrites the answerer from traces + judge | Only with the missing wire **and** a cross-benchmark transfer test | RSI is the **shape, not the system**; no transfer test exists |
-| **Skeptic / Occam** | self-refine (loses) steering best-of-N (wins) | No — vocabulary, not capability | Overclaims past "untested ≠ disproven" for a trace-fed driver |
+| Lens | Object being improved | Comparison that tests it | Weak assumption to challenge |
+| --- | --- | --- | --- |
+| Search during task execution | How an agent explores, continues, and selects task solutions | Compare execution policies on the same tasks and actual resources | More attempts, better checking, or extra information can explain an apparent policy gain |
+| Experimental design | Which problems, sources, or experiments the learner selects | Compare subsequent domain outcomes under alternative acquisition policies | Score variance or an expressed knowledge gap need not identify useful practice |
+| Program synthesis | The executable agent or learning algorithm | Execute exact candidate programs and compare their checked outputs | A syntactically valid program need not activate the mechanism it claims |
+| Domain learning and meta-learning | The procedure that produces specialists and improves evaluations | Compare repeated learning episodes; test process transfer separately when claimed | The resulting specialist need not generalize outside its intended domain |
+| Evaluation engineering | Tests, task generators, judge instructions, and outcome collection | Compare detection of independently established success and failure, then downstream learning | Agreement with a judge or easier tests can improve a score without improving domain outcomes |
 
-### 3.1 Test-time-compute / search
-
-A search over candidates: the driver chooses width/depth/stop, the selector ranks, the judge is the held-out oracle. This frame *predicts the empirics exactly* — parallel sampling with a sound selector wins (Brown 2024, Wang 2022, Lightman 2023); intrinsic sequential self-refine degrades on hard tasks (Huang 2023, Kamoi 2024, Stechly 2024).
-
-```
-        root task  (search node)
-             │  driver = controller picks a move
-   sample/fork (best-of-N, width N) ── the WIN today
-      ╱        │        ╲
-    c1        c2        c3      ← workers (rollouts)
-   v=.4      v=.8      v=.6     ← selector value
-      ╲        │        ╱
-     argmax v ─▶ pick c2
-             │  steer/seq (deepen one path) ── LOSES today
-           c2'  v=.65   (refine can BREAK a good leaf)
-             │  stop
-   ════════ search boundary ════════
-     JUDGE = held-out oracle (write-only; must NOT be the v above)
-```
-
-Breaks: the load-bearing asset is a **sound value function**, and there is no evidence `verdict.score` is calibrated to true reward. Until the no-oracle selector is measured, "best-of-N wins" is unverified *for this system*. The controller is open-loop (reads a thin history summary, no analyst signal), so "adaptive topology" is dominated by fixed best-of-N at matched budget.
-
-### 3.2 Active learning / experimental design (the most useful frame for the research surface)
-
-The knowledge-acquisition loop is an agent reducing coverage-uncertainty by choosing the next most-informative source. "Driver decides topology" becomes the precise, measurable "an acquisition function picks the next experiment."
-
-```
-   ┌──────────────────────────────────────────┐
-   │  BELIEF STATE = corpus / LLM wiki          │
-   └──────────────────────────────────────────┘
-        │                              ▲ ingest+merge
-        ▼                              │  (run experiment)
-   ┌────────────────────┐        ┌───────────┐
-   │ GAP ESTIMATOR       │        │  WORKER   │
-   │ wiki critic:        │        │ read /    │
-   │  orphan = low cov   │        │ clip /    │
-   │  contra = high var  │        │ sweep /   │
-   │  stale  = decay     │        │ scrape    │
-   └────────────────────┘        └───────────┘
-        │  gaps / uncertainty           ▲ chosen source
-        ▼                               │
-   ┌────────────────────────────┐       │
-   │ ACQUISITION FN  (= driver)  │───────┘
-   │ argmax expected info gain   │
-   │ uses TRACE signal only —    │
-   │ NOT the held-out judge      │
-   └────────────────────────────┘
-        │ stop when coverage ≥ target or ΔEIG < ε
-        ▼
-   ····· WRITE-ONLY JUDGE = held-out task (never steers) ·····
-```
-
-Holds: it converts the unfalsifiable "good topology" into a textbook objective (expected information gain) with a literature, a calibration test, and a principled stop rule. It retro-explains rung-0: a miscalibrated acquisition function underperforming random sampling is the canonical active-learning failure. It even maps onto shipped infra — `proposeSynthesisTargets` (variance / coverage / failure-cluster / difficulty-gap → priority) is a real, statistically-grounded acquisition function, pointed at the eval dataset; the corpus-axis version is a port, not a greenfield method.
-
-Breaks: the load-bearing assumption — a **calibrated** gap signal — is absent. The wiki critic emits LLM-judged contradictions/staleness/orphans and a single self-reported `confidence` scalar. That is a vibe, not a posterior variance, and honouring *selector ≠ judge* gets *harder*: if "gap" is an LLM judgment, it can implicitly encode "what the judge will reward." The frame demands the gap signal be **structural** (graph topology, citation/embedding density, redundancy-discounted coverage), not opinion.
-
-### 3.3 Program synthesis / interpreter
-
-`runAgentRounds` is a fetch-execute-halt trampoline; the planner is a JIT that emits one instruction per round. The vocabulary describes the real control flow — but as a *language* it is barely one: the implemented ISA is a 3-value flat union `{refine, fanout, stop}`, emitted one-at-a-time, with no `seq`, no nesting, no emittable `select`. The two ops that would make it non-vacuous (`select`, `seq`) are interpreter builtins the agent cannot author; GEPA rewrites a static directive string (a `#define`), not the emit function; and the emitter compiles from a return-code-plus-truncated-stdout summary, not an IR. Today: a JIT in shape, a switch statement in substance. *(Status: the richer program space this lens asks for is the canonical path: `defineStrategy` (`src/runtime/strategy.ts`), where a strategy is ordinary code composing `shot()`/`critique()` with arbitrary sequencing and branching, authored by `authorStrategy` (`src/runtime/strategy-author.ts`).)*
-
-### 3.4 Two-timescale / recursive self-improvement
-
-Inner fast loop drives an answer now; outer slow loop (`improve()` with an official GEPA or SkillOpt method) rewrites policy from accumulated traces + judge scores, measures the exact candidate on final-test tasks hidden from the method, and requires an explicit activation. The recursion is real *in shape* — the optimiser is an atom editing an atom's policy — but cross-benchmark transfer remains unproven. The frame's value is its sharp corpus-vs-policy split: **wiki growth is an input to inference; only prompt/tool/policy rewrites are RSI.** The research-acquisition loop is RSI only if findings about *which acquisition move paid off* rewrite the driver's acquisition policy and the resulting profile wins on fresh tasks.
-
-### 3.5 Skeptic / Occam (adversarial)
-
-```
-GRAND (as pitched):              ACTUALLY WIRED (Occam):
-  task ─▶ recursive atom           task ─▶ planner LLM
-     ▼  reads traces+findings,         ▼  sees only prior outputs
-        decides topology  ▲                + JUDGE score
-     ▼                    │(NOT          ▼
-  workers ─▶ analyst ─────┘ WIRED)    refine/fanout/stop  ← self-refine
-     ▼                                   ▼                  + a toggle
-  selector (trace-only) ─▶ winner      workers ─▶ outputs
-     ▲                                   ▼
-  JUDGE write-only                     pick best ◀ uses JUDGE (oracle) ✗
-
-COLLAPSES TO TWO BORING THINGS THAT ALREADY WORK:
-   (a) best-of-N  ─▶  sound verifier  ─▶  pick        [WINS]
-   (b) RAG / corpus-build  ─▶  retrieve+dedup+cite    [WINS]
-```
-
-The strongest good-faith case: what's wired is the losing half (self-refine) steering the winning half (best-of-N), with the winning half's critical component (a sound selector) faked by the judge. Renaming the stack a "recursive atom that decides topology" adds vocabulary, not capability. The one honest concession the skeptic owes: **"unbuilt and untested" ≠ "disproven."** A planner that reads real traces + analyst findings is a genuinely different object from intrinsic self-refine; rung-0 only falsified the static planner.
-
----
+Runtime's strategy programs already permit arbitrary sequencing and branching through ordinary code.
+Complete profile and code candidates permit changes beyond prompt wording.
+The analysis must inspect how those candidates execute before treating the search space as a fixed menu of actions.
 
 ## 4. Does it cohere?
 
-**As built: no.** All five lenses — including the adversary — land here independently. The system is intrinsic self-refine (the half the literature and rung-0 say loses) steering best-of-N (the half that wins), with the winning half's load-bearing component — a sound, non-oracle selector — substituted by the judge in every measurement so far. That is not a new method class; it is a `while` loop with one tunable branch in compiler vocabulary.
+The division of responsibilities is coherent.
+The reproduced defects concern inconsistent candidate identity, measurement completeness, cost accounting, and disconnected feedback.
+Those defects justify changes to the existing paths.
+They do not justify merging the packages or imposing one search algorithm.
 
-**As designed: conditionally yes — gated on exactly one measurement.** Five independent framings wrote the *same* gate (§5), which is why it is trusted rather than asserted. The strongest case *for* the grand version is the research-acquisition surface specifically, because acquisition is **non-myopic and stateful** — every ingest permanently changes the knowledge base for all future queries. Best-of-N has no concept of "this expansion improves the substrate." That is precisely the regime where a driver conditioning on coverage-gaps could beat blind sampling, and where the cross-query flywheel is real rather than aspirational.
+The broader learning claim remains empirical.
+Stored recommendations, generated cases, calibration statistics, and optimization methods are useful ingredients.
+A complete domain learning episode must show how those ingredients change later decisions and produce better domain outcomes.
+A candidate learning method must be judged by what it produces, including unsuccessful episodes and their costs.
 
----
+Preserve informative failures, candidate diversity, and joint interventions.
+An exploratory step can be useful before it produces a deployable improvement.
+A null component result cannot reject a mechanism that requires multiple components to interact.
 
-## 5. Gate A — the decision gate for the recursive-driver layer
+## 5. Gate A — a diagnostic for within-run steering
 
-Test within-run steering with this diagnostic:
+Compare a driver that consumes traces and findings with a declared alternative on the same tasks and actual resources.
+Use the same deployable method to select each result.
+Record the information, intermediate checks, termination conditions, and costs available to each policy.
+Establish that feedback actually changes a decision before interpreting the comparison.
 
-> On a held-out benchmark, at **equal worker-compute budget** (`k` counts worker ROLLOUTS — each may be a full multi-turn/stateful trajectory, not a single shot), does a **trace + analyst-findings-fed** driver, scored by a **sound non-oracle selector**, beat **blind random@k** selected by that *same* selector — by a statistically significant margin (n large enough for p < 0.05) that **survives test-retest of the selector**?
+This tests steering within a task under the specified conditions.
+It does not decide whether a domain learner improves specialists, evaluations, or future experimental decisions across runs.
+Use [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) for the comparison and rejection conditions.
 
-Use [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) for resource accounting, mechanism activation, and the conditions for rejecting the tested design.
+## 6. Domain learning and evaluation engineering
 
-**Measured: cleared at small n, then RETRACTED to a TIE at power (POWER-16).** On
-EnterpriseOps-Gym itsm, depth-steered continuation (analyst-fed, `observe()`) beat blind
-breadth at equal compute under keep-best checkpoint scoring — but the effect collapsed
-to a tie when powered, and the program pivoted off this anchor (numbers:
-`.evolve/current.json` + the memory ledger). The gate ran on the `Scope`/`Supervisor` +
-`defineStrategy` substrate (`src/runtime/strategy.ts`). The domain-boundary law held:
-**negative on stateless retrieval** (FinSearchComp), **null-to-negative on stateless
-codegen** (HumanEval), **positive on stateful agentic domains** with a correctable
-middle band scored keep-best (EOPS).
+A domain learner can choose sources, generate practice, change specialists, improve working evaluations, and retain useful results.
+Structural source checks can inform that process, but citation counts and lexical overlap do not establish scientific truth or useful learning.
+Judge calibration statistics analyze supplied observations; callers must execute the judge and apply any proposed change.
 
-**Gate A tests one mechanism under specified conditions.**
-Product success is **Gate B**: improvement across runs against an unchanged controller ([learning-flywheel.md](./learning-flywheel.md)).
-The historical results above do not establish whether that improvement occurs.
+Working evaluations can guide learning and can themselves change.
+Independent final assessment must remain outside the adaptive decisions whose improvement it tests.
+A changed evaluation can be better when it exposes failures and lowers the current specialist's score.
+Its value depends on detection quality and subsequent domain outcomes.
 
----
-
-## 6. What this means for the research-acquisition surface
-
-The **minimal honest version** survives every critique and yields the proven more-compute win immediately:
-
-1. **Fan-out retriever** — N parallel collection branches over `{deep-read paper, transcribe clip, web-sweep, targeted image/data scrape}`. Plain best-of-N over actions.
-2. **A deployable, non-oracle selector** scoring each ingest on *trace-observable structural* signal — citation coverage, contradiction-lint pass, staleness, novelty-vs-existing-wiki. This is the missing piece that makes best-of-N actually pay, and it is the same build as landing the *selector ≠ judge* firewall.
-3. **The `llm-wiki` maintainer+critic** as the dedup / cite / lint sink (already exists as a skill).
-
-Run the §5 diagnostic to assess within-run steering under those conditions.
-Apply [architecture.md §9](./architecture.md#9-build-order-and-experiment-scope) before retaining, rejecting, or combining the tested mechanisms.
-Test learning across projects separately before claiming that capability compounds.
-
----
+For the across-run comparison described in [learning-flywheel.md](./learning-flywheel.md), use repeated domain episodes with retained state and explicit objectives.
+Compare actual learning and execution resources over the declared horizon.
+Check retained abilities as well as newly solved tasks.
+Only a claim about process transfer requires a corresponding comparison in new domains.
 
 ## 7. Evidence anchors
 
-- `src/mcp/tools/coordination.ts` — `createCoordinationTools`: the agent-driver's MCP
-  (spawn · observe · steer · stop). The diagnosis→decision edge runs over the
-  `Scope`/`Supervisor` (`src/runtime/supervise/`).
-- `src/runtime/run-loop.ts` — the surviving leaf kernel; `defaultSelectWinner` (`:983`) /
-  `branchPoint` (`:797`); `RunAgentRoundsOptions.selectWinner` (`:104`) is the selector-injection seam.
-- `src/runtime/strategy.ts` / `src/runtime/strategy-author.ts` — `defineStrategy` /
-  `authorStrategy`: the program space where the Gate-A strategies run.
-- `src/analyst-loop/` — `runAnalystLoop`; the trace observer feeding the canonical loop
-  is `observe()` (`src/runtime/observe.ts`), consumed by the agent-driver.
-- Prompt-space optimization lives in an agent-eval `OptimizationMethod`, invoked through Runtime's `improve()`; the analyst-prompt
-  coordinate has shown no significant lift on held-back problems in controlled runs to date — see `.evolve/current.json` and the memory ledger for the current evidence state.
-- `bench/src/selector.ts` + `bench/src/corpus-replay.mts --selector` — the deployable
-  selector and its offline replay harness.
-- `bench/src/refine-loop.ts` — shared k-shot loop.
-- random@k / pass@k computation (the original headline `random@3` was judge-selected, an
-  oracle upper bound): the measurement path is `bench/src/corpus-replay.mts` +
-  `corpus-report.mts` over the corpus.
+- `src/improvement/improve.ts`: profile and code improvement entry points.
+- `src/improvement/method-execution.ts`: exact profiles executed through complete optimization methods.
+- `src/runtime/strategy.ts` and `src/runtime/strategy-author.ts`: executable strategies and their authoring contract.
+- `src/runtime/strategy-evolution.ts`: strategy search, retained candidates, and checkpoint identity.
+- `src/runtime/observe.ts` and `src/runtime/personify/corpus.ts`: trace-derived recommendations and persistent records.
+- `src/mcp/tools/coordination.ts`: agent-driven observation, delegation, and steering.
+- `src/candidate-execution/`: execution of exact candidate combinations.
+- `src/intelligence/improvement-cycle.ts`: measured proposals and adoption preparation.
+- [Learning audit](./research/learning-system-audit-2026-09-05.md): cross-package source references, regression evidence, and research comparison.
 
-**Literature.** Parallel sampling + sound selector wins: Brown 2024 (repeated sampling), Wang 2022 (self-consistency), Lightman 2023 (process reward). Intrinsic self-refine degrades on hard tasks: Huang 2023, Kamoi 2024, Stechly 2024. The loop is not a new method class — it is a known combination whose winning half is not yet honestly built.
+The [earlier interpretation](https://github.com/tangle-network/agent-runtime/blob/a16d8a3b91481b140cb552e373d5bde98b34af05/docs/architecture-interpretations.md) records the original critique and its subsequent corrections.
+Its experiment conclusions apply to their recorded tasks, versions, information, and resource conditions.
+The current audit did not rerun those experiments.
+Consult their original records in `.evolve/current.json` and `memory/` before using them to reject or repeat a mechanism.

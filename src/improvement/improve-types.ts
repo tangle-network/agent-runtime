@@ -11,7 +11,7 @@ import type {
   Scenario,
   SelfImproveBudget,
   SelfImproveOptions,
-  SelfImproveResult,
+  SelfImproveProposerResult,
 } from '@tangle-network/agent-eval/contract'
 import type {
   AgentImprovementSurface,
@@ -389,7 +389,7 @@ interface ImproveResultBase<TCandidate extends ImprovementCandidate> {
   /** Frozen candidate only. Live state is changed through an approved activation. */
   candidate: TCandidate
   /** Final-test decision for this search result. */
-  decision: SelfImproveResult<Scenario, unknown>['gateDecision']
+  decision: SelfImproveProposerResult<Scenario, unknown>['gateDecision']
   /** Final-test lift when one was measured. */
   lift?: number
   /** Paired final-test confidence interval for method-based profile runs. */
@@ -432,7 +432,7 @@ export interface ImproveMethodResult extends ImproveResultBase<ImprovementProfil
 export interface ImproveCodeResult<TScenario extends Scenario, TArtifact>
   extends ImproveResultBase<ImprovementCodeCandidate> {
   mode: 'code'
-  raw: SelfImproveResult<TScenario, TArtifact>
+  raw: SelfImproveProposerResult<TScenario, TArtifact>
 }
 
 export type ImproveResult<TScenario extends Scenario, TArtifact> =

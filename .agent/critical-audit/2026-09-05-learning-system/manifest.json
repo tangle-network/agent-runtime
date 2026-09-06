@@ -1,0 +1,1070 @@
+{
+  "schemaVersion": 1,
+  "auditId": "2026-09-05-learning-system",
+  "createdAtUtc": "2026-09-06 05:05:12 UTC",
+  "skill": "/critical-audit",
+  "scope": {
+    "objective": "Audit the learning process, improve(...), improvement surfaces, fragmentation, current research mechanisms, and the case for simplification or stronger unification across Runtime, Eval, and Knowledge.",
+    "artifactTask": "Persist the completed audits and repair reviews. No new source review, capability experiment, or release action was initiated for these artifacts.",
+    "repositories": {
+      "R": {
+        "name": "agent-runtime",
+        "remote": "tangle-network/agent-runtime",
+        "root": "/Users/drew/webb/_wt/runtime-learning-audit-20260905",
+        "initialCommit": "a16d8a3b91481b140cb552e373d5bde98b34af05",
+        "initialVersion": "0.193.1",
+        "repairCommit": "0d2c84be6741a7074756b988eed1bc17d5fd3cff",
+        "testedCommit": "5d61700236d43c9abcc4adc645130749d8239ca6"
+      },
+      "E": {
+        "name": "agent-eval",
+        "remote": "tangle-network/agent-eval",
+        "root": "/Users/drew/webb/_wt/eval-learning-audit-20260905",
+        "initialCommit": "f8e3da285b6286386699a196733e9c0c27c20cfd",
+        "initialVersion": "0.173.3",
+        "repairCommit": "6c23e86025eec42b4d5f551f9cb4896f474cb16b",
+        "testedCommit": "6c23e86025eec42b4d5f551f9cb4896f474cb16b"
+      },
+      "K": {
+        "name": "agent-knowledge",
+        "remote": "tangle-network/agent-knowledge",
+        "root": "/Users/drew/webb/_wt/knowledge-learning-audit-20260905",
+        "initialCommit": "390f2da9883e55cc86a8985167324d8b1f10894a",
+        "initialVersion": "13.0.1",
+        "repairCommit": "30878397a947c37fd743929b30aa03728e785c76",
+        "testedCommit": "30878397a947c37fd743929b30aa03728e785c76",
+        "repairState": "Merged and published as 14.0.0; terminal owner proof is retained below.",
+        "reviewedSourceCommit": "29998a07db4fd8c1ca7e89bc3713911ebf128bca"
+      }
+    },
+    "initialBranches": "The three origin/main revisions were fetched before isolated audit worktrees were created.",
+    "runtimeIntegration": {
+      "sourceTestedCommit": "5d61700236d43c9abcc4adc645130749d8239ca6",
+      "currentRepairCommit": "0d2c84be6741a7074756b988eed1bc17d5fd3cff",
+      "latestIntegratedMainCommit": "2707e2321e7b26b0e71efacb86ebdf3ddd23adac",
+      "postTestChanges": "Main integration changes AGENTS.md and CLAUDE.md only. Later report and released dependency pins are at 7fe89641; their local package and cohort checks passed separately.",
+      "integrationCommit": "7f05654a69441db1bd135e8545787af785cde4a2",
+      "latestReportAndCohortCommit": "7fe89641322dc1d0e60dc8c4d66472d786320558"
+    },
+    "inventory": {
+      "runtime": {
+        "previouslyObservedUniqueFiles": 55,
+        "production": 38,
+        "tests": 7,
+        "callers": 5,
+        "documentation": 5,
+        "allImprovementProductionFilesRead": 24,
+        "inventoryPath": "runtime-inventory.json",
+        "rawOriginalListAvailable": false
+      },
+      "eval": {
+        "inspectedFileCount": null,
+        "status": "unmeasured; no complete inspected-file inventory was retained"
+      },
+      "knowledge": {
+        "inspectedFileCount": null,
+        "status": "unmeasured; no complete inspected-file inventory was retained"
+      },
+      "externalCallers": "Nearby application/workspace snapshots, not fetched main revisions."
+    },
+    "coverage": "Full Runtime improvement directory; selected execution, adoption, strategy, observation, memory, Eval method/native/final/cost/identity paths, Knowledge candidates and research loops, and related tests/callers as documented in the main report.",
+    "uninspected": "No claim of exhaustive whole-repository coverage. No production deployment, paid model learning comparison, or independently reproduced external research benchmark."
+  },
+  "workflow": {
+    "kind": "Aggregation of completed independent repository audits and cross-reviews",
+    "artifactVerification": "Retained prior 31-source/45-regression validation; re-resolved eight Knowledge regression anchors at the merged commit, checked the committed report hash and Runtime instruction-only main integration, and read terminal Knowledge CI, publication, and owner registry proof.",
+    "reviewerRunDuringArtifactCreation": false,
+    "reasoning": "Rank confirmed defects by the consequence of wrong candidate decisions, invalid evidence, data loss, or broken required learning behavior. Production likelihood remains unmeasured.",
+    "sourceReviewStatus": "The completed repair reviews found no remaining blocker among the 22 identified source defects.",
+    "limitations": [
+      "Original scratch probes, local terminal logs, and the 55-path inventory were removed by the environment refresh.",
+      "Prior terminal counts remain observations from the session continuation record. They are not claimed as freshly re-executed checks.",
+      "Runtime release owner must append current CI, merge, and publication proof independently. Knowledge 14.0.0 terminal release evidence is retained below."
+    ]
+  },
+  "counts": {
+    "findings": 22,
+    "resolved": 22,
+    "unresolved": 0,
+    "dropped": 0,
+    "severity": {
+      "CRITICAL": 0,
+      "HIGH": 12,
+      "MEDIUM": 10,
+      "LOW": 0
+    }
+  },
+  "sourceRepairReview": {
+    "verdict": "APPROVE",
+    "scope": "The 22 identified source defects and their retained regression coverage.",
+    "remainingIdentifiedSourceBlockers": 0,
+    "doesNotApprove": [
+      "State-of-the-art performance",
+      "Successful continuing domain learning",
+      "Meta-learning capability",
+      "Production learning effectiveness",
+      "Package publication",
+      "Untested dependency combinations"
+    ]
+  },
+  "releaseProof": {
+    "status": "pending",
+    "owner": "Parent integration/release work",
+    "separateFromSourceReview": true,
+    "eval": {
+      "status": "live",
+      "ownerProofPath": "/Users/drew/webb/_wt/eval-learning-audit-20260905/.agent/release-0.174.0/release-proof.json",
+      "evidenceBoundary": "Read the Eval owner's retained release-proof.json. Registry checks were executed by the Eval owner.",
+      "proof": {
+        "observedAt": "2026-09-06T05:05:01.345114+00:00",
+        "status": "live",
+        "version": "0.174.0",
+        "tag": "v0.174.0",
+        "reviewedSource": "6c23e86025eec42b4d5f551f9cb4896f474cb16b",
+        "mergedCommit": "0692922ea739a352f44374f4d5f7def2991aacdc",
+        "tree": "5bed29c76642eb6ff2fa03a604a6c4214fd79db3",
+        "pr": "https://github.com/tangle-network/agent-eval/pull/738",
+        "mergeAuthority": "Configured owner exception (--admin), authorized by parent after independent review and successful CI; no GitHub review approval.",
+        "ci": "https://github.com/tangle-network/agent-eval/actions/runs/33987395502",
+        "publish": "https://github.com/tangle-network/agent-eval/actions/runs/34012602635",
+        "jobs": [
+          {
+            "name": "verify",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish-npm",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish-pypi",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "tests": [
+          {
+            "suite": "JavaScript",
+            "passed": 5763,
+            "skipped": 3
+          },
+          {
+            "suite": "Python official sources",
+            "passed": 207,
+            "skipped": 4
+          },
+          {
+            "suite": "TypeScript official integrations",
+            "passed": 2,
+            "skipped": 0
+          },
+          {
+            "suite": "Python published GEPA",
+            "passed": 45,
+            "skipped": 1
+          },
+          {
+            "suite": "TypeScript published GEPA",
+            "passed": 1,
+            "skipped": 0
+          },
+          {
+            "suite": "DSPy",
+            "passed": 18,
+            "skipped": 0
+          }
+        ],
+        "npm": {
+          "version": "0.174.0",
+          "gitHead": "0692922ea739a352f44374f4d5f7def2991aacdc",
+          "size": 3818482,
+          "integrity": "sha512-JcGQzN4fHll5ItkhEcFs7z8HF7ikwMLnlQhnSZekwJqGy6JbsmjGK87adxOV5SO12x1YRiALNzrQm1Hq6u1YUA==",
+          "url": "https://registry.npmjs.org/@tangle-network/agent-eval/-/agent-eval-0.174.0.tgz"
+        },
+        "npmBehaviorSmoke": {
+          "observedAt": "2026-09-06T05:02:30.649Z",
+          "nodeVersion": "24.11.1",
+          "mode": "method",
+          "winner": "WIN",
+          "lift": 0.4,
+          "selectedFinalExecutions": 4,
+          "unchangedFinalExecutions": 2,
+          "unchangedInsightCount": 2,
+          "cacheIdentityChanged": true,
+          "repeatCacheHits": 5,
+          "repeatExecutions": 0
+        },
+        "pypi": {
+          "version": "0.174.0",
+          "files": [
+            {
+              "filename": "agent_eval_rpc-0.174.0-py3-none-any.whl",
+              "packagetype": "bdist_wheel",
+              "size": 76183,
+              "sha256": "b651612ad8dcc392febe73f8bf9440911c29fcdccbb8322ffc0bcfb8654dc04a",
+              "url": "https://files.pythonhosted.org/packages/30/d4/ea6c5bb6f488e32a546ec4d92e2a205b05b70508419e1b95d1b6bcea68ef/agent_eval_rpc-0.174.0-py3-none-any.whl"
+            },
+            {
+              "filename": "agent_eval_rpc-0.174.0.tar.gz",
+              "packagetype": "sdist",
+              "size": 365357,
+              "sha256": "8fcf4ff30e69a0371d1b4390fb5c7b16acb554a6e48b2bb0a14a70c5486c6ee0",
+              "url": "https://files.pythonhosted.org/packages/10/38/df575536b7188509d4b9f73c3cdd3ecde513bf805be6a286d4075b168234/agent_eval_rpc-0.174.0.tar.gz"
+            }
+          ]
+        },
+        "pythonImport": "Installed 13 packages in 15ms\n{'python': '3.12.10', 'package': '0.174.0', 'runtime': '0.174.0', 'module': '/Users/drew/.cache/uv/archive-v0/Cqmaqr-WTlhZCM7N4YqyI/lib/python3.12/site-packages/agent_eval_rpc/__init__.py'}",
+        "limits": [
+          "Behavior smoke uses deterministic callbacks and fixture scores; it does not measure model quality.",
+          "Custom optimization methods remain responsible for external work they do not report.",
+          "0.174.0 has result-contract changes; consumers must narrow result.mode and migrate native-generation assumptions."
+        ]
+      }
+    },
+    "runtime": {
+      "status": "pending Runtime CI, merge, and publication; final local package and cohort checks passed at 7fe89641",
+      "proofIds": [
+        "R-final-package",
+        "R-cohort"
+      ]
+    },
+    "knowledge": {
+      "status": "live",
+      "ownerProofPath": "/tmp/learning-system-audit-20260905/knowledge-final-validation.md",
+      "evidenceBoundary": "Artifact updater read the retained owner proof and queried terminal GitHub jobs/logs. Registry installation and behavior checks were executed by the Knowledge owner.",
+      "proof": {
+        "version": "14.0.0",
+        "tag": "v14.0.0",
+        "reviewedSource": "29998a07db4fd8c1ca7e89bc3713911ebf128bca",
+        "mergedCommit": "30878397a947c37fd743929b30aa03728e785c76",
+        "pr": "https://github.com/tangle-network/agent-knowledge/pull/190",
+        "ci": "https://github.com/tangle-network/agent-knowledge/actions/runs/34013062769",
+        "mainCi": "https://github.com/tangle-network/agent-knowledge/actions/runs/34013245408",
+        "publish": "https://github.com/tangle-network/agent-knowledge/actions/runs/34013280992",
+        "publishJobs": [
+          {
+            "name": "verify",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish-npm",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "npm": {
+          "version": "14.0.0",
+          "dist.integrity": "sha512-PXcW+uEpXs+quy9r8YKrdVSo1lajz9dmlmEA52b2iG1dvOGkGot3Yct9J5ndEiD6/YePm6lI9yQWofLmX2ryxw==",
+          "dist.tarball": "https://registry.npmjs.org/@tangle-network/agent-knowledge/-/agent-knowledge-14.0.0.tgz",
+          "dist.shasum": "1c32c40c8600987ebc9d47f77f052eb4529cb025",
+          "gitHead": "30878397a947c37fd743929b30aa03728e785c76"
+        },
+        "installedIntegrity": {
+          "integrityMatch": true,
+          "resolvedTarballMatch": true,
+          "gitHead": "30878397a947c37fd743929b30aa03728e785c76",
+          "integrity": "sha512-PXcW+uEpXs+quy9r8YKrdVSo1lajz9dmlmEA52b2iG1dvOGkGot3Yct9J5ndEiD6/YePm6lI9yQWofLmX2ryxw==",
+          "versions": {
+            "@tangle-network/agent-knowledge": {
+              "version": "14.0.0",
+              "copies": 1
+            },
+            "@tangle-network/agent-eval": {
+              "version": "0.174.0",
+              "copies": 1
+            },
+            "@tangle-network/agent-core": {
+              "version": "0.9.6",
+              "copies": 1
+            },
+            "@tangle-network/agent-interface": {
+              "version": "2.0.0",
+              "copies": 1
+            },
+            "zod": {
+              "version": "4.5.4",
+              "copies": 1
+            }
+          }
+        },
+        "behaviorSmoke": {
+          "package": "@tangle-network/agent-knowledge",
+          "version": "14.0.0",
+          "evalPeer": ">=0.174.0 <0.175.0",
+          "platform": "darwin",
+          "node": "v24.11.1",
+          "researchRounds": 2,
+          "ready": true,
+          "callbacks": [
+            "worker:1",
+            "prepare",
+            "fold",
+            "checkpoint",
+            "published:1",
+            "worker:2",
+            "checkpoint",
+            "published:2"
+          ],
+          "disabledRequiredPhaseRejected": null,
+          "unsupportedCandidatePlatformRejected": true,
+          "providerCalls": 0
+        },
+        "cliVersion": "14.0.0",
+        "dependencyTree": "knowledge-release-consumer@ /private/tmp/learning-system-audit-20260905/knowledge-live-consumer\n\u251c\u2500\u252c @tangle-network/agent-eval@0.174.0\n\u2502 \u251c\u2500\u252c @asteasolutions/zod-to-openapi@9.1.0\n\u2502 \u2502 \u2514\u2500\u2500 zod@4.5.4 deduped\n\u2502 \u251c\u2500\u252c @tangle-network/agent-core@0.9.6\n\u2502 \u2502 \u251c\u2500\u2500 @tangle-network/agent-interface@2.0.0 deduped\n\u2502 \u2502 \u2514\u2500\u2500 zod@4.5.4 deduped\n\u2502 \u251c\u2500\u2500 @tangle-network/agent-interface@2.0.0 deduped\n\u2502 \u2514\u2500\u2500 zod@4.5.4\n\u251c\u2500\u252c @tangle-network/agent-interface@2.0.0\n\u2502 \u2514\u2500\u2500 zod@4.5.4 deduped\n\u2514\u2500\u252c @tangle-network/agent-knowledge@14.0.0\n  \u251c\u2500\u2500 @tangle-network/agent-eval@0.174.0 deduped\n  \u251c\u2500\u2500 @tangle-network/agent-interface@2.0.0 deduped\n  \u2514\u2500\u2500 zod@4.5.4 deduped\n\n",
+        "ownerReport": {
+          "sha256": "24a534ea3e9914b41b094ed9c8e2f10d3a8687ec11bcda8b6dca944f049891a6",
+          "text": "# Knowledge 14.0.0 final validation\n\nPR: https://github.com/tangle-network/agent-knowledge/pull/190\nPR commit: `29998a07db4fd8c1ca7e89bc3713911ebf128bca`.\nMerged commit and tag `v14.0.0`: `30878397a947c37fd743929b30aa03728e785c76`.\nThe two commits have identical trees, checked with `git diff --exit-code`.\n\n## Final dependency cohort\n\nKnowledge 14.0.0 requires Eval `>=0.174.0 <0.175.0`, tested at 0.174.0.\nThe clean package install has one copy each of Eval 0.174.0, Core 0.9.6, Interface 2.0.0, and Zod 4.5.4.\nThe lockfile changed five lines and their replacements for Eval identity and integrity.\n\n## Host checks\n\nExecution: macOS, Node 24.11.1, pnpm 10.34.5.\n\n- Source typecheck: `node node_modules/typescript/bin/tsc --noEmit`, passed.\n- Contract typecheck: `node node_modules/typescript/bin/tsc --noEmit -p tsconfig.contracts.json`, passed.\n- Lint: `node node_modules/@biomejs/biome/bin/biome check src tests`, 249 files passed.\n- Build: `./node_modules/.bin/tsdown`, passed in 2210 ms.\n- Tests: `node node_modules/vitest/vitest.mjs run tests/rag-improvement-loop.test.ts tests/loops/research-driving-loop.test.ts tests/loops/research-driving-driver.test.ts tests/claim-persistence.test.ts tests/memory/improvement.test.ts`, 85 of 85 passed in five files, 7.32 seconds.\n- `pnpm verify:package`, passed for the final dependency cohort.\nThis includes API record, path containment, skill validation, publint, declaration resolution, clean install, imports, CLI version, and re-pack.\n- The API record is current: 995 exports across six entrypoints.\nOnly the exported ResearchDriver shape changes.\n- The committed `pnpm check:version-bump` passed and requires the authored major version.\n- `git diff --check`, commit hooks, and push hooks passed.\n\nThe built artifact smoke completed two research rounds.\nThe second worker received steering with zero storage gaps.\nThe callback order was worker1, prepare, fold, checkpoint, publish1, worker2, checkpoint, publish2.\nThe result was ready only after driver completion.\nThe host correctly rejects Linux-only exact candidate execution.\nNo provider inference was called.\n\n## Required Ubuntu CI\n\nRun: https://github.com/tangle-network/agent-knowledge/actions/runs/34013062769\n\n| Job | Tests | Files | Duration | Result |\n| --- | --- | --- | --- | --- |\n| ci | 862 passed, 7 conditional skips, 0 failed | 88 passed, 2 skipped, 90 total | tests 35.49 seconds; job 68 seconds | Success |\n| official-optimizers | 2 passed, 0 failed | 1 passed | tests 6.48 seconds; job 80 seconds | Success |\n\nCI uses Ubuntu 24.04 and Node 22.\nThe ci job runs with `AGENT_KNOWLEDGE_RUN_NETWORK_TESTS=1`.\nThe separate official-optimizers job executes both GEPA retrieval optimization and SkillOpt text optimization through the packed package.\nThe CI job also passed clean-package installation against the final cohort.\nThese runs include the exact Linux candidate lifecycle, disabled required phases, candidate integrity, promotion, persistence, and research regressions.\n\n## Landing and publication\n\nLive PR comments, inline comments, and GitHub reviews were empty at the reviewed head.\nThe repository has one required approval and `enforce_admins=false`.\nThe configured owner exception was used under the user's landing authorization after independent source review and all CI jobs passed.\nNo branch protection was changed.\n\nPublish run: https://github.com/tangle-network/agent-knowledge/actions/runs/34013280992\nPublication completed successfully at the merged commit.\nBoth `verify` and `publish-npm` completed successfully.\nMain CI also completed successfully: https://github.com/tangle-network/agent-knowledge/actions/runs/34013245408\n\n## Published package proof\n\nThe fresh registry check returned Knowledge 14.0.0 at `gitHead` `30878397a947c37fd743929b30aa03728e785c76`.\nThe published tarball is `https://registry.npmjs.org/@tangle-network/agent-knowledge/-/agent-knowledge-14.0.0.tgz`.\nIts SHA-1 is `1c32c40c8600987ebc9d47f77f052eb4529cb025`.\nIts integrity is `sha512-PXcW+uEpXs+quy9r8YKrdVSo1lajz9dmlmEA52b2iG1dvOGkGot3Yct9J5ndEiD6/YePm6lI9yQWofLmX2ryxw==`.\nThe clean consumer's package lock matches both the registry integrity and tarball URL.\n\nThe consumer installation used npm, macOS, and Node 24.11.1.\nIt installed the published packages in `/tmp/learning-system-audit-20260905/knowledge-live-consumer`.\nThe install completed with 33 packages added in eight seconds.\nThe package lock has one installed copy each of Knowledge 14.0.0, Eval 0.174.0, Core 0.9.6, Interface 2.0.0, and Zod 4.5.4.\nThe installed CLI's `version` command returned `14.0.0`.\nAn initial `--version` invocation was invalid; the CLI documents `version` as its command.\n\nThe installed package's functional smoke completed two research rounds using real temporary knowledge storage and scripted sources.\nThe second worker received steering with zero storage gaps.\nResearch returned `ready: true` only after driver completion.\nCallbacks occurred in this order: worker1, prepare, fold, checkpoint, publish1, worker2, checkpoint, publish2.\nThe smoke recorded zero provider calls.\nIt confirmed that this macOS host refuses Linux-only exact candidate execution.\nIts disabled-required-phase result is `null` because that branch requires Linux.\nThe successful Ubuntu CI supplies the Linux-only candidate evidence; this smoke makes no Linux execution claim.\n\nFresh evidence files:\n\n- `/tmp/learning-system-audit-20260905/knowledge-registry.json`: npm metadata.\n- `/tmp/learning-system-audit-20260905/knowledge-live-smoke.json`: functional result from the registry installation.\n- `/tmp/learning-system-audit-20260905/knowledge-live-consumer/smoke.mjs`: executed smoke source.\n- `/tmp/learning-system-audit-20260905/knowledge-live-integrity.json`: integrity, tarball, dependency versions, and installed-copy assertions.\n- `/tmp/learning-system-audit-20260905/knowledge-live-dependencies.log`: complete relevant dependency tree.\n- `/tmp/learning-system-audit-20260905/knowledge-live-cli-version.log`: installed CLI version.\n"
+        },
+        "limits": [
+          "Registry smoke ran on macOS/Node 24.11.1 with Interface 2.0.0; Runtime uses Interface 2.3.0.",
+          "The Linux-only required-phase field is null in the macOS smoke; actual Linux candidate evidence comes from Ubuntu CI.",
+          "PR CI enables five live-source tests that Publish skips. The two runs retain separate counts.",
+          "These are implementation checks with scripted sources and zero provider calls, not evidence of learning quality."
+        ]
+      }
+    }
+  },
+  "verification": {
+    "proofs": {
+      "E-full": {
+        "repository": "agent-eval",
+        "revision": "6c23e86025eec42b4d5f551f9cb4896f474cb16b",
+        "status": "passed",
+        "executionContext": "Local full JavaScript suite; four workers.",
+        "command": "pnpm test --maxWorkers=4",
+        "tests": {
+          "passed": 5763,
+          "failed": 0,
+          "skipped": 3,
+          "total": 5766
+        },
+        "files": {
+          "passed": 392,
+          "failed": 0,
+          "skipped": 2,
+          "total": 394
+        },
+        "durationSeconds": 140.77,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/eval-full-tests-controlled.log",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "limitations": [
+          "This is the final 5763-pass local run, not the earlier 5761-pass run.",
+          "Implementation verification, not a paid learning comparison."
+        ]
+      },
+      "E-ci": {
+        "repository": "agent-eval",
+        "revision": "6c23e86025eec42b4d5f551f9cb4896f474cb16b",
+        "status": "passed",
+        "executionContext": "GitHub Actions CI at the repaired source revision.",
+        "runUrl": "https://github.com/tangle-network/agent-eval/actions/runs/33987395502",
+        "rawLog": {
+          "path": "/Users/drew/webb/_wt/eval-learning-audit-20260905/.agent/release-0.174.0/pr-ci.log",
+          "status": "present_and_read",
+          "lines": [
+            6212,
+            6213,
+            7168,
+            7192,
+            7193,
+            7275,
+            478,
+            500,
+            501
+          ]
+        },
+        "tests": {
+          "passed": 5763,
+          "failed": 0,
+          "skipped": 3,
+          "total": 5766
+        },
+        "files": {
+          "passed": 392,
+          "failed": 0,
+          "skipped": 2,
+          "total": 394
+        },
+        "additionalChecks": [
+          {
+            "name": "Python official source",
+            "passed": 207,
+            "skipped": 4,
+            "failed": 0,
+            "total": 211,
+            "line": 7168
+          },
+          {
+            "name": "TypeScript official integrations",
+            "passed": 2,
+            "skipped": 0,
+            "failed": 0,
+            "total": 2,
+            "line": 7193
+          },
+          {
+            "name": "DSPy",
+            "passed": 18,
+            "skipped": 0,
+            "failed": 0,
+            "total": 18,
+            "line": 7275
+          },
+          {
+            "name": "Released GEPA Python",
+            "passed": 45,
+            "skipped": 1,
+            "failed": 0,
+            "total": 46,
+            "line": 478
+          },
+          {
+            "name": "Released GEPA TypeScript bridge",
+            "passed": 1,
+            "skipped": 0,
+            "failed": 0,
+            "total": 1,
+            "line": 501
+          }
+        ],
+        "limitations": [
+          "These are separate suites and are not added into an inflated full-suite count.",
+          "CI verification does not establish registry publication or learning effectiveness."
+        ]
+      },
+      "E-focused": {
+        "repository": "agent-eval",
+        "revision": "6c23e86025eec42b4d5f551f9cb4896f474cb16b",
+        "status": "passed",
+        "tests": {
+          "passed": 185,
+          "failed": 0,
+          "skipped": 0,
+          "total": 185
+        },
+        "files": {
+          "passed": 5,
+          "failed": 0,
+          "skipped": 0,
+          "total": 5
+        },
+        "durationSeconds": 11.31,
+        "command": null,
+        "commandStatus": "Exact focused command not retained in the continuation summary.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/eval-focused-release.log",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        }
+      },
+      "E-review-probes": {
+        "repository": "agent-eval",
+        "status": "passed",
+        "executionContext": "Independent deterministic probes through selfImprove with synthetic paid-call receipts.",
+        "observations": {
+          "E6": {
+            "totalUsd": 3,
+            "ledgerUsd": 3,
+            "accountingComplete": false,
+            "receipts": 1
+          },
+          "E8": {
+            "calls": 2,
+            "receipts": 2,
+            "totalUsd": 2,
+            "verdict": "hold",
+            "insightRuns": 2,
+            "insightCostUsd": 2,
+            "inputTokens": 20,
+            "outputTokens": 10
+          }
+        },
+        "rawEvidence": [
+          {
+            "path": "/tmp/learning-system-audit-20260905/eval-cost-review.mts",
+            "status": "unavailable_after_environment_refresh",
+            "resultSource": "Previously observed terminal output retained in the session continuation summary."
+          },
+          {
+            "path": "/tmp/learning-system-audit-20260905/eval-noop-review.mts",
+            "status": "unavailable_after_environment_refresh",
+            "resultSource": "Previously observed terminal output retained in the session continuation summary."
+          },
+          {
+            "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+            "status": "unavailable_after_environment_refresh",
+            "resultSource": "Previously observed terminal output retained in the session continuation summary."
+          }
+        ],
+        "durableRegressions": [
+          "tests/contract-self-improve-method-integrity.test.ts"
+        ],
+        "limitations": [
+          "No paid model call or production cost was measured.",
+          "Probe text and raw output are no longer present."
+        ]
+      },
+      "R-full": {
+        "repository": "agent-runtime",
+        "revision": "5d61700236d43c9abcc4adc645130749d8239ca6",
+        "status": "passed",
+        "command": "node_modules/.bin/vitest run --maxWorkers=4",
+        "executionContext": "Local full Runtime suite; four workers.",
+        "tests": {
+          "passed": 3561,
+          "failed": 0,
+          "skipped": 9,
+          "total": 3570
+        },
+        "files": {
+          "passed": 280,
+          "failed": 0,
+          "skipped": 3,
+          "total": 283
+        },
+        "durationSeconds": 205.06,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-final-tests.log",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "limitations": [
+          "The later integrated changes were documentation and skills only.",
+          "Fresh Runtime CI and release evidence are owned by the parent and remain separate."
+        ]
+      },
+      "R-earlier-full": {
+        "repository": "agent-runtime",
+        "revision": null,
+        "revisionStatus": "Pre-deadline-fix integrated worktree; exact commit not retained.",
+        "status": "failed",
+        "command": "node_modules/.bin/vitest run --maxWorkers=4",
+        "tests": {
+          "passed": 3559,
+          "failed": 2,
+          "skipped": 9,
+          "total": 3570
+        },
+        "durationSeconds": 420.09,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-integrated-tests.log",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "failures": [
+          {
+            "path": "tests/kernel/workspace.test.ts",
+            "line": 136,
+            "cause": "The second-worker Python/Git integration case exceeded its 20-second limit.",
+            "repair": "Set this case's deadline to 60000 milliseconds; assertions unchanged."
+          },
+          {
+            "path": "tests/improvement-cycle.test.ts",
+            "line": 1098,
+            "cause": "This integration case exceeded its 15-second override under the full-suite load.",
+            "repair": "Remove the 15000-millisecond override and use the existing 30000-millisecond describe deadline; assertions unchanged."
+          }
+        ]
+      },
+      "R-deadline-focused": {
+        "repository": "agent-runtime",
+        "status": "passed",
+        "command": "node_modules/.bin/vitest run tests/kernel/workspace.test.ts tests/improvement-cycle.test.ts --reporter=verbose",
+        "tests": {
+          "passed": 35,
+          "failed": 0,
+          "skipped": 1,
+          "total": 36
+        },
+        "durationSeconds": 81.73,
+        "affectedTestDurationSeconds": {
+          "workspace": 23.586,
+          "improvementCycle": 11.475
+        },
+        "skipReason": "Existing optional jj test.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-deadline-focused.log",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "diagnosis": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-deadline-diagnosis.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        }
+      },
+      "R-original-focused": {
+        "repository": "agent-runtime",
+        "status": "passed",
+        "tests": {
+          "uniquePassed": 146
+        },
+        "command": null,
+        "commandStatus": "The original command list was in runtime-fixes.md and is no longer retained.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-fixes.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "limitations": [
+          "Do not add this focused count to the later full-suite count."
+        ]
+      },
+      "R-profile-integration": {
+        "repository": "agent-runtime",
+        "status": "passed",
+        "command": "node_modules/.bin/vitest run tests/kernel/strategy-suite.test.ts tests/knowledge-supervised-update.test.ts",
+        "tests": {
+          "passed": 43,
+          "failed": 0,
+          "skipped": 0,
+          "total": 43
+        },
+        "files": {
+          "passed": 2,
+          "failed": 0,
+          "skipped": 0,
+          "total": 2
+        },
+        "durationSeconds": 7.98,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-current-main-review.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "executionContext": "Independent offline integration of the supplied profile contract after current-main merge."
+      },
+      "R-reflective": {
+        "repository": "agent-runtime",
+        "status": "passed",
+        "command": null,
+        "tests": {
+          "passed": 16,
+          "failed": 0,
+          "skipped": 0,
+          "total": 16
+        },
+        "durationSeconds": 29.24,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/reflective-tests-final.log",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "reproduceCommand": "node_modules/.bin/vitest run tests/improvement-driver.test.ts",
+        "commandStatus": "The exact historical invocation flags are not retained; reproduceCommand identifies the durable suite."
+      },
+      "R-reflective-independent": {
+        "repository": "agent-runtime",
+        "status": "passed",
+        "exitCode": 0,
+        "observations": {
+          "rejected": true,
+          "declaredTargetUnchanged": true,
+          "undeclaredTargetUnchanged": true
+        },
+        "executionContext": "Independent scratch probe through the real reflective patch application path.",
+        "rawEvidence": [
+          {
+            "path": "/tmp/learning-system-audit-20260905/reflective-review-probe.mts",
+            "status": "unavailable_after_environment_refresh",
+            "resultSource": "Previously observed terminal output retained in the session continuation summary."
+          },
+          {
+            "path": "/tmp/learning-system-audit-20260905/eval-engineering-addendum.md",
+            "status": "unavailable_after_environment_refresh",
+            "resultSource": "Previously observed terminal output retained in the session continuation summary."
+          }
+        ],
+        "durableRegression": "tests/improvement-driver.test.ts:223"
+      },
+      "K-host-74": {
+        "repository": "agent-knowledge",
+        "revision": null,
+        "baseRevision": "390f2da9883e55cc86a8985167324d8b1f10894a",
+        "status": "passed",
+        "executionContext": "Host focused checks before the new Eval dependency cohort.",
+        "tests": {
+          "passed": 74,
+          "failed": 0,
+          "total": 74
+        },
+        "files": {
+          "passed": 4,
+          "total": 4
+        },
+        "command": null,
+        "commandStatus": "Exact focused command was in knowledge-implementation.md and is no longer retained.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "limitations": [
+          "This is not a full Knowledge suite or the new-dependency package proof."
+        ]
+      },
+      "K-other-consumers": {
+        "repository": "agent-knowledge",
+        "status": "passed_with_skips",
+        "executionContext": "Host consumer checks before the new Eval dependency cohort.",
+        "tests": {
+          "passed": 7,
+          "failed": 0,
+          "skipped": 5,
+          "total": 12
+        },
+        "files": {
+          "passed": 3,
+          "skipped": 1,
+          "total": 4
+        },
+        "skipReason": "Five paid-network cases in one file.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        }
+      },
+      "K-linux-initial": {
+        "repository": "agent-knowledge",
+        "status": "failed",
+        "executionContext": "Local Colima Linux container, Node 24.20.0, Linux aarch64 6.8.0-64-generic; cached node:24-bookworm image be23f54a88d3.",
+        "tests": {
+          "passed": 132,
+          "failed": 1,
+          "total": 133
+        },
+        "failure": "A new fixture omitted the required answerQualityCostCeiling.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        }
+      },
+      "K-linux-fixture-corrected": {
+        "repository": "agent-knowledge",
+        "status": "passed",
+        "executionContext": "The same local Linux setup after the fixture correction.",
+        "tests": {
+          "passed": 2,
+          "failed": 0,
+          "total": 2
+        },
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        }
+      },
+      "K-linux-8": {
+        "repository": "agent-knowledge",
+        "revision": null,
+        "baseRevision": "390f2da9883e55cc86a8985167324d8b1f10894a",
+        "status": "passed",
+        "command": "docker exec -w /work knowledge-learning-tests-20260905 node node_modules/vitest/vitest.mjs run tests/kb-improvement/lifecycle.test.ts tests/kb-improvement/selected-candidate.test.ts",
+        "executionContext": "Local Colima; cached node:24-bookworm image be23f54a88d3; Node 24.20.0; Linux aarch64 6.8.0-64-generic. Source mounted read-only at /input and copied to /work; no platform override.",
+        "tests": {
+          "passed": 8,
+          "failed": 0,
+          "total": 8
+        },
+        "durationSeconds": 11.27,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "limitations": [
+          "Before the new Eval 0.174.0 dependency cohort.",
+          "This focused result cannot be combined with the earlier failed run into a full-suite pass."
+        ]
+      },
+      "K-previous-package": {
+        "repository": "agent-knowledge",
+        "status": "passed",
+        "checks": [
+          "Host source typecheck",
+          "Contract typecheck",
+          "Lint over 249 files",
+          "Build",
+          "Earlier packed package verification"
+        ],
+        "dependencyCohort": {
+          "agent-eval": "0.173.0",
+          "agent-interface": "2.0.0"
+        },
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/knowledge-implementation.md",
+          "status": "unavailable_after_environment_refresh",
+          "resultSource": "Previously observed terminal output retained in the session continuation summary."
+        },
+        "limitations": [
+          "This earlier proof covers Eval 0.173.0 only; K-ci and K-publish record completed checks for Eval 0.174.0."
+        ]
+      },
+      "K-ci": {
+        "repository": "agent-knowledge",
+        "revision": "29998a07db4fd8c1ca7e89bc3713911ebf128bca",
+        "status": "passed_with_conditional_skips",
+        "executionContext": "Ubuntu 24.04, Node 22; AGENT_KNOWLEDGE_RUN_NETWORK_TESTS=1.",
+        "command": "pnpm test",
+        "runUrl": "https://github.com/tangle-network/agent-knowledge/actions/runs/34013062769",
+        "rawLog": {
+          "status": "read_via_gh_run_view"
+        },
+        "tests": {
+          "passed": 862,
+          "failed": 0,
+          "skipped": 7,
+          "total": 869
+        },
+        "files": {
+          "passed": 88,
+          "failed": 0,
+          "skipped": 2,
+          "total": 90
+        },
+        "durationSeconds": 35.49,
+        "additionalChecks": [
+          {
+            "name": "packed GEPA and SkillOpt integration",
+            "passed": 2,
+            "failed": 0,
+            "filesPassed": 1,
+            "durationSeconds": 6.48
+          }
+        ],
+        "dependencyCohort": {
+          "agent-knowledge": "14.0.0",
+          "agent-eval": "0.174.0"
+        },
+        "limitations": [
+          "Seven conditional skips remain in the broad suite; two official optimizer cases run separately.",
+          "Do not add the separate official cases to the broad suite as distinct observation units."
+        ]
+      },
+      "K-publish": {
+        "repository": "agent-knowledge",
+        "revision": "30878397a947c37fd743929b30aa03728e785c76",
+        "status": "passed_with_conditional_skips",
+        "executionContext": "Ubuntu publish workflow, Node 22 and Python 3.12; live-source network flag is absent.",
+        "command": "pnpm run test",
+        "runUrl": "https://github.com/tangle-network/agent-knowledge/actions/runs/34013280992",
+        "rawLog": {
+          "status": "read_via_gh_run_view"
+        },
+        "tests": {
+          "passed": 857,
+          "failed": 0,
+          "skipped": 12,
+          "total": 869
+        },
+        "files": {
+          "passed": 87,
+          "failed": 0,
+          "skipped": 3,
+          "total": 90
+        },
+        "additionalChecks": [
+          {
+            "name": "packed GEPA and SkillOpt integration",
+            "passed": 2,
+            "failed": 0,
+            "filesPassed": 1
+          }
+        ],
+        "limitations": [
+          "Five extra skipped cases are tests/sources-live.test.ts because Publish does not set AGENT_KNOWLEDGE_RUN_NETWORK_TESTS=1.",
+          "The two official optimizer cases pass in a separate step."
+        ]
+      },
+      "K-main-ci": {
+        "repository": "agent-knowledge",
+        "revision": "30878397a947c37fd743929b30aa03728e785c76",
+        "status": "passed",
+        "runUrl": "https://github.com/tangle-network/agent-knowledge/actions/runs/34013245408",
+        "jobs": [
+          {
+            "name": "ci",
+            "conclusion": "success"
+          },
+          {
+            "name": "official-optimizers",
+            "conclusion": "success"
+          }
+        ],
+        "evidenceBoundary": "Terminal jobs queried directly; test counts are retained separately for the inspected PR and Publish logs."
+      },
+      "K-registry": {
+        "repository": "agent-knowledge",
+        "revision": "30878397a947c37fd743929b30aa03728e785c76",
+        "status": "live",
+        "evidenceBoundary": "Read retained Knowledge owner outputs; artifact updater did not rerun the registry smoke.",
+        "ownerProofPath": "/tmp/learning-system-audit-20260905/knowledge-final-validation.md",
+        "releaseProofRef": "releaseProof.knowledge.proof",
+        "limitations": [
+          "Interface 2.0.0 in this consumer does not verify Runtime Interface 2.3.0.",
+          "macOS smoke does not execute Linux-only candidate work."
+        ]
+      },
+      "R-final-package": {
+        "repository": "agent-runtime",
+        "revision": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+        "status": "passed",
+        "evidenceBoundary": "Parent-reported terminal checks; artifact updater did not re-execute them.",
+        "checks": [
+          "verify:package, including clean installed exports and edge Worker execution",
+          "source and example typechecks",
+          "lint: 701 files",
+          "docs:freshness",
+          "publish and upstream workflow checks",
+          "version checks",
+          "verify:primeintellect"
+        ],
+        "limitations": [
+          "Runtime CI, merge, and publication remain pending.",
+          "This does not replace the earlier full-suite observation at 5d617002."
+        ]
+      },
+      "R-cohort": {
+        "repository": "agent-runtime",
+        "revision": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+        "status": "passed",
+        "processExitCode": 0,
+        "processExitSource": "Parent observed terminal exit 0.",
+        "evidenceBoundary": "Read the parent-produced report; artifact updater did not execute the consumer.",
+        "rawReport": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-cohort.json",
+          "sha256": "c0cfd2feb3ac99d022e1f6120e877b3064da9ff08e57a530f09149c83a537bde",
+          "status": "present_and_read"
+        },
+        "report": {
+          "packages": [
+            {
+              "name": "@tangle-network/agent-interface",
+              "version": "2.3.0",
+              "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f",
+              "sha256": "5fd2391a3b8b91eecaba2d0fe81e2c286ff3c6c37f4decfbe0f48d15aeb60345"
+            },
+            {
+              "name": "@tangle-network/agent-eval",
+              "version": "0.174.0",
+              "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc",
+              "sha256": "907be506b71923b1d601b128a18a981c9f04032e05bac02d9aeecef9b74d886e"
+            },
+            {
+              "name": "@tangle-network/agent-knowledge",
+              "version": "14.0.0",
+              "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76",
+              "sha256": "5ca2d9f8c17d367587c6005336ea11690a2c7c1f3ec28289afb25458f4e1202d"
+            },
+            {
+              "name": "@tangle-network/agent-runtime",
+              "version": "0.195.0",
+              "sourceCommit": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+              "sha256": "2662ae3c6b523a2e27ccbecdcf9f5ee2876971486940fcdbfb8e93cae400e12e"
+            }
+          ],
+          "consumer": {
+            "install": "pnpm install --frozen-lockfile",
+            "packageCount": 4,
+            "sandboxVersions": [
+              "0.36.4",
+              "0.37.0"
+            ],
+            "exactArchiveResolution": true,
+            "publicImportCount": 128,
+            "proposals": [
+              {
+                "sandboxVersion": "0.36.4",
+                "proposal": {
+                  "proposalKind": "agent-profile-improvement-measured-comparison",
+                  "baseline": 0,
+                  "candidate": 1,
+                  "pairs": 6,
+                  "executions": 12,
+                  "changedSurfaces": [
+                    "prompt"
+                  ],
+                  "evalSignTestPValue": 0.125,
+                  "knowledgeReadinessId": "packed-cohort"
+                }
+              },
+              {
+                "sandboxVersion": "0.37.0",
+                "proposal": {
+                  "proposalKind": "agent-profile-improvement-measured-comparison",
+                  "baseline": 0,
+                  "candidate": 1,
+                  "pairs": 6,
+                  "executions": 12,
+                  "changedSurfaces": [
+                    "prompt"
+                  ],
+                  "evalSignTestPValue": 0.125,
+                  "knowledgeReadinessId": "packed-cohort"
+                }
+              }
+            ]
+          }
+        },
+        "limitations": [
+          "Package SHA-256 values identify the exact local archives; they are distinct from registry tarball integrity hashes.",
+          "The Runtime consumer selects Interface 2.3.0, unlike the Knowledge owner consumer at Interface 2.0.0.",
+          "Deterministic proposal values, six pairs, and p=0.125 check composition; they do not establish model-quality improvement.",
+          "Runtime CI, merge, and publication remain pending."
+        ]
+      }
+    },
+    "aggregationRule": "Do not sum overlapping focused and full suites or combine corrected focused runs into a full-suite pass.",
+    "excludedRunCounts": [
+      {
+        "description": "Earlier Eval full local run",
+        "passed": 5761,
+        "reason": "Superseded by the controlled 5763-pass run and matching recovered CI."
+      },
+      {
+        "description": "Independent Knowledge 11/11 Linux probe",
+        "passed": 11,
+        "reason": "Conversation-only result without retained raw log; not used as a finding proof."
+      }
+    ]
+  },
+  "evidence": {
+    "durableMainReport": {
+      "path": "docs/research/learning-system-audit-2026-09-05.md",
+      "sha256": "a093f4b696dc211b485174f0c8f29b9a0c22d255bee968b1219bcd1425494458",
+      "commit": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+      "url": "https://github.com/tangle-network/agent-runtime/blob/7fe89641322dc1d0e60dc8c4d66472d786320558/docs/research/learning-system-audit-2026-09-05.md"
+    },
+    "findingFile": "findings.jsonl",
+    "summaryFile": "summary.md",
+    "runtimeInventory": "runtime-inventory.json",
+    "rawLocalEvidenceStatus": "unavailable_after_environment_refresh",
+    "preservedEvidence": "Initial GitHub source URLs, committed repair/regression paths and content hashes, the pinned report, recovered Eval CI and release proof, Knowledge terminal CI and owner registry proof, Runtime local cohort report, and explicit earlier observations.",
+    "caveat": "No missing source list, file hash, runtime cost, prevalence, uncertainty estimate, or live capability result has been reconstructed as an observation."
+  },
+  "impact": {
+    "unit": "USD/month",
+    "failureCost": null,
+    "repairCost": null,
+    "status": "unmeasured on both sides for every finding",
+    "reason": "No production incidence, affected workload, or ongoing operating-cost study was performed.",
+    "probeReceipts": "Synthetic USD receipts reproduce accounting behavior only."
+  },
+  "capabilityAssessment": {
+    "paidLearningExperiments": 0,
+    "sotaRanking": "Not established. The research comparison inspected mechanisms and supported integrations, not matched same-task performance.",
+    "architecturalVerdict": "Make the domain learning process a reusable executable artifact. Reuse exact candidates, shared measurement records, retained evidence, and exact adoption. Preserve independent learning methods and package responsibilities.",
+    "learningClaims": "Specialist quality, repeatable domain learning, evaluation engineering, learning-method improvement, and transfer require separate evidence.",
+    "proposedUnificationImplemented": false,
+    "implementedBoundary": "The 22 concrete defects and associated simplifications are repaired; the broader continuing/meta-learning composition remains a proposed direction."
+  },
+  "updatedAtUtc": "2026-09-06T05:25:08.806615+00:00"
+}

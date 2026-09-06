@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "auditId": "2026-09-05-learning-system",
+  "repository": "agent-runtime",
+  "initialCommit": "a16d8a3b91481b140cb552e373d5bde98b34af05",
+  "status": "historical_counts_preserved_original_list_unavailable",
+  "listUnavailable": true,
+  "paths": null,
+  "perFileHashes": null,
+  "coverageByFile": null,
+  "counts": {
+    "previouslyObservedUniquePaths": 55,
+    "production": 38,
+    "tests": 7,
+    "callers": 5,
+    "documentation": 5,
+    "productionFilesUnderSrcImprovementCompletelyRead": 24
+  },
+  "countConsistency": {
+    "sum": 55,
+    "expected": 55,
+    "consistent": true
+  },
+  "evidence": {
+    "kind": "Previously verified inventory summarized in the session continuation record.",
+    "originalPath": "/tmp/learning-system-audit-20260905/runtime-inventory.json",
+    "originalAvailable": false,
+    "loss": "The environment refresh removed the scratch file before artifact persistence.",
+    "durableScopeDescription": "https://github.com/tangle-network/agent-runtime/blob/7fe89641322dc1d0e60dc8c4d66472d786320558/docs/research/learning-system-audit-2026-09-05.md#L34",
+    "durableMainReport": {
+      "path": "docs/research/learning-system-audit-2026-09-05.md",
+      "sha256": "a093f4b696dc211b485174f0c8f29b9a0c22d255bee968b1219bcd1425494458",
+      "commit": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+      "url": "https://github.com/tangle-network/agent-runtime/blob/7fe89641322dc1d0e60dc8c4d66472d786320558/docs/research/learning-system-audit-2026-09-05.md"
+    }
+  },
+  "limitations": [
+    "The original 55-path list and per-file hashes cannot be recovered from the retained evidence.",
+    "No list of the remaining 31 files has been reconstructed.",
+    "The 24-file complete-read count is a prior audit observation, not a new read performed while creating this artifact.",
+    "External caller inspections used workspace snapshots rather than fetched main."
+  ],
+  "latestIntegration": {
+    "mainCommit": "2707e2321e7b26b0e71efacb86ebdf3ddd23adac",
+    "integrationCommit": "7f05654a69441db1bd135e8545787af785cde4a2",
+    "changedFiles": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "reportAndCohortCommit": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+    "scope": "Instruction-only main integration; this metadata update does not add files to the original audit inventory."
+  }
+}

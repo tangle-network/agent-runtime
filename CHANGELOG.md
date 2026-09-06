@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.195.0
+
+Learning results now use Eval 0.174 and Knowledge 14.
+Code improvement preserves Eval's native proposer result type.
+The [learning audit](docs/research/learning-system-audit-2026-09-05.md) records the findings and the continuing-learning design.
+
+### Exact strategy and code candidates
+
+Strategy checkpoints require `checkpoint.executionRef`, which identifies callbacks, transports, baseline implementations, and external state.
+Runtime also hashes profiles, settings, canonical JSON task payloads, and authored module bytes.
+Changed inputs reject resume before their saved results can be reused.
+Create a new checkpoint when these dependencies change.
+
+`reflectiveGenerator` now requires `createImprovementProposalSource(context)` instead of a pre-bound proposal source.
+Construct the proposer with `repoRoot: context.worktreePath` and use its signal and cost account for drafting.
+Draft failures, stale file contents, and failed patch batches now reject the candidate.
+The complete patch batch applies atomically.
+Tracked diagnosis-only edits no longer become code candidates.
+
+### Persistent lessons and research
+
+Observer responses must match the declared schema.
+Malformed responses and failed lesson writes remain errors in observation and harvest results.
+Corpus records are detached immutable values, and file appends serialize conflicting IDs across processes.
+Supervised knowledge updates execute the supplied profile without appending fixed research instructions.
+
 ## 0.194.0
 
 ### Profiles own recursive authority
