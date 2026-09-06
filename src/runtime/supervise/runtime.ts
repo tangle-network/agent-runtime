@@ -3917,9 +3917,15 @@ function bridgeUpstreamError(
   // sends today.
   const status =
     typeof error.status === 'number' ? error.status : upstreamStatusFromMessage(error.message)
+  // `type` is the bridge's own error class on a failure it raised itself (`parse_error` for a
+  // profile that cannot materialize) and the provider's class when it relays one. Carried as
+  // `upstreamCode` so a retry policy can read the bridge's never-retry decisions where no status rides.
+  const upstreamCode =
+    typeof error.type === 'string' && error.type.length > 0 ? error.type : undefined
   const options = {
     ...(providerDispatch === undefined ? {} : { providerDispatch }),
     ...(status === undefined ? {} : { status }),
+    ...(upstreamCode === undefined ? {} : { upstreamCode }),
   }
   return new BackendTransportError(
     'bridge',

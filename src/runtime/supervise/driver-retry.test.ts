@@ -84,6 +84,32 @@ describe('classifyDriverFailure', () => {
     expect(classifyDriverFailure(missing)).toBe('terminal')
   })
 
+  it('settles a profile that cannot materialize after one attempt, with or without a status', () => {
+    // The bridge reports a materialization failure as its own `parse_error` class; on the stream
+    // path no status rides with it, and the status split alone re-drove the same deterministic
+    // refusal to the attempt ceiling (#1081, 12 barren re-drives under the lab's policy).
+    const materialization = new BackendTransportError(
+      'bridge',
+      'bridgeExecutor: bridge stream error: AgentProfile workspace materialization failed: ' +
+        'Duplicate profile resource path: .opencode/skills/method-refute-v2/SKILL.md (skills, skills)',
+      { upstreamCode: 'parse_error' },
+    )
+    expect(classifyDriverFailure(materialization)).toBe('terminal')
+    expect(
+      classifyDriverFailure(
+        new BackendTransportError('bridge', 'harness not configured', {
+          upstreamCode: 'not_configured',
+        }),
+      ),
+    ).toBe('terminal')
+    // A relayed upstream accident with no status keeps the retry-on-unknown behaviour.
+    expect(
+      classifyDriverFailure(
+        new BackendTransportError('bridge', 'pi exit unknown', { upstreamCode: 'upstream' }),
+      ),
+    ).toBe('transient')
+  })
+
   it('never retries an abort, whichever way it presents', () => {
     const aborted = new AbortController()
     aborted.abort('caller cancel')

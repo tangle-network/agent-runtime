@@ -236,10 +236,24 @@ const DEFAULT_INITIAL_BACKOFF_MS = 2_000
 const DEFAULT_MAX_BACKOFF_MS = 30_000
 
 /**
+ * Bridge error classes the bridge itself never retries: a request that fails identically on
+ * every attempt, mapped below 5xx on its HTTP path (`parse_error` 400, the other two 501). On the
+ * stream path the same failure arrives with no status at all — a profile that cannot materialize
+ * is a `parse_error` — and the status split alone read it as a bad moment and re-drove it to the
+ * attempt ceiling.
+ */
+const DETERMINISTIC_BRIDGE_CODES: ReadonlySet<string> = new Set([
+  'parse_error',
+  'not_configured',
+  'capability_denied',
+])
+
+/**
  * Classify one driver failure. Runtime's own typed refusals are decisions and stay terminal;
  * anything foreign is an accident and is retryable. A `BackendTransportError` is split by status
  * because the taxonomy already promises consumers may branch on it: a 5xx/429/408 is the upstream
- * having a bad moment, while a 401/404/422 is a request that will fail identically forever.
+ * having a bad moment, while a 401/404/422 is a request that will fail identically forever. The
+ * bridge's own never-retry classes are terminal whether or not a status rides with them.
  */
 export function classifyDriverFailure(
   error: unknown,
@@ -248,6 +262,8 @@ export function classifyDriverFailure(
   if (signal?.aborted) return 'terminal'
   if (error instanceof Error && error.name === 'AbortError') return 'terminal'
   if (error instanceof BackendTransportError) {
+    if (error.upstreamCode !== undefined && DETERMINISTIC_BRIDGE_CODES.has(error.upstreamCode))
+      return 'terminal'
     const status = error.status
     if (status === undefined) return 'transient'
     if (status === 408 || status === 429 || status >= 500) return 'transient'
