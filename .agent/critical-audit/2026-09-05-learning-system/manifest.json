@@ -13,8 +13,9 @@
         "root": "/Users/drew/webb/_wt/runtime-learning-audit-20260905",
         "initialCommit": "a16d8a3b91481b140cb552e373d5bde98b34af05",
         "initialVersion": "0.193.1",
-        "repairCommit": "0d2c84be6741a7074756b988eed1bc17d5fd3cff",
-        "testedCommit": "5d61700236d43c9abcc4adc645130749d8239ca6"
+        "repairCommit": "4a9cb5384e9cbd9aaeb33396d7bcec851e523cb3",
+        "testedCommit": "4a9cb5384e9cbd9aaeb33396d7bcec851e523cb3",
+        "mergedCommit": "3394955db984a81879208ed0f1a56e5102d73693"
       },
       "E": {
         "name": "agent-eval",
@@ -40,11 +41,12 @@
     "initialBranches": "The three origin/main revisions were fetched before isolated audit worktrees were created.",
     "runtimeIntegration": {
       "sourceTestedCommit": "5d61700236d43c9abcc4adc645130749d8239ca6",
-      "currentRepairCommit": "0d2c84be6741a7074756b988eed1bc17d5fd3cff",
+      "currentRepairCommit": "4a9cb5384e9cbd9aaeb33396d7bcec851e523cb3",
       "latestIntegratedMainCommit": "2707e2321e7b26b0e71efacb86ebdf3ddd23adac",
       "postTestChanges": "Main integration changes AGENTS.md and CLAUDE.md only. Later report and released dependency pins are at 7fe89641; their local package and cohort checks passed separately.",
       "integrationCommit": "7f05654a69441db1bd135e8545787af785cde4a2",
-      "latestReportAndCohortCommit": "7fe89641322dc1d0e60dc8c4d66472d786320558"
+      "latestReportAndCohortCommit": "7fe89641322dc1d0e60dc8c4d66472d786320558",
+      "latestCITestedCommit": "4a9cb5384e9cbd9aaeb33396d7bcec851e523cb3"
     },
     "inventory": {
       "runtime": {
@@ -68,7 +70,28 @@
       "externalCallers": "Nearby application/workspace snapshots, not fetched main revisions."
     },
     "coverage": "Full Runtime improvement directory; selected execution, adoption, strategy, observation, memory, Eval method/native/final/cost/identity paths, Knowledge candidates and research loops, and related tests/callers as documented in the main report.",
-    "uninspected": "No claim of exhaustive whole-repository coverage. No production deployment, paid model learning comparison, or independently reproduced external research benchmark."
+    "uninspected": "No claim of exhaustive whole-repository coverage. No application deployment, paid model learning comparison, or independently reproduced external research benchmark.",
+    "finalMainRefresh": {
+      "agentEval": {
+        "commit": "8da34f057bc187aaf33653e84bf5972016acd6d2",
+        "changesAfterRelease": [
+          "CLAUDE.md"
+        ],
+        "classification": "Instructions and skill guidance only; no execution source changes."
+      },
+      "agentKnowledge": {
+        "commit": "def0952c370ec562114847379c5915bef22e7b07",
+        "changesAfterRelease": [
+          "AGENTS.md",
+          "skills/build-with-agent-knowledge/SKILL.md"
+        ],
+        "classification": "Instructions and skill guidance only; no execution source changes."
+      },
+      "agentRuntime": {
+        "commit": "3394955db984a81879208ed0f1a56e5102d73693",
+        "changesAfterRelease": "None before the final evidence-only report update"
+      }
+    }
   },
   "workflow": {
     "kind": "Aggregation of completed independent repository audits and cross-reviews",
@@ -79,7 +102,8 @@
     "limitations": [
       "Original scratch probes, local terminal logs, and the 55-path inventory were removed by the environment refresh.",
       "Prior terminal counts remain observations from the session continuation record. They are not claimed as freshly re-executed checks.",
-      "Runtime release owner must append current CI, merge, and publication proof independently. Knowledge 14.0.0 terminal release evidence is retained below."
+      "Runtime release owner must append current CI, merge, and publication proof independently. Knowledge 14.0.0 terminal release evidence is retained below.",
+      "Package publication and installed behavior are recorded separately from unmeasured continuing-learning capability."
     ]
   },
   "counts": {
@@ -108,7 +132,7 @@
     ]
   },
   "releaseProof": {
-    "status": "pending",
+    "status": "live",
     "owner": "Parent integration/release work",
     "separateFromSourceReview": true,
     "eval": {
@@ -224,11 +248,161 @@
       }
     },
     "runtime": {
-      "status": "pending Runtime CI, merge, and publication; final local package and cohort checks passed at 7fe89641",
+      "status": "live",
+      "version": "0.195.0",
+      "reviewedSource": "4a9cb5384e9cbd9aaeb33396d7bcec851e523cb3",
+      "mergedCommit": "3394955db984a81879208ed0f1a56e5102d73693",
+      "tree": "aaf0ad165a7903f2529ff32d5e31fbcb67e26be7",
+      "reviewedTreeMatchesMerged": true,
+      "pr": "https://github.com/tangle-network/agent-runtime/pull/1104",
+      "ci": "https://github.com/tangle-network/agent-runtime/actions/runs/34014117530",
+      "publish": "https://github.com/tangle-network/agent-runtime/actions/runs/34014586429",
+      "upstreamContracts": "https://github.com/tangle-network/agent-runtime/actions/runs/34014586446",
+      "mergeAuthority": "Configured owner exception after independent source review and successful CI; no GitHub review approval.",
       "proofIds": [
+        "R-ci",
+        "R-main-ci",
+        "R-publish",
+        "R-upstream",
+        "R-registry",
         "R-final-package",
         "R-cohort"
-      ]
+      ],
+      "tag": "v0.195.0",
+      "mainCi": "https://github.com/tangle-network/agent-runtime/actions/runs/34014551060",
+      "archive": {
+        "filename": "tangle-network-agent-runtime-0.195.0.tgz",
+        "size": 2937365,
+        "sha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+        "sha1": "d663aa89ebe08d66e2c86f56c8eada8c01733466",
+        "integrity": "sha512-CkL5pgg9Fzp0Gg0iXdEb69YPOHVAQLEo6IdDcmTy4X9ichta6XvOaybC2kNfCvq7Fva1mWW/TZDC/hXQAB4+1g=="
+      },
+      "npm": {
+        "version": "0.195.0",
+        "dist": {
+          "shasum": "d663aa89ebe08d66e2c86f56c8eada8c01733466",
+          "tarball": "https://registry.npmjs.org/@tangle-network/agent-runtime/-/agent-runtime-0.195.0.tgz",
+          "fileCount": 181,
+          "integrity": "sha512-CkL5pgg9Fzp0Gg0iXdEb69YPOHVAQLEo6IdDcmTy4X9ichta6XvOaybC2kNfCvq7Fva1mWW/TZDC/hXQAB4+1g==",
+          "signatures": [
+            {
+              "sig": "MEUCIFvlfuKCDD9Z5OkSmAX4ibuD38E6izLM2nmq1YXNfhNwAiEAwibOUWLeOGk8PfbsJfQxTr6LbsVkZvgAFAo54oroQ/4=",
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+            },
+            {
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+              "sig": "MEYCIQDp/RC+TXY61+w7b1LUCIaxuyUfm8u7BNW1YhOPIyB+SAIhAL8Oqjk2HCR/O0/pTHjAk5NrSaTCeGDIkJSFNNUbXSGa"
+            }
+          ],
+          "attestations": {
+            "url": "https://registry.npmjs.org/-/npm/v1/attestations/@tangle-network%2fagent-runtime@0.195.0",
+            "provenance": {
+              "predicateType": "https://slsa.dev/provenance/v1"
+            }
+          },
+          "unpackedSize": 11072247
+        }
+      },
+      "gitHead": null,
+      "sourceBinding": "Downloaded registry bytes match the tag-verified CI archive. Registry provenance identifies the same source commit and publishing run.",
+      "installedSmoke": {
+        "observedAt": "2026-09-06T05:58:26.486Z",
+        "status": "passed",
+        "nodeVersion": "24.11.1",
+        "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-runtime",
+        "packageName": "@tangle-network/agent-runtime",
+        "packageVersion": "0.195.0",
+        "publicImports": {
+          "@tangle-network/agent-runtime/kernel": {
+            "path": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-runtime/dist/kernel.js",
+            "sha256": "7805dd0507ab54dd2ccd63ccdde119fdbf198f1144a758d416b348b5e1f1e010"
+          },
+          "@tangle-network/agent-runtime/knowledge": {
+            "path": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-runtime/dist/knowledge.js",
+            "sha256": "8e3f0a6347c880cf8678d2d40baefd9598cfddf6db03316bceede04449b656d2"
+          }
+        },
+        "dependencies": {
+          "@tangle-network/agent-eval": {
+            "version": "0.174.0",
+            "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-eval"
+          },
+          "@tangle-network/agent-knowledge": {
+            "version": "14.0.0",
+            "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-knowledge"
+          },
+          "@tangle-network/agent-interface": {
+            "version": "2.3.0",
+            "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-interface"
+          }
+        },
+        "checks": {
+          "immutableCorpus": {
+            "status": "passed",
+            "records": 1,
+            "tags": [
+              "original"
+            ],
+            "evidence": [
+              {
+                "kind": "trace",
+                "uri": "trace:original"
+              }
+            ],
+            "callerMutationDetached": true,
+            "storedMutationRejected": true
+          },
+          "malformedObservations": {
+            "status": "passed",
+            "supplied": 8,
+            "rejected": 8,
+            "messages": [
+              "observe response: expected a JSON object with findings",
+              "observe response: expected a JSON object with findings",
+              "observe response: expected a JSON object with findings",
+              "observe response: expected only a findings array",
+              "observe response: expected only a findings array",
+              "observe response: expected only a findings array",
+              "observe response: findings[0] must be an object",
+              "observe response: findings[0] does not match the required finding schema"
+            ]
+          },
+          "validEmptyObservation": {
+            "status": "passed",
+            "findings": 0,
+            "accepted": true
+          },
+          "failedStorageReported": {
+            "status": "passed",
+            "suppliedRuns": 2,
+            "runsObserved": 1,
+            "findings": 1,
+            "learned": 1,
+            "failures": [
+              {
+                "runId": "failed-save",
+                "error": "observe corpus append failed for 'f_43d0de805687c3b9655a' after storing 0/1 findings: storage unavailable"
+              }
+            ]
+          },
+          "exactKnowledgeProfiles": {
+            "status": "passed",
+            "variants": 2,
+            "preserved": 2,
+            "promptPreserved": true,
+            "absentPromptPreserved": true,
+            "candidateRootUsed": true
+          }
+        },
+        "modelCalls": 0,
+        "networkAttempts": 0,
+        "limits": [
+          "Deterministic callbacks exercise the built public package; no model quality or learning gain is measured.",
+          "Knowledge checks execute the real adapter with a supplied callback, not a live supervisor or KB mutation.",
+          "A workspace build can resolve linked dependencies; a clean registry install is a separate invocation."
+        ],
+        "completionCallbacks": 11
+      }
     },
     "knowledge": {
       "status": "live",
@@ -325,6 +499,113 @@
           "These are implementation checks with scripted sources and zero provider calls, not evidence of learning quality."
         ]
       }
+    },
+    "bench": {
+      "status": "live",
+      "version": "0.8.32",
+      "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693",
+      "gitHead": null,
+      "tag": "agent-bench-v0.8.32",
+      "publish": "https://github.com/tangle-network/agent-runtime/actions/runs/34015299697",
+      "jobs": [
+        {
+          "name": "verify-agent-bench",
+          "conclusion": "success"
+        },
+        {
+          "name": "publish-agent-bench",
+          "conclusion": "success"
+        },
+        {
+          "name": "verify",
+          "conclusion": "skipped",
+          "reason": "Runtime publishes through its separate version tag."
+        },
+        {
+          "name": "publish-npm",
+          "conclusion": "skipped",
+          "reason": "Runtime publishes through its separate version tag."
+        }
+      ],
+      "npm": {
+        "version": "0.8.32",
+        "dist": {
+          "integrity": "sha512-Z9mkBqKMvZd9EFSiSij+/XZOcQUNep9XBsOevQITKzLbGSVkKyaH+OvPqRnXwAaWK+xTCVtV+ia3M3pN89Vuwg==",
+          "shasum": "214e0f4651031189b9347205fede3ce14a2a1f02",
+          "tarball": "https://registry.npmjs.org/@tangle-network/agent-bench/-/agent-bench-0.8.32.tgz",
+          "fileCount": 542,
+          "unpackedSize": 6567430,
+          "attestations": {
+            "url": "https://registry.npmjs.org/-/npm/v1/attestations/@tangle-network%2fagent-bench@0.8.32",
+            "provenance": {
+              "predicateType": "https://slsa.dev/provenance/v1"
+            }
+          },
+          "signatures": [
+            {
+              "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+              "sig": "MEUCIQDK0SOrLeocfPzxiFn1HiXb/isd0aqM8vDocO0ZYBDQwwIgA2TbuAjqwXLDY/s0hk7NysMA3xUp+yZpZVe4GM40eYI="
+            }
+          ]
+        }
+      },
+      "archive": {
+        "sha256": "6dd628de6805885da897847d120529c4e9b551f109d5c2ad5ffcdf85c4ec9237",
+        "size": 2083181,
+        "registryBytesMatchVerifiedCIArchive": true
+      },
+      "installedDependencies": {
+        "@tangle-network/agent-bench": {
+          "version": "0.8.32",
+          "copies": 1
+        },
+        "@tangle-network/agent-runtime": {
+          "version": "0.195.0",
+          "copies": 1
+        },
+        "@tangle-network/agent-eval": {
+          "version": "0.174.0",
+          "copies": 1
+        },
+        "@tangle-network/agent-knowledge": {
+          "version": "14.0.0",
+          "copies": 1
+        },
+        "@tangle-network/agent-interface": {
+          "version": "2.3.0",
+          "copies": 1
+        },
+        "@tangle-network/sandbox": {
+          "version": "0.36.4",
+          "copies": 1
+        }
+      },
+      "smoke": {
+        "observedAt": "2026-09-06T06:06:07.134Z",
+        "node": "v24.11.1",
+        "version": "0.8.32",
+        "dependencies": {
+          "@tangle-network/agent-eval": ">=0.174.0 <0.175.0",
+          "@tangle-network/agent-interface": "^2.3.0",
+          "@tangle-network/agent-knowledge": "^14.0.0",
+          "@tangle-network/sandbox": ">=0.36.4 <0.38.0",
+          "@tangle-network/agent-runtime": "^0.195.0"
+        },
+        "imports": [
+          {
+            "path": "@tangle-network/agent-bench",
+            "resolved": "file:///private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-bench/dist/index.js",
+            "succeeded": true
+          },
+          {
+            "path": "@tangle-network/agent-bench/adapters",
+            "resolved": "file:///private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-bench/dist/adapters.js",
+            "succeeded": true
+          }
+        ]
+      },
+      "scope": "The Bench change updates dependency ranges. Fresh root and adapter imports use the repaired published packages; no new learning gain is asserted.",
+      "verificationAttempt": "The first Python HTTPS download lacked local CA certificates. curl completed the download with certificate verification enabled."
     }
   },
   "verification": {
@@ -928,7 +1209,7 @@
           "verify:primeintellect"
         ],
         "limitations": [
-          "Runtime CI, merge, and publication remain pending.",
+          "Later Runtime CI and publication are recorded as R-ci and R-publish.",
           "This does not replace the earlier full-suite observation at 5d617002."
         ]
       },
@@ -1018,8 +1299,1585 @@
           "Package SHA-256 values identify the exact local archives; they are distinct from registry tarball integrity hashes.",
           "The Runtime consumer selects Interface 2.3.0, unlike the Knowledge owner consumer at Interface 2.0.0.",
           "Deterministic proposal values, six pairs, and p=0.125 check composition; they do not establish model-quality improvement.",
-          "Runtime CI, merge, and publication remain pending."
+          "Later Runtime CI and publication are recorded as R-ci and R-publish."
         ]
+      },
+      "R-ci": {
+        "repository": "agent-runtime",
+        "revision": "4a9cb5384e9cbd9aaeb33396d7bcec851e523cb3",
+        "status": "passed",
+        "executionContext": "GitHub Actions Ubuntu 24.04.4, Node 22, frozen lockfile with published Eval 0.174.0 and Knowledge 14.0.0.",
+        "runUrl": "https://github.com/tangle-network/agent-runtime/actions/runs/34014117530",
+        "jobs": [
+          {
+            "name": "ci",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "official-optimizers",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "packed-cohort",
+            "status": "completed",
+            "conclusion": "success"
+          },
+          {
+            "name": "agent-bench",
+            "status": "completed",
+            "conclusion": "success"
+          }
+        ],
+        "command": "pnpm run test",
+        "tests": {
+          "passed": 3564,
+          "failed": 0,
+          "skipped": 6,
+          "total": 3570
+        },
+        "files": {
+          "passed": 281,
+          "failed": 0,
+          "skipped": 2,
+          "total": 283
+        },
+        "durationSeconds": 112.42,
+        "skips": [
+          {
+            "path": "src/improvement/official-runtime-integration.test.ts",
+            "count": 2,
+            "reason": "Opt-in official integration; executed by the separate official-optimizers job."
+          },
+          {
+            "path": "src/improvement/official-packages.test.ts",
+            "count": 2,
+            "reason": "Opt-in official package test."
+          },
+          {
+            "path": "tests/kernel/workspace.test.ts",
+            "count": 1,
+            "reason": "Optional jj executable is unavailable."
+          },
+          {
+            "path": "tests/delegate-example.test.ts",
+            "count": 1,
+            "reason": "Paid router credentials are not configured."
+          }
+        ],
+        "platformDifference": {
+          "comparedWith": "R-full",
+          "additionalPasses": 3,
+          "additionalFile": "tests/knowledge-improvement-job.test.ts",
+          "reason": "Linux-only knowledge candidate operations run in Ubuntu CI and are skipped on macOS."
+        },
+        "additionalChecks": [
+          {
+            "name": "official-optimizers",
+            "passed": 2,
+            "failed": 0,
+            "skipped": 0,
+            "files": 1,
+            "durationSeconds": 1.75
+          },
+          {
+            "name": "agent-bench package test files",
+            "passed": 67,
+            "failed": 0,
+            "units": "TypeScript files",
+            "nodeTestFiles": 29,
+            "vitestFiles": 38,
+            "pierBridge": "passed"
+          },
+          {
+            "name": "agent-bench package-runner tests",
+            "passed": 5,
+            "failed": 0,
+            "skipped": 0,
+            "cancelled": 0,
+            "todo": 0,
+            "durationMs": 162.885261
+          },
+          {
+            "name": "packed-cohort",
+            "publicImports": 128,
+            "packageCount": 4,
+            "sandboxVersions": [
+              "0.36.4",
+              "0.37.0"
+            ],
+            "status": "passed"
+          }
+        ],
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-pr-ci.log",
+          "status": "present_and_read",
+          "sha256": "160b67722dc17f1ef356018c26427d902b62afd69ee277fdd556b81876072a60",
+          "summaryLines": [
+            1848,
+            1849,
+            3377,
+            3378,
+            4160,
+            4898,
+            4900,
+            4901,
+            4903
+          ]
+        },
+        "limitations": [
+          "Full, focused, and separate integration suites overlap and are not summed.",
+          "Contract and fixture checks do not measure learning quality."
+        ]
+      },
+      "R-main-ci": {
+        "repository": "agent-runtime",
+        "revision": "3394955db984a81879208ed0f1a56e5102d73693",
+        "status": "passed",
+        "runUrl": "https://github.com/tangle-network/agent-runtime/actions/runs/34014551060",
+        "jobs": [
+          {
+            "name": "ci",
+            "conclusion": "success"
+          },
+          {
+            "name": "official-optimizers",
+            "conclusion": "success"
+          },
+          {
+            "name": "packed-cohort",
+            "conclusion": "success"
+          },
+          {
+            "name": "agent-bench",
+            "conclusion": "success"
+          }
+        ],
+        "tests": {
+          "passed": 3564,
+          "failed": 0,
+          "skipped": 6,
+          "total": 3570
+        },
+        "files": {
+          "passed": 281,
+          "failed": 0,
+          "skipped": 2,
+          "total": 283
+        },
+        "durationSeconds": 140.07,
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-main-ci.log",
+          "status": "present_and_read",
+          "sha256": "86985eef2f8a15a292884705572b65af073d97e948a9e2b3ae27a498fdb26d78"
+        },
+        "exclusionDetails": "Same conditional exclusions as R-ci; no sum with the PR run."
+      },
+      "R-upstream": {
+        "repository": "agent-runtime",
+        "revision": "3394955db984a81879208ed0f1a56e5102d73693",
+        "status": "passed",
+        "runUrl": "https://github.com/tangle-network/agent-runtime/actions/runs/34014586446",
+        "packageJob": "success",
+        "contractJobs": {
+          "passed": 7,
+          "failed": 0,
+          "skipped": 0,
+          "total": 7
+        },
+        "artifacts": [
+          {
+            "name": "UP-02.json",
+            "sha256": "ca3303030544f4f162be07daaf026bcc7aadec0db32f3008eee639e60572a97b",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-02",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-02",
+                "description": "interaction responses bind to one run and replay by operation id",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "src/runtime/retained-run.test.ts"
+                ],
+                "evidence": {
+                  "binding": {
+                    "runId": "run-up-02-turn",
+                    "provider": "agent-runtime-upstream-contract",
+                    "environmentId": "environment-up-02-environment",
+                    "sessionId": "retained-session:up-02-environment:up-02-turn",
+                    "executionId": "retained-execution:up-02-environment:up-02-turn",
+                    "interactionId": "interaction-1"
+                  },
+                  "accepted": "accepted",
+                  "replayed": "already_resolved_same",
+                  "conflict": "already_resolved_different",
+                  "unknownInteraction": "unknown_interaction",
+                  "wrongRunRejected": true,
+                  "providerInteractionCalls": 4,
+                  "admissionPhases": [
+                    "intent",
+                    "environment",
+                    "dispatched"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "UP-03.json",
+            "sha256": "c1e6c40f6db0d71ec84dbd27416fc7890bb5e35bd1dd52ef75dca9fe620ebd09",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-03",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-03",
+                "description": "canonical events retain identity, order, and replay cursors",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "src/runtime/retained-run.test.ts"
+                ],
+                "evidence": {
+                  "eventCount": 16,
+                  "canonicalEventKinds": [
+                    "message.part.updated",
+                    "tool-heartbeat",
+                    "tool-slow",
+                    "model-processing",
+                    "status",
+                    "warning",
+                    "raw",
+                    "session.updated",
+                    "interaction",
+                    "interaction.cancel",
+                    "plan.submitted",
+                    "child-task"
+                  ],
+                  "firstReplayEvent": "event-6",
+                  "replayCount": 11
+                }
+              }
+            }
+          },
+          {
+            "name": "UP-04.json",
+            "sha256": "d2cb5c4231e7302722242387a5166a1ecc88add638eb6343b2e5e5e469525472",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-04",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-04",
+                "description": "one public run handle reconnects, reports, answers, and cancels",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "src/runtime/retained-run.test.ts"
+                ],
+                "evidence": {
+                  "runId": "run-up-04-turn",
+                  "reconnected": true,
+                  "statuses": [
+                    "running",
+                    "running",
+                    "cancelled"
+                  ],
+                  "interaction": "accepted",
+                  "cancellation": "cancelled",
+                  "cancellationReplay": "replayed"
+                }
+              }
+            }
+          },
+          {
+            "name": "UP-10.json",
+            "sha256": "b2254216d9c3ddc12c376af9b55ef8f4260ca9bdfc54116c306d245ba36e30b3",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-10",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-10",
+                "description": "supervisor controls are typed, durable, and owned by the Runtime loop",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation",
+                    "provisionSupervisor"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "tests/kernel/worker-cancellation.test.ts",
+                  "tests/runtime/mid-flight-steering.test.ts"
+                ],
+                "evidence": {
+                  "supervisorId": "runtime-supervisor-1fdc8203ec4d5ea12615691f9f3f5479c09dc498d20b536991e04f3b8e90bc2a",
+                  "workerId": "runtime-supervisor-1fdc8203ec4d5ea12615691f9f3f5479c09dc498d20b536991e04f3b8e90bc2a:s0",
+                  "steer": "delivered",
+                  "steerReplay": true,
+                  "cancel": "cancelled",
+                  "cancelReplay": "cancelled",
+                  "reconnectRead": "cancelled",
+                  "cleanup": true,
+                  "providerInteractiveCalls": {
+                    "starts": 1,
+                    "claims": 2,
+                    "stops": 1
+                  }
+                }
+              }
+            }
+          },
+          {
+            "name": "UP-11.json",
+            "sha256": "2b5a3d31d2a17547935faac662857669ec2460c3c8633f06a432d531468e69fd",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-11",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-11",
+                "description": "the Runtime archive installs with the exact first-party cohort",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "scripts/verify-packed-cohort.mjs"
+                ],
+                "evidence": {
+                  "runtimeImported": true,
+                  "interfaceImported": true,
+                  "packageBoundary": "exact-packed-archive"
+                }
+              }
+            }
+          },
+          {
+            "name": "UP-12.json",
+            "sha256": "6c440b634dc261514517ae081550aeb84971167a91704c9b3f3a9dc4a171dd70",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-12",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-12",
+                "description": "unsupported capabilities fail closed before an action is dispatched",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "src/runtime/retained-run.test.ts"
+                ],
+                "evidence": {
+                  "disabledCapabilities": [
+                    {
+                      "capability": "interactions",
+                      "rejected": true,
+                      "message": "provider \"agent-runtime-upstream-contract\" does not support requested interactions: question"
+                    },
+                    {
+                      "capability": "nativeContinuation",
+                      "rejected": true,
+                      "message": "provider \"agent-runtime-upstream-contract\" does not support retry-safe native continuation"
+                    },
+                    {
+                      "capability": "retainedControl",
+                      "rejected": true,
+                      "message": "[\n  {\n    \"code\": \"custom\",\n    \"path\": [\n      \"retainedControl\"\n    ],\n    \"message\": \"retained control requires exact run, result, event, cancellation, replay, detach, turn, and session identity together\"\n  }\n]"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "name": "UP-13.json",
+            "sha256": "bfdd3eb4dd7a584e9c4d748394e6053c18fe36a3d8ad18742df4b755d35f76e8",
+            "result": {
+              "schema": "agent-runtime/upstream-contract-attestation/v1",
+              "requirement": "UP-13",
+              "package": {
+                "name": "@tangle-network/agent-runtime",
+                "version": "0.195.0",
+                "tarball": "tangle-network-agent-runtime-0.195.0.tgz",
+                "tarballSha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+                "releaseTag": "v0.195.0",
+                "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+              },
+              "cohort": {
+                "@tangle-network/agent-interface": {
+                  "version": "2.3.0",
+                  "repository": "tangle-network/agent-sdk",
+                  "sourceCommit": "7b092480b661d146cafbcc4fad1cfbdbc09f385f"
+                },
+                "@tangle-network/agent-eval": {
+                  "version": "0.174.0",
+                  "repository": "tangle-network/agent-eval",
+                  "sourceCommit": "0692922ea739a352f44374f4d5f7def2991aacdc"
+                },
+                "@tangle-network/agent-knowledge": {
+                  "version": "14.0.0",
+                  "repository": "tangle-network/agent-knowledge",
+                  "sourceCommit": "30878397a947c37fd743929b30aa03728e785c76"
+                }
+              },
+              "consumer": {
+                "packageManager": "11.17.0",
+                "installRoot": "clean-consumer-outside-runtime-repository",
+                "installed": {
+                  "@tangle-network/agent-runtime": {
+                    "name": "@tangle-network/agent-runtime",
+                    "version": "0.195.0"
+                  },
+                  "@tangle-network/agent-interface": {
+                    "name": "@tangle-network/agent-interface",
+                    "version": "2.3.0"
+                  },
+                  "@tangle-network/agent-eval": {
+                    "name": "@tangle-network/agent-eval",
+                    "version": "0.174.0"
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "name": "@tangle-network/agent-knowledge",
+                    "version": "14.0.0"
+                  },
+                  "@tangle-network/sandbox": {
+                    "name": "@tangle-network/sandbox",
+                    "version": "0.34.0"
+                  }
+                },
+                "dependencyResolution": {
+                  "@tangle-network/agent-runtime": {
+                    "version": "0.195.0",
+                    "occurrences": 1,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "runtime-tarball"
+                    ]
+                  },
+                  "@tangle-network/agent-interface": {
+                    "version": "2.3.0",
+                    "occurrences": 8,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-eval": {
+                    "version": "0.174.0",
+                    "occurrences": 3,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/agent-knowledge": {
+                    "version": "14.0.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  },
+                  "@tangle-network/sandbox": {
+                    "version": "0.34.0",
+                    "occurrences": 2,
+                    "physicalCopies": 1,
+                    "sources": [
+                      "registry"
+                    ]
+                  }
+                },
+                "strictPeerDependencies": true
+              },
+              "contract": {
+                "schema": "agent-runtime/upstream-contract-result/v1",
+                "check": "UP-13",
+                "description": "fresh context transfer and native continuation keep distinct identity boundaries",
+                "publicImports": {
+                  "runtime": [
+                    "startRetainedRun",
+                    "reconnectRetainedRun",
+                    "startRetainedRunInEnvironment",
+                    "supervisorRunDir",
+                    "writeWorkerSteer",
+                    "readWorkerSteerAcknowledgement",
+                    "cancelWorker",
+                    "readWorkerCancellation"
+                  ],
+                  "interface": [
+                    "canonicalCandidateDigest",
+                    "interactionRequestDigest",
+                    "interactionResponseCommandDigest",
+                    "nativeContextContinuationTurnDigest",
+                    "nativeContextContinuationRequestDigest"
+                  ]
+                },
+                "sourceTests": [
+                  "src/runtime/retained-run.test.ts"
+                ],
+                "evidence": {
+                  "nativeStatus": "accepted",
+                  "nativeReplay": "replayed",
+                  "admissionControl": true,
+                  "historyMessagesSent": 0,
+                  "nativeSessionId": "retained-session:up-13-initial-environment:up-13-initial-turn",
+                  "freshSessionId": "retained-session:up-13-initial-environment:up-13-fresh",
+                  "freshDispatches": 1
+                }
+              }
+            }
+          }
+        ],
+        "limitations": [
+          "The contracts use the supplied scripted provider and exact packed artifacts; they do not measure model capability.",
+          "The upstream archive identity is recorded separately from the later publication archive until bytes are compared."
+        ]
+      },
+      "R-registry": {
+        "status": "passed",
+        "observedAt": "2026-09-06T05:58:26.486Z",
+        "npm": {
+          "version": "0.195.0",
+          "dist": {
+            "shasum": "d663aa89ebe08d66e2c86f56c8eada8c01733466",
+            "tarball": "https://registry.npmjs.org/@tangle-network/agent-runtime/-/agent-runtime-0.195.0.tgz",
+            "fileCount": 181,
+            "integrity": "sha512-CkL5pgg9Fzp0Gg0iXdEb69YPOHVAQLEo6IdDcmTy4X9ichta6XvOaybC2kNfCvq7Fva1mWW/TZDC/hXQAB4+1g==",
+            "signatures": [
+              {
+                "sig": "MEUCIFvlfuKCDD9Z5OkSmAX4ibuD38E6izLM2nmq1YXNfhNwAiEAwibOUWLeOGk8PfbsJfQxTr6LbsVkZvgAFAo54oroQ/4=",
+                "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+              },
+              {
+                "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+                "sig": "MEYCIQDp/RC+TXY61+w7b1LUCIaxuyUfm8u7BNW1YhOPIyB+SAIhAL8Oqjk2HCR/O0/pTHjAk5NrSaTCeGDIkJSFNNUbXSGa"
+              }
+            ],
+            "attestations": {
+              "url": "https://registry.npmjs.org/-/npm/v1/attestations/@tangle-network%2fagent-runtime@0.195.0",
+              "provenance": {
+                "predicateType": "https://slsa.dev/provenance/v1"
+              }
+            },
+            "unpackedSize": 11072247
+          }
+        },
+        "gitHead": null,
+        "archive": {
+          "filename": "tangle-network-agent-runtime-0.195.0.tgz",
+          "size": 2937365,
+          "sha256": "de8074de2f6d7cebb2d7e9f9f48c1004d8c95749134a6d00caf3ee28530a1bb2",
+          "sha1": "d663aa89ebe08d66e2c86f56c8eada8c01733466",
+          "integrity": "sha512-CkL5pgg9Fzp0Gg0iXdEb69YPOHVAQLEo6IdDcmTy4X9ichta6XvOaybC2kNfCvq7Fva1mWW/TZDC/hXQAB4+1g=="
+        },
+        "downloadedBytesMatchVerifiedCIArchive": true,
+        "installedLockIntegrityMatchesRegistry": true,
+        "installedDependencies": {
+          "@tangle-network/agent-runtime": {
+            "version": "0.195.0",
+            "copies": 1
+          },
+          "@tangle-network/agent-eval": {
+            "version": "0.174.0",
+            "copies": 1
+          },
+          "@tangle-network/agent-knowledge": {
+            "version": "14.0.0",
+            "copies": 1
+          },
+          "@tangle-network/agent-interface": {
+            "version": "2.3.0",
+            "copies": 1
+          },
+          "@tangle-network/sandbox": {
+            "version": "0.36.4",
+            "copies": 1
+          }
+        },
+        "smoke": {
+          "observedAt": "2026-09-06T05:58:26.486Z",
+          "status": "passed",
+          "nodeVersion": "24.11.1",
+          "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-runtime",
+          "packageName": "@tangle-network/agent-runtime",
+          "packageVersion": "0.195.0",
+          "publicImports": {
+            "@tangle-network/agent-runtime/kernel": {
+              "path": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-runtime/dist/kernel.js",
+              "sha256": "7805dd0507ab54dd2ccd63ccdde119fdbf198f1144a758d416b348b5e1f1e010"
+            },
+            "@tangle-network/agent-runtime/knowledge": {
+              "path": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-runtime/dist/knowledge.js",
+              "sha256": "8e3f0a6347c880cf8678d2d40baefd9598cfddf6db03316bceede04449b656d2"
+            }
+          },
+          "dependencies": {
+            "@tangle-network/agent-eval": {
+              "version": "0.174.0",
+              "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-eval"
+            },
+            "@tangle-network/agent-knowledge": {
+              "version": "14.0.0",
+              "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-knowledge"
+            },
+            "@tangle-network/agent-interface": {
+              "version": "2.3.0",
+              "packageRoot": "/private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-interface"
+            }
+          },
+          "checks": {
+            "immutableCorpus": {
+              "status": "passed",
+              "records": 1,
+              "tags": [
+                "original"
+              ],
+              "evidence": [
+                {
+                  "kind": "trace",
+                  "uri": "trace:original"
+                }
+              ],
+              "callerMutationDetached": true,
+              "storedMutationRejected": true
+            },
+            "malformedObservations": {
+              "status": "passed",
+              "supplied": 8,
+              "rejected": 8,
+              "messages": [
+                "observe response: expected a JSON object with findings",
+                "observe response: expected a JSON object with findings",
+                "observe response: expected a JSON object with findings",
+                "observe response: expected only a findings array",
+                "observe response: expected only a findings array",
+                "observe response: expected only a findings array",
+                "observe response: findings[0] must be an object",
+                "observe response: findings[0] does not match the required finding schema"
+              ]
+            },
+            "validEmptyObservation": {
+              "status": "passed",
+              "findings": 0,
+              "accepted": true
+            },
+            "failedStorageReported": {
+              "status": "passed",
+              "suppliedRuns": 2,
+              "runsObserved": 1,
+              "findings": 1,
+              "learned": 1,
+              "failures": [
+                {
+                  "runId": "failed-save",
+                  "error": "observe corpus append failed for 'f_43d0de805687c3b9655a' after storing 0/1 findings: storage unavailable"
+                }
+              ]
+            },
+            "exactKnowledgeProfiles": {
+              "status": "passed",
+              "variants": 2,
+              "preserved": 2,
+              "promptPreserved": true,
+              "absentPromptPreserved": true,
+              "candidateRootUsed": true
+            }
+          },
+          "modelCalls": 0,
+          "networkAttempts": 0,
+          "limits": [
+            "Deterministic callbacks exercise the built public package; no model quality or learning gain is measured.",
+            "Knowledge checks execute the real adapter with a supplied callback, not a live supervisor or KB mutation.",
+            "A workspace build can resolve linked dependencies; a clean registry install is a separate invocation."
+          ],
+          "completionCallbacks": 11
+        },
+        "reportedAttestationStatements": [
+          {
+            "_type": "https://in-toto.io/Statement/v0.1",
+            "subject": [
+              {
+                "name": "pkg:npm/%40tangle-network/agent-runtime@0.195.0",
+                "digest": {
+                  "sha512": "0a42f9a6083d173a741a0d225dd11bebd60f38754040b128e887437264f2e17f62721b5ae97bce6b26c2da435f0afabb16f6b59965bf4d90c2fe15d0001e3ed6"
+                }
+              }
+            ],
+            "predicateType": "https://github.com/npm/attestation/tree/main/specs/publish/v0.1",
+            "predicate": {
+              "name": "@tangle-network/agent-runtime",
+              "version": "0.195.0",
+              "registry": "https://registry.npmjs.org"
+            }
+          },
+          {
+            "_type": "https://in-toto.io/Statement/v1",
+            "subject": [
+              {
+                "name": "pkg:npm/%40tangle-network/agent-runtime@0.195.0",
+                "digest": {
+                  "sha512": "0a42f9a6083d173a741a0d225dd11bebd60f38754040b128e887437264f2e17f62721b5ae97bce6b26c2da435f0afabb16f6b59965bf4d90c2fe15d0001e3ed6"
+                }
+              }
+            ],
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "predicate": {
+              "buildDefinition": {
+                "buildType": "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+                "externalParameters": {
+                  "workflow": {
+                    "ref": "refs/tags/v0.195.0",
+                    "repository": "https://github.com/tangle-network/agent-runtime",
+                    "path": ".github/workflows/publish.yml"
+                  }
+                },
+                "internalParameters": {
+                  "github": {
+                    "event_name": "push",
+                    "repository_id": "1228217581",
+                    "repository_owner_id": "76852793"
+                  }
+                },
+                "resolvedDependencies": [
+                  {
+                    "uri": "git+https://github.com/tangle-network/agent-runtime@refs/tags/v0.195.0",
+                    "digest": {
+                      "gitCommit": "3394955db984a81879208ed0f1a56e5102d73693"
+                    }
+                  }
+                ]
+              },
+              "runDetails": {
+                "builder": {
+                  "id": "https://github.com/actions/runner/github-hosted"
+                },
+                "metadata": {
+                  "invocationId": "https://github.com/tangle-network/agent-runtime/actions/runs/34014586429/attempts/1"
+                }
+              }
+            }
+          }
+        ],
+        "sourceBinding": "Downloaded registry bytes match the tag-verified CI archive. Registry provenance identifies the same source commit and publishing run.",
+        "signatureVerification": "Provenance payload and digest inspected; no separate local signature-verification command was run.",
+        "observedDelay": "npm accepted the upload at 05:52:37 UTC but returned 404 on the first direct and npm version reads. Later metadata and installation succeeded.",
+        "gitHeadBoundary": "Runtime publishes an existing archive from a job without a Git checkout; npm gitHead is absent. Source binding uses identical archive bytes and provenance."
+      },
+      "R-publish": {
+        "status": "passed",
+        "revision": "3394955db984a81879208ed0f1a56e5102d73693",
+        "runUrl": "https://github.com/tangle-network/agent-runtime/actions/runs/34014586429",
+        "jobs": [
+          {
+            "name": "verify",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish-npm",
+            "conclusion": "success"
+          },
+          {
+            "name": "verify-agent-bench",
+            "conclusion": "skipped",
+            "reason": "Separate Bench tag workflow."
+          },
+          {
+            "name": "publish-agent-bench",
+            "conclusion": "skipped",
+            "reason": "Separate Bench tag workflow."
+          }
+        ],
+        "tests": {
+          "passed": 3564,
+          "failed": 0,
+          "skipped": 6,
+          "total": 3570
+        },
+        "files": {
+          "passed": 281,
+          "failed": 0,
+          "skipped": 2,
+          "total": 283
+        },
+        "durationSeconds": 138.11,
+        "additionalChecks": "Official optimizer tests: 2 passed. Bench: 67 TypeScript files, Pier bridge, and five package-runner tests passed. Exact cohort, package checks, and PrimeIntellect passed.",
+        "rawLog": {
+          "path": "/tmp/learning-system-audit-20260905/runtime-publish.log",
+          "sha256": "eec05f72fd704141555569144017de1b476cf24f4bc6739cbf68f8bc3ae0d7d7",
+          "status": "present_and_read"
+        }
+      },
+      "B-registry": {
+        "status": "live",
+        "version": "0.8.32",
+        "sourceCommit": "3394955db984a81879208ed0f1a56e5102d73693",
+        "gitHead": null,
+        "tag": "agent-bench-v0.8.32",
+        "publish": "https://github.com/tangle-network/agent-runtime/actions/runs/34015299697",
+        "jobs": [
+          {
+            "name": "verify-agent-bench",
+            "conclusion": "success"
+          },
+          {
+            "name": "publish-agent-bench",
+            "conclusion": "success"
+          },
+          {
+            "name": "verify",
+            "conclusion": "skipped",
+            "reason": "Runtime publishes through its separate version tag."
+          },
+          {
+            "name": "publish-npm",
+            "conclusion": "skipped",
+            "reason": "Runtime publishes through its separate version tag."
+          }
+        ],
+        "npm": {
+          "version": "0.8.32",
+          "dist": {
+            "integrity": "sha512-Z9mkBqKMvZd9EFSiSij+/XZOcQUNep9XBsOevQITKzLbGSVkKyaH+OvPqRnXwAaWK+xTCVtV+ia3M3pN89Vuwg==",
+            "shasum": "214e0f4651031189b9347205fede3ce14a2a1f02",
+            "tarball": "https://registry.npmjs.org/@tangle-network/agent-bench/-/agent-bench-0.8.32.tgz",
+            "fileCount": 542,
+            "unpackedSize": 6567430,
+            "attestations": {
+              "url": "https://registry.npmjs.org/-/npm/v1/attestations/@tangle-network%2fagent-bench@0.8.32",
+              "provenance": {
+                "predicateType": "https://slsa.dev/provenance/v1"
+              }
+            },
+            "signatures": [
+              {
+                "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+                "sig": "MEUCIQDK0SOrLeocfPzxiFn1HiXb/isd0aqM8vDocO0ZYBDQwwIgA2TbuAjqwXLDY/s0hk7NysMA3xUp+yZpZVe4GM40eYI="
+              }
+            ]
+          }
+        },
+        "archive": {
+          "sha256": "6dd628de6805885da897847d120529c4e9b551f109d5c2ad5ffcdf85c4ec9237",
+          "size": 2083181,
+          "registryBytesMatchVerifiedCIArchive": true
+        },
+        "installedDependencies": {
+          "@tangle-network/agent-bench": {
+            "version": "0.8.32",
+            "copies": 1
+          },
+          "@tangle-network/agent-runtime": {
+            "version": "0.195.0",
+            "copies": 1
+          },
+          "@tangle-network/agent-eval": {
+            "version": "0.174.0",
+            "copies": 1
+          },
+          "@tangle-network/agent-knowledge": {
+            "version": "14.0.0",
+            "copies": 1
+          },
+          "@tangle-network/agent-interface": {
+            "version": "2.3.0",
+            "copies": 1
+          },
+          "@tangle-network/sandbox": {
+            "version": "0.36.4",
+            "copies": 1
+          }
+        },
+        "smoke": {
+          "observedAt": "2026-09-06T06:06:07.134Z",
+          "node": "v24.11.1",
+          "version": "0.8.32",
+          "dependencies": {
+            "@tangle-network/agent-eval": ">=0.174.0 <0.175.0",
+            "@tangle-network/agent-interface": "^2.3.0",
+            "@tangle-network/agent-knowledge": "^14.0.0",
+            "@tangle-network/sandbox": ">=0.36.4 <0.38.0",
+            "@tangle-network/agent-runtime": "^0.195.0"
+          },
+          "imports": [
+            {
+              "path": "@tangle-network/agent-bench",
+              "resolved": "file:///private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-bench/dist/index.js",
+              "succeeded": true
+            },
+            {
+              "path": "@tangle-network/agent-bench/adapters",
+              "resolved": "file:///private/tmp/learning-system-audit-20260905/runtime-live-consumer/node_modules/@tangle-network/agent-bench/dist/adapters.js",
+              "succeeded": true
+            }
+          ]
+        },
+        "scope": "The Bench change updates dependency ranges. Fresh root and adapter imports use the repaired published packages; no new learning gain is asserted.",
+        "verificationAttempt": "The first Python HTTPS download lacked local CA certificates. curl completed the download with certificate verification enabled."
       }
     },
     "aggregationRule": "Do not sum overlapping focused and full suites or combine corrected focused runs into a full-suite pass.",
@@ -1039,9 +2897,9 @@
   "evidence": {
     "durableMainReport": {
       "path": "docs/research/learning-system-audit-2026-09-05.md",
-      "sha256": "a093f4b696dc211b485174f0c8f29b9a0c22d255bee968b1219bcd1425494458",
-      "commit": "7fe89641322dc1d0e60dc8c4d66472d786320558",
-      "url": "https://github.com/tangle-network/agent-runtime/blob/7fe89641322dc1d0e60dc8c4d66472d786320558/docs/research/learning-system-audit-2026-09-05.md"
+      "sha256": "cf17ee8190aac7e9083dbe44c63991eeccb4a1c1458126be607b9c0f62c01c7a",
+      "commit": "04882843646fb7838c788ec14a190bda28bc9c5a",
+      "url": "https://github.com/tangle-network/agent-runtime/blob/04882843646fb7838c788ec14a190bda28bc9c5a/docs/research/learning-system-audit-2026-09-05.md"
     },
     "findingFile": "findings.jsonl",
     "summaryFile": "summary.md",
