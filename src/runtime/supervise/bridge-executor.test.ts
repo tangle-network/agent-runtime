@@ -392,6 +392,39 @@ describe('bridgeExecutor upstream-error propagation', () => {
     expect(classifyDriverFailure(failure)).toBe('terminal')
   })
 
+  it('carries the bridge error class, so a profile that cannot materialize is not retried', async () => {
+    // The bridge raises a materialization failure as its own `parse_error` and, on the stream
+    // path, sends no status. Without the class the classifier read it as unknown and re-drove a
+    // deterministic refusal to the attempt ceiling (#1081).
+    const body = [
+      `data: ${JSON.stringify({
+        error: {
+          message:
+            'AgentProfile workspace materialization failed: Duplicate profile resource path: ' +
+            '.opencode/skills/method-refute-v2/SKILL.md (skills, skills)',
+          type: 'parse_error',
+        },
+      })}`,
+      'data: [DONE]',
+      '',
+    ].join('\n\n')
+    const stub = await startBridgeStub(body)
+    server = stub.server
+    const executor = makeExecutor(stub.url)
+
+    const failure = await drain(
+      executor.execute('do the task', new AbortController().signal) as AsyncIterable<UsageEvent>,
+    ).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(failure).toBeInstanceOf(BackendTransportError)
+    expect((failure as BackendTransportError).status).toBeUndefined()
+    expect((failure as BackendTransportError).upstreamCode).toBe('parse_error')
+    expect((failure as BackendTransportError).message).toMatch(/workspace materialization failed/)
+    expect(classifyDriverFailure(failure)).toBe('terminal')
+  })
+
   it('leaves a 503 retryable, so a provider outage still recovers', async () => {
     const body = [
       `data: ${JSON.stringify({
