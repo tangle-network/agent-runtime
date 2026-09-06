@@ -113,6 +113,7 @@ function options(
 describe('atomic prepared candidate execution', () => {
   it('reveals credentials only to one trusted executor and returns a durable receipt', async () => {
     const fixture = createCandidateExecutionFixture()
+    fixture.task = { ...fixture.task, executionId: 'execution-4111111111111111' }
     bindCandidateFixtureBundle(
       fixture,
       candidateBundle({
@@ -155,7 +156,7 @@ describe('atomic prepared candidate execution', () => {
           'export const value = 1\n',
         )
         expect(request.inputs.profile.files.every((file) => file.root === undefined)).toBe(true)
-        await terminalTrace(request, traceStore)
+        await terminalTrace(request, context.traceStore)
         return {
           executionId: request.executionId,
           termination: { kind: 'exit', exitCode: 0 },
@@ -226,6 +227,10 @@ describe('atomic prepared candidate execution', () => {
       executionOptions.outputArtifacts.read(result.artifacts.runReceipt),
     ).resolves.toEqual(result.receipt.bytes)
     expect(result.receipt.value.executorCapture).toEqual(result.artifacts.executorCapture)
+    const storedRuns = await traceStore.listRuns()
+    expect(storedRuns).toHaveLength(1)
+    expect(storedRuns[0]?.runId).not.toBe(prepared.trace.runId)
+    expect(storedRuns[0]?.runId).not.toContain('4111111111111111')
   })
 
   it('grades and receipts exact normal-agent output through the shared execution path', async () => {
@@ -239,8 +244,8 @@ describe('atomic prepared candidate execution', () => {
     const output = Buffer.from('{"recommendation":"add focused failure recovery"}\n', 'utf8')
     const executionOptions = options(
       {
-        execute: async (request) => {
-          await terminalTrace(request, traceStore)
+        execute: async (request, context) => {
+          await terminalTrace(request, context.traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => ({ stopped: true }),
@@ -288,8 +293,8 @@ describe('atomic prepared candidate execution', () => {
     fixture.ports.workspaces.materialize = createAgentCandidateWorkspacePort().materialize
     const executionOptions = options(
       {
-        execute: async (request) => {
-          await terminalTrace(request, traceStore)
+        execute: async (request, context) => {
+          await terminalTrace(request, context.traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => ({ stopped: true }),
@@ -697,7 +702,7 @@ describe('atomic prepared candidate execution', () => {
       executor: {
         execute: async (request, context) => {
           vi.setSystemTime(context.deadlineAtMs - 1)
-          await terminalTrace(request, traceStore)
+          await terminalTrace(request, context.traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => {
@@ -746,8 +751,8 @@ describe('atomic prepared candidate execution', () => {
     const pending = executePreparedAgentCandidate(prepared, {
       ...options(
         {
-          execute: async (request) => {
-            await terminalTrace(request, traceStore)
+          execute: async (request, context) => {
+            await terminalTrace(request, context.traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async () => ({ stopped: true }),
@@ -805,8 +810,8 @@ describe('atomic prepared candidate execution', () => {
     const pending = executePreparedAgentCandidate(prepared, {
       ...options(
         {
-          execute: async (request) => {
-            await terminalTrace(request, traceStore)
+          execute: async (request, context) => {
+            await terminalTrace(request, context.traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async () => ({ stopped: true }),
@@ -904,7 +909,7 @@ describe('atomic prepared candidate execution', () => {
       prepared,
       options(
         {
-          execute: async (request) => {
+          execute: async (request, context) => {
             expect(
               Buffer.from(request.inputs.candidate?.files[0]?.bytes ?? []).toString('utf8'),
             ).toBe('#!/usr/bin/env node\n')
@@ -913,7 +918,7 @@ describe('atomic prepared candidate execution', () => {
             expect(
               Buffer.from(request.inputs.candidate?.files[0]?.bytes ?? []).toString('utf8'),
             ).toBe('#!/usr/bin/env node\n')
-            await terminalTrace(request, traceStore)
+            await terminalTrace(request, context.traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async () => ({ stopped: true }),
@@ -934,8 +939,8 @@ describe('atomic prepared candidate execution', () => {
     const traceStore = new InMemoryTraceStore()
     const result = await executePreparedAgentCandidate(prepared, {
       executor: {
-        execute: async (request) => {
-          await terminalTrace(request, traceStore)
+        execute: async (request, context) => {
+          await terminalTrace(request, context.traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => ({ stopped: true }),
@@ -964,8 +969,8 @@ describe('atomic prepared candidate execution', () => {
     const outputs = createCandidateOutputFixture()
     const result = await executePreparedAgentCandidate(prepared, {
       executor: {
-        execute: async (request) => {
-          await terminalTrace(request, traceStore)
+        execute: async (request, context) => {
+          await terminalTrace(request, context.traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => ({ stopped: true }),
@@ -1006,8 +1011,8 @@ describe('atomic prepared candidate execution', () => {
     const outputs = createCandidateOutputFixture()
     const result = await executePreparedAgentCandidate(prepared, {
       executor: {
-        execute: async (request) => {
-          await terminalTrace(request, traceStore)
+        execute: async (request, context) => {
+          await terminalTrace(request, context.traceStore)
           return {
             executionId: request.executionId,
             termination: { kind: 'exit', exitCode: 0 },
@@ -1057,11 +1062,11 @@ describe('atomic prepared candidate execution', () => {
       started = resolve
     })
     const executor: TestExecutor = {
-      execute: async (request) => {
+      execute: async (request, context) => {
         executions++
         started()
         await wait
-        await terminalTrace(request, traceStore)
+        await terminalTrace(request, context.traceStore)
         return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
       },
       stop: async () => ({ stopped: true }),
@@ -1142,10 +1147,10 @@ describe('atomic prepared candidate execution', () => {
       started = resolve
     })
     const executor: TestExecutor = {
-      execute: async (request) => {
+      execute: async (request, context) => {
         started()
         await wait
-        await terminalTrace(request, traceStore)
+        await terminalTrace(request, context.traceStore)
         return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
       },
       stop: async () => ({ stopped: true }),
@@ -1283,7 +1288,7 @@ describe('atomic prepared candidate execution', () => {
             expect(context.deadlineAtMs).toBe(startedAt + 15 + 30_000)
             stoppedAfterAbort = observedSignal?.aborted === true
             if (!timeoutRequest) throw new Error('timeout executor never received its request')
-            await terminalTrace(timeoutRequest, traceStore, 115)
+            await terminalTrace(timeoutRequest, context.traceStore, 115)
             return { stopped: true }
           },
         },
@@ -1323,8 +1328,8 @@ describe('atomic prepared candidate execution', () => {
     const pending = executePreparedAgentCandidate(prepared, {
       ...options(
         {
-          execute: async (request) => {
-            await terminalTrace(request, traceStore, 105)
+          execute: async (request, context) => {
+            await terminalTrace(request, context.traceStore, 105)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async () => {
@@ -1364,8 +1369,8 @@ describe('atomic prepared candidate execution', () => {
     const pending = executePreparedAgentCandidate(prepared, {
       ...options(
         {
-          execute: async (request) => {
-            await terminalTrace(request, traceStore)
+          execute: async (request, context) => {
+            await terminalTrace(request, context.traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async (_request, context) => {
@@ -1413,8 +1418,8 @@ describe('atomic prepared candidate execution', () => {
       prepared,
       options(
         {
-          execute: async (request) => {
-            await terminalTrace(request, traceStore)
+          execute: async (request, context) => {
+            await terminalTrace(request, context.traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async () => {
@@ -1553,8 +1558,8 @@ describe('atomic prepared candidate execution', () => {
       retryPrepared,
       options(
         {
-          execute: async (request) => {
-            await terminalTrace(request, traceStore)
+          execute: async (request, context) => {
+            await terminalTrace(request, context.traceStore)
             return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
           },
           stop: async () => ({ stopped: true }),
@@ -1614,11 +1619,11 @@ describe('atomic prepared candidate execution', () => {
       prepared,
       options(
         {
-          execute: async (request) => {
+          execute: async (request, context) => {
             expect(request.launch.env.TANGLE_MEMORY_NAMESPACE).toBe(
               prepared.memory.effectiveNamespace,
             )
-            await terminalTrace(request, traceStore)
+            await terminalTrace(request, context.traceStore)
             return {
               executionId: request.executionId,
               termination: { kind: 'exit', exitCode: 0 },
@@ -1702,8 +1707,8 @@ describe('atomic prepared candidate execution', () => {
     const purposes: string[] = []
     const result = await executePreparedAgentCandidate(prepared, {
       executor: {
-        execute: async (request) => {
-          await terminalTrace(request, traceStore)
+        execute: async (request, context) => {
+          await terminalTrace(request, context.traceStore)
           return { executionId: request.executionId, termination: { kind: 'exit', exitCode: 0 } }
         },
         stop: async () => ({ stopped: true }),
@@ -1793,11 +1798,13 @@ describe('atomic prepared candidate execution', () => {
     expect(traceJson).not.toContain(Buffer.from(secret, 'utf8').toString('base64url'))
     expect(traceJson).toContain('[redacted:candidate-access]')
     expect(Buffer.from(result.receipt.bytes).toString('utf8')).not.toContain(secret)
+    const [storedRun] = await traceStore.listRuns()
+    if (!storedRun) throw new Error('expected a stored candidate trace')
     expect(
       JSON.stringify({
-        spans: await traceStore.spans({ runId: prepared.trace.runId }),
-        events: await traceStore.events({ runId: prepared.trace.runId }),
-        artifacts: await traceStore.artifacts(prepared.trace.runId),
+        spans: await traceStore.spans({ runId: storedRun.runId }),
+        events: await traceStore.events({ runId: storedRun.runId }),
+        artifacts: await traceStore.artifacts(storedRun.runId),
       }),
     ).not.toContain(secret)
   })
