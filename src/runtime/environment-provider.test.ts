@@ -327,6 +327,52 @@ describe('environment provider adapters', () => {
     })
   })
 
+  it.each([
+    {
+      label: 'an input-only sandbox usage receipt',
+      data: { finalText: 'input only', usage: { inputTokens: 7 } },
+      tokens: { input: 7, output: 0 },
+    },
+    {
+      label: 'a cost-only sandbox usage receipt',
+      data: { finalText: 'cost only', usage: { totalCostUsd: 0.03 } },
+      tokens: { input: 0, output: 0 },
+    },
+  ] satisfies Array<{
+    label: string
+    data: Record<string, unknown>
+    tokens: { input: number; output: number }
+  }>)('does not complete $label in the Sandbox provider adapter', async ({ data, tokens }) => {
+    const box = {
+      id: 'partial-sandbox-receipt',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data } as SandboxEvent
+      },
+      async delete(): Promise<void> {},
+    } as unknown as SandboxInstance
+    const provider = sandboxClientAsProvider({
+      async create(): Promise<SandboxInstance> {
+        return box
+      },
+    })
+    const factory = providerAsExecutor(provider)
+    const spec: AgentSpec = {
+      profile: { name: 'partial-sandbox-receipt' } as AgentProfile,
+      harness: null,
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = factory(spec, ctx)
+
+    await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
+
+    expect(executor.resultArtifact().spent).toMatchObject({
+      tokens,
+      tokensKnown: false,
+      usdKnown: false,
+    })
+  })
+
   it('requires explicit resolution for named profiles before calling current Sandbox', async () => {
     let createCalls = 0
     let createOptions: CreateSandboxOptions | undefined
@@ -1587,10 +1633,519 @@ describe('environment provider adapters', () => {
     expect(turn.finalText).toBe('hi')
     const final = turn.events.at(-1)
     if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final.metadata).toMatchObject({ tokenUsage: { input: 3, output: 1 }, usdKnown: false })
+    expect(final.metadata?.tokensKnown).toBeUndefined()
+    expect(final.metadata?.sandboxOutcome).toBeUndefined()
     expect(final.metadata?.materialization).toMatchObject({ status: 'known' })
     expect(
       (final.metadata?.executionBindings as Array<{ status?: string }> | undefined)?.[0],
     ).toMatchObject({ status: 'known' })
+  })
+
+  it.each([
+    {
+      label: 'no usage receipt',
+      data: { finalText: 'unmetered' },
+      tokens: { input: 0, output: 0 },
+    },
+    {
+      label: 'an input-only usage receipt',
+      data: { finalText: 'input only', usage: { inputTokens: 7 } },
+      tokens: { input: 7, output: 0 },
+    },
+    {
+      label: 'a cost-only usage receipt',
+      data: { finalText: 'cost only', totalCostUsd: 0.03 },
+      tokens: { input: 0, output: 0 },
+    },
+  ] satisfies Array<{
+    label: string
+    data: Record<string, unknown>
+    tokens: { input: number; output: number }
+  }>)('marks $label as incomplete token accounting', async ({ data, tokens }) => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'incomplete-token-receipt',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'done', data }
+          },
+        })
+      },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'provider', provider }),
+          profile: {
+            name: 'incomplete-token-receipt',
+            harness: 'claude-code',
+            model: { provider: 'fixture', default: 'fixture/model' },
+          },
+        },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    expect(turn.status).toBe('completed')
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final.metadata).toMatchObject({
+      tokenUsage: tokens,
+      tokensKnown: false,
+      usdKnown: false,
+    })
+  })
+
+  it('keeps aggregate token accounting unknown after an incomplete receipt', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'mixed-token-receipts',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'usage', data: { usage: { inputTokens: 7 } } }
+            yield {
+              type: 'done',
+              data: {
+                finalText: 'partly metered',
+                tokenUsage: { inputTokens: 3, outputTokens: 2 },
+              },
+            }
+          },
+        })
+      },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'provider', provider }),
+          profile: {
+            name: 'mixed-token-receipts',
+            harness: 'claude-code',
+            model: { provider: 'fixture', default: 'fixture/model' },
+          },
+        },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final.metadata).toMatchObject({
+      tokenUsage: { input: 10, output: 2 },
+      tokensKnown: false,
+    })
+  })
+
+  it('keeps token accounting known after a separate cost-only receipt', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'cost-then-complete-token-receipt',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield { type: 'usage', data: { totalCostUsd: 0.03 } }
+            yield {
+              type: 'done',
+              data: {
+                finalText: 'fully metered tokens',
+                tokenUsage: { inputTokens: 3, outputTokens: 2 },
+              },
+            }
+          },
+        })
+      },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'provider', provider }),
+          profile: {
+            name: 'cost-then-complete-token-receipt',
+            harness: 'claude-code',
+            model: { provider: 'fixture', default: 'fixture/model' },
+          },
+        },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final.metadata).toMatchObject({ tokenUsage: { input: 3, output: 2 }, usdKnown: false })
+    expect(final.metadata?.tokensKnown).toBeUndefined()
+  })
+
+  it('replays a retained provider failure without turning it into a completed worker', async () => {
+    // This is the minimal terminal suffix retained from the failed Claude worker:
+    // text -> completed -> failed -> error -> done. The earlier lifecycle frames do not affect
+    // the terminal outcome, but `done` after `failed` did expose the false-success bug.
+    const retainedFailureTail = [
+      {
+        type: 'message.part.updated',
+        data: {
+          part: { type: 'text' },
+          delta: 'Failed to authenticate. API Error: 403 status code',
+        },
+        normalized: {
+          type: 'message.part.updated',
+          part: {
+            id: 'failure-text',
+            sessionID: 'failure-session',
+            messageID: 'failure-message',
+            type: 'text',
+            text: 'Failed to authenticate. API Error: 403 status code',
+          },
+          delta: 'Failed to authenticate. API Error: 403 status code',
+        },
+      },
+      {
+        type: 'status',
+        data: { status: 'completed' },
+        normalized: { type: 'status', status: 'completed' },
+      },
+      {
+        type: 'status',
+        data: { status: 'failed', detail: 'Process exited with code 1' },
+        normalized: { type: 'status', status: 'failed', detail: 'Process exited with code 1' },
+      },
+      {
+        type: 'error',
+        data: { error: 'claude-code execution failed: Process exited with code 1' },
+      },
+      { type: 'done', data: {} },
+    ] satisfies AgentEnvironmentEvent[]
+    const provider: AgentEnvironmentProvider = {
+      name: 'retained-failure',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield* retainedFailureTail
+          },
+        })
+      },
+    }
+    const profile: AgentProfile = {
+      name: 'retained-provider-failure',
+      harness: 'claude-code',
+      model: { provider: 'fixture', default: 'fixture/model' },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory: createExecutor({ backend: 'provider', provider }), profile },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.finalText).toBe('Failed to authenticate. API Error: 403 status code')
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final).toMatchObject({
+      status: 'failed',
+      error: {
+        kind: 'backend',
+        message: 'claude-code execution failed: Process exited with code 1',
+      },
+      metadata: {
+        tokenUsage: { input: 0, output: 0 },
+        tokensKnown: false,
+        usdKnown: false,
+        sandboxOutcome: {
+          success: false,
+          status: 'failed',
+          error: 'claude-code execution failed: Process exited with code 1',
+        },
+        result: {
+          output: {
+            content: 'Failed to authenticate. API Error: 403 status code',
+            events: retainedFailureTail,
+          },
+          spent: {
+            tokensKnown: false,
+            usdKnown: false,
+          },
+        },
+      },
+    })
+  })
+
+  it('preserves reported usage and partial output when a provider then fails', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'partly-metered-failure',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'message.part.updated',
+              data: { part: { type: 'text' }, delta: 'partial answer' },
+              normalized: {
+                type: 'message.part.updated',
+                part: {
+                  id: 'partial-text',
+                  sessionID: 'partial-session',
+                  messageID: 'partial-message',
+                  type: 'text',
+                  text: 'partial answer',
+                },
+                delta: 'partial answer',
+              },
+            }
+            yield {
+              type: 'usage',
+              data: {},
+              usage: { inputTokens: 7, outputTokens: 0 },
+            }
+            yield {
+              type: 'usage',
+              data: {},
+              usage: { inputTokens: 0, outputTokens: 11, reasoningTokens: 3, cost: 0.03 },
+            }
+            yield {
+              type: 'status',
+              data: { status: 'failed', detail: 'provider stopped' },
+              normalized: { type: 'status', status: 'failed', detail: 'provider stopped' },
+            }
+            yield { type: 'error', data: { error: 'provider stopped' } }
+            yield { type: 'done', data: {} }
+          },
+        })
+      },
+    }
+    const profile: AgentProfile = {
+      name: 'partly-metered-provider-failure',
+      harness: 'claude-code',
+      model: { provider: 'fixture', default: 'fixture/model' },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        { kind: 'executor', factory: createExecutor({ backend: 'provider', provider }), profile },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.finalText).toBe('partial answer')
+    const final = turn.events.at(-1)
+    if (final?.type !== 'final') throw new Error('expected a terminal final event')
+    expect(final).toMatchObject({
+      status: 'failed',
+      metadata: {
+        tokenUsage: { input: 7, output: 14 },
+        usdKnown: false,
+        result: {
+          output: { content: 'partial answer' },
+          spent: {
+            tokens: { input: 7, output: 14 },
+            usd: 0.03,
+            usdKnown: false,
+          },
+        },
+      },
+    })
+    expect(final.metadata?.tokensKnown).toBeUndefined()
+  })
+
+  it.each([
+    {
+      label: 'a raw failed status',
+      failure: { type: 'status', data: { status: 'failed', detail: 'raw provider failure' } },
+      reason: 'raw provider failure',
+    },
+    {
+      label: 'a normalized failed status',
+      failure: {
+        type: 'vendor.finished',
+        data: {},
+        normalized: { type: 'status', status: 'failed', detail: 'normalized provider failure' },
+      },
+      reason: 'normalized provider failure',
+    },
+    {
+      label: 'a failed result status',
+      failure: {
+        type: 'result',
+        data: { status: 'failed', error: 'result provider failure' },
+      },
+      reason: 'result provider failure',
+    },
+    {
+      label: 'a failed done result',
+      failure: {
+        type: 'done',
+        data: {
+          success: false,
+          outcome: { type: 'completed' },
+          error: { message: 'terminal provider failure' },
+        },
+      },
+      reason: 'terminal provider failure',
+    },
+  ] satisfies Array<{ label: string; failure: AgentEnvironmentEvent; reason: string }>)(
+    'retains a failed terminal outcome from $label',
+    async ({ failure, reason }) => {
+      const provider: AgentEnvironmentProvider = {
+        name: 'explicit-failure',
+        capabilities: () => fakeCapabilities(),
+        async create() {
+          return fakeEnvironment({
+            stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+              yield failure
+              yield { type: 'done', data: {} }
+            },
+          })
+        },
+      }
+
+      const turn = await collectAgentTurn(
+        streamAgentTurn(
+          {
+            kind: 'executor',
+            factory: createExecutor({ backend: 'provider', provider }),
+            profile: {
+              name: 'explicit-provider-failure',
+              harness: 'claude-code',
+              model: { provider: 'fixture', default: 'fixture/model' },
+            },
+          },
+          { prompt: 'complete the task' },
+        ),
+      )
+
+      expect(turn.status).toBe('failed')
+      expect(turn.error).toMatchObject({ kind: 'backend', message: reason })
+      expect(turn.sandboxOutcome).toMatchObject({ success: false, status: 'failed', error: reason })
+    },
+  )
+
+  it('keeps a recoverable provider task failure separate from the completed turn', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'recoverable-task-failure',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'task.failed',
+              data: {
+                taskId: 'tool-subtask',
+                backendId: 'tool-backend',
+                error: 'the first tool attempt failed',
+              },
+            }
+            yield {
+              type: 'done',
+              data: {
+                finalText: 'recovered answer',
+                tokenUsage: { inputTokens: 3, outputTokens: 2 },
+              },
+            }
+          },
+        })
+      },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'provider', provider }),
+          profile: {
+            name: 'recoverable-task-failure',
+            harness: 'claude-code',
+            model: { provider: 'fixture', default: 'fixture/model' },
+          },
+        },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    expect(turn.status).toBe('completed')
+    expect(turn.finalText).toBe('recovered answer')
+    expect(turn.sandboxOutcome).toBeUndefined()
+  })
+
+  it.each([
+    {
+      label: 'a nested result failure',
+      failure: {
+        type: 'done',
+        data: {
+          result: {
+            status: 'failed',
+            error: { message: 'nested result failure', code: 'RESULT_FAILURE' },
+          },
+        },
+      },
+      reason: 'nested result failure',
+      errorCode: 'RESULT_FAILURE',
+    },
+    {
+      label: 'a nested outcome failure',
+      failure: {
+        type: 'done',
+        data: {
+          outcome: {
+            status: 'failed',
+            error: { message: 'nested outcome failure', errorCode: 'OUTCOME_FAILURE' },
+          },
+        },
+      },
+      reason: 'nested outcome failure',
+      errorCode: 'OUTCOME_FAILURE',
+    },
+  ] satisfies Array<{
+    label: string
+    failure: AgentEnvironmentEvent
+    reason: string
+    errorCode: string
+  }>)('preserves the code from $label', async ({ failure, reason, errorCode }) => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'nested-provider-failure',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          stream: async function* (): AsyncIterable<AgentEnvironmentEvent> {
+            yield failure
+          },
+        })
+      },
+    }
+
+    const turn = await collectAgentTurn(
+      streamAgentTurn(
+        {
+          kind: 'executor',
+          factory: createExecutor({ backend: 'provider', provider }),
+          profile: {
+            name: 'nested-provider-failure',
+            harness: 'claude-code',
+            model: { provider: 'fixture', default: 'fixture/model' },
+          },
+        },
+        { prompt: 'complete the task' },
+      ),
+    )
+
+    expect(turn.status).toBe('failed')
+    expect(turn.sandboxOutcome).toMatchObject({
+      success: false,
+      status: 'failed',
+      error: reason,
+      errorCode,
+    })
   })
 
   it('publishes a provider-native child task through the executor turn', async () => {

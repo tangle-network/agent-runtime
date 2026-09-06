@@ -58,6 +58,7 @@ import type {
   SandboxInstance,
   SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
+import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
 import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
 import {
   canonicalStreamEventFromSandboxEvent,
@@ -66,6 +67,7 @@ import {
   sandboxProgressEvents,
   sandboxTerminalUsageField,
 } from './sandbox-events'
+import type { SandboxOutcomeCarrier } from './sandbox-outcome'
 import { linkAbort } from './supervise/abortable'
 import {
   attestRuntimeOwnedPendingExecutor,
@@ -682,9 +684,12 @@ async function* streamProviderExecutor(
   )
   const events: AgentEnvironmentEvent[] = []
   const tokens = zeroTokenUsage()
+  let sawCompleteTokenReceipt = false
+  let sawIncompleteTokenReceipt = false
   let usd = 0
   let text = ''
   let terminal = false
+  let explicitFailure = false
   // The artifact this turn settled with, once it exists. Its presence is what separates "the work
   // finished and the resource would not release" from "the work never finished".
   let settled: ExecutorResult<unknown> | undefined
@@ -695,18 +700,26 @@ async function* streamProviderExecutor(
   let failed = false
   try {
     const toolParts = createSandboxToolPartState()
+    const outcomeTracker = createAgentRunOutcomeTracker()
     for await (const event of environment.stream(turn)) {
       events.push(event)
       text += textFromEnvironmentEvent(event)
+      const sandboxEvent = sandboxEventFromEnvironmentEvent(event)
+      const failureEvent = providerFailureEvent(event, sandboxEvent)
+      if (failureEvent) {
+        explicitFailure = true
+        outcomeTracker.observe(failureEvent)
+      }
       // One projection for every sandbox-shaped stream: the provider event is adapted to the
       // sandbox wire the mappers already read, so live output needs no provider-specific parser.
-      for (const progress of sandboxProgressEvents(
-        sandboxEventFromEnvironmentEvent(event),
-        toolParts,
-      )) {
+      for (const progress of sandboxProgressEvents(sandboxEvent, toolParts)) {
         yield { kind: 'progress', progress }
       }
       const usage = usageFromEnvironmentEvent(event)
+      if (usage.hasTokenReceipt) {
+        if (usage.hasInput && usage.hasOutput) sawCompleteTokenReceipt = true
+        else sawIncompleteTokenReceipt = true
+      }
       if (usage.input || usage.output) {
         tokens.input += usage.input
         tokens.output += usage.output
@@ -725,10 +738,15 @@ async function* streamProviderExecutor(
       )
     }
     yield { kind: 'iteration' }
-    const result = resultFromEvents(events, text)
+    const result: ProviderLeafOut & SandboxOutcomeCarrier = {
+      ...resultFromEvents(events, text),
+      ...(explicitFailure ? { outcome: outcomeTracker.finish() } : {}),
+    }
     const spent: Spend = {
       iterations: 1,
       tokens,
+      // Distinct partial receipts cannot prove each other's missing counters.
+      ...(sawCompleteTokenReceipt && !sawIncompleteTokenReceipt ? {} : { tokensKnown: false }),
       usd,
       // No provider event carries a billing receipt, so the dollar channel stays unproven even
       // when the provider reported a number. A dollar cap must refuse rather than compare.
@@ -1453,12 +1471,16 @@ function environmentEventFromSandboxEvent(event: SandboxEvent): AgentEnvironment
       ? (event.data as Record<string, unknown>)
       : ({} as Record<string, unknown>)
   const normalized = canonicalStreamEventFromSandboxEvent(event)
+  const usage = tokenUsageFromData(data)
+  const receipt = tokenUsageReceipt(tokenUsageRecord(data))
   return {
     type: String(event.type),
     data,
     ...(event.id ? { id: event.id } : {}),
     ...(normalized ? { normalized } : {}),
-    usage: tokenUsageFromData(data),
+    // TokenUsage requires both counters. Keep a partial receipt in data so downstream code can
+    // mark it unknown.
+    ...(usage && receipt.complete ? { usage } : {}),
     providerEvent: event,
   }
 }
@@ -1493,6 +1515,77 @@ function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): Sandbox
     data,
     ...(event.id ? { id: event.id } : {}),
   }
+}
+
+function providerFailureEvent(
+  event: AgentEnvironmentEvent,
+  sandboxEvent: SandboxEvent,
+): SandboxEvent | undefined {
+  if (event.type === 'error') {
+    const errorCode = failureCode(sandboxEvent.data)
+    return {
+      type: 'error',
+      data: { ...sandboxEvent.data, ...(errorCode ? { code: errorCode } : {}) },
+    }
+  }
+
+  const normalized = event.normalized
+  const failedStatus =
+    (event.type === 'status' && event.data.status === 'failed') ||
+    (normalized?.type === 'status' && normalized.status === 'failed')
+  const terminalFrame = sandboxEvent.type === 'done' || sandboxEvent.type === 'result'
+  const outcome = recordValue(sandboxEvent.data.outcome)
+  const result = recordValue(sandboxEvent.data.result)
+  const failedTerminal =
+    terminalFrame &&
+    (sandboxEvent.data.success === false ||
+      sandboxEvent.data.status === 'failed' ||
+      outcome?.type === 'failed' ||
+      outcome?.status === 'failed' ||
+      result?.status === 'failed')
+  if (!failedStatus && !failedTerminal) return undefined
+
+  const detail =
+    failureDetail(sandboxEvent.data) ??
+    failureDetail(outcome) ??
+    failureDetail(result) ??
+    (normalized?.type === 'status' ? normalized.detail : undefined)
+  const errorCode = failureCode(sandboxEvent.data) ?? failureCode(outcome) ?? failureCode(result)
+  return {
+    type: 'result',
+    data: {
+      status: 'failed',
+      ...(detail ? { error: detail } : {}),
+      ...(errorCode ? { errorCode } : {}),
+    },
+  }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function failureDetail(value: Record<string, unknown> | undefined): string | undefined {
+  if (!value) return undefined
+  const error = value.error
+  if (typeof error === 'string') return error
+  const nestedError = recordValue(error)
+  if (typeof nestedError?.message === 'string') return nestedError.message
+  if (typeof value.message === 'string') return value.message
+  return typeof value.detail === 'string' ? value.detail : undefined
+}
+
+function failureCode(value: Record<string, unknown> | undefined): string | undefined {
+  if (!value) return undefined
+  const error = recordValue(value.error)
+  return (
+    stringValue(value.errorCode) ??
+    stringValue(value.code) ??
+    stringValue(error?.errorCode) ??
+    stringValue(error?.code)
+  )
 }
 
 function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | undefined {
@@ -1749,34 +1842,32 @@ function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {
   input: number
   output: number
   usd: number
+  hasInput: boolean
+  hasOutput: boolean
+  hasTokenReceipt: boolean
 } {
+  const receipt = tokenUsageReceipt(event.usage ?? tokenUsageRecord(event.data))
   const usage = event.usage ?? tokenUsageFromData(event.data)
+  const input = finiteNumber(usage?.inputTokens)
+  const output = finiteNumber(usage?.outputTokens)
   return {
-    input: finiteNumber(usage?.inputTokens) ?? 0,
-    output: (finiteNumber(usage?.outputTokens) ?? 0) + (finiteNumber(usage?.reasoningTokens) ?? 0),
+    input: input ?? 0,
+    output: (output ?? 0) + (finiteNumber(usage?.reasoningTokens) ?? 0),
     usd:
       finiteNumber(usage?.cost) ??
       finiteNumber(event.data.costUsd) ??
       finiteNumber(event.data.totalCostUsd) ??
       0,
+    hasInput: receipt.hasInput,
+    hasOutput: receipt.hasOutput,
+    hasTokenReceipt: receipt.hasTokens,
   }
 }
 
 function tokenUsageFromData(data: Record<string, unknown>): TokenUsage | undefined {
-  const usageRecord =
-    data.usage && typeof data.usage === 'object'
-      ? (data.usage as Record<string, unknown>)
-      : data.tokenUsage && typeof data.tokenUsage === 'object'
-        ? (data.tokenUsage as Record<string, unknown>)
-        : data
-  const inputTokens =
-    finiteNumber(usageRecord.inputTokens) ??
-    finiteNumber(usageRecord.tokensIn) ??
-    finiteNumber(usageRecord.prompt_tokens)
-  const outputTokens =
-    finiteNumber(usageRecord.outputTokens) ??
-    finiteNumber(usageRecord.tokensOut) ??
-    finiteNumber(usageRecord.completion_tokens)
+  const usageRecord = tokenUsageRecord(data)
+  const inputTokens = inputTokensFromUsage(usageRecord)
+  const outputTokens = outputTokensFromUsage(usageRecord)
   const totalTokens = finiteNumber(usageRecord.totalTokens)
   const cacheReadInputTokens = finiteNumber(usageRecord.cacheReadInputTokens)
   const cacheCreationInputTokens = finiteNumber(usageRecord.cacheCreationInputTokens)
@@ -1806,6 +1897,49 @@ function tokenUsageFromData(data: Record<string, unknown>): TokenUsage | undefin
     ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
     ...(cost !== undefined ? { cost } : {}),
   }
+}
+
+function tokenUsageRecord(data: Record<string, unknown>): Record<string, unknown> {
+  return recordValue(data.usage) ?? recordValue(data.tokenUsage) ?? data
+}
+
+function inputTokensFromUsage(value: unknown): number | undefined {
+  const usage = recordValue(value)
+  if (!usage) return undefined
+  return (
+    finiteNumber(usage.inputTokens) ??
+    finiteNumber(usage.tokensIn) ??
+    finiteNumber(usage.prompt_tokens)
+  )
+}
+
+function outputTokensFromUsage(value: unknown): number | undefined {
+  const usage = recordValue(value)
+  if (!usage) return undefined
+  return (
+    finiteNumber(usage.outputTokens) ??
+    finiteNumber(usage.tokensOut) ??
+    finiteNumber(usage.completion_tokens)
+  )
+}
+
+function tokenUsageReceipt(value: unknown): {
+  hasInput: boolean
+  hasOutput: boolean
+  hasTokens: boolean
+  complete: boolean
+} {
+  const usage = recordValue(value)
+  const hasInput = inputTokensFromUsage(usage) !== undefined
+  const hasOutput = outputTokensFromUsage(usage) !== undefined
+  const hasTokens =
+    hasInput ||
+    hasOutput ||
+    finiteNumber(usage?.totalTokens) !== undefined ||
+    finiteNumber(usage?.cacheReadInputTokens) !== undefined ||
+    finiteNumber(usage?.cacheCreationInputTokens) !== undefined ||
+    finiteNumber(usage?.reasoningTokens) !== undefined
+  return { hasInput, hasOutput, hasTokens, complete: hasInput && hasOutput }
 }
 
 function mergeTokenUsage(
@@ -1843,6 +1977,10 @@ function mergeTokenUsage(
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function agentTurnResultFromPromptResult(result: PromptResult): AgentTurnResult {
