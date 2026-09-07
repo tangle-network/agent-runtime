@@ -1,6 +1,18 @@
 # Changelog
 
+## 0.197.1
+
+Concurrent recovery of a stale run-directory lock now grants ownership to one caller.
+Lock acquisition, recovery, and release serialize mutations through an exclusive `supervise.lock.guard` directory.
+Release retries transient contention for up to one second.
+If a process dies during a mutation, confirm no mutation is active before removing the abandoned guard directory.
+Invalid holder pids refuse recovery, and release preserves a replacement holder with a different process start token.
+The dependency cohort uses Knowledge 14.0.3, which admits Eval 0.175 while retaining Eval 0.174 compatibility.
+
 ## 0.197.0
+
+Spawn-capable children refuse execution when their provider has no coordination channel.
+The refusal reports `unmountable-tool` before execution and does not consume a traversal.
 
 `supervisePursuit` writes `result.json` beside `observer.jsonl` when the run settles.
 The file holds the returned `SupervisedResult` verbatim as canonical JSON with stable key order, written once with `O_EXCL` and fsynced, so agent-eval's supervisor-run reader finds `kind` and `tree.root` without a wrapper.

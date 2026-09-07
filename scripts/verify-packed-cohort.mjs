@@ -676,9 +676,14 @@ function assertSharedContractPeer(owner, dependency) {
   // A required peer deliberately admits later compatible patches. Requiring every owner's
   // development pin to equal the consumer-selected patch recreates the release lockstep that
   // peer dependencies removed. The strict packed install below proves the selected version is
-  // admitted and resolves to one physical package; this check proves the owner's lower bound.
+  // admitted and resolves to one physical package; this check verifies its development and selected versions.
   requiredPackedDevelopmentDependency(owner.packageJson, dependency.name)
-  assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name)
+  assertPeerMatchesDevelopmentDependency(owner.packageJson, dependency.name, {
+    ...(owner.name === '@tangle-network/agent-knowledge'
+      ? { expectedRange: owner.packageJson.peerDependencies?.[dependency.name] }
+      : {}),
+    admittedVersions: [dependency.version],
+  })
   assertRequiredPeer(owner, dependency)
 }
 

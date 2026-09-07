@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.34
+
+The dependency range requires Knowledge 14.0.3 for the compatible Eval cohort.
+
 ## 0.8.33
 
 Requires Eval `>=0.175.0 <0.176.0`, following Runtime 0.197.0.
