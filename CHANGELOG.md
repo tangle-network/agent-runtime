@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.198.2
 
 A nested manager without an accepted finalizer output now persists an explicit `null` result.
 Memory and file-backed replay can inspect its unassessed completion without a missing-blob error or serialization failure.
 Its descendants' artifacts remain available, and completion does not become independently accepted delivery.
+
+External workers now observe durable cancellation requests while waiting for completion.
+Cancellation stops the active attempt and prevents successor dispatch.
 
 ## 0.198.1
 
