@@ -181,10 +181,11 @@ try {
   const installedKnowledge = readJson(
     join(appDir, 'node_modules', '@tangle-network', 'agent-knowledge', 'package.json'),
   )
-  assertInstalledKnowledgeSharedPeer(installedKnowledge, '@tangle-network/agent-eval')
+  assertInstalledKnowledgeSharedPeer(installedKnowledge, '@tangle-network/agent-eval', appDir)
   assertInstalledKnowledgeSharedPeer(
     installedKnowledge,
     '@tangle-network/agent-interface',
+    appDir,
   )
   run(
     process.execPath,
@@ -368,14 +369,17 @@ function requiredPackedDependency(packageJson, packageName) {
   )
 }
 
-function assertInstalledKnowledgeSharedPeer(packageJson, packageName) {
+function assertInstalledKnowledgeSharedPeer(packageJson, packageName, appDir) {
   if (packageJson.dependencies?.[packageName] !== undefined) {
     throw new Error(`installed Agent Knowledge must not nest ${packageName} as a runtime dependency`)
   }
-  // npm installs with strict peer checks above. This confirms Knowledge's tested lower bound
-  // without requiring its development patch to equal the compatible patch selected by Runtime.
+  // Knowledge owns its compatibility window. Both its tested pin and Runtime's selected
+  // version must remain inside that window, including support for earlier Eval minors.
   requiredPackedDevelopmentDependency(packageJson, packageName)
-  assertPeerMatchesDevelopmentDependency(packageJson, packageName)
+  assertPeerMatchesDevelopmentDependency(packageJson, packageName, {
+    expectedRange: packageJson.peerDependencies?.[packageName],
+    admittedVersions: [installedPackageVersion(appDir, packageName)],
+  })
 }
 
 function assertVersion(actual, expected, label) {
