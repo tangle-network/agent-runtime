@@ -10,6 +10,9 @@ Import environment providers and kernel types from `/kernel`, and candidate exec
 The root no longer duplicates candidate execution or kernel types, or exports internal conversation transport helpers.
 Whole-profile improvement and its measurement and activation paths remain available.
 Bench 0.9.0 uses the dedicated candidate execution imports and records their updated public type references.
+Benchmark results retain judged artifacts, worker events, and measured usage across retries and failures.
+Failed shots cannot win refinement; incomplete usage remains marked unknown.
+Corpus harvesting reports analyst token usage, and inline executors emit the canonical completion event.
 
 ## 0.196.0
 

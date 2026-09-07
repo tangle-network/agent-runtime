@@ -83,14 +83,6 @@ export {
 // ── Improvement (self-improvement surfaces) ──────────────────────────
 // Complete agent-eval methods optimize profile fields. Runtime owns only
 // isolated code/worktree candidate execution.
-/**
- * `@tangle-network/agent-runtime` improvement.
- *
- * The public entry point is `improve()`. Complete agent-eval methods optimize
- * profile surfaces. Runtime owns only code candidates that mutate an isolated
- * git worktree through a pluggable `CandidateGenerator`.
- */
-
 export {
   type AgenticGeneratorExecutorForWorktree,
   type AgenticGeneratorOptions,
