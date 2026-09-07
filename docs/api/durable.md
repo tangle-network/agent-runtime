@@ -1130,6 +1130,13 @@ ISO instant the holder took the lock.
 
 > `readonly` **runId**: `string`
 
+##### processStart?
+
+> `readonly` `optional` **processStart?**: `string`
+
+The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
+without one is judged by pid liveness alone, which cannot detect a reused pid.
+
 ***
 
 ### RunDirectoryLock
@@ -1167,6 +1174,17 @@ ISO instant the holder took the lock.
 ###### Inherited from
 
 [`RunDirectoryLockHolder`](#rundirectorylockholder).[`runId`](#runid-2)
+
+##### processStart?
+
+> `readonly` `optional` **processStart?**: `string`
+
+The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
+without one is judged by pid liveness alone, which cannot detect a reused pid.
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`processStart`](#processstart)
 
 ##### path
 
@@ -2466,11 +2484,14 @@ readonly [`ObserverRecord`](#observerrecord)[]
 
 > **acquireRunDirectoryLock**(`runDir`, `runId`, `now?`): `Promise`\<[`RunDirectoryLock`](#rundirectorylock)\>
 
-Take `runDir/supervise.lock` with `O_EXCL`, or refuse.
+Take `runDir/supervise.lock`, or refuse.
 
-A lock whose recorded pid no longer exists (`ESRCH`) is stale and is removed before one retry;
-a pid this process may not signal (`EPERM`) is alive and refuses. A lock this process cannot
-read is left in place and refused: reclaiming an unreadable file could evict a live holder.
+The file is published with its full content or not at all, so a contender never reads a
+half-written holder. A lock whose holder is gone (its pid no longer exists, or the pid now
+belongs to a process with a different start token) is stale and is removed under the mutation guard;
+a pid this process may not signal (`EPERM`) is alive and refuses. An empty file names no
+holder and is reclaimed. A file with unreadable content is left in place and refused:
+reclaiming it could evict a live holder written by something other than this module.
 
 #### Parameters
 
@@ -2496,7 +2517,7 @@ read is left in place and refused: reclaiming an unreadable file could evict a l
 
 > **readRunDirectoryLock**(`runDir`): `Promise`\<[`RunDirectoryLockHolder`](#rundirectorylockholder) \| `undefined`\>
 
-Read the holder a lock file names, or `undefined` when there is no lock file.
+Read the holder a lock file names, or `undefined` when no lock file names one.
 
 #### Parameters
 
@@ -2514,10 +2535,9 @@ Read the holder a lock file names, or `undefined` when there is no lock file.
 
 > **settleRecordJson**(`result`): `string`
 
-The exact bytes `result.json` holds for a result: the JSON-observable value of the result,
-serialized as RFC 8785 canonical JSON. The JSON hop is the boundary `SupervisedResult` is
-designed to cross, so a field JSON cannot carry (an `undefined` member, a function) is dropped
-here exactly as any JSON consumer would drop it.
+The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785
+canonical JSON. Throws `UnrecordableSettleValueError` before any byte is written when the
+result carries a value JSON would misstate.
 
 #### Parameters
 
@@ -2589,6 +2609,7 @@ whose `result.json` exists refuses re-entry before any compute; a failure record
 not, because a caller can correct its input and drive the same run again. For the life of the
 call the directory is held by `supervise.lock`, so a second process on the same directory
 refuses and names the holder instead of sharing one journal.
+An abandoned `supervise.lock.guard` requires removal after confirming no lock mutation is active.
 
 #### Parameters
 

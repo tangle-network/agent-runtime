@@ -389,7 +389,7 @@ Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock` with `O_EXCL`, or refuse. |
+| `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock`, or refuse. |
 | `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
@@ -397,9 +397,9 @@ Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
-| `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when there is no lock file. |
+| `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
-| `settleRecordJson` | function | The exact bytes `result.json` holds for a result: the JSON-observable value of the result, |
+| `settleRecordJson` | function | The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785 |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |

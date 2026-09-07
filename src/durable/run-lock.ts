@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, unlink } from 'node:fs/promises'
+import { mkdir, readFile, rmdir, unlink } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { publishExclusiveDurableFile } from '../runtime/supervise/durable-file'
@@ -23,7 +23,7 @@ import { isNoEntError } from './jsonl-file'
  * and differs for every later holder of its pid, so a reused pid is reclaimed like a dead one.
  *
  * The lock is operational state, not evidence: replay, projection, and the settle record ignore
- * it. A holder whose process is gone is reclaimed, so a killed run never needs manual cleanup.
+ * it. A holder whose process is gone is reclaimed, except when it dies during a guarded mutation; that guard requires manual recovery.
  */
 
 /** The lock file `supervisePursuit` holds inside a run directory for the life of one call. */
@@ -68,7 +68,7 @@ export class RunDirectoryLockedError extends Error {
  *
  * The file is published with its full content or not at all, so a contender never reads a
  * half-written holder. A lock whose holder is gone (its pid no longer exists, or the pid now
- * belongs to a process with a different start token) is stale and is removed before one retry;
+ * belongs to a process with a different start token) is stale and is removed under the mutation guard;
  * a pid this process may not signal (`EPERM`) is alive and refuses. An empty file names no
  * holder and is reclaimed. A file with unreadable content is left in place and refused:
  * reclaiming it could evict a live holder written by something other than this module.
@@ -88,31 +88,26 @@ export async function acquireRunDirectoryLock(
     runId,
     ...(processStart === undefined ? {} : { processStart }),
   })
-  // Two reclaimers can race after one removes a stale file: the loser's `O_EXCL` fails and it
-  // reads the winner's live holder, so at most one retry is ever useful.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if (publishExclusiveDurableFile(path, `${JSON.stringify(holder)}\n`)) {
-      let released = false
-      return Object.freeze({
-        ...holder,
-        path,
-        release: async () => {
-          if (released) return
-          released = true
-          await releaseHolder(path, holder)
-        },
-      })
-    }
+  return withMutationGuard(path, async () => {
     const existing = await readLockFile(path)
-    if (existing.state === 'missing') continue
     if (existing.state === 'holder' && (await holderIsLive(existing.holder))) {
       throw new RunDirectoryLockedError(path, existing.holder)
     }
-    await removeIfPresent(path)
-  }
-  const existing = await readLockFile(path)
-  if (existing.state === 'holder') throw new RunDirectoryLockedError(path, existing.holder)
-  throw new Error(`supervisePursuit: could not take ${path} after reclaiming a stale holder`)
+    if (existing.state !== 'missing') await removeIfPresent(path)
+    if (!publishExclusiveDurableFile(path, `${JSON.stringify(holder)}\n`)) {
+      throw new Error(`supervisePursuit: could not take ${path}`)
+    }
+    let released = false
+    return Object.freeze({
+      ...holder,
+      path,
+      release: async () => {
+        if (released) return
+        await releaseHolder(path, holder)
+        released = true
+      },
+    })
+  })
 }
 
 /** Read the holder a lock file names, or `undefined` when no lock file names one. */
@@ -187,6 +182,8 @@ async function readLockFile(path: string): Promise<LockFileState> {
     typeof record !== 'object' ||
     record === null ||
     typeof record.pid !== 'number' ||
+    !Number.isInteger(record.pid) ||
+    record.pid <= 0 ||
     typeof record.startedAt !== 'string' ||
     typeof record.runId !== 'string' ||
     (record.processStart !== undefined && typeof record.processStart !== 'string')
@@ -226,17 +223,36 @@ function processExists(pid: number): boolean {
 
 /** Remove the lock only while it still names this holder; a reclaimed lock belongs to its new owner. */
 async function releaseHolder(path: string, holder: RunDirectoryLockHolder): Promise<void> {
-  const existing = await readLockFile(path).catch(() => ({ state: 'missing' }) as const)
-  if (existing.state === 'missing') return
-  if (
-    existing.state === 'holder' &&
-    (existing.holder.pid !== holder.pid ||
+  await withMutationGuard(path, async () => {
+    const existing = await readLockFile(path)
+    if (existing.state !== 'holder') return
+    if (
+      existing.holder.pid !== holder.pid ||
       existing.holder.startedAt !== holder.startedAt ||
-      existing.holder.runId !== holder.runId)
-  ) {
-    return
+      existing.holder.runId !== holder.runId ||
+      existing.holder.processStart !== holder.processStart
+    )
+      return
+    await removeIfPresent(path)
+  })
+}
+
+/** Serialize stale reclamation and release; an abandoned guard requires operator recovery. */
+async function withMutationGuard<T>(path: string, mutate: () => Promise<T>): Promise<T> {
+  const guard = `${path}.guard`
+  try {
+    await mkdir(guard)
+  } catch (cause) {
+    throw new Error(
+      `supervisePursuit: cannot mutate ${path}; inspect ${guard} and remove it only after confirming no lock mutation is active`,
+      { cause },
+    )
   }
-  await removeIfPresent(path)
+  try {
+    return await mutate()
+  } finally {
+    await rmdir(guard)
+  }
 }
 
 async function removeIfPresent(path: string): Promise<void> {

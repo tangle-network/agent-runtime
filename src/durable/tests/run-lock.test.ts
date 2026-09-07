@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -70,11 +70,83 @@ describe('acquireRunDirectoryLock', () => {
     await lock.release()
   })
 
+  it('grants only one concurrent stale-lock reclaimer', async () => {
+    await writeFile(
+      join(runDir, RUN_DIRECTORY_LOCK_FILE),
+      JSON.stringify({ pid: deadPid(), startedAt: 'old', runId: 'dead' }),
+    )
+    const outcomes = await Promise.allSettled(
+      Array.from({ length: 12 }, (_, index) => acquireRunDirectoryLock(runDir, `run:${index}`)),
+    )
+    const acquired = outcomes.flatMap((outcome) =>
+      outcome.status === 'fulfilled' ? [outcome.value] : [],
+    )
+    try {
+      expect(acquired).toHaveLength(1)
+      expect(await readRunDirectoryLock(runDir)).toMatchObject({ runId: acquired[0]?.runId })
+    } finally {
+      await Promise.all(acquired.map((lock) => lock.release()))
+    }
+  })
+
   it('refuses rather than reclaims a lock file it cannot read', async () => {
     await writeFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), '{not json')
 
     await expect(acquireRunDirectoryLock(runDir, 'run:x')).rejects.toThrow(/not a readable lock/)
     expect(await readFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), 'utf8')).toBe('{not json')
+  })
+
+  it('preserves an uncertain mutation guard', async () => {
+    const guard = join(runDir, `${RUN_DIRECTORY_LOCK_FILE}.guard`)
+    await mkdir(guard)
+    await expect(acquireRunDirectoryLock(runDir, 'run:x')).rejects.toThrow(
+      /confirming no lock mutation/,
+    )
+    expect((await stat(guard)).isDirectory()).toBe(true)
+  })
+
+  it('does not release a different holder or malformed ownership', async () => {
+    const lock = await acquireRunDirectoryLock(runDir, 'run:a')
+    const replacement = { ...lock, processStart: 'another-process-start' }
+    await writeFile(lock.path, JSON.stringify(replacement))
+    await lock.release()
+    expect(JSON.parse(await readFile(lock.path, 'utf8'))).toMatchObject({
+      runId: 'run:a',
+      processStart: 'another-process-start',
+    })
+  })
+
+  it('reclaims a reused pid with a different process start token', async () => {
+    await writeFile(
+      join(runDir, RUN_DIRECTORY_LOCK_FILE),
+      JSON.stringify({
+        pid: process.pid,
+        processStart: 'old-process',
+        startedAt: 'old',
+        runId: 'dead',
+      }),
+    )
+    const lock = await acquireRunDirectoryLock(runDir, 'run:new')
+    expect(lock.runId).toBe('run:new')
+    await lock.release()
+  })
+
+  it('preserves a live holder whose start token is unknown', async () => {
+    await writeFile(
+      join(runDir, RUN_DIRECTORY_LOCK_FILE),
+      JSON.stringify({ pid: process.pid, startedAt: 'old', runId: 'live' }),
+    )
+    await expect(acquireRunDirectoryLock(runDir, 'run:new')).rejects.toBeInstanceOf(
+      RunDirectoryLockedError,
+    )
+  })
+
+  it('refuses invalid holder pids', async () => {
+    await writeFile(
+      join(runDir, RUN_DIRECTORY_LOCK_FILE),
+      JSON.stringify({ pid: -1, startedAt: 'old', runId: 'bad' }),
+    )
+    await expect(acquireRunDirectoryLock(runDir, 'run:x')).rejects.toThrow(/not a readable lock/)
   })
 
   it('creates a missing run directory before locking it', async () => {

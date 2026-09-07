@@ -2,12 +2,17 @@
 
 ## 0.197.0
 
+Spawn-capable children now refuse execution when their provider has no coordination channel.
+The refusal reports `unmountable-tool` before execution and does not consume a traversal.
+
 `supervisePursuit` writes `result.json` beside `observer.jsonl` when the run settles.
 The file holds the returned `SupervisedResult` verbatim as canonical JSON with stable key order, written once with `O_EXCL` and fsynced, so agent-eval's supervisor-run reader finds `kind` and `tree.root` without a wrapper.
 A throw writes `failure.json` with the run id, pursuit id, time, and the error name and message.
 A directory that already holds `result.json` refuses re-entry with an error that names the file; a `failure.json` alone does not block a corrected attempt.
 `supervisePursuit` holds `supervise.lock` in the run directory for the life of the call and removes it on settle or throw.
 A second call on a locked directory refuses and names the holder pid; a lock whose pid is dead is reclaimed.
+Lock mutations use an exclusive `supervise.lock.guard` directory.
+If a process dies during that short mutation, confirm no mutation is active before removing the abandoned guard directory.
 `projectPursuit` reports one run row per `agent.run` attempt with `attemptIndex` and `resumeCount`, so a failed first attempt and the settled attempt that followed it are two rows and `error` appears only on the failed row.
 Node rows and the shared `done`/`down` vocabulary are unchanged.
 

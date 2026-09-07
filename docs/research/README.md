@@ -18,6 +18,7 @@ The research files below are source history and focused design inputs, not compe
 
 | Doc | What it holds |
 |-----|---------------|
+| [simplification-map-2026-09-07.md](./simplification-map-2026-09-07.md) | Twelve-reader map of the 0.196.0 tree: consumer-less subpaths, dead mechanisms, duplication, and the three files that hold the churn, with an ordered cut list. Raw findings in `.agent/simplification-map-2026-09-07/`. |
 | [learning-system-audit-2026-09-05.md](./learning-system-audit-2026-09-05.md) | Current-source audit of learning across Runtime, Eval, and Knowledge, with reproduced failures and a unification design. |
 | [rsi-atom-masterplan.md](./rsi-atom-masterplan.md) | Historical self-designing-atom plan. Distributed execution work is superseded by `agent-managed-compute/`. |
 | [optimization-space.md](./optimization-space.md) | The 6-axis optimization taxonomy + canon-compatibility audit (the portfolio map the canonical spine references). Per-layer evidence now lives in `.evolve/current.json`. |
