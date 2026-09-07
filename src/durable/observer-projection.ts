@@ -104,8 +104,22 @@ export interface PursuitRunTotals {
   readonly exclusiveByNode: Readonly<Record<string, Spend>>
 }
 
+/**
+ * One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before`
+ * to the `after` or `error` that settles it. A run whose first attempt threw and whose corrected
+ * attempt settled is two rows, so `error` names only the attempt that failed.
+ *
+ * A `before` observed while an attempt is still open does not open another: it is a process
+ * that resumed the run after the previous process died without a terminal record, and the row
+ * counts it in `resumeCount`. The alternative, a row per process start, would leave the killed
+ * process's row `running` for the rest of history.
+ */
 export interface PursuitRunProjection {
   readonly runId: string
+  /** Zero-based position of this attempt among the run's attempts, in journal order. */
+  readonly attemptIndex: number
+  /** How many times a process resumed this attempt after a predecessor died mid-run. */
+  readonly resumeCount: number
   readonly status: PursuitStatus
   readonly settledAt?: number
   readonly error?: string
@@ -194,6 +208,11 @@ export interface PursuitProjection {
 
 type MutableRun = {
   runId: string
+  attemptIndex: number
+  resumeCount: number
+  /** Whether this attempt has seen its own `before`; an attempt a journal opens without one
+   *  treats the first `before` it meets as its start, not as a resume. */
+  started: boolean
   status: PursuitStatus
   settledAt?: number
   error?: string
@@ -213,6 +232,8 @@ type MutableNode = {
   id: string
   parentId?: string
   runId: string
+  /** The attempt whose process spawned this node; totals and gaps are folded per attempt. */
+  attemptIndex: number
   label?: string
   runtime?: string
   depth?: number
@@ -261,8 +282,9 @@ type MutableNode = {
  *
  * Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal node
  * state comes only from `agent.child`; concrete run state comes only from the root
- * `agent.run` lifecycle emitted by `supervisePursuit`. Node identity is scoped to the
- * concrete Runtime run so independent trees may both contain `root:s0` without aliasing.
+ * `agent.run` lifecycle emitted by `supervisePursuit`, one row per attempt. Node identity is
+ * scoped to the concrete Runtime run so independent trees may both contain `root:s0` without
+ * aliasing, and a node belongs to the attempt that spawned it.
  *
  * Usage, cost and timing are reported at the class the runtime measured them at. A missing
  * class stays ABSENT and the run names the node in `spendGaps`; nothing here converts an
@@ -274,7 +296,7 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
   }
   const pursuitId = records[0]!.pursuitId
   const verified = verifyObserverRecords(records, pursuitId)
-  const runs = new Map<string, MutableRun>()
+  const attempts = new Map<string, MutableRun[]>()
   const nodes = new Map<string, MutableNode>()
   let eventCount = 0
   let decisionCount = 0
@@ -282,7 +304,7 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
   for (const record of verified) {
     const observed = record.event ?? record.decision
     if (!observed) throw new Error(`projectPursuit: record ${record.sequence} has no observation`)
-    const run = getRun(runs, observed.runId, record)
+    const run = currentAttempt(attempts, observed.runId, record)
     run.lastSequence = record.sequence
     run.lastObservedAt = record.observedAt
 
@@ -291,9 +313,9 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
       run.eventCount += 1
       increment(run.targets, record.event.target)
       projectRunActivity(run, record)
-      projectSpawnNode(nodes, record)
+      projectSpawnNode(nodes, record, run.attemptIndex)
       projectNodeActivity(nodes, record)
-      projectTurn(runs, nodes, record)
+      projectTurn(run, nodes, record)
     } else if (record.decision) {
       decisionCount += 1
       run.decisionCount += 1
@@ -301,11 +323,12 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
     }
   }
 
-  const byRun = new Map<string, MutableNode[]>()
+  const byAttempt = new Map<string, MutableNode[]>()
   for (const node of nodes.values()) {
-    const list = byRun.get(node.runId)
+    const key = attemptKey(node.runId, node.attemptIndex)
+    const list = byAttempt.get(key)
     if (list) list.push(node)
-    else byRun.set(node.runId, [node])
+    else byAttempt.set(key, [node])
   }
 
   const first = verified[0]!
@@ -317,9 +340,10 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
     firstObservedAt: first.observedAt,
     lastObservedAt: last.observedAt,
     runs: Object.freeze(
-      [...runs.values()]
+      [...attempts.values()]
+        .flat()
         .sort((a, b) => a.firstSequence - b.firstSequence || a.runId.localeCompare(b.runId))
-        .map((run) => freezeRun(run, byRun.get(run.runId) ?? [])),
+        .map((run) => freezeRun(run, byAttempt.get(attemptKey(run.runId, run.attemptIndex)) ?? [])),
     ),
     nodes: Object.freeze(
       [...nodes.values()]
@@ -336,11 +360,36 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
   })
 }
 
-function getRun(runs: Map<string, MutableRun>, runId: string, record: ObserverRecord): MutableRun {
-  const existing = runs.get(runId)
-  if (existing) return existing
+function attemptKey(runId: string, attemptIndex: number): string {
+  return `${runId} ${attemptIndex}`
+}
+
+/**
+ * The attempt a record belongs to. An `agent.run` `before` opens a new attempt when the run has
+ * none or its latest attempt already settled; on an open attempt it is a resume. Every other
+ * record joins the latest attempt, and a journal that never emitted `before` gets attempt 0.
+ */
+function currentAttempt(
+  attempts: Map<string, MutableRun[]>,
+  runId: string,
+  record: ObserverRecord,
+): MutableRun {
+  const list = attempts.get(runId) ?? []
+  if (list.length === 0) attempts.set(runId, list)
+  const latest = list.at(-1)
+  const isStart = record.event?.target === 'agent.run' && record.event.phase === 'before'
+  if (latest !== undefined && (!isStart || latest.status === 'running')) {
+    if (isStart) {
+      if (latest.started) latest.resumeCount += 1
+      latest.started = true
+    }
+    return latest
+  }
   const created: MutableRun = {
     runId,
+    attemptIndex: list.length,
+    resumeCount: 0,
+    started: isStart,
     status: 'running',
     firstSequence: record.sequence,
     lastSequence: record.sequence,
@@ -351,7 +400,7 @@ function getRun(runs: Map<string, MutableRun>, runId: string, record: ObserverRe
     targets: {},
     decisions: {},
   }
-  runs.set(runId, created)
+  list.push(created)
   return created
 }
 
@@ -378,7 +427,11 @@ function nodeKey(runId: string, nodeId: string): string {
   return `${runId}\u0000${nodeId}`
 }
 
-function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecord): void {
+function projectSpawnNode(
+  nodes: Map<string, MutableNode>,
+  record: ObserverRecord,
+  attemptIndex: number,
+): void {
   const event = record.event
   if (event?.target !== 'agent.spawn') return
   const payload = objectRecord(event.payload)
@@ -402,6 +455,7 @@ function projectSpawnNode(nodes: Map<string, MutableNode>, record: ObserverRecor
     id: childId,
     ...(event.parentId ? { parentId: event.parentId } : {}),
     runId: event.runId,
+    attemptIndex,
     ...(label ? { label } : {}),
     ...(runtime ? { runtime } : {}),
     ...(depth !== undefined ? { depth } : {}),
@@ -507,7 +561,7 @@ function attachSettlementEvidence(
  * complete without inventing a node for the root.
  */
 function projectTurn(
-  runs: Map<string, MutableRun>,
+  run: MutableRun,
   nodes: Map<string, MutableNode>,
   record: ObserverRecord,
 ): void {
@@ -520,8 +574,6 @@ function projectTurn(
   const node = nodes.get(nodeKey(event.runId, subject))
   if (!node) {
     if (!spend) return
-    const run = runs.get(event.runId)
-    if (!run) return
     run.rootInference = run.rootInference ? addSpend(run.rootInference, spend) : spend
     return
   }
@@ -709,7 +761,7 @@ function timingOf(node: MutableNode): PursuitNodeTiming | undefined {
 
 function freezeRun(run: MutableRun, nodes: readonly MutableNode[]): PursuitRunProjection {
   const gaps = runSpendGaps(nodes)
-  const { rootInference: _rootInference, ...rest } = run
+  const { rootInference: _rootInference, started: _started, ...rest } = run
   return Object.freeze({
     ...rest,
     targets: Object.freeze({ ...run.targets }),
@@ -720,7 +772,13 @@ function freezeRun(run: MutableRun, nodes: readonly MutableNode[]): PursuitRunPr
 }
 
 function freezeNode(node: MutableNode): PursuitNodeProjection {
-  const { modelCalls, reasoningTokens, startedAt: _startedAt, ...rest } = node
+  const {
+    modelCalls,
+    reasoningTokens,
+    startedAt: _startedAt,
+    attemptIndex: _attemptIndex,
+    ...rest
+  } = node
   const total = nodeTotal(node)
   const timing = timingOf(node)
   return Object.freeze({
