@@ -4,9 +4,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type {
-  DispatchContext,
-  OptimizationMethodProvenance,
+import {
+  gepaOptimizationMethod,
+  createRunCostLedger,
+  fsCampaignStorage,
+  type DispatchContext,
+  type OptimizationMethodProvenance,
 } from '@tangle-network/agent-eval/campaign'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ACTIVATION_PREDICATE_RELPATH, parseActivationPredicate } from './activation.mts'
@@ -89,6 +92,68 @@ describe('validateGepaSeat', () => {
 // ---------------------------------------------------------------------------
 
 describe('recipeForSeat', () => {
+  it.each(['gepa', 'omni'] as const)('transports the real %s optimizer configuration', async (engine) => {
+    const runDir = await mkdtemp(join(tmpdir(), 'gepa-seat-transport-'))
+    const requests: unknown[] = []
+    try {
+      const optimizer = officialOptimizerModel({
+        env: { OPT_INPUT_USD_PER_MILLION: '1', OPT_CACHED_INPUT_USD_PER_MILLION: '1', OPT_CACHE_WRITE_USD_PER_MILLION: '1', OPT_OUTPUT_USD_PER_MILLION: '1' },
+        envPrefix: 'OPT', model: 'fixture-model', baseUrl: 'http://127.0.0.1:1/v1', apiKey: 'fixture-key',
+        maxCostUsd: 1, maxOutputTokensPerRequest: 100, anthropicEndpoint: engine === 'omni',
+        complete: async (request) => {
+          requests.push(request)
+          return { model: 'fixture-model', choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 1, cost: 0.000003 } }
+        },
+      })
+      const spec = seat({ engine })
+      validateGepaSeat(spec)
+      const runtime = {
+        python: { implementation: 'CPython', version: '3.12.0' },
+        bridge: { package: 'agent-eval-rpc', version: 'fixture', sourceUrl: 'https://github.com/tangle-network/agent-eval', revision: 'fixture', sourceSha256: 'a'.repeat(64) },
+        optimizer: { package: 'gepa', version: 'fixture', sourceUrl: 'https://github.com/gepa-ai/gepa', revision: 'fixture', sourceSha256: 'b'.repeat(64) },
+        engineModules: [],
+      }
+      // Only the child optimizer is substituted; the real Eval proxy calls Runtime.
+      const bridge = join(runDir, 'transport.mjs')
+      await writeFile(bridge, `
+import fs from 'node:fs'
+const input = JSON.parse(fs.readFileSync(process.argv[process.argv.indexOf('--input') + 1], 'utf8'))
+if (input.operation === 'inspect') {
+  fs.writeFileSync(process.argv[process.argv.indexOf('--output') + 1], JSON.stringify({ runtime: ${JSON.stringify(runtime)} }))
+} else {
+  const omni = input.recipe.kind === 'omni'
+  if (omni && input.recipe.explore.some(run => run.engine !== 'gepa' && run.engineConfig.model !== input.modelProxy.model)) throw new Error('wrong engine model')
+  const send = maxTokens => fetch(input.modelProxy.baseUrl + (omni ? '/messages' : '/chat/completions'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + input.modelProxy.apiKey, 'x-api-key': input.modelProxy.apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: input.modelProxy.model, max_tokens: maxTokens, messages: [{ role: 'user', content: 'transport proof' }] }),
+  })
+  const overBudget = await send(101)
+  if (overBudget.ok) throw new Error('output ceiling was not enforced')
+  await overBudget.text()
+  const response = await send(10)
+  if (!response.ok) throw new Error('model transport failed: ' + response.status + ' ' + await response.text())
+  await response.json()
+  throw new Error('transport-handshake-complete')
+}
+`)
+      const method = gepaOptimizationMethod({
+        recipe: recipeForSeat(spec, optimizer.model), optimizer,
+        objective: 'Check transport only', evaluationId: 'bench-transport',
+        runner: { command: process.execPath, args: [bridge] },
+      })
+      await expect(method.optimize({
+        baselineSurface: 'seed', trainScenarios: [{ id: 'train', kind: 'fixture' }], selectionScenarios: [{ id: 'selection', kind: 'fixture' }],
+        dispatchWithSurface: async () => 'unused',
+        judges: [{ name: 'fixture', dimensions: [{ key: 'score', description: 'fixture' }], score: async () => ({ dimensions: { score: 1 }, composite: 1 }) }],
+        runDir, seed: 42, runOptions: {}, costLedger: createRunCostLedger({ storage: fsCampaignStorage(), runDir: join(runDir, 'cost') }),
+      })).rejects.toThrow('transport-handshake-complete')
+      expect(requests).toHaveLength(1)
+    } finally {
+      await rm(runDir, { recursive: true, force: true })
+    }
+  })
+
   it("'gepa' is one bounded engine run carrying the full budget (default 10)", () => {
     const recipe = recipeForSeat(seat() as GepaSeatSpec)
     expect(recipe).toMatchObject({ kind: 'engine', run: { engine: 'gepa', maxEvaluations: DEFAULT_MAX_METRIC_CALLS } })

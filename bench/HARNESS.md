@@ -109,6 +109,8 @@ Exact score equality is usually the wrong parity criterion for stochastic system
 - **AutoResearch / Prime Agent** — agentic search over an editable research surface. Treat the agent, tools, and external evaluator as separate identities.
 - **Meta-Harness** — search over harness or orchestration behavior; preserve the same outcome evaluator.
 - **Omni** — phase-one portfolio search followed by a fresh phase-two optimizer seeded from the best phase-one artifact. The matched phase-one budgets and the phase boundary are part of the protocol.
+  Bench enables Eval’s metered Anthropic endpoint for the CLI engines and binds their model to the selected optimizer model.
+  Each admitted optimizer request executes with its requested output limit; Eval enforces the configured ceiling.
 - **Trace analysts** — evidence producers. Measure finding quality against labeled traces before using findings to steer search.
 - **Prime Agent RLM and DSPy RLM** — alternative analyst/context engines, not optimization methods by themselves. Compare them on the same trace questions, evidence requirements, context budgets, and downstream decisions.
 
