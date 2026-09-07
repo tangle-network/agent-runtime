@@ -98,8 +98,11 @@ function jsonValue(result: unknown): unknown {
     }
     if (seen.includes(value)) throw new UnrecordableSettleValueError(path, 'cycle')
     seen.push(value)
-    if (Array.isArray(value)) value.forEach((item, index) => visit(item, `${path}[${index}]`))
-    else for (const [key, item] of Object.entries(value)) visit(item, `${path}.${key}`)
+    if (Array.isArray(value)) {
+      for (const [index, item] of value.entries()) visit(item, `${path}[${index}]`)
+    } else {
+      for (const [key, item] of Object.entries(value)) visit(item, `${path}.${key}`)
+    }
     seen.pop()
   }
   visit(result, '')
