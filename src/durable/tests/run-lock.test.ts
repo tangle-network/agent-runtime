@@ -105,6 +105,34 @@ describe('acquireRunDirectoryLock', () => {
     expect((await stat(guard)).isDirectory()).toBe(true)
   })
 
+  it('waits for transient mutation contention before releasing', async () => {
+    const lock = await acquireRunDirectoryLock(runDir, 'run:a')
+    const guard = `${lock.path}.guard`
+    await mkdir(guard)
+    const cleanup = new Promise<void>((resolve, reject) => {
+      setTimeout(() => {
+        rm(guard, { recursive: true }).then(resolve, reject)
+      }, 50)
+    })
+    await lock.release()
+    await cleanup
+    expect(await readRunDirectoryLock(runDir)).toBeUndefined()
+  })
+
+  it('bounds release retries and preserves an abandoned guard', async () => {
+    const lock = await acquireRunDirectoryLock(runDir, 'run:a')
+    const guard = `${lock.path}.guard`
+    await mkdir(guard)
+    const started = performance.now()
+    await expect(lock.release()).rejects.toThrow(/confirming no lock mutation/)
+    expect(performance.now() - started).toBeGreaterThanOrEqual(1_000)
+    expect(performance.now() - started).toBeLessThan(3_000)
+    expect((await stat(guard)).isDirectory()).toBe(true)
+    await rm(guard, { recursive: true })
+    await lock.release()
+    expect(await readRunDirectoryLock(runDir)).toBeUndefined()
+  })
+
   it('does not release a different holder or malformed ownership', async () => {
     const lock = await acquireRunDirectoryLock(runDir, 'run:a')
     const replacement = { ...lock, processStart: 'another-process-start' }

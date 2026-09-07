@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, readFile, rmdir, unlink } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { publishExclusiveDurableFile } from '../runtime/supervise/durable-file'
 import { isNoEntError } from './jsonl-file'
@@ -223,30 +224,50 @@ function processExists(pid: number): boolean {
 
 /** Remove the lock only while it still names this holder; a reclaimed lock belongs to its new owner. */
 async function releaseHolder(path: string, holder: RunDirectoryLockHolder): Promise<void> {
-  await withMutationGuard(path, async () => {
-    const existing = await readLockFile(path)
-    if (existing.state !== 'holder') return
-    if (
-      existing.holder.pid !== holder.pid ||
-      existing.holder.startedAt !== holder.startedAt ||
-      existing.holder.runId !== holder.runId ||
-      existing.holder.processStart !== holder.processStart
-    )
-      return
-    await removeIfPresent(path)
-  })
+  await withMutationGuard(
+    path,
+    async () => {
+      const existing = await readLockFile(path)
+      if (existing.state !== 'holder') return
+      if (
+        existing.holder.pid !== holder.pid ||
+        existing.holder.startedAt !== holder.startedAt ||
+        existing.holder.runId !== holder.runId ||
+        existing.holder.processStart !== holder.processStart
+      )
+        return
+      await removeIfPresent(path)
+    },
+    true,
+  )
 }
 
 /** Serialize stale reclamation and release; an abandoned guard requires operator recovery. */
-async function withMutationGuard<T>(path: string, mutate: () => Promise<T>): Promise<T> {
+async function withMutationGuard<T>(
+  path: string,
+  mutate: () => Promise<T>,
+  waitForRelease = false,
+): Promise<T> {
   const guard = `${path}.guard`
-  try {
-    await mkdir(guard)
-  } catch (cause) {
-    throw new Error(
-      `supervisePursuit: cannot mutate ${path}; inspect ${guard} and remove it only after confirming no lock mutation is active`,
-      { cause },
-    )
+  const deadline = performance.now() + (waitForRelease ? 1_000 : 0)
+  for (;;) {
+    try {
+      await mkdir(guard)
+      break
+    } catch (cause) {
+      if (
+        waitForRelease &&
+        (cause as { code?: unknown }).code === 'EEXIST' &&
+        performance.now() < deadline
+      ) {
+        await delay(10)
+        continue
+      }
+      throw new Error(
+        `supervisePursuit: cannot mutate ${path}; inspect ${guard} and remove it only after confirming no lock mutation is active`,
+        { cause },
+      )
+    }
   }
   try {
     return await mutate()
