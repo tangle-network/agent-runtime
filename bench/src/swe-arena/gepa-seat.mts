@@ -130,7 +130,7 @@ export type GepaSeatRecipe = Extract<
 /** Build the bounded recipe for a seat. The TOTAL inner-evaluation budget is
  *  exactly `maxMetricCalls`. The adapter's local callback enforces the sum
  *  of per-run limits, and the seat's own dispatch wrapper re-enforces it. */
-export function recipeForSeat(spec: GepaSeatSpec): GepaSeatRecipe {
+export function recipeForSeat(spec: GepaSeatSpec, optimizerModel?: string): GepaSeatRecipe {
   const calls = spec.maxMetricCalls ?? DEFAULT_MAX_METRIC_CALLS
   const cost = spec.maxProposerCostUsd ?? DEFAULT_MAX_PROPOSER_COST_USD
   if (spec.engine === 'gepa') {
@@ -145,6 +145,7 @@ export function recipeForSeat(spec: GepaSeatSpec): GepaSeatRecipe {
     engine,
     maxEvaluations: perExplore,
     maxProposerCostUsd: perRunCost,
+    ...(engine !== 'gepa' && optimizerModel ? { engineConfig: { model: optimizerModel } } : {}),
   }))
   return {
     kind: 'omni',
@@ -758,6 +759,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
         : officialOptimizerModel({
             env: process.env,
             envPrefix: 'GEPA_OPTIMIZER',
+            anthropicEndpoint: spec.engine === 'omni',
             model: process.env.GEPA_OPTIMIZER_MODEL ?? config.arm.driverModel,
             baseUrl:
               process.env.GEPA_OPTIMIZER_BASE_URL ??
@@ -771,7 +773,7 @@ export function gepaSeatAuthor(config: OuterLoopConfig, deps: GepaSeatDeps): Aut
           }))
     const method = factory({
       name: `gepa-seat:${spec.name}`,
-      recipe,
+      recipe: recipeForSeat(spec, optimizer?.model),
       objective,
       evaluationId: gepaSeatEvaluationId({
         smokeInstanceId: deps.smokeInstanceId,
