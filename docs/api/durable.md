@@ -2209,6 +2209,11 @@ Every concrete execution writes only inside its own `runDir`. Cross-run pursuit
 aggregation is therefore lock-free at the observer layer: reuse `pursuitId` across
 run directories and let Intelligence join the independently verified projections.
 
+The run's outcome outlives the process: a settled run writes `result.json` and a
+thrown run writes `failure.json` beside `observer.jsonl`, once, as canonical JSON.
+Either record makes the directory terminal for its `runId`; executing there again
+requires a new `runId`, which retires the superseded record before spending.
+
 #### Parameters
 
 ##### profile

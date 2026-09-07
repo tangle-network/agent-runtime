@@ -22,7 +22,10 @@
  *     here, not from the experimental `TopSnapshot` in `/tui`, which is an operator
  *     view over on-disk run state and carries no model-call identity.
  *   - `supervisePursuit`: one-call adapter over canonical `supervise()` that
- *     gives each isolated run a stable cross-run pursuit identity.
+ *     gives each isolated run a stable cross-run pursuit identity and records
+ *     its terminal outcome once, in `result.json` or `failure.json` beside
+ *     `observer.jsonl`, so a settled directory refuses to spend again under
+ *     the same `runId`.
  */
 
 export type {
