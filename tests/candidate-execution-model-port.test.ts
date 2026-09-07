@@ -602,9 +602,10 @@ describe('protected candidate model port', () => {
         ]),
     })
     const port = createPort(client)
-    await reserve(port, { ...reserveInput(limits), expiresAtMs })
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(expiresAtMs + 1)
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(expiresAtMs - 10)
     try {
+      await reserve(port, { ...reserveInput(limits), expiresAtMs })
+      clock.mockReturnValue(expiresAtMs + 1)
       await expect(port.settleGrant(settleInput())).rejects.toThrow(
         /total tokens 50 exceeds reserved 40/,
       )

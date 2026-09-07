@@ -93,6 +93,8 @@ describe('nested supervisor coordination durability', () => {
         reason: 'durable owner-isolation proof',
         urgency: 'continue-without',
       })
+      // Restart failed managers explicitly; completed unassessed managers are replayable.
+      if (call < 2) throw new Error('interrupt manager after recording its question')
     }
     const options = {
       backend: {
