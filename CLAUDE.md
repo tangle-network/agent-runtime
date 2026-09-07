@@ -11,10 +11,14 @@ Domain policy belongs in adapters and agent profiles.
   Use the existing execution and profile-materialization paths before adding a new loop or provider-specific configuration.
 - Before architectural changes, read [architecture.md](docs/architecture.md) and [architecture-interpretations.md](docs/architecture-interpretations.md).
   For distributed coordination, provider workers, recovery, or run-API convergence, also read [agent-managed-compute](docs/agent-managed-compute/README.md).
-- Before work under `bench/`, read [bench/HARNESS.md](bench/HARNESS.md).
+- Before work under `bench/`, read [bench/HARNESS.md](bench/HARNESS.md) for its repository-ownership table.
 - Before changing documentation or addressing freshness failures, read [MAINTAINING.md](docs/MAINTAINING.md).
   Generated API pages live under `docs/api/`; regenerate them through the package scripts.
 - Use [docs/README.md](docs/README.md) to find other topic owners.
+
+These gates bind when you name a destination, not only when you edit a file.
+Recommending, planning, or scoping work into a location commits the cost, so read that location's owning document first.
+Do not propose a directory or repository for new work before reading the document that says what it holds.
 
 Check behavior against the implementation and relevant tests when a source conflicts.
 Update the nearest maintained document when a change invalidates it.
@@ -26,6 +30,11 @@ Keep changing signatures, provider capabilities, and command inventories in thei
 - `agent-eval` owns evaluation data and decisions.
 - `agent-knowledge` owns knowledge operations and does not depend on this runtime.
 - This package composes those lower packages and owns concepts coupled to running execution.
+
+Consumers own the campaigns that use this runtime.
+This package holds exact execution, reusable benchmark adapters, and packed-consumer checks.
+It does not hold experiment generations, hill climbs, or campaigns asking whether a method improves a benchmark.
+Those belong in the consuming lab repository; [bench/HARNESS.md](bench/HARNESS.md) holds the ownership table and the evidence levels.
 
 Lower packages must not import runtime types or add runtime dependencies, including development and peer dependencies.
 Move portable contracts to `agent-interface`, evaluation concepts to `agent-eval`, or inject execution through a callback.
