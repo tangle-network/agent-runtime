@@ -69,6 +69,7 @@ import {
 import { createInbox, type Inbox } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
+import { applyRunCancellation } from './run-cancellation'
 import {
   claimWorkerSteerDelivery,
   type RunCancellation,
@@ -686,25 +687,8 @@ export function createCancelAcknowledger(deps: CancelAcknowledgerDeps): {
    */
   const passRun = (): void => {
     if (deps.controlScope !== 'run' || deps.abortRun === undefined) return
-    const request = readRunCancelRequest(deps.dir)
-    if (request === undefined) return
     if (runTracked !== undefined) return
-    const prior = readRunCancellation(deps.dir, request.operationId)
-    if (prior !== undefined) {
-      runTracked = prior
-      return
-    }
-    const record: RunCancellation = {
-      operationId: request.operationId,
-      effect: 'cancel_requested',
-      requestedAt: request.at,
-      observedAt: iso(),
-      ...(request.reason === undefined ? {} : { reason: request.reason }),
-      detail: 'root abort issued to the whole run; termination not yet proven',
-    }
-    writeRunCancellation(deps.dir, record)
-    runTracked = record
-    deps.abortRun(request.reason ?? 'run cancel requested')
+    runTracked = applyRunCancellation(deps.dir, deps.abortRun, iso)
   }
 
   const pass = (phase: 'turn' | 'final'): void => {

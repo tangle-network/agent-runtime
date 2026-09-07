@@ -238,7 +238,9 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         const verdict = deriveDeliveryVerdict(settled, out, spec.acceptedSubmission?.() === true)
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
-          out,
+          // No accepted finalizer output is a present, unassessed result. Undefined is the
+          // blob reader's missing-artifact sentinel and cannot round-trip through JSON.
+          out: out === undefined ? null : out,
           spent: childWork,
           ...(verdict ? { verdict } : {}),
         }

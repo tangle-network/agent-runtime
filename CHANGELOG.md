@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+A nested manager without an accepted finalizer output now persists an explicit `null` result.
+Memory and file-backed replay can inspect its unassessed completion without a missing-blob error or serialization failure.
+Its descendants' artifacts remain available, and completion does not become independently accepted delivery.
+
 ## 0.198.1
 
 Concurrent candidate recovery now reads terminal records before their staged outbox prerequisites.
