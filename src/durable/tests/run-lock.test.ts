@@ -37,11 +37,7 @@ describe('acquireRunDirectoryLock', () => {
       startedAt: '2023-11-14T22:13:20.000Z',
       runId: 'run:a',
     })
-    expect(await readRunDirectoryLock(runDir)).toEqual({
-      pid: process.pid,
-      startedAt: '2023-11-14T22:13:20.000Z',
-      runId: 'run:a',
-    })
+    expect(await readRunDirectoryLock(runDir)).toEqual(written)
 
     const refused = await acquireRunDirectoryLock(runDir, 'run:b').catch((error) => error)
     expect(refused).toBeInstanceOf(RunDirectoryLockedError)
