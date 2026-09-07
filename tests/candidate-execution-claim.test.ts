@@ -15,6 +15,7 @@ import {
   type AgentCandidateExecutionLease,
   type AgentCandidateExecutionRecoveryEvidence,
   type AgentCandidateExecutionTerminalResult,
+  candidateClaimFileInternals,
   InMemoryAgentCandidateExecutionClaimStore,
 } from '../src/candidate-execution/claim'
 import { FileAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim-file-store'
@@ -26,6 +27,17 @@ import {
   cleanupCandidateFixtures,
   createCandidateExecutionFixture,
 } from './helpers/candidate-execution-fixture'
+
+vi.mock('../src/candidate-execution/claim', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/candidate-execution/claim')>()
+  return {
+    ...actual,
+    candidateClaimFileInternals: {
+      ...actual.candidateClaimFileInternals,
+      readTransitionIfPresent: vi.fn(actual.candidateClaimFileInternals.readTransitionIfPresent),
+    },
+  }
+})
 
 const temporaryDirectories: string[] = []
 const FUTURE_EXPIRY_MS = Date.now() + 60 * 60 * 1_000
@@ -607,6 +619,52 @@ describe('candidate execution claim lifecycle', () => {
     expect(finishResults.filter((result) => result === 'finished')).toHaveLength(1)
     expect(finishResults.filter((result) => result === 'already-finished:exact')).toHaveLength(7)
   }, 15_000)
+
+  it('recovers when another store publishes after a transition read', async () => {
+    const directory = await tempDirectory()
+    const requested = retryClaim({ leaseExpiresAtMs: 6_000 })
+    const owner = new FileAgentCandidateExecutionClaimStore({ directory, now: () => 5_900 })
+    await acquire(owner, requested)
+    const reader = new FileAgentCandidateExecutionClaimStore({ directory, now: () => 6_000 })
+    const recovery = new FileAgentCandidateExecutionClaimStore({ directory, now: () => 6_000 })
+    const attempt = { executionId: requested.executionId, attempt: 1 }
+    const evidence = recoveryEvidence(requested)
+    const actual = await vi.importActual<typeof import('../src/candidate-execution/claim')>(
+      '../src/candidate-execution/claim',
+    )
+    let concurrentPublication = false
+    vi.mocked(candidateClaimFileInternals.readTransitionIfPresent).mockImplementationOnce(
+      async (...args) => {
+        const observed = await actual.candidateClaimFileInternals.readTransitionIfPresent(...args)
+        expect(observed).toBeUndefined()
+        expect((await recovery.recoverExpired(attempt, evidence)).finished).toBe(true)
+        concurrentPublication = true
+        return observed
+      },
+    )
+
+    expect((await reader.recoverExpired(attempt, evidence)).finished).toBe(false)
+    expect(concurrentPublication).toBe(true)
+    const observed = await reader.getAttempt(attempt)
+    expect(observed?.terminal).toEqual(observed?.staged)
+    expect(observed?.terminal).toBeDefined()
+  })
+
+  it('rejects a terminal whose staged outbox is missing', async () => {
+    const directory = await tempDirectory()
+    const owner = new FileAgentCandidateExecutionClaimStore({ directory })
+    const acquired = await acquire(owner, claim())
+    await complete(owner, acquired.lease, failed())
+    const transition = (await readdir(directory)).find((name) =>
+      name.endsWith('.transition-1.json'),
+    )
+    if (!transition) throw new Error('completed fixture has no staged outbox')
+    await rm(resolve(directory, transition))
+
+    await expect(owner.getAttempt({ executionId: 'execution-1', attempt: 1 })).rejects.toThrow(
+      'has no staged outbox',
+    )
+  })
 
   it('linearizes expired recovery across independent processes', async () => {
     const directory = await tempDirectory()
