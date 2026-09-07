@@ -104,11 +104,25 @@ export interface PursuitRunTotals {
   readonly exclusiveByNode: Readonly<Record<string, Spend>>
 }
 
+/**
+ * One root `agent.run` lifecycle, `before` to `after`/`error`. A corrected input resumed into
+ * the same `runDir` reuses the `runId`, so one run row can span several of these; the row's own
+ * `status`, `settledAt` and `error` are always the LAST one's, and an earlier failure lives here.
+ */
+export interface PursuitRunAttempt {
+  readonly status: PursuitStatus
+  readonly startedAt: number
+  readonly settledAt?: number
+  readonly error?: string
+}
+
 export interface PursuitRunProjection {
   readonly runId: string
   readonly status: PursuitStatus
   readonly settledAt?: number
   readonly error?: string
+  /** Every attempt of this run, oldest first. Present exactly when the run ran more than once. */
+  readonly attempts?: ReadonlyArray<PursuitRunAttempt>
   readonly firstSequence: number
   readonly lastSequence: number
   readonly firstObservedAt: number
@@ -192,11 +206,16 @@ export interface PursuitProjection {
   readonly decisionCount: number
 }
 
-type MutableRun = {
-  runId: string
+type MutableAttempt = {
   status: PursuitStatus
+  startedAt: number
   settledAt?: number
   error?: string
+}
+
+type MutableRun = {
+  runId: string
+  attempts: MutableAttempt[]
   firstSequence: number
   lastSequence: number
   firstObservedAt: number
@@ -341,7 +360,7 @@ function getRun(runs: Map<string, MutableRun>, runId: string, record: ObserverRe
   if (existing) return existing
   const created: MutableRun = {
     runId,
-    status: 'running',
+    attempts: [],
     firstSequence: record.sequence,
     lastSequence: record.sequence,
     firstObservedAt: record.observedAt,
@@ -360,18 +379,30 @@ function projectRunActivity(run: MutableRun, record: ObserverRecord): void {
   if (event?.target !== 'agent.run') return
   const payload = objectRecord(event.payload)
   const status = stringField(payload, 'status')
-  if (event.phase === 'after' || status === 'done') {
-    run.status = 'done'
-    run.settledAt = record.observedAt
+  if (event.phase === 'before') {
+    run.attempts.push({ status: 'running', startedAt: record.observedAt })
     return
   }
   // The `agent.run` hook payload spells a failure `failed`; the projection spells every
   // settled failure `down`, the journal's word, so run and node rows join on one vocabulary.
-  if (event.phase !== 'error' && status !== 'failed') return
-  run.status = 'down'
-  run.settledAt = record.observedAt
+  const settled: PursuitStatus | undefined =
+    event.phase === 'after' || status === 'done'
+      ? 'done'
+      : event.phase === 'error' || status === 'failed'
+        ? 'down'
+        : undefined
+  if (settled === undefined) return
+  // A terminal record with no open attempt still settles the run. It opens its own attempt
+  // rather than reviving the previous one, so a settled failure is never overwritten in place.
+  let attempt = run.attempts.at(-1)
+  if (attempt === undefined || attempt.status !== 'running') {
+    attempt = { status: 'running', startedAt: record.observedAt }
+    run.attempts.push(attempt)
+  }
+  attempt.status = settled
+  attempt.settledAt = record.observedAt
   const error = stringField(payload, 'error')
-  if (error) run.error = error
+  if (error) attempt.error = error
 }
 
 function nodeKey(runId: string, nodeId: string): string {
@@ -709,9 +740,19 @@ function timingOf(node: MutableNode): PursuitNodeTiming | undefined {
 
 function freezeRun(run: MutableRun, nodes: readonly MutableNode[]): PursuitRunProjection {
   const gaps = runSpendGaps(nodes)
-  const { rootInference: _rootInference, ...rest } = run
+  const { runId, rootInference: _rootInference, attempts, ...rest } = run
+  // The row reads as its last attempt, so an earlier attempt's error cannot outlive it. Keys keep
+  // their previous order so a single-attempt row still serializes identically.
+  const last = attempts.at(-1)
   return Object.freeze({
+    runId,
+    status: last?.status ?? 'running',
     ...rest,
+    ...(last?.settledAt !== undefined ? { settledAt: last.settledAt } : {}),
+    ...(last?.error !== undefined ? { error: last.error } : {}),
+    ...(attempts.length > 1
+      ? { attempts: Object.freeze(attempts.map((attempt) => Object.freeze({ ...attempt }))) }
+      : {}),
     targets: Object.freeze({ ...run.targets }),
     decisions: Object.freeze({ ...run.decisions }),
     totals: runTotals(run, nodes),

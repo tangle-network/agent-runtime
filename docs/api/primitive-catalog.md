@@ -385,7 +385,7 @@ Import from `@tangle-network/agent-runtime/conversation` — 54 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 34 exports.
+Import from `@tangle-network/agent-runtime/durable` — 35 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
@@ -410,6 +410,7 @@ Import from `@tangle-network/agent-runtime/durable` — 34 exports.
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
 | `PursuitNodeTiming` | interface | One node's clock. `wallMs` is `settledAt - startedAt` and is deliberately distinct from the |
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
+| `PursuitRunAttempt` | interface | One root `agent.run` lifecycle, `before` to `after`/`error`. A corrected input resumed into |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
