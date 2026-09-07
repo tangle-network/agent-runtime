@@ -117,6 +117,100 @@ journals by `pursuitId` instead of making independent processes share a write he
 
 ***
 
+### RunDirectoryLockedError
+
+The directory is held by a live process. `holder` is what that process recorded.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new RunDirectoryLockedError**(`path`, `holder`): [`RunDirectoryLockedError`](#rundirectorylockederror)
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### holder
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder)
+
+###### Returns
+
+[`RunDirectoryLockedError`](#rundirectorylockederror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### holder
+
+> `readonly` **holder**: [`RunDirectoryLockHolder`](#rundirectorylockholder)
+
+***
+
+### SettledRunDirectoryError
+
+The directory already holds a settle record, so the run it records must not be re-entered.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new SettledRunDirectoryError**(`path`, `recordedRunId`, `requestedRunId`): [`SettledRunDirectoryError`](#settledrundirectoryerror)
+
+###### Parameters
+
+###### path
+
+`string`
+
+###### recordedRunId
+
+`string`
+
+###### requestedRunId
+
+`string`
+
+###### Returns
+
+[`SettledRunDirectoryError`](#settledrundirectoryerror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### path
+
+> `readonly` **path**: `string`
+
+##### recordedRunId
+
+> `readonly` **recordedRunId**: `string`
+
+The root of the recorded run, which is its `runId`.
+
+***
+
 ### SupervisePursuitError
 
 A failed Runtime execution whose complete third-person projection was retained.
@@ -129,7 +223,7 @@ A failed Runtime execution whose complete third-person projection was retained.
 
 ##### Constructor
 
-> **new SupervisePursuitError**(`cause`, `pursuit`, `observerPath`): [`SupervisePursuitError`](#supervisepursuiterror)
+> **new SupervisePursuitError**(`cause`, `pursuit`, `observerPath`, `failurePath`): [`SupervisePursuitError`](#supervisepursuiterror)
 
 ###### Parameters
 
@@ -142,6 +236,10 @@ A failed Runtime execution whose complete third-person projection was retained.
 [`PursuitProjection`](#pursuitprojection)
 
 ###### observerPath
+
+`string`
+
+###### failurePath
 
 `string`
 
@@ -162,6 +260,12 @@ A failed Runtime execution whose complete third-person projection was retained.
 ##### observerPath
 
 > `readonly` **observerPath**: `string`
+
+##### failurePath
+
+> `readonly` **failurePath**: `string`
+
+`runDir/failure.json`: the record of this throw.
 
 ## Interfaces
 
@@ -675,11 +779,32 @@ entries sum to `inclusive` by construction.
 
 ### PursuitRunProjection
 
+One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before`
+to the `after` or `error` that settles it. A run whose first attempt threw and whose corrected
+attempt settled is two rows, so `error` names only the attempt that failed.
+
+A `before` observed while an attempt is still open does not open another: it is a process
+that resumed the run after the previous process died without a terminal record, and the row
+counts it in `resumeCount`. The alternative, a row per process start, would leave the killed
+process's row `running` for the rest of history.
+
 #### Properties
 
 ##### runId
 
 > `readonly` **runId**: `string`
+
+##### attemptIndex
+
+> `readonly` **attemptIndex**: `number`
+
+Zero-based position of this attempt among the run's attempts, in journal order.
+
+##### resumeCount
+
+> `readonly` **resumeCount**: `number`
+
+How many times a process resumed this attempt after a predecessor died mid-run.
 
 ##### status
 
@@ -978,6 +1103,136 @@ Digest-chain tip for this concrete execution journal.
 ##### decisionCount
 
 > `readonly` **decisionCount**: `number`
+
+***
+
+### RunDirectoryLockHolder
+
+What the lock file records about its holder.
+
+#### Extended by
+
+- [`RunDirectoryLock`](#rundirectorylock)
+
+#### Properties
+
+##### pid
+
+> `readonly` **pid**: `number`
+
+##### startedAt
+
+> `readonly` **startedAt**: `string`
+
+ISO instant the holder took the lock.
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### processStart?
+
+> `readonly` `optional` **processStart?**: `string`
+
+The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
+without one is judged by pid liveness alone, which cannot detect a reused pid.
+
+***
+
+### RunDirectoryLock
+
+A held lock. `release()` removes the file; it is safe to call more than once.
+
+#### Extends
+
+- [`RunDirectoryLockHolder`](#rundirectorylockholder)
+
+#### Properties
+
+##### pid
+
+> `readonly` **pid**: `number`
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`pid`](#pid)
+
+##### startedAt
+
+> `readonly` **startedAt**: `string`
+
+ISO instant the holder took the lock.
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`startedAt`](#startedat-1)
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`runId`](#runid-2)
+
+##### processStart?
+
+> `readonly` `optional` **processStart?**: `string`
+
+The OS's start token for `pid` when the host reports one (`readProcessStart`). A holder
+without one is judged by pid liveness alone, which cannot detect a reused pid.
+
+###### Inherited from
+
+[`RunDirectoryLockHolder`](#rundirectorylockholder).[`processStart`](#processstart)
+
+##### path
+
+> `readonly` **path**: `string`
+
+#### Methods
+
+##### release()
+
+> **release**(): `Promise`\<`void`\>
+
+###### Returns
+
+`Promise`\<`void`\>
+
+***
+
+### DurableFailureRecord
+
+What `failure.json` records about the most recent throw.
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### pursuitId
+
+> `readonly` **pursuitId**: `string`
+
+##### at
+
+> `readonly` **at**: `string`
+
+ISO instant the throw was recorded.
+
+##### error
+
+> `readonly` **error**: `object`
+
+###### name
+
+> `readonly` **name**: `string`
+
+###### message
+
+> `readonly` **message**: `string`
 
 ***
 
@@ -1927,6 +2182,12 @@ spans are telemetry, never the replay/resume record.
 
 > `readonly` **observerPath**: `string`
 
+##### settlePath
+
+> `readonly` **settlePath**: `string`
+
+`runDir/result.json`: `result` as canonical JSON, written once at settle.
+
 ***
 
 ### DurableCoordinationStreamIdentity
@@ -2015,6 +2276,30 @@ rest; `unknown` = nothing priced it, so `usd` is a floor and never the cost.
 > **PursuitNodePlacement** = `Readonly`\<`Record`\<`string`, `string` \| `number` \| `boolean` \| `null`\>\>
 
 Where and how a node's execution was placed, read off its execution-binding receipt.
+
+## Variables
+
+### RUN\_DIRECTORY\_LOCK\_FILE
+
+> `const` **RUN\_DIRECTORY\_LOCK\_FILE**: `"supervise.lock"` = `'supervise.lock'`
+
+The lock file `supervisePursuit` holds inside a run directory for the life of one call.
+
+***
+
+### SETTLE\_RECORD\_FILE
+
+> `const` **SETTLE\_RECORD\_FILE**: `"result.json"` = `'result.json'`
+
+The settle record: the returned `SupervisedResult` as canonical JSON, written once.
+
+***
+
+### FAILURE\_RECORD\_FILE
+
+> `const` **FAILURE\_RECORD\_FILE**: `"failure.json"` = `'failure.json'`
+
+The failure record: the most recent throw, replaced by a later throw.
 
 ## Functions
 
@@ -2175,8 +2460,9 @@ silently render a mutated or reordered observer history as trustworthy state.
 
 Topology comes only from Runtime's canonical `agent.spawn` facts. Terminal node
 state comes only from `agent.child`; concrete run state comes only from the root
-`agent.run` lifecycle emitted by `supervisePursuit`. Node identity is scoped to the
-concrete Runtime run so independent trees may both contain `root:s0` without aliasing.
+`agent.run` lifecycle emitted by `supervisePursuit`, one row per attempt. Node identity is
+scoped to the concrete Runtime run so independent trees may both contain `root:s0` without
+aliasing, and a node belongs to the attempt that spawned it.
 
 Usage, cost and timing are reported at the class the runtime measured them at. A missing
 class stays ABSENT and the run names the node in `spendGaps`; nothing here converts an
@@ -2194,6 +2480,114 @@ readonly [`ObserverRecord`](#observerrecord)[]
 
 ***
 
+### acquireRunDirectoryLock()
+
+> **acquireRunDirectoryLock**(`runDir`, `runId`, `now?`): `Promise`\<[`RunDirectoryLock`](#rundirectorylock)\>
+
+Take `runDir/supervise.lock`, or refuse.
+
+The file is published with its full content or not at all, so a contender never reads a
+half-written holder. A lock whose holder is gone (its pid no longer exists, or the pid now
+belongs to a process with a different start token) is stale and is removed before one retry;
+a pid this process may not signal (`EPERM`) is alive and refuses. An empty file names no
+holder and is reclaimed. A file with unreadable content is left in place and refused:
+reclaiming it could evict a live holder written by something other than this module.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+##### runId
+
+`string`
+
+##### now?
+
+() => `number`
+
+#### Returns
+
+`Promise`\<[`RunDirectoryLock`](#rundirectorylock)\>
+
+***
+
+### readRunDirectoryLock()
+
+> **readRunDirectoryLock**(`runDir`): `Promise`\<[`RunDirectoryLockHolder`](#rundirectorylockholder) \| `undefined`\>
+
+Read the holder a lock file names, or `undefined` when no lock file names one.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`RunDirectoryLockHolder`](#rundirectorylockholder) \| `undefined`\>
+
+***
+
+### settleRecordJson()
+
+> **settleRecordJson**(`result`): `string`
+
+The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785
+canonical JSON. Throws `UnrecordableSettleValueError` before any byte is written when the
+result carries a value JSON would misstate.
+
+#### Parameters
+
+##### result
+
+`unknown`
+
+#### Returns
+
+`string`
+
+***
+
+### readSettleRecord()
+
+> **readSettleRecord**(`runDir`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\> \| `undefined`\>
+
+Read the settle record a run directory holds, or `undefined` when it holds none. A file that
+is present but is not a settle record is corruption and fails loud.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\> \| `undefined`\>
+
+***
+
+### readFailureRecord()
+
+> **readFailureRecord**(`runDir`): `Promise`\<[`DurableFailureRecord`](#durablefailurerecord) \| `undefined`\>
+
+Read the most recent failure record, or `undefined` when the directory holds none.
+
+#### Parameters
+
+##### runDir
+
+`string`
+
+#### Returns
+
+`Promise`\<[`DurableFailureRecord`](#durablefailurerecord) \| `undefined`\>
+
+***
+
 ### supervisePursuit()
 
 > **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>\>
@@ -2208,6 +2602,13 @@ receive the observer path or projection and their behavior does not depend on it
 Every concrete execution writes only inside its own `runDir`. Cross-run pursuit
 aggregation is therefore lock-free at the observer layer: reuse `pursuitId` across
 run directories and let Intelligence join the independently verified projections.
+
+The directory's terminal state is recorded beside `observer.jsonl`: `result.json` holds the
+returned result once the run settles and `failure.json` the most recent throw. A directory
+whose `result.json` exists refuses re-entry before any compute; a failure record alone does
+not, because a caller can correct its input and drive the same run again. For the life of the
+call the directory is held by `supervise.lock`, so a second process on the same directory
+refuses and names the holder instead of sharing one journal.
 
 #### Parameters
 
