@@ -182,6 +182,7 @@ describe('loadFullCampaignCells + incumbentSurfaceHash (real fs/git)', () => {
 
   it('computes the same incumbent hash for the unchanged tip (baseCommit == candidateCommit, empty patch)', async () => {
     await runOk('git', ['init', '-q', '-b', 'main', repo])
+    await runOk('git', ['-C', repo, 'config', 'core.hooksPath', '/dev/null'])
     await runOk('git', ['-C', repo, 'config', 'user.email', 't@t.dev'])
     await runOk('git', ['-C', repo, 'config', 'user.name', 'T'])
     await writeFile(join(repo, 'a.txt'), 'x\n')

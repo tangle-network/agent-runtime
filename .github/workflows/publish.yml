@@ -171,9 +171,6 @@ jobs:
       - name: Verify packed Runtime with official GEPA and SkillOpt
         run: pnpm run verify:official-optimizers
 
-      - name: Verify PrimeIntellect package integration
-        run: pnpm run verify:primeintellect
-
       - name: Verify agent-bench against this release
         env:
           AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
@@ -252,7 +249,6 @@ jobs:
         with:
           name: agent-runtime-package
           path: ${{ runner.temp }}/agent-runtime-package
-
 
       # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
       # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over
@@ -421,7 +417,6 @@ jobs:
         with:
           name: agent-bench-package
           path: ${{ runner.temp }}/agent-bench-package
-
 
       # Tokenless by default. NPM_TOKEN is a break-glass fallback for repairing a
       # publish by hand; it is not set, and a token set here TAKES PRECEDENCE over

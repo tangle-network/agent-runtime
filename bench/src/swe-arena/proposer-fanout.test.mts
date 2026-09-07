@@ -358,6 +358,7 @@ describe('fanOutLoopsGenerator', () => {
     loopsRepo = await mkdtemp(join(tmpdir(), 'fanout-repo-'))
     outDir = await mkdtemp(join(tmpdir(), 'fanout-out-'))
     await runOk('git', ['init', '-q', '-b', 'main', loopsRepo])
+    await runOk('git', ['-C', loopsRepo, 'config', 'core.hooksPath', '/dev/null'])
     await git(['config', 'user.email', 't@t.dev'], loopsRepo)
     await git(['config', 'user.name', 'T'], loopsRepo)
     await writeFile(join(loopsRepo, 'src.ts'), 'base\n')

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime'
+import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime/candidate-execution'
+
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
 
 import { createStagedPierCandidateExecutionFixture } from '../src/pier-agent.test-fixtures.mts'

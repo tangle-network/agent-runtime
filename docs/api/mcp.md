@@ -2012,7 +2012,7 @@ Which harness handled this delegation.
 
 ###### Inherited from
 
-[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-18)
+[`LoopSandboxPlacement`](runtime.md#loopsandboxplacement).[`kind`](runtime.md#kind-19)
 
 ##### sandboxId?
 
@@ -3654,7 +3654,7 @@ Backend bindings for each attempt, in durable oldest-first order.
 
 ##### spent?
 
-> `readonly` `optional` **spent?**: [`Spend`](index.md#spend)
+> `readonly` `optional` **spent?**: [`Spend`](runtime.md#spend)
 
 Conserved spend. Missing means unavailable; unknown accounting remains explicitly unknown.
 
@@ -3676,7 +3676,7 @@ Conserved spend. Missing means unavailable; unknown accounting remains explicitl
 
 ##### trace
 
-> `readonly` **trace**: [`WorkerTraceEvidence`](index.md#workertraceevidence)
+> `readonly` **trace**: [`WorkerTraceEvidence`](runtime.md#workertraceevidence)
 
 Structured tool-call evidence, never the worker's final prose.
 
@@ -3847,7 +3847,7 @@ One rejected field of an authored analyst definition: which field, and what is w
 
 ##### scope
 
-> `readonly` **scope**: [`Scope`](index.md#scope)\<`unknown`\>
+> `readonly` **scope**: [`Scope`](runtime.md#scope-2)\<`unknown`\>
 
 ##### blobs
 
@@ -3859,7 +3859,7 @@ One rejected field of an authored analyst definition: which field, and what is w
 
 ##### perWorker
 
-> `readonly` **perWorker**: [`Budget`](index.md#budget-4)
+> `readonly` **perWorker**: [`Budget`](runtime.md#budget-18)
 
 ##### onStop?
 
@@ -3887,7 +3887,7 @@ first passing submission is retained; a false or throwing check fails closed.
 
 ##### analysts?
 
-> `readonly` `optional` **analysts?**: [`AnalystRegistry`](index.md#analystregistry)
+> `readonly` `optional` **analysts?**: [`AnalystRegistry`](runtime.md#analystregistry)
 
 ##### onEvent?
 
@@ -3899,11 +3899,11 @@ Event-first for source compatibility; the second argument is its exact bus order
 
 ###### event
 
-[`CoordinationEvent`](index.md#coordinationevent)
+[`CoordinationEvent`](runtime.md#coordinationevent)
 
 ###### record
 
-[`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>
+[`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>
 
 ###### Returns
 
@@ -4098,7 +4098,7 @@ that one row (it returns a `redaction-failed` marker), never a reason to return 
 
 ##### priorJournal?
 
-> `readonly` `optional` **priorJournal?**: readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
+> `readonly` `optional` **priorJournal?**: readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
 Rows written by PRIOR processes of this durable run (`PriorCoordination.records`), prepended to
 the live bus so `read_journal` answers for the whole run rather than the current process.
@@ -4229,7 +4229,7 @@ readonly [`DefinedAnalystRecord`](runtime.md#definedanalystrecord)[]
 
 ##### history()
 
-> **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
+> **history**(): readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
 The full ordered log of every bus event — UP (settled / question / finding), authorized
  instruction receipts, and DOWN delivery outcomes (steer / answer). Each record carries seq,
@@ -4237,7 +4237,7 @@ The full ordered log of every bus event — UP (settled / question / finding), a
 
 ###### Returns
 
-readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>[]
+readonly [`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>[]
 
 ##### stats()
 
@@ -5793,7 +5793,7 @@ after `intervalMs`; `completed` / `failed` settle the record.
 
 ### DelegateResult
 
-> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](index.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `error?`: [`DelegateError`](#delegateerror); `spentTotal`: [`Spend`](index.md#spend); \}
+> **DelegateResult** = \{ `status`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `spentTotal`: [`Spend`](runtime.md#spend); \} \| \{ `status`: `"no-winner"`; `reason`: `string`; `error?`: [`DelegateError`](#delegateerror); `spentTotal`: [`Spend`](runtime.md#spend); \}
 
 The synchronous result the `delegate` tool returns to the calling agent: the delivered output (or
  the no-winner reason) PLUS the conserved spend of the whole delegation.
@@ -7473,7 +7473,7 @@ Build the generic stdio JSON-RPC tool server.
 
 ### parseAuthoredAnalystDefinition()
 
-> **parseAuthoredAnalystDefinition**(`raw`): \{ `definition`: [`AuthoredAnalystDefinition`](index.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
+> **parseAuthoredAnalystDefinition**(`raw`): \{ `definition`: [`AuthoredAnalystDefinition`](runtime.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
 
 Validate and BOUND one `define_analyst` argument.
 
@@ -7490,7 +7490,7 @@ returned so the manager reads the ceiling it actually got.
 
 #### Returns
 
-\{ `definition`: [`AuthoredAnalystDefinition`](index.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
+\{ `definition`: [`AuthoredAnalystDefinition`](runtime.md#authoredanalystdefinition); \} \| \{ `issues`: readonly [`AnalystDefinitionIssue`](#analystdefinitionissue)[]; \}
 
 ***
 
@@ -7906,19 +7906,19 @@ Re-exports [AnalystFindingEvent](runtime.md#analystfindingevent)
 
 ### AnalystKind
 
-Re-exports [AnalystKind](index.md#analystkind)
+Re-exports [AnalystKind](runtime.md#analystkind)
 
 ***
 
 ### AnalystRegistry
 
-Re-exports [AnalystRegistry](index.md#analystregistry)
+Re-exports [AnalystRegistry](runtime.md#analystregistry)
 
 ***
 
 ### AuthoredAnalystDefinition
 
-Re-exports [AuthoredAnalystDefinition](index.md#authoredanalystdefinition)
+Re-exports [AuthoredAnalystDefinition](runtime.md#authoredanalystdefinition)
 
 ***
 
@@ -7948,7 +7948,7 @@ Re-exports [ContinuationInstruction](runtime.md#continuationinstruction)
 
 ### CoordinationEvent
 
-Re-exports [CoordinationEvent](index.md#coordinationevent)
+Re-exports [CoordinationEvent](runtime.md#coordinationevent)
 
 ***
 

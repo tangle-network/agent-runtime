@@ -101,7 +101,7 @@ Five mechanisms continue interrupted work; choose by what died:
 - HTTP connection: reconnect with the same execution identity.
 - Same live box, next turn: continue the sandbox session.
 - Coordinator process: `supervise({ runDir })`.
-- User conversation: the `/conversation` store adapters.
+- User conversation: the conversation journal adapters exported at root.
 - Initiating process: a retained run owned by the provider.
 
 ## Truthfulness before value
@@ -154,7 +154,6 @@ Changing the packed bytes, the cohort identity, a recorded scenario result, or t
 
 - **Durable pursuit observer** — append-only third-person supervision records and projections: [`docs/api/durable.md`](./docs/api/durable.md).
 - **Knowledge improvement jobs** — candidate copies and measured activation boundaries: [`docs/improve.md`](./docs/improve.md).
-- **PrimeIntellect packaging** — expose a Runtime program as a Verifiers environment: [`docs/primeintellect.md`](./docs/primeintellect.md).
 - **MCP** — delegation and live coordination tools under `/mcp`.
 - **Telemetry** — Runtime hooks and OpenTelemetry GenAI spans.
 - **Live operations** — `agent-runtime-top` for observe, steer, and cancel.

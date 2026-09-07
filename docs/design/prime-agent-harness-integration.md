@@ -44,7 +44,6 @@ Most of the machinery a "host Prime properly" plan calls for is built. Reuse it.
 | Harness × model × task matrix | `defineLeaderboard` / `runProfileMatrix` (harness×model axes) | `src/runtime/define-leaderboard.ts`, `@tangle-network/agent-eval` campaign |
 | Harness-agnostic trace normalization | `TraceSource` + the per-harness `toolPartDecoders` registry (add a harness = one validated decoder entry) | `src/runtime/supervise/trace-source.ts` |
 | Uncertain-effect posture after restart | uncertain reservations charged at full declared budget with telemetry explicitly unknown; instruction receipts retained as evidence, never auto-redelivered | `src/runtime/supervise/budget.ts`, `supervise/coordination-mcp.ts` |
-| Prime Intellect ecosystem bridge (verifiers env packaging, trace import) | `writePrimeIntellectPackage`, `importPrimeIntellectTraces` → `RunRecord` | `src/primeintellect/` |
 
 ## 3. What Runtime adopts
 

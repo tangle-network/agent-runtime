@@ -7,9 +7,9 @@
  *
  * It is deliberately for NON-box executors only — a real sandbox harness already
  * IS a `SandboxClient` (boxes, sessions, fs, fork are real there). Here each
- * `streamPrompt` runs the executor once and emits the terminal
- * `{type:'result', data:{finalText, tokenUsage, costUsd}}` event that
- * `answerOutput`/the kernel's cost ledger already parse — no sessions, no fs,
+ * `streamPrompt` runs the executor once and emits its result plus the canonical
+ * `done` event. The result carries output and usage; `done` confirms execution settled.
+ * There are no sessions, no fs,
  * no fork (those degrade gracefully via the optional `SandboxClient` methods).
  */
 
@@ -158,6 +158,9 @@ export function inlineSandboxClient(
                 ...(out?.promptCache ? { promptCache: out.promptCache } : {}),
               },
             } as unknown as SandboxEvent
+            // A returned ExecutorResult is settled execution; its optional evaluation
+            // verdict describes artifact quality and does not change completion.
+            yield { type: 'done', data: { outcome: { type: 'completed' } } }
           } finally {
             callerSignal?.removeEventListener('abort', onAbort)
             await exec.teardown('brutalKill').catch(() => {})

@@ -6,6 +6,20 @@ A nested manager without an accepted finalizer output now persists an explicit `
 Memory and file-backed replay can inspect its unassessed completion without a missing-blob error or serialization failure.
 Its descendants' artifacts remain available, and completion does not become independently accepted delivery.
 
+## 0.198.0
+
+Remove the `graph`, `primeintellect`, `conversation`, `knowledge`, and `environment-provider` package subpaths.
+The separate graph engine and PrimeIntellect packaging adapter are removed.
+Fixed profile graphs still use `runGraph` from `/kernel`; Prime harness execution remains supported.
+Import conversation drivers, persona dispatch, journals, and knowledge improvement and activation from the package root.
+Import environment providers and kernel types from `/kernel`, and candidate execution from `/candidate-execution`.
+The root no longer duplicates candidate execution or kernel types, or exports internal conversation transport helpers.
+Whole-profile improvement and its measurement and activation paths remain available.
+Bench 0.9.0 uses the dedicated candidate execution imports and records their updated public type references.
+Benchmark results retain judged artifacts, worker events, and measured usage across retries and failures.
+Failed shots cannot win refinement; incomplete usage remains marked unknown.
+Corpus harvesting reports analyst token usage, and inline executors emit the canonical completion event.
+
 ## 0.197.1
 
 Concurrent recovery of a stale run-directory lock now grants ownership to one caller.

@@ -211,6 +211,7 @@ def _fixture(root: Path):
     subprocess.run(
         ["git", "init", "-b", "main", str(task_root)], check=True, capture_output=True
     )
+    _git(task_root, "config", "core.hooksPath", "/dev/null")
     _git(task_root, "config", "user.email", "fixture@example.com")
     _git(task_root, "config", "user.name", "Fixture")
     _git(task_root, "add", "-A")

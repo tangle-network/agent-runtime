@@ -65,6 +65,7 @@ export {
   printBenchmarksReport,
   type BenchCell,
   type BenchShot,
+  type BenchShotResult,
   type BenchCellTaskResult,
   type BenchLeaderboardRow,
   type RunBenchmarksOptions,

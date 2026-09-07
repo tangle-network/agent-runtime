@@ -152,6 +152,7 @@ describe('briefing text', () => {
     const repo = await mkdtemp(join(tmpdir(), 'briefing-repo-'))
     try {
       await runOk('git', ['init', '-q', '-b', 'main', repo])
+      await runOk('git', ['-C', repo, 'config', 'core.hooksPath', '/dev/null'])
       await runOk('git', ['-C', repo, 'config', 'user.email', 't@t.dev'])
       await runOk('git', ['-C', repo, 'config', 'user.name', 'T'])
       await writeFile(join(repo, 'base.txt'), 'x\n')

@@ -27,12 +27,7 @@ pnpm tsx examples/improve/improve.ts
 | 6 | [`supervise`](./supervise/) | a manager profile driving workers under one conserved budget | key required |
 | 7 | [`graphs`](./graphs/) | fixed agent topology as data, with a traversal ledger | yes |
 | 8 | [`improve`](./improve/) | one detached candidate, frozen partitions, independent final-test remeasurement | yes |
-| 9 | [`engine`](./engine/) | a graph the ENGINE schedules: an audited rebuild loop with a bounded cycle | yes |
-| 10 | [`code-mode`](./code-mode/) | a supervisor whose tools are `search` + `execute`: one program spawns and awaits workers through the kernel | yes |
-
-`graphs` and `engine` are two different things and the difference is the point: under `graphs`
-(`runGraph`) a supervisor MODEL decides what to spawn, so a skipped step is a prompt failure;
-under `engine` the TOPOLOGY decides, so the same step cannot be skipped at all.
+| 9 | [`code-mode`](./code-mode/) | a supervisor whose tools are `search` + `execute`: one program spawns and awaits workers through the kernel | yes |
 
 `improve` is the only canonical self-improvement example. Full-fidelity benchmark campaigns do not live under `examples/`.
 

@@ -36,7 +36,6 @@ These are internal working documents: design theses, research narrative, and roa
 | [concepts.md](./concepts.md) | mental model | The product-API layer cake (chat turns, tasks, runs) — the onramp before the loop/strategy docs. |
 | [glossary.md](./glossary.md) | canonical vocabulary | One definition per term, grounded to `file:line`; drifted synonyms flagged. |
 | [improve.md](./improve.md) | improvement reference | The `improve()` call, the optimizer object, official GEPA and SkillOpt installs, surfaces, redaction, and the proposal→review→activation path. |
-| [primeintellect.md](./primeintellect.md) | training/eval adapter | Package the same runtime program as a PrimeIntellect Verifiers environment and import its traces back. |
 | [execution-model.md](./execution-model.md) | the picture | The unified `Executor` port (router/bridge/cli/sandbox/BYO) + two engines, driver vs worker, spawn mechanics. |
 | [agent-bus-protocol.md](./agent-bus-protocol.md) | normative protocol | The multi-agent call bus — depth limits, headers, refusal contract. |
 | [durability-adapters.md](./durability-adapters.md) | subsystem | SQL-backed journal and restart behavior for conversations. Supervised-tree recovery is not implemented. |

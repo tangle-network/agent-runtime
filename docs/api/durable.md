@@ -688,7 +688,7 @@ nothing measured it — a missing measurement is never a zero.
 
 ##### provenance
 
-> `readonly` **provenance**: `"observed"` \| `"estimated"` \| `"uncaptured"`
+> `readonly` **provenance**: `"estimated"` \| `"observed"` \| `"uncaptured"`
 
 `observed` = the platform billed the minutes; `estimated` = Runtime derived them from the box
  lifetime it watched; `uncaptured` = a box ran and nothing measured it.
@@ -761,7 +761,7 @@ One run's spend counted once, and each node's own share of it. `inclusive` and t
 
 ##### inclusive
 
-> `readonly` **inclusive**: [`Spend`](index.md#spend)
+> `readonly` **inclusive**: [`Spend`](runtime.md#spend)
 
 The whole run counted once. A node's settled `spent` already contains the child work its own
 nested tree reported, so summing only the run's top-level nodes plus every node's own
@@ -769,7 +769,7 @@ inference counts each model call exactly once.
 
 ##### exclusiveByNode
 
-> `readonly` **exclusiveByNode**: `Readonly`\<`Record`\<`string`, [`Spend`](index.md#spend)\>\>
+> `readonly` **exclusiveByNode**: `Readonly`\<`Record`\<`string`, [`Spend`](runtime.md#spend)\>\>
 
 Each node's own share: its reported spend and own inference minus what its direct children
 reported. Keyed by node id, plus the run root when the root itself metered inference. The
@@ -856,7 +856,7 @@ How many times a process resumed this attempt after a predecessor died mid-run.
 
 ##### spendGaps?
 
-> `readonly` `optional` **spendGaps?**: readonly [`SpendGap`](index.md#spendgap)[]
+> `readonly` `optional` **spendGaps?**: readonly [`SpendGap`](runtime.md#spendgap)[]
 
 The nodes whose accounting is incomplete. Present exactly when non-empty.
 
@@ -916,13 +916,13 @@ The runner that executed this node — the executor's own name, not a harness gu
 
 ##### spent?
 
-> `readonly` `optional` **spent?**: [`Spend`](index.md#spend)
+> `readonly` `optional` **spent?**: [`Spend`](runtime.md#spend)
 
 The child work this node reported at settlement. Absent until a terminal record lands.
 
 ##### ownInference?
 
-> `readonly` `optional` **ownInference?**: [`Spend`](index.md#spend)
+> `readonly` `optional` **ownInference?**: [`Spend`](runtime.md#spend)
 
 This node's OWN inference, re-homed from its nested tree. Absent when it drove no turns.
 
@@ -1000,13 +1000,13 @@ Model-call identifiers this node's own turns reported, in order, deduplicated.
 
 ##### providerModel?
 
-> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence)
+> `readonly` `optional` **providerModel?**: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence)
 
 What the provider itself reported serving, and why it is unknown when it is.
 
 ##### trace?
 
-> `readonly` `optional` **trace?**: [`WorkerTraceEvidence`](index.md#workertraceevidence)
+> `readonly` `optional` **trace?**: [`WorkerTraceEvidence`](runtime.md#workertraceevidence)
 
 Content-addressed pointer to this node's persisted tool trace, or why there is none.
 
@@ -1264,7 +1264,7 @@ Intelligence joins those isolated projections without a shared write head.
 
 ##### budget
 
-> `readonly` **budget**: [`Budget`](index.md#budget-4)
+> `readonly` **budget**: [`Budget`](runtime.md#budget-18)
 
 The conserved compute pool for the whole run.
 
@@ -1495,7 +1495,7 @@ Stable manager-scoped assignment, including deterministic unkeyed siblings.
 
 ###### budget
 
-[`Budget`](index.md#budget-4)
+[`Budget`](runtime.md#budget-18)
 
 ###### label
 
@@ -1823,7 +1823,7 @@ lost acknowledgement and durable restart; the record is not pull-visible until t
 
 ###### record
 
-[`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](index.md#coordinationevent)\>
+[`BusRecord`](runtime.md#busrecord)\<[`CoordinationEvent`](runtime.md#coordinationevent)\>
 
 ###### Returns
 
@@ -1871,7 +1871,7 @@ Runs an `extraTools` call; null/undefined falls through to the coordination disp
 
 ##### perWorker?
 
-> `readonly` `optional` **perWorker?**: [`Budget`](index.md#budget-4)
+> `readonly` `optional` **perWorker?**: [`Budget`](runtime.md#budget-18)
 
 Per-child budget reserved on each spawn. Defaults to a quarter of the pool's tokens.
 
@@ -1893,7 +1893,7 @@ Hard cap on simultaneously executing spawned workers across the WHOLE recursive 
 
 ##### analysts?
 
-> `readonly` `optional` **analysts?**: `string` \| [`AnalystRegistry`](index.md#analystregistry)
+> `readonly` `optional` **analysts?**: `string` \| [`AnalystRegistry`](runtime.md#analystregistry)
 
 Analyst lenses available to the driver. Required for `analyzeOnSettle`. Unset → status quo
  (the driver receives settled worker outputs, no analyst findings). A `string` names an entry in
@@ -1967,7 +1967,7 @@ Worker output store. Defaults to in-memory.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-4)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`blobs`](runtime.md#blobs-5)
 
 ##### journal?
 
@@ -2116,7 +2116,7 @@ Restrict the run to this subset of models. When set, every configured model — 
 
 ##### finalizer?
 
-> `readonly` `optional` **finalizer?**: `string` \| [`SupervisorFinalizer`](index.md#supervisorfinalizer)
+> `readonly` `optional` **finalizer?**: `string` \| [`SupervisorFinalizer`](runtime.md#supervisorfinalizer)
 
 How the settled-worker ledger becomes the run's output. Default `bestDelivered` — the single
  highest-scoring DELIVERED child (the exact behavior every existing caller had). Alternatives:
@@ -2553,7 +2553,7 @@ result carries a value JSON would misstate.
 
 ### readSettleRecord()
 
-> **readSettleRecord**(`runDir`): `Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\> \| `undefined`\>
+> **readSettleRecord**(`runDir`): `Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\> \| `undefined`\>
 
 Read the settle record a run directory holds, or `undefined` when it holds none. A file that
 is present but is not a settle record is corruption and fails loud.
@@ -2566,7 +2566,7 @@ is present but is not a settle record is corruption and fails loud.
 
 #### Returns
 
-`Promise`\<[`SupervisedResult`](index.md#supervisedresult)\<`unknown`\> \| `undefined`\>
+`Promise`\<[`SupervisedResult`](runtime.md#supervisedresult)\<`unknown`\> \| `undefined`\>
 
 ***
 
@@ -2590,7 +2590,7 @@ Read the most recent failure record, or `undefined` when the directory holds non
 
 ### supervisePursuit()
 
-> **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>\>
+> **supervisePursuit**(`profile`, `task`, `opts`): `Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend); `childWork`: [`Spend`](runtime.md#spend); \}; \}\>\>
 
 One-call durable pursuit execution over the canonical `supervise()` kernel.
 
@@ -2627,7 +2627,7 @@ An abandoned `supervise.lock.guard` requires removal after confirming no lock mu
 
 #### Returns
 
-`Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"budget-exhausted"` \| `"all-children-down"` \| `"aborted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](index.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](index.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](index.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](index.md#spend); `childWork`: [`Spend`](index.md#spend); \}; \}\>\>
+`Promise`\<[`SupervisedPursuitResult`](#supervisedpursuitresult)\<\{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"aborted"` \| `"all-children-down"` \| `"budget-exhausted"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error?`: `undefined`; \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"no-winner"`; `reason`: `"driver-failed"`; `tree`: [`TreeView`](runtime.md#treeview); `downCount`: `number`; `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `error`: [`NoWinnerError`](runtime.md#nowinnererror); \} \| \{ `rootProviderModel`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `kind`: `"winner"`; `out`: `unknown`; `outRef`: `string`; `verdict?`: `DefaultVerdict`; `tree`: [`TreeView`](runtime.md#treeview); `spentTotal`: [`Spend`](runtime.md#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](runtime.md#providermodelexecutionevidence); `teardownUnconfirmed?`: readonly [`UnconfirmedTeardown`](runtime.md#unconfirmedteardown)[]; `spendGaps?`: readonly [`SpendGap`](runtime.md#spendgap)[]; `spentBreakdown?`: \{ `driverInference`: [`Spend`](runtime.md#spend); `childWork`: [`Spend`](runtime.md#spend); \}; \}\>\>
 
 ***
 

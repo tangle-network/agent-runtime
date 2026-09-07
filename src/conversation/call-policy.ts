@@ -33,7 +33,7 @@ export interface BackendCallPolicy {
   maxRetries?: number
   /** Backoff between attempts. Default 250ms with jitter. */
   retryBackoffMs?: RetryBackoff
-  /** Custom retry classifier. Defaults to {@link defaultIsRetryable}. */
+  /** Custom retry classifier. Defaults to retrying transport failures and retryable HTTP statuses. */
   isRetryable?: RetryableErrorPredicate
   /** Circuit breaker that opens after N consecutive failures per participant. */
   circuitBreaker?: CircuitBreakerConfig

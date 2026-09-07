@@ -11,15 +11,14 @@ import type {
   Sha256Digest,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
-
-import { assertCandidateProfileBinding } from '../src/candidate-execution'
 import {
   agentCandidateProfileAsAgentProfile,
+  assertCandidateProfileBinding,
   type BuildAgentCandidateBundleInput,
   buildAgentCandidateBundle,
   sealAgentCandidateBundle,
   verifyAgentCandidateBundle,
-} from '../src/index'
+} from '../src/candidate-execution'
 import {
   candidateSha,
   cleanupCandidateFixtures,

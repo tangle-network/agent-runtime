@@ -9,6 +9,10 @@ import { defineConfig } from 'vitest/config'
 //   ../node_modules/.bin/vitest run
 export default defineConfig({
   test: {
+    // Git worktree fixtures compete for disk and process startup under an unbounded pool.
+    maxWorkers: 1,
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     include: [
       'src/benchmarks/mcad-bench.test.mts',
       'src/benchmarks/mcad-cq.test.mts',
