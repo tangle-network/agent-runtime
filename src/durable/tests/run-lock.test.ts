@@ -31,7 +31,9 @@ describe('acquireRunDirectoryLock', () => {
     expect(lock.path).toBe(join(runDir, RUN_DIRECTORY_LOCK_FILE))
     const written = JSON.parse(await readFile(lock.path, 'utf8')) as Record<string, unknown>
     // The start token is host-reported, so its value is not asserted; its presence is.
-    expect(typeof written.processStart === 'string' || written.processStart === undefined).toBe(true)
+    expect(typeof written.processStart === 'string' || written.processStart === undefined).toBe(
+      true,
+    )
     expect(written).toMatchObject({
       pid: process.pid,
       startedAt: '2023-11-14T22:13:20.000Z',

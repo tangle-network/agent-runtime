@@ -2,10 +2,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readRuntimeSupervisorRun } from '@tangle-network/agent-eval/supervisor-run'
-import {
-  canonicalCandidateJson,
-  sha256Bytes,
-} from '@tangle-network/agent-interface'
+import { canonicalCandidateJson, sha256Bytes } from '@tangle-network/agent-interface'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FileObserverJournal } from '../../src/durable/observer-journal'
 import { projectPursuit } from '../../src/durable/observer-projection'
@@ -16,10 +13,10 @@ import {
 } from '../../src/durable/run-lock'
 import {
   FAILURE_RECORD_FILE,
-  SETTLE_RECORD_FILE,
-  SettledRunDirectoryError,
   readFailureRecord,
   readSettleRecord,
+  SETTLE_RECORD_FILE,
+  SettledRunDirectoryError,
   settleRecordDigest,
   settleRecordJson,
 } from '../../src/durable/settle-record'
@@ -131,9 +128,7 @@ describe('supervisePursuit durable terminal records', () => {
     expect(bytes).toBe(settleRecordJson(executed.result))
     expect(bytes).toBe(canonicalCandidateJson(JSON.parse(JSON.stringify(executed.result))))
     // Canonical bytes make the file's digest the result's candidate digest.
-    expect(sha256Bytes(new TextEncoder().encode(bytes))).toBe(
-      settleRecordDigest(executed.result),
-    )
+    expect(sha256Bytes(new TextEncoder().encode(bytes))).toBe(settleRecordDigest(executed.result))
 
     // Eval's reader needs `kind` and `tree.root`, and the root must be the journal root.
     const record = JSON.parse(bytes) as { kind: string; tree: { root: string } }
