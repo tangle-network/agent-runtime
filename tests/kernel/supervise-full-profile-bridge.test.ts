@@ -9,7 +9,12 @@ import {
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import { afterEach, describe, expect, it } from 'vitest'
-import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
+import {
+  FileResultBlobStore,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+  replaySpawnTree,
+} from '../../src/durable/spawn-journal'
 import { RuntimeRunStateError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
@@ -364,6 +369,94 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     if (server) await new Promise((resolve) => server?.close(resolve))
     server = undefined
   })
+
+  it.each([
+    ['memory', false],
+    ['file', false],
+    ['memory', true],
+    ['file', true],
+  ] as const)(
+    'retains unassessed nested completion and its leaf artifact with %s blobs (manager throws: %s)',
+    async (storage, managerThrows) => {
+      const directory = await mkdtemp(join(tmpdir(), 'unassessed-nested-'))
+      const blobs =
+        storage === 'file' ? new FileResultBlobStore(directory) : new InMemoryResultBlobStore()
+      const journal = new InMemorySpawnJournal()
+      const requests: string[] = []
+      server = createBridgeServer(async (req, res) => {
+        try {
+          const body = await readJson(req)
+          const name = body.agent_profile.name ?? ''
+          requests.push(name)
+          const coordination = body.runtime_attachments?.mcp['agent-runtime-coordination']
+          if (coordination?.url) {
+            await callCoordination(coordination.url, 'spawn_worker', {
+              profile:
+                name === 'root'
+                  ? codexTestProfile('manager', 'Inspect the leaf artifact.', [
+                      'spawn_worker',
+                      'await_event',
+                    ])
+                  : codexTestProfile('leaf', 'Return the measured artifact.'),
+              task: 'Measure the payload.',
+            })
+            await callCoordination(coordination.url, 'await_event', {})
+          }
+          if (name === 'manager' && managerThrows) throw new Error('manager execution failed')
+          respondWithBridgeStream(
+            res,
+            body,
+            successStream(name === 'leaf' ? 'MEASURED=42' : 'unassessed report'),
+          )
+        } catch (error) {
+          res.writeHead(500)
+          res.end(String(error))
+        }
+      })
+      await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+      const { port } = server.address() as AddressInfo
+      try {
+        const result = await supervise(
+          codexTestProfile('root', 'Inspect the manager.', ['spawn_worker', 'await_event']),
+          'Run an ungraded recursive measurement.',
+          {
+            backend: {
+              backend: 'bridge',
+              bridgeUrl: `http://127.0.0.1:${port}`,
+              bridgeBearer: 'test',
+            },
+            budget: { maxIterations: 20, maxTokens: 100_000 },
+            perWorker: { maxIterations: 8, maxTokens: 20_000 },
+            maxDepth: 3,
+            driverRetry: { enabled: false },
+            journal,
+            blobs,
+            runId: 'unassessed',
+          },
+        )
+        expect(requests).toEqual(['root', 'manager', 'leaf'])
+        expect(result.kind).toBe('no-winner')
+        const parentRows = await replaySpawnTree(journal, blobs, 'unassessed')
+        expect(parentRows).toHaveLength(1)
+        if (managerThrows) {
+          expect(parentRows[0]).toMatchObject({
+            kind: 'down',
+            reason: expect.stringContaining('manager execution failed'),
+          })
+        } else {
+          expect(parentRows[0]).toMatchObject({ kind: 'done', out: null })
+        }
+        if (parentRows[0]?.kind === 'done') {
+          expect(parentRows[0].verdict?.valid).not.toBe(true)
+        }
+        const leafRows = await replaySpawnTree(journal, blobs, 'unassessed/unassessed:s0')
+        expect(leafRows).toHaveLength(1)
+        expect(leafRows[0]).toMatchObject({ kind: 'done', out: { content: 'MEASURED=42' } })
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('forcefully steers a live bridge root and resumes the same manager session', async () => {
     const requests: BridgeRequest[] = []
