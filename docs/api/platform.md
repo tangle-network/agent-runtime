@@ -551,7 +551,7 @@ A live integration connection, as returned by `/v1/hub/connections`.
 
 ##### health
 
-> **health**: `string` & `object` \| `"unknown"` \| `"healthy"` \| `"unhealthy"` \| `"rate_limited"`
+> **health**: `"unknown"` \| `string` & `object` \| `"healthy"` \| `"unhealthy"` \| `"rate_limited"`
 
 ##### createdAt
 
@@ -703,7 +703,7 @@ The URL to send the user to. Normalized across the platform's two start
 
 ##### status
 
-> **status**: `string` & `object` \| `"unknown"` \| `"healthy"` \| `"unhealthy"` \| `"rate_limited"`
+> **status**: `"unknown"` \| `string` & `object` \| `"healthy"` \| `"unhealthy"` \| `"rate_limited"`
 
 ##### checkedAt
 
@@ -753,7 +753,7 @@ Last-known health for a connection, derived from the connection row.
 
 ##### status
 
-> **status**: `string` & `object` \| `"unknown"` \| `"healthy"` \| `"unhealthy"` \| `"rate_limited"`
+> **status**: `"unknown"` \| `string` & `object` \| `"healthy"` \| `"unhealthy"` \| `"rate_limited"`
 
 Mirrors `PlatformConnection.health`.
 

@@ -37,7 +37,7 @@ import {
   type ResolvedAgentCandidateContainer,
   sealAgentCandidateBundle,
   verifyAgentCandidateBundle,
-} from '@tangle-network/agent-runtime'
+} from '@tangle-network/agent-runtime/candidate-execution'
 
 import { executePreparedPierCandidate } from '../src/pier-agent'
 import { createPierResultGrader } from '../src/pier-result-grader'

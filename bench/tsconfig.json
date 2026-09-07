@@ -13,6 +13,7 @@
     "resolveJsonModule": true,
     "paths": {
       "@tangle-network/agent-runtime": ["../src/index.ts"],
+      "@tangle-network/agent-runtime/candidate-execution": ["../src/candidate-execution/index.ts"],
       "@tangle-network/agent-runtime/kernel": ["../src/runtime/index.ts"],
       "@tangle-network/sandbox": ["../node_modules/@tangle-network/sandbox"]
     }

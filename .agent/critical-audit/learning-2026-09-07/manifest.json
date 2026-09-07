@@ -1,0 +1,13 @@
+{
+  "base": "8d280b9d",
+  "reviewed_commit": "11bceea41d2f7a31a18425bb959acbf4d7deb485",
+  "scope": [
+    "bench/src/run-benchmarks.ts",
+    "bench/src/run-benchmarks.test.mts",
+    "src/runtime/harvest-corpus.ts",
+    "tests/runtime-observe.test.ts",
+    "src/runtime/inline-sandbox-client.ts",
+    "tests/runtime/boxless-prompt-options.test.ts"
+  ],
+  "verdict": "APPROVE"
+}

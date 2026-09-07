@@ -9,7 +9,7 @@ import { canonicalJson } from '@tangle-network/agent-eval'
 import type {
   AgentCandidateExecutorRequest,
   PreparedAgentCandidateExecution,
-} from '@tangle-network/agent-runtime'
+} from '@tangle-network/agent-runtime/candidate-execution'
 
 import {
   awaitAbortableTrial,

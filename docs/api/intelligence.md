@@ -1383,11 +1383,11 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ##### provider
 
-> **provider**: [`AgentEnvironmentProviderRef`](runtime/environment-provider.md#agentenvironmentproviderref)
+> **provider**: [`AgentEnvironmentProviderRef`](runtime.md#agentenvironmentproviderref)
 
 ##### providerRegistry?
 
-> `optional` **providerRegistry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
+> `optional` **providerRegistry?**: [`AgentEnvironmentProviderRegistry`](runtime.md#agentenvironmentproviderregistry)
 
 ##### resources
 
@@ -1407,15 +1407,15 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ##### ports
 
-> **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
+> **ports**: [`AgentCandidateExecutionPorts`](candidate-execution.md#agentcandidateexecutionports)
 
 ##### grader
 
-> **grader**: [`AgentCandidateBenchmarkGraderPort`](index.md#agentcandidatebenchmarkgraderport)
+> **grader**: [`AgentCandidateBenchmarkGraderPort`](candidate-execution.md#agentcandidatebenchmarkgraderport)
 
 ##### outputArtifacts
 
-> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](index.md#agentcandidateoutputartifactport)
+> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
 
 ##### traceStore
 
@@ -1423,7 +1423,7 @@ Intelligence-class spend ceiling. `0` refuses every intelligence spawn; `null` u
 
 ##### claimStore
 
-> **claimStore**: [`AgentCandidateExecutionClaimStore`](index.md#agentcandidateexecutionclaimstore)
+> **claimStore**: [`AgentCandidateExecutionClaimStore`](candidate-execution.md#agentcandidateexecutionclaimstore)
 
 ##### cleanupTimeoutMs?
 
@@ -1448,7 +1448,7 @@ metered, and settled by the caller's grant service.
 
 ##### provider
 
-> **provider**: [`AgentEnvironmentProviderRef`](runtime/environment-provider.md#agentenvironmentproviderref)
+> **provider**: [`AgentEnvironmentProviderRef`](runtime.md#agentenvironmentproviderref)
 
 ###### Inherited from
 
@@ -1456,7 +1456,7 @@ metered, and settled by the caller's grant service.
 
 ##### providerRegistry?
 
-> `optional` **providerRegistry?**: [`AgentEnvironmentProviderRegistry`](runtime/environment-provider.md#agentenvironmentproviderregistry)
+> `optional` **providerRegistry?**: [`AgentEnvironmentProviderRegistry`](runtime.md#agentenvironmentproviderregistry)
 
 ###### Inherited from
 
@@ -1496,7 +1496,7 @@ metered, and settled by the caller's grant service.
 
 ##### grader
 
-> **grader**: [`AgentCandidateBenchmarkGraderPort`](index.md#agentcandidatebenchmarkgraderport)
+> **grader**: [`AgentCandidateBenchmarkGraderPort`](candidate-execution.md#agentcandidatebenchmarkgraderport)
 
 ###### Inherited from
 
@@ -1504,7 +1504,7 @@ metered, and settled by the caller's grant service.
 
 ##### outputArtifacts
 
-> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](index.md#agentcandidateoutputartifactport)
+> **outputArtifacts**: [`AgentCandidateOutputArtifactPort`](candidate-execution.md#agentcandidateoutputartifactport)
 
 ###### Inherited from
 
@@ -1520,7 +1520,7 @@ metered, and settled by the caller's grant service.
 
 ##### claimStore
 
-> **claimStore**: [`AgentCandidateExecutionClaimStore`](index.md#agentcandidateexecutionclaimstore)
+> **claimStore**: [`AgentCandidateExecutionClaimStore`](candidate-execution.md#agentcandidateexecutionclaimstore)
 
 ###### Inherited from
 
@@ -1548,7 +1548,7 @@ metered, and settled by the caller's grant service.
 
 ##### model
 
-> **model**: [`CreateProtectedAgentCandidateModelPortOptions`](index.md#createprotectedagentcandidatemodelportoptions)
+> **model**: [`CreateProtectedAgentCandidateModelPortOptions`](candidate-execution.md#createprotectedagentcandidatemodelportoptions)
 
 ***
 
@@ -1570,7 +1570,7 @@ metered, and settled by the caller's grant service.
 
 ##### executionRoots
 
-> **executionRoots**: [`AgentCandidateExecutionRoots`](index.md#agentcandidateexecutionroots)
+> **executionRoots**: [`AgentCandidateExecutionRoots`](candidate-execution.md#agentcandidateexecutionroots)
 
 ##### stagingRoots
 
@@ -1590,7 +1590,7 @@ metered, and settled by the caller's grant service.
 
 ##### preparation?
 
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](candidate-execution.md#prepareagentcandidateexecutionoptions)
 
 ***
 
@@ -1604,7 +1604,7 @@ metered, and settled by the caller's grant service.
 
 ##### executor
 
-> `readonly` **executor**: [`AgentCandidateExecutorPort`](index.md#agentcandidateexecutorport)
+> `readonly` **executor**: [`AgentCandidateExecutorPort`](candidate-execution.md#agentcandidateexecutorport)
 
 Runtime's expired-attempt path reuses this port only to stop and dispose.
 
@@ -1638,7 +1638,7 @@ Exact-process executor plus the ports required for durable recovery.
 
 ##### executor
 
-> `readonly` **executor**: [`AgentCandidateExecutorPort`](index.md#agentcandidateexecutorport)
+> `readonly` **executor**: [`AgentCandidateExecutorPort`](candidate-execution.md#agentcandidateexecutorport)
 
 Runtime's expired-attempt path reuses this port only to stop and dispose.
 
@@ -1648,7 +1648,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ##### recoveryPorts
 
-> `readonly` **recoveryPorts**: `Pick`\<[`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports), `"models"` \| `"memory"`\>
+> `readonly` **recoveryPorts**: `Pick`\<[`AgentCandidateExecutionPorts`](candidate-execution.md#agentcandidateexecutionports), `"models"` \| `"memory"`\>
 
 #### Methods
 
@@ -1690,7 +1690,7 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ##### executionRoots
 
-> **executionRoots**: [`AgentCandidateExecutionRoots`](index.md#agentcandidateexecutionroots)
+> **executionRoots**: [`AgentCandidateExecutionRoots`](candidate-execution.md#agentcandidateexecutionroots)
 
 ##### stagingRoots
 
@@ -1710,15 +1710,15 @@ Runtime's expired-attempt path reuses this port only to stop and dispose.
 
 ##### ports
 
-> **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
+> **ports**: [`AgentCandidateExecutionPorts`](candidate-execution.md#agentcandidateexecutionports)
 
 ##### preparation?
 
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](candidate-execution.md#prepareagentcandidateexecutionoptions)
 
 ##### execution
 
-> **execution**: [`ExecutePreparedAgentCandidateOptions`](index.md#executepreparedagentcandidateoptions)
+> **execution**: [`ExecutePreparedAgentCandidateOptions`](candidate-execution.md#executepreparedagentcandidateoptions)
 
 ***
 
@@ -1814,7 +1814,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### executionRoots
 
-> **executionRoots**: [`AgentCandidateExecutionRoots`](index.md#agentcandidateexecutionroots)
+> **executionRoots**: [`AgentCandidateExecutionRoots`](candidate-execution.md#agentcandidateexecutionroots)
 
 ###### Inherited from
 
@@ -1842,7 +1842,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### ports
 
-> **ports**: [`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports)
+> **ports**: [`AgentCandidateExecutionPorts`](candidate-execution.md#agentcandidateexecutionports)
 
 ###### Inherited from
 
@@ -1850,7 +1850,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### preparation?
 
-> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](index.md#prepareagentcandidateexecutionoptions)
+> `optional` **preparation?**: [`PrepareAgentCandidateExecutionOptions`](candidate-execution.md#prepareagentcandidateexecutionoptions)
 
 ###### Inherited from
 
@@ -1858,7 +1858,7 @@ Shared account when preparation and held-out work have one customer budget.
 
 ##### execution
 
-> **execution**: [`ExecutePreparedAgentCandidateOptions`](index.md#executepreparedagentcandidateoptions)
+> **execution**: [`ExecutePreparedAgentCandidateOptions`](candidate-execution.md#executepreparedagentcandidateoptions)
 
 ###### Inherited from
 
@@ -3940,7 +3940,7 @@ Per-field overrides applied on top of a tier preset. Any subset of the
 
 ### AgentCandidateExecutionHostPorts
 
-> **AgentCandidateExecutionHostPorts** = `Omit`\<[`AgentCandidateExecutionPorts`](index.md#agentcandidateexecutionports), `"models"`\>
+> **AgentCandidateExecutionHostPorts** = `Omit`\<[`AgentCandidateExecutionPorts`](candidate-execution.md#agentcandidateexecutionports), `"models"`\>
 
 Product-owned candidate ports other than protected model access.
 
@@ -4897,7 +4897,7 @@ Bind caller-owned target identities to the exact source state Runtime measured.
 
 ##### surfaces
 
-readonly (`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"code"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"`)[]
+readonly (`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`)[]
 
 ##### experiment
 
@@ -4927,7 +4927,7 @@ Return whether a measured surface can be delivered through an agent profile.
 
 ##### surface
 
-`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"code"` \| `"memory"` \| `"agent-profile"` \| `"rollout-policy"`
+`"knowledge"` \| `"prompt"` \| `"tools"` \| `"mcp"` \| `"subagents"` \| `"hooks"` \| `"skills"` \| `"agent-profile"` \| `"memory"` \| `"code"` \| `"rollout-policy"`
 
 #### Returns
 

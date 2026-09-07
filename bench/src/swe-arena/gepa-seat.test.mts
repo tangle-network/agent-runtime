@@ -535,6 +535,7 @@ describe('fanOutLoopsGenerator with the gepa seat', () => {
     loopsRepo = await mkdtemp(join(tmpdir(), 'gepa-repo-'))
     outDir = await mkdtemp(join(tmpdir(), 'gepa-out-'))
     await runOk('git', ['init', '-q', '-b', 'main', loopsRepo])
+    await runOk('git', ['-C', loopsRepo, 'config', 'core.hooksPath', '/dev/null'])
     await git(['config', 'user.email', 't@t.dev'], loopsRepo)
     await git(['config', 'user.name', 'T'], loopsRepo)
     await mkdir(join(loopsRepo, 'extensions', 'pi', 'prompts'), { recursive: true })
@@ -995,6 +996,7 @@ describe('integration: real adapter roundtrip', () => {
     const outDir = await mkdtemp(join(tmpdir(), 'gepa-int-out-'))
     try {
       await runOk('git', ['init', '-q', '-b', 'main', loopsRepo])
+      await runOk('git', ['-C', loopsRepo, 'config', 'core.hooksPath', '/dev/null'])
       await runOk('git', ['-C', loopsRepo, 'config', 'user.email', 't@t.dev'])
       await runOk('git', ['-C', loopsRepo, 'config', 'user.name', 'T'])
       await mkdir(join(loopsRepo, 'extensions', 'pi', 'prompts'), { recursive: true })

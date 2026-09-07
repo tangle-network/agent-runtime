@@ -18,7 +18,7 @@ Use these labels literally. Do not promote one level into another in prose.
 
 | Level | What it establishes | Canonical path |
 |---|---|---|
-| **contract proof** | packages install; identities, budgets, callbacks, resume, and receipts have the expected shape | root `pnpm verify:official-optimizers`, `pnpm verify:primeintellect`, `pnpm verify:bench` |
+| **contract proof** | packages install; identities, budgets, callbacks, resume, and receipts have the expected shape | root `pnpm verify:official-optimizers`, `pnpm verify:bench` |
 | **evaluator proof** | the benchmark's own evaluator can distinguish known fail/pass artifacts in the exact environment | adapter preflight and gold/self-check |
 | **reproduction proof** | an upstream method is run at a pinned revision on its claimed benchmark under a matched protocol | Discovery Lab reproduction manifest and runner |
 | **value proof** | the integrated method beats the preregistered baseline on frozen evidence with uncertainty and complete cost accounting | Discovery Lab result receipt |
@@ -35,7 +35,6 @@ From the repository root:
 ```bash
 pnpm verify:bench
 pnpm verify:official-optimizers
-pnpm verify:primeintellect
 ```
 
 `verify:official-optimizers` exercises the official Optimize Anything bridge, engine identities, equal input budgets, resume compatibility, candidate callbacks, accounting, and package provenance. Its deterministic candidate improvement is deliberately a fixture. It does **not** reproduce the published GEPA or Omni benchmark numbers.
@@ -51,6 +50,14 @@ pnpm run run-benchmarks
 `src/run-benchmarks-cli.mts` runs a selected subset of registered adapters across explicit agent cells. Each adapter owns task loading, output extraction, preflight, and judging. A missing dependency or failed gold self-check makes the benchmark unavailable; it never becomes a zero score.
 
 Use `LOOP_ATTEMPTS=N` only when the benchmark's own visible feedback is allowed to enter later attempts. Hidden or gold material must remain outside the agent context.
+
+`runBenchmarks()` returns each judged artifact, worker events, and observed usage in `perTask`.
+Retry usage includes every attempt; missing receipts leave the measured subtotal explicitly incomplete.
+Judge failures retain completed worker evidence.
+Errors propagated by `close()` remain in `detail` beside the settled task outcome.
+The current Runtime lineage suppresses sandbox deletion errors, so a returned result does not confirm resource deletion.
+The caller's abort signal stops queued shots and reaches active sandbox turns.
+`modelApiKey` supplies sandbox inference authorization separately from the `routerKey` used for sandbox control.
 
 ### Full-fidelity improvement fixture
 

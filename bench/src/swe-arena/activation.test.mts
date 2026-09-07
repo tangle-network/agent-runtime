@@ -211,6 +211,7 @@ describe('activation-predicate prefilter', () => {
     loopsRepo = await mkdtemp(join(tmpdir(), 'act-repo-'))
     outDir = await mkdtemp(join(tmpdir(), 'act-out-'))
     await runOk('git', ['init', '-q', '-b', 'main', loopsRepo])
+    await runOk('git', ['-C', loopsRepo, 'config', 'core.hooksPath', '/dev/null'])
     await runOk('git', ['-C', loopsRepo, 'config', 'user.email', 't@t.dev'])
     await runOk('git', ['-C', loopsRepo, 'config', 'user.name', 'T'])
     await writeFile(join(loopsRepo, 'src.ts'), 'base\n')

@@ -98,17 +98,13 @@ try {
   const requiredSubpaths = [
     '.',
     './agent',
-    './conversation',
     './durable',
     './tool-loop',
     './intelligence',
     './kernel',
-    './environment-provider',
     './analyst-loop',
-    './knowledge',
     './profiles',
     './platform',
-    './primeintellect',
     './candidate-execution',
     './testing',
     './mcp',
@@ -116,6 +112,11 @@ try {
   for (const subpath of requiredSubpaths) {
     if (!(subpath in packageExports)) {
       throw new Error(`packed package removed public export ${subpath}`)
+    }
+  }
+  for (const subpath of ['graph', 'primeintellect', 'conversation', 'knowledge', 'environment-provider']) {
+    if (`./${subpath}` in packageExports) {
+      throw new Error(`removed public subpath returned: ${subpath}`)
     }
   }
   for (const [subpath, exportTarget] of Object.entries(packageExports)) {
@@ -457,6 +458,18 @@ try {
         const packageJson = JSON.parse(
           readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
         )
+        for (const subpath of ['graph', 'primeintellect', 'conversation', 'knowledge', 'environment-provider']) {
+          try {
+            await import(packageJson.name + '/' + subpath)
+            throw new Error('removed subpath still imports: ' + subpath)
+          } catch (error) {
+            if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error
+          }
+        }
+        const root = await import(packageJson.name)
+        for (const name of ['buildAgentCandidateBundle', 'computeBackoff', 'turnId']) {
+          if (name in root) throw new Error('removed root export returned: ' + name)
+        }
         for (const subpath of Object.keys(packageJson.exports)) {
           const specifier =
             subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
@@ -505,6 +518,18 @@ try {
         const packageJson = JSON.parse(
           readFileSync('node_modules/@tangle-network/agent-runtime/package.json', 'utf8'),
         )
+        for (const subpath of ['graph', 'primeintellect', 'conversation', 'knowledge', 'environment-provider']) {
+          try {
+            await import(packageJson.name + '/' + subpath)
+            throw new Error('removed subpath still imports: ' + subpath)
+          } catch (error) {
+            if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error
+          }
+        }
+        const root = await import(packageJson.name)
+        for (const name of ['buildAgentCandidateBundle', 'computeBackoff', 'turnId']) {
+          if (name in root) throw new Error('removed root export returned: ' + name)
+        }
         for (const subpath of Object.keys(packageJson.exports)) {
           const specifier =
             subpath === '.' ? packageJson.name : packageJson.name + subpath.slice(1)
@@ -594,29 +619,6 @@ try {
       '--input-type=module',
       '--eval',
       `
-        const prime = await import('@tangle-network/agent-runtime/primeintellect')
-        for (const name of [
-          'createPrimeIntellectPackage',
-          'writePrimeIntellectPackage',
-          'readPrimeIntellectEpisodeContext',
-          'primeIntellectExecutorConfig',
-          'runPrimeIntellectProgram',
-          'parsePrimeIntellectTraces',
-          'primeIntellectTraceToRunRecord',
-          'importPrimeIntellectTraces',
-        ]) {
-          if (typeof prime[name] !== 'function') throw new Error('missing PrimeIntellect export ' + name)
-        }
-      `,
-    ],
-    appDir,
-  )
-  run(
-    process.execPath,
-    [
-      '--input-type=module',
-      '--eval',
-      `
         const intelligence = await import('@tangle-network/agent-runtime/intelligence')
         const expectedIntelligence = [
           'createIntelligenceClient',
@@ -679,7 +681,7 @@ try {
             throw new Error('testing fixture leaked into the production root entrypoint: ' + name)
           }
         }
-        const knowledge = await import('@tangle-network/agent-runtime/knowledge')
+        const knowledge = await import('@tangle-network/agent-runtime')
         for (const name of [
           'buildKnowledgeImprovementExperimentBundles',
           'createKnowledgeImprovementActivationExecutor',
@@ -846,7 +848,7 @@ try {
       '--input-type=module',
       '--eval',
       `
-        const provider = await import('@tangle-network/agent-runtime/environment-provider')
+        const provider = await import('@tangle-network/agent-runtime/kernel')
         const expectedProvider = [
           'createAgentEnvironmentProviderRegistry',
           'providerAsExecutor',

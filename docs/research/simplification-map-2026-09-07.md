@@ -29,6 +29,29 @@ The twelve downstream repositories import at most 5 subpaths each, and 32 distin
 Estimated removal: about 11,000 lines, and every later gate (api-surface, docs freshness, version bump) stops taxing internal work that consumers never see.
 Open question a hosted deployment could answer: whether anything outside the checked tree imports `./primeintellect`, `./knowledge`, `./conversation`, or `./environment-provider`.
 
+## Step 1 implementation
+
+[PR #1124](https://github.com/tangle-network/agent-runtime/pull/1124) prepares the surface change for Runtime 0.198.0 and Bench 0.9.0.
+Publication is pending the release checks.
+The package has 13 public entry points, down from 18.
+The five named subpaths are removed.
+The separate graph engine and PrimeIntellect packaging implementation are deleted.
+Root candidate-execution exports and kernel type duplicates move to their existing dedicated subpaths.
+Bench imports follow those public homes.
+
+The consumer check corrected two recommendations above.
+Knowledge improvement and activation remain supported through explicit root exports because maintained Knowledge guidance requires those capabilities.
+Conversation drivers, persona dispatch, and journal adapters retain one supported root home.
+Tax-agent consumes persona dispatch, and legal-agent consumes the profile execution backend.
+Internal conversation transport helpers are no longer public.
+The maintained `runGraph` implementation remains on `/kernel`; deleting the separate engine does not remove fixed profile graph execution.
+Whole-profile improvement and knowledge learning remain available.
+
+Verification searches covered source, scripts, configuration, and literal dynamic imports under both `~/webb` and `~/code`.
+Those searches cannot establish the absence of hosted consumers or computed imports outside the inspected trees.
+Generated reference pages move with their public symbols; their line changes are not implementation deletion measurements.
+The later dead-mechanism, duplication, and file-splitting phases remain separate work.
+
 ## Dead mechanisms with no consumer
 
 | mechanism | lines | evidence |

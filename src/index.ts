@@ -23,75 +23,46 @@ export type {
 } from '@tangle-network/agent-eval'
 // ── Backends ──────────────────────────────────────────────────────────
 export { createIterableBackend, createSandboxPromptBackend } from './backends'
-// ── Immutable candidate execution ─────────────────────────────────────
-// One verified bundle → one exact per-task plan → one protected run receipt.
-// This composes the shared profile materializer and agent-eval trace store;
-// benchmark adapters supply only environment-specific artifact/container ports.
-export * from './candidate-execution'
-export type {
-  AuthSource,
-  BackendCallPolicy,
-  CircuitBreakerConfig,
-  Conversation,
-  ConversationDriveState,
-  ConversationJournal,
-  ConversationJournalEntry,
-  ConversationParticipant,
-  ConversationPolicy,
-  ConversationResult,
-  ConversationStreamEvent,
-  ConversationTurn,
-  D1DatabaseLike,
-  D1StmtLike,
-  ForwardHeaderName,
-  HaltContext,
-  HaltPredicate,
-  HaltReason,
-  HaltSignal,
-  PropagatedHeaders,
-  RetryableErrorPredicate,
-  RetryBackoff,
-  RunConversationOptions,
-  SqlAdapter,
-  TurnOrder,
-} from './conversation'
-// ── Conversations (multi-agent, distributed) ──────────────────────────
-// Drives N participants in turn through any reachable AgentExecutionBackend
-// (in-process, local cli-bridge, sandbox, router, remote agent-gateway).
-// Layered primitives — durable journal, per-turn call policy (deadline +
-// retry + circuit breaker), deterministic turn ids, and cross-gateway header
-// propagation — make the same driver work same-machine, same-cluster, and
-// cross-cloud without code changes. See docs/agent-bus-protocol.md.
+// ── Conversations ─────────────────────────────────────────────
 export {
-  buildForwardHeaders,
-  CircuitBreakerState,
-  CircuitOpenError,
-  computeBackoff,
+  type AuthSource,
+  type BackendCallPolicy,
+  type CircuitBreakerConfig,
+  type Conversation,
+  type ConversationDriveState,
+  type ConversationJournal,
+  type ConversationJournalEntry,
+  type ConversationParticipant,
+  type ConversationPolicy,
+  type ConversationResult,
+  type ConversationStreamEvent,
+  type ConversationTurn,
   createConversationBackend,
   createProfileExecutionBackend,
-  DEFAULT_MAX_DEPTH,
-  DeadlineExceededError,
+  type D1DatabaseLike,
+  type D1StmtLike,
   d1ToSqlAdapter,
-  defaultIsRetryable,
   defineConversation,
   FileConversationJournal,
-  FORWARD_HEADERS,
+  type HaltContext,
+  type HaltPredicate,
+  type HaltReason,
+  type HaltSignal,
   InMemoryConversationJournal,
-  isDepthExceeded,
-  makePerAttemptSignal,
   type PersonaConversationResult,
   type PersonaDriver,
+  type RetryableErrorPredicate,
+  type RetryBackoff,
+  type RunConversationOptions,
   type RunPersonaConfig,
   type RunPersonaConversationOptions,
-  readDepth,
   runConversation,
   runConversationStream,
   runPersonaConversation,
   runPersonaDispatch,
+  type SqlAdapter,
   SqlConversationJournal,
-  sleep,
-  slugifySpeaker,
-  turnId,
+  type TurnOrder,
 } from './conversation'
 // ── Errors ───────────────────────────────────────────────────────────
 export {
@@ -112,11 +83,144 @@ export {
 // ── Improvement (self-improvement surfaces) ──────────────────────────
 // Complete agent-eval methods optimize profile fields. Runtime owns only
 // isolated code/worktree candidate execution.
-export * from './improvement'
+export {
+  type AgenticGeneratorExecutorForWorktree,
+  type AgenticGeneratorOptions,
+  type AgenticGeneratorShotDisposition,
+  type AgenticGeneratorShotExecution,
+  type AgenticGeneratorShotReceipt,
+  agenticGenerator,
+  commandVerifier,
+  defaultBuildPrompt,
+  type Verifier,
+  type VerifyResult,
+} from './improvement/agentic-generator'
+export {
+  type BuildPromptFindingsInput,
+  findingLines,
+  mcpBuildPrompt,
+  toolBuildPrompt,
+} from './improvement/build-prompts'
+export {
+  type ImproveCandidateValidationInput,
+  type ImproveCandidateValidator,
+  type ImproveCodeBaseOptions,
+  type ImproveCodeOptions,
+  type ImproveCodeResult,
+  type ImproveCodeRunOptions,
+  type ImproveCost,
+  type ImproveCustomCodeGeneratorOptions,
+  type ImproveLineage,
+  type ImproveMethodContext,
+  type ImproveMethodFactory,
+  type ImproveMethodLineage,
+  type ImproveMethodOptions,
+  type ImproveMethodResult,
+  type ImproveMethodSource,
+  type ImprovementCandidate,
+  type ImprovementCodeCandidate,
+  type ImprovementMaterializedProfilePopulationCandidate,
+  type ImprovementProfileCandidate,
+  type ImprovementProfileCandidatePopulation,
+  type ImprovementProfileCandidatePopulationAvailable,
+  type ImprovementProfileCandidatePopulationUnavailable,
+  type ImprovementProfilePopulationArtifactSource,
+  type ImprovementProfilePopulationCandidate,
+  type ImprovementProfilePopulationCandidateSource,
+  type ImprovementProfilePopulationLineage,
+  type ImprovementProfilePopulationLineageNode,
+  type ImprovementProfilePopulationObservationSource,
+  type ImprovementRefusedProfilePopulationCandidate,
+  type ImproveOptimizationRunOptions,
+  type ImproveOptions,
+  type ImproveProfileAgent,
+  type ImproveProfileComponents,
+  type ImproveProfileSurface,
+  type ImproveResult,
+  type ImproveRuntimeCodeGeneratorOptions,
+  type ImproveScenarioPartitions,
+  type ImproveSkillsOptions,
+  type ImproveSurface,
+  improve,
+} from './improvement/improve'
+export type { CandidateGenerator } from './improvement/improvement-driver'
+export { type McpServeSpec, mcpServeVerifier } from './improvement/mcp-serve-verifier'
+export {
+  type OfficialGepaOptions,
+  type OfficialOptimizerContextOptions,
+  OfficialOptimizerUnavailableError,
+  type OfficialSensitiveCandidateInput,
+  type OfficialSkillOptOptions,
+  officialGepa,
+  officialSkillOpt,
+} from './improvement/official-optimizers'
+export {
+  optimizerMethod,
+  strategyAuthorMethod,
+} from './improvement/optimizer-prompt'
+export {
+  type CreateProfileImprovementHarnessOptions,
+  createProfileImprovementHarness,
+  type ProfileImprovementHarness,
+  type ProfileImprovementHarnessRunOptions,
+} from './improvement/profile-improvement-harness'
+export type { DeepReadonly, ReadonlyAgentProfile } from './improvement/profile-types'
+export {
+  PROMPT_INSTRUCTION_COMPONENT_PREFIX,
+  promptInstructionsProfileComponents,
+} from './improvement/prompt-instructions-profile-components'
+export {
+  type RawTraceDistillerOptions,
+  rawTraceDistiller,
+} from './improvement/raw-trace-distiller'
+export {
+  type ReflectiveGeneratorOptions,
+  reflectiveGenerator,
+} from './improvement/reflective-generator'
+export {
+  applyRolloutPolicyToProfile,
+  normalizeRolloutPolicy,
+  parseRolloutPolicy,
+  ROLLOUT_POLICY_EXTENSION,
+  serializeRolloutPolicy,
+  structuralRolloutPolicyFromProfile,
+} from './improvement/rollout-policy'
+
 // ── Knowledge orchestration ──────────────────────────────────────────
 // Runtime owns live agent orchestration; agent-knowledge owns the KB/RAG/memory state.
 // These wrappers bridge the two without making agent-knowledge import runtime.
-export * from './knowledge'
+export {
+  type CreateKnowledgeImprovementActivationExecutorOptions,
+  createKnowledgeImprovementActivationExecutor,
+  type KnowledgeImprovementActivationExecutor,
+} from './knowledge/activation'
+
+export {
+  type AgentKnowledgeReadinessCheckOptions,
+  buildKnowledgeImprovementExperimentBundles,
+  createAgentKnowledgeReadinessCheck,
+  type KnowledgeImprovementCandidatePair,
+  type KnowledgeImprovementExperimentBundles,
+  type KnowledgeImprovementJobMeasurement,
+  type KnowledgeImprovementJobResult,
+  type RunKnowledgeImprovementJobOptions,
+  runKnowledgeImprovementJob,
+} from './knowledge/improvement-job'
+
+export {
+  createSupervisedKnowledgeUpdater,
+  formatSupervisedKnowledgeTask,
+  type KnowledgeReadinessCheck,
+  type KnowledgeReadinessCheckInput,
+  type KnowledgeReadinessCheckResult,
+  knowledgeReadinessDeliverable,
+  RESEARCH_SUPERVISOR_SYSTEM_PROMPT,
+  runSupervisedKnowledgeUpdate,
+  type SupervisedKnowledgeUpdateInput,
+  type SupervisedKnowledgeUpdateOptions,
+  type SupervisedKnowledgeUpdateResult,
+  type SupervisedKnowledgeUpdater,
+} from './knowledge/supervised-update'
 // ── Delegated loop-runner (configured code/research/review/audit/improvement) ──
 export {
   auditLoopRunner,
@@ -196,39 +300,6 @@ export {
 export { decideKnowledgeReadiness } from './readiness'
 // ── Run loop ─────────────────────────────────────────────────────────
 export { applyRunRecordDefaults, runAgentTask, runAgentTaskStream } from './run'
-// ── Execution kernel ─────────────────────────────────────────────────
-// The organism-level execution surface — supervision, the open `Executor` port and its
-// registry, conserved budgets, the finalizer seam, analyst wiring, and the
-// round-synchronous loop — ships on `@tangle-network/agent-runtime/kernel`.
-// These are its headline types; import the values (`supervise`, `createExecutor`,
-// `createSupervisor`, `runAgentRounds`, the combinators) from that subpath.
-export type {
-  AgentSpec,
-  AnalystKind,
-  AnalystRegistry,
-  AuthoredAnalystDefinition,
-  Budget,
-  CoordinationEvent,
-  Driver,
-  Executor,
-  ExecutorRegistry,
-  FinalizeContext,
-  LoopResult,
-  ProviderModelAttemptEvidence,
-  ProviderModelExecutionEvidence,
-  RootProviderModelEvidence,
-  Scope,
-  Settled,
-  Spend,
-  SpendChannel,
-  SpendGap,
-  SupervisedResult,
-  Supervisor,
-  SupervisorFinalizer,
-  TokenUsageProvenance,
-  WorkerTraceEvidence,
-  WorkerTraceUnavailableReason,
-} from './runtime'
 // ── Runtime hooks ────────────────────────────────────────────────────
 export type {
   RuntimeDecisionEvidenceRef,

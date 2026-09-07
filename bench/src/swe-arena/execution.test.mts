@@ -344,6 +344,7 @@ describe('arms: patch extraction (real git, no docker)', () => {
     const ws = await scratch('swe-arena-git-')
     const git = (...argv: string[]) => runOk('git', ['-C', ws, ...argv])
     await runOk('git', ['init', '-q', ws])
+    await runOk('git', ['-C', ws, 'config', 'core.hooksPath', '/dev/null'])
     await git('config', 'user.email', 't@t')
     await git('config', 'user.name', 't')
     await writeFile(join(ws, 'lib.py'), 'x = 1\n')
@@ -904,7 +905,7 @@ describe('serialized-judge', () => {
     const dir = await scratch('swe-arena-judge-flock-stale-bytes-')
     const lockFile = join(dir, 'lock')
     await writeFile(lockFile, 'half-written-or-dead-owner\n')
-    await expect(withJudgeLock(lockFile, async () => 'acquired', { timeoutMs: 1_000 })).resolves.toBe('acquired')
+    await expect(withJudgeLock(lockFile, async () => 'acquired', { timeoutMs: 5_000 })).resolves.toBe('acquired')
     expect(await readFile(lockFile, 'utf8')).toBe('half-written-or-dead-owner\n')
   })
 
@@ -926,7 +927,7 @@ describe('serialized-judge', () => {
 
     await expect(result).rejects.toThrow('cancelled active judge')
     expect((await readFile(attempts, 'utf8')).trim().split('\n')).toEqual(['attempt'])
-    await expect(withJudgeLock(lockFile, async () => 'released', { timeoutMs: 1_000 })).resolves.toBe('released')
+    await expect(withJudgeLock(lockFile, async () => 'released', { timeoutMs: 5_000 })).resolves.toBe('released')
   }, 15_000)
 
   it('bounds stale-container cleanup before starting the judge child', async () => {

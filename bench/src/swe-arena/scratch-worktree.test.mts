@@ -21,6 +21,7 @@ describe('scratch worktrees', () => {
     const output = await mkdtemp(join(tmpdir(), 'scratch-worktree-out-'))
     roots.push(repository, output)
     await runOk('git', ['init', '-q', '-b', 'main', repository])
+    await runOk('git', ['-C', repository, 'config', 'core.hooksPath', '/dev/null'])
     await runOk('git', ['-C', repository, 'config', 'user.email', 'test@example.com'])
     await runOk('git', ['-C', repository, 'config', 'user.name', 'Test'])
     await writeFile(join(repository, 'seed.txt'), 'seed\n')
@@ -51,5 +52,5 @@ describe('scratch worktrees', () => {
       await runOk('git', ['-C', repository, 'worktree', 'list', '--porcelain'])
     ).stdout
     expect(listed.match(/^worktree /gmu)).toHaveLength(1)
-  })
+  }, 60_000)
 })

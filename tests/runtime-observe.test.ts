@@ -141,6 +141,22 @@ describe('runtime observe', () => {
       findings: 1,
       learned: 1,
       failures: [{ runId: 'failed-save', error: expect.stringContaining('storage unavailable') }],
+      usage: { input: 10, output: 5, known: false },
     })
+  })
+
+  it('retains analyst usage across concurrent harvesting calls', async () => {
+    const report = await harvestCorpus({
+      runs: Array.from({ length: 3 }, (_, index) => ({
+        task: `task ${index}`,
+        output: 'done',
+        trace: [],
+      })),
+      profile: observerProfile,
+      executor: observerExecutor('{"findings":[]}'),
+      corpus: { append: async () => ({ succeeded: true }), query: async () => [] },
+      concurrency: 3,
+    })
+    expect(report.usage).toEqual({ input: 30, output: 15, known: true })
   })
 })

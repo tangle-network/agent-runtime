@@ -66,7 +66,7 @@ A `@tangle-network/agent-runtime` consumer (driver code):
 
 ## Reference
 
-- `@tangle-network/agent-runtime` (root) — `buildForwardHeaders`, `turnId`, depth parsing, the call-policy
+- `src/conversation/` (internal) — header construction, turn identity, depth parsing, and the call-policy
   primitives, and the durable conversation journal all export from the package root (`src/index.ts`);
   there are no protocol-specific subpaths.
 - `@tangle-network/agent-gateway` — Hono middleware for inbound enforcement.

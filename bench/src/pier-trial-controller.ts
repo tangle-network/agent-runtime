@@ -21,7 +21,8 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Writable } from 'node:stream'
 
-import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime'
+import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime/candidate-execution'
+
 import type { TraceStore } from '@tangle-network/agent-eval'
 
 import type {

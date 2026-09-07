@@ -93,9 +93,13 @@ describe('SWE worker prompts', () => {
 
 describe('SWE temporary directory', () => {
   it('stays absolute when model temperature is configured through TEMPERATURE', () => {
+    const priorTmpdir = process.env.TMPDIR
+    const priorTmp = process.env.TMP
     const priorTemp = process.env.TEMP
     const priorTemperature = process.env.TEMPERATURE
     try {
+      delete process.env.TMPDIR
+      delete process.env.TMP
       delete process.env.TEMP
       process.env.TEMPERATURE = '0.8'
       assert.equal(isAbsolute(absoluteSweTempDir()), true)
@@ -103,6 +107,10 @@ describe('SWE temporary directory', () => {
       process.env.TEMP = '0.8'
       assert.throws(() => absoluteSweTempDir(), /must be absolute.*TEMPERATURE/)
     } finally {
+      if (priorTmpdir === undefined) delete process.env.TMPDIR
+      else process.env.TMPDIR = priorTmpdir
+      if (priorTmp === undefined) delete process.env.TMP
+      else process.env.TMP = priorTmp
       if (priorTemp === undefined) delete process.env.TEMP
       else process.env.TEMP = priorTemp
       if (priorTemperature === undefined) delete process.env.TEMPERATURE
@@ -197,7 +205,7 @@ describe('isInsideJail (realpath containment)', () => {
     symlinkSync('/etc', link)
     // `resolveInJail` does `realpathSync(join(ws.dir, relPath))` then this containment check.
     const real = realpathSync(join(dir, 'escape/passwd'))
-    assert.equal(real, '/etc/passwd')
+    assert.equal(real, realpathSync('/etc/passwd'))
     assert.equal(isInsideJail(jailRoot, real), false)
   })
 
