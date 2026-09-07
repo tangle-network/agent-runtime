@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.33
+
+Requires Eval `>=0.175.0 <0.176.0`, following Runtime 0.197.0.
+No behavior change.
+
 ## 0.8.32
 
 The dependency ranges now require Runtime 0.195.0, Eval 0.174, and Knowledge 14.
