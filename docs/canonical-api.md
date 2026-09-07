@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.198.2.**
+> **Version 0.199.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.175.0 <0.176.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.38.0`.
@@ -38,6 +38,12 @@ The system is four steps, each with a named entry point:
    `candidatePopulation` joins verified callback observations with the optimizer's official graph.
    It returns every unique candidate as an exact profile plus Interface diffs, or as an explicit refusal.
    Official GEPA graph nodes retain parent indices and selection scores.
+   Use `surface: 'agent-profile'` to search the complete profile.
+   Use `profileComponents` to select one field or a group, with exact read/apply validation.
+   Set `profileComponents.encoding: 'json'` when Omni includes engines that accept only text.
+   The default encoding preserves GEPA's named-component search.
+   For several complete profiles or other composite candidates, use Eval's existing candidate surface and execution callback.
+   Scenarios can represent complete learning episodes; keep the final assessment outside all adaptation and scope selection.
 
 Two standing rules: the model that picks the best attempt is never the model that grades it, and observation attaches to the *loop* via `RuntimeHooks`, never to the portable profile. A durable `Supervisor` replays a crashed tree from its journal after coordinator restart; committed work is reused while in-flight keyed work remains `in-doubt` until its exact prior execution is recovered.
 

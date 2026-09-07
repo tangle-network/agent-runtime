@@ -2365,6 +2365,14 @@ Exact materialized profile presented for validation before any candidate run.
 
 Caller-owned mapping for optimizing several profile fields as one candidate.
 
+#### Properties
+
+##### encoding?
+
+> `optional` **encoding?**: `"components"` \| `"json"`
+
+Encode the map as JSON text for engines that cannot search named components. Default `'components'`.
+
 #### Methods
 
 ##### read()

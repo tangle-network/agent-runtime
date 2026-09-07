@@ -63,9 +63,20 @@ export function prepareProfileSurface(
     }
     case 'agent-profile': {
       if (profileComponents) {
+        if (
+          profileComponents.encoding !== undefined &&
+          profileComponents.encoding !== 'components' &&
+          profileComponents.encoding !== 'json'
+        ) {
+          throw new ConfigError('improve(): profileComponents.encoding must be components or json')
+        }
         const value = profileComponents.read(profile)
+        const components = componentSurface(value, 'profileComponents.read')
         return {
-          surface: componentSurface(value, 'profileComponents.read'),
+          surface:
+            profileComponents.encoding === 'json'
+              ? canonicalJson(components.components)
+              : components,
           value,
         }
       }
@@ -289,12 +300,20 @@ export function createProfileCandidateMaterializer(
   skills?: ImproveSkillsOptions,
   profileComponents?: ImproveProfileComponents,
 ): (candidateSurface: MutableSurface) => AgentProfile {
+  const decode = (candidate: MutableSurface): MutableSurface => {
+    if (profileComponents?.encoding !== 'json') return candidate
+    if (typeof candidate !== 'string') {
+      throw new ConfigError('improve(): JSON profile components require a text surface')
+    }
+    return componentSurface(parseWinnerJson(candidate, surface), 'JSON profile components')
+  }
+  const decodedBaseline = decode(baselineSurface)
   const baselineDigest = canonicalCandidateDigest(baselineSurface)
   if (profileComponents) {
     const reappliedBaseline = materializeImprovementProfileCandidate(
       profile,
       surface,
-      baselineSurface,
+      decodedBaseline,
       skills,
       profileComponents,
     )
@@ -307,13 +326,15 @@ export function createProfileCandidateMaterializer(
   const candidates = new Map<Sha256Digest, AgentProfile>([[baselineDigest, profile]])
   return (candidateSurface) => {
     assertCandidateSurfaceKind(surface, baselineSurface, candidateSurface)
+    const decodedCandidate = decode(candidateSurface)
+    assertCandidateSurfaceKind(surface, decodedBaseline, decodedCandidate)
     const digest = canonicalCandidateDigest(candidateSurface)
     const existing = candidates.get(digest)
     if (existing) return existing
     const candidate = materializeImprovementProfileCandidate(
       profile,
       surface,
-      immutableCandidateValue(candidateSurface),
+      immutableCandidateValue(decodedCandidate),
       skills,
       profileComponents,
     )

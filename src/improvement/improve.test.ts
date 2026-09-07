@@ -663,162 +663,220 @@ describe('improve method execution', () => {
     })
   })
 
-  it('optimizes caller-defined profile components without dropping component state', async () => {
-    let observedBaseline: MutableSurface | undefined
-    const profile: AgentProfile = {
-      name: 'fixture-agent',
-      prompt: { systemPrompt: 'baseline' },
-      tools: { search: false },
-    }
-    const winner: MutableSurface = {
-      kind: 'components',
-      components: {
-        prompt: 'improved prompt',
-        tools: '{"search":true}',
-      },
-    }
-    const result = await improve(profile, {
-      ...methodOptions(
-        fixedMethod(winner, (input) => {
-          observedBaseline = input.baselineSurface
-        }),
-      ),
-      surface: 'agent-profile',
-      profileComponents: {
-        read: (current) => ({
-          prompt: current.prompt?.systemPrompt ?? '',
-          tools: JSON.stringify(current.tools ?? {}),
-        }),
-        apply: (current, components) => ({
-          ...current,
-          prompt: { ...current.prompt, systemPrompt: components.prompt },
-          tools: JSON.parse(components.tools ?? '{}') as Record<string, boolean>,
-        }),
-      },
-      agent: paidProfile,
-    })
-
-    expect(observedBaseline).toEqual({
-      kind: 'components',
-      components: {
-        prompt: 'baseline',
-        tools: '{"search":false}',
-      },
-    })
-    expect(result.candidate.profile).toMatchObject({
-      prompt: { systemPrompt: 'improved prompt' },
-      tools: { search: true },
-    })
-    expect(profile).toMatchObject({
-      prompt: { systemPrompt: 'baseline' },
-      tools: { search: false },
-    })
-  })
-
-  it('rejects component candidates that add or remove profile component names', async () => {
-    await expect(
-      improve(promptProfile(), {
-        ...methodOptions(
-          fixedMethod({
-            kind: 'components',
-            components: { prompt: 'improved prompt' },
-          }),
-        ),
-        surface: 'agent-profile',
-        profileComponents: {
-          read: () => ({ prompt: 'baseline', policy: '{}' }),
-          apply: (current, components) => ({
-            ...current,
-            prompt: { ...current.prompt, systemPrompt: components.prompt },
-          }),
-        },
-      }),
-    ).rejects.toThrow(/preserve the exact component names/)
-  })
-
-  it('rejects a profile component adapter that does not apply the measured winner', async () => {
-    await expect(
-      improve(promptProfile(), {
-        ...methodOptions(
-          fixedMethod({
-            kind: 'components',
-            components: { prompt: 'improved prompt' },
-          }),
-        ),
-        surface: 'agent-profile',
-        profileComponents: {
-          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
-          apply: (current) => ({ ...current }),
-        },
-        agent: paidProfile,
-      }),
-    ).rejects.toThrow(/round-trip every winning component/)
-  })
-
-  it('rejects a component adapter that changes unmeasured baseline fields', async () => {
-    await expect(
-      improve(promptProfile(), {
-        ...methodOptions(
-          fixedMethod({
-            kind: 'components',
-            components: { prompt: 'improved prompt' },
-          }),
-        ),
-        surface: 'agent-profile',
-        profileComponents: {
-          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
-          apply: (current, components) => ({
-            ...current,
-            description: 'unmeasured adapter side effect',
-            prompt: { ...current.prompt, systemPrompt: components.prompt },
-          }),
-        },
-      }),
-    ).rejects.toThrow(/must reproduce the complete baseline profile exactly/)
-  })
-
-  it('scores and returns the same complete profile produced by a component mapping', async () => {
-    const observed: ReadonlyAgentProfile[] = []
-    const result = await improve(
-      {
+  it.each(['components', 'json'] as const)(
+    'optimizes caller-defined profile components without dropping component state (%s)',
+    async (encoding) => {
+      let observedBaseline: MutableSurface | undefined
+      const profile: AgentProfile = {
         name: 'fixture-agent',
         prompt: { systemPrompt: 'baseline' },
-        tools: { Bash: false },
-      },
-      {
+        tools: { search: false },
+      }
+      const winner: MutableSurface = {
+        kind: 'components',
+        components: {
+          prompt: 'improved prompt',
+          tools: '{"search":true}',
+        },
+      }
+      const result = await improve(profile, {
         ...methodOptions(
-          fixedMethod({
-            kind: 'components',
-            components: { prompt: 'improved prompt' },
+          fixedMethod(encoding === 'json' ? canonicalJson(winner.components) : winner, (input) => {
+            observedBaseline = input.baselineSurface
           }),
         ),
         surface: 'agent-profile',
         profileComponents: {
-          read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+          encoding,
+          read: (current) => ({
+            prompt: current.prompt?.systemPrompt ?? '',
+            tools: JSON.stringify(current.tools ?? {}),
+          }),
           apply: (current, components) => ({
             ...current,
             prompt: { ...current.prompt, systemPrompt: components.prompt },
-            tools: { Bash: components.prompt === 'improved prompt' },
+            tools: JSON.parse(components.tools ?? '{}') as Record<string, boolean>,
           }),
         },
-        agent: async (candidate, scenario, ctx) => {
-          observed.push(candidate)
-          return paidProfile(candidate, scenario, ctx)
-        },
-      },
-    )
+        agent: (candidate, scenario, ctx) =>
+          paidArtifact(
+            candidate.tools?.search === true && candidate.prompt?.systemPrompt === 'improved prompt'
+              ? 'improved'
+              : 'baseline',
+            scenario,
+            ctx,
+          ),
+      })
 
-    const measuredWinner = observed.find(
-      (candidate) =>
-        candidate.prompt?.systemPrompt === 'improved prompt' && candidate.tools?.Bash === true,
-    )
-    expect(result.candidate.profile?.tools).toEqual({ Bash: true })
-    expect(measuredWinner).toBeDefined()
-    expect(result.candidate.profile).toBe(measuredWinner)
-    expect(observed.every((candidate) => Object.isFrozen(candidate))).toBe(true)
-    expect(observed.every((candidate) => Object.isFrozen(candidate.prompt))).toBe(true)
-    expect(observed.every((candidate) => Object.isFrozen(candidate.tools))).toBe(true)
-  })
+      const baselineComponents = {
+        kind: 'components',
+        components: {
+          prompt: 'baseline',
+          tools: '{"search":false}',
+        },
+      }
+      expect(observedBaseline).toEqual(
+        encoding === 'json' ? canonicalJson(baselineComponents.components) : baselineComponents,
+      )
+      expect(result.candidate.profile).toMatchObject({
+        prompt: { systemPrompt: 'improved prompt' },
+        tools: { search: true },
+      })
+      expect(result.decision).toBe('ship')
+      expect(profile).toMatchObject({
+        prompt: { systemPrompt: 'baseline' },
+        tools: { search: false },
+      })
+    },
+  )
+
+  it.each(['components', 'json'] as const)(
+    'rejects component candidates that add or remove profile component names (%s)',
+    async (encoding) => {
+      await expect(
+        improve(promptProfile(), {
+          ...methodOptions(
+            fixedMethod(
+              encoding === 'json'
+                ? canonicalJson({ prompt: 'improved prompt' })
+                : { kind: 'components', components: { prompt: 'improved prompt' } },
+            ),
+          ),
+          surface: 'agent-profile',
+          profileComponents: {
+            encoding,
+            read: () => ({ prompt: 'baseline', policy: '{}' }),
+            apply: (current, components) => ({
+              ...current,
+              prompt: { ...current.prompt, systemPrompt: components.prompt },
+            }),
+          },
+        }),
+      ).rejects.toThrow(/preserve the exact component names/)
+    },
+  )
+
+  it.each(['components', 'json'] as const)(
+    'rejects a profile component adapter that does not apply the measured winner (%s)',
+    async (encoding) => {
+      await expect(
+        improve(promptProfile(), {
+          ...methodOptions(
+            fixedMethod(
+              encoding === 'json'
+                ? canonicalJson({ prompt: 'improved prompt' })
+                : { kind: 'components', components: { prompt: 'improved prompt' } },
+            ),
+          ),
+          surface: 'agent-profile',
+          profileComponents: {
+            encoding,
+            read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+            apply: (current) => ({ ...current }),
+          },
+          agent: paidProfile,
+        }),
+      ).rejects.toThrow(/round-trip every winning component/)
+    },
+  )
+
+  it.each(['components', 'json'] as const)(
+    'rejects a component adapter that changes unmeasured baseline fields (%s)',
+    async (encoding) => {
+      await expect(
+        improve(promptProfile(), {
+          ...methodOptions(
+            fixedMethod(
+              encoding === 'json'
+                ? canonicalJson({ prompt: 'improved prompt' })
+                : { kind: 'components', components: { prompt: 'improved prompt' } },
+            ),
+          ),
+          surface: 'agent-profile',
+          profileComponents: {
+            encoding,
+            read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+            apply: (current, components) => ({
+              ...current,
+              description: 'unmeasured adapter side effect',
+              prompt: { ...current.prompt, systemPrompt: components.prompt },
+            }),
+          },
+        }),
+      ).rejects.toThrow(/must reproduce the complete baseline profile exactly/)
+    },
+  )
+
+  it.each(['components', 'json'] as const)(
+    'scores and returns the same complete profile produced by a component mapping (%s)',
+    async (encoding) => {
+      const observed: ReadonlyAgentProfile[] = []
+      const result = await improve(
+        {
+          name: 'fixture-agent',
+          prompt: { systemPrompt: 'baseline' },
+          tools: { Bash: false },
+        },
+        {
+          ...methodOptions(
+            fixedMethod(
+              encoding === 'json'
+                ? canonicalJson({ prompt: 'improved prompt' })
+                : { kind: 'components', components: { prompt: 'improved prompt' } },
+            ),
+          ),
+          surface: 'agent-profile',
+          profileComponents: {
+            encoding,
+            read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+            apply: (current, components) => ({
+              ...current,
+              prompt: { ...current.prompt, systemPrompt: components.prompt },
+              tools: { Bash: components.prompt === 'improved prompt' },
+            }),
+          },
+          agent: async (candidate, scenario, ctx) => {
+            observed.push(candidate)
+            return paidProfile(candidate, scenario, ctx)
+          },
+        },
+      )
+
+      const measuredWinner = observed.find(
+        (candidate) =>
+          candidate.prompt?.systemPrompt === 'improved prompt' && candidate.tools?.Bash === true,
+      )
+      expect(result.candidate.profile?.tools).toEqual({ Bash: true })
+      expect(measuredWinner).toBeDefined()
+      expect(result.candidate.profile).toBe(measuredWinner)
+      expect(observed.every((candidate) => Object.isFrozen(candidate))).toBe(true)
+      expect(observed.every((candidate) => Object.isFrozen(candidate.prompt))).toBe(true)
+      expect(observed.every((candidate) => Object.isFrozen(candidate.tools))).toBe(true)
+    },
+  )
+
+  it.each(['[]', 'null', '{"prompt":3}', '{'])(
+    'rejects malformed JSON components: %s',
+    async (winner) => {
+      await expect(
+        improve(promptProfile(), {
+          ...methodOptions(fixedMethod(winner)),
+          surface: 'agent-profile',
+          profileComponents: {
+            encoding: 'json',
+            read: (current) => ({ prompt: current.prompt?.systemPrompt ?? '' }),
+            apply: (current, components) => ({
+              ...current,
+              prompt: { ...current.prompt, systemPrompt: components.prompt },
+            }),
+          },
+          agent: async () => {
+            throw new Error('invalid candidate reached execution')
+          },
+        }),
+      ).rejects.toThrow(/valid JSON|component record|string values/)
+    },
+  )
 
   it('holds an apparent win when any run cost is incompletely accounted', async () => {
     const method = fixedMethod('improved prompt')

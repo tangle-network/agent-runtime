@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.199.0
+
+Profile component mappings can encode selected fields as JSON for Omni and other text-surface optimizers.
+The existing validation preserves component names, exact application, complete candidates, and baseline isolation.
+Whole-profile and named-component search keep their existing contracts.
+
 ## 0.198.2
 
 A nested manager without an accepted finalizer output now persists an explicit `null` result.
