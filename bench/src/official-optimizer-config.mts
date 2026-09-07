@@ -73,6 +73,7 @@ export function officialOptimizerModel(options: {
   temperature?: number
   reasoningEffort?: NonNullable<AgentProfile['model']>['reasoningEffort']
   callRef?: string
+  anthropicEndpoint?: boolean
   complete?: RouterSeam['complete']
 }): OpenAICompatibleOptimizerModel {
   const { env } = options
@@ -106,12 +107,20 @@ export function officialOptimizerModel(options: {
     routerKey: options.apiKey,
     ...(options.complete ? { complete: options.complete } : {}),
   }
-  const call = profileOptimizerModelCall({
-    profile,
-    context: 'official optimizer model',
-    executor,
-    pricing: budget.pricing,
-  })
+  const call: OpenAICompatibleOptimizerModel['call'] = (request) =>
+    profileOptimizerModelCall({
+      // Eval admits the request against the budget; execute its exact output limit.
+      profile: {
+        ...profile,
+        model: {
+          ...profile.model,
+          maxVisibleOutputTokens: request.request.maxTokens ?? options.maxOutputTokensPerRequest,
+        },
+      },
+      context: 'official optimizer model',
+      executor,
+      pricing: budget.pricing,
+    })(request)
   return {
     model: options.model,
     callRef:
@@ -122,6 +131,7 @@ export function officialOptimizerModel(options: {
       })}`,
     call,
     budget,
+    ...(options.anthropicEndpoint === true ? { anthropicEndpoint: true } : {}),
   }
 }
 
