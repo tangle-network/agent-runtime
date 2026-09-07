@@ -51,6 +51,14 @@ pnpm run run-benchmarks
 
 Use `LOOP_ATTEMPTS=N` only when the benchmark's own visible feedback is allowed to enter later attempts. Hidden or gold material must remain outside the agent context.
 
+`runBenchmarks()` returns each judged artifact, worker events, and observed usage in `perTask`.
+Retry usage includes every attempt; missing receipts leave the measured subtotal explicitly incomplete.
+Judge failures retain completed worker evidence.
+Errors propagated by `close()` remain in `detail` beside the settled task outcome.
+The current Runtime lineage suppresses sandbox deletion errors, so a returned result does not confirm resource deletion.
+The caller's abort signal stops queued shots and reaches active sandbox turns.
+`modelApiKey` supplies sandbox inference authorization separately from the `routerKey` used for sandbox control.
+
 ### Full-fidelity improvement fixture
 
 ```bash

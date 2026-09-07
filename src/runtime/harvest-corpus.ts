@@ -57,12 +57,20 @@ export interface HarvestReport {
   learned: number
   /** Per-run analysis failures — reported, never silently dropped. */
   failures: HarvestFailure[]
+  /** Measured analyst tokens; a failed or unmetered analysis leaves the subtotal incomplete. */
+  usage: Observation['usage']
 }
 
 /** Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. */
 export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<HarvestReport> {
   const concurrency = Math.max(1, opts.concurrency ?? 4)
-  const report: HarvestReport = { runsObserved: 0, findings: 0, learned: 0, failures: [] }
+  const report: HarvestReport = {
+    runsObserved: 0,
+    findings: 0,
+    learned: 0,
+    failures: [],
+    usage: { input: 0, output: 0, known: true },
+  }
 
   // Normalize to an async iterator and pull cooperatively from N workers.
   const iterator = (
@@ -100,7 +108,11 @@ export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<Harvest
         report.runsObserved += 1
         report.findings += obs.findings.length
         report.learned += obs.learned.length
+        report.usage.input += obs.usage.input
+        report.usage.output += obs.usage.output
+        report.usage.known &&= obs.usage.known
       } catch (e) {
+        report.usage.known = false
         report.failures.push({
           runId: input.runId ?? `run-${consumed}`,
           error: e instanceof Error ? e.message.slice(0, 300) : String(e),

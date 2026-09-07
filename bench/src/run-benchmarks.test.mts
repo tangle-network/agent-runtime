@@ -60,6 +60,41 @@ async function main(): Promise<void> {
   assert.equal(report.perTask.length, 24, 'matrix expands to benchmarks × cells × tasks')
   assert.equal(report.rows.length, 6, 'one row per (benchmark × cell)')
 
+  const measured = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'measured', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: resolveStub, n: 1,
+    runShot: async () => ({ artifact: 'WRONG', ok: true, usage: { input: 23, output: 7, costUsd: 0.04 } }),
+  })
+  assert.equal(measured.perTask[0]?.artifact, 'WRONG', 'the exact judged artifact reaches the caller even when it fails')
+  assert.deepEqual(measured.perTask[0]?.usage, { input: 23, output: 7, costUsd: 0.04 }, 'measured usage reaches the caller')
+
+  const judgeFailure = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'measured', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', n: 1, verifyJudge: false,
+    resolveAdapter: () => ({ ...REGISTRY.alpha!, judge: async () => { throw new Error('judge unavailable') } }),
+    runShot: async () => ({ artifact: 'PATCH', ok: true, usage: { input: 23, output: 7, costUsd: 0.04 } }),
+  })
+  assert.equal(judgeFailure.perTask[0]?.ok, false)
+  assert.equal(judgeFailure.perTask[0]?.artifact, 'PATCH', 'a judge outage retains the completed agent artifact')
+  assert.equal(judgeFailure.perTask[0]?.usage?.costUsd, 0.04, 'a judge outage retains already incurred usage')
+
+  const controller = new AbortController()
+  let started = 0
+  const cancelled = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'cancelled', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: resolveStub, concurrency: 1,
+    signal: controller.signal,
+    runShot: async ({ signal }) => {
+      assert.equal(signal, controller.signal)
+      started += 1
+      controller.abort()
+      return { artifact: 'PATCH', ok: true, usage: { input: 1, output: 2, costUsd: 0.01 } }
+    },
+  })
+  assert.equal(started, 1, 'cancellation prevents every queued model call')
+  assert.equal(cancelled.perTask.length, 4, 'cancelled work remains visible')
+  assert.equal(cancelled.perTask[0]?.usage?.costUsd, 0.01)
+
   const row = (b: string, c: string) => report.rows.find((r) => r.benchmark === b && r.cell === c)!
   assert.equal(row('alpha', 'perfect').resolveRate, 1, 'perfect cell resolves every task')
   assert.equal(row('alpha', 'half').resolveRate, 0.5, 'half cell resolves the even tasks')
@@ -94,7 +129,7 @@ async function main(): Promise<void> {
   let prompts: string[] = []
   const retryShot: BenchShot = async ({ task, prompt }) => {
     prompts.push(prompt ?? task.prompt)
-    return { artifact: prompts.length === 1 ? 'WRONG' : String(task.metadata?.gold), ok: true }
+    return { artifact: prompts.length === 1 ? 'WRONG' : String(task.metadata?.gold), ok: true, usage: { input: 11, output: 3, costUsd: 0.02 } }
   }
   const oneShot = await runBenchmarks({
     benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
@@ -110,6 +145,40 @@ async function main(): Promise<void> {
   assert.equal(prompts.length, 2, 'loop stops after the passing second attempt')
   assert.match(prompts[1]!, /Previous attempts and safe checker feedback/)
   assert.match(looped.perTask[0]!.detail ?? '', /"mode":"refine-loop"/)
+  assert.deepEqual(looped.perTask[0]?.usage, { input: 22, output: 6, costUsd: 0.04 }, 'retry cost includes the rejected attempt')
+
+  const failedRetry = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: resolveStub, n: 1, loopAttempts: 2,
+    runShot: async ({ attempt }) => {
+      if (attempt === 2) throw new Error('connection lost after dispatch')
+      return { artifact: 'WRONG', ok: true, usage: { input: 11, output: 3, costUsd: 0.02 } }
+    },
+  })
+  assert.deepEqual(failedRetry.perTask[0]?.usage, {
+    input: 11, output: 3, costUsd: 0.02, tokensKnown: false, usdKnown: false,
+  }, 'an unreported retry preserves the measured floor without claiming complete accounting')
+
+  let validAttempts = 0
+  const validRetry = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: resolveStub, n: 1, loopAttempts: 3,
+    runShot: async ({ task, attempt }) => {
+      validAttempts += 1
+      return { artifact: attempt === 1 ? 'WRONG' : String(task.metadata?.gold), ok: attempt !== 2 }
+    },
+  })
+  assert.equal(validAttempts, 3, 'a failed execution cannot stop refinement with apparent gold')
+  assert.equal(validRetry.perTask[0]?.ok, true)
+  const validIncumbent = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: resolveStub, n: 1, loopAttempts: 2,
+    runShot: async ({ task, attempt }) => ({
+      artifact: attempt === 1 ? 'WRONG' : String(task.metadata?.gold), ok: attempt === 1,
+    }),
+  })
+  assert.equal(validIncumbent.perTask[0]?.artifact, 'WRONG', 'a failed execution cannot replace a valid incumbent')
+  assert.equal(validIncumbent.perTask[0]?.ok, true)
 
   // A benchmark's detail may include hidden answer fields; those must never be fed back as hints.
   const leakyGold = 'SECRET-GOLD'
@@ -141,8 +210,11 @@ async function main(): Promise<void> {
   if (runtime.openSandboxRun.toString().includes('beforeStart')) {
     // The default shot path supports benchmark-owned box setup/extract without real sandbox infra.
     const order: string[] = []
+    let createdOptions: unknown
+    let controlCredential: string | undefined
     const fakeClient = {
-      async create() {
+      async create(options: unknown) {
+        createdOptions = options
         return {
           id: 'box-default-shot',
           async exec(command: string, options?: { sessionId?: string }) {
@@ -151,7 +223,9 @@ async function main(): Promise<void> {
           },
           async *streamPrompt(_prompt: string, options?: { sessionId?: string }) {
             order.push(`stream:session=${options?.sessionId ? 'yes' : 'no'}`)
+            yield { type: 'llm_call', data: { tokensIn: 23, tokensOut: 7, costUsd: 0.04 } }
             yield { type: 'result', data: { finalText: 'fallback text' } }
+            yield { type: 'done', data: { outcome: { type: 'completed' } } }
           },
           async delete() {
             order.push('delete')
@@ -175,11 +249,19 @@ async function main(): Promise<void> {
       benchmarks: ['boxy'],
       cells: [{ label: 'default-shot', model: 'm', backend: 'sandbox' }],
       routerBaseUrl: 'x',
-      routerKey: 'x',
+      routerKey: 'sandbox-control-token',
+      modelApiKey: 'model-grant-token',
       resolveAdapter: () => boxAdapter,
-      resolveClient: () => fakeClient as never,
+      resolveClient: (options) => {
+        controlCredential = options.routerKey
+        return fakeClient as never
+      },
     })
     assert.equal(boxy.rows[0]!.resolveRate, 1, 'boxExtract artifact is judged instead of fallback text')
+    assert.equal(boxy.perTask[0]?.artifact, 'PATCH')
+    assert.deepEqual(boxy.perTask[0]?.usage, { input: 23, output: 7, costUsd: 0.04 })
+    assert.equal(controlCredential, 'sandbox-control-token', 'inference grant never authorizes sandbox control')
+    assert.equal((createdOptions as { backend: { model: { apiKey: string } } }).backend.model.apiKey, 'model-grant-token')
     assert.deepEqual(
       order.slice(0, 3),
       ['exec:setup-repo:streams=0:session=yes', 'stream:session=yes', 'exec:extract-patch:streams=1:session=yes'],

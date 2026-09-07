@@ -19,6 +19,7 @@ import type { GitRunner } from '../../src/mcp/worktree'
 import { inProcessSandboxClient } from '../../src/runtime/in-process-sandbox-client'
 import { inlineSandboxClient } from '../../src/runtime/inline-sandbox-client'
 import { localSandboxClient } from '../../src/runtime/local-sandbox-client'
+import { openSandboxRun } from '../../src/runtime/sandbox-run'
 import type { Executor } from '../../src/runtime/supervise/types'
 
 /** The per-prompt options that choose the instrument: which harness, on which credential, as
@@ -127,6 +128,27 @@ describe('inlineSandboxClient — a per-prompt backend cannot apply without a bo
     const box = await client().create()
     await expect(drain(box, { timeoutMs: 5 })).resolves.not.toHaveLength(0)
     await expect(drain(box, undefined)).resolves.not.toHaveLength(0)
+  })
+
+  it('settles a returned executor artifact as a completed sandbox turn', async () => {
+    const run = await openSandboxRun(
+      client(),
+      {
+        agentRun: { profile: offlineProfile, name: 'inline', taskToPrompt: String },
+        signal: new AbortController().signal,
+      },
+      {
+        kind: 'events',
+        fromEvents: (events) => events.find((event) => event.type === 'result')?.data,
+      },
+    )
+    try {
+      const turn = await run.start('work')
+      expect(turn.out).toMatchObject({ finalText: 'done' })
+      expect(turn.outcome).toMatchObject({ success: true, status: 'success' })
+    } finally {
+      await run.close()
+    }
   })
 })
 

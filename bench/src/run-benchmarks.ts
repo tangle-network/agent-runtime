@@ -35,7 +35,7 @@ import type {
   Deliverable,
   OpenSandboxRunOptions,
 } from '@tangle-network/agent-runtime/kernel'
-import { openSandboxRun } from '@tangle-network/agent-runtime/kernel'
+import { openSandboxRun, SandboxRunAbortError, sumSandboxUsage } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
 import { resolveAdapter } from './adapters'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
@@ -60,8 +60,17 @@ export interface BenchCell {
   readonly profile?: AgentProfile
 }
 
-/** Runs one (adapter, task, cell) shot and returns the deliverable text. The default uses
- *  `openSandboxRun`; tests inject a deterministic stub so the matrix runs offline. */
+/** A worker's artifact and observed execution evidence, before external grading. */
+export interface BenchShotResult {
+  readonly artifact: string
+  readonly ok: boolean
+  readonly detail?: string
+  /** Provider observations, including explicit unknown counters. Omitted when the shot reports none. */
+  readonly usage?: ReturnType<typeof sumSandboxUsage>
+  readonly events?: readonly SandboxEvent[]
+}
+
+/** Runs one (adapter, task, cell) shot. Defaults to `openSandboxRun`. */
 export type BenchShot = (input: {
   readonly adapter: BenchmarkAdapter
   readonly task: BenchTask
@@ -72,12 +81,15 @@ export type BenchShot = (input: {
   readonly attempt?: number
   readonly routerBaseUrl: string
   readonly routerKey: string
+  /** Optional inference credential for the box; routerKey continues to authorize sandbox control. */
+  readonly modelApiKey?: string
   readonly bridgeUrl?: string
   readonly bridgeBearer?: string
   readonly sandboxBaseUrl?: string
   readonly timeoutMs?: number
+  readonly signal?: AbortSignal
   readonly resolveClient?: typeof resolveBenchClient
-}) => Promise<{ artifact: string; ok: boolean; detail?: string }>
+}) => Promise<BenchShotResult>
 
 export interface RunBenchmarksOptions {
   /** Registry keys (`resolveAdapter`) — the benchmark subset to run. */
@@ -86,6 +98,8 @@ export interface RunBenchmarksOptions {
   readonly cells: readonly BenchCell[]
   readonly routerBaseUrl: string
   readonly routerKey: string
+  /** Optional inference credential for the box; never used for sandbox creation or deletion. */
+  readonly modelApiKey?: string
   readonly bridgeUrl?: string
   readonly bridgeBearer?: string
   readonly sandboxBaseUrl?: string
@@ -99,6 +113,8 @@ export interface RunBenchmarksOptions {
   readonly concurrency?: number
   /** Per-shot wall-clock (ms). */
   readonly timeoutMs?: number
+  /** Cancels active shots and prevents queued shots from starting. */
+  readonly signal?: AbortSignal
   /** Test seam: resolve the runtime transport. Defaults to `resolveBenchClient`. */
   readonly resolveClient?: typeof resolveBenchClient
   /** Max attempts per (benchmark × cell × task). Default 1. Attempts after the first receive
@@ -126,6 +142,11 @@ export interface BenchCellTaskResult {
   readonly ok: boolean
   readonly detail?: string
   readonly wallMs: number
+  /** Exact bytes given to the benchmark judge, retained even when judging fails. */
+  readonly artifact?: string
+  readonly usage?: ReturnType<typeof sumSandboxUsage>
+  /** Worker events only; benchmark grading remains outside this trace. */
+  readonly events?: readonly SandboxEvent[]
 }
 
 export interface BenchLeaderboardRow {
@@ -173,7 +194,8 @@ function finalText(events: readonly SandboxEvent[]): string {
 
 /** The default real-agent shot: one `openSandboxRun` over the cell's harness+model, deliverable
  *  extracted by the adapter's parser (or final text), abortable on `timeoutMs`. */
-const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, resolveClient }) => {
+const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, modelApiKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, signal, resolveClient }) => {
+  signal?.throwIfAborted()
   const client = (resolveClient ?? resolveBenchClient)({
     backend: cell.backend ?? 'router',
     routerBaseUrl,
@@ -206,7 +228,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     sandboxOverrides: {
       name: `bench-${adapter.name}-${task.id}-${uniq}`.replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 60),
       environment: 'universal',
-      backend: { type: harness as never, model: { provider: profileProvider, model: cell.model, baseUrl: routerBaseUrl } },
+      backend: { type: harness as never, model: { provider: profileProvider, model: cell.model, baseUrl: routerBaseUrl, ...(modelApiKey === undefined ? {} : { apiKey: modelApiKey }) } },
     },
   }
   const deliverable: Deliverable<string> = {
@@ -217,7 +239,7 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
   const runOptions: OpenSandboxRunOptions = {
     agentRun,
-    signal: controller.signal,
+    signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
     runId: `bench:${adapter.name}:${task.id}:${uniq}`,
     scenarioId: task.id,
   }
@@ -236,9 +258,12 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
         )
     }
   }
-  const run = await openSandboxRun(client, runOptions, deliverable)
+  let run: Awaited<ReturnType<typeof openSandboxRun<string>>> | undefined
+  let result: BenchShotResult = { artifact: '', ok: false }
   try {
+    run = await openSandboxRun(client, runOptions, deliverable)
     const turn = await run.start(prompt ?? task.prompt)
+    result = { artifact: '', ok: false, usage: sumSandboxUsage(turn.events), events: turn.events }
     // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
     let artifact = (turn.out ?? '').trim()
     let boxExtractError: string | undefined
@@ -289,7 +314,9 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
       }
     }
     const detail =
-      turn.readError !== undefined
+      !turn.outcome.success
+        ? turn.outcome.error ?? `agent ended with status ${turn.outcome.status}`
+        : turn.readError !== undefined
         ? `read: ${turn.readError.slice(0, 160)}`
         : boxExtractError !== undefined
           ? `boxExtract: ${boxExtractError}`
@@ -306,15 +333,30 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
         // debug-only; never fail the shot on a dump error
       }
     }
-    return {
+    result = {
       artifact,
-      ok: artifact.length > 0,
+      ok: turn.outcome.success && artifact.length > 0 && turn.readError === undefined && boxExtractError === undefined,
+      usage: result.usage,
+      events: turn.events,
       ...(detail ? { detail } : {}),
+    }
+  } catch (err) {
+    result = {
+      ...result,
+      ok: false,
+      detail: err instanceof Error ? err.message : String(err),
+      ...(err instanceof SandboxRunAbortError ? { usage: sumSandboxUsage(err.events), events: err.events } : {}),
     }
   } finally {
     if (timer) clearTimeout(timer)
-    await run.close()
+    try {
+      await run?.close()
+    } catch (err) {
+      const cleanup = `cleanup: ${err instanceof Error ? err.message : String(err)}`
+      result = { ...result, detail: combineDetails(result.detail, cleanup) }
+    }
   }
+  return result
 }
 
 function parseMaybeJson(value: string): unknown {
@@ -380,23 +422,44 @@ async function loopedShot(
   input: Parameters<BenchShot>[0],
   shot: BenchShot,
   attempts: number,
-): Promise<{ artifact: string; ok: boolean; detail?: string }> {
+): Promise<BenchShotResult> {
   const scores = new Map<number, BenchScore>()
-  const result = await runRefineLoop<string>({
-    rounds: attempts,
-    prompt: (round, history) => (round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores)),
-    runShot: async (prompt, round) => {
-      const out = await shot({ ...input, prompt, attempt: round })
-      return { artifact: out.artifact, note: out.detail }
-    },
-    judge: async (artifact, round) => {
-      const score = await input.adapter.judge(input.task, artifact)
-      scores.set(round, score)
-      return { valid: score.resolved, score: score.score }
-    },
-  })
+  const shots = new Map<number, BenchShotResult>()
+  let pendingShot = false
+  let result: Awaited<ReturnType<typeof runRefineLoop<string>>>
+  try {
+    result = await runRefineLoop<string>({
+      rounds: attempts,
+      prompt: (round, history) => (round === 1 ? input.task.prompt : retryPrompt(input.task, history, scores)),
+      runShot: async (prompt, round) => {
+        input.signal?.throwIfAborted()
+        pendingShot = true
+        const out = await shot({ ...input, prompt, attempt: round })
+        shots.set(round, out)
+        pendingShot = false
+        return { artifact: out.artifact, note: out.detail }
+      },
+      judge: async (artifact, round) => {
+        const score = await input.adapter.judge(input.task, artifact)
+        scores.set(round, score)
+        const succeeded = shots.get(round)?.ok === true
+        return { valid: succeeded && score.resolved, score: succeeded ? score.score : 0 }
+      },
+    })
+  } catch (err) {
+    const completed = [...shots.values()]
+    return {
+      artifact: completed.at(-1)?.artifact ?? '',
+      ok: false,
+      usage: combinedUsage(pendingShot ? [...completed, { artifact: '', ok: false }] : completed),
+      events: completed.flatMap((shot) => shot.events ?? []),
+      detail: err instanceof Error ? err.message : String(err),
+    }
+  }
 
   const best = result.rounds.reduce((winner, candidate) => {
+    if (shots.get(candidate.round)?.ok !== true) return winner
+    if (shots.get(winner.round)?.ok !== true) return candidate
     const a = scores.get(winner.round)
     const b = scores.get(candidate.round)
     if (!a) return candidate
@@ -408,7 +471,9 @@ async function loopedShot(
   const bestScore = scores.get(best.round)
   return {
     artifact: best.artifact,
-    ok: best.artifact.trim().length > 0,
+    ok: shots.get(best.round)?.ok === true && best.artifact.trim().length > 0,
+    usage: combinedUsage([...shots.values()]),
+    events: [...shots.values()].flatMap((shot) => shot.events ?? []),
     detail: JSON.stringify({
       mode: 'refine-loop',
       attempts: result.rounds.length,
@@ -422,6 +487,30 @@ async function loopedShot(
         note: round.note ?? null,
       })),
     }),
+  }
+}
+
+function combinedUsage(shots: readonly BenchShotResult[]): ReturnType<typeof sumSandboxUsage> {
+  const usage = { input: 0, output: 0, costUsd: 0 }
+  let tokensKnown = shots.length > 0
+  let usdKnown = shots.length > 0
+  let estimate: number | undefined
+  let unknownReason: string | undefined
+  for (const shot of shots) {
+    usage.input += shot.usage?.input ?? 0
+    usage.output += shot.usage?.output ?? 0
+    usage.costUsd += shot.usage?.costUsd ?? 0
+    tokensKnown &&= shot.usage !== undefined && shot.usage.tokensKnown !== false
+    usdKnown &&= shot.usage !== undefined && shot.usage.usdKnown !== false
+    unknownReason ??= shot.usage?.tokensUnknownReason
+    if (shot.usage?.estimatedCostUsd !== undefined) estimate = (estimate ?? 0) + shot.usage.estimatedCostUsd
+  }
+  return {
+    ...usage,
+    ...(tokensKnown ? {} : { tokensKnown: false as const }),
+    ...(usdKnown ? {} : { usdKnown: false as const }),
+    ...(estimate === undefined ? {} : { estimatedCostUsd: estimate }),
+    ...(unknownReason === undefined ? {} : { tokensUnknownReason: unknownReason }),
   }
 }
 
@@ -481,6 +570,7 @@ async function prepareBenchmarks(
 }
 
 export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenchmarksReport> {
+  opts.signal?.throwIfAborted()
   if (opts.benchmarks.length === 0) throw new Error('runBenchmarks: no benchmarks selected')
   if (opts.cells.length === 0) throw new Error('runBenchmarks: no cells to run')
   const reps = Math.max(1, opts.reps ?? 1)
@@ -497,20 +587,24 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
   await runPool(jobs, Math.max(1, opts.concurrency ?? 4), async (job, index) => {
     const startedAt = Date.now()
     let result: BenchCellTaskResult
+    let out: BenchShotResult | undefined
     try {
+      opts.signal?.throwIfAborted()
       const shotInput = {
         adapter: job.adapter,
         task: job.task,
         cell: job.cell,
         routerBaseUrl: opts.routerBaseUrl,
         routerKey: opts.routerKey,
+        ...(opts.modelApiKey === undefined ? {} : { modelApiKey: opts.modelApiKey }),
         ...(opts.bridgeUrl ? { bridgeUrl: opts.bridgeUrl } : {}),
         ...(opts.bridgeBearer ? { bridgeBearer: opts.bridgeBearer } : {}),
         ...(opts.sandboxBaseUrl ? { sandboxBaseUrl: opts.sandboxBaseUrl } : {}),
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
         ...(opts.resolveClient ? { resolveClient: opts.resolveClient } : {}),
       }
-      const out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
+      out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
       const score: BenchScore = await job.adapter.judge(job.task, out.artifact)
       result = {
         benchmark: job.benchmark,
@@ -522,6 +616,9 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ok: out.ok,
         ...(out.detail ?? score.detail ? { detail: combineDetails(out.detail, score.detail) } : {}),
         wallMs: Date.now() - startedAt,
+        artifact: out.artifact,
+        ...(out.usage === undefined ? {} : { usage: out.usage }),
+        ...(out.events === undefined ? {} : { events: out.events }),
       }
     } catch (err) {
       // A thrown shot/judge is infra error for THIS cell-task: ok=false excludes it from the
@@ -536,6 +633,9 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ok: false,
         detail: err instanceof Error ? err.message.slice(0, 200) : String(err),
         wallMs: Date.now() - startedAt,
+        ...(out === undefined ? {} : { artifact: out.artifact }),
+        ...(out?.usage === undefined ? {} : { usage: out.usage }),
+        ...(out?.events === undefined ? {} : { events: out.events }),
       }
     }
     void index
