@@ -60,6 +60,7 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
+import { watchRunCancellation } from './run-cancellation'
 import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -582,16 +583,15 @@ export interface SupervisorAgentDeps {
    *  `WorkerSpawnContext.peerMailUrl`. A router-brained supervisor is refused: it serves no
    *  listener, so there is no post office a worker could reach. */
   readonly peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
-  /** The durable run directory this manager acknowledges worker-scoped cancel requests from
-   *  (router arm only — the in-process turn loop is the acknowledger). See
-   *  `DriverAgentOptions.controlDir`. */
+  /** Durable cancellation directory. Both arms observe run requests; only the router arm
+   *  acknowledges worker-scoped requests. See `DriverAgentOptions.controlDir`. */
   readonly controlDir?: string
   /** Which cancel requests this manager's acknowledger owns: `'run'` (default; the tree root —
    *  its own direct-child node ids plus label/profile-name references) or `'subtree'` (a nested
    *  manager — exact direct-child node ids only). Exactly one manager owns any request, so two
    *  acknowledgers can never apply one operation. See `DriverAgentOptions.controlScope`. */
   readonly controlScope?: 'run' | 'subtree'
-  /** Abort the whole run — the seam a run-scoped cancel request is applied through (router arm,
+  /** Abort the whole run — the seam a run-scoped cancel request is applied through (both arms,
    *  `'run'` scope only). See `DriverAgentOptions.abortRun`. */
   readonly abortRun?: (reason: string) => void
 }
@@ -969,6 +969,7 @@ function buildSupervisorAgent(
         providerVisibleProfile(stableProfile),
         'supervisorAgent provider-visible profile',
       )
+      let cancellation: ReturnType<typeof watchRunCancellation> | undefined
       try {
         // A restored `submission` record proves this manager's completion check already accepted
         // the value. Return it before starting another harness process.
@@ -976,6 +977,13 @@ function buildSupervisorAgent(
         if (recoveredSubmission) {
           deps.onAcceptedSubmission?.(recoveredSubmission.result)
           return recoveredSubmission.result
+        }
+        if (
+          deps.controlDir !== undefined &&
+          deps.abortRun !== undefined &&
+          deps.controlScope !== 'subtree'
+        ) {
+          cancellation = watchRunCancellation(deps.controlDir, deps.abortRun)
         }
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns
@@ -1006,6 +1014,8 @@ function buildSupervisorAgent(
         }
         await runDriverWithRetry({
           drive: async (attempt, reentry) => {
+            cancellation?.check()
+            scope.signal.throwIfAborted()
             // Every drive after the first is a new execution attempt of the root.
             beginScopeOwnerAttempt(scope, attempt)
             try {
@@ -1057,6 +1067,9 @@ function buildSupervisorAgent(
             : {}),
           ...(deps.onDriverAttempt ? { onAttempt: deps.onDriverAttempt } : {}),
         })
+        // Match router semantics: after the driver finishes, cancellation must not void
+        // delivered work while the finalizer reads it.
+        cancellation?.close()
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
         // awaited must still reach the finalize ledger.
         await mcp.drainResolved()
@@ -1076,6 +1089,7 @@ function buildSupervisorAgent(
           budget: scope.budget,
         })
       } finally {
+        cancellation?.close()
         await mcp.close()
       }
     },

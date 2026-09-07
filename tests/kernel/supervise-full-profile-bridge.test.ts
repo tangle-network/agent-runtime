@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { RuntimeRunStateError } from '../../src/errors'
 import type { DriverAttemptRecord } from '../../src/runtime/supervise/driver-retry'
+import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
 import type { ExecutorConfig } from '../../src/runtime/supervise/runtime'
 import { createRootHandle } from '../../src/runtime/supervise/supervisor'
 import type { NodeId, SpawnEvent, SpawnJournal } from '../../src/runtime/supervise/types'
@@ -363,6 +364,63 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
   afterEach(async () => {
     if (server) await new Promise((resolve) => server?.close(resolve))
     server = undefined
+  })
+
+  it('cancels a quiet external invocation from its durable request without admitting a successor', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'external-run-cancel-'))
+    const requests: BridgeRequest[] = []
+    const cancelled: string[] = []
+    const handle = createRootHandle<unknown>()
+    let started!: () => void
+    const firstRequest = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    server = createBridgeServer(async (req, res) => {
+      const cancelledId = cancelledRunId(req.url)
+      if (cancelledId !== undefined) {
+        cancelled.push(cancelledId)
+        respondWithTerminalCancellation(res, cancelledId)
+        return
+      }
+      const body = await readJson(req)
+      requests.push(body)
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'x-run-id': body.run_id,
+        'x-run-request-digest': TEST_RUN_DIGEST,
+      })
+      res.write(
+        `id: 1\ndata: ${JSON.stringify({ usage: { prompt_tokens: 5, completion_tokens: 2, cost: 0.01, cost_known: true, cost_provenance: 'provider-receipt' } })}\n\n`,
+      )
+      started()
+    })
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    let finished = false
+    const running = supervise(codexTestProfile('root'), 'Continue until cancelled.', {
+      rootHandle: handle,
+      runDir: directory,
+      runId: 'external-cancel',
+      backend: { backend: 'bridge', bridgeUrl: `http://127.0.0.1:${port}`, bridgeBearer: 'test' },
+      budget: { maxIterations: 10, maxTokens: 100_000 },
+    }).finally(() => {
+      finished = true
+    })
+    try {
+      await firstRequest
+      expect(cancelRun(directory, 'cancel-active', { source: 'test' }).effect).toBe('unknown')
+      await expect.poll(() => cancelled.length, { timeout: 1000 }).toBe(1)
+      const result = await running
+      expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+      expect(requests).toHaveLength(1)
+      expect(cancelled).toEqual([requests[0]!.run_id])
+      expect(readRunCancellation(directory, 'cancel-active')?.effect).toBe('cancelled')
+    } finally {
+      if (!finished) handle.abort('test cleanup')
+      await running
+      server.closeAllConnections()
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it('forcefully steers a live bridge root and resumes the same manager session', async () => {
