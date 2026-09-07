@@ -121,6 +121,27 @@ describe('assertFirstPartyRangeSpecs', () => {
 describe('compatibility peer ranges', () => {
   const priorSandboxRange = currentMinorPeerRange(priorSandboxVersion)
 
+  it('admits a broader upstream window only when it includes the selected version', () => {
+    const name = '@tangle-network/agent-eval'
+    const range = '>=0.174.0 <0.176.0'
+    const manifest = {
+      name: '@tangle-network/agent-knowledge',
+      devDependencies: { [name]: '0.175.0' },
+      peerDependencies: { [name]: range },
+    }
+    expect(() => assertPeerMatchesDevelopmentDependency(manifest, name, {
+      expectedRange: range,
+      admittedVersions: ['0.174.0', '0.175.0'],
+    })).not.toThrow()
+    expect(() => assertPeerMatchesDevelopmentDependency(manifest, name, {
+      expectedRange: range,
+      admittedVersions: ['0.176.0'],
+    })).toThrow(/does not admit 0.176.0/)
+    expect(() => assertPeerMatchesDevelopmentDependency(manifest, name)).toThrow(
+      /must match its resolved development dependency/,
+    )
+  })
+
   it('accepts the current Sandbox cohort with the exact development pin', () => {
     expect(() =>
       assertPeerMatchesDevelopmentDependency(

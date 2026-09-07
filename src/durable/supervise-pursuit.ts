@@ -72,6 +72,7 @@ export class SupervisePursuitError extends Error {
  * not, because a caller can correct its input and drive the same run again. For the life of the
  * call the directory is held by `supervise.lock`, so a second process on the same directory
  * refuses and names the holder instead of sharing one journal.
+ * An abandoned `supervise.lock.guard` requires removal after confirming no lock mutation is active.
  */
 export async function supervisePursuit(
   profile: SupervisorProfile,

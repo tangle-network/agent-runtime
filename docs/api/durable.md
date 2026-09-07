@@ -2488,7 +2488,7 @@ Take `runDir/supervise.lock`, or refuse.
 
 The file is published with its full content or not at all, so a contender never reads a
 half-written holder. A lock whose holder is gone (its pid no longer exists, or the pid now
-belongs to a process with a different start token) is stale and is removed before one retry;
+belongs to a process with a different start token) is stale and is removed under the mutation guard;
 a pid this process may not signal (`EPERM`) is alive and refuses. An empty file names no
 holder and is reclaimed. A file with unreadable content is left in place and refused:
 reclaiming it could evict a live holder written by something other than this module.
@@ -2609,6 +2609,7 @@ whose `result.json` exists refuses re-entry before any compute; a failure record
 not, because a caller can correct its input and drive the same run again. For the life of the
 call the directory is held by `supervise.lock`, so a second process on the same directory
 refuses and names the holder instead of sharing one journal.
+An abandoned `supervise.lock.guard` requires removal after confirming no lock mutation is active.
 
 #### Parameters
 
