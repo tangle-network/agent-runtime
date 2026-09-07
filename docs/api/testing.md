@@ -2694,9 +2694,8 @@ OPT-IN peer mail (external arm): serve the sibling `send_mail` / `read_mail` pos
 
 > `readonly` `optional` **controlDir?**: `string`
 
-The durable run directory this manager acknowledges worker-scoped cancel requests from
- (router arm only — the in-process turn loop is the acknowledger). See
- `DriverAgentOptions.controlDir`.
+Durable cancellation directory. Both arms observe run requests; only the router arm
+ acknowledges worker-scoped requests. See `DriverAgentOptions.controlDir`.
 
 ###### Inherited from
 
@@ -2719,7 +2718,7 @@ Which cancel requests this manager's acknowledger owns: `'run'` (default; the tr
 
 > `readonly` `optional` **abortRun?**: (`reason`) => `void`
 
-Abort the whole run — the seam a run-scoped cancel request is applied through (router arm,
+Abort the whole run — the seam a run-scoped cancel request is applied through (both arms,
  `'run'` scope only). See `DriverAgentOptions.abortRun`.
 
 ###### Parameters
