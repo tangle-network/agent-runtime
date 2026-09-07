@@ -1,8 +1,17 @@
 # Changelog
 
+## 0.197.1
+
+Concurrent recovery of a stale run-directory lock now grants ownership to one caller.
+Lock acquisition, recovery, and release serialize mutations through an exclusive `supervise.lock.guard` directory.
+Release retries transient contention for up to one second.
+If a process dies during a mutation, confirm no mutation is active before removing the abandoned guard directory.
+Invalid holder pids refuse recovery, and release preserves a replacement holder with a different process start token.
+The dependency cohort uses Knowledge 14.0.3, which admits Eval 0.175 while retaining Eval 0.174 compatibility.
+
 ## 0.197.0
 
-Spawn-capable children now refuse execution when their provider has no coordination channel.
+Spawn-capable children refuse execution when their provider has no coordination channel.
 The refusal reports `unmountable-tool` before execution and does not consume a traversal.
 
 `supervisePursuit` writes `result.json` beside `observer.jsonl` when the run settles.
@@ -11,12 +20,10 @@ A throw writes `failure.json` with the run id, pursuit id, time, and the error n
 A directory that already holds `result.json` refuses re-entry with an error that names the file; a `failure.json` alone does not block a corrected attempt.
 `supervisePursuit` holds `supervise.lock` in the run directory for the life of the call and removes it on settle or throw.
 A second call on a locked directory refuses and names the holder pid; a lock whose pid is dead is reclaimed.
-Lock mutations use an exclusive `supervise.lock.guard` directory.
-If a process dies during that short mutation, confirm no mutation is active before removing the abandoned guard directory.
 `projectPursuit` reports one run row per `agent.run` attempt with `attemptIndex` and `resumeCount`, so a failed first attempt and the settled attempt that followed it are two rows and `error` appears only on the failed row.
 Node rows and the shared `done`/`down` vocabulary are unchanged.
 
-Runtime 0.197.0 requires Eval `>=0.175.0 <0.176.0` and installs Knowledge 14.0.3, which admits that Eval.
+Runtime 0.197.0 requires Eval `>=0.175.0 <0.176.0` and installs Knowledge 14.0.2, which admits that Eval.
 Eval 0.175.0 reads Runtime's `result.json` and `failure.json` as the run's terminal record and adds `agent-eval supervisor-run report`.
 
 ## 0.196.0
