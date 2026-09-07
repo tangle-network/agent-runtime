@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.197.0` and `@tangle-network/agent-eval@0.174.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.197.0` and `@tangle-network/agent-eval@0.175.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -389,7 +389,7 @@ Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
-| `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock` with `O_EXCL`, or refuse. |
+| `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock`, or refuse. |
 | `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
@@ -397,9 +397,9 @@ Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
 | `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
-| `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when there is no lock file. |
+| `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when no lock file names one. |
 | `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
-| `settleRecordJson` | function | The exact bytes `result.json` holds for a result: the JSON-observable value of the result, |
+| `settleRecordJson` | function | The exact bytes `result.json` holds for a result: its JSON value serialized as RFC 8785 |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
 | `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
