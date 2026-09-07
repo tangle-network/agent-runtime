@@ -2,7 +2,8 @@
 
 ## 0.8.33
 
-The dependency range now requires Eval 0.175 for durable supervisor run records.
+Requires Eval `>=0.175.0 <0.176.0`, following Runtime 0.197.0.
+No behavior change.
 
 ## 0.8.32
 
