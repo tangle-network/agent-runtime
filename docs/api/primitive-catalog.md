@@ -7,7 +7,7 @@
 
 # Primitive catalog — the never-stale anti-reinvention inventory
 
-> **GENERATED** from `@tangle-network/agent-runtime@0.196.0` and `@tangle-network/agent-eval@0.174.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
+> **GENERATED** from `@tangle-network/agent-runtime@0.197.0` and `@tangle-network/agent-eval@0.174.0` by `scripts/gen-primitive-catalog.mjs`. Do NOT hand-edit — run `pnpm run docs:api`. This is the mechanical companion to the JUDGMENT in `canonical-api.md` (§2 decision table + §1.5 AgentProfile law): that doc says WHICH primitive to reach for and what NOT to build; this catalog proves WHAT exists. Per-symbol signatures + `file:line` live in the per-module pages under `docs/api/`.
 
 ## 1. agent-runtime — own public surface
 
@@ -385,38 +385,52 @@ Import from `@tangle-network/agent-runtime/conversation` — 54 exports.
 
 ### Product chat turns — edge-safe streaming, persistence, and stable execution IDs
 
-Import from `@tangle-network/agent-runtime/durable` — 34 exports.
+Import from `@tangle-network/agent-runtime/durable` — 47 exports.
 
 | Symbol | Kind | Summary |
 |---|---|---|
+| `acquireRunDirectoryLock` | function | Take `runDir/supervise.lock` with `O_EXCL`, or refuse. |
 | `createFileObserverHooks` | function | Build the canonical durable observer hook in one call. |
 | `deriveExecutionId` | function | Derive a stable execution id from the run identity. |
 | `discoverDurableSupervisionRun` | function | Discover the stable identities recorded by Runtime's durable supervision |
 | `handleChatTurn` | function | Run one chat turn. Returns immediately with a `ReadableStream` body; |
 | `observerRecordDigest` | function | Compute the canonical SHA-256 digest for an unsigned observer record. |
 | `projectPursuit` | function | Fold one append-only execution journal into a deterministic operator projection. |
+| `readFailureRecord` | function | Read the most recent failure record, or `undefined` when the directory holds none. |
+| `readRunDirectoryLock` | function | Read the holder a lock file names, or `undefined` when there is no lock file. |
+| `readSettleRecord` | function | Read the settle record a run directory holds, or `undefined` when it holds none. A file that |
+| `settleRecordJson` | function | The exact bytes `result.json` holds for a result: the JSON-observable value of the result, |
 | `supervisePursuit` | function | One-call durable pursuit execution over the canonical `supervise()` kernel. |
 | `verifyObserverRecords` | function | Verify identity, monotonic sequence, payload shape, and the complete digest chain. |
+| `FAILURE_RECORD_FILE` | const | The failure record: the most recent throw, replaced by a later throw. |
+| `RUN_DIRECTORY_LOCK_FILE` | const | The lock file `supervisePursuit` holds inside a run directory for the life of one call. |
+| `SETTLE_RECORD_FILE` | const | The settle record: the returned `SupervisedResult` as canonical JSON, written once. |
 | `FileObserverJournal` | class | Durable, append-only third-person history for one concrete Runtime execution. |
+| `RunDirectoryLockedError` | class | The directory is held by a live process. `holder` is what that process recorded. |
+| `SettledRunDirectoryError` | class | The directory already holds a settle record, so the run it records must not be re-entered. |
 | `SupervisePursuitError` | class | A failed Runtime execution whose complete third-person projection was retained. |
 | `ChatStreamEvent` | interface | The NDJSON line protocol every product chat client already speaks. |
 | `ChatTurnHooks` | interface | Product callbacks invoked while one chat turn runs. |
 | `ChatTurnIdentity` | interface | Identity of a chat turn. `tenantId` is the workspace id for workspace- |
 | `ChatTurnProducer` | interface | The live side of a turn returned by the product's `produce` hook. |
 | `ChatTurnResult` | interface | HTTP response values returned for one chat turn. |
+| `DurableFailureRecord` | interface | What `failure.json` records about the most recent throw. |
 | `DurableSupervisionDiscovery` | interface | Identities discoverable from one `supervise({ runDir })` directory without |
 | `ObserverRecord` | interface | One immutable record in the observer plane. `sequence` is journal order, not |
 | `PursuitNodeCost` | interface | One node's dollar cost with the provenance that decides whether it may be compared or summed. |
 | `PursuitNodePlatform` | interface | One node's PLATFORM consumption — box wall time, the resource a subscription seat really pays. |
 | `PursuitNodeTiming` | interface | One node's clock. `wallMs` is `settledAt - startedAt` and is deliberately distinct from the |
 | `PursuitNodeUsage` | interface | One node's token usage by class. Cache and reasoning classes are absent when the provider did |
+| `PursuitRunProjection` | interface | One attempt at one concrete Runtime run: the stretch of `agent.run` lifecycle from a `before` |
 | `PursuitRunTotals` | interface | One run's spend counted once, and each node's own share of it. `inclusive` and the entries of |
 | `RunChatTurnInput` | interface | Inputs for one streamed product chat turn. |
+| `RunDirectoryLock` | interface | A held lock. `release()` removes the file; it is safe to call more than once. |
+| `RunDirectoryLockHolder` | interface | What the lock file records about its holder. |
 | `PursuitCostProvenance` | type | Where a node's dollar figure came from. `reported` = a provider billed all of it; `estimated` = |
 | `PursuitNodePlacement` | type | Where and how a node's execution was placed, read off its execution-binding receipt. |
 | `PursuitStatus` | type | One settled projection status, shared by runs and nodes. `down` is the journal's own word for a |
 
-**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `PursuitRunProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `ObserverRecordKind`.
+**Undocumented supporting types** (add a TSDoc line at the declaration to earn a table row): `DurableCoordinationStreamIdentity`, `ObserverJournal`, `PursuitNodeProjection`, `PursuitProjection`, `SupervisedPursuitResult`, `SupervisePursuitOptions`, `ObserverRecordKind`.
 
 ### Bounded tool calls for browser and edge runtimes
 
