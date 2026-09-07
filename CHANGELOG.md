@@ -9,6 +9,7 @@ Import conversation drivers, persona dispatch, journals, and knowledge improveme
 Import environment providers and kernel types from `/kernel`, and candidate execution from `/candidate-execution`.
 The root no longer duplicates candidate execution or kernel types, or exports internal conversation transport helpers.
 Whole-profile improvement and its measurement and activation paths remain available.
+Bench 0.9.0 uses the dedicated candidate execution imports and records their updated public type references.
 
 ## 0.196.0
 

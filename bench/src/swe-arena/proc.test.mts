@@ -65,18 +65,16 @@ describe('run process-group timeout', () => {
     const dir = await mkdtemp(join(tmpdir(), 'swe-proc-tree-'))
     dirs.push(dir)
     const pidFile = join(dir, 'grandchild.pid')
-    const grandchild = `process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)`
+    const grandchild = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(process.argv[1],String(process.pid)); setInterval(()=>{},1000)`
     const parent = [
       `const {spawn}=require('node:child_process')`,
-      `const fs=require('node:fs')`,
-      `const child=spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{stdio:'ignore'})`,
-      `fs.writeFileSync(process.argv[1],String(child.pid))`,
+      `spawn(process.execPath,['-e',${JSON.stringify(grandchild)},process.argv[1]],{stdio:'ignore'})`,
       `process.on('SIGTERM',()=>process.exit(0))`,
       `setInterval(()=>{},1000)`,
     ].join(';')
 
     const result = await run(process.execPath, ['-e', parent, pidFile], {
-      timeoutMs: 100,
+      timeoutMs: 2_000,
       killGraceMs: 50,
     })
     const grandchildPid = Number(await readFile(pidFile, 'utf8'))

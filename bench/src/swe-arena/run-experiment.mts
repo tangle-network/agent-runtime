@@ -399,6 +399,8 @@ export async function materializeFactoryWorkspace(
   await writeFile(join(dest, 'SPEC.md'), inst.spec)
 
   await runOk('git', ['-C', dest, 'init', '-q', '-b', 'work'])
+  // This synthetic benchmark repository must not execute the host's personal Git hooks.
+  await runOk('git', ['-C', dest, 'config', 'core.hooksPath', '/dev/null'])
   await runOk('git', ['-C', dest, 'config', 'user.email', 'factory-bench@local'])
   await runOk('git', ['-C', dest, 'config', 'user.name', 'factory-bench'])
   await runOk('git', ['-C', dest, 'add', '-A'])

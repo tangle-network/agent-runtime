@@ -246,6 +246,7 @@ async function makeSyntheticMirror(root: string): Promise<SyntheticMirror> {
   const mirror = join(root, 'mirror')
   await mkdir(mirror, { recursive: true })
   await runOk('git', ['-C', mirror, 'init', '-q', '-b', 'main'])
+  await runOk('git', ['-C', mirror, 'config', 'core.hooksPath', '/dev/null'])
   await writeFile(join(mirror, 'README.md'), '# synthetic\n')
   await writeFile(
     join(mirror, 'package.json'),
@@ -359,7 +360,8 @@ describe('parseVitestSummary', () => {
   })
 })
 
-describe('factory command credential isolation', () => {
+// The isolated Docker controller uses the Linux daemon socket, never personal Docker contexts.
+describe.skipIf(process.platform !== 'linux')('factory command credential isolation', () => {
   it('blocks arbitrary env, auth sockets, npm config, and home credentials from a package lifecycle script', async () => {
     const ambientHome = join(root, 'ambient-home')
     const ambientXdg = join(root, 'ambient-xdg')
@@ -506,7 +508,7 @@ describe('loadFactoryInstance', () => {
 // Judge child pipeline on the synthetic fixture.
 // ---------------------------------------------------------------------------
 
-describe('judgeFactoryPatch', () => {
+describe.skipIf(process.platform !== 'linux')('judgeFactoryPatch', () => {
   it('gold (impl-only PR diff) resolves with full score', async () => {
     const { result } = await judgeFactoryPatch(goodInst, await goldImplPatch(goodInst))
     expect(result).toMatchObject({ resolved: true, score: 1, passed: 2, total: 2 })
@@ -597,7 +599,7 @@ describe('materializeFactoryWorkspace', () => {
 // Calibration admission gate — both rejection directions.
 // ---------------------------------------------------------------------------
 
-describe('calibrateFactoryInstance', () => {
+describe.skipIf(process.platform !== 'linux')('calibrateFactoryInstance', () => {
   it('admits a well-formed instance (gold passes, base fails)', async () => {
     const r = await calibrateFactoryInstance(goodInst)
     expect(r).toMatchObject({
