@@ -272,9 +272,10 @@ export class FileAgentCandidateExecutionClaimStore implements AgentCandidateExec
     const stored = await readClaimIfPresent(claimPath)
     if (!stored) return undefined
     assertSameSlot(stored.claim, claim, claimPath)
-    const state = await this.transitionState(stored.claim)
     const terminalPath = this.terminalPath(claim)
     const terminal = await readTerminalIfPresent(terminalPath)
+    // Terminal publication follows its immutable staged outbox, so read that prerequisite later.
+    const state = await this.transitionState(stored.claim)
     if (terminal) {
       assertTerminalMatchesClaim(terminal, stored.claim, terminalPath)
       if (!state.staged) {

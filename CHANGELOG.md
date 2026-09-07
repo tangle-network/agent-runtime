@@ -6,6 +6,11 @@ A nested manager without an accepted finalizer output now persists an explicit `
 Memory and file-backed replay can inspect its unassessed completion without a missing-blob error or serialization failure.
 Its descendants' artifacts remain available, and completion does not become independently accepted delivery.
 
+## 0.198.1
+
+Concurrent candidate recovery now reads terminal records before their staged outbox prerequisites.
+This prevents valid concurrent publication from appearing corrupt while retaining checks for missing or mismatched outboxes.
+
 ## 0.198.0
 
 Remove the `graph`, `primeintellect`, `conversation`, `knowledge`, and `environment-provider` package subpaths.
