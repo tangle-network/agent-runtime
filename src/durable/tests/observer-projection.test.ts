@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { type ObserverRecord, observerRecordDigest } from '../observer-journal'
 import { projectPursuit } from '../observer-projection'
@@ -508,5 +510,133 @@ describe('projectPursuit reads the platform channel a node reported', () => {
     const view = runWith({ iterations: 1, tokens: { input: 100, output: 23 }, usd: 0, ms: 900 })
 
     expect(view.nodes[0]?.platform).toBeUndefined()
+  })
+})
+
+describe('projectPursuit reports one row per attempt', () => {
+  const runEvent = (
+    runId: string,
+    phase: 'before' | 'after' | 'error',
+    payload?: Record<string, unknown>,
+  ): Parameters<typeof chain>[0][number] => ({
+    kind: 'event',
+    event: {
+      id: `${runId}:${phase}:${Math.random()}`,
+      pursuitId: 'pursuit:test',
+      runId,
+      target: 'agent.run',
+      phase,
+      timestamp: 1,
+      ...(payload ? { payload } : {}),
+    },
+  })
+
+  it('keeps a failed attempt and the settled attempt that followed it apart', () => {
+    const view = projectPursuit(
+      chain([
+        runEvent('run:retry', 'before'),
+        runEvent('run:retry', 'error', { status: 'failed', error: 'bad input' }),
+        runEvent('run:retry', 'before'),
+        spawn('run:retry', 'root:s0', 'run:retry', 'worker'),
+        settle('run:retry', 'root:s0', 'run:retry', spend(10, 5, 0.001)),
+        runEvent('run:retry', 'after', { status: 'done' }),
+      ]),
+    )
+
+    expect(
+      view.runs.map((run) => [
+        run.runId,
+        run.attemptIndex,
+        run.status,
+        run.error,
+        run.resumeCount,
+        run.firstSequence,
+        run.lastSequence,
+      ]),
+    ).toEqual([
+      ['run:retry', 0, 'down', 'bad input', 0, 1, 2],
+      ['run:retry', 1, 'done', undefined, 0, 3, 6],
+    ])
+    // The node belongs to the attempt that spawned it, so only that attempt's totals carry it.
+    expect(view.runs[0]?.totals.inclusive.tokens).toMatchObject({ input: 0, output: 0 })
+    expect(view.runs[1]?.totals.inclusive.tokens).toMatchObject({ input: 10, output: 5 })
+    expect(view.runs[0]?.spendGaps).toBeUndefined()
+    expect(view.nodes).toHaveLength(1)
+    expect(view.nodes[0]).not.toHaveProperty('attemptIndex')
+  })
+
+  it('folds a resumed process into the open attempt instead of leaving a dead row running', () => {
+    const view = projectPursuit(
+      chain([
+        runEvent('run:resume', 'before'),
+        spawn('run:resume', 'root:s0', 'run:resume', 'first'),
+        runEvent('run:resume', 'before'),
+        spawn('run:resume', 'root:s1', 'run:resume', 'second'),
+        settle('run:resume', 'root:s1', 'run:resume', spend(10, 5, 0.001)),
+        runEvent('run:resume', 'after', { status: 'done' }),
+      ]),
+    )
+
+    expect(view.runs).toHaveLength(1)
+    expect(view.runs[0]).toMatchObject({ attemptIndex: 0, resumeCount: 1, status: 'done' })
+    expect(view.runs[0]?.spendGaps).toEqual([
+      { id: 'root:s0', label: 'first', kind: 'never-settled', channels: ['tokens', 'usd'] },
+    ])
+  })
+
+  it('projects the real r1 journal as two attempts with the error only on the failed one', () => {
+    // A verbatim copy of discovery-lab's meta-operator-recursion-smoke-r1 observer journal
+    // (2026-09-06): a pre-spawn input error, a corrected attempt, a SIGKILL mid-run, a resume, and
+    // a settle, all under one runId. The old projection read one row: `done` with the stale error.
+    const text = readFileSync(
+      join(
+        import.meta.dirname,
+        '..',
+        '..',
+        '..',
+        'tests',
+        'fixtures',
+        'durable',
+        'meta-operator-recursion-smoke-r1.observer.jsonl',
+      ),
+      'utf8',
+    )
+    const records = text
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as ObserverRecord)
+    const view = projectPursuit(records)
+
+    expect(view.sequence).toBe(14)
+    expect(
+      view.runs.map((run) => [
+        run.attemptIndex,
+        run.status,
+        run.error,
+        run.resumeCount,
+        run.firstSequence,
+        run.lastSequence,
+      ]),
+    ).toEqual([
+      [0, 'down', 'supervise budget.deadlineMs must be a non-negative finite number', 0, 1, 2],
+      [1, 'done', undefined, 1, 3, 14],
+    ])
+    expect(view.runs.every((run) => run.runId === 'meta-operator-recursion-smoke-r1')).toBe(true)
+    expect(view.runs[0]?.targets).toEqual({ 'agent.run': 2 })
+    expect(view.runs[1]?.targets).toEqual({
+      'agent.run': 3,
+      'agent.spawn': 4,
+      'agent.child': 4,
+      'agent.turn': 1,
+    })
+    // Node rows are untouched: four workers, all spawned by the settled attempt.
+    expect(view.nodes.map((node) => [node.id.split(':').at(-1), node.status])).toEqual([
+      ['s0', 'done'],
+      ['s1', 'done'],
+      ['s2', 'done'],
+      ['s3', 'down'],
+    ])
+    expect(view.runs[1]?.totals.inclusive.usd).toBeCloseTo(0.6276056, 6)
+    expect(view.runs[0]?.totals.inclusive.usd).toBe(0)
   })
 })

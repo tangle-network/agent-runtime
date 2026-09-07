@@ -2041,12 +2041,6 @@ fails the run rather than guessing an order.
 
 ### AgenticGeneratorShotReceipt
 
-`@tangle-network/agent-runtime` improvement.
-
-The public entry point is `improve()`. Complete agent-eval methods optimize
-profile surfaces. Runtime owns only code candidates that mutate an isolated
-git worktree through a pluggable `CandidateGenerator`.
-
 #### Properties
 
 ##### generation
@@ -2148,12 +2142,6 @@ True only for a provider-reported amount, never for a pricing estimate.
 ***
 
 ### AgenticGeneratorOptions
-
-`@tangle-network/agent-runtime` improvement.
-
-The public entry point is `improve()`. Complete agent-eval methods optimize
-profile surfaces. Runtime owns only code candidates that mutate an isolated
-git worktree through a pluggable `CandidateGenerator`.
 
 #### Properties
 
@@ -7119,12 +7107,6 @@ One-based shot whose tree was put back into the worktree because it
 ### AgenticGeneratorExecutorForWorktree
 
 > **AgenticGeneratorExecutorForWorktree** = (`worktreePath`) => [`ExecutorConfig`](runtime.md#executorconfig)
-
-`@tangle-network/agent-runtime` improvement.
-
-The public entry point is `improve()`. Complete agent-eval methods optimize
-profile surfaces. Runtime owns only code candidates that mutate an isolated
-git worktree through a pluggable `CandidateGenerator`.
 
 #### Parameters
 

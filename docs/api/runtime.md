@@ -4162,6 +4162,24 @@ NEW facts actually appended (idempotent dedup excludes re-learned ones).
 
 Per-run analysis failures — reported, never silently dropped.
 
+##### usage
+
+> **usage**: `object`
+
+Measured analyst tokens; a failed or unmetered analysis leaves the subtotal incomplete.
+
+###### input
+
+> **input**: `number`
+
+###### output
+
+> **output**: `number`
+
+###### known
+
+> **known**: `boolean`
+
 ***
 
 ### InProcessPromptCtx

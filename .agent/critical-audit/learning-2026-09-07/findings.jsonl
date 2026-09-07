@@ -1,0 +1,2 @@
+{"severity": "HIGH", "finding": "Thrown later refinement attempt must mark total usage incomplete while preserving observed floor", "status": "resolved", "evidence": "pendingShot catch and known-then-throw regression in 11bceea4"}
+{"severity": "HIGH", "finding": "A failed shot must not terminate refinement or displace a successful candidate", "status": "resolved", "evidence": "judge validity and selector gate shot.ok with failed-apparent-gold regression in 11bceea4"}

@@ -22,7 +22,9 @@
  *     here, not from the experimental `TopSnapshot` in `/tui`, which is an operator
  *     view over on-disk run state and carries no model-call identity.
  *   - `supervisePursuit`: one-call adapter over canonical `supervise()` that
- *     gives each isolated run a stable cross-run pursuit identity.
+ *     gives each isolated run a stable cross-run pursuit identity, holds the run
+ *     directory's `supervise.lock` for the call, and leaves the directory's terminal
+ *     record beside the journal: `result.json` at settle, `failure.json` on a throw.
  */
 
 export type {
@@ -58,6 +60,23 @@ export {
   type PursuitStatus,
   projectPursuit,
 } from './observer-projection'
+export {
+  acquireRunDirectoryLock,
+  RUN_DIRECTORY_LOCK_FILE,
+  type RunDirectoryLock,
+  RunDirectoryLockedError,
+  type RunDirectoryLockHolder,
+  readRunDirectoryLock,
+} from './run-lock'
+export {
+  type DurableFailureRecord,
+  FAILURE_RECORD_FILE,
+  readFailureRecord,
+  readSettleRecord,
+  SETTLE_RECORD_FILE,
+  SettledRunDirectoryError,
+  settleRecordJson,
+} from './settle-record'
 export {
   type SupervisedPursuitResult,
   SupervisePursuitError,
