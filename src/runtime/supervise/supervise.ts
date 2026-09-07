@@ -119,6 +119,7 @@ import {
   assertNoReservedCoordinationMcpAlias,
   type CoordinationBinding,
   coordinationMcpAlias,
+  coordinationProfileToolPrefix,
   type DriveHarness,
   type DriveHarnessOwnerContext,
   declaredRuntimeToolNames,
@@ -616,6 +617,46 @@ function profileToolSpawnPreflight(
       }
     }
     return undefined
+  }
+}
+
+/**
+ * Refuse a harness-brained child that declares Runtime coordination tools when nothing can carry
+ * the coordination server to it. Such a child runs as a nested manager through `driveHarness`, and
+ * the automatic driver reaches Runtime's loopback coordination MCP only through the bridge's
+ * runtime-attachments seam (`automaticDriverBackendSupported`). The worker factory throws the same
+ * fault, but only after a live-worker permit and a budget reservation were taken and as an unnamed
+ * tool error; here it is a pre-flight cause the manager can re-author against, and neither an
+ * environment nor a reservation exists yet. A router-brained child holds the same tools in-process
+ * and needs no channel.
+ */
+function coordinationChannelSpawnPreflight(
+  runtimeOwnsManager: boolean,
+  hasCustomDriveHarness: boolean,
+  managerBackend: ExecutorConfig | undefined,
+): SpawnPreflight | undefined {
+  if (!runtimeOwnsManager || hasCustomDriveHarness) return undefined
+  if (managerBackend !== undefined && automaticDriverBackendSupported(managerBackend)) {
+    return undefined
+  }
+  const missingChannel =
+    managerBackend === undefined
+      ? 'this run has no driverBackend'
+      : `the '${managerBackend.backend}' backend has no coordination channel`
+  return async (profile) => {
+    if (!isExternalSupervisor(profile)) return undefined
+    const declared = declaredRuntimeToolNames(profile)
+    if (declared.length === 0) return undefined
+    return {
+      cause: 'unmountable-tool',
+      detail:
+        `the profile declares ${declared
+          .map((name) => JSON.stringify(`${coordinationProfileToolPrefix}${name}`))
+          .join(', ')} with harness ${JSON.stringify(profile.harness)}, but ${missingChannel}: ` +
+        "Runtime's coordination MCP binds host loopback and reaches a harness only through the " +
+        "'bridge' backend's runtime-attachments seam. Drive managers through a bridge " +
+        'driverBackend, or supply driveHarness/resolveDriveHarness with a relay this child can reach',
+    }
   }
 }
 
@@ -2297,20 +2338,26 @@ function superviseInternal(
     : undefined
   const managerBackend =
     options.driverBackend ?? (options.rootDriverFromBackend === false ? undefined : options.backend)
-  // Runtime-managed tool declarations are checked before reservation or journaling. A bridge adds
-  // its own route/admission check after that purely local validation. A caller-owned worker port
-  // owns its own mount and receives the exact profile unchanged.
+  if (options.driveHarness && options.resolveDriveHarness) {
+    throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
+  }
+  const hasCustomDriveHarness = Boolean(options.driveHarness || options.resolveDriveHarness)
+  // Runtime-managed tool declarations and the driver's coordination channel are checked before
+  // reservation or journaling. A bridge adds its own route/admission check after that purely local
+  // validation. A caller-owned worker port owns its own mount and receives the exact profile
+  // unchanged.
   const spawnPreflight = composeSpawnPreflights(
     profileToolSpawnPreflight(
       options.makeWorkerAgent === undefined,
       options.resolveSupervisorTools !== undefined,
     ),
+    coordinationChannelSpawnPreflight(
+      options.makeWorkerAgent === undefined,
+      hasCustomDriveHarness,
+      managerBackend,
+    ),
     options.backend?.backend === 'bridge' ? bridgeSpawnPreflight(options.backend) : undefined,
   )
-  if (options.driveHarness && options.resolveDriveHarness) {
-    throw new ValidationError('supervise: provide driveHarness or resolveDriveHarness, not both')
-  }
-  const hasCustomDriveHarness = Boolean(options.driveHarness || options.resolveDriveHarness)
   // A custom harness receives the provider-visible profile plus the immutable canonical profile
   // for receipt binding. An undeclared materialization therefore defaults to the full canonical
   // leaf set, apart from Runtime-owned coordination declarations consumed before dispatch.
