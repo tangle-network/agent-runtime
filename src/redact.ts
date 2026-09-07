@@ -23,6 +23,9 @@ const redactedMarker = '[redacted]'
 const secretKeyPattern =
   /(api[-_]?key|secret|token|password|passwd|authorization|auth|private[-_]?key|credential|access[-_]?key|client[-_]?secret|session[-_]?(id|token)|cookie|bearer)/i
 
+/** AgentProfile's numeric model limits describe compute, not credentials. */
+const tokenLimitKeyPattern = /^max(?:VisibleOutput|Reasoning|TotalOutput)Tokens$/
+
 /** In-value secret/PII patterns scrubbed from any string, regardless of key. */
 const valuePatterns: ReadonlyArray<RegExp> = [
   // Bearer tokens.
@@ -77,7 +80,9 @@ function walk(value: unknown, seen: WeakSet<object>, depth: number): unknown {
 
   const out: Record<string, unknown> = {}
   for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    if (secretKeyPattern.test(key)) {
+    const tokenLimit =
+      tokenLimitKeyPattern.test(key) && typeof v === 'number' && Number.isSafeInteger(v) && v >= 0
+    if (secretKeyPattern.test(key) && !tokenLimit) {
       out[key] = redactedMarker
       continue
     }
@@ -95,6 +100,7 @@ export function defaultRedactorIdentityMaterial(): unknown {
   return {
     marker: redactedMarker,
     secretKeyPattern: patternIdentity(secretKeyPattern),
+    tokenLimitKeyPattern: patternIdentity(tokenLimitKeyPattern),
     valuePatterns: valuePatterns.map(patternIdentity),
     secretAssignmentPattern: patternIdentity(secretAssignmentPattern),
     maxDepth,

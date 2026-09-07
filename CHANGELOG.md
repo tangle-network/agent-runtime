@@ -5,6 +5,7 @@
 Profile component mappings can encode selected fields as JSON for Omni and other text-surface optimizers.
 The existing validation preserves component names, exact application, complete candidates, and baseline isolation.
 Whole-profile and named-component search keep their existing contracts.
+The redactor preserves numeric profile token limits while continuing to reject credentials and invalid limit values.
 
 ## 0.198.2
 
