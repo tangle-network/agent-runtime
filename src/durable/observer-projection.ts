@@ -361,7 +361,7 @@ export function projectPursuit(records: readonly ObserverRecord[]): PursuitProje
 }
 
 function attemptKey(runId: string, attemptIndex: number): string {
-  return `${runId} ${attemptIndex}`
+  return `${runId}\u0000${attemptIndex}`
 }
 
 /**

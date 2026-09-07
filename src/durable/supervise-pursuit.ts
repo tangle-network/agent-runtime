@@ -121,14 +121,7 @@ export async function supervisePursuit(
       let pursuit: PursuitProjection | undefined
       let observerError: unknown
       try {
-        // The record lands before the journal fact so a reader that finds the terminal event
-        // also finds the record it summarizes.
-        await writeFailureRecord(runDir, {
-          runId,
-          pursuitId,
-          at: new Date(now()).toISOString(),
-          error: { name: errorName(error), message: errorMessage(error) },
-        })
+        // The journal fact is raw evidence and lands first; the failure record summarizes it.
         await observer.journal.appendEvent(
           rootEvent(pursuitId, runId, 'error', now(), {
             status: 'failed',
@@ -144,6 +137,21 @@ export async function supervisePursuit(
         throw new Error(
           'supervisePursuit: Runtime failed and durable observer completeness could not be proven',
           { cause: new AggregateError(causes) },
+        )
+      }
+      // A failure record that cannot be written must not hide the journal fact above; it is
+      // reported as its own cause beside the run's error.
+      try {
+        await writeFailureRecord(runDir, {
+          runId,
+          pursuitId,
+          at: new Date(now()).toISOString(),
+          error: { name: errorName(error), message: errorMessage(error) },
+        })
+      } catch (recordError) {
+        throw new Error(
+          `supervisePursuit: Runtime failed and the failure record ${failurePath} could not be written`,
+          { cause: new AggregateError([error, recordError]) },
         )
       }
       throw new SupervisePursuitError(error, pursuit, observerPath, failurePath)

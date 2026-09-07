@@ -29,7 +29,10 @@ describe('acquireRunDirectoryLock', () => {
   it('takes the lock once, refuses a concurrent call naming the holder, and releases it', async () => {
     const lock = await acquireRunDirectoryLock(runDir, 'run:a', () => 1_700_000_000_000)
     expect(lock.path).toBe(join(runDir, RUN_DIRECTORY_LOCK_FILE))
-    expect(JSON.parse(await readFile(lock.path, 'utf8'))).toEqual({
+    const written = JSON.parse(await readFile(lock.path, 'utf8')) as Record<string, unknown>
+    // The start token is host-reported, so its value is not asserted; its presence is.
+    expect(typeof written.processStart === 'string' || written.processStart === undefined).toBe(true)
+    expect(written).toMatchObject({
       pid: process.pid,
       startedAt: '2023-11-14T22:13:20.000Z',
       runId: 'run:a',

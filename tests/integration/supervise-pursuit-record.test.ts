@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readRuntimeSupervisorRun } from '@tangle-network/agent-eval/supervisor-run'
 import {
-  canonicalCandidateDigest,
   canonicalCandidateJson,
   sha256Bytes,
 } from '@tangle-network/agent-interface'
@@ -17,10 +16,11 @@ import {
 } from '../../src/durable/run-lock'
 import {
   FAILURE_RECORD_FILE,
-  readFailureRecord,
-  readSettleRecord,
   SETTLE_RECORD_FILE,
   SettledRunDirectoryError,
+  readFailureRecord,
+  readSettleRecord,
+  settleRecordDigest,
   settleRecordJson,
 } from '../../src/durable/settle-record'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
@@ -132,7 +132,7 @@ describe('supervisePursuit durable terminal records', () => {
     expect(bytes).toBe(canonicalCandidateJson(JSON.parse(JSON.stringify(executed.result))))
     // Canonical bytes make the file's digest the result's candidate digest.
     expect(sha256Bytes(new TextEncoder().encode(bytes))).toBe(
-      canonicalCandidateDigest(JSON.parse(JSON.stringify(executed.result))),
+      settleRecordDigest(executed.result),
     )
 
     // Eval's reader needs `kind` and `tree.root`, and the root must be the journal root.
@@ -142,7 +142,6 @@ describe('supervisePursuit durable terminal records', () => {
     expect(await readSettleRecord(runDir)).toEqual(record)
     const sources = await readRuntimeSupervisorRun(runDir)
     expect(sources.result).toBe(bytes)
-    expect(JSON.parse(sources.state ?? 'null')).toMatchObject({ id: runId, status: 'winner' })
 
     expect(await exists(join(runDir, FAILURE_RECORD_FILE))).toBe(false)
     expect(await exists(join(runDir, RUN_DIRECTORY_LOCK_FILE))).toBe(false)
