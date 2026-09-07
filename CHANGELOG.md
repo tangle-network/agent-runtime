@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.197.0
+
+`supervisePursuit` writes `result.json` beside `observer.jsonl` on settle and `failure.json` on throw, with the run identity, root profile and task digests, spend totals, and the journal root agent-eval's supervisor-run reader binds to.
+A `runDir` whose record is terminal is refused under the same `runId`; a new `runId` supersedes the record.
+`projectPursuit` settles a resumed run on its last root attempt and clears the earlier error from the row; the earlier attempts are kept in the new optional `attempts` list (`PursuitRunAttempt`).
+A profile that declares the coordination spawn tool is refused before any environment is created when its backend cannot reach a coordination channel; the error names the backend and the missing channel.
+
 ## 0.196.0
 
 The sandbox usage ledger no longer throws on a harness receipt it cannot read.
