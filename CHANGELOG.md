@@ -16,7 +16,7 @@ If a process dies during that short mutation, confirm no mutation is active befo
 `projectPursuit` reports one run row per `agent.run` attempt with `attemptIndex` and `resumeCount`, so a failed first attempt and the settled attempt that followed it are two rows and `error` appears only on the failed row.
 Node rows and the shared `done`/`down` vocabulary are unchanged.
 
-Runtime 0.197.0 requires Eval `>=0.175.0 <0.176.0`.
+Runtime 0.197.0 requires Eval `>=0.175.0 <0.176.0` and installs Knowledge 14.0.3, which admits that Eval.
 Eval 0.175.0 reads Runtime's `result.json` and `failure.json` as the run's terminal record and adds `agent-eval supervisor-run report`.
 
 ## 0.196.0
