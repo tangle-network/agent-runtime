@@ -14,8 +14,9 @@ import type {
   AgentCandidateProtectedRunCapture,
   AgentCandidateRunFinalization,
   PreparedAgentCandidateExecution,
-} from '@tangle-network/agent-runtime'
-import { executePreparedAgentCandidate } from '@tangle-network/agent-runtime'
+} from '@tangle-network/agent-runtime/candidate-execution'
+
+import { executePreparedAgentCandidate } from '@tangle-network/agent-runtime/candidate-execution'
 import { canonicalJson, type TraceStore } from '@tangle-network/agent-eval'
 
 import { capturePierTaskOutcome } from './pier-task-outcome'

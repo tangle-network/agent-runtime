@@ -1,6 +1,6 @@
 {
   "name": "@tangle-network/agent-runtime",
-  "version": "0.196.0",
+  "version": "0.198.0",
   "description": "Shared task-lifecycle skeleton for agents: a recursive loop kernel for chat turns, one-shot tasks, and multi-attempt loops, with trace capture and eval-gated self-improvement. Domain behavior lives in adapters; scoring and ship-gates in @tangle-network/agent-eval.",
   "homepage": "https://github.com/tangle-network/agent-runtime#readme",
   "repository": {
@@ -24,11 +24,6 @@
       "import": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
-    "./conversation": {
-      "types": "./dist/conversation.d.ts",
-      "import": "./dist/conversation.js",
-      "default": "./dist/conversation.js"
-    },
     "./durable": {
       "types": "./dist/durable.d.ts",
       "import": "./dist/durable.js",
@@ -49,25 +44,10 @@
       "import": "./dist/kernel.js",
       "default": "./dist/kernel.js"
     },
-    "./graph": {
-      "types": "./dist/graph.d.ts",
-      "import": "./dist/graph.js",
-      "default": "./dist/graph.js"
-    },
-    "./environment-provider": {
-      "types": "./dist/environment-provider.d.ts",
-      "import": "./dist/environment-provider.js",
-      "default": "./dist/environment-provider.js"
-    },
     "./analyst-loop": {
       "types": "./dist/analyst-loop.d.ts",
       "import": "./dist/analyst-loop.js",
       "default": "./dist/analyst-loop.js"
-    },
-    "./knowledge": {
-      "types": "./dist/knowledge.d.ts",
-      "import": "./dist/knowledge.js",
-      "default": "./dist/knowledge.js"
     },
     "./profiles": {
       "types": "./dist/profiles.d.ts",
@@ -78,11 +58,6 @@
       "types": "./dist/platform.d.ts",
       "import": "./dist/platform.js",
       "default": "./dist/platform.js"
-    },
-    "./primeintellect": {
-      "types": "./dist/primeintellect/index.d.ts",
-      "import": "./dist/primeintellect/index.js",
-      "default": "./dist/primeintellect/index.js"
     },
     "./candidate-execution": {
       "types": "./dist/candidate-execution/index.d.ts",
@@ -146,8 +121,6 @@
     "verify:cohort": "node scripts/verify-packed-cohort.mjs",
     "verify:package": "pnpm run check:model-execution-boundary && pnpm run verify:static-imports && pnpm run build && pnpm run check:api-surface && pnpm run check:testing-fixture && pnpm run check:skills && publint && attw --pack --profile esm-only . && node scripts/verify-package-exports.mjs && pnpm run verify:edge-tool-loop",
     "verify:official-optimizers": "node scripts/verify-official-optimizers.mjs",
-    "verify:primeintellect": "pnpm build && node scripts/verify-primeintellect.mjs",
-    "verify:primeintellect:live": "pnpm build && node scripts/verify-primeintellect-live.mjs",
     "docs:api": "pnpm run build && typedoc && node scripts/gen-primitive-catalog.mjs",
     "docs:freshness": "node scripts/check-docs-freshness.mjs",
     "docs:check": "pnpm run docs:api && git diff --exit-code -- docs/api && pnpm run docs:freshness"

@@ -525,7 +525,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ##### status
 
-> `readonly` **status**: `"running"` \| `"done"` \| `"down"` \| `"cancelled"`
+> `readonly` **status**: `"running"` \| `"cancelled"` \| `"done"` \| `"down"`
 
 **`Experimental`**
 

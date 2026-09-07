@@ -268,7 +268,7 @@ Use `improve(profile, { surface: 'memory', ... })` for the agent's curated lesso
 Use this job for source, retrieval, and knowledge-store changes.
 
 ```ts
-import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime/knowledge'
+import { runKnowledgeImprovementJob } from '@tangle-network/agent-runtime'
 
 const result = await runKnowledgeImprovementJob({
   root: './kb',

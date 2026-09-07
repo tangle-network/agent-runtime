@@ -6,12 +6,14 @@ import path from 'node:path'
 import test from 'node:test'
 import { promisify } from 'node:util'
 
-import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime'
+import type { AgentCandidateExecutorRequest } from '@tangle-network/agent-runtime/candidate-execution'
+
 import { InMemoryTraceStore } from '@tangle-network/agent-eval'
 
 import { createStagedPierCandidateExecutionFixture } from './pier-agent.test-fixtures.mts'
 import { FilePierCandidateTrialController } from './pier-trial-controller'
 
+// Process identity and restart recovery require Linux /proc start-time receipts.
 const execFileAsync = promisify(execFile)
 
 function testRequest(executionId: string, executionPlanDigest: `sha256:${string}`) {
@@ -71,7 +73,7 @@ test('an existing Pier job is rejected without deleting or starting it', async (
   }
 })
 
-test('the Pier result wait does not add time beyond an expired deadline', async () => {
+test('the Pier result wait does not add time beyond an expired deadline', { skip: process.platform !== 'linux' }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pier-controller-deadline-'))
   const controlRoot = path.join(root, 'control')
   const jobsDirectory = path.join(root, 'jobs')
@@ -144,7 +146,7 @@ setInterval(() => undefined, 1_000)
   }
 })
 
-test('the supervisor receives only launch data and no inherited evaluator environment', async () => {
+test('the supervisor receives only launch data and no inherited evaluator environment', { skip: process.platform !== 'linux' }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pier-controller-supervisor-env-'))
   const controlRoot = path.join(root, 'control')
   const jobsDirectory = path.join(root, 'jobs')
@@ -217,7 +219,7 @@ renameSync(temporary, target)
   }
 })
 
-test('terminal acknowledgements reject unknown fields', async () => {
+test('terminal acknowledgements reject unknown fields', { skip: process.platform !== 'linux' }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pier-controller-terminal-schema-'))
   const controlRoot = path.join(root, 'control')
   const jobsDirectory = path.join(root, 'jobs')
@@ -274,7 +276,7 @@ renameSync(temporary, target)
   }
 })
 
-test('a fresh evaluator process terminates the persisted process and container identity', async () => {
+test('a fresh evaluator process terminates the persisted process and container identity', { skip: process.platform !== 'linux' }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pier-controller-recovery-'))
   const controlRoot = path.join(root, 'control')
   const jobsDirectory = path.join(root, 'jobs')

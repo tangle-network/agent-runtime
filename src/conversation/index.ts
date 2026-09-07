@@ -1,5 +1,5 @@
 /**
- * @tangle-network/agent-runtime/conversation
+ * Internal conversation module; supported conversation APIs are exported at the package root.
  *
  * Multi-agent conversation primitive. `defineConversation` + `runConversation`
  * + `createConversationBackend` compose any reachable agent endpoints into a

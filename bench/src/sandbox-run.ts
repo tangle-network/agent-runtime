@@ -14,7 +14,8 @@ import {
   type AgentRunSpec,
   type OutputAdapter,
 } from '@tangle-network/agent-runtime/kernel'
-import { parseExactAgentProfile } from '@tangle-network/agent-runtime'
+import { parseExactAgentProfile } from '@tangle-network/agent-runtime/candidate-execution'
+
 // `BackendType` is the sandbox SDK's harness union and its canonical home. Runtime consumes it
 // from there too; benchmark profiles use the same values as their exact harness identity.
 import type { BackendType } from '@tangle-network/sandbox'

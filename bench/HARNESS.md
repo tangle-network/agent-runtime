@@ -18,7 +18,7 @@ Use these labels literally. Do not promote one level into another in prose.
 
 | Level | What it establishes | Canonical path |
 |---|---|---|
-| **contract proof** | packages install; identities, budgets, callbacks, resume, and receipts have the expected shape | root `pnpm verify:official-optimizers`, `pnpm verify:primeintellect`, `pnpm verify:bench` |
+| **contract proof** | packages install; identities, budgets, callbacks, resume, and receipts have the expected shape | root `pnpm verify:official-optimizers`, `pnpm verify:bench` |
 | **evaluator proof** | the benchmark's own evaluator can distinguish known fail/pass artifacts in the exact environment | adapter preflight and gold/self-check |
 | **reproduction proof** | an upstream method is run at a pinned revision on its claimed benchmark under a matched protocol | Discovery Lab reproduction manifest and runner |
 | **value proof** | the integrated method beats the preregistered baseline on frozen evidence with uncertainty and complete cost accounting | Discovery Lab result receipt |
@@ -35,7 +35,6 @@ From the repository root:
 ```bash
 pnpm verify:bench
 pnpm verify:official-optimizers
-pnpm verify:primeintellect
 ```
 
 `verify:official-optimizers` exercises the official Optimize Anything bridge, engine identities, equal input budgets, resume compatibility, candidate callbacks, accounting, and package provenance. Its deterministic candidate improvement is deliberately a fixture. It does **not** reproduce the published GEPA or Omni benchmark numbers.
