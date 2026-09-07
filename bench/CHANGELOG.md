@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.1
+
+Omni agent engines use the configured optimizer model through the metered Anthropic endpoint.
+Optimizer requests retain their exact output limits within the shared request ceiling.
+The Runtime dependency follows 0.199.0.
+
 ## 0.8.34
 
 The dependency range requires Knowledge 14.0.3 for the compatible Eval cohort.

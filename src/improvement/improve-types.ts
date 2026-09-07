@@ -171,6 +171,8 @@ export interface ImproveSkillsOptions {
 
 /** Caller-owned mapping for optimizing several profile fields as one candidate. */
 export interface ImproveProfileComponents {
+  /** Encode the map as JSON text for engines that cannot search named components. Default `'components'`. */
+  encoding?: 'components' | 'json'
   /** Extract the exact named text components optimized together. */
   read(profile: ReadonlyAgentProfile): Readonly<Record<string, string>>
   /** Apply a complete winning component map to a detached profile. */

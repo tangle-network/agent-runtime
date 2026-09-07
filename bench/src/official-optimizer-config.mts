@@ -7,8 +7,7 @@ import {
   canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
-import { profileOptimizerModelCall } from '../../src/runtime/profile-chat-client'
-import type { RouterSeam } from '../../src/runtime/supervise/runtime'
+import { profileOptimizerModelCall, type RouterSeam } from '@tangle-network/agent-runtime/kernel'
 
 function requiredNonNegativeNumber(
   env: NodeJS.ProcessEnv,

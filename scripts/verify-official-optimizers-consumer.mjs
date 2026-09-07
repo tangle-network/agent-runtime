@@ -251,18 +251,32 @@ async function runWheelVerification() {
 
 async function runOmniVerification() {
   const runDir = await mkdtemp(join(tmpdir(), 'packed-runtime-gepa-omni-'))
-  const model = await startModelServer('```\n{"k":2}\n```')
+  const model = await startModelServer(`\`\`\`\n${JSON.stringify({ prompt: '{"k":2}', tools: '{"search":true}' })}\n\`\`\``)
   const profile = {
     name: 'packed-official-gepa-omni',
     prompt: { systemPrompt: '{"k":1}' },
+    tools: { search: false },
   }
 
   try {
     const result = await improve(profile, {
-      surface: 'prompt',
+      surface: 'agent-profile',
+      profileComponents: {
+        encoding: 'json',
+        read: (candidate) => ({
+          prompt: candidate.prompt.systemPrompt,
+          tools: JSON.stringify(candidate.tools),
+        }),
+        apply: (candidate, components) => ({
+          ...candidate,
+          prompt: { ...candidate.prompt, systemPrompt: components.prompt },
+          tools: JSON.parse(components.tools),
+        }),
+      },
       executionRef: digest({ fixture: 'packed-official-gepa-omni' }),
       method: officialGepa({
-        objective: 'Return a JSON configuration whose k value is 2.',
+        objective: 'Return a JSON component map with prompt containing k=2 and tools enabling search.',
+        authorizeSensitiveCandidate: () => true,
         recipe: {
           kind: 'omni',
           explore: [gepaEngineRun(4), gepaEngineRun(4)],
@@ -281,7 +295,7 @@ async function runOmniVerification() {
         { id: 'test-1', kind: 'official', prompt: 'Set k to 2.' },
         { id: 'test-2', kind: 'official', prompt: 'Set k to 2 again.' },
       ],
-      agent: async (candidate) => ({ text: candidate.prompt?.systemPrompt ?? '' }),
+      agent: async (candidate) => ({ text: candidate.tools?.search === true ? candidate.prompt?.systemPrompt ?? '' : '{}' }),
       judges: [kEqualsTwoJudge],
       runDir,
       costCeiling: 1,
@@ -305,8 +319,9 @@ async function runOmniVerification() {
       'Omni agent-eval-rpc version was not observed',
     )
     assert(result.decision === 'ship', 'Omni candidate was not promoted')
+    assert(profile.tools.search === false, 'Omni mutated the baseline profile')
     assert(
-      JSON.parse(String(result.candidate.value)).k === 2,
+      JSON.parse(result.candidate.profile.prompt.systemPrompt).k === 2 && result.candidate.profile.tools.search === true,
       'Omni did not produce the expected candidate',
     )
     assert(

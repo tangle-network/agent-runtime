@@ -176,6 +176,33 @@ describe('defaultRedactor', () => {
     expect(() => defaultRedactor(cyclic)).not.toThrow()
   })
 
+  it('preserves numeric profile limits while redacting credentials and invalid limit values', () => {
+    const limits = {
+      maxVisibleOutputTokens: 8192,
+      maxReasoningTokens: 0,
+      maxTotalOutputTokens: 16384,
+    }
+    expect(defaultRedactor({ model: limits })).toEqual({ model: limits })
+    expect(defaultRedactor(JSON.stringify({ model: limits }))).toBe(
+      JSON.stringify({ model: limits }),
+    )
+    expect(
+      defaultRedactor({
+        token: 123456,
+        accessToken: 'private-value',
+        maxVisibleOutputTokens: 'private-value',
+        maxReasoningTokens: { token: 'private-value' },
+        maxTotalOutputTokens: -1,
+      }),
+    ).toEqual({
+      token: '[redacted]',
+      accessToken: '[redacted]',
+      maxVisibleOutputTokens: '[redacted]',
+      maxReasoningTokens: '[redacted]',
+      maxTotalOutputTokens: '[redacted]',
+    })
+  })
+
   it('redacts secret assignments embedded in serialized text', () => {
     const redacted = defaultRedactor('judge note: {"password":"hunter2"} token=plain-secret')
     expect(redacted).toBe('judge note: {"password":[redacted]} token=[redacted]')

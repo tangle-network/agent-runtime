@@ -810,6 +810,49 @@ describe('official optimizer methods', () => {
     })
   })
 
+  it('executes complete profile candidates with numeric model token limits', async () => {
+    const root = runDir()
+    const baseline: AgentProfile = {
+      ...profile,
+      model: { default: 'fixture', maxVisibleOutputTokens: 8192 },
+    }
+    const candidate: AgentProfile = {
+      ...baseline,
+      model: { ...baseline.model, maxVisibleOutputTokens: 4096 },
+      prompt: { systemPrompt: 'improved prompt' },
+    }
+    const seen: number[] = []
+    const result = await improve(baseline, {
+      ...commonOptions(
+        officialGepa<OptimizerScenario, Artifact>({
+          objective: 'Improve the complete profile.',
+          recipe: {
+            kind: 'engine',
+            run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+          },
+          optimizer: testOptimizer,
+          authorizeSensitiveCandidate: () => true,
+          runner: fakeRunner('gepa', join(root, 'input.json'), {
+            exampleId: 'train',
+            responsePath: join(root, 'response.json'),
+            candidate: JSON.stringify(candidate),
+          }),
+        }),
+      ),
+      runDir: join(root, 'run'),
+      surface: 'agent-profile',
+      agent: async (exact, scenario, ctx) => {
+        seen.push(exact.model?.maxVisibleOutputTokens ?? 0)
+        return agent(exact, scenario, ctx)
+      },
+    })
+    expect(seen).toContain(4096)
+    expect(seen).toContain(8192)
+    expect(result.candidate.profile).toEqual(candidate)
+    expect(baseline.model?.maxVisibleOutputTokens).toBe(8192)
+    expect(result.decision).toBe('ship')
+  })
+
   it('rejects an unauthorized executable candidate before agent dispatch', async () => {
     const root = runDir()
     const candidate = JSON.stringify({
