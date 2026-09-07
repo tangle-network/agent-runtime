@@ -673,6 +673,32 @@ entries sum to `inclusive` by construction.
 
 ***
 
+### PursuitRunAttempt
+
+One root `agent.run` lifecycle, `before` to `after`/`error`. A corrected input resumed into
+the same `runDir` reuses the `runId`, so one run row can span several of these; the row's own
+`status`, `settledAt` and `error` are always the LAST one's, and an earlier failure lives here.
+
+#### Properties
+
+##### status
+
+> `readonly` **status**: [`PursuitStatus`](#pursuitstatus)
+
+##### startedAt
+
+> `readonly` **startedAt**: `number`
+
+##### settledAt?
+
+> `readonly` `optional` **settledAt?**: `number`
+
+##### error?
+
+> `readonly` `optional` **error?**: `string`
+
+***
+
 ### PursuitRunProjection
 
 #### Properties
@@ -692,6 +718,12 @@ entries sum to `inclusive` by construction.
 ##### error?
 
 > `readonly` `optional` **error?**: `string`
+
+##### attempts?
+
+> `readonly` `optional` **attempts?**: readonly [`PursuitRunAttempt`](#pursuitrunattempt)[]
+
+Every attempt of this run, oldest first. Present exactly when the run ran more than once.
 
 ##### firstSequence
 

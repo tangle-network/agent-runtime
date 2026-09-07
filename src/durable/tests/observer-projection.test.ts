@@ -73,6 +73,26 @@ function settle(
   }
 }
 
+/** One root `agent.run` lifecycle record, the way `supervisePursuit` journals it. */
+function root(
+  runId: string,
+  phase: 'before' | 'after' | 'error',
+  payload?: Record<string, unknown>,
+): Parameters<typeof chain>[0][number] {
+  return {
+    kind: 'event',
+    event: {
+      id: `${runId}:${phase}`,
+      pursuitId: 'pursuit:test',
+      runId,
+      target: 'agent.run',
+      phase,
+      timestamp: 1,
+      ...(payload ? { payload } : {}),
+    },
+  }
+}
+
 function spend(
   input: number,
   output: number,
@@ -282,6 +302,50 @@ describe('projectPursuit', () => {
       settledAt: 20,
       error: 'driver crashed',
     })
+    expect(projectPursuit([first, second]).runs[0]).not.toHaveProperty('attempts')
+  })
+
+  it('settles a resumed run on its last attempt and keeps the earlier failure as its own attempt', () => {
+    // discovery-lab r1 (#1110): the first attempt failed, the corrected input resumed under the
+    // same runId in the same runDir, and the run then settled. One row, read as done, must not
+    // carry the first attempt's error.
+    const error = 'supervise budget.deadlineMs must be a non-negative finite number'
+    const view = projectPursuit(
+      chain([
+        root('run:resumed', 'before'),
+        root('run:resumed', 'error', { status: 'failed', error }),
+        root('run:resumed', 'before'),
+        root('run:resumed', 'after', { status: 'done' }),
+      ]),
+    )
+
+    expect(view.runs.map((run) => run.runId)).toEqual(['run:resumed'])
+    const run = view.runs[0]!
+    expect(run).toMatchObject({ status: 'done', settledAt: 40, eventCount: 4 })
+    expect(run).not.toHaveProperty('error')
+    expect(run.attempts).toEqual([
+      { status: 'down', startedAt: 10, settledAt: 20, error },
+      { status: 'done', startedAt: 30, settledAt: 40 },
+    ])
+  })
+
+  it('reopens a failed run when a new attempt starts and reports no error until it settles', () => {
+    const view = projectPursuit(
+      chain([
+        root('run:retry', 'before'),
+        root('run:retry', 'error', { status: 'failed', error: 'driver crashed' }),
+        root('run:retry', 'before'),
+      ]),
+    )
+
+    const run = view.runs[0]!
+    expect(run).toMatchObject({ status: 'running' })
+    expect(run).not.toHaveProperty('error')
+    expect(run).not.toHaveProperty('settledAt')
+    expect(run.attempts).toEqual([
+      { status: 'down', startedAt: 10, settledAt: 20, error: 'driver crashed' },
+      { status: 'running', startedAt: 30 },
+    ])
   })
 
   it('refuses mixed or tampered observer history before projecting it', () => {

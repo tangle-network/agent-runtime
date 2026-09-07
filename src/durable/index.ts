@@ -53,6 +53,7 @@ export {
   type PursuitNodeTiming,
   type PursuitNodeUsage,
   type PursuitProjection,
+  type PursuitRunAttempt,
   type PursuitRunProjection,
   type PursuitRunTotals,
   type PursuitStatus,
