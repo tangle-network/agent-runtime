@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.33
+
+The dependency range now requires Eval 0.175 for durable supervisor run records.
+
 ## 0.8.32
 
 The dependency ranges now require Runtime 0.195.0, Eval 0.174, and Knowledge 14.
