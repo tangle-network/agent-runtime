@@ -107,7 +107,96 @@ const childRows = [
 
 const jsonl = (rows: readonly unknown[]) => `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`
 
+const canonical = (thread: string, response = 'response', input = 10, total = input) => ({
+  type: 'token_usage_record',
+  payload: {
+    thread_id: thread,
+    turn_id: response,
+    response_id: response,
+    usage: { input_tokens: input, output_tokens: 0, total_tokens: input },
+    thread_token_usage: { input_tokens: total, output_tokens: 0, total_tokens: total },
+  },
+})
+
 describe('readCodexRolloutSession', () => {
+  it('refuses conflicting, malformed, or incomplete canonical evidence instead of legacy fallback', () => {
+    const first = canonical(seatSessionId)
+    for (const invalid of [
+      canonical(seatSessionId, 'response', 11),
+      canonical(seatSessionId, 'missing', 5, 20),
+      {
+        ...first,
+        payload: {
+          ...first.payload,
+          usage: { input_tokens: -1, output_tokens: 0, total_tokens: -1 },
+        },
+      },
+      { ...first, payload: { ...first.payload, response_id: '' } },
+    ]) {
+      expect(() =>
+        readCodexRolloutSession([
+          sessionMeta({ id: seatSessionId }),
+          first,
+          invalid,
+          count({ input: 99, output: 0 }),
+        ]),
+      ).toThrow(/canonical/)
+    }
+  })
+  it('attributes a native child despite inherited parent metadata and canonical history', () => {
+    const result = readCodexRolloutSession([
+      sessionMeta({
+        id: childSessionId,
+        source: {
+          subagent: {
+            thread_spawn: {
+              parent_thread_id: seatSessionId,
+              depth: 1,
+              agent_path: '/root/reviewer',
+            },
+          },
+        },
+      }),
+      sessionMeta({ id: seatSessionId }),
+      canonical(seatSessionId),
+      canonical(childSessionId),
+    ])
+    expect(result?.identity).toMatchObject({
+      sessionId: childSessionId,
+      nativeChild: true,
+      parentThreadId: seatSessionId,
+      agentPath: '/root/reviewer',
+    })
+    expect(result?.own?.input).toBe(10)
+  })
+  it('keeps canonical thread totals across resumed legacy counter resets', () => {
+    const record = (response: string, turn: string, input: number, total: number) => ({
+      type: 'token_usage_record',
+      payload: {
+        thread_id: seatSessionId,
+        turn_id: turn,
+        response_id: response,
+        usage: { input_tokens: input, output_tokens: 2, total_tokens: input + 2 },
+        thread_token_usage: {
+          input_tokens: total,
+          output_tokens: response === 'a' ? 2 : 4,
+          total_tokens: total + (response === 'a' ? 2 : 4),
+        },
+      },
+    })
+    const a = record('a', 'first', 100, 100)
+    const b = record('b', 'resumed', 30, 130)
+    const result = readCodexRolloutSession([
+      sessionMeta({ id: seatSessionId }),
+      a,
+      count({ input: 100, output: 2 }),
+      b,
+      b,
+      count({ input: 30, output: 2 }),
+    ])
+    expect(result?.own).toMatchObject({ input: 130, output: 4 })
+    expect(result?.turns.map((turn) => turn.usage.input)).toEqual([100, 30])
+  })
   it('reads an unforked seat rollout as whole-file and dedups a repeated cumulative emission', () => {
     const session = readCodexRolloutSession(seatRows)
     expect(session?.identity.sessionId).toBe(seatSessionId)
@@ -230,6 +319,28 @@ describe('createCodexRolloutStoreReader', () => {
     await rm(root, { recursive: true, force: true })
   })
 
+  it('credits canonical native deltas once across rereads and resumed turns', async () => {
+    const file = join(sessionsDir, 'rollout-child.jsonl')
+    const meta = sessionMeta({
+      id: childSessionId,
+      cwd: '/work/run',
+      source: { subagent: { thread_spawn: { parent_thread_id: seatSessionId, depth: 1 } } },
+    })
+    const first = canonical(childSessionId)
+    await writeFile(file, jsonl([meta, sessionMeta({ id: seatSessionId }), first]))
+    const reader = createCodexRolloutStoreReader({ root, workspaceRoot: '/work/run' })
+    expect((await reader.read()).native.input).toBe(10)
+    await appendFile(
+      file,
+      jsonl([first, canonical(childSessionId, 'resume', 7, 17), count({ input: 7, output: 0 })]),
+    )
+    const delta = await reader.read()
+    expect(delta.native.input).toBe(7)
+    expect(delta.seat.input).toBe(0)
+    expect(delta.sessions[0]?.own?.input).toBe(17)
+    expect((await reader.read()).native.input).toBe(0)
+  })
+
   it('baselines existing rows, then credits only what each later turn appended', async () => {
     const seatFile = join(sessionsDir, `rollout-${seatSessionId}.jsonl`)
     await writeFile(seatFile, jsonl(seatRows.slice(0, 3)))
@@ -256,6 +367,48 @@ describe('createCodexRolloutStoreReader', () => {
     // Nothing appended since: a re-read charges nothing, so no turn is billed twice.
     const idle = await reader.read()
     expect(harnessUsageIsEmpty(idle.seat)).toBe(true)
+  })
+
+  it('refuses invalid canonical receipts through the filesystem reader on every reread', async () => {
+    await writeFile(
+      join(sessionsDir, `rollout-${seatSessionId}.jsonl`),
+      jsonl([
+        sessionMeta({ id: seatSessionId }),
+        canonical(seatSessionId),
+        canonical(seatSessionId, 'conflict', 5, 20),
+      ]),
+    )
+    const reader = createCodexRolloutStoreReader({ root })
+    await expect(reader.read()).rejects.toThrow(/canonical/)
+    await expect(reader.read()).rejects.toThrow(/canonical/)
+  })
+
+  it('does not consume earlier files when a later receipt rejects the aggregate', async () => {
+    await writeFile(join(sessionsDir, 'a.jsonl'), jsonl([sessionMeta({ id: 'a' }), canonical('a')]))
+    const later = join(sessionsDir, 'z.jsonl')
+    await writeFile(later, jsonl([sessionMeta({ id: 'z' }), canonical('z', 'bad', 5, 20)]))
+    const reader = createCodexRolloutStoreReader({ root })
+    await expect(reader.read()).rejects.toThrow(/canonical/)
+    await writeFile(later, jsonl([sessionMeta({ id: 'z' }), canonical('z', 'good', 5)]))
+    expect((await reader.read()).seat.input).toBe(15)
+    expect((await reader.read()).seat.input).toBe(0)
+  })
+
+  it('excludes invalid receipts when opening metadata names another workspace', async () => {
+    await writeFile(
+      join(sessionsDir, 'foreign.jsonl'),
+      jsonl([
+        sessionMeta({ id: 'foreign', cwd: '/elsewhere' }),
+        canonical('foreign', 'bad', 5, 20),
+      ]),
+    )
+    await writeFile(
+      join(sessionsDir, 'owned.jsonl'),
+      jsonl([sessionMeta({ id: 'owned', cwd: '/work/run' }), canonical('owned')]),
+    )
+    const reader = createCodexRolloutStoreReader({ root, workspaceRoot: '/work/run' })
+    expect((await reader.read()).seat.input).toBe(10)
+    expect((await reader.read()).seat.input).toBe(0)
   })
 
   it('separates a harness-native child from the seat and never sums the fork prefix', async () => {

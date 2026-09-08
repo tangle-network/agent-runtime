@@ -4,7 +4,7 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.203.0.**
+> **Version 0.203.1.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.178.0 <0.179.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.38.0`.
@@ -226,6 +226,13 @@ Knowledge owns scope normalization and hashing, including the selected pages dir
 Default scope remains absent from portable bundles to preserve their existing identity.
 
 For the full export inventory (every primitive, its import path, its summary: generated, never stale), see `docs/api/primitive-catalog.md`; for per-symbol signatures, the per-module `docs/api/` pages. For the recursive atom (recursion · isolated-or-collaborative artifact · conserved budget · analysts) and the two-timescale architecture, see `docs/architecture.md`. For the profile→run→optimize→ship spine in depth, `docs/concepts.md` + `docs/learning-flywheel.md`. For the Intelligence SDK (Observe + the provable-OFF billing boundary), `docs/intelligence-sdk.md`.
+
+### Codex store accounting
+
+The Codex harness-store reader prefers canonical `token_usage_record` receipts with explicit thread and response identities.
+It preserves resumed totals and native-child attribution, and refuses conflicting or incomplete canonical evidence.
+Legacy counters remain supported when canonical receipts are absent.
+Store reconciliation currently runs after bridge turns; this reader change does not establish complete interrupted-turn metering.
 
 ## 2.1 Which front door do I use?: the four public verbs
 
