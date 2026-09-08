@@ -2508,6 +2508,12 @@ Exact file-backed knowledge admitted by the candidate bundle.
 
 **`Experimental`**
 
+##### stateScope?
+
+> `readonly` `optional` **stateScope?**: `Readonly`\<`AgentCandidateKnowledgeStateScope`\>
+
+**`Experimental`**
+
 ##### snapshot
 
 > `readonly` **snapshot**: `AgentCandidateWorkspaceSnapshotEvidence`

@@ -14,6 +14,7 @@ import type {
   AgentCandidateGitHubRepository,
   AgentCandidateInstructionDelivery,
   AgentCandidateKnowledgeRef,
+  AgentCandidateKnowledgeStateScope,
   AgentCandidateMaterializationReceipt,
   AgentCandidateMemoryReceipt,
   AgentCandidateModelAccessNetwork,
@@ -304,6 +305,7 @@ export interface PreparedAgentCandidateInstruction {
 /** Exact file-backed knowledge admitted by the candidate bundle. */
 export interface PreparedAgentCandidateKnowledge {
   readonly candidate: AgentCandidateKnowledgeRef
+  readonly stateScope?: Readonly<AgentCandidateKnowledgeStateScope>
   readonly snapshot: AgentCandidateWorkspaceSnapshotEvidence
   readonly files: readonly AgentCandidateExecutorWorkspaceFile[]
   readonly retrievalConfig?: Uint8Array

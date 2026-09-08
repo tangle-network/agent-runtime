@@ -336,6 +336,9 @@ function detachPreparedCandidateState(input: PreparedCandidateState): PreparedCa
       ? {
           knowledge: Object.freeze({
             candidate: immutableCandidateValue(input.knowledge.candidate),
+            ...(input.knowledge.stateScope
+              ? { stateScope: immutableCandidateValue(input.knowledge.stateScope) }
+              : {}),
             snapshot: immutableCandidateValue(input.knowledge.snapshot),
             files: immutableExecutorFiles(input.knowledge.files),
             ...(input.knowledge.retrievalConfig
@@ -493,6 +496,7 @@ function knowledgeView(
     : undefined
   return Object.freeze({
     candidate: knowledge.candidate,
+    ...(knowledge.stateScope ? { stateScope: immutableCandidateValue(knowledge.stateScope) } : {}),
     snapshot: knowledge.snapshot,
     files: Object.freeze(knowledge.files.map((file) => profileFileView(file))),
     ...(retrievalConfig
@@ -592,6 +596,8 @@ function assertPreparedKnowledge(state: PreparedCandidateState): void {
   }
   if (
     canonicalCandidateDigest(actual.candidate) !== canonicalCandidateDigest(expected.candidate) ||
+    canonicalCandidateDigest(actual.stateScope ?? null) !==
+      canonicalCandidateDigest(expected.stateScope ?? null) ||
     canonicalCandidateDigest(actual.snapshot) !== canonicalCandidateDigest(expected.snapshot) ||
     state.executionPlan.value.material.knowledgeManifestDigest !== expected.snapshot.digest
   ) {

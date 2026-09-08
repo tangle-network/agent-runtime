@@ -118,32 +118,44 @@ export async function waitForPublishedDependencies(
   }
 }
 
-async function probeNpm(dependency, { timeoutMs }) {
+export async function probeNpm(dependency, { timeoutMs, run = execFileAsync }) {
+  const scratch = await mkdtemp(path.join(tmpdir(), 'agent-bench-dependency-probe-'))
   try {
-    const { stdout } = await execFileAsync(
+    // A fresh cache makes npm retrieve and integrity-check the archive, even when
+    // registry metadata has propagated before the archive becomes available.
+    const { stdout } = await run(
       'npm',
       [
-        'view',
+        'pack',
         `${dependency.name}@${dependency.spec}`,
-        'version',
         '--json',
+        '--ignore-scripts',
         '--prefer-online',
+        '--cache',
+        path.join(scratch, 'cache'),
+        '--pack-destination',
+        scratch,
       ],
       {
         env: { ...process.env, npm_config_color: 'false' },
-        maxBuffer: 1024 * 1024,
+        maxBuffer: 10 * 1024 * 1024,
         timeout: Math.min(30_000, timeoutMs),
       },
     )
-    const version = JSON.parse(stdout)
+    const packed = JSON.parse(stdout)
     const available =
-      (typeof version === 'string' && version.length > 0) ||
-      (Array.isArray(version) && version.length > 0)
+      Array.isArray(packed) &&
+      packed.length === 1 &&
+      packed[0].name === dependency.name &&
+      typeof packed[0].version === 'string' &&
+      packed[0].version.length > 0
     return available
       ? { available: true }
-      : { available: false, detail: 'npm returned no matching version' }
+      : { available: false, detail: 'npm returned no matching package archive' }
   } catch (error) {
     return { available: false, detail: summarizeCommandError(error) }
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
   }
 }
 

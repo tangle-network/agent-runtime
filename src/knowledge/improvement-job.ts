@@ -14,6 +14,7 @@ import {
   type KnowledgeImprovementResult,
   type KnowledgeReadinessSpec,
   knowledgeImprovementCandidateRef,
+  normalizeKnowledgeStateScope,
   toAgentCandidateKnowledgeRef,
   withKnowledgeImprovementComparison,
 } from '@tangle-network/agent-knowledge'
@@ -85,6 +86,7 @@ export interface KnowledgeImprovementJobResult {
 
 export interface KnowledgeImprovementCandidatePair {
   reference: AgentCandidateKnowledge['candidate']
+  stateScope?: AgentCandidateKnowledge['stateScope']
   evaluation: AgentCandidateCapturedArtifact
   baseline: AgentCandidateKnowledge['snapshot']
   candidate: AgentCandidateKnowledge['snapshot']
@@ -228,6 +230,7 @@ export function buildKnowledgeImprovementExperimentBundles(
   const withSnapshot = (snapshot: AgentCandidateKnowledge['snapshot']) =>
     agentCandidateKnowledgeSchema.parse({
       candidate: knowledge.reference,
+      ...(knowledge.stateScope ? { stateScope: knowledge.stateScope } : {}),
       snapshot,
       evaluation: knowledge.evaluation,
     })
@@ -277,10 +280,18 @@ async function freezeKnowledgeCandidatePair(
       artifacts,
       signal,
     )
+    const normalizedScope = normalizeKnowledgeStateScope(comparison.stateScope)
+    const defaultScope = normalizeKnowledgeStateScope()
+    const stateScope =
+      normalizedScope.pagesDirectory === defaultScope.pagesDirectory &&
+      normalizedScope.researchState === defaultScope.researchState
+        ? undefined
+        : Object.freeze(normalizedScope)
     const baseline = await freeze('baseline')
     const proposed = await freeze('candidate')
     return Object.freeze({
       reference: candidateRef,
+      ...(stateScope ? { stateScope } : {}),
       evaluation,
       baseline,
       candidate: proposed,
