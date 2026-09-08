@@ -4,11 +4,11 @@
     ".": {
       "ADAPTERS": "value 373728f5643d",
       "BenchCell": "type 743fc45d7bfb",
-      "BenchCellTaskResult": "type 8f50f8a3eb88",
+      "BenchCellTaskResult": "type 8c68cb75492b",
       "BenchLeaderboardRow": "type 2edc04934a63",
       "BenchScore": "type cf218b2b9327",
       "BenchShot": "type b58333da58c6",
-      "BenchShotResult": "type 344e2ffa7120",
+      "BenchShotResult": "type c9193119350c",
       "BenchTask": "type 025d9b2f2116",
       "BenchmarkAdapter": "type a9f9f6645ec5",
       "ExecutePreparedPierCandidateOptions": "type 9f2831557234",

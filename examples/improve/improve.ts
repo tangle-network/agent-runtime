@@ -1,6 +1,7 @@
 /** Complete-method prompt improvement, offline and deterministic. */
 
-import { makeProposalFinding } from '@tangle-network/agent-eval'
+import { makeFinding } from '@tangle-network/agent-eval'
+import { AnalystRegistry } from '@tangle-network/agent-eval/analyst'
 import { inMemoryCampaignStorage } from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/agent-interface'
@@ -9,6 +10,11 @@ import {
   improve,
   type ReadonlyAgentProfile,
 } from '@tangle-network/agent-runtime'
+import {
+  type ObserveInput,
+  observationFromRegistry,
+  observe,
+} from '@tangle-network/agent-runtime/kernel'
 
 export interface DemoScenario extends Scenario {
   kind: 'demo'
@@ -22,8 +28,8 @@ export const trainScenarios = scenarios.slice(0, 4)
 export const selectionScenarios = scenarios.slice(4, 8)
 export const testScenarios = scenarios.slice(8)
 
-// The agent returns the surface verbatim as the artifact AND reports usage, so the backend-integrity
-// guard sees a real backend rather than a stub-zero cell. No LLM.
+// The agent returns the surface verbatim with deterministic fixture receipts that exercise accounting.
+// This example makes no LLM calls.
 export const agent = async (
   candidate: ReadonlyAgentProfile,
   _scenario: DemoScenario,
@@ -73,19 +79,27 @@ export const scriptedWinner: ImproveMethodFactory<DemoScenario, string> = (conte
   },
 })
 
-// This evidence came from an observed production run, so it is explicitly
-// admitted as production input for candidate generation.
-const findings = [
-  makeProposalFinding({
-    analyst_id: 'demo-analyst',
-    severity: 'medium',
-    area: 'agent-reasoning',
-    claim: 'the agent under-specifies its answer format',
-    confidence: 0.8,
-    evidence_refs: [],
-    proposal_origin: 'production',
-  }),
-]
+const registry = new AnalystRegistry()
+registry.register({
+  id: 'required-check',
+  version: '1',
+  description: 'Find a missing verification event',
+  inputKind: 'custom',
+  cost: { kind: 'deterministic' },
+  async analyze(input: ObserveInput) {
+    if (input.trace.some((event) => event === 'verification-passed')) return []
+    return [
+      makeFinding({
+        analyst_id: 'required-check',
+        severity: 'medium',
+        area: 'verification',
+        claim: 'The attempt has no verification event.',
+        confidence: 1,
+        evidence_refs: [...(input.evidenceRefs ?? [])],
+      }),
+    ]
+  },
+})
 
 export const profile: AgentProfile = { name: 'demo', prompt: { systemPrompt: 'BASELINE' } }
 export const executionRef = canonicalCandidateDigest({
@@ -94,6 +108,21 @@ export const executionRef = canonicalCandidateDigest({
 })
 
 async function main(): Promise<void> {
+  const { findings } = await observe(
+    {
+      task: 'Return the required answer and verify it.',
+      output: 'BASELINE',
+      trace: [],
+      runId: 'demo://attempt',
+      evidenceRefs: [{ kind: 'artifact', uri: 'demo://attempt/trace' }],
+    },
+    {
+      analysis: observationFromRegistry(registry, {
+        inputs: (input) => ({ custom: { 'required-check': input } }),
+        proposalOrigin: 'search',
+      }),
+    },
+  )
   const out = await improve(profile, {
     surface: 'prompt',
     executionRef,

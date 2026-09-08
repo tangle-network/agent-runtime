@@ -574,7 +574,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-21)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-19)
 
 ##### execution?
 
@@ -1268,7 +1268,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-21)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`signal`](runtime.md#signal-19)
 
 ##### execution?
 

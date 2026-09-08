@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertMethodCostRecorded,
   type MethodCostAttribution,
+  methodHistoricalReceipts,
   methodInputWithScopedCost,
   methodInvocationCostLedger,
 } from './method-cost'
@@ -47,6 +48,57 @@ async function recordCost(
 }
 
 describe('optimizer cost reconciliation', () => {
+  it('preserves each resumed child run through nested scopes and counts historical receipts once', async () => {
+    const ledger = new CostLedger({ costCeilingUsd: 10 })
+    const prior = scopedInput(ledger, 'prior', 'optimizer-run')
+    await recordCost(prior, 0.25, 'first-run')
+    await recordCost(prior, 0.5, 'second-run')
+    const root = scopedInput(ledger, 'current', 'optimizer-run')
+    const scope = { evaluationRef, invocationId: 'current', methodTag: 'container' }
+    const container = methodInputWithScopedCost(root, scope, 'optimizer-run')
+    const first = methodInputWithScopedCost(
+      container,
+      { ...scope, methodTag: 'first' },
+      'optimizer-run',
+    )
+    const second = methodInputWithScopedCost(
+      container,
+      { ...scope, methodTag: 'second' },
+      'optimizer-run',
+    )
+    await recordCost(first, 0.125, 'first-run')
+    await recordCost(second, 0.125, 'second-run')
+    expect(first.costLedger.summary({ tags: { optimizerRun: 'first-run' } }).totalCostUsd).toBe(
+      0.375,
+    )
+    expect(second.costLedger.summary({ tags: { optimizerRun: 'second-run' } }).totalCostUsd).toBe(
+      0.625,
+    )
+    const histories = [
+      ...methodHistoricalReceipts(first.costLedger, 'first-run', 'current'),
+      ...methodHistoricalReceipts(second.costLedger, 'second-run', 'current'),
+    ]
+    expect(histories).toHaveLength(2)
+    expect(() =>
+      assertMethodCostRecorded(
+        'container',
+        {
+          cost: {
+            totalCostUsd: 1,
+            costProvenance: { kind: 'observed', usd: 1 },
+            accountingComplete: true,
+            incompleteReasons: [],
+          },
+        },
+        container.costLedger,
+        methodInvocationCostLedger(container.costLedger, scope),
+        10,
+        'invocation',
+        [...histories, ...histories],
+      ),
+    ).not.toThrow()
+  })
+
   it('accepts complete spend recorded through the shared account', async () => {
     const ledger = new CostLedger({ costCeilingUsd: 1 })
     const paid = await ledger.runPaidCall({

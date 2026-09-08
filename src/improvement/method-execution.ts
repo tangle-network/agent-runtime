@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import type { CostReceipt } from '@tangle-network/agent-eval'
 import { assertProposalFindings } from '@tangle-network/agent-eval/analyst'
 import {
   type CampaignStorage,
@@ -7,6 +8,8 @@ import {
   decodeExternalTextCandidate,
   type OptimizationMethod,
   type OptimizationMethodComparison,
+  type OptimizationMethodInput,
+  type OptimizationMethodResult,
   readExternalOptimizerObservationArtifact,
   readGepaCandidatePopulationArtifact,
 } from '@tangle-network/agent-eval/campaign'
@@ -36,6 +39,7 @@ import type {
 import { methodRuntimeControlsOf } from './method-controls'
 import {
   assertMethodCostRecorded,
+  methodHistoricalReceipts,
   methodInputWithScopedCost,
   methodInvocationCostLedger,
 } from './method-cost'
@@ -366,7 +370,6 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
     baselineValue,
     findings,
   })
-  const methodControls = methodRuntimeControlsOf(method)
   const baselineSurfaceDigest = canonicalCandidateDigest(baselineSurface)
   const validatedCandidates = new Set<Sha256Digest>()
   const materializeProfile = (
@@ -383,37 +386,93 @@ export async function runMethodImprovement<TScenario extends Scenario, TArtifact
         value: immutableCandidateValue(prepared.value),
         isBaseline: candidateDigest === baselineSurfaceDigest,
       })
-      methodControls?.validateCandidate(validationInput)
       validateCandidate?.(validationInput)
       validatedCandidates.add(candidateDigest)
     }
     return candidate
   }
   materializeProfile(baselineSurface)
+  const costScope = { evaluationRef, invocationId: runtimeInvocationId }
+  const invoke = async (
+    current: OptimizationMethod<TScenario, TArtifact>,
+    input: OptimizationMethodInput<TScenario, TArtifact>,
+  ): Promise<{ result: OptimizationMethodResult; historical: readonly CostReceipt[] }> => {
+    const controls = methodRuntimeControlsOf(current)
+    const scope = { ...costScope, methodTag: `runtimeMethod:${randomUUID()}` }
+    // Every enclosing scope must preserve explicit optimizerRun reads from previous invocations.
+    const scopedInput = methodInputWithScopedCost(input, scope, 'optimizer-run')
+    const invocationLedger = methodInvocationCostLedger(scopedInput.costLedger, scope)
+    const historical = new Map<string, CostReceipt>()
+    let children = 0
+    const checked = new Set<Sha256Digest>()
+    const toRoot = (value: MutableSurface): MutableSurface =>
+      immutableCandidateValue(input.surfaceToRoot?.(immutableCandidateValue(value)) ?? value)
+    const currentBaselineDigest = canonicalCandidateDigest(toRoot(input.baselineSurface))
+    const check = (value: MutableSurface): void => {
+      const rootSurface = toRoot(value)
+      const candidateDigest = canonicalCandidateDigest(rootSurface)
+      if (checked.has(candidateDigest)) return
+      const candidate = materializeProfile(rootSurface)
+      const prepared = prepareProfileSurface(candidate, surface, skills, profileComponents)
+      controls?.validateCandidate(
+        Object.freeze({
+          profile: immutableCandidateValue(candidate),
+          surface,
+          candidateSurface: rootSurface,
+          value: immutableCandidateValue(prepared.value),
+          isBaseline: candidateDigest === currentBaselineDigest,
+        }),
+      )
+      checked.add(candidateDigest)
+    }
+    check(input.baselineSurface)
+    const result = await current.optimize(
+      Object.freeze({
+        ...scopedInput,
+        invokeMethod: async (
+          child: OptimizationMethod<TScenario, TArtifact>,
+          childInput: OptimizationMethodInput<TScenario, TArtifact>,
+        ) => {
+          const verified = await invoke(child, childInput)
+          children += 1
+          for (const receipt of verified.historical) historical.set(receipt.callId, receipt)
+          return verified.result
+        },
+        dispatchWithSurface: (
+          ...[value, scenario, context]: Parameters<
+            OptimizationMethodInput<TScenario, TArtifact>['dispatchWithSurface']
+          >
+        ) => {
+          check(value)
+          return input.dispatchWithSurface(value, scenario, context)
+        },
+      }),
+    )
+    check(result.winnerSurface)
+    assertMethodCostRecorded(
+      current.name,
+      result,
+      scopedInput.costLedger,
+      invocationLedger,
+      comparisonOptions.costCeiling,
+      children > 0 ? 'invocation' : controls?.costAttribution,
+      [...historical.values()],
+    )
+    if (controls?.costAttribution === 'optimizer-run' && result.provenance?.runId) {
+      for (const receipt of methodHistoricalReceipts(
+        scopedInput.costLedger,
+        result.provenance.runId,
+        runtimeInvocationId,
+      ))
+        historical.set(receipt.callId, receipt)
+    }
+    return { result, historical: [...historical.values()] }
+  }
   const measuredMethod: OptimizationMethod<TScenario, TArtifact> = {
     ...method,
     async optimize(input) {
-      const costScope = {
-        evaluationRef,
-        invocationId: runtimeInvocationId,
-      }
-      const scopedInput = methodInputWithScopedCost(
-        input,
-        costScope,
-        methodControls?.costAttribution,
-      )
-      const invocationLedger = methodInvocationCostLedger(input.costLedger, costScope)
-      const result = await method.optimize(scopedInput)
-      assertMethodCostRecorded(
-        method.name,
-        result,
-        scopedInput.costLedger,
-        invocationLedger,
-        comparisonOptions.costCeiling,
-        methodControls?.costAttribution,
-      )
-      materializeProfile(result.winnerSurface)
-      return result
+      const scopedInput = methodInputWithScopedCost(input, costScope, 'optimizer-run')
+      return (await invoke(method, scopedInput)).result
     },
   }
   const startedAt = Date.now()

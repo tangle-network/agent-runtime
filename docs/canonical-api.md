@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.202.0.**
+> **Version 0.203.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.176.0 <0.177.0`.
+> `agent-eval` must satisfy `>=0.178.0 <0.179.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.38.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.5.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.6.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -198,6 +198,7 @@ A general "loop" primitive is the single most common modelling error in this rep
 | See a **supervised tree** in a trace viewer (one span per node, opened at spawn, closed at settle, parented to its parent node; driver turns as LLM child spans) | `supervise(profile, task, { otel: { exporter } })`, or `createSupervisorSpanRecorder({ runId, … }).hooks` on `SupervisorOpts.hooks`: `/kernel` — OPT-IN, and omitting `otel` installs no hook at all | parsing the spawn journal to reconstruct the tree; a second exporter; routing replay/resume through telemetry (the journal stays the only durable record) |
 | Run agent-eval's CALIBRATED trace analysts (the `DEFAULT_TRACE_ANALYST_KINDS` lenses) inside a supervised run | `supervise(profile, task, { analysts: analystsFromRegistry(registry) })`: `/kernel` — adapts an eval `AnalystRegistry` (`list()` + `run(runId, inputs, opts)`) to the lens shape (`kinds` + `run(kindId, trace)`), routing each call to exactly one kind and returning its validated `AnalystFinding[]` | hand-rolling a lens per consumer (the shape mismatch is why they exist), passing the eval registry directly (`'kinds' in registry` is false), or widening the lens return to `unknown` |
 | Run an ordered analyst pass where later analysts use findings from earlier analysts | `runAnalystLoop({ chainFindings: true })`: `/analyst-loop`; registration order defines the dependency order, while omission keeps analysts independent | manually invoke each analyst and pipe findings between calls |
+| Analyze completed runs with a selected registry and retain findings in a corpus | `observe` / `harvestCorpus` with `analysis: observationFromRegistry(registry, options)`: `/kernel` | a second corpus writer for each analyst engine or losing usage when analysis fails |
 | Know **what got mounted into a run** / **why a candidate won** | `result.provenance.mounts` / `result.provenance.selectionReceipts` (`MountManifestEntry`/`SelectionReceipt`/`RunProvenance`); declare mounts via the `recordMount` recorder in `prepareBox`: root export | re-reading box contents to reconstruct what was mounted, or re-deriving which candidate the selector picked |
 | Learn WHICH executor resource a run could not prove destroyed | `result.teardownUnconfirmed` (`UnconfirmedTeardown`: id, label, runtime, status) plus the `teardown-unconfirmed` journal event: `/kernel` — every settled child whose executor teardown was never acknowledged, named on the result and journaled per node; its capacity slot stays charged so replacement work cannot exceed the physical live count | reading a bare count out of an error string, releasing the slot to make the message go away, or failing the whole run over cleanup bookkeeping after every child has settled |
 | State any benchmark/A-B claim | `pairedLift(...)` (bench) over `pairedBootstrap`/`heldoutSignificance` (substrate) | your own bootstrap loop/PRNG per gate; a point lift without `low/high/pairs` |

@@ -2,7 +2,10 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeProposalFinding } from '@tangle-network/agent-eval'
-import type { OpenAICompatibleOptimizerModel } from '@tangle-network/agent-eval/campaign'
+import {
+  type OpenAICompatibleOptimizerModel,
+  sequentialOptimizationMethod,
+} from '@tangle-network/agent-eval/campaign'
 import type { DispatchContext, JudgeConfig, Scenario } from '@tangle-network/agent-eval/contract'
 import {
   type AgentProfile,
@@ -810,6 +813,37 @@ describe('official optimizer methods', () => {
     })
   })
 
+  it('preserves sensitive baseline rejection through sequential composition', async () => {
+    const factory = officialGepa<OptimizerScenario, Artifact>({
+      objective: 'Improve the MCP profile.',
+      recipe: { kind: 'engine', run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 } },
+      optimizer: testOptimizer,
+      runner: failingRunner('runner must not start'),
+    })
+    await expect(
+      improve(
+        {
+          name: 'composed-private',
+          mcp: {
+            remote: {
+              transport: 'http',
+              url: 'https://mcp.example.test/callback?signature=opaque-7f91d8e4',
+            },
+          },
+        },
+        {
+          ...commonOptions((context) =>
+            sequentialOptimizationMethod({
+              name: 'composed-official',
+              methods: [factory(context)],
+            }),
+          ),
+          surface: 'mcp',
+        },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining('$.remote.url') })
+  })
+
   it('executes complete profile candidates with numeric model token limits', async () => {
     const root = runDir()
     const baseline: AgentProfile = {
@@ -853,65 +887,71 @@ describe('official optimizer methods', () => {
     expect(result.decision).toBe('ship')
   })
 
-  it('rejects an unauthorized executable candidate before agent dispatch', async () => {
-    const root = runDir()
-    const candidate = JSON.stringify({
-      local: {
-        transport: 'stdio' as const,
-        command: 'echo',
-        args: [defineAgentProfilePublicConfig('unauthorized')],
-      },
-    })
-    let agentCalls = 0
-    const reviewed: Array<{
-      isBaseline: boolean
-      command: string | undefined
-      sensitivePaths: readonly string[]
-    }> = []
-
-    await expect(
-      improve(
-        { name: 'optimizer-fixture', mcp: {} },
-        {
-          ...commonOptions(
-            officialGepa<OptimizerScenario, Artifact>({
-              objective: 'Improve the MCP profile.',
-              recipe: {
-                kind: 'engine',
-                run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
-              },
-              optimizer: testOptimizer,
-              authorizeSensitiveCandidate: (input) => {
-                reviewed.push({
-                  isBaseline: input.isBaseline,
-                  command: input.profile.mcp?.local?.command,
-                  sensitivePaths: input.sensitivePaths,
-                })
-                return input.isBaseline
-              },
-              runner: fakeRunner('gepa', join(root, 'input.json'), {
-                exampleId: 'train',
-                responsePath: join(root, 'response.json'),
-                candidate,
-              }),
-            }),
-          ),
-          runDir: join(root, 'run'),
-          surface: 'mcp',
-          agent: async () => {
-            agentCalls += 1
-            return { text: 'must not run' }
-          },
+  it.each([false, true])(
+    'rejects an unauthorized executable candidate before agent dispatch (composed=%s)',
+    async (composed) => {
+      const root = runDir()
+      const candidate = JSON.stringify({
+        local: {
+          transport: 'stdio' as const,
+          command: 'echo',
+          args: [defineAgentProfilePublicConfig('unauthorized')],
         },
-      ),
-    ).rejects.toThrow(/selected profile surface contains fields that may carry private values/)
-    expect(agentCalls).toBe(0)
-    expect(reviewed).toEqual([
-      { isBaseline: true, command: undefined, sensitivePaths: ['$'] },
-      { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
-      { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
-    ])
-  })
+      })
+      let agentCalls = 0
+      const reviewed: Array<{
+        isBaseline: boolean
+        command: string | undefined
+        sensitivePaths: readonly string[]
+      }> = []
+
+      await expect(
+        improve(
+          { name: 'optimizer-fixture', mcp: {} },
+          {
+            ...commonOptions((context) => {
+              const leaf = officialGepa<OptimizerScenario, Artifact>({
+                objective: 'Improve the MCP profile.',
+                recipe: {
+                  kind: 'engine',
+                  run: { engine: 'gepa', maxEvaluations: 1, maxProposerCostUsd: 1 },
+                },
+                optimizer: testOptimizer,
+                authorizeSensitiveCandidate: (input) => {
+                  reviewed.push({
+                    isBaseline: input.isBaseline,
+                    command: input.profile.mcp?.local?.command,
+                    sensitivePaths: input.sensitivePaths,
+                  })
+                  return input.isBaseline
+                },
+                runner: fakeRunner('gepa', join(root, 'input.json'), {
+                  exampleId: 'train',
+                  responsePath: join(root, 'response.json'),
+                  candidate,
+                }),
+              })(context)
+              return composed
+                ? sequentialOptimizationMethod({ name: 'guarded-official', methods: [leaf] })
+                : leaf
+            }),
+            runDir: join(root, 'run'),
+            surface: 'mcp',
+            agent: async () => {
+              agentCalls += 1
+              return { text: 'must not run' }
+            },
+          },
+        ),
+      ).rejects.toThrow(/selected profile surface contains fields that may carry private values/)
+      expect(agentCalls).toBe(0)
+      expect(reviewed).toEqual([
+        { isBaseline: true, command: undefined, sensitivePaths: ['$'] },
+        { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
+        { isBaseline: false, command: 'echo', sensitivePaths: ['$'] },
+      ])
+    },
+  )
 
   it('authorizes every exact sensitive candidate through a callback', async () => {
     const root = runDir()

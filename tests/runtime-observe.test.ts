@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { harvestCorpus } from '../src/runtime/harvest-corpus'
 import { observe } from '../src/runtime/observe'
@@ -23,6 +23,97 @@ function observerExecutor(content: string) {
 }
 
 describe('runtime observe', () => {
+  it('uses caller context limits and preserves search provenance with a trace reference', async () => {
+    const complete = vi.fn(
+      observerExecutor(
+        JSON.stringify({
+          findings: [
+            {
+              area: 'verification',
+              severity: 'low',
+              claim: 'The tool was repeated.',
+              recommended_action: 'Inspect the earlier result.',
+              audience: 'agent',
+              confidence: 1,
+            },
+          ],
+        }),
+      ).complete,
+    )
+    const result = await observe(
+      {
+        task: 'Inspect the attempt',
+        output: 'abcdefghij',
+        runId: 'search://attempt-1',
+        evidenceRefs: [{ kind: 'artifact', uri: 'search://attempt-1/trace' }],
+        trace: [{ type: 'tool-first' }, { type: 'tool-second' }],
+      },
+      {
+        profile: observerProfile,
+        executor: { ...observerExecutor(''), complete },
+        maxOutputChars: 5,
+        maxTraceLines: 1,
+        proposalOrigin: 'search',
+      },
+    )
+    const request = JSON.stringify(complete.mock.calls)
+    expect(request).toContain('abcde')
+    expect(request).not.toContain('abcdefghij')
+    expect(request).toContain('tool-first')
+    expect(request).not.toContain('tool-second')
+    expect(result.findings[0]).toMatchObject({
+      proposal_origin: 'search',
+      evidence_refs: [{ kind: 'artifact', uri: 'search://attempt-1/trace' }],
+    })
+  })
+
+  it('rejects invalid context limits before invoking the observer', async () => {
+    const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+    await expect(
+      observe(
+        { task: 'Inspect', output: '', trace: [] },
+        {
+          profile: observerProfile,
+          executor: { ...observerExecutor(''), complete },
+          maxTraceLines: -1,
+        },
+      ),
+    ).rejects.toThrow('context limits')
+    expect(complete).not.toHaveBeenCalled()
+  })
+
+  it('does not invoke custom analysis after cancellation', async () => {
+    const analysis = vi.fn()
+    await expect(
+      observe(
+        { task: 'Inspect', output: '', trace: [] },
+        {
+          analysis,
+          signal: AbortSignal.abort(new Error('stopped')),
+        },
+      ),
+    ).rejects.toThrow('stopped')
+    expect(analysis).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid usage before persisting custom findings', async () => {
+    const append = vi.fn()
+    await expect(
+      observe(
+        { task: 'Inspect', output: '', trace: [] },
+        {
+          analysis: async () => ({
+            findings: [],
+            report: '',
+            usage: { input: -1, output: 0, known: true },
+          }),
+          corpus: { append, query: async () => [] },
+        },
+      ),
+    ).rejects.toThrow('usage requires')
+    expect(append).not.toHaveBeenCalled()
+  })
+
   it('marks observed production behavior as proposal input from production', async () => {
     const content = JSON.stringify({
       findings: [
@@ -141,7 +232,7 @@ describe('runtime observe', () => {
       findings: 1,
       learned: 1,
       failures: [{ runId: 'failed-save', error: expect.stringContaining('storage unavailable') }],
-      usage: { input: 10, output: 5, known: false },
+      usage: { input: 20, output: 10, known: true },
     })
   })
 

@@ -62,27 +62,27 @@ Use `LOOP_ATTEMPTS=N` only when the benchmark's own visible feedback is allowed 
 `runBenchmarks()` returns each judged artifact, worker events, and observed usage in `perTask`.
 Retry usage includes every attempt; missing receipts leave the measured subtotal explicitly incomplete.
 Judge failures retain completed worker evidence.
+Each task separates `execution` from `measurement` availability.
+Captured empty output and explicit failed turns remain measured failures when the evaluator runs successfully.
+Read, extraction, and judge failures leave measurement unavailable while retaining observed usage.
+Missing dispatch evidence remains unknown; `ok: false` never establishes permission to retry.
 Errors propagated by `close()` remain in `detail` beside the settled task outcome.
 The current Runtime lineage suppresses sandbox deletion errors, so a returned result does not confirm resource deletion.
 The caller's abort signal stops queued shots and reaches active sandbox turns.
 `modelApiKey` supplies sandbox inference authorization separately from the `routerKey` used for sandbox control.
 
-### Full-fidelity improvement fixture
+### Retained strategy driver
 
 ```bash
 cd bench
 pnpm tsx src/swe-self-improve.mts
 ```
 
-This is the canonical real-task Runtime fixture:
-
-- SWE-bench Verified instances;
-- repository state as the produced artifact;
-- the official Docker judge outside the candidate agent;
-- explicit train, selection, and frozen final-test partitions;
-- Runtime's `improve()` boundary and complete cost receipts.
-
-It proves the integrated execution path can support a real value campaign. A paid powered result still belongs in Discovery Lab.
+This driver uses `runStrategyEvolution` with SWE-bench tasks and a frozen holdout.
+It does not exercise `improve`, and it deletes its temporary run directory on exit.
+It therefore cannot provide retained improvement or lineage evidence.
+Use `examples/improve` for the maintained offline API fixture.
+Use the consuming labs for registered learning campaigns with retained execution and comparison evidence.
 
 ### Offline diagnostics
 

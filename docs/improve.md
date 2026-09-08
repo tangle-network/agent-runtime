@@ -1,12 +1,52 @@
 # Improve an agent
 
-`improve` runs one complete optimization method against one profile field.
+`improve` runs a complete optimization method against a profile surface, including the entire profile.
 The method owns candidate generation and selection.
 Runtime keeps the final test set out of the method, scores the baseline and the selected candidate on it, and returns `ship` only when the paired confidence interval clears `minimumLift`.
 The profile is never changed.
 
 The runnable offline path is [`examples/improve`](../examples/improve).
 This page is the reference for the production path.
+
+## Compose analysis and search
+
+`observe` and `harvestCorpus` accept an `analysis` callback through the existing findings, usage, and corpus contracts.
+`observationFromRegistry` adapts an Eval `AnalystRegistry`, including registered trace engines, recursive analysts, custom inputs, budgets, and ordered analysis.
+The adapter receives the complete input; the default observer's context limits do not truncate registry input.
+Use its `record` callback to retain the complete analyst result and cost receipts.
+Failed analysis retains measured token subtotals through `ObservationError` and `HarvestError.report`.
+
+```ts
+import { harvestCorpus, observationFromRegistry } from '@tangle-network/agent-runtime/kernel'
+
+const report = await harvestCorpus({
+  runs, corpus,
+  analysis: observationFromRegistry(registry, {
+    inputs: toAnalystInputs,
+    proposalOrigin: 'search',
+    runOptions: { chainFindings: true, budget: { totalUsd: 5 } },
+    record: saveAnalystResult,
+  }),
+})
+```
+
+Select analysts and their engines in Eval's registry; Runtime does not maintain another engine catalog.
+Without `analysis`, supply the observer profile and executor, plus optional `maxTraceLines`, `maxOutputChars`, and `proposalOrigin`.
+Injected findings keep their evidence references and judge-derived status.
+For default analysis, supply `ObserveInput.evidenceRefs` to identify the retained trace and output used by the findings.
+Final acceptance still uses the independent final-test partition.
+
+Eval's `scopedOptimizationMethod` evaluates a projected mutation inside its complete candidate.
+`sequentialOptimizationMethod` passes each selected candidate directly to the next method, without requiring intermediate promotion.
+Both return the existing `OptimizationMethod`, so they can be passed to `improve` or compared through `compareOptimizationMethods`.
+Use the latter for parallel alternatives or arbitrary JSON candidates representing a complete learning procedure.
+The consumer's execution callback determines how candidate fields affect execution.
+Keep that callback and its dependencies bound to the execution identity.
+
+Composed method evidence remains in `result.raw.best.composition.stages`, including each child's provenance, usage, history, and selected surface.
+Read the aggregate cost from `result.cost`; summing it with child costs would count the same work twice.
+Projected child surfaces are not necessarily complete profiles, so the flat `candidatePopulation` can remain unavailable.
+Request `searchHistoryPolicy: 'require-complete'` and `searchHistoryVerification: 'ledger'` when acceptance requires verified history for every stage.
 
 ## The call
 
@@ -111,7 +151,7 @@ There is no local fallback.
 Install its optional Python process first:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.145.0"
+python -m pip install "agent-eval-rpc==0.178.0"
 python -m pip install "gepa[full]==0.1.4"
 ```
 
@@ -125,7 +165,7 @@ python -m pip install "gepa[full] @ git+https://github.com/gepa-ai/gepa.git@f919
 Use `officialSkillOpt(...)` for Microsoft's SkillOpt:
 
 ```bash
-python -m pip install "agent-eval-rpc==0.145.0"
+python -m pip install "agent-eval-rpc==0.178.0"
 python -m pip install "skillopt @ git+https://github.com/microsoft/SkillOpt.git@61735e3922efc2b90c6d6cab561e62e98452ca90"
 ```
 

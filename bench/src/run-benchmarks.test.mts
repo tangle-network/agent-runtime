@@ -77,6 +77,22 @@ async function main(): Promise<void> {
   assert.equal(judgeFailure.perTask[0]?.ok, false)
   assert.equal(judgeFailure.perTask[0]?.artifact, 'PATCH', 'a judge outage retains the completed agent artifact')
   assert.equal(judgeFailure.perTask[0]?.usage?.costUsd, 0.04, 'a judge outage retains already incurred usage')
+  assert.equal(judgeFailure.perTask[0]?.measurement, 'unavailable')
+  assert.deepEqual(judgeFailure.perTask[0]?.execution, { phase: 'started', terminalOutcome: 'succeeded' })
+
+  const failedExecution = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'paid-failure', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', n: 1, resolveAdapter: resolveStub,
+    runShot: async () => ({
+      artifact: '', ok: false, artifactAvailable: true,
+      execution: { phase: 'started', terminalOutcome: 'failed' },
+      usage: { input: 23, output: 7, costUsd: 0.04 },
+    }),
+  })
+  assert.equal(failedExecution.perTask[0]?.measurement, 'available')
+  assert.equal(failedExecution.perTask[0]?.resolved, false)
+  assert.equal(failedExecution.rows[0]?.errored, 0, 'a measured paid failure stays in the comparison')
+  assert.equal(failedExecution.perTask[0]?.usage?.input, 23)
 
   const controller = new AbortController()
   let started = 0
@@ -93,6 +109,7 @@ async function main(): Promise<void> {
   })
   assert.equal(started, 1, 'cancellation prevents every queued model call')
   assert.equal(cancelled.perTask.length, 4, 'cancelled work remains visible')
+  assert.equal(cancelled.perTask.filter((row) => row.execution?.phase === 'not-started').length, 3)
   assert.equal(cancelled.perTask[0]?.usage?.costUsd, 0.01)
 
   const row = (b: string, c: string) => report.rows.find((r) => r.benchmark === b && r.cell === c)!
@@ -159,6 +176,20 @@ async function main(): Promise<void> {
     input: 11, output: 3, costUsd: 0.02, tokensKnown: false, usdKnown: false,
   }, 'an unreported retry preserves the measured floor without claiming complete accounting')
 
+  const measuredFailedRetry = await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'failed-retries', model: 'm' }],
+    routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: resolveStub, n: 1, loopAttempts: 2,
+    runShot: async ({ attempt }) => ({
+      artifact: attempt === 1 ? '' : 'WRONG', ok: false, artifactAvailable: attempt === 2,
+      execution: { phase: 'started', terminalOutcome: 'failed' },
+      usage: { input: 11, output: 3, costUsd: 0.02 },
+    }),
+  })
+  assert.equal(measuredFailedRetry.perTask[0]?.artifact, 'WRONG')
+  assert.equal(measuredFailedRetry.perTask[0]?.measurement, 'available')
+  assert.equal(measuredFailedRetry.rows[0]?.errored, 0, 'a measured failed retry stays in the comparison')
+  assert.deepEqual(measuredFailedRetry.perTask[0]?.usage, { input: 22, output: 6, costUsd: 0.04 })
+
   let validAttempts = 0
   const validRetry = await runBenchmarks({
     benchmarks: ['alpha'], cells: [{ label: 'retrying', model: 'm' }],
@@ -212,6 +243,10 @@ async function main(): Promise<void> {
     const order: string[] = []
     let createdOptions: unknown
     let controlCredential: string | undefined
+    let completed = true
+    let text = 'fallback text'
+    let streamThrows = false
+    let setupFails = false
     const fakeClient = {
       async create(options: unknown) {
         createdOptions = options
@@ -219,13 +254,14 @@ async function main(): Promise<void> {
           id: 'box-default-shot',
           async exec(command: string, options?: { sessionId?: string }) {
             order.push(`exec:${command}:streams=${order.filter((x) => x.startsWith('stream:')).length}:session=${options?.sessionId ? 'yes' : 'no'}`)
-            return { exitCode: 0, stdout: command === 'extract-patch' ? 'PATCH' : '', stderr: '' }
+            return { exitCode: setupFails && command === 'setup-repo' ? 1 : 0, stdout: command === 'extract-patch' ? 'PATCH' : '', stderr: '' }
           },
           async *streamPrompt(_prompt: string, options?: { sessionId?: string }) {
             order.push(`stream:session=${options?.sessionId ? 'yes' : 'no'}`)
             yield { type: 'llm_call', data: { tokensIn: 23, tokensOut: 7, costUsd: 0.04 } }
-            yield { type: 'result', data: { finalText: 'fallback text' } }
-            yield { type: 'done', data: { outcome: { type: 'completed' } } }
+            if (streamThrows) throw new Error('stream disconnected')
+            yield { type: 'result', data: { finalText: text, success: completed, status: completed ? 'success' : 'failed' } }
+            yield { type: 'done', data: { outcome: { type: completed ? 'completed' : 'failed' } } }
           },
           async delete() {
             order.push('delete')
@@ -260,6 +296,8 @@ async function main(): Promise<void> {
     assert.equal(boxy.rows[0]!.resolveRate, 1, 'boxExtract artifact is judged instead of fallback text')
     assert.equal(boxy.perTask[0]?.artifact, 'PATCH')
     assert.deepEqual(boxy.perTask[0]?.usage, { input: 23, output: 7, costUsd: 0.04 })
+    assert.deepEqual(boxy.perTask[0]?.execution, { phase: 'started', terminalOutcome: 'succeeded' })
+    assert.equal(boxy.perTask[0]?.measurement, 'available')
     assert.equal(controlCredential, 'sandbox-control-token', 'inference grant never authorizes sandbox control')
     assert.equal((createdOptions as { backend: { model: { apiKey: string } } }).backend.model.apiKey, 'model-grant-token')
     assert.deepEqual(
@@ -267,6 +305,49 @@ async function main(): Promise<void> {
       ['exec:setup-repo:streams=0:session=yes', 'stream:session=yes', 'exec:extract-patch:streams=1:session=yes'],
       'setup runs before the prompt stream, extract runs after the prompt stream, both in the same session',
     )
+    for (const failure of ['stream', 'parser'] as const) {
+      streamThrows = failure === 'stream'
+      const failed = await runBenchmarks({
+        benchmarks: ['boxy'], cells: [{ label: failure, model: 'm', backend: 'sandbox' }],
+        routerBaseUrl: 'x', routerKey: 'x',
+        resolveAdapter: () => ({ ...boxAdapter, output: { parse: () => { throw new Error('parser failed') } } }),
+        resolveClient: () => fakeClient as never,
+      })
+      assert.equal(failed.perTask[0]?.measurement, 'unavailable')
+      assert.equal(failed.perTask[0]?.execution?.phase, 'started')
+      assert.deepEqual(failed.perTask[0]?.usage, {
+        input: 23, output: 7, costUsd: 0.04, tokensKnown: false, usdKnown: false,
+      }, `${failure} failure retains paid receipts without claiming complete accounting`)
+      assert.equal(failed.perTask[0]?.events?.length, failure === 'stream' ? 1 : 3, 'observed events are retained once')
+      assert.match(failed.perTask[0]?.detail ?? '', failure === 'stream' ? /stream disconnected/ : /parser failed/)
+    }
+    streamThrows = false
+    setupFails = true
+    const setupFailure = await runBenchmarks({
+      benchmarks: ['boxy'], cells: [{ label: 'setup-failure', model: 'm', backend: 'sandbox' }],
+      routerBaseUrl: 'x', routerKey: 'x', resolveAdapter: () => boxAdapter,
+      resolveClient: () => fakeClient as never,
+    })
+    assert.deepEqual(setupFailure.perTask[0]?.execution, { phase: 'unknown', terminalOutcome: 'unknown' })
+    assert.equal(setupFailure.perTask[0]?.measurement, 'unavailable')
+    assert.equal(setupFailure.perTask[0]?.usage?.tokensKnown, false, 'no observed receipt does not prove zero usage')
+    assert.equal(setupFailure.perTask[0]?.usage?.usdKnown, false)
+    assert.equal(setupFailure.perTask[0]?.events?.length, 0)
+    setupFails = false
+    for (const success of [false, true]) {
+      completed = success
+      text = ''
+      const empty = await runBenchmarks({
+        benchmarks: ['alpha'], cells: [{ label: 'empty', model: 'm', backend: 'sandbox' }],
+        routerBaseUrl: 'x', routerKey: 'x', n: 1, resolveAdapter: resolveStub,
+        resolveClient: () => fakeClient as never,
+      })
+      assert.equal(empty.perTask[0]?.ok, false)
+      assert.equal(empty.perTask[0]?.measurement, 'available', 'captured empty output is a measurable failure')
+      assert.equal(empty.perTask[0]?.execution?.terminalOutcome, success ? 'succeeded' : 'failed')
+      assert.equal(empty.rows[0]?.errored, 0)
+      assert.equal(empty.perTask[0]?.usage?.input, 23)
+    }
   }
 
   // An unavailable benchmark (preflight throws) is skipped, not fatal; the sweep still runs the rest.
