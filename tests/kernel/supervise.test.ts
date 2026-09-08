@@ -1,6 +1,7 @@
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  contentAddress,
   InMemoryResultBlobStore,
   InMemorySpawnJournal,
   materializeTreeView,
@@ -10,6 +11,10 @@ import { ValidationError } from '../../src/errors'
 import { defaultSelectWinner } from '../../src/runtime/run-loop'
 import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/supervise/budget'
 import { createInbox } from '../../src/runtime/supervise/inbox'
+import {
+  registerScopeRetainedOwner,
+  scopeRetainedOwnerContext,
+} from '../../src/runtime/supervise/retained-scope-owner'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
 import { createScope, settledToIteration } from '../../src/runtime/supervise/scope'
 import { createRootHandle, createSupervisor } from '../../src/runtime/supervise/supervisor'
@@ -995,6 +1000,52 @@ describe('conserved budget pool: the token charge counts each token once', () =>
 // ── 2. equal-k by construction ──────────────────────────────────────────────────
 
 describe('equal-k by construction', () => {
+  it.each([null, false])(
+    'refuses a malformed retained owner outcome %j before storing output',
+    async (outcome) => {
+      const { scope, args } = await beginScope()
+      registerScopeRetainedOwner(scope, {
+        rootId: args.root,
+        nodeId: args.root,
+        journal: args.journal,
+        blobs: args.blobs,
+        priorEvents: [],
+        now: () => 0,
+      })
+      const out = { content: 'must not be accepted' }
+      const result = JSON.parse(
+        JSON.stringify({
+          outcome,
+          out,
+          outRef: contentAddress(out),
+          spent: { iterations: 1, tokens: { input: 1, output: 1 }, usd: 0, ms: 0 },
+        }),
+      )
+      await expect(scopeRetainedOwnerContext(scope)!.onResult(result)).rejects.toThrow()
+      expect(await args.blobs.get(contentAddress(out))).toBeUndefined()
+      expect(await args.journal.loadTree(args.root)).toEqual([])
+    },
+  )
+
+  it('does not interpret application outcome fields or rejected grades as executor failure', async () => {
+    const { scope } = await beginScope()
+    const out = { outcome: { success: false, status: 'failed', error: 'domain failure data' } }
+    scope.spawn(
+      leafAgent('domain-output', {
+        out,
+        verdict: { valid: false, score: 0 },
+        events: tokensOnly(1, 1),
+      }),
+      'task',
+      { label: 'domain-output', budget: { maxIterations: 1, maxTokens: 100 } },
+    )
+    expect(await scope.next()).toMatchObject({
+      kind: 'done',
+      out,
+      verdict: { valid: false, score: 0 },
+    })
+  })
+
   it('preserves unknown dollar cost when Scope folds a streaming executor', async () => {
     const { scope } = await beginScope()
     const spawned = scope.spawn(

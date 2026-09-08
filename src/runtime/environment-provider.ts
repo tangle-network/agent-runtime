@@ -810,6 +810,14 @@ async function* streamProviderExecutor(
       signal: linked,
     })
     settled = {
+      ...(result.outcome?.status === 'failed'
+        ? {
+            outcome: {
+              success: false,
+              ...(result.outcome.error ? { error: result.outcome.error } : {}),
+            },
+          }
+        : {}),
       outRef: contentRef(`provider:${args.provider.name}`, result),
       out: result,
       ...(verdict ? { verdict } : {}),
@@ -1005,7 +1013,12 @@ async function providerExecutionSource(
       const result = await awaitAbortable(handle.result(), signal)
       yield {
         type: 'result',
-        data: { finalText: result.text, success: result.success, usageMode: 'cumulative' },
+        data: {
+          finalText: result.text,
+          success: result.success,
+          ...(result.error ? { error: result.error } : {}),
+          usageMode: 'cumulative',
+        },
         ...(result.usage ? { usage: result.usage } : {}),
       }
     }

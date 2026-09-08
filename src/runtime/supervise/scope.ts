@@ -54,6 +54,7 @@ import {
 } from './deadline'
 import { freeSlots } from './dispatch'
 import { executableAgentSpecSnapshot } from './executable-spec'
+import { executorFailureReason } from './executor-outcome'
 import {
   interactiveAdmissionSeamKey,
   writeWorkerInteractiveAdmission,
@@ -367,6 +368,7 @@ type PreSeqSettled =
       kind: 'down'
       reason: string
       infra: boolean
+      outRef?: string
       trace: WorkerTraceEvidence
       providerModel?: import('./types').ProviderModelExecutionEvidence
       /** A CRASHED driver child's partial OWN-inference subtree total — re-homed on the down path
@@ -832,6 +834,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
               retainedWrite(async () => {
                 controller.signal.throwIfAborted()
                 assertValidSpend(result.spent, 'retained executor result')
+                executorFailureReason(result)
                 await pendingEvidence?.complete()
                 const outRef = contentAddress(result.out)
                 await args.blobs.put(outRef, result.out)
@@ -842,6 +845,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
                   outRef,
                   spent: result.spent,
                   ...(result.verdict ? { verdict: result.verdict } : {}),
+                  ...(result.outcome ? { outcome: result.outcome } : {}),
                   seq: ordinal,
                   at: new Date(now()).toISOString(),
                 })
@@ -2281,6 +2285,7 @@ async function finalizeSettlement<Out>(
         spent: child.spent,
         infra: settlement.infra,
         reason: settlement.reason,
+        ...(settlement.outRef ? { outRef: settlement.outRef } : {}),
         ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
         trace: settlement.trace,
         seq,
@@ -2637,6 +2642,20 @@ async function runChild<C>(
     // so a crash never leaves a journaled ref pointing at a missing blob.
     const outRef = contentAddress(artifact.out)
     await blobs.put(outRef, artifact.out)
+    const failureReason = executorFailureReason(artifact)
+    if (failureReason !== undefined) {
+      await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS).catch(() => undefined)
+      return {
+        ...downRecord(
+          failureReason,
+          false,
+          trace,
+          ownMetered,
+          runtimeOwnedExecutorProviderEvidence(executor),
+        ),
+        outRef,
+      }
+    }
     await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS)
     return {
       kind: 'done',
@@ -2671,6 +2690,19 @@ async function runChild<C>(
         const trace = await captureTraceOnce()
         await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS).catch(() => undefined)
         const metered = executor.metered?.()
+        const failureReason = executorFailureReason(accepted)
+        if (failureReason !== undefined) {
+          return {
+            ...downRecord(
+              failureReason,
+              false,
+              trace,
+              metered,
+              runtimeOwnedExecutorProviderEvidence(executor),
+            ),
+            outRef: accepted.outRef,
+          }
+        }
         return {
           kind: 'done',
           out: accepted.out,

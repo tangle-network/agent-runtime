@@ -7,6 +7,7 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
+import { InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { providerAsExecutor } from '../../src/runtime/environment-provider'
 import {
   type RetainedExecutorContext,
@@ -162,6 +163,62 @@ describe('supervised retained provider recovery', () => {
     expect(fixture.creations()).toBe(1)
   })
 
+  it('keeps a committed provider failure down after interrupted cursor settlement', async () => {
+    const fixture = await setup(
+      'settled',
+      true,
+      1,
+      { inputTokens: 3, outputTokens: 2 },
+      'provider permission refused',
+    )
+    await fixture.first()
+    await fixture.run(
+      async (scope) => {
+        const prior = scope.resume?.keys.get('work')
+        expect(prior?.state).toBe('down')
+        if (prior?.settled?.kind === 'down')
+          expect(prior.settled.reason).toBe('provider permission refused')
+        return 'inspected'
+      },
+      () => {
+        throw new Error('accepted failure must not redispatch')
+      },
+    )
+    const events = (await fixture.context.journal.loadTree('root')) ?? []
+    expect(
+      events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
+    ).toMatchObject([
+      {
+        status: 'down',
+        reason: 'provider permission refused',
+        spent: { tokens: { input: 3, output: 2 } },
+      },
+    ])
+    expect(fixture.creations()).toBe(1)
+    expect(fixture.dispatches()).toBe(1)
+  })
+
+  it.each([null, false, { success: 'false' }, { status: 'failed' }, { success: false, error: 5 }])(
+    'rejects malformed retained execution outcomes %j at the journal boundary',
+    async (outcome) => {
+      const fixture = await setup('settled', true)
+      await fixture.first()
+      const events = (await fixture.context.journal.loadTree('root')) ?? []
+      const journal = new InMemorySpawnJournal()
+      await journal.beginTree('root', new Date(0).toISOString())
+      for (const event of events) {
+        if (event.kind === 'execution-result') {
+          await expect(
+            journal.appendEvent('root', JSON.parse(JSON.stringify({ ...event, outcome }))),
+          ).rejects.toThrow()
+          return
+        }
+        await journal.appendEvent('root', event)
+      }
+      throw new Error('missing committed result fixture')
+    },
+  )
+
   it('keeps an interrupted key in doubt without a configured recovery executor', async () => {
     const fixture = await setup('dispatched')
     await fixture.first()
@@ -229,6 +286,7 @@ async function setup(
   destroyOnSettle = false,
   childCount = 1,
   usage = { inputTokens: 3, outputTokens: 2 },
+  failure?: string,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'supervise-retained-'))
   roots.push(root)
@@ -253,6 +311,7 @@ async function setup(
           result: async () => ({
             ...(await session.result()),
             usage,
+            ...(failure ? { success: false, error: failure } : {}),
           }),
         }
       },

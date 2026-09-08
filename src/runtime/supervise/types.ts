@@ -28,6 +28,7 @@
 import type { DefaultVerdict } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
+  AgentTurnResult,
   ChildTaskEvent,
   InteractionRequest,
   Sha256Digest,
@@ -321,6 +322,8 @@ export interface ExecutorAccounting {
 
 /** Terminal artifact of a one-shot `Executor.execute`. */
 export interface ExecutorResult<Out> {
+  /** Explicit execution outcome; application output and scoring verdicts do not determine failure. */
+  outcome?: Pick<AgentTurnResult, 'success' | 'error'>
   outRef: string
   out: Out
   verdict?: DefaultVerdict
@@ -1215,6 +1218,7 @@ export type SpawnEvent =
   | {
       /** Recoverable output committed before releasing its provider environment. */
       kind: 'execution-result'
+      outcome?: Pick<AgentTurnResult, 'success' | 'error'>
       id: NodeId
       outRef: string
       spent: Spend
