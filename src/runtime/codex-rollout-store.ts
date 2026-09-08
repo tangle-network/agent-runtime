@@ -1,5 +1,10 @@
 /**
- * Codex's OWN rollout store, read as a first-class spend receipt.
+ * Codex's own rollout store, read as a first-class spend receipt.
+ *
+ * Canonical token_usage_record rows take precedence over legacy token_count counters.
+ * Their explicit thread identity excludes inherited history, and response identities deduplicate
+ * repeated receipts across resumed turns. Conflicting or incomplete canonical evidence is refused.
+ * The opening session metadata remains authoritative when native forks include parent metadata.
  *
  * A codex seat writes every turn it runs into a JSONL rollout under its `CODEX_HOME`, and that
  * file carries the provider's token counters whether or not any of them reach the runtime's event
@@ -182,7 +187,12 @@ export interface CodexRolloutStoreRef {
 
 const ROLLOUT_SUFFIX = '.jsonl'
 /** Rows this reader needs. Every other line is skipped without being parsed. */
-const INTERESTING = ['"session_meta"', '"token_count"', '"task_started"'] as const
+const INTERESTING = [
+  '"session_meta"',
+  '"token_count"',
+  '"task_started"',
+  '"token_usage_record"',
+] as const
 
 /**
  * Read one rollout's rows into a session record.
@@ -279,6 +289,7 @@ interface TurnMark {
 }
 
 interface SessionState {
+  canonical: Map<string, { turnId: string; usage: CumulativeCounters; total: CumulativeCounters }>
   identity?: CodexRolloutIdentity
   historyStartOrdinal?: number
   /** Cumulative counters from the newest DISTINCT `token_count` seen so far. */
@@ -294,6 +305,7 @@ interface SessionState {
 
 function createSessionState(): SessionState {
   return {
+    canonical: new Map(),
     cumulative: zeroCounters,
     marks: [],
     markEnds: [],
@@ -309,6 +321,11 @@ function consumeRow(state: SessionState, row: unknown): void {
     readIdentity(state, record)
     return
   }
+  if (record.type === 'token_usage_record') {
+    consumeCanonical(state, record)
+    return
+  }
+  if (state.canonical.size > 0) return
   if (record.type !== 'event_msg') return
   const payload = plainRecord(record.payload)
   if (payload === undefined) return
@@ -336,23 +353,84 @@ function consumeRow(state: SessionState, row: unknown): void {
   else state.markEnds[state.marks.length - 1] = total
 }
 
+function canonicalCounters(value: unknown): CumulativeCounters {
+  const record = plainRecord(value)
+  const counters = readCumulative(value)
+  if (
+    !record ||
+    !counters ||
+    record.total_tokens !== counters.input + counters.output ||
+    counters.cachedInput + counters.cacheWriteInput > counters.input ||
+    counters.reasoningOutput > counters.output ||
+    ['cached_input_tokens', 'cache_write_input_tokens', 'reasoning_output_tokens'].some(
+      (key) => record[key] !== undefined && naturalNumber(record[key]) === undefined,
+    )
+  )
+    throw new ValidationError('codex rollout: malformed canonical usage')
+  return counters
+}
+
+function consumeCanonical(state: SessionState, record: Record<string, unknown>): void {
+  const payload = plainRecord(record.payload)
+  if (!payload || !state.identity || typeof payload.thread_id !== 'string') {
+    throw new ValidationError('codex rollout: canonical usage has no thread identity')
+  }
+  if (payload.thread_id !== state.identity.sessionId) return
+  if (
+    typeof payload.response_id !== 'string' ||
+    !payload.response_id ||
+    typeof payload.turn_id !== 'string' ||
+    !payload.turn_id
+  ) {
+    throw new ValidationError('codex rollout: canonical usage has no response or turn identity')
+  }
+  const usage = canonicalCounters(payload.usage)
+  const total = canonicalCounters(payload.thread_token_usage)
+  const previous = state.canonical.get(payload.response_id)
+  if (previous) {
+    if (
+      previous.turnId !== payload.turn_id ||
+      !sameCounters(previous.usage, usage) ||
+      !sameCounters(previous.total, total)
+    ) {
+      throw new ValidationError('codex rollout: conflicting canonical response usage')
+    }
+    return
+  }
+  const before = state.canonical.size === 0 ? zeroCounters : state.cumulative
+  const expected: CumulativeCounters = {
+    input: before.input + usage.input,
+    output: before.output + usage.output,
+    cachedInput: before.cachedInput + usage.cachedInput,
+    cacheWriteInput: before.cacheWriteInput + usage.cacheWriteInput,
+    reasoningOutput: before.reasoningOutput + usage.reasoningOutput,
+  }
+  if (!sameCounters(expected, total)) {
+    throw new ValidationError('codex rollout: incomplete or conflicting canonical cumulative usage')
+  }
+  state.canonical.set(payload.response_id, { turnId: payload.turn_id, usage, total })
+  state.cumulative = total
+}
+
 function readIdentity(state: SessionState, record: Record<string, unknown>): void {
+  // The opening metadata identifies this file. Native forks can append inherited metadata.
+  if (state.identity !== undefined) return
   const payload = plainRecord(record.payload)
   if (payload === undefined) return
   const sessionId = typeof payload.id === 'string' ? payload.id : undefined
   if (sessionId === undefined) return
   const spawn = plainRecord(plainRecord(plainRecord(payload.source)?.subagent)?.thread_spawn)
+  const parentThreadId = payload.parent_thread_id ?? spawn?.parent_thread_id
+  const agentPath = payload.agent_path ?? spawn?.agent_path
   const startedAtMs = Date.parse(
     typeof payload.timestamp === 'string' ? payload.timestamp : String(record.timestamp ?? ''),
   )
   state.identity = {
     sessionId,
-    ...(typeof payload.parent_thread_id === 'string'
-      ? { parentThreadId: payload.parent_thread_id }
-      : {}),
+    ...(typeof parentThreadId === 'string' ? { parentThreadId } : {}),
     ...(typeof payload.forked_from_id === 'string' ? { forkedFromId: payload.forked_from_id } : {}),
-    nativeChild: payload.thread_source === 'subagent',
-    ...(typeof payload.agent_path === 'string' ? { agentPath: payload.agent_path } : {}),
+    nativeChild: payload.thread_source === 'subagent' || spawn !== undefined,
+    ...(typeof agentPath === 'string' ? { agentPath } : {}),
     ...(typeof payload.agent_nickname === 'string'
       ? { agentNickname: payload.agent_nickname }
       : {}),
@@ -376,6 +454,29 @@ interface ReadSession {
 function finishSession(state: SessionState): ReadSession | undefined {
   const identity = state.identity
   if (identity === undefined) return undefined
+  if (state.canonical.size > 0) {
+    const byTurn = new Map<string, HarnessUsage>()
+    for (const { turnId, usage } of state.canonical.values()) {
+      byTurn.set(
+        turnId,
+        addHarnessUsage(
+          byTurn.get(turnId) ?? emptyUsage(),
+          counterDelta(zeroCounters, usage) ?? emptyUsage(),
+        ),
+      )
+    }
+    return {
+      ownFrom: zeroCounters,
+      session: {
+        identity,
+        boundary: { kind: 'whole-file' },
+        fileCumulativeInput: state.cumulative.input,
+        fileCumulativeOutput: state.cumulative.output,
+        own: counterDelta(zeroCounters, state.cumulative) ?? emptyUsage(),
+        turns: [...byTurn].map(([turnId, usage]) => ({ turnId, usage })),
+      },
+    }
+  }
   const boundary = resolveBoundary(state, identity)
   const base = {
     identity,
