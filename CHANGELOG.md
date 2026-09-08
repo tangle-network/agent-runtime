@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.201.1
+## 0.202.0
 
 Explicit provider turn failures now settle supervised children as `down`, retaining the failure reason, usage, and partial artifact.
 Accepted failures remain failed through cancellation, teardown errors, and coordinator recovery.
