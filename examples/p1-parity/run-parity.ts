@@ -81,8 +81,7 @@ function parityCell(index: number, shots: number): CellSpec {
     task: `parity cell ${index + 1}: make the failing test suite pass`,
     // The coder model is PINNED on its profile (the arms refuse a model-less coder — a silent
     // fallback could let the two arms drift apart); offline it names the scripted transport.
-    // The reviewer profile stays model-less: as the graph ROOT it is materialized by the driver
-    // brain, and the driver model comes from the exact root profile in both arms.
+    // The scripted reviewer has no token ceiling because its injected brain does not apply one.
     coderProfile: {
       name: 'coder',
       harness: 'cli-base',
@@ -105,7 +104,6 @@ function parityCell(index: number, shots: number): CellSpec {
         provider: 'scripted',
         default: 'scripted/parity-reviewer',
         metadata: { temperature: 0.9 },
-        maxVisibleOutputTokens: 600,
       },
       prompt: { systemPrompt: 'Verify.' },
     },
@@ -207,6 +205,7 @@ function liveParityCell(index: number, shots: number, env: LiveEnv, nonce: strin
         ...base.reviewerProfile.model,
         provider: 'tangle-router',
         default: env.driverModel,
+        maxVisibleOutputTokens: 600,
       },
       prompt: {
         systemPrompt:

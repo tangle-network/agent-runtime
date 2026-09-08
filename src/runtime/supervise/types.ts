@@ -121,6 +121,11 @@ export interface Executor<Out> {
     task: unknown,
     signal: AbortSignal,
   ): Promise<ExecutorResult<Out>> | AsyncIterable<UsageEvent>
+  /** Reattach the exact journaled execution. This must never start replacement work. */
+  recover?(
+    task: unknown,
+    signal: AbortSignal,
+  ): Promise<ExecutorResult<Out>> | AsyncIterable<UsageEvent>
   /**
    * Optional inbox: receive an out-of-band message from the driver mid-run (the `send`/`steer_agent`
    * verb). A streaming executor drains pending messages between turns and folds them into the next
@@ -1029,8 +1034,10 @@ export interface Scope<Out> {
    * but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
    * maxima, so any NEW spawn appends without colliding with a journaled event.
    *
-   * @experimental Same-process replay only — live supervised-tree recovery after a
-   * coordinator restart is not implemented (docs/agent-managed-compute/README.md).
+   * Retained provider children can reconcile their original execution through `recoverExecutor`.
+   * Missing recovery evidence leaves keyed work in doubt.
+   * Local ownership does not provide distributed fencing.
+   * @experimental
    */
   readonly resume?: ResumedWork<Out>
   /** The live tree — reads the in-memory nursery, not the journal. */
@@ -1186,6 +1193,32 @@ export type SpawnEvent =
        *  names the agent, while this is the blob store's own content address, which retrieves its
        *  bytes. Absent on records written before the body was persisted. */
       profileRef?: string
+      seq: number
+      at: string
+    }
+  | {
+      /** Exact task bytes durable before admitting a retained invocation. */
+      kind: 'execution-input'
+      id: NodeId
+      taskRef: string
+      seq: number
+      at: string
+    }
+  | {
+      /** Credential-free retained-provider admission, committed before the next external effect. */
+      kind: 'execution-admitted'
+      id: NodeId
+      admission: import('../retained-run-types').RetainedRunAdmission
+      seq: number
+      at: string
+    }
+  | {
+      /** Recoverable output committed before releasing its provider environment. */
+      kind: 'execution-result'
+      id: NodeId
+      outRef: string
+      spent: Spend
+      verdict?: DefaultVerdict
       seq: number
       at: string
     }
@@ -1446,6 +1479,8 @@ export interface SupervisorOpts {
   readonly blobs: ResultBlobStore
   /** Executor resolution — the open registry mapping `AgentSpec` → `Executor`. */
   readonly executors: ExecutorRegistry
+  /** Reconstruct configured executors for interrupted children before resuming the driver. */
+  readonly recoverExecutor?: ExecutorFactory<unknown>
   /** Predicate resolution for `poll` wait-states (`Scope.wait`). A `poll` names its predicate so
    *  the wait can be journaled and re-armed by a later process; this is what the name resolves
    *  against. Unset ⇒ `poll` waits are refused (`unknown-probe`); `timer` waits are unaffected. */
@@ -1470,17 +1505,15 @@ export interface SupervisorOpts {
    */
   readonly childSettleGraceMs?: number | null
   /**
-   * Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
-   * one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
-   * (`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
-   * blob store that OUTLIVE the process (`createFileRunContext(dir)`); against the in-memory
-   * stores there is never a prior tree, so it is a no-op.
+   * Load prior journal state and expose committed settlements through `Scope.resume`.
+   * Use persistent journal and blob stores to recover across process restarts.
+   * `createFileRunContext` provides the file-backed stores and local ownership lock.
    *
-   * Default `false` — a run always begins a fresh tree, which is the behavior every existing
-   * consumer has. Resume is a durability contract the caller opts into, never a silent default.
-   *
-   * @experimental Rehydrates committed settlements only; live supervised-tree recovery after a
-   * coordinator restart is not implemented (docs/agent-managed-compute/README.md).
+   * Default `false` refuses an existing run ID instead of replacing its journal.
+   * Configure `recoverExecutor` to reconcile retained children before new work is admitted.
+   * Unresolved keyed work remains in doubt.
+   * The file run lock provides local ownership, without distributed fencing.
+   * @experimental
    */
   readonly resume?: boolean
   readonly now?: () => number

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.200.0
+
+Retained provider children recover their original invocation from durable inputs, admissions, and results.
+Scope restores live descendants and reservations before the parent resumes; parents and children then continue together.
+Provider managers also retain their original task and accepted output, with incremental usage reconciled across recovery.
+Nested recovery reconstructs managers through the existing profile builder and preserves their finalizers.
+Recovery verifies request and execution identity and preserves uncertain work without dispatching a replacement.
+Results reach content-addressed storage before environment cleanup.
+Journal guards reject conflicting admissions and results; blob publication preserves existing content and refuses symlinks.
+
+Remote coordination MCP requires authenticated, bounded requests and a caller-owned reachable endpoint.
+Stable signing keys support credential verification after a local coordinator restart.
+Providers must advertise runtime MCP attachments before Runtime mounts coordination beside the unchanged profile.
+The legacy Sandbox create mapper rejects runtime attachments unless the consumer supplies an explicit mapper.
+One-shot providers remain nonsteerable; the file run lock does not provide distributed fencing.
+These changes do not establish deployed recovery or live provider conformance.
+
+Canonical usage accounting deduplicates receipts and reconciles cumulative totals without counting them twice.
+Partial and missing telemetry remain unknown.
+Router supervisors and workers accept profile output limits and send them as `max_tokens` and `max_completion_tokens`.
+Runtime requires Interface 2.4.0 for the portable attachment and token-limit contracts.
+The official GEPA and SkillOpt wrappers share private Runtime controls without changing their public options.
+
+Remove `iterationsToTraceStore`, `composeCertifiedProfile`, `composeCertifiedProfileFromWire`, `ProvisionedHost`, and `ResolveCtx`.
+Use the existing analyst-loop flow and explicit AgentProfile execution or prompt composition.
+Capability manifest types and `manifestFromProfile` remain available.
+
 ## 0.199.0
 
 Profile component mappings can encode selected fields as JSON for Omni and other text-surface optimizers.

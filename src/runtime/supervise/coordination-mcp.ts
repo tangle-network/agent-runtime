@@ -19,6 +19,7 @@
  * @experimental
  */
 
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { ConfigError, ValidationError } from '../../errors'
@@ -44,6 +45,14 @@ import {
   type SpawnPreflight,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import {
+  type CoordinationHttpOptions,
+  coordinationHttpHandler,
+  coordinationHttpLimits,
+} from './coordination-http'
+
+export type { CoordinationHttpAudit, CoordinationHttpOptions } from './coordination-http'
+
 import type { DeliverableSpec } from './completion-gate'
 import type { BusRecord } from './event-bus'
 import type { PeerMailEvent, PeerMailLimits } from './peer-mail'
@@ -53,6 +62,11 @@ export interface CoordinationMcpHandle {
   /** The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`. */
   readonly url: string
   readonly port: number
+  /** Runtime-only credentials. Never put these headers in canonical profiles or journals. */
+  readonly headers: Readonly<Record<string, string>>
+  readonly credentialExpiresAt: number | undefined
+  /** Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts. */
+  rotateCredential(): void
   /** The coordination tools' settled-worker ledger (for the driver's finalize). */
   settled(): ReadonlyArray<SettledWorker>
   /** The first driver-authored result whose injected independent check passed. */
@@ -87,113 +101,266 @@ export function isLoopbackHost(host: string): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
 }
 
-/** Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
- *  opencode locally, same host); pass `host` to bind elsewhere when the harness is remote — a
- *  non-loopback host additionally requires `allowUnauthenticatedRemote`. */
-export async function serveCoordinationMcp(opts: {
-  scope: Scope<unknown>
-  blobs: ResultBlobStore
-  makeWorkerAgent: MakeWorkerAgent
-  authorizeDownMessage?: AuthorizeDownMessage
-  perWorker: Budget
-  /** Independent completion check exposed to the driver as `submit_result`. */
-  deliverable?: DeliverableSpec<unknown>
-  /** Called once when the external manager accepts a result or declares completion. */
-  onStop?: (reason: string | undefined) => void
-  /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
-   *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
-  maxLiveWorkers?: number
-  /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
-   *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
-   *  {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0` = prior unbounded block (in-process only). */
-  awaitTimeoutMs?: number
-  port?: number
-  /** Bind address. Omit = `127.0.0.1`. A non-loopback host is REFUSED unless
-   *  `allowUnauthenticatedRemote` acknowledges the exposure. */
-  host?: string
-  /** Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
-   *  spawn_worker / steer_agent / stop to everyone who can reach the port. Required for any
-   *  non-loopback bind; ignored for loopback ones. */
-  allowUnauthenticatedRemote?: boolean
-  /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
-  analysts?: AnalystRegistry
-  /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
-  analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
-  /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
-  watchWorkers?: WorkerWatchOptions
-  /** Idle time after which `observe_agent` reports a worker as stalled. */
-  stallAfterMs?: number
-  /** Default continuity per worker profile name — `'resume'` re-attaches spawns of that name to
-   *  the node's latest settled worker; the tool's per-call `continuity` overrides. */
-  continuityByProfile?: Readonly<Record<string, ContinuityMode>>
-  /** Pass-through subscriber for every bus event, including pre-delivery instruction receipts and
-   * steer/answer delivery outcomes. */
-  onEvent?: (event: CoordinationEvent, record: BusRecord<CoordinationEvent>) => void | Promise<void>
-  /** Re-publish resume-time settlements through the awaited observer before this server listens. */
-  replaySettlements?: boolean
-  questionPolicy?: QuestionPolicy
-  /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
-  escalateQuestion?: EscalateQuestion
-  /** Escalations replayed from a prior process — seeds what `stop` knows went unheard. */
-  priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
-  /** Questions replayed from a prior process of this run — seeds the question ledger. */
-  priorQuestions?: ReadonlyArray<QuestionRecord>
-  /** Every coordination record from prior processes of this run — what `read_journal` reads before
-   *  this process's own rows, so a resumed manager sees what it already did. */
-  priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
-  /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
-  priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
-  /** Product-selected tools already bound to this exact supervisor node. They share this server
-   *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
-  nodeTools?: ReadonlyArray<McpToolDescriptor>
-  /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
-   *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
-  toolNames: ReadonlyArray<string>
-  /**
-   * OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
-   * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
-   * `WorkerSpawnContext.peerMailUrl`.
-   *
-   * It is a SEPARATE listener on its own port, not another tool on this server, and that is the
-   * whole point: this server mounts spawn_worker / steer_agent / stop with no authentication, so a
-   * worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
-   * channel's authority marking would mean nothing. The mail listener serves `send_mail` and
-   * `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
-   *
-   * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
-   * that can read another worker's environment or process memory still holds that worker's
-   * capability. Loopback plus an unguessable path is what this layer can honestly enforce.
-   */
-  peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
-  /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
-   *  pre-journal point that may ask the backend a question. See
-   *  `CoordinationToolsOptions.preflightSpawn`. */
-  preflightSpawn?: SpawnPreflight
-  /** Pre-journal profile resolution for `preflightSpawn`; see
-   *  `CoordinationToolsOptions.resolveSpawnProfile`. */
-  resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
-  /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
-   *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
-   *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
-  onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
-}): Promise<CoordinationMcpHandle> {
-  const host = opts.host ?? '127.0.0.1'
-  // Fail closed on a non-loopback bind HERE, in the primitive, not only at the composition sites
-  // that happen to call it. This function is a public export taking `host` directly, and it mounts
-  // spawn_worker / steer_agent / stop as a bare JSON-RPC-over-HTTP handler with NO authentication of
-  // any kind — so a caller reaching it without going through `supervise`/`supervisorAgent` would
-  // otherwise stand up unauthenticated spawn/steer/stop on every interface. There is no token to
-  // require yet, so the only honest options are a loopback bind or an explicit, recorded
-  // acknowledgment. The check runs before anything is constructed or listening.
-  if (!isLoopbackHost(host) && opts.allowUnauthenticatedRemote !== true) {
+export interface CoordinationAuthentication {
+  /** Credential lifetime; defaults to 15 minutes and cannot exceed 24 hours. */
+  readonly ttlMs?: number
+  /** Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart. */
+  readonly signingKeys?: {
+    readonly activeKeyId: string
+    readonly keys: Readonly<Record<string, string>>
+  }
+}
+
+export interface CoordinationPublicAddress {
+  readonly host: string
+  readonly port: number
+  readonly runId: string
+  readonly actorId: string
+}
+
+export interface CoordinationTransportOptions extends CoordinationHttpOptions {
+  readonly host?: string
+  readonly port?: number
+  /** Required for remote binds. Each server mints a distinct run/actor credential. */
+  readonly authentication?: true | CoordinationAuthentication
+  /** Caller-owned reachable endpoint or mapping. Runtime does not create a relay or tunnel. */
+  readonly publicUrl?: string | ((address: CoordinationPublicAddress) => string)
+}
+
+export function assertCoordinationTransport(options: CoordinationTransportOptions): void {
+  const host = options.host ?? '127.0.0.1'
+  if (!isLoopbackHost(host) && !options.authentication) {
     throw new ConfigError(
-      `coordination host=${JSON.stringify(host)} is not a loopback address and the coordination ` +
-        'MCP has no authentication: any client that can reach the port could call ' +
-        "spawn_worker/steer_agent and spend this run's budget. Bind a loopback host " +
-        '("127.0.0.1", "localhost", "::1"), or set allowUnauthenticatedRemote: true to accept ' +
-        'that exposure explicitly.',
+      'coordination non-loopback address requires authentication; allowUnauthenticatedRemote is no longer supported',
     )
   }
+  if (
+    options.authentication !== undefined &&
+    options.authentication !== true &&
+    (typeof options.authentication !== 'object' ||
+      options.authentication === null ||
+      Array.isArray(options.authentication))
+  ) {
+    throw new ConfigError(
+      'coordination authentication must be true or a credential lifetime configuration',
+    )
+  }
+  const ttl = typeof options.authentication === 'object' ? options.authentication.ttlMs : undefined
+  if (ttl !== undefined && (!Number.isSafeInteger(ttl) || ttl <= 0 || ttl > 86_400_000)) {
+    throw new ConfigError(
+      'coordination credential ttlMs must be a positive integer no greater than 24 hours',
+    )
+  }
+  if (options.publicUrl !== undefined && !options.authentication) {
+    throw new ConfigError('coordination publicUrl requires authentication')
+  }
+  const signingKeys =
+    typeof options.authentication === 'object' ? options.authentication.signingKeys : undefined
+  if (signingKeys !== undefined) {
+    if (!options.publicUrl)
+      throw new ConfigError('coordination signingKeys requires a stable publicUrl')
+    if (!signingKeys.activeKeyId || !Object.hasOwn(signingKeys.keys, signingKeys.activeKeyId)) {
+      throw new ConfigError('coordination signingKeys must contain the active key')
+    }
+    for (const [id, key] of Object.entries(signingKeys.keys)) {
+      if (
+        !/^[A-Za-z0-9_-]{1,64}$/.test(id) ||
+        typeof key !== 'string' ||
+        Buffer.byteLength(key) < 32
+      ) {
+        throw new ConfigError(
+          'coordination signing keys require bounded key IDs and at least 32 secret bytes',
+        )
+      }
+    }
+  }
+  coordinationHttpLimits(options)
+}
+
+/** Stand up the existing coordination tools with bounded HTTP access over one live scope. */
+export async function serveCoordinationMcp(
+  opts: CoordinationTransportOptions & {
+    /** Trusted audit identity; defaults to the live scope node. */
+    identity?: { runId: string; actorId: string }
+    scope: Scope<unknown>
+    blobs: ResultBlobStore
+    makeWorkerAgent: MakeWorkerAgent
+    authorizeDownMessage?: AuthorizeDownMessage
+    perWorker: Budget
+    /** Independent completion check exposed to the driver as `submit_result`. */
+    deliverable?: DeliverableSpec<unknown>
+    /** Called once when the external manager accepts a result or declares completion. */
+    onStop?: (reason: string | undefined) => void
+    /** Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
+     *  flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap. */
+    maxLiveWorkers?: number
+    /** Max wall-clock ms a single `await_event` may block before returning a re-pollable
+     *  `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
+     *  {@link DEFAULT_AWAIT_EVENT_TIMEOUT_MS}; `<= 0` = prior unbounded block (in-process only). */
+    awaitTimeoutMs?: number
+    /** Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle. */
+    analysts?: AnalystRegistry
+    /** Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus. */
+    analyzeOnSettle?: ReadonlyArray<string | AnalyzeOnSettleRoute>
+    /** Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events). */
+    watchWorkers?: WorkerWatchOptions
+    /** Idle time after which `observe_agent` reports a worker as stalled. */
+    stallAfterMs?: number
+    /** Default continuity per worker profile name — `'resume'` re-attaches spawns of that name to
+     *  the node's latest settled worker; the tool's per-call `continuity` overrides. */
+    continuityByProfile?: Readonly<Record<string, ContinuityMode>>
+    /** Pass-through subscriber for every bus event, including pre-delivery instruction receipts and
+     * steer/answer delivery outcomes. */
+    onEvent?: (
+      event: CoordinationEvent,
+      record: BusRecord<CoordinationEvent>,
+    ) => void | Promise<void>
+    /** Re-publish resume-time settlements through the awaited observer before this server listens. */
+    replaySettlements?: boolean
+    questionPolicy?: QuestionPolicy
+    /** Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`. */
+    escalateQuestion?: EscalateQuestion
+    /** Escalations replayed from a prior process — seeds what `stop` knows went unheard. */
+    priorEscalations?: ReadonlyArray<QuestionEscalationRecord>
+    /** Questions replayed from a prior process of this run — seeds the question ledger. */
+    priorQuestions?: ReadonlyArray<QuestionRecord>
+    /** Every coordination record from prior processes of this run — what `read_journal` reads before
+     *  this process's own rows, so a resumed manager sees what it already did. */
+    priorJournal?: ReadonlyArray<BusRecord<CoordinationEvent>>
+    /** Lenses this manager defined in a prior process — seeds the menu and the definition cap. */
+    priorAnalystDefinitions?: ReadonlyArray<DefinedAnalystRecord>
+    /** Product-selected tools already bound to this exact supervisor node. They share this server
+     *  with the coordination verbs, so the existing MCP duplicate-name guard applies before listen. */
+    nodeTools?: ReadonlyArray<McpToolDescriptor>
+    /** Exact bare tool names to expose from the coordination and node-tool set. Runtime never
+     *  grants an implicit complete tool set. An unknown name fails before the listener opens. */
+    toolNames: ReadonlyArray<string>
+    /**
+     * OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
+     * (`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
+     * `WorkerSpawnContext.peerMailUrl`.
+     *
+     * It is a SEPARATE listener on its own port, not another tool on this server, and that is the
+     * whole point: this server grants spawn_worker / steer_agent / stop to its manager, so a
+     * worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
+     * channel's authority marking would mean nothing. The mail listener serves `send_mail` and
+     * `read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
+     *
+     * The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
+     * that can read another worker's environment or process memory still holds that worker's
+     * capability. Loopback plus an unguessable path is what this layer can honestly enforce.
+     */
+    peerMail?: boolean | { limits?: Partial<PeerMailLimits> }
+    /** OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
+     *  pre-journal point that may ask the backend a question. See
+     *  `CoordinationToolsOptions.preflightSpawn`. */
+    preflightSpawn?: SpawnPreflight
+    /** Pre-journal profile resolution for `preflightSpawn`; see
+     *  `CoordinationToolsOptions.resolveSpawnProfile`. */
+    resolveSpawnProfile?: (profile: AgentProfile) => AgentProfile
+    /** Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
+     *  opens — the seam a caller uses to give an already-bound node tool a way to call the same
+     *  verbs in code (`SupervisorToolInvocationContext.verbs`). */
+    onCoordinationTools?: (tools: ReadonlyArray<McpToolDescriptor>) => void
+  },
+): Promise<CoordinationMcpHandle> {
+  const host = opts.host ?? '127.0.0.1'
+  assertCoordinationTransport(opts)
+  if (opts.peerMail && (!isLoopbackHost(host) || opts.publicUrl)) {
+    throw new ConfigError(
+      'remote peer mail requires a separate reachable capability transport; coordination authentication does not authorize the peer listener',
+    )
+  }
+  const identity = Object.freeze({
+    ...(opts.identity ?? {
+      runId: opts.scope.view?.root ?? '',
+      actorId: opts.scope.view?.root ?? '',
+    }),
+  })
+  if (
+    (opts.authentication || opts.onAudit) &&
+    (!identity.runId.trim() || !identity.actorId.trim())
+  ) {
+    throw new ConfigError('authenticated coordination requires a trusted run and actor identity')
+  }
+  const auth = typeof opts.authentication === 'object' ? opts.authentication : undefined
+  const signingKeys = auth?.signingKeys
+    ? { activeKeyId: auth.signingKeys.activeKeyId, keys: { ...auth.signingKeys.keys } }
+    : undefined
+  let token: Buffer | undefined
+  let credentialExpiresAt: number | undefined
+  let headers: Readonly<Record<string, string>> = Object.freeze({})
+  let credentialAudience = ''
+  let closed = false
+  const revoked = new Map<string, number>()
+  const grantDigest = createHash('sha256')
+    .update(JSON.stringify([...opts.toolNames].sort()))
+    .digest('hex')
+  const rotateCredential = () => {
+    if (!opts.authentication) throw new ConfigError('coordination authentication is not configured')
+    if (closed) throw new ConfigError('coordination server is closed')
+    for (const [credential, expiry] of revoked) {
+      if (expiry <= Date.now()) revoked.delete(credential)
+    }
+    if (token) revoked.set(token.toString(), credentialExpiresAt!)
+    credentialExpiresAt = Date.now() + (auth?.ttlMs ?? 900_000)
+    const nonce = randomBytes(32).toString('base64url')
+    let text = nonce
+    if (signingKeys) {
+      const payload = Buffer.from(
+        JSON.stringify({
+          key: signingKeys.activeKeyId,
+          run: identity.runId,
+          actor: identity.actorId,
+          audience: credentialAudience,
+          grants: grantDigest,
+          expires: credentialExpiresAt,
+          nonce,
+        }),
+      ).toString('base64url')
+      const signature = createHmac('sha256', signingKeys.keys[signingKeys.activeKeyId]!)
+        .update(payload)
+        .digest('base64url')
+      text = `${payload}.${signature}`
+    }
+    token = Buffer.from(text)
+    headers = Object.freeze({ Authorization: `Bearer ${text}` })
+  }
+  const validCredential = (supplied: Buffer): boolean => {
+    if (closed || revoked.has(supplied.toString())) return false
+    if (!signingKeys)
+      return (
+        token !== undefined &&
+        Date.now() < credentialExpiresAt! &&
+        supplied.length === token.length &&
+        timingSafeEqual(supplied, token)
+      )
+    if (supplied.length > 8192) return false
+    try {
+      const parts = supplied.toString().split('.')
+      if (parts.length !== 2) return false
+      const payload = parts[0]!
+      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+      if (!claims || typeof claims.key !== 'string' || !Object.hasOwn(signingKeys.keys, claims.key))
+        return false
+      const expected = createHmac('sha256', signingKeys.keys[claims.key]!).update(payload).digest()
+      const signature = Buffer.from(parts[1]!, 'base64url')
+      return (
+        signature.length === expected.length &&
+        timingSafeEqual(signature, expected) &&
+        claims.run === identity.runId &&
+        claims.actor === identity.actorId &&
+        claims.audience === credentialAudience &&
+        claims.grants === grantDigest &&
+        Number.isSafeInteger(claims.expires) &&
+        claims.expires > Date.now()
+      )
+    } catch {
+      return false
+    }
+  }
+  const audiences = new Set<string>()
+  const paths = new Set(['/mcp'])
   const coord = createCoordinationTools({
     scope: opts.scope,
     blobs: opts.blobs,
@@ -270,41 +437,31 @@ export async function serveCoordinationMcp(opts: {
   // surface.
   opts.onCoordinationTools?.([...mcp.tools.values()])
 
-  const server: Server = createServer((req, res) => {
-    if (req.method !== 'POST') {
-      res.writeHead(405, { allow: 'POST' })
-      res.end()
-      return
-    }
-    let body = ''
-    req.on('data', (c) => {
-      body += c
-    })
-    req.on('end', () => {
-      void (async () => {
-        try {
-          const message = JSON.parse(body) as Parameters<typeof mcp.handle>[0]
-          const response = await mcp.handle(message)
-          if (response === null) {
-            res.writeHead(202).end() // a notification — no body
-            return
-          }
-          res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(JSON.stringify(response))
-        } catch (e) {
-          // A malformed request is the client's to recover from — a typed JSON-RPC error, not a crash.
-          res.writeHead(200, { 'content-type': 'application/json' })
-          res.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              id: null,
-              error: { code: -32700, message: e instanceof Error ? e.message : 'parse error' },
-            }),
-          )
-        }
-      })()
-    })
-  })
+  const server: Server = createServer(
+    coordinationHttpHandler({
+      options: opts,
+      identity,
+      toolNames: new Set(servedTools.map((tool) => tool.name)),
+      handle: (message) => mcp.handle(message),
+      authorize: (req) => {
+        if (!paths.has(req.url ?? '')) return 404
+        if (!audiences.has(req.headers.host ?? '')) return 403
+        if (closed) return 401
+        if (!opts.authentication) return undefined
+        const authorization = req.headers.authorization
+        const supplied =
+          typeof authorization === 'string' && authorization.startsWith('Bearer ')
+            ? Buffer.from(authorization.slice(7))
+            : Buffer.alloc(0)
+        if (!validCredential(supplied)) return 401
+        return undefined
+      },
+    }),
+  )
+
+  const requestTimeoutMs = coordinationHttpLimits(opts).requestTimeoutMs
+  server.requestTimeout = requestTimeoutMs
+  server.headersTimeout = requestTimeoutMs
 
   const port = await new Promise<number>((resolve, reject) => {
     server.once('error', reject)
@@ -314,12 +471,58 @@ export async function serveCoordinationMcp(opts: {
     })
   })
 
+  const urlHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host
+  const localUrl = `http://${urlHost}:${port}/mcp`
+  let url: string
+  try {
+    const configured =
+      typeof opts.publicUrl === 'function'
+        ? opts.publicUrl({ host, port, ...identity })
+        : opts.publicUrl
+    const publicAddress = new URL(configured ?? localUrl)
+    if (
+      !['http:', 'https:'].includes(publicAddress.protocol) ||
+      publicAddress.username ||
+      publicAddress.password ||
+      publicAddress.search ||
+      publicAddress.hash
+    ) {
+      throw new ConfigError(
+        'coordination publicUrl must be an HTTP endpoint without credentials, query, or fragment',
+      )
+    }
+    if (
+      configured !== undefined &&
+      publicAddress.protocol !== 'https:' &&
+      !isLoopbackHost(publicAddress.hostname)
+    ) {
+      throw new ConfigError('remote coordination publicUrl must use HTTPS')
+    }
+    url = publicAddress.href
+    credentialAudience = url
+    if (opts.authentication) rotateCredential()
+    audiences.add(new URL(localUrl).host)
+    audiences.add(publicAddress.host)
+    if (host === '0.0.0.0' || host === '::') audiences.add(`127.0.0.1:${port}`)
+    paths.add(publicAddress.pathname)
+  } catch (error) {
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    throw error
+  }
+
   const mailbox = coord.peerMail
   const mailListener = mailbox === undefined ? undefined : await servePeerMail(mailbox, host)
 
   return {
-    url: `http://${host}:${port}/mcp`,
+    url,
     port,
+    get headers() {
+      return headers
+    },
+    get credentialExpiresAt() {
+      return credentialExpiresAt
+    },
+    rotateCredential,
     settled: () => coord.settled(),
     submittedResult: () => coord.submittedResult(),
     drainResolved: () => coord.drainResolved(),
@@ -330,6 +533,7 @@ export async function serveCoordinationMcp(opts: {
     mailHistory: () => mailbox?.history() ?? [],
     stopMailThread: (threadId) => mailbox?.stopThread(threadId) ?? false,
     close: async () => {
+      closed = true
       await new Promise<void>((resolve) => {
         server.close(() => resolve())
       })

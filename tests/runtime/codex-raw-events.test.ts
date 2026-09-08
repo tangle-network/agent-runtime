@@ -324,7 +324,7 @@ describe('the ledger boundary — an unreadable receipt is an unknown spend, nev
 describe('once per turn — a canonical usage event wins over the harness receipt', () => {
   const canonicalUsage = {
     type: 'usage',
-    data: { inputTokens: 120, outputTokens: 30 },
+    data: { inputTokens: 120, outputTokens: 30, usageMode: 'cumulative' },
   } as unknown as SandboxEvent
 
   it('credits only the canonical numbers when a turn reports both', () => {
@@ -334,6 +334,22 @@ describe('once per turn — a canonical usage event wins over the harness receip
       output: 30,
       costUsd: 0,
       usdKnown: false,
+    })
+  })
+
+  it('keeps ambiguous canonical usage unknown without adding the native receipt', () => {
+    const ambiguousUsage = {
+      type: 'usage',
+      data: { inputTokens: 120, outputTokens: 30 },
+    } as unknown as SandboxEvent
+    const both = [...codexSession.slice(0, 12), ambiguousUsage, ...codexSession.slice(12)]
+    expect(sumSandboxUsage(both, 'codex-worker')).toEqual({
+      input: 120,
+      output: 30,
+      costUsd: 0,
+      tokensKnown: false,
+      usdKnown: false,
+      tokensUnknownReason: 'usage receipt has no declared delta or cumulative semantics',
     })
   })
 
@@ -482,7 +498,10 @@ describe('the steerable sandbox worker — a codex session runs to settlement', 
   it('credits one turn once when the stream also carries a canonical usage event', async () => {
     const both = [
       ...codexSession.slice(0, 12),
-      { type: 'usage', data: { inputTokens: 120, outputTokens: 30 } } as unknown as SandboxEvent,
+      {
+        type: 'usage',
+        data: { inputTokens: 120, outputTokens: 30, usageMode: 'cumulative' },
+      } as unknown as SandboxEvent,
       ...codexSession.slice(12),
     ]
     const { artifact } = await replayCodexSession(both)

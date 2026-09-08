@@ -658,7 +658,15 @@ export {
 } from './supervise/coordination-log'
 // Supervisor-as-MCP: serve the coordination verbs as a real HTTP MCP over a live Scope, so any
 // harness (claude-code / codex / opencode) BECOMES the supervisor by mounting one MCP server.
-export { type CoordinationMcpHandle, serveCoordinationMcp } from './supervise/coordination-mcp'
+export {
+  type CoordinationAuthentication,
+  type CoordinationHttpAudit,
+  type CoordinationHttpOptions,
+  type CoordinationMcpHandle,
+  type CoordinationPublicAddress,
+  type CoordinationTransportOptions,
+  serveCoordinationMcp,
+} from './supervise/coordination-mcp'
 // The one generic delegation verb: hand it an INTENT, it routes to `supervise()` with a default
 // authoring supervisor (no hardcoded worker profile) and returns the `SupervisedResult` unchanged —
 // so `spentTotal` (what the delegation cost) rides straight back.

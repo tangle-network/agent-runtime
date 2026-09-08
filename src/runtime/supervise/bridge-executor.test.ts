@@ -1224,7 +1224,8 @@ describe('bridgeExecutor upstream-error propagation', () => {
         })
         if (!spawned.ok) throw new Error(spawned.reason)
         abortChild = () => spawned.handle.abort('abort after paid model frame')
-        return scope.next()
+        await scope.next()
+        return null
       },
     }
     const journal = new InMemorySpawnJournal()

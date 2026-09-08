@@ -496,6 +496,58 @@ describe('retained runtime run control', () => {
     ])
   })
 
+  it.each(['capabilities', 'environment-admission'] as const)(
+    'does not start provider effects after cancellation during %s',
+    async (pause) => {
+      const controller = new AbortController()
+      const reached = abortGate()
+      const release = abortGate()
+      let creates = 0
+      let dispatches = 0
+      const provider = providerWithEnvironment({
+        async dispatch() {
+          dispatches++
+          throw new Error('dispatch must not start')
+        },
+      })
+      const create = provider.create.bind(provider)
+      const capabilities = provider.capabilities.bind(provider)
+      provider.create = async (input) => {
+        creates++
+        return create(input)
+      }
+      provider.capabilities = async () => {
+        if (pause === 'capabilities') {
+          reached.resolve()
+          await release.promise
+        }
+        return capabilities()
+      }
+      const cause = new Error('recovery cancelled')
+      const outcome = startRetainedRun({
+        provider,
+        environment: {
+          profile: { name: 'worker' },
+          idempotencyKey: 'cancelled',
+          signal: controller.signal,
+        },
+        turn: { prompt: 'go', turnId: 'cancelled' },
+        onAdmission: async (admission) => {
+          if (pause === 'environment-admission' && admission.phase === 'environment') {
+            reached.resolve()
+            await release.promise
+          }
+        },
+      }).catch((error: unknown) => error)
+      await reached.promise
+      controller.abort(cause)
+      release.resolve()
+      expect(await outcome).toBe(cause)
+      expect(creates).toBe(pause === 'capabilities' ? 0 : 1)
+      expect(dispatches).toBe(0)
+    },
+  )
+
   it('destroys exactly the environment this call created when dispatch fails', async () => {
     // Braid measured the opposite failure first: an unconditional destroy deleted a workspace a
     // same-key replay had returned. The provider's creation receipt is what separates the two.
@@ -3530,4 +3582,12 @@ function interactionCapabilities(
     responseIdempotency: true,
     ...overrides,
   }
+}
+
+function abortGate() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
 }

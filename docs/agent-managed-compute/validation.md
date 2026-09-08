@@ -1,5 +1,9 @@
 # Validation Plan
 
+Current local tests cover retained child and manager recovery, journal integrity, usage reconciliation, and authenticated MCP admission.
+Those checks do not establish deployed behavior, distributed fencing, or live multi-provider recovery.
+The remaining acceptance plan below requires separate evidence.
+
 ## Rule
 
 No distributed capability is complete because a unit test passed or a model printed a success message.

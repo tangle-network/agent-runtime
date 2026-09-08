@@ -107,75 +107,11 @@ export class OfficialOptimizerUnavailableError extends ConfigError {
 export function officialGepa<TScenario extends { id: string; kind: string }, TArtifact = unknown>(
   options: OfficialGepaOptions<TScenario, TArtifact>,
 ): ImproveMethodFactory<TScenario, TArtifact> {
-  const {
-    background,
-    includeFindings = true,
-    maxFindingsChars,
-    describeScenario,
-    describeArtifact,
-    redact,
-    authorizeSensitiveCandidate,
-    ...config
-  } = options
-  const redactor = resolveRedactor(redact)
-  const redactionPolicyRef = optimizerRedactionPolicyRef(redact)
-  assertMaxFindingsChars('officialGepa', maxFindingsChars)
-  const objective = redactOptimizerText('officialGepa', 'objective', config.objective, redactor)
-  return (context) => {
-    const externalEvaluationRef = optimizerEvidencePolicyRef({
-      runtimeEvaluationRef: context.evaluationRef,
-      redactionPolicyRef,
-      describeScenario,
-      describeArtifact,
-      authorizeSensitiveCandidate,
-    })
-    const method = withDependencyHelp(
-      'gepa',
-      externalEvaluationRef,
-      redactor,
-      redactionPolicyRef,
-      gepaOptimizationMethod<TScenario, TArtifact>({
-        ...config,
-        objective,
-        evaluationId: externalEvaluationRef,
-        background: methodBackground({
-          context,
-          background,
-          includeFindings,
-          maxFindingsChars,
-          label: 'officialGepa',
-          redactor,
-        }),
-        ...(describeScenario
-          ? {
-              describeScenario: (scenario) =>
-                redactOptimizerEvidence(
-                  'officialGepa',
-                  'scenario descriptor',
-                  describeScenario(scenario),
-                  redactor,
-                ),
-            }
-          : {}),
-        ...(describeArtifact
-          ? {
-              describeArtifact: (artifact, scenario) =>
-                redactOptimizerEvidence(
-                  'officialGepa',
-                  'artifact descriptor',
-                  describeArtifact(artifact, scenario),
-                  redactor,
-                ),
-            }
-          : {}),
-      }),
-    )
-    return withMethodRuntimeControls(method, {
-      costAttribution: 'optimizer-run',
-      validateCandidate: (input) =>
-        assertSafeOptimizerCandidate('officialGepa', input, authorizeSensitiveCandidate),
-    })
-  }
+  return officialOptimizer<TScenario, TArtifact, OfficialGepaOptions<TScenario, TArtifact>>(
+    'gepa',
+    options,
+    (config) => gepaOptimizationMethod(config),
+  )
 }
 
 /** Build a complete method backed by Microsoft's official SkillOpt trainer. */
@@ -185,6 +121,37 @@ export function officialSkillOpt<
 >(
   options: OfficialSkillOptOptions<TScenario, TArtifact>,
 ): ImproveMethodFactory<TScenario, TArtifact> {
+  return officialOptimizer<TScenario, TArtifact, OfficialSkillOptOptions<TScenario, TArtifact>>(
+    'skillopt',
+    options,
+    (config) => skillOptOptimizationMethod(config),
+  )
+}
+
+type PreparedOptimizerContext<TScenario extends { id: string; kind: string }, TArtifact> = Pick<
+  GepaOptimizationMethodConfig<TScenario, TArtifact>,
+  'objective' | 'evaluationId' | 'background' | 'describeScenario' | 'describeArtifact'
+>
+
+/** Keep evidence redaction, identity, dependency errors, and candidate controls identical for both wrappers. */
+function officialOptimizer<
+  TScenario extends { id: string; kind: string },
+  TArtifact,
+  TOptions extends
+    | OfficialGepaOptions<TScenario, TArtifact>
+    | OfficialSkillOptOptions<TScenario, TArtifact>,
+>(
+  optimizer: 'gepa' | 'skillopt',
+  options: TOptions,
+  create: (
+    config: Omit<
+      TOptions,
+      keyof OfficialOptimizerContextOptions | 'describeScenario' | 'describeArtifact'
+    > &
+      PreparedOptimizerContext<TScenario, TArtifact>,
+  ) => OptimizationMethod<TScenario, TArtifact>,
+): ImproveMethodFactory<TScenario, TArtifact> {
+  const label = optimizer === 'gepa' ? 'officialGepa' : 'officialSkillOpt'
   const {
     background,
     includeFindings = true,
@@ -197,8 +164,8 @@ export function officialSkillOpt<
   } = options
   const redactor = resolveRedactor(redact)
   const redactionPolicyRef = optimizerRedactionPolicyRef(redact)
-  assertMaxFindingsChars('officialSkillOpt', maxFindingsChars)
-  const objective = redactOptimizerText('officialSkillOpt', 'objective', config.objective, redactor)
+  assertMaxFindingsChars(label, maxFindingsChars)
+  const objective = redactOptimizerText(label, 'objective', config.objective, redactor)
   return (context) => {
     const externalEvaluationRef = optimizerEvidencePolicyRef({
       runtimeEvaluationRef: context.evaluationRef,
@@ -208,11 +175,11 @@ export function officialSkillOpt<
       authorizeSensitiveCandidate,
     })
     const method = withDependencyHelp(
-      'skillopt',
+      optimizer,
       externalEvaluationRef,
       redactor,
       redactionPolicyRef,
-      skillOptOptimizationMethod<TScenario, TArtifact>({
+      create({
         ...config,
         objective,
         evaluationId: externalEvaluationRef,
@@ -221,14 +188,14 @@ export function officialSkillOpt<
           background,
           includeFindings,
           maxFindingsChars,
-          label: 'officialSkillOpt',
+          label,
           redactor,
         }),
         ...(describeScenario
           ? {
               describeScenario: (scenario) =>
                 redactOptimizerEvidence(
-                  'officialSkillOpt',
+                  label,
                   'scenario descriptor',
                   describeScenario(scenario),
                   redactor,
@@ -239,7 +206,7 @@ export function officialSkillOpt<
           ? {
               describeArtifact: (artifact, scenario) =>
                 redactOptimizerEvidence(
-                  'officialSkillOpt',
+                  label,
                   'artifact descriptor',
                   describeArtifact(artifact, scenario),
                   redactor,
@@ -251,7 +218,7 @@ export function officialSkillOpt<
     return withMethodRuntimeControls(method, {
       costAttribution: 'optimizer-run',
       validateCandidate: (input) =>
-        assertSafeOptimizerCandidate('officialSkillOpt', input, authorizeSensitiveCandidate),
+        assertSafeOptimizerCandidate(label, input, authorizeSensitiveCandidate),
     })
   }
 }

@@ -877,7 +877,7 @@ One flattened node with the journal tree that owns its records.
 
 ###### Inherited from
 
-[`NodeSnapshot`](#nodesnapshot).[`status`](#status-15)
+[`NodeSnapshot`](#nodesnapshot).[`status`](#status-16)
 
 ##### runtime
 
@@ -3878,6 +3878,9 @@ Resolve a named profile before calling Sandbox, which accepts inline profiles on
 > `optional` **mapCreateInput?**: (`input`) => `CreateSandboxOptions`
 
 **`Experimental`**
+
+Map portable creation into a supported SDK or deployment contract. Runtime attachments
+require this explicit mapper until the maintained Sandbox SDK transports them.
 
 ###### Parameters
 
@@ -12419,6 +12422,82 @@ What the spawn was supposed to produce — surfaced in traces/reports.
 
 ***
 
+### CoordinationHttpAudit
+
+#### Properties
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### actorId
+
+> `readonly` **actorId**: `string`
+
+##### outcome
+
+> `readonly` **outcome**: `"completed"` \| `"rejected"` \| `"accepted"` \| `"completed-after-deadline"`
+
+##### status
+
+> `readonly` **status**: `number`
+
+##### action?
+
+> `readonly` `optional` **action?**: `string`
+
+***
+
+### CoordinationHttpOptions
+
+Transport limits apply before parsing or executing a coordination action.
+
+#### Extended by
+
+- [`CoordinationTransportOptions`](#coordinationtransportoptions)
+
+#### Properties
+
+##### maxRequestBytes?
+
+> `readonly` `optional` **maxRequestBytes?**: `number`
+
+##### requestTimeoutMs?
+
+> `readonly` `optional` **requestTimeoutMs?**: `number`
+
+##### maxConcurrentRequests?
+
+> `readonly` `optional` **maxConcurrentRequests?**: `number`
+
+##### requestsPerMinute?
+
+> `readonly` `optional` **requestsPerMinute?**: `number`
+
+##### allowedOrigins?
+
+> `readonly` `optional` **allowedOrigins?**: readonly `string`[]
+
+Browser origins are refused unless explicitly listed.
+
+##### onAudit?
+
+> `readonly` `optional` **onAudit?**: (`event`) => `void` \| `Promise`\<`void`\>
+
+Audit fields exclude credentials, request bodies, and arbitrary error strings.
+
+###### Parameters
+
+###### event
+
+[`CoordinationHttpAudit`](#coordinationhttpaudit)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+***
+
 ### PriorCoordination
 
 Coordination evidence loaded from prior processes of one durable supervised run.
@@ -12552,6 +12631,16 @@ The URL an in-box harness mounts as `mcp.mcpServers.coordination.url`.
 
 > `readonly` **port**: `number`
 
+##### headers
+
+> `readonly` **headers**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+Runtime-only credentials. Never put these headers in canonical profiles or journals.
+
+##### credentialExpiresAt
+
+> `readonly` **credentialExpiresAt**: `number` \| `undefined`
+
 ##### submittedResult
 
 > **submittedResult**: () => \{ `result`: `unknown`; \} \| `undefined`
@@ -12633,6 +12722,16 @@ Raise a `finding` on the bus from outside the settle hook — the seam an ONLINE
 
 #### Methods
 
+##### rotateCredential()
+
+> **rotateCredential**(): `void`
+
+Revoke this listener’s current token and mint another. Remove a signing key to revoke across restarts.
+
+###### Returns
+
+`void`
+
 ##### settled()
 
 > **settled**(): readonly [`SettledWorker`](mcp.md#settledworker)[]
@@ -12685,6 +12784,148 @@ End one peer exchange: every further mail on the thread is refused `thread-stopp
 ###### Returns
 
 `Promise`\<`void`\>
+
+***
+
+### CoordinationAuthentication
+
+#### Properties
+
+##### ttlMs?
+
+> `readonly` `optional` **ttlMs?**: `number`
+
+Credential lifetime; defaults to 15 minutes and cannot exceed 24 hours.
+
+##### signingKeys?
+
+> `readonly` `optional` **signingKeys?**: `object`
+
+Caller-owned secret keys. Keep prior keys to verify unexpired credentials after restart.
+
+###### activeKeyId
+
+> `readonly` **activeKeyId**: `string`
+
+###### keys
+
+> `readonly` **keys**: `Readonly`\<`Record`\<`string`, `string`\>\>
+
+***
+
+### CoordinationPublicAddress
+
+#### Properties
+
+##### host
+
+> `readonly` **host**: `string`
+
+##### port
+
+> `readonly` **port**: `number`
+
+##### runId
+
+> `readonly` **runId**: `string`
+
+##### actorId
+
+> `readonly` **actorId**: `string`
+
+***
+
+### CoordinationTransportOptions
+
+Transport limits apply before parsing or executing a coordination action.
+
+#### Extends
+
+- [`CoordinationHttpOptions`](#coordinationhttpoptions)
+
+#### Properties
+
+##### maxRequestBytes?
+
+> `readonly` `optional` **maxRequestBytes?**: `number`
+
+###### Inherited from
+
+[`CoordinationHttpOptions`](#coordinationhttpoptions).[`maxRequestBytes`](#maxrequestbytes)
+
+##### requestTimeoutMs?
+
+> `readonly` `optional` **requestTimeoutMs?**: `number`
+
+###### Inherited from
+
+[`CoordinationHttpOptions`](#coordinationhttpoptions).[`requestTimeoutMs`](#requesttimeoutms)
+
+##### maxConcurrentRequests?
+
+> `readonly` `optional` **maxConcurrentRequests?**: `number`
+
+###### Inherited from
+
+[`CoordinationHttpOptions`](#coordinationhttpoptions).[`maxConcurrentRequests`](#maxconcurrentrequests)
+
+##### requestsPerMinute?
+
+> `readonly` `optional` **requestsPerMinute?**: `number`
+
+###### Inherited from
+
+[`CoordinationHttpOptions`](#coordinationhttpoptions).[`requestsPerMinute`](#requestsperminute)
+
+##### allowedOrigins?
+
+> `readonly` `optional` **allowedOrigins?**: readonly `string`[]
+
+Browser origins are refused unless explicitly listed.
+
+###### Inherited from
+
+[`CoordinationHttpOptions`](#coordinationhttpoptions).[`allowedOrigins`](#allowedorigins)
+
+##### onAudit?
+
+> `readonly` `optional` **onAudit?**: (`event`) => `void` \| `Promise`\<`void`\>
+
+Audit fields exclude credentials, request bodies, and arbitrary error strings.
+
+###### Parameters
+
+###### event
+
+[`CoordinationHttpAudit`](#coordinationhttpaudit)
+
+###### Returns
+
+`void` \| `Promise`\<`void`\>
+
+###### Inherited from
+
+[`CoordinationHttpOptions`](#coordinationhttpoptions).[`onAudit`](#onaudit)
+
+##### host?
+
+> `readonly` `optional` **host?**: `string`
+
+##### port?
+
+> `readonly` `optional` **port?**: `number`
+
+##### authentication?
+
+> `readonly` `optional` **authentication?**: `true` \| [`CoordinationAuthentication`](#coordinationauthentication)
+
+Required for remote binds. Each server mints a distinct run/actor credential.
+
+##### publicUrl?
+
+> `readonly` `optional` **publicUrl?**: `string` \| ((`address`) => `string`)
+
+Caller-owned reachable endpoint or mapping. Runtime does not create a relay or tunnel.
 
 ***
 
@@ -13766,11 +14007,11 @@ to use the run-wide `deliverable`; a managed child receives its selected check f
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
- unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
+ unless authentication is configured; provider managers also need a reachable public URL.
 
 ###### Inherited from
 
@@ -17522,6 +17763,10 @@ journal tree exists for this root. It carries the replayed committed work (so `s
 exposes it to a resume-aware `act`) and the recorded ordinal/cursor maxima the new counters
 continue past, so a freshly-spawned child never reuses a journaled `seq`. Absent ⇒ fresh run.
 
+###### events?
+
+> `readonly` `optional` **events?**: readonly [`SpawnEvent`](#spawnevent)[]
+
 ###### settled
 
 > `readonly` **settled**: readonly [`Settled`](#settled-3)\<`unknown`\>[]
@@ -18015,11 +18260,11 @@ Name→value tables for the four code-valued options, so a recorded run configur
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
- unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
+ unless authentication is configured; provider managers also need a reachable public URL.
 
 ##### peerMail?
 
@@ -18066,8 +18311,8 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](#executorconfig)
 
-Run harness-brained supervisors here. Automatic execution supports a local `bridge`; a remote
- sandbox requires an explicit `driveHarness` with a reachable coordination relay or tunnel.
+Run harness-brained supervisors here. Automatic execution supports a local `bridge`, or a
+provider advertising runtime MCP attachments with authenticated `coordination.publicUrl`.
  Defaults to `backend`; separate it when managers and workers use different services.
 
 ##### profileSecurity?
@@ -18744,30 +18989,6 @@ The exact profile fields consumed by supervisor materialization.
 
 ***
 
-### CoordinationBinding
-
-Where the coordination MCP binds. Omit = an ephemeral port on `127.0.0.1` (the local-harness
- default); set `host` when the root or the harness runs off-host.
-
-#### Properties
-
-##### host?
-
-> `readonly` `optional` **host?**: `string`
-
-##### port?
-
-> `readonly` `optional` **port?**: `number`
-
-##### allowUnauthenticatedRemote?
-
-> `readonly` `optional` **allowUnauthenticatedRemote?**: `boolean`
-
-Explicit acknowledgment required to bind a NON-loopback host — see
- [assertCoordinationBinding](#assertcoordinationbinding) for what is being accepted.
-
-***
-
 ### SupervisorNodeContext
 
 Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot
@@ -18996,7 +19217,7 @@ in code (see [CoordinationVerbs](#coordinationverbs)).
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-18)
+[`SupervisorNodeContext`](#supervisornodecontext).[`runId`](#runid-20)
 
 ##### runNamespace
 
@@ -19221,6 +19442,12 @@ The standing instruction assembled from the profile: its system prompt in either
 ###### coordinationMcpUrl
 
 `string`
+
+###### coordinationMcpHeaders?
+
+`Readonly`\<`Record`\<`string`, `string`\>\>
+
+Runtime-only transport credentials; never append them to the authored profile or task.
 
 ###### stopSignal?
 
@@ -19582,7 +19809,7 @@ How the settled ledger becomes the run's output (both arms). Default `bestDelive
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationBinding`](#coordinationbinding)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](#coordinationtransportoptions)
 
 Where the coordination MCP binds (external arm). Omit = an ephemeral loopback port, which is
  unreachable from an off-host harness. A non-loopback host fails closed — see
@@ -19966,6 +20193,26 @@ Local executors keep the short default; remote executors may need bounded networ
 One-shot → resolves a `ExecutorResult`; streaming → yields incremental `UsageEvent`s and
 the terminal artifact is read from `resultArtifact()` after the stream drains.
 `signal` is the spawn-scoped abort (chains the acquire lifecycle for sandbox).
+
+###### Parameters
+
+###### task
+
+`unknown`
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`AsyncIterable`\<[`UsageEvent`](#usageevent), `any`, `any`\> \| `Promise`\<[`ExecutorResult`](#executorresult)\<`Out`\>\>
+
+##### recover()?
+
+> `optional` **recover**(`task`, `signal`): `AsyncIterable`\<[`UsageEvent`](#usageevent), `any`, `any`\> \| `Promise`\<[`ExecutorResult`](#executorresult)\<`Out`\>\>
+
+Reattach the exact journaled execution. This must never start replacement work.
 
 ###### Parameters
 
@@ -20944,8 +21191,9 @@ re-spawning committed work. A resume-blind driver simply ignores it and re-spawn
 but redundant. The scope's spawn ordinal + cursor seq are already advanced past the recorded
 maxima, so any NEW spawn appends without colliding with a journaled event.
 
- Same-process replay only — live supervised-tree recovery after a
-coordinator restart is not implemented (docs/agent-managed-compute/README.md).
+Retained provider children can reconcile their original execution through `recoverExecutor`.
+Missing recovery evidence leaves keyed work in doubt.
+Local ownership does not provide distributed fencing.
 
 ##### view
 
@@ -21671,6 +21919,12 @@ Result payload store backing `outRef` rehydration.
 
 Executor resolution — the open registry mapping `AgentSpec` → `Executor`.
 
+##### recoverExecutor?
+
+> `readonly` `optional` **recoverExecutor?**: [`ExecutorFactory`](#executorfactory-1)\<`unknown`\>
+
+Reconstruct configured executors for interrupted children before resuming the driver.
+
 ##### probes?
 
 > `readonly` `optional` **probes?**: [`WaitProbeRegistry`](#waitproberegistry)
@@ -21719,17 +21973,14 @@ teardown.
 
 **`Experimental`**
 
-Opt into RESUME-FIRST: read any prior journal tree for this `runId` BEFORE beginning a fresh
-one, and when a non-empty tree exists rehydrate its committed work onto `Scope.resume`
-(`replaySpawnTree` + `materializeTreeView`) instead of starting over. Requires a journal +
-blob store that OUTLIVE the process (`createFileRunContext(dir)`); against the in-memory
-stores there is never a prior tree, so it is a no-op.
+Load prior journal state and expose committed settlements through `Scope.resume`.
+Use persistent journal and blob stores to recover across process restarts.
+`createFileRunContext` provides the file-backed stores and local ownership lock.
 
-Default `false` — a run always begins a fresh tree, which is the behavior every existing
-consumer has. Resume is a durability contract the caller opts into, never a silent default.
-
- Rehydrates committed settlements only; live supervised-tree recovery after a
-coordinator restart is not implemented (docs/agent-managed-compute/README.md).
+Default `false` refuses an existing run ID instead of replacing its journal.
+Configure `recoverExecutor` to reconcile retained children before new work is admitted.
+Unresolved keyed work remains in doubt.
+The file run lock provides local ownership, without distributed fencing.
 
 ##### now?
 
@@ -26522,6 +26773,14 @@ A supervisor is an exact canonical AgentProfile; no looser model/prompt shape ex
 
 ***
 
+### CoordinationBinding
+
+> **CoordinationBinding** = [`CoordinationTransportOptions`](#coordinationtransportoptions)
+
+Listener, authenticated remote endpoint, and bounded request policy for one manager.
+
+***
+
 ### SupervisorNodeContextSeed
 
 > **SupervisorNodeContextSeed** = `Omit`\<[`SupervisorNodeContext`](#supervisornodecontext), `"nodeId"` \| `"profile"` \| `"task"`\>
@@ -27180,7 +27439,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -27250,6 +27509,98 @@ Exact profile/task digests plus trusted candidate/campaign attribution when avai
  Distinct from `identity.profileDigest`: that is the canonical AgentProfile digest, which
  names the agent, while this is the blob store's own content address, which retrieves its
  bytes. Absent on records written before the body was persisted.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"execution-input"`
+
+Exact task bytes durable before admitting a retained invocation.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### taskRef
+
+> **taskRef**: `string`
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"execution-admitted"`
+
+Credential-free retained-provider admission, committed before the next external effect.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### admission
+
+> **admission**: [`RetainedRunAdmission`](#retainedrunadmission)
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"execution-result"`; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"execution-result"`
+
+Recoverable output committed before releasing its provider environment.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### outRef
+
+> **outRef**: `string`
+
+###### spent
+
+> **spent**: [`Spend`](#spend)
+
+###### verdict?
+
+> `optional` **verdict?**: `DefaultVerdict`
 
 ###### seq
 
@@ -32620,213 +32971,13 @@ readonly `object`[]
 
 > **serveCoordinationMcp**(`opts`): `Promise`\<[`CoordinationMcpHandle`](#coordinationmcphandle)\>
 
-Stand up the coordination MCP over a live scope. The HOST address is `127.0.0.1` (the bridge runs
- opencode locally, same host); pass `host` to bind elsewhere when the harness is remote — a
- non-loopback host additionally requires `allowUnauthenticatedRemote`.
+Stand up the existing coordination tools with bounded HTTP access over one live scope.
 
 #### Parameters
 
 ##### opts
 
-###### scope
-
-[`Scope`](#scope-2)\<`unknown`\>
-
-###### blobs
-
-[`ResultBlobStore`](#resultblobstore)
-
-###### makeWorkerAgent
-
-[`MakeWorkerAgent`](#makeworkeragent)
-
-###### authorizeDownMessage?
-
-[`AuthorizeDownMessage`](#authorizedownmessage)
-
-###### perWorker
-
-[`Budget`](#budget-18)
-
-###### deliverable?
-
-[`DeliverableSpec`](#deliverablespec)\<`unknown`\>
-
-Independent completion check exposed to the driver as `submit_result`.
-
-###### onStop?
-
-(`reason`) => `void`
-
-Called once when the external manager accepts a result or declares completion.
-
-###### maxLiveWorkers?
-
-`number`
-
-Hard cap on simultaneously-LIVE workers — `spawn_worker` fails closed once this many are in
- flight (a concurrency fence on top of the conserved-pool fence). Omit/`<= 0` = no cap.
-
-###### awaitTimeoutMs?
-
-`number`
-
-Max wall-clock ms a single `await_event` may block before returning a re-pollable
- `{ pending, live }` snapshot instead of erroring on the client's request timeout. Omit =
- [DEFAULT\_AWAIT\_EVENT\_TIMEOUT\_MS](#default_await_event_timeout_ms); `<= 0` = prior unbounded block (in-process only).
-
-###### port?
-
-`number`
-
-###### host?
-
-`string`
-
-Bind address. Omit = `127.0.0.1`. A non-loopback host is REFUSED unless
- `allowUnauthenticatedRemote` acknowledges the exposure.
-
-###### allowUnauthenticatedRemote?
-
-`boolean`
-
-Explicit acknowledgment that binding a non-loopback `host` publishes UNAUTHENTICATED
- spawn_worker / steer_agent / stop to everyone who can reach the port. Required for any
- non-loopback bind; ignored for loopback ones.
-
-###### analysts?
-
-[`AnalystRegistry`](#analystregistry)
-
-Trace-analyst lenses the driver can run (`run_analyst`) or auto-fire on settle.
-
-###### analyzeOnSettle?
-
-readonly (`string` \| [`AnalyzeOnSettleRoute`](#analyzeonsettleroute))[]
-
-Analyst kinds to auto-run when a worker settles `done` — findings flow up the bus.
-
-###### watchWorkers?
-
-[`WorkerWatchOptions`](#workerwatchoptions)
-
-Run the ONLINE detector panel over each worker's live tool trace (raises `finding` events).
-
-###### stallAfterMs?
-
-`number`
-
-Idle time after which `observe_agent` reports a worker as stalled.
-
-###### continuityByProfile?
-
-`Readonly`\<`Record`\<`string`, [`ContinuityMode`](#continuitymode)\>\>
-
-Default continuity per worker profile name — `'resume'` re-attaches spawns of that name to
- the node's latest settled worker; the tool's per-call `continuity` overrides.
-
-###### onEvent?
-
-(`event`, `record`) => `void` \| `Promise`\<`void`\>
-
-Pass-through subscriber for every bus event, including pre-delivery instruction receipts and
-steer/answer delivery outcomes.
-
-###### replaySettlements?
-
-`boolean`
-
-Re-publish resume-time settlements through the awaited observer before this server listens.
-
-###### questionPolicy?
-
-[`QuestionPolicy`](mcp.md#questionpolicy)
-
-###### escalateQuestion?
-
-[`EscalateQuestion`](#escalatequestion)
-
-Where an `ask_parent` question goes when it leaves this manager. Omit = `no-parent`.
-
-###### priorEscalations?
-
-readonly [`QuestionEscalationRecord`](#questionescalationrecord)[]
-
-Escalations replayed from a prior process — seeds what `stop` knows went unheard.
-
-###### priorQuestions?
-
-readonly [`QuestionRecord`](mcp.md#questionrecord)[]
-
-Questions replayed from a prior process of this run — seeds the question ledger.
-
-###### priorJournal?
-
-readonly [`BusRecord`](#busrecord)\<[`CoordinationEvent`](#coordinationevent)\>[]
-
-Every coordination record from prior processes of this run — what `read_journal` reads before
- this process's own rows, so a resumed manager sees what it already did.
-
-###### priorAnalystDefinitions?
-
-readonly [`DefinedAnalystRecord`](#definedanalystrecord)[]
-
-Lenses this manager defined in a prior process — seeds the menu and the definition cap.
-
-###### nodeTools?
-
-readonly [`McpToolDescriptor`](mcp.md#mcptooldescriptor)[]
-
-Product-selected tools already bound to this exact supervisor node. They share this server
- with the coordination verbs, so the existing MCP duplicate-name guard applies before listen.
-
-###### toolNames
-
-readonly `string`[]
-
-Exact bare tool names to expose from the coordination and node-tool set. Runtime never
- grants an implicit complete tool set. An unknown name fails before the listener opens.
-
-###### peerMail?
-
-`boolean` \| \{ `limits?`: `Partial`\<[`PeerMailLimits`](#peermaillimits)\>; \}
-
-OPT-IN peer mail: let this manager's workers message each other directly, bounded and audited
-(`runtime/supervise/peer-mail`). Each spawn receives a capability URL on
-`WorkerSpawnContext.peerMailUrl`.
-
-It is a SEPARATE listener on its own port, not another tool on this server, and that is the
-whole point: this server mounts spawn_worker / steer_agent / stop with no authentication, so a
-worker handed its URL could send a REAL `[SUPERVISOR]` instruction to a sibling and the peer
-channel's authority marking would mean nothing. The mail listener serves `send_mail` and
-`read_mail` and no other verb, on a per-worker secret path bound to that worker's identity.
-
-The residual, stated plainly: the boundary is between AGENTS, not between processes. A worker
-that can read another worker's environment or process memory still holds that worker's
-capability. Loopback plus an unguessable path is what this layer can honestly enforce.
-
-###### preflightSpawn?
-
-[`SpawnPreflight`](#spawnpreflight)
-
-OPT-IN async gate run before every spawn mints an assignment or reserves budget — the one
- pre-journal point that may ask the backend a question. See
- `CoordinationToolsOptions.preflightSpawn`.
-
-###### resolveSpawnProfile?
-
-(`profile`) => `AgentProfile`
-
-Pre-journal profile resolution for `preflightSpawn`; see
- `CoordinationToolsOptions.resolveSpawnProfile`.
-
-###### onCoordinationTools?
-
-(`tools`) => `void`
-
-Called with this server's exact MCP tool descriptors once they exist and BEFORE the listener
- opens — the seam a caller uses to give an already-bound node tool a way to call the same
- verbs in code (`SupervisorToolInvocationContext.verbs`).
+[`CoordinationTransportOptions`](#coordinationtransportoptions) & `object`
 
 #### Returns
 
@@ -34700,17 +34851,13 @@ Reduce one canonical executable profile to the scalars the two brain arms consum
 
 > **assertCoordinationBinding**(`binding`): `void`
 
-Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_worker /
-steer_agent / stop with NO authentication of any kind (it is a bare JSON-RPC-over-HTTP handler),
-so a non-loopback bind lets anyone who can reach the port spawn agents and spend the run's
-conserved budget. There is no token to require yet, so the only honest options are loopback or an
-explicit, recorded acknowledgment — never a silent bind.
+Validate a manager's coordination authentication and request limits before execution.
 
 #### Parameters
 
 ##### binding
 
-[`CoordinationBinding`](#coordinationbinding) \| `undefined`
+[`CoordinationTransportOptions`](#coordinationtransportoptions) \| `undefined`
 
 #### Returns
 

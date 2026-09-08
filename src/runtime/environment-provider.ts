@@ -59,10 +59,23 @@ import type {
   SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
-import { awaitAbortable, sameControlCoordinates } from './retained-run-binding'
+import {
+  assertEventBinding,
+  awaitAbortable,
+  exactSession,
+  sameControlCoordinates,
+} from './retained-run-binding'
+import {
+  assertRetainedRunReplayMaterial,
+  reconnectRetainedRun,
+  recoverRetainedRun,
+  startRetainedRun,
+} from './retained-run-start'
+import type { RetainedRunHandle } from './retained-run-types'
 import {
   canonicalStreamEventFromSandboxEvent,
   createSandboxToolPartState,
+  createSandboxUsageLedger,
   isSandboxTerminalEvent,
   sandboxProgressEvents,
   sandboxTerminalUsageField,
@@ -79,6 +92,11 @@ import {
   enforceTokenLimits,
   profileModelExecutionSettings,
 } from './supervise/model-policy'
+import {
+  RetainedExecutionPendingError,
+  type RetainedExecutorContext,
+  retainedExecutorContext,
+} from './supervise/retained-executor'
 import { detachedSnapshot } from './supervise/snapshot'
 import type {
   Executor,
@@ -290,6 +308,8 @@ export interface SandboxClientProviderOptions {
   ) => AgentProfileValidationResult | Promise<AgentProfileValidationResult>
   /** Resolve a named profile before calling Sandbox, which accepts inline profiles only. */
   resolveProfile?: (profileId: string) => AgentProfile | Promise<AgentProfile>
+  /** Map portable creation into a supported SDK or deployment contract. Runtime attachments
+   * require this explicit mapper until the maintained Sandbox SDK transports them. */
   mapCreateInput?: (input: CreateAgentEnvironmentInput) => CreateSandboxOptions
 }
 
@@ -513,6 +533,9 @@ function createProviderExecutor(
 
   let environment: AgentEnvironment | undefined
   let artifact: ExecutorResult<unknown> | undefined
+  let retained: RetainedRunHandle | undefined
+  let pending = false
+  const retention = retainedExecutorContext(ctx)
   // The stream destroys the environment on settle by default, so a later `teardown` would issue a
   // SECOND delete against a resource that is already gone. That second call is what the provider
   // answered 409 to.
@@ -523,7 +546,7 @@ function createProviderExecutor(
   // them, so the declaration carries the overlaid profile and exact turn execution refuses the run
   // rather than presenting the authored profile as what the provider received.
   const createProfile = options.profileForCreate?.(profile) ?? profile
-  const executionId = ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
+  const executionId = retention?.executionId ?? ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
   const providerModel = concreteProfileModel(createProfile)
   // The provider owns the model call inside its environment and the create input carries no
@@ -564,39 +587,69 @@ function createProviderExecutor(
   }
 
   let executor!: Executor<unknown>
+  const run = (
+    task: unknown,
+    signal: AbortSignal,
+    recovering = false,
+  ): AsyncIterable<UsageEvent> => {
+    return streamProviderExecutor({
+      provider,
+      profile,
+      createProfile,
+      task,
+      signal,
+      controller,
+      options,
+      retention,
+      executionId,
+      recovering,
+      onRetained: (handle) => {
+        retained = handle
+      },
+      onPending: (value) => {
+        pending = value
+      },
+      onEnvironment: (env) => {
+        environment = env
+        // `create` resolved, so the environment identity the provider issued is now evidence.
+        finalizeRuntimeOwnedPendingExecutor(
+          executor,
+          {
+            ...plannedDeclaration,
+            execution: { kind: 'environment', id: env.id },
+            plan: { ...(plannedDeclaration.plan as object), environmentId: env.id },
+          },
+          plannedBinding,
+        )
+      },
+      onArtifact: (next) => {
+        artifact = next
+      },
+      onDestroyed: () => {
+        destroyed = true
+      },
+    })
+  }
   executor = {
     runtime,
-    execute(task, signal): AsyncIterable<UsageEvent> {
-      return streamProviderExecutor({
-        provider,
-        profile,
-        createProfile,
-        task,
-        signal,
-        controller,
-        options,
-        onEnvironment: (env) => {
-          environment = env
-          // `create` resolved, so the environment identity the provider issued is now evidence.
-          finalizeRuntimeOwnedPendingExecutor(
-            executor,
-            {
-              ...plannedDeclaration,
-              execution: { kind: 'environment', id: env.id },
-              plan: { ...(plannedDeclaration.plan as object), environmentId: env.id },
-            },
-            plannedBinding,
-          )
-        },
-        onArtifact: (next) => {
-          artifact = next
-        },
-        onDestroyed: () => {
-          destroyed = true
-        },
-      })
-    },
+    execute: run,
+    recover: (task, signal) => run(task, signal, true),
     async cancel(request): Promise<ExecutorCancellation> {
+      if (retained) {
+        const acknowledgement = await retained.cancel(request)
+        return {
+          status:
+            acknowledgement.status === 'conflict'
+              ? 'rejected'
+              : acknowledgement.status === 'replayed'
+                ? 'accepted'
+                : acknowledgement.status,
+          effect: acknowledgement.effect,
+          observedAt: acknowledgement.snapshot.observedAt,
+          evidence: { operationId: request.operationId, controlRef: retained.controlRef },
+          ...(acknowledgement.reason ? { detail: acknowledgement.reason } : {}),
+        }
+      }
       // The provider streams a turn rather than dispatching a durable run, so this executor holds
       // no exact control reference the provider could cancel against. Aborting the local stream is
       // all Runtime can prove; the environment stays alive for `teardown` to release.
@@ -614,6 +667,7 @@ function createProviderExecutor(
     },
     async teardown(_grace): Promise<{ destroyed: boolean; detail?: string }> {
       controller.abort()
+      if (pending) return { destroyed: false, detail: 'retained execution requires reconciliation' }
       // Already released by the stream's own settle path: re-deleting is the double call that
       // produced the 409, and the resource is provably gone, so this is a confirmed teardown.
       if (destroyed || environment === undefined) return { destroyed: true }
@@ -653,6 +707,11 @@ interface StreamProviderExecutorArgs {
   signal: AbortSignal
   controller: AbortController
   options: ProviderExecutorOptions
+  retention?: RetainedExecutorContext
+  executionId: string
+  recovering: boolean
+  onRetained: (handle: RetainedRunHandle) => void
+  onPending: (pending: boolean) => void
   onEnvironment: (environment: AgentEnvironment) => void
   onArtifact: (artifact: ExecutorResult<unknown>) => void
   /** The environment was destroyed here, so `teardown` must not DELETE it a second time — the
@@ -670,20 +729,17 @@ async function* streamProviderExecutor(
   // `acquireSandbox` exists because a raw `SandboxClient.create` returns before the box is ready;
   // wrapping a second readiness poll around a provider that already honors the contract would hide
   // a provider that does not, and a provider that does not is an upstream defect to report.
-  const environment = await args.provider.create({
-    ...(args.options.defaults ?? {}),
-    profile: args.createProfile,
-    signal: linked,
-  })
-  args.onEnvironment(environment)
-
   const turn = providerTurnWithDefaults(
     providerTurnDefaults(args.options.promptOptions, `providerAsExecutor(${args.provider.name})`),
     args.options.taskToTurn?.(args.task, args.profile) ?? taskToTurnInput(args.task, linked),
     linked,
   )
+  const source = await providerExecutionSource(args, turn, linked)
+  const environment = source.environment
+  args.onEnvironment(environment)
   const events: AgentEnvironmentEvent[] = []
   const tokens = zeroTokenUsage()
+  const usageLedger = createSandboxUsageLedger(args.profile.harness)
   let sawCompleteTokenReceipt = false
   let sawIncompleteTokenReceipt = false
   let usd = 0
@@ -701,7 +757,7 @@ async function* streamProviderExecutor(
   try {
     const toolParts = createSandboxToolPartState()
     const outcomeTracker = createAgentRunOutcomeTracker()
-    for await (const event of environment.stream(turn)) {
+    for await (const event of source.events) {
       events.push(event)
       text += textFromEnvironmentEvent(event)
       const sandboxEvent = sandboxEventFromEnvironmentEvent(event)
@@ -715,23 +771,13 @@ async function* streamProviderExecutor(
       for (const progress of sandboxProgressEvents(sandboxEvent, toolParts)) {
         yield { kind: 'progress', progress }
       }
-      const usage = usageFromEnvironmentEvent(event)
-      if (usage.hasTokenReceipt) {
-        if (usage.hasInput && usage.hasOutput) sawCompleteTokenReceipt = true
-        else sawIncompleteTokenReceipt = true
-      }
-      if (usage.input || usage.output) {
-        tokens.input += usage.input
-        tokens.output += usage.output
-        yield { kind: 'tokens', input: usage.input, output: usage.output }
-      }
-      if (usage.usd) {
-        usd += usage.usd
-        // A provider-reported dollar figure carries no receipt, so it is an observed floor.
-        yield { kind: 'cost', usdKnown: false, usd: usage.usd, provenance: 'uncaptured' }
-      }
+      const usageEvent = usageSandboxEvent(event)
+      if (usageEvent)
+        yield* creditUsage(usageLedger.observe(usageEvent, args.profile.name ?? 'agent'))
+      yield* creditUsage(usageLedger.observe(sandboxEvent, args.profile.name ?? 'agent'))
       if (isTerminalEnvironmentEvent(event)) terminal = true
     }
+    yield* creditUsage(usageLedger.settleTurn(args.profile.name ?? 'agent'))
     if ((args.options.requireTerminalEvent ?? true) && !terminal) {
       throw new ValidationError(
         `providerAsExecutor(${args.provider.name}): stream ended without a terminal result/done/status event`,
@@ -769,12 +815,17 @@ async function* streamProviderExecutor(
       ...(verdict ? { verdict } : {}),
       spent,
     }
+    if (source.retained) await args.retention?.onResult(settled)
+    args.onPending(false)
     args.onArtifact(settled)
   } catch (error) {
-    failure = error
+    failure = source.retained ? new RetainedExecutionPendingError(error) : error
     failed = true
   } finally {
-    if (args.options.destroyOnSettle ?? true) {
+    if (
+      (!source.retained || (settled !== undefined && !failed)) &&
+      (args.options.destroyOnSettle ?? true)
+    ) {
       try {
         await environment.destroy?.()
         args.onDestroyed()
@@ -812,6 +863,157 @@ async function* streamProviderExecutor(
     }
   }
   if (failed) throw failure
+
+  function* creditUsage(receipt: ReturnType<typeof usageLedger.observe>): Iterable<UsageEvent> {
+    if (receipt === undefined) return
+    const hasTokens = receipt.tokensIn !== undefined || receipt.tokensOut !== undefined
+    if (
+      hasTokens &&
+      receipt.tokensIn !== undefined &&
+      receipt.tokensOut !== undefined &&
+      receipt.tokensKnown !== false
+    ) {
+      sawCompleteTokenReceipt = true
+    } else if (hasTokens || receipt.tokensUnknownReason) {
+      sawIncompleteTokenReceipt = true
+    }
+    const input = receipt.tokensIn ?? 0
+    const output = receipt.tokensOut ?? 0
+    if (input || output) {
+      tokens.input += input
+      tokens.output += output
+      yield { kind: 'tokens', input, output }
+    }
+    if (receipt.costUsd) {
+      usd += receipt.costUsd
+      yield { kind: 'cost', usdKnown: false, usd: receipt.costUsd, provenance: 'uncaptured' }
+    }
+  }
+}
+
+/** One retained dispatch owns creation, replay, result identity, and cancellation. */
+async function providerExecutionSource(
+  args: StreamProviderExecutorArgs,
+  turn: AgentTurnInput,
+  signal: AbortSignal,
+): Promise<{
+  environment: AgentEnvironment
+  events: AsyncIterable<AgentEnvironmentEvent>
+  retained: boolean
+}> {
+  const capabilities = args.retention ? await args.provider.capabilities() : undefined
+  const useRetained = args.retention !== undefined && capabilities?.retainedControl !== undefined
+  if (!useRetained) {
+    if (args.recovering)
+      throw new Error(`provider ${args.provider.name} cannot recover retained executions`)
+    const environment = await args.provider.create({
+      ...args.options.defaults,
+      profile: args.createProfile,
+      signal,
+    })
+    return { environment, events: environment.stream(turn), retained: false }
+  }
+  const retention = args.retention!
+  let admitted = args.recovering
+  const onAdmission = async (admission: Parameters<typeof retention.onAdmission>[0]) => {
+    await retention.onAdmission(admission)
+    admitted = true
+    args.onPending(true)
+  }
+  const material = {
+    environment: {
+      ...args.options.defaults,
+      profile: args.createProfile,
+      idempotencyKey: `runtime:${args.executionId}`,
+      signal,
+    },
+    turn: { ...turn, turnId: `${args.executionId}:turn:0` },
+  }
+  try {
+    const admissions = retention.admissions
+    const dispatched = [...admissions]
+      .reverse()
+      .find((admission) => admission.phase === 'dispatched')
+    const intent = admissions.find((admission) => admission.phase === 'intent')
+    const environmentAdmission = admissions.find((admission) => admission.phase === 'environment')
+    if (args.recovering) {
+      if (!intent) throw new Error('retained provider execution has no original intent')
+      assertRetainedRunReplayMaterial(args.provider, material, intent)
+    }
+    let handle: RetainedRunHandle
+    if (args.recovering && dispatched?.phase === 'dispatched') {
+      const reconnected = await reconnectRetainedRun({
+        provider: args.provider,
+        controlRef: dispatched.controlRef,
+      })
+      if (!reconnected) throw new Error('retained provider environment is unavailable')
+      handle = reconnected
+    } else if (args.recovering && environmentAdmission?.phase === 'environment') {
+      let recovered = await recoverRetainedRun({
+        provider: args.provider,
+        environmentId: environmentAdmission.environmentId,
+        sessionId: environmentAdmission.sessionId,
+        executionId: environmentAdmission.executionId,
+      })
+      if (recovered.outcome === 'unverifiable' && intent?.phase === 'intent') {
+        // The environment admission precedes dispatch. Replay the validated original keys
+        // when the provider cannot yet identify a session, including a lost dispatch reply.
+        recovered = await recoverRetainedRun({
+          provider: args.provider,
+          admission: intent,
+          replay: material,
+          onAdmission,
+        })
+      }
+      if (recovered.outcome !== 'recovered')
+        throw new Error(`retained provider execution is ${recovered.outcome}`)
+      handle = recovered.handle
+      await onAdmission({
+        phase: 'dispatched',
+        controlRef: handle.controlRef,
+        idempotencyKey: environmentAdmission.idempotencyKey,
+        turnId: environmentAdmission.turnId,
+      })
+    } else if (args.recovering && intent?.phase === 'intent') {
+      const recovered = await recoverRetainedRun({
+        provider: args.provider,
+        admission: intent,
+        replay: material,
+        onAdmission,
+      })
+      if (recovered.outcome !== 'recovered')
+        throw new Error(`retained provider execution is ${recovered.outcome}`)
+      handle = recovered.handle
+    } else {
+      if (args.recovering) throw new Error('retained provider execution has no durable admission')
+      handle = await startRetainedRun({ provider: args.provider, ...material, onAdmission })
+    }
+    args.onRetained(handle)
+    args.onPending(true)
+    const environment = await args.provider.get?.(handle.controlRef.environmentId)
+    if (!environment) throw new Error('retained provider environment is unavailable')
+    const session = exactSession(environment, handle.controlRef).session
+    async function* events(): AsyncIterable<AgentEnvironmentEvent> {
+      for await (const event of session.events({
+        executionId: handle.controlRef.executionId,
+        signal,
+      })) {
+        assertEventBinding(event, handle.controlRef)
+        yield event
+      }
+      // A closed stream proves nothing. The exact retained result is the terminal authority.
+      const result = await awaitAbortable(handle.result(), signal)
+      yield {
+        type: 'result',
+        data: { finalText: result.text, success: result.success, usageMode: 'cumulative' },
+        ...(result.usage ? { usage: result.usage } : {}),
+      }
+    }
+    return { environment, events: events(), retained: true }
+  } catch (error) {
+    if (admitted) throw new RetainedExecutionPendingError(error)
+    throw error
+  }
 }
 
 function createInputFromSandboxOptions(
@@ -835,8 +1037,7 @@ function createInputFromSandboxOptions(
     ...(Object.keys(workspace).length > 0 ? { workspace } : {}),
     ...(options?.resources ? { resources: options.resources as ResourceRequest } : {}),
     ...(options?.env ? { env: options.env } : {}),
-    // Sandbox 0.34 adds the provider-owned "all" selector. Keep it in the
-    // passthrough options below because the neutral input contract accepts names only.
+    // Sandbox's "all" selector stays in the transport options; neutral inputs name secrets.
     ...(Array.isArray(options?.secrets) ? { secrets: options.secrets } : {}),
     ...(options?.metadata ? { metadata: options.metadata } : {}),
     ...(options?.name ? { name: options.name } : {}),
@@ -851,6 +1052,11 @@ async function sandboxOptionsFromCreateInput(
   resolveProfile?: SandboxClientProviderOptions['resolveProfile'],
   providerName = 'tangle-sandbox',
 ): Promise<CreateSandboxOptions> {
+  if (input.runtimeAttachments !== undefined) {
+    throw new ValidationError(
+      'Tangle Sandbox runtimeAttachments require an explicit mapCreateInput mapper; the maintained Sandbox SDK create contract does not transport them',
+    )
+  }
   const backendType = (input.backend ?? defaultBackend) as BackendType
   const workspace = WorkspaceRequestSchema.parse(input.workspace ?? {})
   const environment = sandboxEnvironmentFromWorkspace(workspace)
@@ -1512,7 +1718,7 @@ function sandboxEventFromEnvironmentEvent(event: AgentEnvironmentEvent): Sandbox
   })()
   return {
     type,
-    data,
+    data: 'usageMode' in event ? { ...data, usageMode: event.usageMode } : data,
     ...(event.id ? { id: event.id } : {}),
   }
 }
@@ -1601,7 +1807,18 @@ function usageSandboxEvent(event: AgentEnvironmentEvent): SandboxEvent | undefin
   ) {
     return undefined
   }
-  return { type: 'llm_call', data: usage }
+  return {
+    type: 'usage',
+    data: {
+      ...usage,
+      ...('usageMode' in event
+        ? { usageMode: event.usageMode }
+        : event.data.usageMode === undefined
+          ? {}
+          : { usageMode: event.data.usageMode }),
+    },
+    ...(event.id ? { id: event.id } : {}),
+  }
 }
 
 function sandboxDataFromNormalizedEvent(
@@ -1836,32 +2053,6 @@ function isUsageType(type: string): boolean {
 /** A terminal event whose usage rides `data.usage` — the nested shape this transport unwraps. */
 function isNestedUsageType(type: string): boolean {
   return isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage'
-}
-
-function usageFromEnvironmentEvent(event: AgentEnvironmentEvent): {
-  input: number
-  output: number
-  usd: number
-  hasInput: boolean
-  hasOutput: boolean
-  hasTokenReceipt: boolean
-} {
-  const receipt = tokenUsageReceipt(event.usage ?? tokenUsageRecord(event.data))
-  const usage = event.usage ?? tokenUsageFromData(event.data)
-  const input = finiteNumber(usage?.inputTokens)
-  const output = finiteNumber(usage?.outputTokens)
-  return {
-    input: input ?? 0,
-    output: (output ?? 0) + (finiteNumber(usage?.reasoningTokens) ?? 0),
-    usd:
-      finiteNumber(usage?.cost) ??
-      finiteNumber(event.data.costUsd) ??
-      finiteNumber(event.data.totalCostUsd) ??
-      0,
-    hasInput: receipt.hasInput,
-    hasOutput: receipt.hasOutput,
-    hasTokenReceipt: receipt.hasTokens,
-  }
 }
 
 function tokenUsageFromData(data: Record<string, unknown>): TokenUsage | undefined {

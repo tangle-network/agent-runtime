@@ -268,7 +268,7 @@ export function extractLlmCallEvent(
       : ({} as Record<string, unknown>)
 
   if (type === 'llm_call' || type === 'cost.usage' || type === 'usage') {
-    return buildLlmCall(data, agentRunName)
+    return buildLlmCall({ ...plainRecord(data.usage), ...data }, agentRunName)
   }
   if (isSandboxTerminalEvent(type) && sandboxTerminalUsageField(type) === 'usage') {
     const usage = data.usage as Record<string, unknown> | undefined
@@ -298,24 +298,16 @@ export function extractLlmCallEvent(
   // counters are read off the SAME `tokenUsage` record rather than re-derived, because only
   // that record states what the provider billed.
   if (type === 'done') {
-    const usage = data.tokenUsage as Record<string, unknown> | undefined
-    if (!usage || typeof usage !== 'object') return undefined
-    const out = pickFiniteNumber(usage, ['outputTokens', 'completion_tokens', 'tokensOut'])
-    const reasoning = pickFiniteNumber(usage, ['reasoningTokens'])
-    const mergedOut =
-      out !== undefined || reasoning !== undefined ? (out ?? 0) + (reasoning ?? 0) : undefined
-    const cache = readPromptCacheUsage(usage)
+    const usage = plainRecord(data.tokenUsage) ?? plainRecord(data.usage) ?? {}
     return buildLlmCall(
       {
-        inputTokens: usage.inputTokens,
-        outputTokens: mergedOut,
-        totalCostUsd: data.totalCostUsd,
+        ...usage,
+        ...(data.totalCostUsd === undefined ? {} : { totalCostUsd: data.totalCostUsd }),
         // The `PromptResult.costUsd` the polled-prompt path forwards onto its synthetic terminal
         // event. `totalCostUsd` is the live SSE spelling of the same fact; a stream carries one or
         // the other, never both.
         ...(data.costUsd === undefined ? {} : { costUsd: data.costUsd }),
         model: data.model ?? usage.model,
-        ...(cache !== undefined ? { promptCache: cache } : {}),
       },
       agentRunName,
     )
@@ -355,12 +347,14 @@ export interface SandboxUsageLedger {
 export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLedger {
   let held: HarnessUsage[] = []
   let sawCanonical = false
+  const credited: Record<string, number> = {}
+  const receipts = new Map<string, string>()
   return {
     observe(event, agentRunName) {
       const call = extractLlmCallEvent(event, agentRunName)
       if (call) {
         sawCanonical = true
-        return call
+        return creditCanonicalUsage(event, call, credited, receipts)
       }
       let usage: HarnessUsage | undefined
       try {
@@ -389,10 +383,86 @@ export function createSandboxUsageLedger(harness?: HarnessType): SandboxUsageLed
       const canonical = sawCanonical
       held = []
       sawCanonical = false
+      for (const key of Object.keys(credited)) delete credited[key]
+      receipts.clear()
       if (canonical || reports.length === 0) return undefined
       return harnessUsageLlmCall(reports, agentRunName)
     },
   }
+}
+
+/** Terminal totals replace already credited usage; only per-call receipts add to it. */
+function creditCanonicalUsage(
+  event: SandboxEvent,
+  call: LlmCallEvent,
+  credited: Record<string, number>,
+  receipts: Map<string, string>,
+): LlmCallEvent | undefined {
+  const declaredMode = plainRecord(event.data)?.usageMode
+  const mode =
+    declaredMode === 'delta' || declaredMode === 'cumulative'
+      ? declaredMode
+      : declaredMode === undefined && event.type === 'llm_call'
+        ? 'delta'
+        : declaredMode === undefined && isSandboxTerminalEvent(String(event.type))
+          ? 'cumulative'
+          : undefined
+  const result: LlmCallEvent = { ...call }
+  // A cost-only receipt says nothing about token completeness. A later complete token total
+  // can still establish it; a stream containing only cost receipts stays unknown at its fold.
+  if (call.tokensIn === undefined && call.tokensOut === undefined && !call.tokensUnknownReason) {
+    delete result.tokensKnown
+  }
+  let reason =
+    mode === undefined ? 'usage receipt has no declared delta or cumulative semantics' : undefined
+  if (event.id) {
+    const signature = JSON.stringify({ mode, call })
+    const previous = receipts.get(event.id)
+    if (previous === signature) return undefined
+    if (previous !== undefined) {
+      return {
+        type: 'llm_call',
+        model: call.model,
+        tokensKnown: false,
+        usdKnown: false,
+        tokensUnknownReason: `usage receipt ${event.id} changed after it was credited`,
+      }
+    }
+    receipts.set(event.id, signature)
+  }
+  const credit = (key: string, value: number): number => {
+    const previous = credited[key] ?? 0
+    if (!Number.isFinite(value) || value < 0) {
+      reason = `usage receipt has an invalid ${key}`
+      return 0
+    }
+    if (mode === 'delta') {
+      credited[key] = previous + value
+      return value
+    }
+    if (value < previous) reason = `cumulative usage ${key} is below already credited usage`
+    credited[key] = Math.max(previous, value)
+    return Math.max(0, value - previous)
+  }
+  for (const key of ['tokensIn', 'tokensOut', 'costUsd', 'estimatedCostUsd'] as const) {
+    if (call[key] !== undefined) result[key] = credit(key, call[key])
+  }
+  if (call.promptCache) {
+    result.promptCache = Object.fromEntries(
+      Object.entries(call.promptCache).map(([key, value]) => [
+        key,
+        typeof value === 'number' ? credit(`promptCache.${key}`, value) : value,
+      ]),
+    )
+  }
+  if (reason !== undefined) {
+    result.usdKnown = false
+    if (call.tokensIn !== undefined || call.tokensOut !== undefined) {
+      result.tokensKnown = false
+      result.tokensUnknownReason = reason
+    }
+  }
+  return result
 }
 
 /**
@@ -482,12 +552,14 @@ export function sumSandboxUsage(
   let estimatedCostUsd = 0
   let sawEstimate = false
   let sawCall = false
+  let sawTokenReceipt = false
   let tokensKnown = true
   let usdKnown = true
   let unreadable: string | undefined
   const ledger = createSandboxUsageLedger()
   const credit = (call: LlmCallEvent): void => {
     sawCall = true
+    sawTokenReceipt ||= call.tokensIn !== undefined || call.tokensOut !== undefined
     input += call.tokensIn ?? 0
     output += call.tokensOut ?? 0
     costUsd += call.costUsd ?? 0
@@ -511,7 +583,7 @@ export function sumSandboxUsage(
     input,
     output,
     costUsd,
-    ...(sawCall && tokensKnown ? {} : { tokensKnown: false as const }),
+    ...(sawTokenReceipt && tokensKnown ? {} : { tokensKnown: false as const }),
     ...(sawCall && usdKnown ? {} : { usdKnown: false as const }),
     ...(sawEstimate ? { estimatedCostUsd } : {}),
     ...(unreadable === undefined ? {} : { tokensUnknownReason: unreadable }),

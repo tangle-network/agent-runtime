@@ -71,6 +71,44 @@ describe('retained create admission material', () => {
     })
   })
 
+  it('binds runtime attachment destinations and credential references while excluding injected secrets', () => {
+    const input: CreateAgentEnvironmentInput = {
+      profile: { name: 'worker' },
+      env: { COORDINATION_TOKEN: 'secret-one' },
+      runtimeAttachments: {
+        mcp: {
+          coordination: {
+            transport: 'http',
+            url: 'https://coordination.example/mcp',
+            headers: {
+              Authorization: { kind: 'secret-ref', key: 'COORDINATION_TOKEN', format: 'bearer' },
+            },
+          },
+        },
+      },
+    }
+    const material = retainedCreateMaterial(input)
+    expect(retainedCreateMaterial({ ...input, env: { COORDINATION_TOKEN: 'secret-two' } })).toEqual(
+      material,
+    )
+    expect(JSON.stringify(material)).not.toContain('secret-one')
+    const changed: CreateAgentEnvironmentInput = {
+      ...input,
+      runtimeAttachments: {
+        mcp: {
+          coordination: {
+            transport: 'http',
+            url: 'https://another.example/mcp',
+            headers: {
+              Authorization: { kind: 'secret-ref', key: 'COORDINATION_TOKEN', format: 'bearer' },
+            },
+          },
+        },
+      },
+    }
+    expect(retainedCreateMaterial(changed)).not.toEqual(material)
+  })
+
   it('changes the public admission digest when secret names change', () => {
     expect(digestForSecrets({ API_TOKEN: 'guessable-a' })).not.toBe(
       digestForSecrets({ OTHER_TOKEN: 'guessable-a' }),

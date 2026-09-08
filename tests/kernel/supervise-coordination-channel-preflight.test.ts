@@ -53,7 +53,7 @@ const routerRoot: AgentProfile = {
   harness: 'cli-base',
   model: { provider: 'tangle-router', default: 'test' },
   prompt: { systemPrompt: 'Delegate.' },
-  tools: runtimeToolDeclarations('spawn_worker'),
+  tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
 }
 
 const spawnCapableChild = {
@@ -66,6 +66,7 @@ const spawnCapableChild = {
 /** One root turn spawns the spawn-capable child; every later turn records what the root read. */
 async function spawnLeadFromRoot(
   options: Omit<SuperviseOptions, 'budget' | 'perWorker' | 'journal' | 'runId'>,
+  waitForChild = false,
 ): Promise<{ events: SpawnEvent[]; toolResults: string[] }> {
   const events: SpawnEvent[] = []
   const toolResults: string[] = []
@@ -92,6 +93,9 @@ async function spawnLeadFromRoot(
             },
           ],
         }
+      }
+      if (waitForChild && turn === 2) {
+        return { toolCalls: [{ id: 'await', name: 'await_event', arguments: '{}' }] }
       }
       for (const message of messages) {
         if (typeof message.content === 'string') toolResults.push(message.content)
@@ -133,4 +137,63 @@ describe('supervise coordination-channel pre-flight', () => {
     expect(toolResults.find((text) => text.includes('preflight-refused'))).toBeUndefined()
     expect(events.some((event) => event.kind === 'spawned' && event.key === 'lead')).toBe(true)
   })
+})
+
+it('refuses advertised remote coordination when the provider cannot mount runtime attachments', async () => {
+  const { provider, creates } = neverCreatingProvider()
+  const { events, toolResults } = await spawnLeadFromRoot({
+    backend: { backend: 'provider', provider },
+    coordination: { authentication: true, publicUrl: 'https://coordination.example/manager' },
+  })
+  expect(creates()).toBe(0)
+  expect(events.some((event) => event.kind === 'spawned' && event.key === 'lead')).toBe(false)
+  expect(toolResults.some((text) => text.includes('runtimeAttachments'))).toBe(true)
+})
+
+it('mounts an authenticated reachable coordination attachment without changing the provider profile', async () => {
+  let creates = 0
+  let mountedStatus: number | undefined
+  let receivedProfile: AgentProfile | undefined
+  const provider: AgentEnvironmentProvider = {
+    name: 'attachment-boundary',
+    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+    async create(input) {
+      creates++
+      receivedProfile = input.profile
+      const server = input.runtimeAttachments?.mcp['agent-runtime-coordination']
+      if (server?.transport !== 'http') throw new Error('missing HTTP coordination attachment')
+      const response = await fetch(server.url, {
+        method: 'POST',
+        headers: {
+          ...Object.fromEntries(
+            Object.entries(server.headers ?? {}).map(([name, value]) => {
+              if (value.kind !== 'secret-ref' || value.format !== 'bearer')
+                throw new Error('test expects a private bearer reference')
+              return [name, `Bearer ${input.env?.[value.key]}`]
+            }),
+          ),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      })
+      mountedStatus = response.status
+      // This test ends at real provider admission and MCP reachability, without model inference.
+      throw new Error('test stopped after attachment admission')
+    },
+  }
+  const { events, toolResults } = await spawnLeadFromRoot(
+    {
+      backend: { backend: 'provider', provider },
+      coordination: {
+        authentication: true,
+        publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+      },
+      driverRetry: { enabled: false },
+    },
+    true,
+  )
+  expect(creates, JSON.stringify({ events, toolResults })).toBe(1)
+  expect(mountedStatus).toBe(200)
+  expect(receivedProfile?.name).toBe(spawnCapableChild.name)
+  expect(receivedProfile?.mcp?.['agent-runtime-coordination']).toBeUndefined()
 })

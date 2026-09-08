@@ -1,5 +1,9 @@
 # Converged Architecture
 
+This document describes the target distributed architecture.
+The implemented local recovery boundary is documented in [reliability.md](./reliability.md).
+Retained invocation recovery and authenticated MCP do not establish distributed ownership or provider fencing.
+
 ## One-Sentence Model
 
 An agent runs under one durable logical run, starts children through one budgeted `Scope`, and places each child on an external compute provider through the existing `Executor` and `AgentEnvironmentProvider` contracts.

@@ -1,27 +1,6 @@
 /**
- *
- * The Capability-Delivery Manifest — the unified, future-proof structure for
- * delivering ONE certified unit of agent power = `{ interface, binding }`.
- *
- * The law that makes it future-proof: **interfaces are closed; bindings are
- * open.** The interface is the only thing the agent and the certify lane ever
- * reason about (a tool / an MCP toolset / a prompt-context / a retrieval surface
- * / a hook / a subagent). The binding is a tagged union over runtime kinds that
- * the resolver collapses (inline / file / http / sandbox-code / mcp-stdio /
- * mcp-remote / process-on-infra / rag-index / memory-store / wasm / a2a). A new
- * runtime kind = one new binding arm + one resolver case; nothing else moves.
- *
- * This module owns the manifest TYPES and the lowering of TODAY's wire
- * (`CertifiedProfile`) into a `CapabilityManifest`. The resolver — the single
- * place that knows binding kinds and produces a uniform `ResolvedSurface` — lives
- * in `./resolver`. The shipped prompt-only path (`composeCertifiedPrompt` in
- * `./delivery`) is preserved verbatim: a prompt is a `Capability{ surface:
- * 'context', binding:{ kind:'inline' } }`, so the existing
- * `pullCertified → composeCertifiedPrompt → fail-closed` lane is a strict subset.
- *
- * Layering: this depends DOWN on `@tangle-network/sandbox` (the SDK
- * `AgentProfileMcpServer` shape the mcp binding lowers to) and on the runtime's
- * own `ToolSpec`. It never imports agent-eval and never reaches upward.
+ * Capability manifest types and conversion from the certified profile wire format.
+ * Consumers own binding admission and execution.
  *
  * @stable
  */
@@ -32,8 +11,7 @@ import type { CertifiedArtifact, CertifiedProfile, CertifiedPromptSurface } from
 
 // ── AXIS 1 — INTERFACE (CLOSED) ────────────────────────────────────────────────
 
-/** A JSON Schema object describing a tool's parameters. Kept structural — the
- *  resolver forwards it verbatim into a `ToolSpec` / MCP `tools/list` check. */
+/** A structural JSON Schema object describing a tool's parameters. */
 export type JsonSchema = Record<string, unknown>
 
 /**
@@ -54,7 +32,7 @@ export type CapabilityInterface =
   | { surface: 'hook'; event: string; matcher?: string }
   | { surface: 'subagent'; name: string; description?: string }
 
-/** Every interface surface tag — the closed set the resolver fans into slots. */
+/** Every interface surface tag supported by the manifest schema. */
 export type CapabilitySurface = CapabilityInterface['surface']
 
 // ── Content + credential REFERENCES (resolved lazily per-tenant) ────────────────
@@ -75,7 +53,7 @@ export interface CredentialRef {
 
 /**
  * How a binding authenticates at resolve time. Declared as a REQUIREMENT in the
- * manifest; the live secret is resolved per-tenant by the resolver context,
+ * manifest; the consumer resolves the live secret per tenant,
  * never inlined here.
  */
 export type CapabilityAuth =
@@ -102,9 +80,8 @@ export interface HostSpec {
 }
 
 /**
- * How a capability is backed. OPEN tagged union — THE extension point. All arms
- * are typed even when the resolver does not yet admit them; an un-admitted arm
- * throws {@link CapabilityNotAdmittedError} at resolve, never silently no-ops.
+ * Describes how a capability is backed.
+ * Consumers must admit a binding before executing it.
  */
 export type DeliveryBinding =
   // FILE class — deliver = write bytes (the shipped path).
@@ -136,7 +113,7 @@ export type DeliveryBinding =
   | { kind: 'wasm'; module: ContentRef; exports: string[] }
   | { kind: 'a2a'; endpoint: string; card: ContentRef; auth?: CapabilityAuth }
 
-/** Every binding kind — the open set the resolver dispatches over. */
+/** Every binding kind represented by the manifest schema. */
 export type DeliveryBindingKind = DeliveryBinding['kind']
 
 // ── Provenance + the manifest ───────────────────────────────────────────────────
@@ -148,7 +125,7 @@ export type DeliveryBindingKind = DeliveryBinding['kind']
  * the author.
  *
  * `sourcePath` is the artifact's ORIGINAL path (including `null`). It is the
- * byte-stable fold sort key — the resolver folds context artifacts in
+ * byte-stable fold sort key — consumers can fold context artifacts in
  * `composeCertifiedPrompt` order, which sorts by `path ?? ''`, so a `null` path
  * is load-bearing and MUST round-trip exactly. It is distinct from a context
  * `iface.name` (display only): collapsing the two flips the fold order for a
@@ -206,12 +183,7 @@ export interface ResolvedSubagent {
   prompt?: string
 }
 
-/**
- * What `composeCertifiedProfile` produces. Every binding fans into the same
- * slots, consumed identically by the in-process seam (`RouterToolsSeam.{tools,
- * executeToolCall}` + folded prompt) and the sandbox seam (`AgentProfile`).
- * `dispose()` tears provisioned hosts down in REVERSE dependency order.
- */
+/** Materialized capability surfaces supplied by a consumer-owned executor. */
 export interface ResolvedSurface {
   /** Host-side tool defs → `RouterToolsSeam.tools` / agent-app `extraTools`. */
   tools: ToolSpec[]
@@ -240,10 +212,7 @@ export interface ResolvedSurface {
 // ── Errors ──────────────────────────────────────────────────────────────────────
 
 /**
- * A binding kind whose resolver case is typed but not yet admitted (rag-index,
- * memory-store, wasm, a2a). Thrown by the resolver — NEVER faked into a working
- * surface. The TYPE arms exist so the union is closed against the spec; the
- * resolver grows them later behind their lifecycle + admission gate.
+ * A consumer rejected a binding that its executor does not admit.
  */
 export class CapabilityNotAdmittedError extends Error {
   readonly kind: DeliveryBindingKind
@@ -362,7 +331,7 @@ type CertifiedArtifactWithIndex = CertifiedArtifact & { index: number }
  * `prompt-surface`/`skill` artifacts → `context`/inline capabilities (the
  * shipped fold, generalized); any other artifact type → best-effort binding
  * inference. `promptSurface` is carried through so
- * the resolver folds it first, exactly as `composeCertifiedPrompt` does today.
+ * `composeCertifiedPrompt` folds it before other prompt artifacts.
  * This delivers the spine against today's wire before the plane changes.
  */
 export function manifestFromProfile(profile: CertifiedProfile): CapabilityManifest {

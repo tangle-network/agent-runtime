@@ -37,6 +37,7 @@
  */
 
 import type { AgentProfile } from '@tangle-network/agent-interface'
+import { contentAddress, ownedTreeRootSpawn } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { addSpend, zeroSpend } from '../util'
 import { runAbortable } from './abortable'
@@ -45,10 +46,12 @@ import {
   attestRuntimeOwnedDeferredExecutor,
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
+import { RetainedExecutionPendingError, retainedExecutorContext } from './retained-executor'
 import {
   finalizeScopeOwnerMaterialization,
   type NestedScopeSeam,
   nestedScopeSeamKey,
+  startScopeRecoveries,
 } from './scope'
 import { attestNestedDriverTreeOwner, driverRuntime, nestedDriverTreeRoot } from './tree-key'
 import type {
@@ -81,6 +84,7 @@ interface DriverSpec extends AgentSpec {
   /** Reads whether this manager accepted a direct result through its assignment's completion
    *  check. The check itself runs in the manager, exactly once, before this executor settles. */
   readonly acceptedSubmission?: () => boolean
+  readonly recoverExecutor?: ExecutorFactory<unknown>
 }
 
 /**
@@ -96,6 +100,7 @@ export function driverChild<Out>(
   journal: SpawnJournal,
   execution?: AgentExecutionRef,
   acceptedSubmission?: () => boolean,
+  recoverExecutor?: ExecutorFactory<unknown>,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
   const rawSpec: DriverSpec = {
@@ -106,6 +111,7 @@ export function driverChild<Out>(
     driver: driver as Agent<unknown, unknown>,
     journal,
     ...(acceptedSubmission ? { acceptedSubmission } : {}),
+    ...(recoverExecutor ? { recoverExecutor } : {}),
   }
   const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
   const deliver = driver.deliver?.bind(driver)
@@ -170,6 +176,10 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
   // so a sub-driver that crashes mid-run still re-homes its partial inference — pool + journal agree.
   let meteredSpend: Spend | undefined
   let accounting: ExecutorAccounting | undefined
+  let recovering = false
+  let previouslyMetered = zeroSpend()
+  let cleanupFailure: unknown
+  let unconfirmedDescendants: readonly string[] = []
   let active:
     | {
         readonly controller: AbortController
@@ -180,7 +190,18 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
 
   const closeActive = (reason: string): Promise<void> => {
     if (active === undefined) return Promise.resolve()
-    active.close ??= closeNestedScope(active.scope, active.controller, reason)
+    if (!active.close) {
+      const { scope, controller } = active
+      active.close = closeNestedScope(scope, controller, reason).then(
+        () => {
+          unconfirmedDescendants = scope.workerCapacity.unconfirmed.map((node) => node.id)
+        },
+        (error: unknown) => {
+          cleanupFailure = error
+          throw error
+        },
+      )
+    }
     return active.close
   }
 
@@ -193,20 +214,66 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
           },
         }
       : {}),
+    async recover(task, signal): Promise<ExecutorResult<unknown>> {
+      recovering = true
+      return executor.execute(task, signal) as Promise<ExecutorResult<unknown>>
+    },
     async execute(task, signal): Promise<ExecutorResult<unknown>> {
       // The nested tree key namespaces this driver's children inside the ONE shared
       // journal, so its cursor seqs never collide with the parent's per-tree guard.
       const nestedRoot = nestedDriverTreeRoot(seam.journalRoot, seam.nodeId)
+      const parentEvents = await journal.loadTree(seam.journalRoot)
+      const parentSpawn = parentEvents?.find(
+        (event) => event.kind === 'spawned' && event.id === seam.nodeId,
+      )
+      if (parentSpawn?.kind !== 'spawned' || parentSpawn.ownedTreeRoot !== nestedRoot) {
+        throw new ValidationError('driverExecutor: nested tree has no exact owning parent spawn')
+      }
+      const ownedSpawn = ownedTreeRootSpawn(parentSpawn)
+      previouslyMetered = recovering
+        ? sumMetered((parentEvents ?? []).filter((event) => event.id === seam.nodeId))
+        : zeroSpend()
       await journal.beginTree(nestedRoot, new Date(0).toISOString())
+      const prior = (await journal.loadTree(nestedRoot)) ?? []
+      if (prior.length === 0) {
+        await journal.appendEvent(nestedRoot, ownedSpawn)
+      } else if (contentAddress(prior[0]) !== contentAddress(ownedSpawn)) {
+        throw new ValidationError('driverExecutor: nested recovery changed its owning parent spawn')
+      } else if (prior.length !== 1 && !recovering) {
+        throw new RetainedExecutionPendingError(
+          new ValidationError('driverExecutor: interrupted nested execution requires recovery'),
+        )
+      }
+      if (recovering && (!spec.recoverExecutor || !seam.restore)) {
+        throw new RetainedExecutionPendingError(
+          new ValidationError(
+            'driverExecutor: nested recovery has no original executor reconstruction',
+          ),
+        )
+      }
+      signal.throwIfAborted()
 
       const controller = new AbortController()
       const onParentAbort = () => controller.abort(signal.reason)
       if (signal.aborted) controller.abort(signal.reason)
       else signal.addEventListener('abort', onParentAbort, { once: true })
-      const nestedScope: Scope<unknown> = seam.mount(nestedRoot, controller.signal)
+      let nestedScope: Scope<unknown>
+      try {
+        nestedScope = recovering
+          ? await seam.restore!(nestedRoot, controller.signal, prior, spec.recoverExecutor!)
+          : seam.mount(nestedRoot, controller.signal)
+      } catch (error) {
+        controller.abort(error)
+        signal.removeEventListener('abort', onParentAbort)
+        throw new RetainedExecutionPendingError(error)
+      }
       active = { controller, scope: nestedScope }
 
       try {
+        if (recovering) {
+          await startScopeRecoveries(nestedScope)
+          await retainedExecutorContext(ctx)?.onReady?.()
+        }
         // Run the driver. Its `act` spawns children into the nested scope and reacts via
         // `scope.next()`; a thrown `act` propagates so the PARENT scope types it into a down.
         const out = await runAbortable(
@@ -227,10 +294,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         const events = await loadTreeEvents(journal, nestedRoot)
         const settled = events.filter(isSettled)
         const childWork = sumSpend(settled)
-        meteredSpend = nonZeroOrUndef(sumMetered(events))
+        const totalMetered = sumMetered(events)
+        meteredSpend = nonZeroOrUndef(unreportedSpend(totalMetered, previouslyMetered))
         accounting = {
           reported: childWork,
-          reservation: addSpend(childWork, meteredSpend ?? zeroSpend()),
+          reservation: addSpend(childWork, totalMetered),
         }
         // A manager may finish work itself through an assignment-selected completion check. That
         // accepted submission is already independent evidence, so carry it to this settlement
@@ -247,14 +315,38 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         return artifact
       } catch (err) {
         await finalizeScopeOwnerMaterialization(active?.scope ?? nestedScope).catch(() => undefined)
-        await closeActive('driver stopped')
+        const cleanupError = await closeActive('driver stopped').then(
+          () => undefined,
+          (error: unknown) => error,
+        )
         // Crash mid-run: the nested tree still holds the durable `metered` events the sub-driver
         // already wrote (pool already debited them). Cache them so the parent's down-path re-home
         // lands the partial inference and the two ledgers stay in agreement. A missing tree must
         // not mask the original error.
         const partial = await safeRollup(journal, nestedRoot)
         meteredSpend = partial?.metered
+          ? nonZeroOrUndef(unreportedSpend(partial.metered, previouslyMetered))
+          : undefined
         accounting = partial?.accounting
+        const events = await journal.loadTree(nestedRoot).catch(() => undefined)
+        const settledIds = new Set(
+          events?.filter((event) => event.kind === 'settled').map((event) => event.id),
+        )
+        if (
+          events?.some(
+            (event) =>
+              (event.kind === 'execution-admitted' && event.id === seam.nodeId) ||
+              (event.kind === 'spawned' &&
+                event.parent !== undefined &&
+                event.runtime !== 'inline' &&
+                !settledIds.has(event.id)),
+          )
+        ) {
+          // An admitted backend or accepted backend result is not a finalized manager output.
+          // Keep the parent's key in doubt until a supported nested recovery can run its finalizer.
+          throw new RetainedExecutionPendingError(err)
+        }
+        if (cleanupError !== undefined) throw cleanupError
         throw err
       } finally {
         signal.removeEventListener('abort', onParentAbort)
@@ -267,9 +359,15 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
     metered(): Spend | undefined {
       return meteredSpend
     },
-    async teardown(): Promise<{ destroyed: boolean }> {
+    async teardown(): Promise<{ destroyed: boolean; detail?: string }> {
       await closeActive('driver executor teardown')
-      return { destroyed: true }
+      if (cleanupFailure !== undefined) throw cleanupFailure
+      return unconfirmedDescendants.length > 0
+        ? {
+            destroyed: false,
+            detail: `Nested executor cleanup is unconfirmed: ${unconfirmedDescendants.join(', ')}`,
+          }
+        : { destroyed: true }
     },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {
@@ -467,4 +565,26 @@ function isAgent(value: unknown): value is Agent<unknown, unknown> {
     typeof (value as { act?: unknown }).act === 'function' &&
     typeof (value as { name?: unknown }).name === 'string'
   )
+}
+
+/** Parent journals may already contain an interrupted driver's inference prefix. */
+function unreportedSpend(total: Spend, prior: Spend): Spend {
+  const tokens = { ...total.tokens }
+  for (const key of ['input', 'output', 'freshInput', 'cacheRead', 'cacheWrite'] as const) {
+    const value = total.tokens[key]
+    if (value !== undefined) tokens[key] = Math.max(0, value - (prior.tokens[key] ?? 0))
+  }
+  return {
+    ...total,
+    iterations: Math.max(0, total.iterations - prior.iterations),
+    tokens,
+    usd: Math.max(0, total.usd - prior.usd),
+    ms: Math.max(0, total.ms - prior.ms),
+    ...(total.usdEstimated === undefined
+      ? {}
+      : { usdEstimated: Math.max(0, total.usdEstimated - (prior.usdEstimated ?? 0)) }),
+    ...(total.boxMinutes === undefined
+      ? {}
+      : { boxMinutes: Math.max(0, total.boxMinutes - (prior.boxMinutes ?? 0)) }),
+  }
 }

@@ -1,5 +1,31 @@
 # Reliability And Security
 
+## Current recovery boundary
+
+A file-backed run persists original profile and invocation inputs before provider admission.
+The journal records intent, environment, dispatch, and accepted result in order.
+Child recovery uses the configured executor factory and validates the original request before reconnecting or replaying its idempotent admission.
+Scope restores each live child's original identity, deadline, reservation, and shared worker slot before its manager acts.
+Recovery waits for descendant admission, while managers and children can continue communicating before either finishes.
+An accepted result can be reused after environment deletion.
+An execution without sufficient recovery proof stays unresolved; it does not authorize replacement work.
+
+Provider manager recovery restores the original task and accepted output for the current invocation.
+A later deliberate manager invocation receives a separate input record.
+Usage reconciliation credits only previously unrecorded spend and preserves unknown token or dollar channels.
+Nested managers are reconstructed through the existing profile builder and retain their original finalizer.
+Backend output alone cannot replace the manager's finalized output.
+Recovery revokes journal writers on failure and drains writes already admitted before releasing ownership.
+Cancellation and cleanup failures preserve accepted output; budget and execution-evidence violations remain failures.
+
+The built-in provider recovery path supports one-shot, nonsteering execution.
+Retained execution does not create a steering capability the provider lacks.
+The file run lock protects one local coordinator.
+It does not fence provider mutations from a partitioned coordinator on another machine.
+No deployed or live multi-provider recovery proof is claimed here.
+
+The sections below define distributed requirements beyond this local recovery boundary.
+
 ## Required Invariants
 
 The implementation is complete only when all of these hold:
@@ -153,6 +179,35 @@ Remote coordination MCP requires:
 - no secrets in tool results or logs.
 
 The default remains loopback-only.
+Set `coordination.authentication` to `true` to mint an ephemeral credential.
+Credentials expire after 15 minutes by default; `authentication.ttlMs` can extend this to at most 24 hours.
+Runtime does not renew credentials automatically or refresh credentials inside a retained environment.
+Configure `ttlMs` to cover the manager invocation and expected coordinator downtime.
+Run deadlines do not extend credential lifetime.
+Set `coordination.publicUrl` to the caller-owned reachable endpoint or an actor-aware endpoint resolver.
+Runtime does not provision a proxy or tunnel.
+Remote public endpoints require HTTPS.
+
+For same-host coordinator restart, configure `authentication.signingKeys` with an active key ID and a secret key map.
+Keep the public URL, run ID, actor ID, tool grants, and verification key stable until the retained credential expires.
+Stable keys support resumed coordination only before the original credential expires.
+After expiry, the retained session can reattach, but its coordination requests receive HTTP 401.
+A new active key can mint credentials while previous keys verify existing credentials.
+Remove a verification key to revoke its credentials across coordinator restarts.
+Listener-local `rotateCredential()` revocation does not survive restart.
+The file run lock remains the single-owner fence; these credentials do not enable concurrent distributed failover.
+
+Provider managers require `capabilities.create.runtimeAttachments.mcp` and an authenticated public endpoint.
+Runtime passes the MCP server through `CreateAgentEnvironmentInput.runtimeAttachments`, preserving the canonical profile.
+Credential headers remain runtime-only and must not appear in receipts or journals.
+Retained manager recovery uses the original admitted backend input and validates its intent before reconnecting.
+
+The HTTP adapter bounds request bytes, body and action deadlines, concurrent work, and request rates.
+A timed-out action keeps its admission slot until execution settles.
+A 504 response does not prove the action had no effects; reuse existing semantic spawn keys when reconciling.
+A separate bounded admission path preserves owner status and cancellation during normal work saturation.
+Audit records contain trusted run and actor IDs, known action names, outcome, and HTTP status.
+Admission audit failure prevents action execution.
 
 Non-loopback binding without authentication must fail at construction.
 

@@ -646,40 +646,6 @@ Forwarded verbatim from `AnalystRegistry.runStream`.
 
 ## Functions
 
-### iterationsToTraceStore()
-
-> **iterationsToTraceStore**\<`Task`, `Output`\>(`iterations`, `budgets?`): `TraceAnalysisStore`
-
-Build an in-memory `TraceAnalysisStore` over a loop round's iterations. Fail-loud on an
-empty round — there is nothing for an analyst to read, and a silent empty store would
-mask a broken capture path.
-
-#### Type Parameters
-
-##### Task
-
-`Task`
-
-##### Output
-
-`Output`
-
-#### Parameters
-
-##### iterations
-
-readonly [`Iteration`](runtime.md#iteration-1)\<`Task`, `Output`\>[]
-
-##### budgets?
-
-`TraceAnalystByteBudgets` = `DEFAULT_TRACE_ANALYST_BUDGETS`
-
-#### Returns
-
-`TraceAnalysisStore`
-
-***
-
 ### runAnalystLoop()
 
 > **runAnalystLoop**\<`TProposal`, `TEdit`\>(`opts`): `Promise`\<[`RunAnalystLoopResult`](#runanalystloopresult)\<`TProposal`, `TEdit`\>\>

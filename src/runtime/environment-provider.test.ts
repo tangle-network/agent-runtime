@@ -1,5 +1,6 @@
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import {
+  type AgentEnvironmentCapabilities,
   type AgentExactRunControlRef,
   type AgentProfile,
   type AgentRunCancellationRequest,
@@ -419,6 +420,55 @@ describe('environment provider adapters', () => {
     expect(createOptions).toMatchObject({
       backend: { profile: { name: 'resolved:catalog/researcher' } },
     })
+  })
+
+  it('refuses advertised runtime attachments without a supported create mapper', async () => {
+    let createCalls = 0
+    const client: SandboxClient = {
+      async create(): Promise<SandboxInstance> {
+        createCalls += 1
+        throw new Error('mapped request reached client')
+      },
+    }
+    const input = {
+      profile: { name: 'worker' },
+      runtimeAttachments: {
+        mcp: {
+          coordination: {
+            transport: 'http' as const,
+            url: 'https://coordination.example/mcp/worker',
+            headers: {
+              Authorization: {
+                kind: 'secret-ref' as const,
+                key: 'COORDINATION_TOKEN',
+                format: 'bearer' as const,
+              },
+            },
+          },
+        },
+      },
+    }
+    const capabilities: AgentEnvironmentCapabilities = {
+      ...fakeCapabilities(),
+      create: { runtimeAttachments: { mcp: true } },
+    }
+    const provider = sandboxClientAsProvider(client, { capabilities })
+    await expect(provider.create(input)).rejects.toThrow(
+      /runtimeAttachments require an explicit mapCreateInput mapper/,
+    )
+    expect(createCalls).toBe(0)
+
+    let mappedInput: unknown
+    const mapped = sandboxClientAsProvider(client, {
+      capabilities,
+      mapCreateInput(received) {
+        mappedInput = received
+        return { name: 'explicitly-mapped' }
+      },
+    })
+    await expect(mapped.create(input)).rejects.toThrow('mapped request reached client')
+    expect(mappedInput).toEqual(input)
+    expect(createCalls).toBe(1)
   })
 
   it.each([
@@ -1232,6 +1282,35 @@ describe('environment provider adapters', () => {
     })
   })
 
+  it('credits a provider terminal usage total once when result and done repeat it', async () => {
+    const provider: AgentEnvironmentProvider = {
+      name: 'repeated-terminal',
+      capabilities: () => fakeCapabilities(),
+      async create() {
+        return fakeEnvironment({
+          async *stream(): AsyncIterable<AgentEnvironmentEvent> {
+            yield {
+              type: 'result',
+              data: { finalText: 'checked' },
+              usage: { inputTokens: 2791, outputTokens: 1238 },
+            }
+            yield { type: 'done', data: {}, usage: { inputTokens: 2791, outputTokens: 1238 } }
+          },
+        })
+      },
+    }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    const executor = providerAsExecutor(provider)(
+      { profile: { name: 'worker' }, harness: null },
+      ctx,
+    )
+    const events = await collect(executor.execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
+    expect(events.filter((event) => event.kind === 'tokens')).toEqual([
+      { kind: 'tokens', input: 2791, output: 1238 },
+    ])
+    expect(executor.resultArtifact().spent).toMatchObject({ tokens: { input: 2791, output: 1238 } })
+  })
+
   it('composes a profile-only supervisor spec through one steerable CLI-bridge-like Pi session', async () => {
     const firstTurnStreaming = deferred()
     const finishFirstTurn = deferred()
@@ -1311,7 +1390,7 @@ describe('environment provider adapters', () => {
             }
             yield {
               type: 'usage',
-              data: {},
+              data: { usageMode: 'delta' },
               usage: {
                 inputTokens: 5,
                 outputTokens: 7,
@@ -1532,7 +1611,7 @@ describe('environment provider adapters', () => {
             }
             yield {
               type: 'vendor.turn.finished',
-              data: { opaque: true },
+              data: { opaque: true, usageMode: 'cumulative' },
               usage: { inputTokens: 2, outputTokens: 3, cost: 0 },
               normalized: { type: 'status', status: 'completed' },
             }
@@ -1738,7 +1817,7 @@ describe('environment provider adapters', () => {
     const final = turn.events.at(-1)
     if (final?.type !== 'final') throw new Error('expected a terminal final event')
     expect(final.metadata).toMatchObject({
-      tokenUsage: { input: 10, output: 2 },
+      tokenUsage: { input: 7, output: 2 },
       tokensKnown: false,
     })
   })
@@ -1904,12 +1983,12 @@ describe('environment provider adapters', () => {
             }
             yield {
               type: 'usage',
-              data: {},
+              data: { usageMode: 'delta' },
               usage: { inputTokens: 7, outputTokens: 0 },
             }
             yield {
               type: 'usage',
-              data: {},
+              data: { usageMode: 'delta' },
               usage: { inputTokens: 0, outputTokens: 11, reasoningTokens: 3, cost: 0.03 },
             }
             yield {

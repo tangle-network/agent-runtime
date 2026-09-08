@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { request } from 'node:http'
+import { describe, expect, it, vi } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { serveCoordinationMcp } from '../../src/runtime/supervise/coordination-mcp'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -44,10 +45,11 @@ async function jsonRpc(
   url: string,
   method: string,
   params: unknown,
+  headers?: Readonly<Record<string, string>>,
 ): Promise<{ result?: unknown; error?: unknown }> {
   const r = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   })
   return (await r.json()) as { result?: unknown; error?: unknown }
@@ -69,14 +71,20 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
           makeWorkerAgent: () => deliveringLeaf('w', { answer: 42 }),
           perWorker: { maxIterations: 4, maxTokens: 1000 } as Budget,
           toolNames: ['spawn_worker', 'await_event'],
+          authentication: true,
         })
         try {
-          const toolsList = await jsonRpc(mcp.url, 'tools/list', {})
-          await jsonRpc(mcp.url, 'tools/call', {
-            name: 'spawn_worker',
-            arguments: { profile: {}, task: 'go' },
-          })
-          await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} })
+          const toolsList = await jsonRpc(mcp.url, 'tools/list', {}, mcp.headers)
+          await jsonRpc(
+            mcp.url,
+            'tools/call',
+            {
+              name: 'spawn_worker',
+              arguments: { profile: {}, task: 'go' },
+            },
+            mcp.headers,
+          )
+          await jsonRpc(mcp.url, 'tools/call', { name: 'await_event', arguments: {} }, mcp.headers)
           observed = { toolsList: toolsList.result, settled: mcp.settled() }
           const done = mcp.settled().filter((w) => w.status === 'done' && w.valid === true)
           return done[0]?.outRef ? await blobs.get(done[0].outRef) : undefined
@@ -261,10 +269,7 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
   // The verbs this server mounts (spawn_worker / steer_agent / stop) are unauthenticated, and this
   // function is a PUBLIC export taking `host` directly — so the rule has to live HERE, not only at
   // the `supervise` / `supervisorAgent` composition sites that happen to call it.
-  const serve = (
-    scope: Scope<unknown>,
-    extra: { host?: string; allowUnauthenticatedRemote?: true },
-  ) =>
+  const serve = (scope: Scope<unknown>, extra: { host?: string; authentication?: true }) =>
     serveCoordinationMcp({
       scope,
       blobs: new InMemoryResultBlobStore(),
@@ -275,7 +280,7 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
     })
 
   it.each(['0.0.0.0', '10.0.0.7', '::', 'runner-7.internal'])(
-    'refuses the non-loopback host %s with no acknowledgment',
+    'refuses the non-loopback host %s without authentication',
     async (host) => {
       // An unresolvable/unknown name counts as remote: whether it lands on a loopback interface is
       // not knowable at bind time, and the safe direction of that doubt is "exposed".
@@ -284,16 +289,16 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
           const mcp = await serve(scope, { host })
           await mcp.close()
         }),
-      ).rejects.toThrow(/not a loopback address.*allowUnauthenticatedRemote/s)
+      ).rejects.toThrow(/non-loopback address requires authentication/s)
     },
   )
 
-  it('accepts an acknowledged non-loopback host and serves the verbs on it', async () => {
+  it('accepts an authenticated non-loopback host and serves the verbs on it', async () => {
     const names = await withLiveScope(async (scope) => {
-      const mcp = await serve(scope, { host: '0.0.0.0', allowUnauthenticatedRemote: true })
+      const mcp = await serve(scope, { host: '0.0.0.0', authentication: true })
       try {
         expect(mcp.url).toMatch(/^http:\/\/0\.0\.0\.0:\d+\/mcp$/)
-        const listed = (await jsonRpc(mcp.url, 'tools/list', {})).result as {
+        const listed = (await jsonRpc(mcp.url, 'tools/list', {}, mcp.headers)).result as {
           tools?: Array<{ name: string }>
         }
         return (listed.tools ?? []).map((t) => t.name)
@@ -305,7 +310,7 @@ describe('serveCoordinationMcp itself fails closed on a non-loopback bind', () =
   })
 
   it.each(['127.0.0.1', '127.0.0.53', 'localhost', '::1', '::ffff:127.0.0.1'])(
-    'binds the loopback host %s with no acknowledgment needed',
+    'binds the loopback host %s without authentication needed',
     async (host) => {
       // Linux gives every 127/8 address to the loopback interface; macOS assigns only
       // 127.0.0.1, so `listen` there answers EADDRNOTAVAIL for 127.0.0.53. That is a
@@ -411,5 +416,370 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
     expect(mailUrls).toHaveLength(1)
     expect(mailUrls[0]).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mail\/[0-9a-f]{32}$/)
     expect([...mailToolNames].sort()).toEqual(['read_mail', 'send_mail'])
+  })
+})
+
+async function withBoundHttp<T>(
+  extra: Partial<Parameters<typeof serveCoordinationMcp>[0]>,
+  body: (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>) => Promise<T>,
+): Promise<T> {
+  return withLiveScope(async (scope) => {
+    const mcp = await serveCoordinationMcp({
+      scope,
+      blobs: new InMemoryResultBlobStore(),
+      makeWorkerAgent: () => deliveringLeaf('unused', {}),
+      perWorker: { maxIterations: 1, maxTokens: 10 },
+      authentication: true,
+      identity: { runId: 'run-a', actorId: 'actor-a' },
+      toolNames: ['probe'],
+      nodeTools: [
+        {
+          name: 'probe',
+          description: 'Exercise the real HTTP boundary',
+          inputSchema: { type: 'object' },
+          handler: async () => ({ ok: true }),
+        },
+      ],
+      ...extra,
+    })
+    try {
+      return await body(mcp)
+    } finally {
+      await mcp.close()
+    }
+  })
+}
+
+function postHttp(
+  mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>,
+  headers: Record<string, string> = {},
+  body = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name: 'probe', arguments: {} },
+  }),
+) {
+  return fetch(mcp.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body,
+  })
+}
+
+describe('authenticated and bounded coordination HTTP', () => {
+  it('rejects absent, wrong-run, wrong-actor and revoked credentials before handler execution', async () => {
+    let calls = 0
+    await withBoundHttp(
+      {
+        nodeTools: [
+          {
+            name: 'probe',
+            description: 'Count accepted calls',
+            inputSchema: { type: 'object' },
+            handler: async () => {
+              calls++
+              return {}
+            },
+          },
+        ],
+      },
+      async (mcp) => {
+        expect((await postHttp(mcp)).status).toBe(401)
+        await withBoundHttp({ identity: { runId: 'run-b', actorId: 'actor-b' } }, async (other) => {
+          expect((await postHttp(mcp, other.headers)).status).toBe(401)
+          expect((await postHttp(other, mcp.headers)).status).toBe(401)
+        })
+        const old = mcp.headers
+        mcp.rotateCredential()
+        expect((await postHttp(mcp, old)).status).toBe(401)
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+        expect(calls).toBe(1)
+        const unknown = await jsonRpc(
+          mcp.url,
+          'tools/call',
+          { name: 'spawn_worker', arguments: {} },
+          mcp.headers,
+        )
+        expect(unknown.error).toBeDefined()
+        expect(calls).toBe(1)
+      },
+    )
+  })
+
+  it('enforces expiration and audience, and does not leak bearer credentials into audit records', async () => {
+    const events: unknown[] = []
+    await withBoundHttp(
+      {
+        onAudit: (event) => {
+          events.push(event)
+        },
+      },
+      async (mcp) => {
+        const wrongAudience = await new Promise<number>((resolve, reject) => {
+          // Node's HTTP client preserves the wire Host header; fetch can replace it.
+          const req = request(
+            mcp.url,
+            {
+              method: 'POST',
+              headers: {
+                ...mcp.headers,
+                Host: 'wrong-audience.invalid',
+                'content-type': 'application/json',
+              },
+            },
+            (res) => {
+              res.resume()
+              resolve(res.statusCode!)
+            },
+          )
+          req.on('error', reject)
+          req.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }))
+        })
+        expect(wrongAudience).toBe(403)
+        expect(
+          (await fetch(mcp.url.replace('/mcp', '/other'), { method: 'POST', headers: mcp.headers }))
+            .status,
+        ).toBe(404)
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(mcp.credentialExpiresAt! + 1)
+        try {
+          expect((await postHttp(mcp, mcp.headers)).status).toBe(401)
+        } finally {
+          clock.mockRestore()
+        }
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            runId: 'run-a',
+            actorId: 'actor-a',
+            outcome: 'accepted',
+            action: 'probe',
+          }),
+        )
+        expect(JSON.stringify(events)).not.toContain(mcp.headers.Authorization)
+      },
+    )
+  })
+
+  it('rechecks credential revocation after an asynchronous admission audit', async () => {
+    let rotate: (() => void) | undefined
+    let calls = 0
+    await withBoundHttp(
+      {
+        onAudit: async (event) => {
+          if (event.outcome === 'accepted') rotate?.()
+        },
+        nodeTools: [
+          {
+            name: 'probe',
+            description: 'Must remain uncalled',
+            inputSchema: { type: 'object' },
+            handler: async () => {
+              calls++
+              return {}
+            },
+          },
+        ],
+      },
+      async (mcp) => {
+        rotate = () => mcp.rotateCredential()
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(401)
+        expect(calls).toBe(0)
+      },
+    )
+  })
+
+  it('checks origins, content type, JSON shape and both declared and streamed body size', async () => {
+    await withBoundHttp(
+      { maxRequestBytes: 128, allowedOrigins: ['https://console.example'] },
+      async (mcp) => {
+        expect(
+          (await postHttp(mcp, { ...mcp.headers, Origin: 'https://attacker.example' })).status,
+        ).toBe(403)
+        expect(
+          (await postHttp(mcp, { ...mcp.headers, Origin: 'https://console.example' })).status,
+        ).toBe(200)
+        expect((await postHttp(mcp, { ...mcp.headers, 'content-type': 'text/plain' })).status).toBe(
+          415,
+        )
+        expect((await postHttp(mcp, mcp.headers, '[]')).status).toBe(400)
+        expect((await postHttp(mcp, mcp.headers, '{')).status).toBe(400)
+        expect((await postHttp(mcp, mcp.headers, 'x'.repeat(129))).status).toBe(413)
+        const streamed = await new Promise<number>((resolve, reject) => {
+          const req = request(
+            mcp.url,
+            { method: 'POST', headers: { ...mcp.headers, 'content-type': 'application/json' } },
+            (res) => {
+              res.resume()
+              resolve(res.statusCode!)
+            },
+          )
+          req.on('error', reject)
+          req.write('x'.repeat(65))
+          req.end('x'.repeat(64))
+        })
+        expect(streamed).toBe(413)
+      },
+    )
+  })
+
+  it('times out a slow body before any tool executes', async () => {
+    let calls = 0
+    await withBoundHttp(
+      {
+        requestTimeoutMs: 50,
+        nodeTools: [
+          {
+            name: 'probe',
+            description: 'Never called',
+            inputSchema: { type: 'object' },
+            handler: async () => {
+              calls++
+              return {}
+            },
+          },
+        ],
+      },
+      async (mcp) => {
+        const status = await new Promise<number>((resolve, reject) => {
+          const req = request(
+            mcp.url,
+            { method: 'POST', headers: { ...mcp.headers, 'content-type': 'application/json' } },
+            (res) => {
+              res.resume()
+              req.destroy()
+              resolve(res.statusCode!)
+            },
+          )
+          req.on('error', reject)
+          req.write('{')
+        })
+        expect(status).toBe(408)
+        expect(calls).toBe(0)
+      },
+    )
+  })
+
+  it('keeps a timed-out action charged against concurrency until it actually settles', async () => {
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    let release!: () => void
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let finished!: () => void
+    const settled = new Promise<void>((resolve) => {
+      finished = resolve
+    })
+    let calls = 0
+    await withBoundHttp(
+      {
+        maxConcurrentRequests: 1,
+        requestTimeoutMs: 50,
+        onAudit: (event) => {
+          if (event.outcome === 'completed-after-deadline') finished()
+        },
+        nodeTools: [
+          {
+            name: 'probe',
+            description: 'A bounded blocked handler',
+            inputSchema: { type: 'object' },
+            handler: async () => {
+              if (++calls === 1) {
+                entered()
+                await blocked
+              }
+              return {}
+            },
+          },
+        ],
+      },
+      async (mcp) => {
+        try {
+          const pending = postHttp(mcp, mcp.headers)
+          await started
+          expect((await pending).status).toBe(504)
+          expect((await postHttp(mcp, mcp.headers)).status).toBe(429)
+          release()
+          await settled
+          expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+        } finally {
+          release()
+        }
+      },
+    )
+  })
+
+  it('bounds admitted request rate without invoking excess actions', async () => {
+    await withBoundHttp({ requestsPerMinute: 2 }, async (mcp) => {
+      expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+      expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
+      expect((await postHttp(mcp, mcp.headers)).status).toBe(429)
+    })
+  })
+
+  it('returns a caller-owned reachable endpoint and binds its audience without putting credentials in the URL', async () => {
+    await withBoundHttp(
+      { publicUrl: ({ actorId }) => `https://coordination.example/${actorId}` },
+      async (mcp) => {
+        expect(mcp.url).toBe('https://coordination.example/actor-a')
+        expect(mcp.url).not.toContain(mcp.headers.Authorization!)
+        const response = await fetch(`http://127.0.0.1:${mcp.port}/actor-a`, {
+          method: 'POST',
+          headers: {
+            ...mcp.headers,
+            Host: 'coordination.example',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+        })
+        expect(response.status).toBe(200)
+      },
+    )
+  })
+})
+
+describe('coordination credential continuity', () => {
+  it('accepts an original credential only for its exact restarted authority and retained verification key', async () => {
+    const signingKeys = { activeKeyId: 'original', keys: { original: 'a'.repeat(48) } }
+    const publicUrl = 'https://coordination.example/manager'
+    let original: Readonly<Record<string, string>> = {}
+    await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
+      original = mcp.headers
+    })
+    const request = (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>) =>
+      fetch(`http://127.0.0.1:${mcp.port}/mcp`, {
+        method: 'POST',
+        headers: { ...original, 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      })
+    const rotated = { activeKeyId: 'next', keys: { ...signingKeys.keys, next: 'b'.repeat(48) } }
+    await withBoundHttp({ authentication: { signingKeys: rotated }, publicUrl }, async (mcp) => {
+      expect((await request(mcp)).status).toBe(200)
+    })
+    for (const mismatch of [
+      { identity: { runId: 'other-run', actorId: 'actor-a' } },
+      { identity: { runId: 'run-a', actorId: 'other-actor' } },
+      { publicUrl: 'https://coordination.example/other' },
+      { toolNames: ['probe', 'stop'] },
+      { authentication: { signingKeys: { activeKeyId: 'next', keys: { next: 'b'.repeat(48) } } } },
+    ]) {
+      await withBoundHttp(
+        { authentication: { signingKeys: rotated }, publicUrl, ...mismatch },
+        async (mcp) => {
+          expect((await request(mcp)).status).toBe(401)
+        },
+      )
+    }
+    const time = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 900_001)
+    try {
+      await withBoundHttp({ authentication: { signingKeys }, publicUrl }, async (mcp) => {
+        expect((await request(mcp)).status).toBe(401)
+      })
+    } finally {
+      time.mockRestore()
+    }
   })
 })

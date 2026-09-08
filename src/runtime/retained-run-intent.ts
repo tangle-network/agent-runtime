@@ -28,6 +28,9 @@ export function retainedCreateMaterial(
       : {
           resourcesDigest: canonicalCandidateDigest(publicResourceMaterial(environment.resources)),
         }),
+    ...(environment.runtimeAttachments === undefined
+      ? {}
+      : { runtimeAttachmentsDigest: canonicalCandidateDigest(environment.runtimeAttachments) }),
     ...(environment.name === undefined ? {} : { name: environment.name }),
     ...(environment.env === undefined
       ? {}

@@ -2,6 +2,9 @@
 
 > This is a dated audit record, not the current package manifest.
 > Check `package.json` and the generated API docs for the release in your checkout.
+> The retained recovery and authenticated MCP implementation now supersedes findings 1 and 3 below.
+> See [reliability.md](./reliability.md) for current support and limits.
+> The original observations remain unchanged as historical evidence.
 
 ## Tested Baseline
 

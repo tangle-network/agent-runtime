@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.199.0.**
+> **Version 0.200.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
 > `agent-eval` must satisfy `>=0.175.0 <0.176.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.38.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.3.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.4.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -46,6 +46,11 @@ The system is four steps, each with a named entry point:
    Scenarios can represent complete learning episodes; keep the final assessment outside all adaptation and scope selection.
 
 Two standing rules: the model that picks the best attempt is never the model that grades it, and observation attaches to the *loop* via `RuntimeHooks`, never to the portable profile. A durable `Supervisor` replays a crashed tree from its journal after coordinator restart; committed work is reused while in-flight keyed work remains `in-doubt` until its exact prior execution is recovered.
+Configure `recoverExecutor` for retained provider children when using the lower-level supervisor.
+The built-in nonsteering provider path in `supervise` supplies recovery for children, nested managers, and the root manager invocation.
+Live descendants regain their original reservations before the parent resumes, without waiting for their terminal results.
+Recovery uses original durable inputs and exact provider references; missing proof leaves the invocation unresolved.
+The file run lock supports one local coordinator, without distributed fencing.
 
 (The original one-sentence compressed form of this spine is preserved in [design.md](./design.md).)
 

@@ -115,7 +115,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     expect(ex.resultArtifact().out).toBe('the answer')
   })
 
-  it('sends the configured temperature + maxTokens as sampling fields on EVERY request', async () => {
+  it('sends temperature and distinct visible and total ceilings on every request', async () => {
     const { transport, requests } = scriptedTransport([
       {
         choices: [
@@ -139,6 +139,7 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
           default: 'test/model',
           metadata: { temperature: 0.7 },
           maxVisibleOutputTokens: 2500,
+          maxTotalOutputTokens: 4000,
         },
         tools: { step: true },
       }),
@@ -156,7 +157,22 @@ describe('chatTransportExecutor — one conversation shot on a bare transport', 
     for (const req of requests) {
       expect(req.temperature).toBe(0.7)
       expect(req.max_tokens).toBe(2500)
+      expect(req.max_completion_tokens).toBe(4000)
     }
+  })
+
+  it('refuses a reasoning ceiling before opening the transport', () => {
+    const { transport, requests } = scriptedTransport([reply('never')])
+    expect(() =>
+      chatTransportExecutor({
+        url: 'http://unused.invalid',
+        profile: chatProfile({
+          model: { provider: 'scripted', default: 'test/model', maxReasoningTokens: 100 },
+        }),
+        complete: transport,
+      }),
+    ).toThrow(/modelMaxReasoningTokens/)
+    expect(requests).toHaveLength(0)
   })
 
   it('rejects a non-positive or fractional visible ceiling before any transport call', () => {

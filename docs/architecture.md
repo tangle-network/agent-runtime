@@ -87,7 +87,11 @@ driver-of-driver = a child whose profile is itself a coordinator — free, by re
 ```
 
 `Scope.spawn` is the recursive boundary; the journal makes completed settlements replayable.
-Live supervised-tree resume after coordinator restart is not implemented.
+Recovery restores retained children and their original reservations before the coordinator admits new work.
+Parents and children resume together through Scope, including reconstructed nested managers.
+Provider managers can recover their original invocation and reuse an accepted result.
+Recovery preserves unresolved work when the provider cannot prove its identity or completion.
+The file run lock coordinates one local owner; this does not implement distributed fencing.
 **This recursive execution tree IS the product.** The three things we own
 are small: (1) the **MCP** the agents share (`spawn · observe · steer · stop` +
 `define_check · run_check`); (2) the **profiles** (markdown — the only customization;
@@ -494,8 +498,13 @@ Salience filtering and the cross-box durable mailbox are not built; see **§13.6
 - **LIMIT** — a bridge worker's tool spans are INSTANTS with no status: the OpenAI-shaped `tool_calls` wire reports the model's decision to call a tool and never reports the call finishing, so no duration or outcome exists to read.
   A harness whose native protocol reports tool completion could carry true durations; this wire does not.
   Order, counts, names, and arguments are all present; per-tool latency and per-tool error rate are not.
-- **LIMIT** — a remote sandbox cannot reach the loopback coordination server automatically.
-  It needs an explicit `driveHarness` that provides a reachable relay or tunnel.
+- Provider managers can mount coordination when the provider advertises runtime MCP attachments and the caller supplies an authenticated public endpoint.
+  Runtime keeps the endpoint and secret references outside the authored profile.
+  The caller supplies network reachability; Runtime does not provision a relay or tunnel.
+  Stable signing keys and an unchanged public endpoint support credential verification after a local restart.
+- One-shot provider managers do not gain mid-turn steering from retained execution or MCP attachment support.
+  Use a supported steerable backend when the workflow requires it.
+- Local recovery and transport checks do not establish live provider behavior or production recovery.
 - **LIMIT** — the in-process router arm has no environment in which to materialize profile resources, hooks, subagents, permissions, or modes.
   It executes prompt + model and uses explicit `extraTools`; choose an external backend when the other profile axes must run.
 

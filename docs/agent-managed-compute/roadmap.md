@@ -1,5 +1,9 @@
 # Implementation Roadmap
 
+Retained child and manager recovery and authenticated MCP now have implementations.
+Their scope and limitations are recorded in [reliability.md](./reliability.md).
+The phases below retain the broader distributed acceptance criteria; implementation alone does not close them.
+
 ## Completion Definition
 
 Agent-managed compute is complete when an external developer can start one dynamic run with a profile and budget, observe and steer its agents, kill and restart the coordinator without duplicate work, use at least two real compute providers, and receive one checked result with complete usage and trace records.

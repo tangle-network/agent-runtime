@@ -40,12 +40,9 @@ import {
   closesCursorSlot,
   contentAddress,
   loadSpawnForest,
-  materializeTreeView,
-  pendingWaits,
-  replaySpawnTree,
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
-import { addSpend, zeroSpend } from '../util'
+import { addSpend } from '../util'
 import { runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
@@ -57,20 +54,21 @@ import {
   unknownExecutionBindingReceipt,
   unknownMaterializationReceipt,
 } from './materialization'
-import { createScope, finalizeScopeOwnerMaterialization } from './scope'
+import { prepareScopeResume, type ScopeResumeState, sumSpendFromEvents } from './recover-executors'
+
+export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './recover-executors'
+
+import { createScope, finalizeScopeOwnerMaterialization, startScopeRecoveries } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type {
   Agent,
-  Budget,
   ExecutionBindingReceipt,
   NodeId,
   NoWinnerError,
   ProfileMaterializationReceipt,
-  ResumedKeyState,
   RootHandle,
   RootSignal,
   Scope,
-  Settled,
   SpawnEvent,
   SpawnJournal,
   Spend,
@@ -83,74 +81,20 @@ import type {
   TreeView,
   UnconfirmedTeardown,
 } from './types'
-import type { PendingWait } from './wait'
 
 /** The driver-rejection shape a `reason: 'driver-failed'` result carries. Re-exported from the
  *  module that produces it so a consumer catching a driver failure names the type instead of
  *  retyping `{ name; message; stack? }`. Declared in `./types` beside the result it rides on. */
 export type { NoWinnerError } from './types'
 
-/** The committed work + cursor maxima the supervisor hands a resumed scope. Shaped to spread
- *  into `ScopeArgs.resumeFrom`. */
-interface ResumeFrom {
-  readonly settled: ReadonlyArray<Settled<unknown>>
-  readonly view: TreeView
-  readonly maxSpawnOrdinal: number
-  readonly maxCursorSeq: number
-  readonly maxWaitOrdinal: number
-  readonly waits: ReadonlyArray<PendingWait>
-  readonly keys: ReadonlyMap<string, ResumedKeyState<unknown>>
-  readonly priorSpend: { readonly childWork: Spend; readonly driverInference: Spend }
-}
-
-/**
- * The keyed assignments a prior journal proves: every `spawned` event carrying a `key`, resolved
- * against the replayed settlements. A key spawned more than once (a retry chain) resolves to its
- * LATEST attempt — iterate in ordinal order so later spawns overwrite earlier ones. A spawned
- * event with no matching settlement is `in-doubt`: the process died with it in flight.
- */
-function keyedAssignments(
-  events: SpawnEvent[],
-  settled: ReadonlyArray<Settled<unknown>>,
-): ReadonlyMap<string, ResumedKeyState<unknown>> {
-  const byId = new Map(settled.map((s) => [s.handle.id, s]))
-  const keys = new Map<string, ResumedKeyState<unknown>>()
-  const spawns = events
-    .filter((ev): ev is Extract<SpawnEvent, { kind: 'spawned' }> => ev.kind === 'spawned')
-    .sort((a, b) => a.seq - b.seq)
-  for (const ev of spawns) {
-    if (ev.key === undefined) continue
-    if (ev.identity === undefined) {
-      throw new RuntimeRunStateError(
-        `supervisor: keyed node '${ev.id}' has no durable execution identity`,
-      )
-    }
-    const s = byId.get(ev.id)
-    keys.set(
-      ev.key,
-      s === undefined
-        ? { id: ev.id, label: ev.label, identity: ev.identity, state: 'in-doubt' }
-        : {
-            id: ev.id,
-            label: ev.label,
-            identity: ev.identity,
-            state: s.kind === 'done' ? 'completed' : 'down',
-            settled: s,
-          },
-    )
-  }
-  return keys
-}
-
 type SpawnedEvent = Extract<SpawnEvent, { kind: 'spawned' }>
 
 /** A resumed process may continue only the exact root contract first recorded for this run id. */
 function assertResumeContract(events: SpawnEvent[], opts: SupervisorOpts): SpawnedEvent {
   const roots = events.filter(
-    (event): event is SpawnedEvent =>
-      event.kind === 'spawned' && event.id === opts.runId && event.parent === undefined,
+    (event): event is SpawnedEvent => event.kind === 'spawned' && event.parent === undefined,
   )
-  if (roots.length !== 1) {
+  if (roots.length !== 1 || roots[0]?.id !== opts.runId) {
     throw new RuntimeRunStateError(
       `supervisor: resumed run '${opts.runId}' must contain exactly one root identity event; found ${roots.length}`,
     )
@@ -345,32 +289,6 @@ function rootStartedAtMs(root: SpawnedEvent): number {
   return startedAt
 }
 
-/** Child reservations whose spawn was durable but whose terminal record never landed. */
-export function uncertainSpawnBudgets(events: SpawnEvent[]): Budget[] {
-  const terminal = new Set(events.filter(closesCursorSlot).map((event) => event.id))
-  return events
-    .filter(
-      (event): event is SpawnedEvent =>
-        event.kind === 'spawned' &&
-        event.parent !== undefined &&
-        !terminal.has(event.id) &&
-        // An `inline` executor runs inside the process that spawned it, so a resume can prove it
-        // dead rather than in-doubt: holding its reservation would charge the pool for work no
-        // process can ever finish. Only a runtime that can re-attach across a process boundary
-        // (bridge, sandbox) keeps its reservation charged as uncertain.
-        event.runtime !== 'inline',
-    )
-    .map((event) => event.budget)
-}
-
-/** Highest `seq` among events matching `pred`, or `-1` when none match (so a resumed scope's
- *  first new ordinal/seq is 0 — the same start a fresh scope uses). */
-export function maxSeqOf(events: SpawnEvent[], pred: (ev: SpawnEvent) => boolean): number {
-  let max = -1
-  for (const ev of events) if (pred(ev) && ev.seq > max) max = ev.seq
-  return max
-}
-
 /** The default runtime recursion-depth ceiling, paired with the conserved pool so a
  *  runaway recursion hits budget-exhaustion first and depth-exceeded second (R3). */
 const defaultMaxDepth = 4
@@ -433,6 +351,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       journal: journalStore,
       blobs: blobStore,
       executors: executorRegistry,
+      recoverExecutor,
       probes,
       maxDepth,
       maxLiveWorkers,
@@ -471,6 +390,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       journal: journalStore,
       blobs: blobStore,
       executors: executorRegistry,
+      ...(recoverExecutor ? { recoverExecutor } : {}),
       ...(probes === undefined ? {} : { probes }),
       ...(suppliedNow === undefined ? {} : { now: suppliedNow }),
       ...(signal === undefined ? {} : { signal }),
@@ -507,42 +427,38 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           `supervisor: runId '${opts.runId}' already exists; pass resume: true to continue it or use a new runId`,
         )
       }
-      const prior = opts.resume === true ? existing : undefined
+      let prior = opts.resume === true ? existing : undefined
       const resuming = prior !== undefined && prior.length > 0
-      let resumeFrom: ResumeFrom | undefined
+      let resumeFrom: ScopeResumeState | undefined
       let pool: BudgetPool
       // The instant terminal wall-clock `ms` measures from. A resumed run anchors to the ORIGINAL
       // root instant (the same anchor the absolute deadline uses), so its duration spans processes.
       let runEpochMs = runStartedAtMs
-      if (resuming) {
+      if (resuming && prior !== undefined) {
         const rootEvent = assertResumeContract(prior, opts)
         runEpochMs = rootStartedAtMs(rootEvent)
-        const measured = sumMeasuredSpendFromEvents(prior)
-        const uncertainReservations = uncertainSpawnBudgets(prior)
-        pool = createBudgetPool(opts.budget, runEpochMs, {
-          committed: addSpend(measured.childWork, measured.driverInference),
-          uncertainReservations,
-        })
-        // Rehydrate the committed work: the cursor-ordered `Settled[]` (from the blob store) plus the
-        // tree as it stood at the recorded cursor position. The new scope's ordinal/cursor counters
-        // continue past the recorded maxima so a fresh spawn never reuses a journaled `seq`.
-        const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
-        const view = materializeTreeView(prior)
-        resumeFrom = {
-          settled,
-          view,
-          maxSpawnOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'spawned'),
-          maxCursorSeq: maxSeqOf(prior, closesCursorSlot),
-          maxWaitOrdinal: maxSeqOf(prior, (ev) => ev.kind === 'waiting'),
-          // Waits armed but never woken: the run died mid-wait. They ride onto `Scope.resume.waits`,
-          // and re-arming the same label adopts the ORIGINAL absolute deadline rather than
-          // restarting the countdown from this process's clock.
-          waits: pendingWaits(prior),
-          // Keyed assignments + prior committed spend ride onto `Scope.resume`, so a resume-aware
-          // driver resolves keys instead of re-spawning and reports what the run already paid.
-          keys: keyedAssignments(prior, settled),
-          priorSpend: sumSpendFromEvents(prior),
+        const recoveryController = new AbortController()
+        const abortRecovery = () => recoveryController.abort(opts.signal?.reason)
+        if (opts.signal?.aborted) abortRecovery()
+        else opts.signal?.addEventListener('abort', abortRecovery, { once: true })
+        const recoveryDeadline =
+          opts.budget.deadlineMs === undefined ? undefined : runEpochMs + opts.budget.deadlineMs
+        const clearRecoveryDeadline =
+          recoveryDeadline === undefined
+            ? undefined
+            : armDeadlineTimer(Math.max(0, recoveryDeadline - now()), () =>
+                recoveryController.abort('run deadline exceeded during recovery'),
+              )
+        let restored: Awaited<ReturnType<typeof prepareScopeResume>>
+        try {
+          restored = await prepareScopeResume(opts, prior, recoveryController.signal, now)
+        } finally {
+          clearRecoveryDeadline?.()
+          opts.signal?.removeEventListener('abort', abortRecovery)
         }
+        resumeFrom = restored.resumeFrom
+        prior = [...resumeFrom.events]
+        pool = createBudgetPool(opts.budget, runEpochMs, restored.poolRestore)
       } else {
         pool = createBudgetPool(opts.budget, runStartedAtMs)
         // Fresh run: begin the tree and journal the root as its own `spawned` node (parent-less, the
@@ -709,6 +625,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // stopped them because the driver died".
       let downCountAtSettle = 0
       try {
+        await startScopeRecoveries(openScope)
         const out = await runAbortable(
           () => rootAct(task, scope),
           controller.signal,
@@ -1069,7 +986,11 @@ async function drainLiveChildren(
   // cancelling one would leave the process pinned to a deadline nobody is reading anymore.
   const view = scope.view
   const hasLive = view.inFlight > 0 || view.waiting > 0
-  if (!hasLive) return unconfirmedTeardowns(scope)
+  if (!hasLive) {
+    // Another cursor reader may have marked a child settled while its append is still pending.
+    await drainCursor(scope)
+    return unconfirmedTeardowns(scope)
+  }
   // Cascade the abort into every live child's executor before draining — unless the caller granted
   // a settle grace, in which case the timer owns the cascade and the drain reads whatever the
   // children finish in the meantime. Exactly ONE cursor reader either way: the grace never races
@@ -1310,45 +1231,6 @@ function unknownChannels(spend: Spend): SpendChannel[] {
   if (spend.tokensKnown === false) channels.push('tokens')
   if (spend.usdKnown === false) channels.push('usd')
   return channels
-}
-
-/** Per-channel sum over a journaled event list: `settled` = spawned-child work (reconciled);
- *  `metered` = driver inference (re-homed up the tree, so a single root-tree pass already
- *  includes every nested driver's inference). */
-function sumSpendFromEvents(events: SpawnEvent[]): { childWork: Spend; driverInference: Spend } {
-  const totals = sumMeasuredSpendFromEvents(events)
-  const rootBudget = events.find(
-    (event): event is SpawnedEvent => event.kind === 'spawned' && event.parent === undefined,
-  )?.budget
-  let remainingRootUsd = Math.max(
-    0,
-    (rootBudget?.maxUsd ?? 0) - totals.childWork.usd - totals.driverInference.usd,
-  )
-  for (const budget of uncertainSpawnBudgets(events)) {
-    totals.childWork.iterations += budget.maxIterations
-    // The numeric value is the charged upper bound, not a fabricated measurement. The false flag
-    // makes that distinction machine-readable in every report.
-    totals.childWork.tokens.input += budget.maxTokens
-    totals.childWork.tokensKnown = false
-    const usdCharge = budget.maxUsd ?? (rootBudget?.maxUsd !== undefined ? remainingRootUsd : 0)
-    totals.childWork.usd += usdCharge
-    totals.childWork.usdKnown = false
-    remainingRootUsd = Math.max(0, remainingRootUsd - usdCharge)
-  }
-  return totals
-}
-
-export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
-  childWork: Spend
-  driverInference: Spend
-} {
-  let childWork = zeroSpend()
-  let driverInference = zeroSpend()
-  for (const ev of events) {
-    if (ev.kind === 'settled') childWork = addSpend(childWork, ev.spent)
-    else if (ev.kind === 'metered') driverInference = addSpend(driverInference, ev.spend)
-  }
-  return { childWork, driverInference }
 }
 
 /** True when any driver metered inference this run (so the winner carries a `spentBreakdown`).

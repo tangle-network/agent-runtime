@@ -117,7 +117,8 @@ async function runOneChild(
       ).toThrow(TypeError)
       const spawned = scope.spawn(child, 'work', { label: 'child', budget })
       if (!spawned.ok) throw new Error(spawned.reason)
-      return scope.next()
+      await scope.next()
+      return null
     },
   }
   return createSupervisor<unknown, unknown>().run(root, 'root task', {

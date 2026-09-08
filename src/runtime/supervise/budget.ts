@@ -153,7 +153,7 @@ export function assertValidBudget(budget: Budget, label = 'budget'): void {
   if (budget.deadlineMs !== undefined) finiteNonNegative(budget.deadlineMs, 'deadlineMs')
 }
 
-function assertValidSpend(spend: Spend, label: string): void {
+export function assertValidSpend(spend: Spend, label: string): void {
   if (!Number.isSafeInteger(spend.iterations) || spend.iterations < 0) {
     throw new Error(`${label}.iterations must be a non-negative safe integer`)
   }

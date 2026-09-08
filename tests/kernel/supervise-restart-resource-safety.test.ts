@@ -96,7 +96,13 @@ describe('supervision restart and resource safety', () => {
       budget: { maxIterations: 1, maxTokens: 10 },
       identity: expectedIdentity,
     })
-    expect(Object.isFrozen(rootEvent?.budget)).toBe(true)
+    if (!rootEvent) throw new Error('missing original root')
+    Reflect.set(rootEvent.budget, 'maxTokens', 1000)
+    expect(
+      (await base.loadTree('immutable-root-input'))?.find((event) => event.kind === 'spawned'),
+    ).toMatchObject({
+      budget: { maxIterations: 1, maxTokens: 10 },
+    })
     expect(rootEvent?.identity?.taskDigest).toBe(
       canonicalCandidateDigest({ instruction: 'AUTHORIZED' }),
     )
