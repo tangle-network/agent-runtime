@@ -369,6 +369,20 @@ describe('createCodexRolloutStoreReader', () => {
     expect(harnessUsageIsEmpty(idle.seat)).toBe(true)
   })
 
+  it('refuses invalid canonical receipts through the filesystem reader on every reread', async () => {
+    await writeFile(
+      join(sessionsDir, `rollout-${seatSessionId}.jsonl`),
+      jsonl([
+        sessionMeta({ id: seatSessionId }),
+        canonical(seatSessionId),
+        canonical(seatSessionId, 'conflict', 5, 20),
+      ]),
+    )
+    const reader = createCodexRolloutStoreReader({ root })
+    await expect(reader.read()).rejects.toThrow(/canonical/)
+    await expect(reader.read()).rejects.toThrow(/canonical/)
+  })
+
   it('separates a harness-native child from the seat and never sums the fork prefix', async () => {
     await writeFile(join(sessionsDir, `rollout-${seatSessionId}.jsonl`), jsonl(seatRows))
     const reader = createCodexRolloutStoreReader({ root })

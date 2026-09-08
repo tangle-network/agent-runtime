@@ -674,12 +674,17 @@ async function consumeAppendedBytes(path: string, cursor: FileCursor, size: numb
 
 function consumeLine(state: SessionState, line: string): void {
   if (!INTERESTING.some((marker) => line.includes(marker))) return
+  let row: unknown
   try {
-    consumeRow(state, JSON.parse(line))
+    row = JSON.parse(line)
   } catch {
-    // A truncated or corrupt row is skipped. It cannot be credited, and refusing the whole store
-    // over one bad line would lose every turn the file did record.
+    if (line.includes('"token_usage_record"')) {
+      throw new ValidationError('codex rollout: malformed canonical JSON receipt')
+    }
+    // Legacy corrupt rows remain skippable; canonical receipts must never become partial totals.
+    return
   }
+  consumeRow(state, row)
 }
 
 function includesWorkspace(
