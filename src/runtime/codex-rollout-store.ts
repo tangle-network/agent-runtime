@@ -224,24 +224,30 @@ export function createCodexRolloutStoreReader(ref: CodexRolloutStoreRef): CodexR
   return {
     async read(): Promise<CodexStoreDelta> {
       const sessions: Array<{ session: CodexRolloutSession; incremental?: HarnessUsage }> = []
+      // A rejected aggregate delivered no usage. Publish cursor progress only after every file passes.
+      const staged = new Map<string, FileCursor>()
       for (const path of await listRollouts(root)) {
-        const cursor = files.get(path) ?? newCursor()
-        files.set(path, cursor)
+        let cursor = cloneCursor(files.get(path) ?? newCursor())
         const size = await fileSize(path)
         if (size === undefined) continue
         // A file that shrank was replaced, not appended to. Re-read it from the top rather than
         // slicing at a byte offset that now falls inside a different session's rows.
         if (size < cursor.offset) {
-          const fresh = newCursor()
-          files.set(path, fresh)
-          cursor.offset = fresh.offset
-          cursor.state = fresh.state
-          cursor.pending = fresh.pending
+          cursor = newCursor()
         }
         if (size === cursor.offset) continue
-        await consumeAppendedBytes(path, cursor, size)
+        try {
+          await consumeAppendedBytes(path, cursor, size)
+        } catch (error) {
+          // Only opening metadata can establish that a corrupt receipt is outside this reader's scope.
+          if (cursor.state.identity && !includesWorkspace(cursor.state.identity, workspaceRoot)) {
+            continue
+          }
+          throw error
+        }
+        staged.set(path, cursor)
         const read = finishSession(cursor.state)
-        if (read === undefined || !includesWorkspace(read.session, workspaceRoot)) continue
+        if (read === undefined || !includesWorkspace(read.session.identity, workspaceRoot)) continue
         // Charge from the LATER of the fork boundary and what this cursor already reported. The
         // boundary is what excludes the parent's prepended rows; the credited mark is what stops a
         // turn already charged on an earlier read from being charged again.
@@ -255,6 +261,7 @@ export function createCodexRolloutStoreReader(ref: CodexRolloutStoreRef): CodexR
           ...(incremental === undefined ? {} : { incremental }),
         })
       }
+      for (const [path, cursor] of staged) files.set(path, cursor)
       return reduceDelta(sessions)
     },
   }
@@ -615,6 +622,18 @@ function newCursor(): FileCursor {
   return { offset: 0, pending: '', state: createSessionState(), credited: zeroCounters }
 }
 
+function cloneCursor(cursor: FileCursor): FileCursor {
+  return {
+    ...cursor,
+    state: {
+      ...cursor.state,
+      canonical: new Map(cursor.state.canonical),
+      marks: [...cursor.state.marks],
+      markEnds: [...cursor.state.markEnds],
+    },
+  }
+}
+
 async function listRollouts(root: string): Promise<string[]> {
   const found: string[] = []
   const walk = async (dir: string): Promise<void> => {
@@ -688,11 +707,11 @@ function consumeLine(state: SessionState, line: string): void {
 }
 
 function includesWorkspace(
-  session: CodexRolloutSession,
+  identity: CodexRolloutIdentity,
   workspaceRoot: string | undefined,
 ): boolean {
   if (workspaceRoot === undefined) return true
-  const cwd = session.identity.cwd
+  const cwd = identity.cwd
   if (cwd === undefined) return false
   const rel = relative(workspaceRoot, resolve(cwd))
   return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))

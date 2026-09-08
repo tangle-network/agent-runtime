@@ -383,6 +383,34 @@ describe('createCodexRolloutStoreReader', () => {
     await expect(reader.read()).rejects.toThrow(/canonical/)
   })
 
+  it('does not consume earlier files when a later receipt rejects the aggregate', async () => {
+    await writeFile(join(sessionsDir, 'a.jsonl'), jsonl([sessionMeta({ id: 'a' }), canonical('a')]))
+    const later = join(sessionsDir, 'z.jsonl')
+    await writeFile(later, jsonl([sessionMeta({ id: 'z' }), canonical('z', 'bad', 5, 20)]))
+    const reader = createCodexRolloutStoreReader({ root })
+    await expect(reader.read()).rejects.toThrow(/canonical/)
+    await writeFile(later, jsonl([sessionMeta({ id: 'z' }), canonical('z', 'good', 5)]))
+    expect((await reader.read()).seat.input).toBe(15)
+    expect((await reader.read()).seat.input).toBe(0)
+  })
+
+  it('excludes invalid receipts when opening metadata names another workspace', async () => {
+    await writeFile(
+      join(sessionsDir, 'foreign.jsonl'),
+      jsonl([
+        sessionMeta({ id: 'foreign', cwd: '/elsewhere' }),
+        canonical('foreign', 'bad', 5, 20),
+      ]),
+    )
+    await writeFile(
+      join(sessionsDir, 'owned.jsonl'),
+      jsonl([sessionMeta({ id: 'owned', cwd: '/work/run' }), canonical('owned')]),
+    )
+    const reader = createCodexRolloutStoreReader({ root, workspaceRoot: '/work/run' })
+    expect((await reader.read()).seat.input).toBe(10)
+    expect((await reader.read()).seat.input).toBe(0)
+  })
+
   it('separates a harness-native child from the seat and never sums the fork prefix', async () => {
     await writeFile(join(sessionsDir, `rollout-${seatSessionId}.jsonl`), jsonl(seatRows))
     const reader = createCodexRolloutStoreReader({ root })
