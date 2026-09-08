@@ -1,9 +1,11 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { InMemoryTraceStore } from '@tangle-network/agent-eval'
 import { type AgentCandidateBundle, sha256DigestSchema } from '@tangle-network/agent-interface'
 import { hashKnowledgeBase } from '@tangle-network/agent-knowledge'
 import { afterEach, describe, expect, it } from 'vitest'
+import { InMemoryAgentCandidateExecutionClaimStore } from '../src/candidate-execution/claim'
 import { MAX_CANDIDATE_TIMER_INTERVAL_MS } from '../src/candidate-execution/cleanup'
 import {
   canonicalCandidateDigest,
@@ -11,6 +13,7 @@ import {
   embeddedCandidateArtifact,
   sha256Bytes,
 } from '../src/candidate-execution/digest'
+import { executePreparedAgentCandidate } from '../src/candidate-execution/execute'
 import {
   CANDIDATE_KNOWLEDGE_RETRIEVAL_CONFIG_ENV,
   CANDIDATE_KNOWLEDGE_ROOT_ENV,
@@ -20,17 +23,27 @@ import { parseAgentCandidateProfileActivation } from '../src/candidate-execution
 import type { AgentCandidateExecutionPorts } from '../src/candidate-execution/types'
 import { verifyAgentCandidateBundle } from '../src/candidate-execution/verify'
 import {
+  captureAgentCandidateWorkspace,
+  createAgentCandidateWorkspacePort,
+} from '../src/candidate-execution/workspace-archive'
+import {
   bindCandidateFixtureBundle,
   candidateBundle as bundle,
   cleanupCandidateFixtures,
+  createCandidateOutputFixture,
   emptyCandidateSnapshot as emptySnapshot,
   createCandidateExecutionFixture as fixture,
   redigestCandidateBundle as redigestBundle,
   replaceCandidateFixtureTask,
   candidateSha as sha,
+  unchangedTaskOutcomeCapture,
 } from './helpers/candidate-execution-fixture'
+import { makeTempRoot } from './helpers/temp-root'
+
+const scopedKnowledgeRoots: string[] = []
 
 afterEach(() => {
+  for (const root of scopedKnowledgeRoots.splice(0)) rmSync(root, { recursive: true, force: true })
   cleanupCandidateFixtures()
 })
 
@@ -593,8 +606,10 @@ describe('candidate execution preparation', () => {
     expect(Buffer.from(prepared.instruction.bytes)).toEqual(
       Buffer.from(value.task.task.instruction),
     )
+    const planArtifact = prepared.executionPlan.value.artifact
+    if (!('content' in planArtifact)) throw new Error('expected an embedded execution plan')
     expect(Buffer.from(prepared.executionPlan.bytes)).toEqual(
-      Buffer.from(prepared.executionPlan.value.artifact.content, 'base64'),
+      Buffer.from(planArtifact.content, 'base64'),
     )
     expect(prepared.materializationReceipt.bytes.byteLength).toBeGreaterThan(0)
     expect(JSON.stringify(plan)).not.toContain(value.task.task.instruction)
@@ -1015,6 +1030,104 @@ describe('candidate execution preparation', () => {
     })
   })
 
+  it.each(['none', 'scope', 'research'] as const)(
+    'verifies scoped archived knowledge with %s tampering',
+    async (tamper) => {
+      const value = fixture()
+      const root = makeTempRoot('runtime-scoped-knowledge-')
+      scopedKnowledgeRoots.push(root)
+      const stateScope = { pagesDirectory: 'kb/pages', researchState: true }
+      mkdirSync(join(root, 'kb/pages'), { recursive: true })
+      mkdirSync(join(root, '.agent-knowledge/claim-ledgers'), { recursive: true })
+      writeFileSync(join(root, 'kb/pages/retry.md'), '# Retry policy\n')
+      writeFileSync(join(root, '.agent-knowledge/claim-ledgers/episode.json'), '{"rounds":1}')
+      const candidateHash = sha256DigestSchema.parse(
+        `sha256:${await hashKnowledgeBase(root, stateScope)}`,
+      )
+      const captured = await captureAgentCandidateWorkspace(root)
+      value.bundle = redigestBundle(value.bundle, {
+        knowledge: {
+          candidate: {
+            kind: 'knowledge-improvement-candidate',
+            runId: 'scoped-run',
+            candidateId: 'scoped-candidate',
+            goalHash: sha('1'),
+            baseHash: candidateHash,
+            candidateHash,
+            evidenceHash: sha('4'),
+            promotionPlanHash: sha('5'),
+          },
+          stateScope: tamper === 'scope' ? { ...stateScope, researchState: false } : stateScope,
+          snapshot: captured.snapshot,
+          evaluation: embeddedCandidateArtifact(Buffer.from('{"score":1}')),
+        },
+      })
+      bindCandidateFixtureBundle(value)
+      const materialize = value.ports.workspaces.materialize
+      const archives = createAgentCandidateWorkspacePort()
+      value.ports.workspaces.materialize = async (input) => {
+        if (input.role !== 'knowledge') return materialize(input)
+        await archives.materialize(input)
+        if (tamper === 'research') {
+          writeFileSync(
+            join(input.destination, '.agent-knowledge/claim-ledgers/episode.json'),
+            '{"rounds":2}',
+          )
+        }
+      }
+      const prepare = prepareAgentCandidateExecution(
+        await verifyAgentCandidateBundle(value.bundle, value.ports),
+        value.task,
+        value.ports,
+      )
+      if (tamper !== 'none') {
+        await expect(prepare).rejects.toThrow(/knowledge does not match its measured content/)
+        return
+      }
+      const prepared = await prepare
+      expect(prepared.knowledge?.stateScope).toEqual(stateScope)
+      expect(Object.isFrozen(prepared.knowledge?.stateScope)).toBe(true)
+      const expectedScope = { ...stateScope }
+      stateScope.pagesDirectory = 'changed-after-preparation'
+      stateScope.researchState = false
+      let executions = 0
+      const result = await executePreparedAgentCandidate(prepared, {
+        ...createCandidateOutputFixture(),
+        traceStore: new InMemoryTraceStore(),
+        claimStore: new InMemoryAgentCandidateExecutionClaimStore(),
+        executor: {
+          execute: async (request, context) => {
+            executions++
+            expect(request.knowledge?.stateScope).toEqual(expectedScope)
+            expect(Object.isFrozen(request.knowledge?.stateScope)).toBe(true)
+            await context.traceStore.appendRun({
+              runId: request.trace.runId,
+              scenarioId: 'scoped-knowledge',
+              startedAt: 100,
+              endedAt: 200,
+              status: 'completed',
+              tags: { ...request.trace.tags },
+            })
+            return {
+              executionId: request.executionId,
+              termination: { kind: 'exit', exitCode: 0 },
+            }
+          },
+          stop: async () => ({ stopped: true }),
+          capture: async () => ({ taskOutcome: unchangedTaskOutcomeCapture(value) }),
+        },
+      })
+      expect(executions).toBe(1)
+      expect(result.succeeded).toBe(true)
+      expect(prepared.knowledge?.files.map((file) => file.path)).toEqual(
+        expect.arrayContaining([
+          'kb/pages/retry.md',
+          '.agent-knowledge/claim-ledgers/episode.json',
+        ]),
+      )
+    },
+  )
+
   it('rejects materialized knowledge that does not match the measured candidate', async () => {
     const value = fixture()
     const knowledgeSnapshot = emptySnapshot('mismatched-knowledge')
@@ -1060,17 +1173,19 @@ describe('candidate execution preparation', () => {
       sha256: embeddedCandidateArtifact(bytes).sha256,
       byteLength: bytes.byteLength,
     }
-    value.bundle = redigestBundle(value.bundle, {
+    const { digest: _digest, ...material } = value.bundle
+    const invalidMaterial = {
+      ...material,
       knowledge: { snapshotId: 'knowledge-1', manifest },
-    })
-    bindCandidateFixtureBundle(value)
+    }
+    const invalidBundle = { ...invalidMaterial, digest: canonicalCandidateDigest(invalidMaterial) }
     let reads = 0
     value.ports.artifacts.read = async () => {
       reads++
       return bytes
     }
 
-    await expect(verifyAgentCandidateBundle(value.bundle, value.ports)).rejects.toThrow(
+    await expect(verifyAgentCandidateBundle(invalidBundle, value.ports)).rejects.toThrow(
       /"knowledge"[\s\S]*"candidate"/,
     )
     expect(reads).toBe(0)

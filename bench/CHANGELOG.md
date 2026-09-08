@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.3
+
+Requires Runtime 0.201.0, Interface 2.5.0, Eval 0.176, and Knowledge 15 for scoped candidate knowledge.
+Publishing waits until dependency archives can be downloaded and integrity-checked, including registry propagation delays.
+
 ## 0.9.2
 
 Requires Interface 2.4.0 and Runtime 0.200.0 for the shared execution contracts.

@@ -7,7 +7,9 @@ import {
 } from '@tangle-network/agent-interface'
 import {
   addSourceText,
+  createKnowledgeEvent,
   defineReadinessSpec,
+  FileSystemKbStore,
   hashKnowledgeBase,
   initKnowledgeBase,
   knowledgeImprovementCandidateRef,
@@ -84,7 +86,15 @@ function rootFromTask(task: unknown): string {
   return match[1]
 }
 
-async function writeRuntimeJobPage(root: string): Promise<void> {
+async function expectReadyDeliverable(options: SuperviseOptions): Promise<void> {
+  const deliverable = options.deliverable
+  if (!deliverable || typeof deliverable === 'string') {
+    throw new Error('expected an executable knowledge deliverable')
+  }
+  await expect(deliverable.check({})).resolves.toBe(true)
+}
+
+async function writeRuntimeJobPage(root: string, pagesDirectory = 'knowledge'): Promise<void> {
   const source = await addSourceText(root, {
     uri: 'test://runtime-job',
     title: 'Runtime Job Source',
@@ -92,7 +102,7 @@ async function writeRuntimeJobPage(root: string): Promise<void> {
     lastVerifiedAt: '2026-07-08T00:00:00.000Z',
     validUntil: '2027-07-08T00:00:00.000Z',
   })
-  const page = join(root, 'knowledge', 'runtime-job.md')
+  const page = join(root, pagesDirectory, 'runtime-job.md')
   await mkdir(dirname(page), { recursive: true })
   await writeFile(
     page,
@@ -110,8 +120,16 @@ async function writeRuntimeJobPage(root: string): Promise<void> {
   )
 }
 
-async function liveKnowledgeBytes(root: string): Promise<Record<string, string>> {
-  const paths = [join(root, 'knowledge'), join(root, 'raw')]
+async function liveKnowledgeBytes(
+  root: string,
+  pagesDirectory = 'knowledge',
+): Promise<Record<string, string>> {
+  const paths = [
+    join(root, pagesDirectory),
+    join(root, 'raw'),
+    join(root, '.agent-knowledge', 'claim-ledgers'),
+    join(root, '.agent-knowledge', 'events.json'),
+  ]
   const sourceRegistry = join(root, '.agent-knowledge', 'sources.json')
   const output: Record<string, string> = {}
   for (const path of paths) await collectFiles(root, path, output)
@@ -205,10 +223,12 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
               ].join('\n'),
               'utf8',
             )
-            await expect(opts.deliverable?.check({})).resolves.toBe(true)
+            await expectReadyDeliverable(opts)
             return winner()
           },
-          onMeasurement: (measurement) => measurements.push(measurement),
+          onMeasurement: (measurement) => {
+            measurements.push(measurement)
+          },
         })
 
         expect(result.improvement.promoted).toBe(false)
@@ -281,7 +301,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           supervisorProfile,
           runSupervised: async (_profile, task, opts) => {
             await writeRuntimeJobPage(rootFromTask(task))
-            await expect(opts.deliverable?.check({})).resolves.toBe(true)
+            await expectReadyDeliverable(opts)
             return winner()
           },
         })
@@ -305,9 +325,22 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
     KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS,
   )
 
-  it(
-    'applies and restores only frozen candidate bytes through one activation result path',
-    async () => {
+  it.each([
+    { name: 'default', stateScope: undefined, expectedScope: undefined },
+    {
+      name: 'explicit default',
+      stateScope: { pagesDirectory: 'knowledge', researchState: false },
+      expectedScope: undefined,
+    },
+    {
+      name: 'research',
+      stateScope: { pagesDirectory: 'kb/pages', researchState: true },
+      expectedScope: { pagesDirectory: 'kb/pages', researchState: true },
+    },
+  ])(
+    'applies and restores frozen $name knowledge through one activation result path',
+    async ({ stateScope, expectedScope }) => {
+      const pagesDirectory = stateScope?.pagesDirectory ?? 'knowledge'
       await withKb(async (root) => {
         const artifacts = createCandidateOutputFixture().outputArtifacts
         const update = async (
@@ -315,12 +348,35 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           task: unknown,
           opts: SuperviseOptions,
         ) => {
-          await writeRuntimeJobPage(rootFromTask(task))
-          await expect(opts.deliverable?.check({})).resolves.toBe(true)
+          const candidateRoot = rootFromTask(task)
+          await writeRuntimeJobPage(candidateRoot, pagesDirectory)
+          if (stateScope?.researchState) {
+            const store = new FileSystemKbStore({ root: candidateRoot })
+            await store.putClaimLedger({
+              schemaVersion: 2,
+              id: 'episode',
+              goal: 'Learn retry policy',
+              updatedAt: '2026-09-07T00:00:00.000Z',
+              rounds: 1,
+              claimEvidence: [],
+              registeredSources: [],
+              claims: [],
+              questions: [],
+            })
+            await store.putEvent(
+              createKnowledgeEvent({
+                type: 'research.iteration',
+                metadata: { rounds: 1 },
+                now: () => new Date('2026-09-07T00:00:00.000Z'),
+              }),
+            )
+          }
+          await expectReadyDeliverable(opts)
           return winner()
         }
         const proposed = await runKnowledgeImprovementJob({
           root,
+          stateScope,
           goal: 'Add runtime job knowledge',
           implementationRef: canonicalCandidateDigest({ fixture: 'runtime-job-approved' }),
           runId: 'runtime-job-approved',
@@ -328,7 +384,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           budget: { maxIterations: 2, maxTokens: 1000 },
           supervisorProfile,
           readinessCheck: async ({ root: candidateRoot }) => ({
-            ready: await readFile(join(candidateRoot, 'knowledge', 'runtime-job.md'), 'utf8')
+            ready: await readFile(join(candidateRoot, pagesDirectory, 'runtime-job.md'), 'utf8')
               .then((text) => text.includes('source-backed evidence'))
               .catch(() => false),
           }),
@@ -337,20 +393,37 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         })
         const knowledge = proposed.knowledge
         if (!knowledge) throw new Error('expected frozen knowledge candidate')
+        expect(knowledge.stateScope).toEqual(expectedScope)
         const candidateRef = knowledgeImprovementCandidateRef(proposed.improvement)
         const candidateBytes = await withKnowledgeImprovementCandidate(
           { root, candidate: candidateRef },
-          ({ root: candidateRoot }) => liveKnowledgeBytes(candidateRoot),
+          ({ root: candidateRoot }) => liveKnowledgeBytes(candidateRoot, pagesDirectory),
         )
-        const liveBeforeApproval = await liveKnowledgeBytes(root)
+        const liveBeforeApproval = await liveKnowledgeBytes(root, pagesDirectory)
         const baseBundle = candidateBundle()
         const bundles = buildKnowledgeImprovementExperimentBundles(baseBundle, knowledge)
+        expect(bundles.baseline.knowledge?.stateScope).toEqual(expectedScope)
+        expect(bundles.candidate.knowledge?.stateScope).toEqual(expectedScope)
         const rig = createCandidateExperimentFixture({
           baseline: bundles.baseline,
           candidate: bundles.candidate,
           scoreForRequest: (request) => {
+            expect(request.knowledge?.stateScope).toEqual(expectedScope)
+            if (
+              stateScope?.researchState &&
+              request.knowledge?.files.some(
+                (file) => file.path === `${pagesDirectory}/runtime-job.md`,
+              )
+            ) {
+              expect(request.knowledge?.files.map((file) => file.path)).toEqual(
+                expect.arrayContaining([
+                  '.agent-knowledge/claim-ledgers/episode.json',
+                  '.agent-knowledge/events.json',
+                ]),
+              )
+            }
             const page = request.knowledge?.files.find(
-              (file) => file.path === 'knowledge/runtime-job.md',
+              (file) => file.path === `${pagesDirectory}/runtime-job.md`,
             )
             return page &&
               Buffer.from(page.bytes).toString('utf8').includes('source-backed evidence')
@@ -398,7 +471,7 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           now: () => new Date('2026-07-13T01:02:00.000Z'),
         })
 
-        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+        expect(await liveKnowledgeBytes(root, pagesDirectory)).toEqual(liveBeforeApproval)
         const stored = new Map<Sha256Digest, AgentImprovementActivationResult>()
         let failNextResultWrite = false
         const activationExecutor = createKnowledgeImprovementActivationExecutor({
@@ -426,12 +499,12 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           withKnowledgeImprovementCandidate(
             { root, candidate: candidateRef },
             async ({ root: candidateRoot }) => {
-              const frozenPage = join(candidateRoot, 'knowledge', 'runtime-job.md')
+              const frozenPage = join(candidateRoot, pagesDirectory, 'runtime-job.md')
               await writeFile(frozenPage, 'tampered frozen snapshot', 'utf8')
             },
           ),
         ).rejects.toThrow(/snapshot changed during use/)
-        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
+        expect(await liveKnowledgeBytes(root, pagesDirectory)).toEqual(liveBeforeApproval)
 
         const applied = await executeAgentImprovementActivation(
           { proposal, review, activation },
@@ -443,8 +516,10 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
 
         expect(applied.outcome.status).toBe('applied')
         expect(applied.completedAt).toBe('2026-07-13T01:03:00.000Z')
-        expect(await liveKnowledgeBytes(root)).toEqual(candidateBytes)
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.candidateHash)
+        expect(await liveKnowledgeBytes(root, pagesDirectory)).toEqual(candidateBytes)
+        expect(`sha256:${await hashKnowledgeBase(root, stateScope)}`).toBe(
+          knowledge.reference.candidateHash,
+        )
 
         const restore = createAgentImprovementActivation(proposal, review, {
           intent: 'restore-baseline',
@@ -468,8 +543,10 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         )
 
         expect(restored.outcome.status).toBe('applied')
-        expect(await liveKnowledgeBytes(root)).toEqual(liveBeforeApproval)
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+        expect(await liveKnowledgeBytes(root, pagesDirectory)).toEqual(liveBeforeApproval)
+        expect(`sha256:${await hashKnowledgeBase(root, stateScope)}`).toBe(
+          knowledge.reference.baseHash,
+        )
         await expect(
           executeAgentImprovementActivation(
             { proposal, review, activation: restore },
@@ -502,7 +579,9 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           },
         )
         expect(uncertain.outcome.status).toBe('indeterminate')
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.candidateHash)
+        expect(`sha256:${await hashKnowledgeBase(root, stateScope)}`).toBe(
+          knowledge.reference.candidateHash,
+        )
 
         const restoreAfterLostResponse = createAgentImprovementActivation(proposal, review, {
           intent: 'restore-baseline',
@@ -525,7 +604,9 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
           },
         )
         expect(restoredAfterLostResponse.outcome.status).toBe('applied')
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+        expect(`sha256:${await hashKnowledgeBase(root, stateScope)}`).toBe(
+          knowledge.reference.baseHash,
+        )
 
         const reconciled = await executeAgentImprovementActivation(
           { proposal, review, activation: reapply },
@@ -536,7 +617,9 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         )
         expect(reconciled.outcome.status).toBe('applied')
         expect(stored.get(reapply.digest)).toEqual(reconciled)
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+        expect(`sha256:${await hashKnowledgeBase(root, stateScope)}`).toBe(
+          knowledge.reference.baseHash,
+        )
 
         const expiredRestore = createAgentImprovementActivation(proposal, review, {
           intent: 'restore-baseline',
@@ -560,7 +643,9 @@ describe.skipIf(process.platform !== 'linux')('runKnowledgeImprovementJob', () =
         )
         expect(expired.outcome.status).toBe('expired')
         expect(stored.has(expiredRestore.digest)).toBe(false)
-        expect(`sha256:${await hashKnowledgeBase(root)}`).toBe(knowledge.reference.baseHash)
+        expect(`sha256:${await hashKnowledgeBase(root, stateScope)}`).toBe(
+          knowledge.reference.baseHash,
+        )
       })
     },
     KNOWLEDGE_IMPROVEMENT_JOB_TEST_TIMEOUT_MS,

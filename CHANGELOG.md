@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.201.0
+
+Knowledge candidates preserve their declared pages directory and research state through freezing, experiment bundles, preparation, execution, and activation.
+Prepared execution binds that scope to the signed candidate and rejects modified scope or research content.
+Default scope retains existing candidate identities.
+The dependency cohort requires Interface 2.5.0, Eval 0.176, and Knowledge 15.
+Sandbox compatibility remains unchanged.
+
 ## 0.200.0
 
 Retained provider children recover their original invocation from durable inputs, admissions, and results.

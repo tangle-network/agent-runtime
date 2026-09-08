@@ -10,6 +10,9 @@ import type {
   AgentCandidateBenchmarkTask,
   AgentCandidateBundle,
   AgentCandidateExecution,
+  AgentCandidateResolvedModel,
+  AgentCandidateResolvedTaskContainer,
+  AgentCandidateRunCell,
   AgentCandidateWorkspaceSnapshotEvidence,
   Sha256Digest,
 } from '@tangle-network/agent-interface'
@@ -26,11 +29,11 @@ import type {
   AgentCandidateExecutorTaskOutcomeCapture,
   AgentCandidateOutputArtifactPort,
   AgentCandidateTaskExecution,
-  ResolvedAgentCandidateContainer,
 } from '../../src/candidate-execution/types'
 import { makeTempRoot } from './temp-root'
 
 const roots: string[] = []
+const fixtureReasoningEffort: AgentCandidateResolvedModel['reasoningEffort'] = 'high'
 
 export const candidateSha = (character: string): Sha256Digest => `sha256:${character.repeat(64)}`
 
@@ -113,7 +116,7 @@ export function candidateBundle(
     profile: {
       name: 'candidate',
       prompt: { instructions: ['Inspect the repository, implement the fix, and run tests.'] },
-      model: { default: 'provider/model', reasoningEffort: 'high' as const },
+      model: { default: 'provider/model', reasoningEffort: fixtureReasoningEffort },
       harness: 'codex' as const,
       resources: { failOnError: true as const },
     },
@@ -170,7 +173,10 @@ export function bindCandidateFixtureBundle(
   fixture.bundle = bundle
   fixture.task = {
     ...fixture.task,
-    runCell: canonicalCandidateDocument({ ...cell, bundleDigest: bundle.digest }).value,
+    runCell: canonicalCandidateDocument<AgentCandidateRunCell>({
+      ...cell,
+      bundleDigest: bundle.digest,
+    }).value,
   }
 }
 
@@ -190,7 +196,7 @@ export function replaceCandidateFixtureTask(
     ...fixture.task,
     task,
     benchmarkSuite: benchmark.suite,
-    runCell: canonicalCandidateDocument({
+    runCell: canonicalCandidateDocument<AgentCandidateRunCell>({
       ...cell,
       suiteDigest: benchmark.suite.digest,
       taskDigest: task.digest,
@@ -215,7 +221,8 @@ export function replaceCandidateFixtureAttempt(
   const { digest: _digest, ...cell } = fixture.task.runCell
   fixture.task = {
     ...fixture.task,
-    runCell: canonicalCandidateDocument({ ...cell, attempt: attempt.number }).value,
+    runCell: canonicalCandidateDocument<AgentCandidateRunCell>({ ...cell, attempt: attempt.number })
+      .value,
   }
 }
 
@@ -321,7 +328,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
     candidateWorkspace = snapshot(candidateRoot, [{ path: 'run.js', mode: 0o755 }])
   }
   const profileRoot = temporaryRoot('candidate-profile-')
-  const selectedContainer: ResolvedAgentCandidateContainer = {
+  const selectedContainer: AgentCandidateResolvedTaskContainer = {
     source: 'evaluator-task-container',
     image: 'ghcr.io/example/task',
     indexDigest: candidateSha('a'),
@@ -362,7 +369,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
         provider: 'provider',
         model: 'model-snapshot',
         snapshot: 'model-snapshot-2026-07-01',
-        reasoningEffort,
+        reasoningEffort: reasoningEffort ?? fixtureReasoningEffort,
       }),
       reserveGrant: async ({ preparationId, expiresAtMs, limits }) => ({
         preparationId,
@@ -428,7 +435,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
       provider: 'provider',
       model: 'model-snapshot',
       snapshot: 'model-snapshot-2026-07-01',
-      reasoningEffort: 'high',
+      reasoningEffort: fixtureReasoningEffort,
     },
     grader: {
       name: 'fixture-executable-grader',
@@ -462,7 +469,7 @@ export function createCandidateExecutionFixture(active = false): CandidateExecut
   })
   const task: AgentCandidateTaskExecution = {
     executionId: 'execution-1',
-    runCell: canonicalCandidateDocument({
+    runCell: canonicalCandidateDocument<AgentCandidateRunCell>({
       kind: 'agent-candidate-run-cell' as const,
       experimentDigest: candidateSha('9'),
       arm: 'candidate' as const,
@@ -542,7 +549,7 @@ function withBenchmarkTask(
     seeds: fixture.task.benchmarkSuite.seeds,
   })
   const { digest: _cellDigest, ...cell } = fixture.task.runCell
-  const runCell = canonicalCandidateDocument({
+  const runCell = canonicalCandidateDocument<AgentCandidateRunCell>({
     ...cell,
     suiteDigest: benchmark.suite.digest,
     taskDigest: task.digest,

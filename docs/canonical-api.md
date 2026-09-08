@@ -4,11 +4,11 @@
 Generated signatures and the complete export list live in docs/api/.
 Run pnpm docs:freshness after editing this file. -->
 
-> **Version 0.200.0.**
+> **Version 0.201.0.**
 > [`docs/api/primitive-catalog.md`](./api/primitive-catalog.md) lists every export and import path.
-> `agent-eval` must satisfy `>=0.175.0 <0.176.0`.
+> `agent-eval` must satisfy `>=0.176.0 <0.177.0`.
 > `sandbox` must satisfy `>=0.36.4 <0.38.0`.
-> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.4.0`.
+> Portable profile and tool-part types come from `@tangle-network/agent-interface` `^2.5.0`.
 >
 > **`./kernel` is the execution kernel**: `package.json` maps it to `src/runtime/index.ts`. Everything below labelled `/kernel` lives there — the recursive atom (`Scope`/`Supervisor`), the executor registry, budget conservation, the finalizer seam, analyst wiring, and the round-synchronous loop.
 >
@@ -219,6 +219,10 @@ A general "loop" primitive is the single most common modelling error in this rep
 | Capture and restore exact task, candidate, or memory workspace bytes | `captureAgentCandidateWorkspace(...)` + `createAgentCandidateWorkspacePort(...)`: `/candidate-execution` | a product-specific archive format, ambient `git checkout`, or a materializer that skips byte/path/mode verification |
 | Fold **certified prompt additions into a system prompt you assemble yourself** (product chat routes) | `createCertifiedPromptSource({ target })` → `source.compose(base)`: `/intelligence` (cached, coalesced, fail-closed; `withIntelligence` rides the same source) | a module-scope cache + refresh-window + keep-last-known loop around `pullCertified` in product wiring |
 | Produce a frozen KB candidate with runtime agents, readiness checks, and measured supervised spend | `runKnowledgeImprovementJob(options)` from root `.`, then the shared activation path above after review | hand-wiring `improveKnowledgeBase` + a supervised updater, or letting candidate search write live knowledge |
+
+Knowledge improvement jobs carry nondefault `stateScope` into both frozen experiment bundles and prepared execution.
+Knowledge owns scope normalization and hashing, including the selected pages directory and optional research state.
+Default scope remains absent from portable bundles to preserve their existing identity.
 
 For the full export inventory (every primitive, its import path, its summary: generated, never stale), see `docs/api/primitive-catalog.md`; for per-symbol signatures, the per-module `docs/api/` pages. For the recursive atom (recursion · isolated-or-collaborative artifact · conserved budget · analysts) and the two-timescale architecture, see `docs/architecture.md`. For the profile→run→optimize→ship spine in depth, `docs/concepts.md` + `docs/learning-flywheel.md`. For the Intelligence SDK (Observe + the provable-OFF billing boundary), `docs/intelligence-sdk.md`.
 

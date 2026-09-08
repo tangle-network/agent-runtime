@@ -59,7 +59,7 @@ export async function prepareAgentCandidateKnowledge(
     })
     const expectedHash =
       arm === 'baseline' ? knowledge.candidate.baseHash : knowledge.candidate.candidateHash
-    const actualHash = `sha256:${await hashKnowledgeBase(root)}`
+    const actualHash = `sha256:${await hashKnowledgeBase(root, knowledge.stateScope)}`
     if (actualHash !== expectedHash) {
       throw new Error(
         `materialized ${arm} knowledge does not match its measured content: expected ${expectedHash}, got ${actualHash}`,
@@ -68,6 +68,7 @@ export async function prepareAgentCandidateKnowledge(
     const files = await readMaterializedWorkspaceFiles(root, knowledge.snapshot.material)
     return Object.freeze({
       candidate: knowledge.candidate,
+      ...(knowledge.stateScope ? { stateScope: Object.freeze({ ...knowledge.stateScope }) } : {}),
       snapshot: knowledge.snapshot,
       files: Object.freeze(
         files.map((file) =>

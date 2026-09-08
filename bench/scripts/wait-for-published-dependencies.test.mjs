@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { access } from 'node:fs/promises'
+import path from 'node:path'
 import test from 'node:test'
 
 import {
   collectRequiredTangleDependencies,
+  probeNpm,
   waitForPublishedDependencies,
 } from './wait-for-published-dependencies.mjs'
 
@@ -93,4 +96,71 @@ test('fails at the deadline and names every dependency still missing', async () 
     },
   )
   assert.equal(currentTime, 100)
+})
+
+test('waits for the exact package archive after metadata is published', async () => {
+  const dependency = { name: '@tangle-network/agent-runtime', spec: '0.200.0' }
+  let currentTime = 0
+  let archiveAttempts = 0
+  const scratchDirectories = []
+  const result = await waitForPublishedDependencies([dependency], {
+    timeoutMs: 100,
+    intervalMs: 25,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds
+    },
+    report: () => {},
+    probe: (requested, options) => probeNpm(requested, {
+      ...options,
+      run: async (command, args, executionOptions) => {
+        assert.equal(command, 'npm')
+        // Metadata is already visible, but its archive is not installable yet.
+        if (args[0] === 'view') return { stdout: JSON.stringify('0.200.0') }
+        assert.equal(args[0], 'pack')
+        assert.equal(args[1], '@tangle-network/agent-runtime@0.200.0')
+        assert.ok(args.includes('--ignore-scripts'))
+        const scratch = args[args.indexOf('--pack-destination') + 1]
+        assert.equal(args[args.indexOf('--cache') + 1], path.join(scratch, 'cache'))
+        scratchDirectories.push(scratch)
+        assert.ok(executionOptions.timeout <= 100 - currentTime)
+        archiveAttempts++
+        if (archiveAttempts === 1) {
+          throw Object.assign(new Error('archive unavailable'), {
+            stderr: 'npm error E404 GET agent-runtime-0.200.0.tgz',
+          })
+        }
+        return { stdout: JSON.stringify([{ name: dependency.name, version: '0.200.0' }]) }
+      },
+    }),
+  })
+  assert.deepEqual(result, { attempts: 2, elapsedMs: 25 })
+  assert.equal(archiveAttempts, 2)
+  assert.equal(new Set(scratchDirectories).size, 2)
+  for (const scratch of scratchDirectories) {
+    await assert.rejects(access(scratch), { code: 'ENOENT' })
+  }
+})
+
+test('reports a permanently invalid package archive at the existing deadline', async () => {
+  let currentTime = 0
+  await assert.rejects(waitForPublishedDependencies([
+    { name: '@tangle-network/agent-runtime', spec: '0.200.0' },
+  ], {
+    timeoutMs: 50,
+    intervalMs: 25,
+    now: () => currentTime,
+    sleep: async (milliseconds) => {
+      currentTime += milliseconds
+    },
+    report: () => {},
+    probe: (dependency, options) => probeNpm(dependency, {
+      ...options,
+      run: async () => {
+        throw Object.assign(new Error('archive integrity mismatch'), {
+          stderr: 'npm error code EINTEGRITY',
+        })
+      },
+    }),
+  }), /Timed out after 50ms and 2 attempts[\s\S]*agent-runtime@0\.200\.0: npm error code EINTEGRITY/)
 })

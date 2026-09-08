@@ -3917,6 +3917,10 @@ Receipt attribution phase supplied alongside `costLedger`.
 
 > **reference**: `AgentCandidateKnowledgeRef`
 
+##### stateScope?
+
+> `optional` **stateScope?**: `AgentCandidateKnowledgeStateScope`
+
 ##### evaluation
 
 > **evaluation**: `AgentCandidateCapturedArtifact`
