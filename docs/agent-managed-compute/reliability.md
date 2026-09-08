@@ -26,6 +26,11 @@ No deployed or live multi-provider recovery proof is claimed here.
 
 The sections below define distributed requirements beyond this local recovery boundary.
 
+Executor results carry an optional explicit execution outcome, separate from application output and scoring verdicts.
+A failed provider turn settles its child as `down`, preserving its reason, measured spend, and content-addressed partial artifact.
+Accepted failures keep that status through cancellation races and coordinator recovery.
+Recoverable tool failures inside a completed turn do not fail the child.
+
 ## Required Invariants
 
 The implementation is complete only when all of these hold:

@@ -198,103 +198,113 @@ it('starts the resumed parent while its original child awaits parent coordinatio
   }
 })
 
-it('preserves an accepted child result when cancellation arrives during provider teardown', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'supervise-accepted-teardown-'))
-  const context = createFileRunContext(join(directory, 'run'))
-  const base = durableRetainedProvider(join(directory, 'provider.json'))
-  let destroying!: () => void
-  let release!: () => void
-  const destroyStarted = new Promise<void>((resolve) => {
-    destroying = resolve
-  })
-  const finishDestroy = new Promise<void>((resolve) => {
-    release = resolve
-  })
-  const controller = new AbortController()
-  const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
-    ...environment,
-    session: (id, options) => {
-      const session = environment.session!(id, options)
-      return {
-        ...session,
-        result: async () => ({
-          ...(await session.result()),
-          usage: { inputTokens: 3, outputTokens: 2 },
-        }),
-      }
-    },
-    destroy: async () => {
-      destroying()
-      await finishDestroy
-      await environment.destroy?.()
-    },
-  })
-  const provider: AgentEnvironmentProvider = {
-    ...base,
-    create: async (input) => wrap(await base.create(input)),
-    get: async (id) => {
-      const environment = await base.get!(id)
-      return environment ? wrap(environment) : null
-    },
-  }
-  const profile = testAgentProfile('accepted-child')
-  const worker: Agent<unknown, unknown> = Object.assign(
-    { name: profile.name, act: async () => 'unused' },
-    { executorSpec: { profile, harness: null, executorFactory: providerAsExecutor(provider) } },
-  )
-  const cutoff = setTimeout(() => {
-    controller.abort('test deadline')
-    release()
-  }, 1000)
-  try {
-    await createSupervisor<string, unknown>().run(
-      {
-        name: 'root',
-        async act(_task, scope) {
-          expect(
-            scope.spawn(worker, 'child task', {
-              key: 'child',
-              budget: { maxIterations: 1, maxTokens: 10 },
-            }).ok,
-          ).toBe(true)
-          await destroyStarted
-          const beforeAbort = (await context.journal.loadTree('root')) ?? []
-          expect(
-            beforeAbort.some(
-              (event) => event.kind === 'execution-result' && event.id === 'root:s0',
-            ),
-          ).toBe(true)
-          controller.abort('cancelled after result acceptance')
-          release()
-          await scope.next()
-        },
+it.each([false, true])(
+  'preserves accepted child failure=%s when cancellation arrives during provider teardown',
+  async (failed) => {
+    const directory = await mkdtemp(join(tmpdir(), 'supervise-accepted-teardown-'))
+    const context = createFileRunContext(join(directory, 'run'))
+    const base = durableRetainedProvider(join(directory, 'provider.json'))
+    let destroying!: () => void
+    let release!: () => void
+    const destroyStarted = new Promise<void>((resolve) => {
+      destroying = resolve
+    })
+    const finishDestroy = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const controller = new AbortController()
+    const wrap = (environment: AgentEnvironment): AgentEnvironment => ({
+      ...environment,
+      session: (id, options) => {
+        const session = environment.session!(id, options)
+        return {
+          ...session,
+          result: async () => ({
+            ...(await session.result()),
+            usage: { inputTokens: 3, outputTokens: 2 },
+            ...(failed ? { success: false, error: 'accepted provider failure' } : {}),
+          }),
+        }
       },
-      'task',
-      {
-        ...context,
-        runId: 'root',
-        signal: controller.signal,
-        budget: { maxIterations: 5, maxTokens: 100 },
-        rootIdentity: {
-          profileDigest: canonicalCandidateDigest({ name: 'root' }),
-          taskDigest: canonicalCandidateDigest('task'),
-        },
+      destroy: async () => {
+        destroying()
+        await finishDestroy
+        await environment.destroy?.()
       },
+    })
+    const provider: AgentEnvironmentProvider = {
+      ...base,
+      create: async (input) => wrap(await base.create(input)),
+      get: async (id) => {
+        const environment = await base.get!(id)
+        return environment ? wrap(environment) : null
+      },
+    }
+    const profile = testAgentProfile('accepted-child')
+    const worker: Agent<unknown, unknown> = Object.assign(
+      { name: profile.name, act: async () => 'unused' },
+      { executorSpec: { profile, harness: null, executorFactory: providerAsExecutor(provider) } },
     )
-    const events = (await context.journal.loadTree('root')) ?? []
-    expect(
-      events.filter((event) => event.kind === 'execution-result' && event.id === 'root:s0'),
-    ).toHaveLength(1)
-    expect(
-      events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
-    ).toMatchObject([{ status: 'done', spent: { tokens: { input: 3, output: 2 } } }])
-  } finally {
-    clearTimeout(cutoff)
-    controller.abort()
-    release()
-    await rm(directory, { recursive: true, force: true })
-  }
-})
+    const cutoff = setTimeout(() => {
+      controller.abort('test deadline')
+      release()
+    }, 1000)
+    try {
+      await createSupervisor<string, unknown>().run(
+        {
+          name: 'root',
+          async act(_task, scope) {
+            expect(
+              scope.spawn(worker, 'child task', {
+                key: 'child',
+                budget: { maxIterations: 1, maxTokens: 10 },
+              }).ok,
+            ).toBe(true)
+            await destroyStarted
+            const beforeAbort = (await context.journal.loadTree('root')) ?? []
+            expect(
+              beforeAbort.some(
+                (event) => event.kind === 'execution-result' && event.id === 'root:s0',
+              ),
+            ).toBe(true)
+            controller.abort('cancelled after result acceptance')
+            release()
+            await scope.next()
+          },
+        },
+        'task',
+        {
+          ...context,
+          runId: 'root',
+          signal: controller.signal,
+          budget: { maxIterations: 5, maxTokens: 100 },
+          rootIdentity: {
+            profileDigest: canonicalCandidateDigest({ name: 'root' }),
+            taskDigest: canonicalCandidateDigest('task'),
+          },
+        },
+      )
+      const events = (await context.journal.loadTree('root')) ?? []
+      expect(
+        events.filter((event) => event.kind === 'execution-result' && event.id === 'root:s0'),
+      ).toHaveLength(1)
+      expect(
+        events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
+      ).toMatchObject([
+        {
+          status: failed ? 'down' : 'done',
+          ...(failed ? { reason: 'accepted provider failure' } : {}),
+          spent: { tokens: { input: 3, output: 2 } },
+        },
+      ])
+    } finally {
+      clearTimeout(cutoff)
+      controller.abort()
+      release()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
 
 it('keeps an accepted provider result from bypassing the child allocation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'supervise-accepted-overspend-'))

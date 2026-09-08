@@ -15,6 +15,11 @@ import type {
 } from '@tangle-network/sandbox'
 import { describe, expect, it } from 'vitest'
 import {
+  contentAddress,
+  InMemoryResultBlobStore,
+  InMemorySpawnJournal,
+} from '../durable/spawn-journal'
+import {
   type AgentEnvironment,
   type AgentEnvironmentEvent,
   type AgentEnvironmentProvider,
@@ -26,7 +31,9 @@ import {
   sandboxClientAsProvider,
 } from './environment-provider'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
-import { createExecutor } from './supervise/runtime'
+import { createBudgetPool } from './supervise/budget'
+import { createExecutor, createExecutorRegistry } from './supervise/runtime'
+import { createScope } from './supervise/scope'
 import type { AgentSpec, ExecutorContext, UsageEvent } from './supervise/types'
 import type { SandboxClient } from './types'
 
@@ -37,6 +44,87 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 describe('environment provider adapters', () => {
+  it.each([
+    [false, false],
+    [true, false],
+    [true, true],
+  ])(
+    'settles provider failure=%s with teardown failure=%s through the real supervised child seam',
+    async (failed, teardownFailed) => {
+      const events: AgentEnvironmentEvent[] = [
+        { type: 'start', data: {} },
+        { type: 'execution.started', data: {} },
+        { type: 'status', data: { status: 'generating_response' } },
+        { type: 'text', data: { text: 'partial evidence' } },
+        ...(failed
+          ? [{ type: 'error', data: { message: 'permission alias refused' } }]
+          : [{ type: 'task.failed', data: { error: 'recoverable tool failure' } }]),
+        { type: 'done', data: {} },
+      ]
+      const provider: AgentEnvironmentProvider = {
+        name: 'supervised-outcome',
+        capabilities: () => fakeCapabilities(),
+        create: async () =>
+          fakeEnvironment({
+            stream: async function* () {
+              yield* events
+            },
+            destroy: async () => {
+              if (teardownFailed) throw new Error('release refused')
+            },
+          }),
+      }
+      const journal = new InMemorySpawnJournal()
+      const blobs = new InMemoryResultBlobStore()
+      await journal.beginTree('root', new Date(0).toISOString())
+      const scope = createScope({
+        parentId: 'root',
+        root: 'root',
+        journal,
+        blobs,
+        pool: createBudgetPool({ maxIterations: 2, maxTokens: 100 }, 0),
+        executors: createExecutorRegistry(),
+        seams: {},
+        depth: 0,
+        signal: new AbortController().signal,
+      })
+      const profile: AgentProfile = {
+        name: 'outcome-worker',
+        harness: 'claude-code',
+        model: { provider: 'fixture', default: 'fixture/model' },
+      }
+      const spawned = scope.spawn(
+        Object.assign(
+          { name: profile.name!, act: async () => 'unused' },
+          {
+            executorSpec: { profile, harness: null, executorFactory: providerAsExecutor(provider) },
+          },
+        ),
+        'task',
+        { label: 'outcome', budget: { maxIterations: 1, maxTokens: 100 } },
+      )
+      expect(spawned.ok).toBe(true)
+      const settled = await scope.next()
+      expect(settled?.kind).toBe(failed ? 'down' : 'done')
+      if (failed) expect(settled).toMatchObject({ reason: 'permission alias refused' })
+      const terminal = (await journal.loadTree('root'))?.find((event) => event.kind === 'settled')
+      expect(terminal).toMatchObject({
+        status: failed ? 'down' : 'done',
+        spent: {
+          iterations: 1,
+          tokens: { input: 0, output: 0 },
+          tokensKnown: false,
+          usdKnown: false,
+        },
+      })
+      if (terminal?.kind !== 'settled' || !terminal.outRef)
+        throw new Error('missing terminal evidence')
+      const artifact = await blobs.get(terminal.outRef)
+      expect(contentAddress(artifact)).toBe(terminal.outRef)
+      expect(artifact).toMatchObject({ events })
+    },
+  )
+
   it('adapts a neutral provider to SandboxClient without losing profile/backend/dispatch data', async () => {
     let created: unknown
     let turn: AgentTurnInput | undefined

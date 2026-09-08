@@ -14,6 +14,7 @@ import {
 import { RuntimeRunStateError } from '../../errors'
 import { addSpend, zeroSpend } from '../util'
 import { assertValidSpend, type BudgetPoolRestore, createBudgetPool } from './budget'
+import { executorFailureReason } from './executor-outcome'
 import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
 import type { ScopeArgs } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -148,12 +149,15 @@ export async function prepareInterruptedExecutors(
     1
   for (const { result, violation } of accepted) {
     signal.throwIfAborted()
+    const failureReason = executorFailureReason(result)
+    const reason = violation ?? failureReason
     // Await every admitted write before releasing the run lock, including cancellation races.
     await opts.journal.appendEvent(opts.runId, {
       kind: 'settled',
       id: result.id,
-      status: violation === undefined ? 'done' : 'down',
-      ...(violation === undefined ? { outRef: result.outRef } : { infra: true, reason: violation }),
+      status: reason === undefined ? 'done' : 'down',
+      outRef: result.outRef,
+      ...(reason === undefined ? {} : { infra: violation !== undefined, reason }),
       spent: result.spent,
       ...(result.verdict ? { verdict: result.verdict } : {}),
       seq: seq++,

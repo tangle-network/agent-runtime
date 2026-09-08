@@ -25,6 +25,7 @@ import {
   assertNoSymlinkDescendant,
   publishExclusiveDurableFile,
 } from '../runtime/supervise/durable-file'
+import { executorFailureReason } from '../runtime/supervise/executor-outcome'
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
 import { nestedDriverTreeRoot } from '../runtime/supervise/tree-key'
@@ -768,6 +769,7 @@ function assertRetainedExecutionOrder(events: SpawnEvent[], event: SpawnEvent): 
     if (!admissions.some((item) => item.phase === 'dispatched')) fail('result precedes dispatch')
     if (!/^sha256:[0-9a-f]{64}$/.test(event.outRef)) fail('has an invalid result reference')
     assertValidSpend(event.spent, 'retained execution result')
+    executorFailureReason(event)
     return
   }
   const admission = event.admission

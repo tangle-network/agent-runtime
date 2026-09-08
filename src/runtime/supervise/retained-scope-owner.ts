@@ -3,6 +3,7 @@ import { ValidationError } from '../../errors'
 import type { RetainedRunAdmission } from '../retained-run-types'
 import { addSpend, zeroSpend } from '../util'
 import { assertValidSpend } from './budget'
+import { executorFailureReason } from './executor-outcome'
 import type { RetainedExecutorContext } from './retained-executor'
 import { detachedSnapshot } from './snapshot'
 import type {
@@ -84,6 +85,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
       onResult: async (result) => {
         scope.signal.throwIfAborted()
         assertValidSpend(result.spent, 'retained owner result')
+        executorFailureReason(result)
         const outRef = contentAddress(result.out)
         await args.blobs.put(outRef, result.out)
         scope.signal.throwIfAborted()
@@ -93,6 +95,7 @@ export function registerScopeRetainedOwner(scope: Scope<unknown>, args: OwnerReg
           outRef,
           spent: detachedSnapshot(result.spent, 'retained owner spend'),
           ...(result.verdict ? { verdict: result.verdict } : {}),
+          ...(result.outcome ? { outcome: result.outcome } : {}),
           seq: ++sequence,
           at: new Date(args.now()).toISOString(),
         }
@@ -188,6 +191,7 @@ export async function scopeRetainedOwnerResult(
     out,
     spent: event.spent,
     ...(event.verdict ? { verdict: event.verdict } : {}),
+    ...(event.outcome ? { outcome: event.outcome } : {}),
   }
 }
 

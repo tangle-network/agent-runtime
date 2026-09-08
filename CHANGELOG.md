@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.201.1
+
+Explicit provider turn failures now settle supervised children as `down`, retaining the failure reason, usage, and partial artifact.
+Accepted failures remain failed through cancellation, teardown errors, and coordinator recovery.
+Executor outcomes use the portable turn-result contract and remain separate from application output and scoring verdicts.
+Malformed retained outcomes are rejected before storage.
+
 ## 0.201.0
 
 Knowledge candidates preserve their declared pages directory and research state through freezing, experiment bundles, preparation, execution, and activation.
