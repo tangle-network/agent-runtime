@@ -40,8 +40,7 @@ import {
 
 const parityCell = (shots: number): CellSpec => ({
   task: 'make the failing test suite pass',
-  // The coder model is mandatory and pinned (the arms refuse a silent fallback); the reviewer
-  // profile stays model-less — the driver model is each arm's substrate config.
+  // The coder model is mandatory and pinned; the scripted reviewer brain owns its inference.
   coderProfile: {
     name: 'coder',
     harness: 'cli-base',
@@ -64,7 +63,6 @@ const parityCell = (shots: number): CellSpec => ({
       provider: 'scripted',
       default: 'scripted/parity-reviewer',
       metadata: { temperature: 0.9 },
-      maxVisibleOutputTokens: 600,
     },
     prompt: { systemPrompt: 'Verify.' },
   },

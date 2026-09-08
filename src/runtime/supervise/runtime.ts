@@ -218,6 +218,8 @@ const routerTurnProfileMaterialization = defineProfileMaterializationContract({
     'modelDefault',
     'modelProvider',
     'modelReasoningEffort',
+    'modelMaxVisibleOutputTokens',
+    'modelMaxTotalOutputTokens',
     'modelMetadata',
     'harness',
     'tools',

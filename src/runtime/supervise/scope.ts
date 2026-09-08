@@ -38,6 +38,7 @@ import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
 import { abortError } from './abortable'
 import {
+  assertValidSpend,
   type BudgetPool,
   createBudgetPool,
   meterUsageEvent,
@@ -77,6 +78,14 @@ import {
   readWorkerProgress,
   type WorkerProgress,
 } from './progress'
+import { prepareScopeResume } from './recover-executors'
+import {
+  type RetainedChildRecovery,
+  RetainedExecutionPendingError,
+  type RetainedExecutorContext,
+  retainedExecutorSeamKey,
+} from './retained-executor'
+import { registerScopeRetainedOwner } from './retained-scope-owner'
 import { detachedSnapshot } from './snapshot'
 import { captureWorkerTraceEvidence } from './trace-evidence'
 import type { TraceSource } from './trace-source'
@@ -92,6 +101,7 @@ import type {
   ExecutorCancellationRequest,
   ExecutorContext,
   ExecutorExecutionBinding,
+  ExecutorFactory,
   ExecutorNodeContext,
   ExecutorRegistry,
   ExecutorResult,
@@ -107,6 +117,7 @@ import type {
   ResumedWork,
   Scope,
   Settled,
+  SpawnEvent,
   SpawnJournal,
   SpawnOpts,
   SpawnPrior,
@@ -214,6 +225,9 @@ export interface ScopeArgs {
    * continue past, so a freshly-spawned child never reuses a journaled `seq`. Absent ⇒ fresh run.
    */
   readonly resumeFrom?: {
+    /** @internal Executor adoption plans validated by the supervisor's recovery preparation. */
+    readonly recoveries?: readonly RetainedChildRecovery[]
+    readonly events?: readonly SpawnEvent[]
     readonly settled: ReadonlyArray<Settled<unknown>>
     readonly view: TreeView
     /** Highest `spawned` ordinal already journaled; new spawns start at `+1`. */
@@ -241,6 +255,15 @@ type RuntimeOwnedProviderMeter = (
 
 /** Runtime-owned provider evidence is written through this private scope capability. */
 const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
+const recoveryStarters = new WeakMap<object, () => Promise<void>>()
+
+/** @internal Admit original children before the parent acts; do not wait for their results. */
+export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void> {
+  const start = recoveryStarters.get(scope)
+  if (!start) return
+  recoveryStarters.delete(scope)
+  await start()
+}
 
 /** Mutable only inside Scope admission/release. Every nested scope receives this exact object. */
 export interface LiveWorkerCapacityState {
@@ -268,6 +291,9 @@ interface LiveChild {
    *  terminal state back into the scope's key registry under it. */
   readonly key?: string
   spent: Spend
+  recoveryReady?: Promise<void>
+  acceptedResult?: ExecutorResult<unknown>
+  recoveryPending?: boolean
   outRef?: string
   /** Durable structured tool evidence once this executor is terminal. */
   trace?: WorkerTraceEvidence
@@ -376,6 +402,12 @@ export interface NestedScopeSeam {
   readonly journalRoot: NodeId
   /** Mount a nested scope rooted at `nestedRoot`, parented at this driver child's node id. */
   mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown>
+  restore?(
+    nestedRoot: NodeId,
+    signal: AbortSignal,
+    events: SpawnEvent[],
+    recoverExecutor: ExecutorFactory<unknown>,
+  ): Promise<Scope<unknown>>
 }
 
 interface DeferredOwnerSlot {
@@ -391,50 +423,70 @@ function makeNestedScopeSeam(
   deferredOwner: DeferredOwnerSlot,
 ): NestedScopeSeam {
   const now = args.now ?? Date.now
+  const mountScope = (
+    nestedRoot: NodeId,
+    signal: AbortSignal,
+    restored?: Awaited<ReturnType<typeof prepareScopeResume>>,
+  ): Scope<unknown> => {
+    // One clock read anchors both halves: the remaining duration is measured from the same
+    // instant the nested pool derives its absolute deadline from.
+    const mountedAtMs = now()
+    const deadlineMs =
+      childDeadlineAtMs === undefined ? undefined : Math.max(0, childDeadlineAtMs - mountedAtMs)
+    const nestedBudget = {
+      ...childBudget,
+      ...(deadlineMs !== undefined ? { deadlineMs } : {}),
+    }
+    return createScope<unknown>({
+      parentId: childNodeId,
+      root: nestedRoot,
+      pool: createBudgetPool(nestedBudget, mountedAtMs, restored?.poolRestore),
+      journal: args.journal,
+      blobs: args.blobs,
+      executors: args.executors,
+      // Re-seed the parent's NON-recursion seams (sandbox/router for leaf grandchildren);
+      // the nested scope adds its OWN nested-scope seam per child in `spawn`.
+      seams: args.seams,
+      depth: args.depth + 1,
+      ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
+      liveWorkerCapacity,
+      signal,
+      ...(restored ? { resumeFrom: restored.resumeFrom } : {}),
+      ...(args.now ? { now: args.now } : {}),
+      ...(args.hooks ? { hooks: args.hooks } : {}),
+      // The nested scope resolves the trace context against ITS OWN `parentId` (this driver
+      // child), so a grandchild worker joins under the middle node's span, not the run root's.
+      ...(args.workerTrace ? { workerTrace: args.workerTrace } : {}),
+      ...(args.workerTraceUnpropagated
+        ? { workerTraceUnpropagated: args.workerTraceUnpropagated }
+        : {}),
+      ...(args.interactiveBindingDir ? { interactiveBindingDir: args.interactiveBindingDir } : {}),
+      ...(deferredOwner.ownerMaterialization === undefined
+        ? {}
+        : { ownerMaterialization: deferredOwner.ownerMaterialization }),
+    })
+  }
   return {
     nodeId: childNodeId,
     depth: args.depth,
     ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
     journalRoot: args.root,
-    mount(nestedRoot: NodeId, signal: AbortSignal): Scope<unknown> {
-      // One clock read anchors both halves: the remaining duration is measured from the same
-      // instant the nested pool derives its absolute deadline from.
-      const mountedAtMs = now()
-      const deadlineMs =
-        childDeadlineAtMs === undefined ? undefined : Math.max(0, childDeadlineAtMs - mountedAtMs)
-      const nestedBudget = {
-        ...childBudget,
-        ...(deadlineMs !== undefined ? { deadlineMs } : {}),
-      }
-      return createScope<unknown>({
-        parentId: childNodeId,
-        root: nestedRoot,
-        pool: createBudgetPool(nestedBudget, mountedAtMs),
-        journal: args.journal,
-        blobs: args.blobs,
-        executors: args.executors,
-        // Re-seed the parent's NON-recursion seams (sandbox/router for leaf grandchildren);
-        // the nested scope adds its OWN nested-scope seam per child in `spawn`.
-        seams: args.seams,
-        depth: args.depth + 1,
-        ...(args.maxDepth !== undefined ? { maxDepth: args.maxDepth } : {}),
-        liveWorkerCapacity,
+    mount: mountScope,
+    restore: async (nestedRoot, signal, events, recoverExecutor) => {
+      const restored = await prepareScopeResume(
+        {
+          runId: nestedRoot,
+          journal: args.journal,
+          blobs: args.blobs,
+          recoverExecutor,
+        },
+        events,
         signal,
-        ...(args.now ? { now: args.now } : {}),
-        ...(args.hooks ? { hooks: args.hooks } : {}),
-        // The nested scope resolves the trace context against ITS OWN `parentId` (this driver
-        // child), so a grandchild worker joins under the middle node's span, not the run root's.
-        ...(args.workerTrace ? { workerTrace: args.workerTrace } : {}),
-        ...(args.workerTraceUnpropagated
-          ? { workerTraceUnpropagated: args.workerTraceUnpropagated }
-          : {}),
-        ...(args.interactiveBindingDir
-          ? { interactiveBindingDir: args.interactiveBindingDir }
-          : {}),
-        ...(deferredOwner.ownerMaterialization === undefined
-          ? {}
-          : { ownerMaterialization: deferredOwner.ownerMaterialization }),
-      })
+        now,
+        childNodeId,
+      )
+      signal.throwIfAborted()
+      return mountScope(nestedRoot, signal, restored)
     },
   }
 }
@@ -442,6 +494,7 @@ function makeNestedScopeSeam(
 /** Create the reactive `Scope` a driver's `Agent.act` runs inside: spawn children on an atomically reserved conserved budget, settle via the `next()` cursor, journal for replay. */
 export function createScope<Out>(args: ScopeArgs): Scope<Out> {
   const children = new Map<NodeId, LiveChild>()
+  const settlementWrites = new Set<Promise<Settled<Out>>>()
   const interactiveBindingDir = args.interactiveBindingDir
   const liveWorkerCapacity: LiveWorkerCapacityState = args.liveWorkerCapacity ?? {
     max: normalizeLiveWorkerLimit(args.maxLiveWorkers),
@@ -521,7 +574,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (identity === undefined) {
       throw new ValidationError(`scope: keyed settlement '${key}' lost its execution identity`)
     }
-    if (settled.kind === 'done') {
+    if (children.get(settled.handle.id)?.recoveryPending) {
+      keyed.set(key, { state: 'in-doubt', id: settled.handle.id, identity })
+    } else if (settled.kind === 'done') {
       keyed.set(key, { state: 'done', id: settled.handle.id, identity, settled })
     } else {
       keyed.set(key, { state: 'down', id: settled.handle.id, identity, reason: settled.reason })
@@ -532,6 +587,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     agentOrFactory: Agent<unknown, C> | (() => Agent<unknown, C>),
     rawTask: unknown,
     rawOpts: SpawnOpts,
+    recovery?: RetainedChildRecovery,
   ):
     | { ok: true; handle: Handle<C>; prior?: SpawnPrior<C> }
     | { ok: false; reason: SpawnRejection } {
@@ -564,7 +620,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
     if (opts.key !== undefined) {
       const existing = keyed.get(opts.key)
-      if (existing?.state === 'in-doubt') {
+      if (existing?.state === 'in-doubt' && recovery?.spawned.id !== existing.id) {
         // A durable start with no terminal receipt does not prove the remote execution stopped.
         // Do not invoke a lazy factory, reserve, or construct a replacement beside it.
         return { ok: false, reason: 'in-doubt' }
@@ -588,6 +644,20 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
       if (existing?.state === 'down') {
         prior = { state: 'retried', priorId: existing.id, reason: existing.reason }
+      }
+    }
+
+    if (recovery) {
+      prepared ??= prepare()
+      if (
+        recovery.spawned.parent !== args.parentId ||
+        children.has(recovery.spawned.id) ||
+        !prepared.identity ||
+        !recovery.spawned.identity ||
+        !sameNodeExecutionIdentity(prepared.identity, recovery.spawned.identity) ||
+        contentAddress(opts.budget) !== contentAddress(recovery.spawned.budget)
+      ) {
+        throw new ValidationError('scope recovery does not match its original admitted child')
       }
     }
 
@@ -636,7 +706,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         permit.release()
         return { ok: false, reason: 'invalid-identity' }
       }
-      const outcome = args.executors.resolve<C>(spec)
+      const outcome = recovery
+        ? {
+            succeeded: true as const,
+            value: recovery.factory as (spec: AgentSpec, ctx: ExecutorContext) => Executor<C>,
+          }
+        : args.executors.resolve<C>(spec)
       if (!outcome.succeeded) throw new ValidationError(`scope.spawn: ${outcome.error}`)
       resolved = outcome
     } catch (error) {
@@ -653,10 +728,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     let cascadeAbort: (() => void) | undefined
     let clearChildDeadline: (() => void) | undefined
     try {
-      const ordinal = spawnOrdinal++
-      const id: NodeId = `${args.parentId}:s${ordinal}`
+      const ordinal = recovery?.spawned.seq ?? spawnOrdinal++
+      const id: NodeId = recovery?.spawned.id ?? `${args.parentId}:s${ordinal}`
       const attemptId = newExecutionAttemptId(id)
-      const startedAt = now()
+      const startedAt = recovery ? Date.parse(recovery.spawned.at) : now()
+      if (!Number.isFinite(startedAt))
+        throw new ValidationError('scope recovery has an invalid original start time')
       const childDeadlineAtMs = boundedChildDeadlineAt(
         args.pool.readout().deadlineMs,
         opts.budget.deadlineMs,
@@ -687,6 +764,31 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // resolver (the untraced default) ⇒ no seam, and the child's `ExecutorContext` is exactly
       // the object it was before worker trace propagation existed.
       const workerTrace = args.workerTrace?.(args.parentId)
+      let markRecoveryReady: (() => void) | undefined
+      const recoveryReady =
+        recovery?.spawned.ownedTreeRoot === undefined
+          ? undefined
+          : new Promise<void>((resolve) => {
+              markRecoveryReady = resolve
+            })
+      const admissions = [...(recovery?.admissions ?? [])]
+      const retainedWrites = new Set<Promise<void>>()
+      let retainedWritesClosed = false
+      const retainedWrite = (write: () => Promise<void>): Promise<void> => {
+        controller.signal.throwIfAborted()
+        if (retainedWritesClosed) throw new ValidationError('retained child writer is closed')
+        const pending = write()
+        retainedWrites.add(pending)
+        void pending.then(
+          () => retainedWrites.delete(pending),
+          () => retainedWrites.delete(pending),
+        )
+        return pending
+      }
+      const closeRetainedWrites = async () => {
+        retainedWritesClosed = true
+        await Promise.allSettled([...retainedWrites])
+      }
       const ctx: ExecutorContext = {
         signal: controller.signal,
         node: {
@@ -698,6 +800,58 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         },
         seams: {
           ...args.seams,
+          [retainedExecutorSeamKey]: {
+            admissions,
+            ...(markRecoveryReady ? { onReady: markRecoveryReady } : {}),
+            onAdmission: (admission) =>
+              retainedWrite(async () => {
+                controller.signal.throwIfAborted()
+                const existing = admissions.find((record) => record.phase === admission.phase)
+                if (existing) {
+                  if (contentAddress(existing) !== contentAddress(admission)) {
+                    throw new ValidationError(
+                      'scope retained admission conflicts with its committed phase',
+                    )
+                  }
+                  return
+                }
+                if (identity?.taskDigest === undefined)
+                  throw new ValidationError('retained execution requires a canonical task identity')
+                await args.journal.appendEvent(args.root, {
+                  kind: 'execution-admitted',
+                  id,
+                  admission: detachedSnapshot(admission, 'retained admission'),
+                  seq: ordinal,
+                  at: new Date(now()).toISOString(),
+                })
+                admissions.push(detachedSnapshot(admission, 'retained admission'))
+                live.recoveryPending = true
+                controller.signal.throwIfAborted()
+              }),
+            onResult: (result) =>
+              retainedWrite(async () => {
+                controller.signal.throwIfAborted()
+                assertValidSpend(result.spent, 'retained executor result')
+                await pendingEvidence?.complete()
+                const outRef = contentAddress(result.out)
+                await args.blobs.put(outRef, result.out)
+                controller.signal.throwIfAborted()
+                await args.journal.appendEvent(args.root, {
+                  kind: 'execution-result',
+                  id,
+                  outRef,
+                  spent: result.spent,
+                  ...(result.verdict ? { verdict: result.verdict } : {}),
+                  seq: ordinal,
+                  at: new Date(now()).toISOString(),
+                })
+                live.acceptedResult = detachedSnapshot(
+                  { ...result, outRef },
+                  'accepted retained child result',
+                )
+                live.recoveryPending = false
+              }),
+          } satisfies RetainedExecutorContext,
           [nestedScopeSeamKey]: makeNestedScopeSeam(
             args,
             liveWorkerCapacity,
@@ -719,6 +873,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
       const executor = resolved.value(spec, ctx) as Executor<C>
       const ownedTreeRoot = runtimeOwnedNestedDriverTreeRoot(executor, args.root, id)
+      if (
+        recovery &&
+        (!executor.recover ||
+          executor.runtime !== recovery.spawned.runtime ||
+          ownedTreeRoot !== recovery.spawned.ownedTreeRoot)
+      ) {
+        throw new ValidationError(
+          'scope recovery executor does not preserve its runtime, recovery method, or owned tree',
+        )
+      }
 
       const handle: Handle<C> = {
         id,
@@ -755,7 +919,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         delivered: false,
         executorDone: false,
         cleanupConfirmed: false,
-        executionBindings: [],
+        ...(recovery ? { recoveryPending: true } : {}),
+        ...(recoveryReady ? { recoveryReady } : {}),
+        ...(recovery?.priorMaterialization
+          ? { materialization: recovery.priorMaterialization }
+          : {}),
+        executionBindings: recovery
+          ? (args.resumeFrom?.events ?? []).flatMap((event) =>
+              event.kind === 'execution-bound' && event.id === id ? [event.binding] : [],
+            )
+          : [],
         startedAt,
         lastActivityAt: startedAt,
         ...(executor.deliver
@@ -786,41 +959,56 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       // profile store one body. The blob lands BEFORE the event that names it, so a reader that
       // sees `profileRef` can always resolve it.
       const profileRef = contentAddress(spec.profile)
-      const spawnCommitted = args.blobs
-        .put(profileRef, spec.profile)
-        .then(() =>
-          args.journal.appendEvent(args.root, {
-            kind: 'spawned',
-            id,
-            parent: args.parentId,
-            label: opts.label,
-            ...(opts.key !== undefined ? { key: opts.key } : {}),
-            ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-            budget: opts.budget,
-            runtime: executor.runtime,
-            ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
-            ...(identity ? { identity } : {}),
-            profileRef,
-            seq: ordinal,
-            at: new Date(now()).toISOString(),
-          }),
-        )
-        .then(async () => {
-          // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
-          // records spans AND resolved a context for this child, but the backend has no channel to
-          // carry it — the child's own trace will surface as a disconnected root, and this record
-          // is what makes that a queryable fact instead of a silent stranger tree.
-          if (args.workerTraceUnpropagated === undefined || workerTrace === undefined) return
-          await args.journal.appendEvent(args.root, {
-            kind: 'trace-unpropagated',
-            id,
-            expectedTraceId: workerTrace.traceId,
-            backend: args.workerTraceUnpropagated.backend,
-            reason: args.workerTraceUnpropagated.reason,
-            seq: ordinal,
-            at: new Date(now()).toISOString(),
-          })
-        })
+      const taskRef = identity?.taskDigest === undefined ? undefined : contentAddress(task)
+      const spawnCommitted = recovery
+        ? Promise.resolve()
+        : args.blobs
+            .put(profileRef, spec.profile)
+            .then(() => (taskRef === undefined ? undefined : args.blobs.put(taskRef, task)))
+            .then(() =>
+              args.journal.appendEvent(args.root, {
+                kind: 'spawned',
+                id,
+                parent: args.parentId,
+                label: opts.label,
+                ...(opts.key !== undefined ? { key: opts.key } : {}),
+                ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+                budget: opts.budget,
+                runtime: executor.runtime,
+                ...(ownedTreeRoot === undefined ? {} : { ownedTreeRoot }),
+                ...(identity ? { identity } : {}),
+                profileRef,
+                seq: ordinal,
+                at: new Date(now()).toISOString(),
+              }),
+            )
+            .then(async () => {
+              if (taskRef !== undefined) {
+                await args.journal.appendEvent(args.root, {
+                  kind: 'execution-input',
+                  id,
+                  taskRef,
+                  seq: ordinal,
+                  at: new Date(now()).toISOString(),
+                })
+              }
+            })
+            .then(async () => {
+              // The severed distributed-trace hop, journaled beside the spawn it annotates: this run
+              // records spans AND resolved a context for this child, but the backend has no channel to
+              // carry it — the child's own trace will surface as a disconnected root, and this record
+              // is what makes that a queryable fact instead of a silent stranger tree.
+              if (args.workerTraceUnpropagated === undefined || workerTrace === undefined) return
+              await args.journal.appendEvent(args.root, {
+                kind: 'trace-unpropagated',
+                id,
+                expectedTraceId: workerTrace.traceId,
+                backend: args.workerTraceUnpropagated.backend,
+                reason: args.workerTraceUnpropagated.reason,
+                seq: ordinal,
+                at: new Date(now()).toISOString(),
+              })
+            })
       let pendingEvidence: { complete: () => Promise<void>; fail: () => Promise<void> } | undefined
       const materializationCommitted = spawnCommitted.then(async () => {
         const profileDigest = identity?.profileDigest ?? authoredProfileDigest(spec.profile)
@@ -837,6 +1025,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             journalRoot: args.root,
             nodeId: id,
             requiredKnown: true,
+            ...(recovery?.priorMaterialization ? { prior: recovery.priorMaterialization } : {}),
             onReceipt(materialization, executionBinding) {
               live.runtime = materialization.runtime
               live.materialization = materialization
@@ -969,30 +1158,31 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         live.executionBindings.push(binding)
       })
 
-      notifyRuntimeHookEvent(
-        args.hooks,
-        {
-          id: `${id}:spawn`,
-          runId: args.root,
-          target: 'agent.spawn',
-          phase: 'after',
-          timestamp: now(),
-          stepIndex: ordinal,
-          parentId: args.parentId,
-          payload: {
-            childId: id,
-            label: opts.label,
-            ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
-            runtime: executor.runtime,
-            ...(identity ? { identity } : {}),
-            budget: opts.budget,
-            depth: args.depth,
-            attemptId,
-            startedAt,
+      if (!recovery)
+        notifyRuntimeHookEvent(
+          args.hooks,
+          {
+            id: `${id}:spawn`,
+            runId: args.root,
+            target: 'agent.spawn',
+            phase: 'after',
+            timestamp: now(),
+            stepIndex: ordinal,
+            parentId: args.parentId,
+            payload: {
+              childId: id,
+              label: opts.label,
+              ...(opts.assignmentId === undefined ? {} : { assignmentId: opts.assignmentId }),
+              runtime: executor.runtime,
+              ...(identity ? { identity } : {}),
+              budget: opts.budget,
+              depth: args.depth,
+              attemptId,
+              startedAt,
+            },
           },
-        },
-        { signal: args.signal },
-      )
+          { signal: args.signal },
+        )
 
       // Drive the executor to settlement off to the side; `next()` awaits the resulting
       // promise. A thrown executor (or a real abort) is TYPED into a `down` record by
@@ -1016,6 +1206,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           fail: async () => pendingEvidence?.fail(),
         },
         childDeadlineAtMs,
+        recovery !== undefined,
+        closeRetainedWrites,
       )
       const interactiveBindingCommitted = spawnCommitted.then(async () => {
         if (args.interactiveBindingDir === undefined) return
@@ -1088,15 +1280,34 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     }
   }
 
+  async function commitSettlement(
+    child: LiveChild,
+    settlement: PreSeqSettled,
+    seq: number,
+  ): Promise<Settled<Out>> {
+    const pending = finalizeSettlement<Out>(child, settlement, seq, args, now).then((delivered) => {
+      if (child.key !== undefined) recordKeyedSettlement(child.key, delivered)
+      return delivered
+    })
+    settlementWrites.add(pending)
+    try {
+      return await pending
+    } finally {
+      settlementWrites.delete(pending)
+    }
+  }
+
   async function next(): Promise<Settled<Out> | null> {
     const undelivered = () => [...children.values()].filter((c) => !c.delivered)
-    if (undelivered().length === 0) return null
 
     // ray.wait n=1: await the FIRST not-yet-delivered child to settle. Loop because a
     // concurrent `next()` may take the race winner between the await and the pick.
     for (;;) {
       const pending = undelivered()
-      if (pending.length === 0) return null
+      if (pending.length === 0) {
+        await Promise.all([...settlementWrites])
+        return null
+      }
       // Prefer an already-resolved-but-undelivered child (no await needed).
       const ready = pending.find((c) => c.resolved !== undefined)
       const chosen = ready ?? (await raceFirstSettled(pending))
@@ -1110,9 +1321,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           `scope.next: child '${chosen.id}' won the settle race without a resolved value`,
         )
       }
-      const delivered = await finalizeSettlement<Out>(chosen, settlement, seq, args, now)
-      if (chosen.key !== undefined) recordKeyedSettlement(chosen.key, delivered)
-      return delivered
+      return await commitSettlement(chosen, settlement, seq)
     }
   }
 
@@ -1124,14 +1333,15 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       const candidates = [...children.values()].filter((c) => !c.delivered)
       const pick =
         candidates.find((c) => c.resolved !== undefined) ?? candidates.find((c) => c.executorDone)
-      if (!pick) return null
+      if (!pick) {
+        await Promise.all([...settlementWrites])
+        return null
+      }
       const settlement = await pick.settled
       if (pick.delivered) continue // lost the race with a concurrent cursor — pick again
       pick.delivered = true
       const seq = cursorSeq++
-      const delivered = await finalizeSettlement<Out>(pick, settlement, seq, args, now)
-      if (pick.key !== undefined) recordKeyedSettlement(pick.key, delivered)
-      return delivered
+      return await commitSettlement(pick, settlement, seq)
     }
   }
 
@@ -1526,6 +1736,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
             'scope owner authored profile',
           )
     ownerMaterializationStates.set(scope as Scope<unknown>, {
+      retainedRoot: args.root,
+      blobs: args.blobs,
       journal: args.journal,
       root: args.ownerMaterialization.journalRoot ?? args.root,
       nodeId: args.ownerMaterialization.nodeId ?? args.parentId,
@@ -1548,6 +1760,77 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       publishedThisProcess: false,
     })
   }
+  if (args.resumeFrom?.recoveries?.length) {
+    recoveryStarters.set(scope, async () => {
+      const adopted: LiveChild[] = []
+      try {
+        for (const recovery of args.resumeFrom!.recoveries!) {
+          args.signal.throwIfAborted()
+          const node = recovery.spawned
+          const agent = Object.assign(
+            {
+              name: recovery.spec.profile.name ?? node.label,
+              act: async () => {
+                throw new ValidationError(
+                  'retained children execute through their recovered executor',
+                )
+              },
+            },
+            { executorSpec: recovery.spec },
+          )
+          const result = spawn(
+            agent,
+            recovery.task,
+            {
+              budget: node.budget,
+              label: node.label,
+              ...(node.key === undefined ? {} : { key: node.key }),
+              ...(node.assignmentId === undefined ? {} : { assignmentId: node.assignmentId }),
+            },
+            recovery,
+          )
+          if (!result.ok)
+            throw new ValidationError(
+              `scope recovery admission refused '${node.id}': ${result.reason}`,
+            )
+          adopted.push(children.get(node.id)!)
+        }
+        await Promise.all(
+          adopted.map((child) =>
+            child.recoveryReady === undefined
+              ? undefined
+              : Promise.race([
+                  child.recoveryReady,
+                  child.settled.then(() => {
+                    throw new ValidationError(
+                      `scope recovery '${child.id}' ended before nested adoption completed`,
+                    )
+                  }),
+                ]),
+          ),
+        )
+      } catch (error) {
+        for (const child of adopted) child.abortChild?.('recovery startup failed')
+        await Promise.allSettled(adopted.map((child) => child.settled))
+        for (;;) {
+          try {
+            if ((await next()) === null) break
+          } catch {
+            break
+          }
+        }
+        throw error
+      }
+    })
+  }
+  registerScopeRetainedOwner(scope as Scope<unknown>, {
+    rootId: args.root,
+    nodeId: args.parentId,
+    journal: args.journal,
+    blobs: args.blobs,
+    priorEvents: args.resumeFrom?.events ?? [],
+    now,
+  })
   return scope
 }
 
@@ -1579,6 +1862,8 @@ export function meterRuntimeOwnedAccounting(
 }
 
 interface OwnerMaterializationState {
+  readonly retainedRoot: NodeId
+  readonly blobs: ResultBlobStore
   readonly journal: SpawnJournal
   readonly root: NodeId
   readonly nodeId: NodeId
@@ -1709,6 +1994,58 @@ export function scopeOwnerExecutorNodeContext(scope: Scope<unknown>): ExecutorNo
   })
 }
 
+/** Reuse a committed owner invocation without inventing another provider attempt. @internal */
+export async function restoreScopeOwnerAcceptedExecution(scope: Scope<unknown>): Promise<void> {
+  const state = ownerMaterializationState(scope)
+  const events = (await state.journal.loadTree(state.retainedRoot)) ?? []
+  const owned = events.filter((event) => event.id === state.nodeId)
+  const latestInput = [...owned].reverse().find((event) => event.kind === 'execution-input')
+  const latestResult = [...owned].reverse().find((event) => event.kind === 'execution-result')
+  const inputIndex = latestInput === undefined ? -1 : owned.indexOf(latestInput)
+  const resultIndex = latestResult === undefined ? -1 : owned.indexOf(latestResult)
+  const result = owned[resultIndex]
+  if (inputIndex < 0 || resultIndex <= inputIndex || result?.kind !== 'execution-result') {
+    throw new ValidationError('scope owner has no accepted retained invocation')
+  }
+  const receiptEvent = owned
+    .slice(0, resultIndex)
+    .reverse()
+    .find((event) => event.kind === 'materialized')
+  const bindingEvent = owned
+    .slice(inputIndex, resultIndex)
+    .reverse()
+    .find((event) => event.kind === 'execution-bound')
+  if (receiptEvent?.kind !== 'materialized' || bindingEvent?.kind !== 'execution-bound') {
+    throw new ValidationError(
+      'accepted scope owner result has no preceding materialization evidence',
+    )
+  }
+  const { receipt } = receiptEvent
+  const { binding } = bindingEvent
+  if (
+    receipt.status !== 'known' ||
+    binding.status !== 'known' ||
+    receipt.runtime !== state.runtime ||
+    receipt.authoredProfileDigest !== state.authoredProfileDigest ||
+    binding.materializationReceiptDigest !== canonicalCandidateDigest(receipt) ||
+    (state.prior !== undefined &&
+      canonicalCandidateDigest(state.prior) !== canonicalCandidateDigest(receipt))
+  ) {
+    throw new ValidationError(
+      'accepted scope owner materialization does not match the resumed owner',
+    )
+  }
+  assertValidSpend(result.spent, 'accepted scope owner result')
+  const output = await state.blobs.get(result.outRef)
+  if (output === undefined || contentAddress(output) !== result.outRef) {
+    throw new ValidationError('accepted scope owner output is missing or corrupt')
+  }
+  state.receipt = receipt
+  state.bindingPublished = true
+  state.publishedThisProcess = true
+  state.onReceipt?.(receipt, binding)
+}
+
 /** @internal Ensure a deferred root that never published evidence remains visibly unknown. */
 export async function finalizeScopeOwnerMaterialization(scope: Scope<unknown>): Promise<void> {
   const state = ownerMaterializationStates.get(scope)
@@ -1782,7 +2119,7 @@ async function appendOwnerMaterialization(
   receipt: ProfileMaterializationReceipt,
   binding: ExecutionBindingReceipt,
 ): Promise<void> {
-  await state.journal.appendEvent(state.root, {
+  await appendOwnerEvidence(state, {
     kind: 'materialized',
     id: state.nodeId,
     receipt,
@@ -1797,7 +2134,7 @@ async function appendOwnerBinding(
   state: OwnerMaterializationState,
   binding: ExecutionBindingReceipt,
 ): Promise<void> {
-  await state.journal.appendEvent(state.root, {
+  await appendOwnerEvidence(state, {
     kind: 'execution-bound',
     id: state.nodeId,
     binding,
@@ -1805,6 +2142,38 @@ async function appendOwnerBinding(
     at: new Date(state.now()).toISOString(),
   })
   state.bindingPublished = true
+}
+
+async function appendOwnerEvidence(
+  state: OwnerMaterializationState,
+  event: Extract<SpawnEvent, { kind: 'materialized' | 'execution-bound' }>,
+): Promise<void> {
+  for (const root of new Set([state.root, state.retainedRoot])) {
+    await appendExactMaterializationEvent(state.journal, root, event)
+  }
+}
+
+async function appendExactMaterializationEvent(
+  journal: SpawnJournal,
+  root: NodeId,
+  event: Extract<SpawnEvent, { kind: 'materialized' | 'execution-bound' }>,
+): Promise<void> {
+  const prior = (await journal.loadTree(root))?.find(
+    (item) =>
+      item.id === event.id &&
+      (event.kind === 'materialized'
+        ? item.kind === 'materialized'
+        : item.kind === 'execution-bound' && item.binding.attemptId === event.binding.attemptId),
+  )
+  if (prior?.kind === 'materialized' || prior?.kind === 'execution-bound') {
+    const previous = prior.kind === 'materialized' ? prior.receipt : prior.binding
+    const next = event.kind === 'materialized' ? event.receipt : event.binding
+    if (canonicalCandidateDigest(previous) !== canonicalCandidateDigest(next)) {
+      throw new ValidationError('scope execution evidence conflicts with its committed record')
+    }
+    return
+  }
+  await journal.appendEvent(root, event)
 }
 
 async function appendUnknownOwnerBinding(
@@ -1826,14 +2195,14 @@ async function appendNodeMaterialization(
   now: () => number,
 ): Promise<void> {
   const at = new Date(now()).toISOString()
-  await args.journal.appendEvent(args.root, {
+  await appendExactMaterializationEvent(args.journal, args.root, {
     kind: 'materialized',
     id,
     receipt,
     seq,
     at,
   })
-  await args.journal.appendEvent(args.root, {
+  await appendExactMaterializationEvent(args.journal, args.root, {
     kind: 'execution-bound',
     id,
     binding,
@@ -1847,6 +2216,36 @@ async function appendNodeMaterialization(
  *  resolves downstream). */
 async function raceFirstSettled(pending: LiveChild[]): Promise<LiveChild> {
   return Promise.race(pending.map((c) => c.settled.then(() => c)))
+}
+
+/** Rehomed inference has its own per-child sequence, independent of terminal cursors. */
+async function appendSettlementMetering(
+  journal: SpawnJournal,
+  root: NodeId,
+  id: NodeId,
+  spend: Spend,
+  at: string,
+): Promise<void> {
+  const prior = (await journal.loadTree(root)) ?? []
+  const seq =
+    prior.reduce(
+      (max, event) =>
+        event.kind === 'metered' && event.id === id ? Math.max(max, event.seq) : max,
+      -1,
+    ) + 1
+  const event: Extract<SpawnEvent, { kind: 'metered' }> = { kind: 'metered', id, spend, seq, at }
+  try {
+    await journal.appendEvent(root, event)
+  } catch (error) {
+    // An acknowledged durable prefix permits the terminal write; a missing prefix does not.
+    const persisted = await journal.loadTree(root)
+    if (
+      !persisted?.some(
+        (record) => record.kind === 'metered' && contentAddress(record) === contentAddress(event),
+      )
+    )
+      throw error
+  }
 }
 
 /** Stamp the cursor `seq`, write the `settled` journal record, and project the
@@ -1866,33 +2265,27 @@ async function finalizeSettlement<Out>(
   const settledAt = now()
   child.settledAt = settledAt
   const at = new Date(settledAt).toISOString()
+  // A terminal cursor must never hide inference that has not reached the parent journal.
+  if (settlement.metered) {
+    await appendSettlementMetering(args.journal, args.root, child.id, settlement.metered, at)
+  }
   if (settlement.kind === 'down') {
     child.status = 'failed'
     child.trace = settlement.trace
     child.providerModel = settlement.providerModel
-    await args.journal.appendEvent(args.root, {
-      kind: 'settled',
-      id: child.id,
-      status: 'down',
-      spent: child.spent,
-      infra: settlement.infra,
-      reason: settlement.reason,
-      ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
-      trace: settlement.trace,
-      seq,
-      at,
-    })
-    // Re-home a crashed driver child's partial inference too (the pool already debited it via
-    // `observe`) — so spentTotal/trajectory never undercount a sub-driver that died mid-run.
-    if (settlement.metered) {
+    if (!child.recoveryPending)
       await args.journal.appendEvent(args.root, {
-        kind: 'metered',
+        kind: 'settled',
         id: child.id,
-        spend: settlement.metered,
+        status: 'down',
+        spent: child.spent,
+        infra: settlement.infra,
+        reason: settlement.reason,
+        ...(settlement.providerModel ? { providerModel: settlement.providerModel } : {}),
+        trace: settlement.trace,
         seq,
         at,
       })
-    }
     notifyRuntimeHookEvent(
       args.hooks,
       {
@@ -1943,18 +2336,6 @@ async function finalizeSettlement<Out>(
     seq,
     at,
   })
-  // Re-home a driver child's OWN-inference subtree total up to THIS (parent) tree as a `metered`
-  // event for the child node — mirroring how `settled.spent` rolls child WORK up. So summing any
-  // sub-tree root yields its true driver-inference cost, NOT reconciled (already pool-debited).
-  if (settlement.metered) {
-    await args.journal.appendEvent(args.root, {
-      kind: 'metered',
-      id: child.id,
-      spend: settlement.metered,
-      seq,
-      at,
-    })
-  }
   notifyRuntimeHookEvent(
     args.hooks,
     {
@@ -2131,8 +2512,12 @@ async function runChild<C>(
     fail: () => Promise<void>
   },
   deadlineAtMs: number | undefined,
+  recovering = false,
+  closeRetainedWrites: () => Promise<void> = async () => {},
 ): Promise<PreSeqSettled> {
   let reconciled = false
+  let reconciliationError: unknown
+  let teardownFailure: unknown
   let started = false
   let terminalTelemetryCaptured = false
   let teardownStarted = false
@@ -2144,11 +2529,16 @@ async function runChild<C>(
   const teardownOnce = async (grace: number | 'brutalKill' | 'infinity'): Promise<void> => {
     if (teardownStarted) return
     teardownStarted = true
-    await teardownExecutor(executor, grace, deadlineAtMs, now)
-    live.cleanupConfirmed = true
+    try {
+      await teardownExecutor(executor, grace, deadlineAtMs, now)
+      live.cleanupConfirmed = true
+    } catch (error) {
+      teardownFailure = error
+      throw error
+    }
   }
   const reconcileOnce = (spend: Spend): unknown | undefined => {
-    if (reconciled) return undefined
+    if (reconciled) return reconciliationError
     reconciled = true
     // A refused pre-execution path (including an unmetered executor) reconciles zero and refunds
     // its whole reservation. Every path that actually executes reports measured or unknown spend.
@@ -2156,6 +2546,7 @@ async function runChild<C>(
       pool.reconcile(ticket, spend)
       return undefined
     } catch (error) {
+      reconciliationError = error
       return error
     }
   }
@@ -2171,7 +2562,9 @@ async function runChild<C>(
     // driver's own inference must be metered.
     live.status = 'running'
     started = true
-    const ran = executor.execute(task, childAbort.signal)
+    const ran = recovering
+      ? executor.recover!(task, childAbort.signal)
+      : executor.execute(task, childAbort.signal)
     let artifact: ExecutorResult<C>
     if (isAsyncIterable(ran)) {
       // Streaming: fold the incremental usage events as they arrive (the conserved-pool
@@ -2225,7 +2618,7 @@ async function runChild<C>(
     const ownMetered = executor.metered?.()
     const trace = await captureTraceOnce()
 
-    if (childAbort.signal.aborted) {
+    if (childAbort.signal.aborted && live.acceptedResult === undefined) {
       await teardownOnce(opts.shutdown ?? 'brutalKill')
       return downRecord(
         'aborted before settle',
@@ -2255,7 +2648,56 @@ async function runChild<C>(
       providerModel: runtimeOwnedExecutorProviderEvidence(executor),
       ...(ownMetered ? { metered: ownMetered } : {}),
     }
-  } catch (err) {
+  } catch (cause) {
+    let err = cause
+    await closeRetainedWrites()
+    if (
+      live.acceptedResult !== undefined &&
+      reconciliationError === undefined &&
+      (isAbortError(err) ||
+        (teardownFailure !== undefined && err === teardownFailure) ||
+        (childAbort.signal.aborted && err === childAbort.signal.reason))
+    ) {
+      // Provider release and cancellation cannot revoke an already committed terminal result.
+      const accepted = live.acceptedResult
+      live.spent = executor.accounting?.()?.reported ?? accepted.spent
+      live.executorDone = true
+      live.recoveryPending = false
+      terminalTelemetryCaptured = true
+      const acceptedAccountingError = reconcileOnce(
+        executor.accounting?.()?.reservation ?? accepted.spent,
+      )
+      if (acceptedAccountingError === undefined) {
+        const trace = await captureTraceOnce()
+        await teardownOnce(opts.shutdown ?? DEFAULT_SUCCESSFUL_SHUTDOWN_MS).catch(() => undefined)
+        const metered = executor.metered?.()
+        return {
+          kind: 'done',
+          out: accepted.out,
+          outRef: accepted.outRef,
+          ...(accepted.verdict ? { verdict: accepted.verdict } : {}),
+          spent: live.spent,
+          trace,
+          providerModel: runtimeOwnedExecutorProviderEvidence(executor),
+          ...(metered ? { metered } : {}),
+        }
+      }
+      err = acceptedAccountingError
+    }
+    if (err instanceof RetainedExecutionPendingError || live.recoveryPending) {
+      live.recoveryPending = true
+      live.executorDone = true
+      const trace = await captureTraceOnce()
+      reconcileOnce({
+        iterations: opts.budget.maxIterations,
+        tokens: { input: opts.budget.maxTokens, output: 0 },
+        tokensKnown: false,
+        usd: opts.budget.maxUsd ?? 0,
+        usdKnown: false,
+        ms: Math.max(0, now() - live.startedAt),
+      })
+      return downRecord(errMessage(err), true, trace, executor.metered?.())
+    }
     // A thrown executor has also finished its own work — only the down-record persistence
     // remains, so the non-blocking drain may await this child too.
     live.executorDone = true
@@ -2305,6 +2747,8 @@ async function runChild<C>(
       executor.metered?.(),
       providerModel,
     )
+  } finally {
+    await closeRetainedWrites()
   }
 }
 

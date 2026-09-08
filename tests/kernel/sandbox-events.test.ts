@@ -9,13 +9,59 @@ import {
 } from '../../src/runtime/sandbox-events'
 
 describe('sumSandboxUsage — meter an openSandboxRun turn', () => {
-  it('sums tokens + cost across mixed backend event shapes, ignoring non-cost events', () => {
+  it('counts repeated terminal totals once after incremental usage', () => {
+    const events: SandboxEvent[] = [
+      { type: 'llm_call', id: 'call-1', data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 } },
+      {
+        type: 'result',
+        id: 'result-1',
+        data: { usage: { inputTokens: 150, outputTokens: 60, costUsd: 0.015 } },
+      },
+      {
+        type: 'done',
+        id: 'done-1',
+        data: { tokenUsage: { inputTokens: 150, outputTokens: 60 }, totalCostUsd: 0.015 },
+      },
+    ]
+    expect(sumSandboxUsage(events)).toEqual({ input: 150, output: 60, costUsd: 0.015 })
+  })
+
+  it('does not charge a replayed per-call receipt twice', () => {
+    const event: SandboxEvent = {
+      type: 'llm_call',
+      id: 'call-1',
+      data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 },
+    }
+    expect(sumSandboxUsage([event, structuredClone(event)])).toEqual({
+      input: 100,
+      output: 40,
+      costUsd: 0.01,
+    })
+  })
+
+  it('keeps a regressing cumulative receipt unknown without subtracting observed spend', () => {
+    expect(
+      sumSandboxUsage([
+        { type: 'llm_call', data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 } },
+        {
+          type: 'done',
+          data: { tokenUsage: { inputTokens: 50, outputTokens: 20 }, totalCostUsd: 0.005 },
+        },
+      ]),
+    ).toMatchObject({ input: 100, output: 40, costUsd: 0.01, tokensKnown: false, usdKnown: false })
+  })
+
+  it('sums explicitly incremental terminal usage across mixed event shapes', () => {
     const events: SandboxEvent[] = [
       { type: 'delta', data: { text: 'thinking' } } as SandboxEvent,
       { type: 'llm_call', data: { tokensIn: 100, tokensOut: 40, costUsd: 0.01 } } as SandboxEvent,
       {
         type: 'done',
-        data: { tokenUsage: { inputTokens: 50, outputTokens: 20 }, totalCostUsd: 0.005 },
+        data: {
+          usageMode: 'delta',
+          tokenUsage: { inputTokens: 50, outputTokens: 20 },
+          totalCostUsd: 0.005,
+        },
       } as SandboxEvent,
     ]
     expect(sumSandboxUsage(events)).toEqual({ input: 150, output: 60, costUsd: 0.015 })

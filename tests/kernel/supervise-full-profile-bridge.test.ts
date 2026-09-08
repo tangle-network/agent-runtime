@@ -1916,7 +1916,12 @@ describe('supervise — complete profiles over recursive cli-bridge managers', (
     const nestedEvents = await journal.loadTree('identity-run/identity-run:s0')
     expect(JSON.stringify(nestedEvents)).not.toContain(backend.bridgeUrl)
     expect(JSON.stringify(nestedEvents)).not.toContain(backend.bridgeBearer)
-    const workerSpawn = nestedEvents?.find((event) => event.kind === 'spawned')
+    const workerSpawn = nestedEvents?.find(
+      (event) =>
+        event.kind === 'spawned' &&
+        event.parent === 'identity-run:s0' &&
+        event.id === 'identity-run:s0:s0',
+    )
     expect(workerSpawn?.identity).toEqual({
       profileDigest: canonicalCandidateDigest(authorizations[1]!.profile),
       taskDigest: canonicalCandidateDigest(authorizations[1]!.task),

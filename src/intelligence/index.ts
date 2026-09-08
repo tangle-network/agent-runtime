@@ -226,11 +226,6 @@ export type {
   AgentImprovementProfileTargetTransition,
 } from './profile-activation'
 export { prepareAgentImprovementProfileActivation } from './profile-activation'
-export type { ProvisionedHost, ResolveCtx } from './resolver'
-export {
-  composeCertifiedProfile,
-  composeCertifiedProfileFromWire,
-} from './resolver'
 export type {
   AppliedIntelligence,
   IntelligenceAgent,

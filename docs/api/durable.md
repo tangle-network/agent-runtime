@@ -1363,11 +1363,11 @@ Name→value tables for the four code-valued options, so a recorded run configur
 
 ##### coordination?
 
-> `readonly` `optional` **coordination?**: [`CoordinationBinding`](runtime.md#coordinationbinding)
+> `readonly` `optional` **coordination?**: [`CoordinationTransportOptions`](runtime.md#coordinationtransportoptions)
 
 Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
- unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated.
+ unless authentication is configured; provider managers also need a reachable public URL.
 
 ###### Inherited from
 
@@ -1430,8 +1430,8 @@ Override ONLY how an authorized LEAF executes, keeping the whole backend-derived
 
 > `readonly` `optional` **driverBackend?**: [`ExecutorConfig`](runtime.md#executorconfig)
 
-Run harness-brained supervisors here. Automatic execution supports a local `bridge`; a remote
- sandbox requires an explicit `driveHarness` with a reachable coordination relay or tunnel.
+Run harness-brained supervisors here. Automatic execution supports a local `bridge`, or a
+provider advertising runtime MCP attachments with authenticated `coordination.publicUrl`.
  Defaults to `backend`; separate it when managers and workers use different services.
 
 ###### Inherited from
@@ -2081,7 +2081,7 @@ Give the supervisor brain a chapter-lifecycle on its OWN context window (ROUTER 
 
 ###### Inherited from
 
-[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-17)
+[`SuperviseOptions`](runtime.md#superviseoptions).[`runId`](runtime.md#runid-19)
 
 ##### now?
 

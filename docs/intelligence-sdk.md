@@ -95,19 +95,15 @@ The run record includes timing, failures, profile/config hash, repository revisi
 The promoted profile diffs surface as `agent.proposals()` / the `onProposals` callback — the hook NEVER auto-applies them; `applied.applyProfile(base)` folds them only when the caller explicitly asks.
 When the plane promotes a new gate-certified surface, the next refresh delivers it to the running agent; when the plane is unreachable, the agent runs on its base surface.
 
-### The capability resolver
+### Applying certified profiles
 
-Prompt folding covers text artifacts. `composeCertifiedProfile(base, manifest, ctx)` lowers a full `CapabilityManifest` — tools, MCP servers, files, hooks, subagents — into one `ResolvedSurface` consumed identically by the in-process seam (tool specs + an executor + the folded prompt) and the sandbox seam (an agent profile).
-`composeCertifiedProfileFromWire` accepts the plane's `CertifiedProfile` wire shape directly, via `manifestFromProfile`.
+Use `applied.applyProfile(base)` to apply certified profile diffs to an `AgentProfile` explicitly.
+Pass the resulting profile through the maintained Runtime execution path for tool, MCP, resource, and subagent materialization.
+Use `composeCertifiedPrompt` when the consumer only needs certified prompt text.
 
-Everything that touches a network, a secret, or an infra provisioner is injected through `ResolveCtx`: `resolveSecret` (per-tenant, typed outcome), `runSandboxCode`, `provisionHost` (returns a `ProvisionedHost` with a teardown), `probeLiveToolNames` (the post-resolve drift probe), and `onDrop` (observe a dropped capability).
-A binding that needs an absent provider fails loud — it is never faked into a working surface.
-
-Admitted binding kinds: inline, file, http, sandbox-code, mcp-stdio, mcp-remote, and the recursive process-on-infra (a host provisioned before its inner binding).
-The typed-but-unadmitted arms (rag-index, memory-store, wasm, a2a) throw `CapabilityNotAdmittedError` at resolve — a hard error, never a silent no-op.
-Any other per-capability failure is a fail-closed drop surfaced via `onDrop` (the capability is omitted, never half-wired); when `probeLiveToolNames` is wired, the drift check drops any tool whose live names diverge from the certified interface, so the only callable surfaces are gate-blessed ones.
-
-Design rationale: [archive/capability-delivery-manifest.md](./archive/capability-delivery-manifest.md). Full generated types: [api/intelligence.md](./api/intelligence.md).
+`manifestFromProfile` converts the certified wire format into capability manifest data.
+It does not execute bindings or provision infrastructure.
+Consumers retain responsibility for admitting and materializing capability bindings.
 
 ## Effort tiers and the OFF billing floor
 

@@ -20,6 +20,11 @@
  * @stable
  */
 
+import { assertValidSpend } from '../runtime/supervise/budget'
+import {
+  assertNoSymlinkDescendant,
+  publishExclusiveDurableFile,
+} from '../runtime/supervise/durable-file'
 import { detachedSnapshot } from '../runtime/supervise/snapshot'
 import { workerTraceAnalysisStore } from '../runtime/supervise/trace-evidence'
 import { nestedDriverTreeRoot } from '../runtime/supervise/tree-key'
@@ -122,12 +127,12 @@ export class InMemoryResultBlobStore implements ResultBlobStore {
   private readonly blobs = new Map<string, unknown>()
 
   async put(outRef: string, artifact: unknown): Promise<void> {
-    assertContentAddress(outRef, artifact)
-    this.blobs.set(outRef, artifact)
+    const { snapshot } = encodeResultBlob(outRef, artifact)
+    this.blobs.set(outRef, snapshot)
   }
 
   async get(outRef: string): Promise<unknown | undefined> {
-    return this.blobs.has(outRef) ? this.blobs.get(outRef) : undefined
+    return this.blobs.has(outRef) ? structuredClone(this.blobs.get(outRef)) : undefined
   }
 }
 
@@ -142,33 +147,57 @@ export class FileResultBlobStore implements ResultBlobStore {
   constructor(private readonly dir: string) {}
 
   async put(outRef: string, artifact: unknown): Promise<void> {
-    assertContentAddress(outRef, artifact)
+    const { text } = encodeResultBlob(outRef, artifact)
+    const filePath = this.blobPath(outRef)
+    assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
     const fs = await import('node:fs/promises')
     await fs.mkdir(this.dir, { recursive: true })
-    const fh = await fs.open(this.blobPath(outRef), 'w')
-    try {
-      await fh.write(JSON.stringify(artifact))
-      await fh.sync()
-    } finally {
-      await fh.close()
+    assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
+    if (!publishExclusiveDurableFile(filePath, text, { mode: 0o600 })) {
+      const existing = await this.get(outRef)
+      assertContentAddress(outRef, existing)
     }
   }
 
   async get(outRef: string): Promise<unknown | undefined> {
+    const filePath = this.blobPath(outRef)
+    assertNoSymlinkDescendant(this.dir, filePath, 'result blob')
     const fs = await import('node:fs/promises')
+    const { constants } = await import('node:fs')
     let text: string
     try {
-      text = await fs.readFile(this.blobPath(outRef), 'utf8')
+      const handle = await fs.open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW)
+      try {
+        if (!(await handle.stat()).isFile()) throw new Error('result blob must be a regular file')
+        text = await handle.readFile('utf8')
+      } finally {
+        await handle.close()
+      }
     } catch (err) {
       if (isNoEntError(err)) return undefined
       throw err
     }
-    return JSON.parse(text)
+    const artifact: unknown = JSON.parse(text)
+    assertContentAddress(outRef, artifact)
+    return artifact
   }
 
   private blobPath(outRef: string): string {
+    if (!/^sha256:[0-9a-f]{64}$/.test(outRef))
+      throw new Error('invalid result blob content address')
     return `${this.dir}/${outRef.replace(/:/g, '-')}.json`
   }
+}
+
+function encodeResultBlob(outRef: string, artifact: unknown): { snapshot: unknown; text: string } {
+  const detached = detachedSnapshot(artifact, 'result blob')
+  assertContentAddress(outRef, detached)
+  const text = JSON.stringify(detached)
+  if (text === undefined) throw new Error('result blob must contain JSON')
+  const snapshot: unknown = JSON.parse(text)
+  // Both stores retain exactly the JSON value whose address survives durable serialization.
+  assertContentAddress(outRef, snapshot)
+  return { snapshot, text }
 }
 
 function assertContentAddress(outRef: string, artifact: unknown): void {
@@ -198,7 +227,7 @@ export class InMemorySpawnJournal implements SpawnJournal {
   async loadTree(root: NodeId): Promise<SpawnEvent[] | undefined> {
     const tree = this.trees.get(root)
     if (!tree) return undefined
-    return tree.events.map((ev) => ({ ...ev }))
+    return structuredClone(tree.events)
   }
 
   async beginTree(root: NodeId, at: string): Promise<void> {
@@ -220,7 +249,7 @@ export class InMemorySpawnJournal implements SpawnJournal {
       throw new Error(`appendEvent called for unknown spawn tree '${root}'; call beginTree first`)
     }
     assertSeqUnique(root, tree.events, ev)
-    tree.events.push({ ...ev })
+    tree.events.push(detachedSnapshot(ev, 'spawn event'))
   }
 }
 
@@ -267,25 +296,30 @@ export class FileSpawnJournal implements SpawnJournal {
   }
 
   async beginTree(root: NodeId, at: string): Promise<void> {
-    const existing = await this.loadTreeBegin(root)
-    if (existing) {
-      if (existing !== at) {
-        throw new Error(
-          `spawn tree '${root}' already begun in ${this.path} at ${existing}; refusing to overwrite with ${at}`,
-        )
+    return this.serializeAppend(async () => {
+      const existing = await this.loadTreeBegin(root)
+      if (existing) {
+        if (existing !== at) {
+          throw new Error(
+            `spawn tree '${root}' already begun in ${this.path} at ${existing}; refusing to overwrite with ${at}`,
+          )
+        }
+        return
       }
-      return
-    }
-    await this.appendRecord({ kind: 'begin', root, at })
+      await this.writeRecord({ kind: 'begin', root, at })
+    })
   }
 
   async appendEvent(root: NodeId, ev: SpawnEvent): Promise<void> {
-    const events = await this.loadTree(root)
-    if (events === undefined) {
-      throw new Error(`appendEvent called for unknown spawn tree '${root}'; call beginTree first`)
-    }
-    assertSeqUnique(root, events, ev)
-    await this.appendRecord({ kind: 'event', root, event: ev })
+    const event = detachedSnapshot(ev, 'spawn event')
+    return this.serializeAppend(async () => {
+      const events = await this.loadTree(root)
+      if (events === undefined) {
+        throw new Error(`appendEvent called for unknown spawn tree '${root}'; call beginTree first`)
+      }
+      assertSeqUnique(root, events, event)
+      await this.writeRecord({ kind: 'event', root, event })
+    })
   }
 
   private async loadTreeBegin(root: NodeId): Promise<string | undefined> {
@@ -303,8 +337,8 @@ export class FileSpawnJournal implements SpawnJournal {
     return undefined
   }
 
-  private async appendRecord(record: SpawnJournalRecord): Promise<void> {
-    const append = this.appendTail.then(() => this.writeRecord(record))
+  private async serializeAppend(operation: () => Promise<void>): Promise<void> {
+    const append = this.appendTail.then(operation)
     this.appendTail = append.catch(() => undefined)
     return append
   }
@@ -451,7 +485,8 @@ export async function loadSpawnForest(journal: SpawnJournal, root: NodeId): Prom
 /** Owned journal trees record the owner's turns and descendants, but the owner's spawn belongs to
  * the parent tree. Supply a view-only parentless copy so strict materialization can fold root
  * metering without weakening its missing-spawn corruption check for ordinary event lists. */
-function ownedTreeRootSpawn(
+/** @internal Exact parentless root for a Runtime-owned subtree. */
+export function ownedTreeRootSpawn(
   spawn: Extract<SpawnEvent, { kind: 'spawned' }>,
 ): Extract<SpawnEvent, { kind: 'spawned' }> {
   const { parent: _parent, ownedTreeRoot: _ownedTreeRoot, ...root } = spawn
@@ -698,6 +733,80 @@ type SpawnJournalRecord =
   | { kind: 'begin'; root: NodeId; at: string }
   | { kind: 'event'; root: NodeId; event: SpawnEvent }
 
+/** Retained records form one ordered admission chain; older journals need no such chain. */
+function assertRetainedExecutionOrder(events: SpawnEvent[], event: SpawnEvent): void {
+  if (
+    event.kind !== 'execution-input' &&
+    event.kind !== 'execution-admitted' &&
+    event.kind !== 'execution-result'
+  )
+    return
+  const nodeEvents = events.filter((item) => item.id === event.id)
+  let inputIndex = -1
+  for (let index = 0; index < nodeEvents.length; index++) {
+    if (nodeEvents[index]!.kind === 'execution-input') inputIndex = index
+  }
+  const prior = inputIndex < 0 ? nodeEvents : nodeEvents.slice(inputIndex)
+  function fail(reason: string): never {
+    throw new Error(`spawn journal corrupted: retained execution '${event.id}' ${reason}`)
+  }
+  if (!nodeEvents.some((item) => item.kind === 'spawned')) fail('precedes its spawn')
+  if (nodeEvents.some(closesCursorSlot)) fail('follows its terminal settlement')
+  if (event.kind === 'execution-input') {
+    if (!/^sha256:[0-9a-f]{64}$/.test(event.taskRef)) fail('has an invalid task reference')
+    if (nodeEvents.some((item) => item.kind === 'execution-input' && item.seq === event.seq))
+      fail('has duplicate input sequence')
+    if (inputIndex >= 0 && !prior.some((item) => item.kind === 'execution-result'))
+      fail('input replaces an unfinished invocation')
+    return
+  }
+  const admissions = prior.flatMap((item) =>
+    item.kind === 'execution-admitted' ? [item.admission] : [],
+  )
+  if (event.kind === 'execution-result') {
+    if (prior.some((item) => item.kind === 'execution-result')) fail('has duplicate result')
+    if (!admissions.some((item) => item.phase === 'dispatched')) fail('result precedes dispatch')
+    if (!/^sha256:[0-9a-f]{64}$/.test(event.outRef)) fail('has an invalid result reference')
+    assertValidSpend(event.spent, 'retained execution result')
+    return
+  }
+  const admission = event.admission
+  if (!admission || !['intent', 'environment', 'dispatched'].includes(admission.phase))
+    fail('has an invalid admission phase')
+  if (admissions.some((item) => item.phase === admission.phase))
+    fail('has duplicate admission phase')
+  if (prior.some((item) => item.kind === 'execution-result')) fail('admission follows result')
+  if (!prior.some((item) => item.kind === 'execution-input')) fail('admission precedes input')
+  if (admission.phase === 'intent') {
+    if (admissions.length !== 0) fail('intent follows another admission')
+    return
+  }
+  const intent = admissions.find((item) => item.phase === 'intent')
+  if (intent?.phase !== 'intent') fail('admission precedes intent')
+  if (admission.idempotencyKey !== intent.idempotencyKey || admission.turnId !== intent.turnId)
+    fail('changes its admitted request identity')
+  if (admission.phase === 'environment') {
+    if (
+      admission.provider !== intent.provider ||
+      admission.sessionId !== intent.sessionId ||
+      admission.executionId !== intent.executionId
+    )
+      fail('changes its admitted execution identity')
+    return
+  }
+  const environment = admissions.find((item) => item.phase === 'environment')
+  if (environment?.phase !== 'environment') fail('dispatch precedes environment')
+  const control = admission.controlRef
+  if (
+    !control ||
+    control.provider !== intent.provider ||
+    control.environmentId !== environment.environmentId ||
+    control.sessionId !== intent.sessionId ||
+    control.executionId !== intent.executionId
+  )
+    fail('dispatch changes its admitted execution identity')
+}
+
 /**
  * Two `seq` namespaces share the journal: a `spawned` event's `seq` is the spawn ordinal
  * (the order children were created), and a `settled`/`cancelled` event's `seq` is the
@@ -707,6 +816,7 @@ type SpawnJournalRecord =
  * ordinal legitimately equals a later `settled` cursor seq and is not a collision.
  */
 function assertSeqUnique(root: NodeId, events: SpawnEvent[], ev: SpawnEvent): void {
+  assertRetainedExecutionOrder(events, ev)
   if (ev.kind === 'materialized') {
     if (events.some((event) => event.kind === 'materialized' && event.id === ev.id)) {
       throw new Error(
@@ -776,6 +886,9 @@ const outsideCursorNamespaceKinds = [
   'metered',
   'materialized',
   'execution-bound',
+  'execution-input',
+  'execution-admitted',
+  'execution-result',
   'progress',
   'edge',
   'teardown-unconfirmed',
@@ -872,6 +985,12 @@ export async function replaySpawnTree(
     if (ev.kind === 'progress') continue // live observation, not a settlement — irrelevant to replay
     if (ev.kind === 'materialized') continue // wire receipt, not a settlement
     if (ev.kind === 'execution-bound') continue // attempt transport, not a settlement
+    if (
+      ev.kind === 'execution-input' ||
+      ev.kind === 'execution-admitted' ||
+      ev.kind === 'execution-result'
+    )
+      continue
     if (ev.kind === 'edge') continue // edge-ledger observability, not a settlement
     if (ev.kind === 'teardown-unconfirmed') continue // executor-leak evidence, not a settlement
     if (ev.kind === 'trace-unpropagated') continue // severed-hop marker, not a settlement

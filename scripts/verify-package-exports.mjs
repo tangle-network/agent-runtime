@@ -627,7 +627,6 @@ try {
           'resolveEffort',
           'isIntelligenceOff',
           'defaultRedactor',
-          'composeCertifiedProfile',
           'manifestFromProfile',
           'CapabilityNotAdmittedError',
           'createExactProcessCandidateExperimentExecutor',

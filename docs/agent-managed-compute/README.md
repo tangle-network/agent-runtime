@@ -15,9 +15,19 @@ The core execution model is sound:
 - An `AgentEnvironmentProvider` exposes external compute and resumable sessions.
 - MCP exposes coordination actions to an agent runner as native tools.
 
-The missing work is operational, not conceptual.
+Retained provider children and managers can reconcile original invocations after a local coordinator restart.
+Durable inputs, ordered admissions, content-addressed results, and usage records support that recovery.
+Recovery restores live descendants and their reservations before the manager resumes.
+Managers and children then continue together through the existing Scope lifecycle.
+Unresolved provider work remains uncertain until exact identity and completion can be established.
 
-Coordination state is currently process-local, supervised trees do not resume after coordinator restart, the HTTP MCP endpoint has no authentication, and the public run APIs overlap.
+Remote MCP uses scoped credentials, bounded requests, and caller-provided network reachability.
+Providers must advertise runtime MCP attachment support before receiving coordination tools beside the unchanged profile.
+One-shot providers remain nonsteerable.
+
+The file run lock coordinates local ownership.
+Distributed generation fencing and live multi-provider recovery validation remain open.
+See [reliability.md](./reliability.md) for the supported recovery boundary and remaining distributed requirements.
 
 ## Product Definition
 
@@ -88,9 +98,9 @@ This table tracks the existing documents that materially overlap this plan.
 | Provider-neutral compute adapter | Implemented | `src/runtime/environment-provider.ts` |
 | One-shot delegation restart recovery | Partially implemented | `src/mcp/task-queue.ts` |
 | Conversation turn restart recovery | Implemented for one writer | `src/conversation/run-conversation.ts` |
-| Supervised tree restart recovery | Not implemented | `src/runtime/supervise/supervisor.ts` |
+| Supervised tree restart recovery | Committed replay, retained children, and reconstructed nested managers with original reservations and finalizers | `src/runtime/supervise/supervisor.ts` |
 | Durable cross-process coordination messages | Not implemented | `src/runtime/supervise/event-bus.ts` |
-| Authenticated remote coordination MCP | Not implemented | `src/runtime/supervise/coordination-mcp.ts` |
+| Authenticated remote coordination MCP | Implemented; requires caller-provided reachable endpoint | `src/runtime/supervise/coordination-mcp.ts` |
 | Concurrent coordinator failover | Not implemented | Current file stores have no compare-and-set or ownership claim. |
 | One simple multi-round public API | Not implemented | `runConversation`, `runPersonified`, `runAgentic`, and `runAgentRounds` overlap. |
 | Acyclic runtime and knowledge packages | Implemented | `agent-knowledge` imports no runtime code; `agent-runtime` owns the optional composition in `src/knowledge/`; direct release lines align, while transitive packages may retain internal copies. |

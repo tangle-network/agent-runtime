@@ -1180,7 +1180,12 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           // findings, and the spend the run already paid — so it continues from the unresolved
           // work instead of re-planning (and re-paying) from scratch.
           ...(scope.resume
-            ? [{ role: 'user', content: resumeBrief(scope.resume, opts.priorCoordination) }]
+            ? [
+                {
+                  role: 'user',
+                  content: resumeBrief(scope.resume, scope.view, opts.priorCoordination),
+                },
+              ]
             : hasPriorCoordination(opts.priorCoordination)
               ? [
                   {
@@ -1271,7 +1276,11 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
  * Injected as the brain's first user-context on a resumed run so it continues from unresolved work;
  * old continuation receipts are evidence and are never auto-delivered.
  */
-function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): string {
+function resumeBrief(
+  resume: ResumedWork<unknown>,
+  current: TreeView,
+  prior?: PriorCoordination,
+): string {
   const lines: string[] = [
     'RESUME: this run continues a prior coordinator process. Its committed work is restored',
     'below and already counts toward the deliverable — do NOT redo it. Continue from the',
@@ -1292,13 +1301,22 @@ function resumeBrief(resume: ResumedWork<unknown>, prior?: PriorCoordination): s
   const byState = (state: 'completed' | 'in-doubt' | 'down') =>
     [...resume.keys].filter(([, v]) => v.state === state)
   const completed = byState('completed')
-  const inDoubt = byState('in-doubt')
+  const currentIds = new Set(current.nodes.map((node) => node.id))
+  const recovered = byState('in-doubt').filter(([, value]) => currentIds.has(value.id))
+  const inDoubt = byState('in-doubt').filter(([, value]) => !currentIds.has(value.id))
   const failed = byState('down')
   if (completed.length > 0) {
     lines.push(
       '',
       'COMPLETED keys — spawn_worker with the same key returns the finished result, spending nothing:',
       ...completed.map(([k, v]) => `- ${k} → ${v.id} (${v.label})`),
+    )
+  }
+  if (recovered.length > 0) {
+    lines.push(
+      '',
+      'Recovered keys are attached to this scope. Use await_event to receive their results and coordinate with their original workers:',
+      ...recovered.map(([key, value]) => `- ${key} → ${value.id} (${value.label})`),
     )
   }
   if (inDoubt.length > 0) {

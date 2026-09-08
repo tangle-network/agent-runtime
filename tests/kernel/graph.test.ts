@@ -1668,7 +1668,9 @@ describe('runGraph — driverBackend selects WHERE the root harness brain runs',
     // root has no harness to run in, and supervise() refuses BEFORE any compute is spent.
     await expect(
       runGraph(externalRootGraph(), { runId: 'gdb0', backend: bridge() }),
-    ).rejects.toThrow(/requires a local bridge driverBackend/)
+    ).rejects.toThrow(
+      /requires a local bridge.*authenticated coordination\.publicUrl.*explicit driveHarness/,
+    )
   })
 
   it('threads driverBackend to the ROOT driver construction point, not the worker seam', async () => {

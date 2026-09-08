@@ -40,6 +40,7 @@ import type {
   RetainedRunAdmissionHook,
   RetainedRunHandle,
   RetainedRunIntentAdmission,
+  RetainedRunStartMaterial,
   StartRetainedRunInEnvironmentOptions,
   StartRetainedRunOptions,
 } from './retained-run-types'
@@ -116,6 +117,8 @@ export async function startRetainedRun(
     options.turn.interactions,
     providerCapabilities,
   )
+  options.environment.signal?.throwIfAborted()
+  options.turn.signal?.throwIfAborted()
   const environment = await options.provider.create({
     ...options.environment,
     metadata: retainedEnvironmentMetadata(
@@ -164,6 +167,7 @@ export async function startRetainedRun(
   return dispatchRetainedRun({
     provider: options.provider,
     environment,
+    signal: options.environment.signal,
     environmentIdempotencyKey: options.environment.idempotencyKey,
     turn: options.turn,
     contextTransfer,
@@ -269,6 +273,7 @@ async function assertRetainedEnvironmentOwnership(
 }
 
 interface DispatchRetainedRunOptions {
+  readonly signal?: AbortSignal
   readonly provider: AgentEnvironmentProvider
   readonly environment: AgentEnvironment
   readonly environmentIdempotencyKey: string
@@ -317,6 +322,8 @@ async function dispatchRetainedRun(
     throw cause
   }
 
+  options.signal?.throwIfAborted()
+  options.turn.signal?.throwIfAborted()
   let reference: AgentSessionRef
   try {
     reference = await environment.dispatch!(
@@ -506,8 +513,26 @@ export async function recoverRetainedRun(
   }
 }
 
+/** Check public replay material before reconnecting an already-dispatched execution. */
+export function assertRetainedRunReplayMaterial(
+  provider: AgentEnvironmentProvider,
+  replay: RetainedRunStartMaterial,
+  admission: RetainedRunIntentAdmission,
+): void {
+  const identity =
+    replay.identity ?? mintRetainedIdentity(replay.environment.idempotencyKey, replay.turn.turnId)
+  assertExactRetainedRunIntent(
+    admission,
+    retainedRunIntent(
+      { ...replay, provider },
+      identity,
+      retainedContextTransfer(replay.turn.contextTransfer),
+    ),
+  )
+}
+
 function retainedRunIntent(
-  options: StartRetainedRunOptions,
+  options: RetainedRunStartMaterial & { readonly provider: AgentEnvironmentProvider },
   identity: { readonly sessionId: string; readonly executionId: string },
   contextTransfer: ContextTransferRequest | undefined,
 ): RetainedRunIntentAdmission {

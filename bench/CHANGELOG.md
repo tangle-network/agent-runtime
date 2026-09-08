@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.2
+
+Requires Interface 2.4.0 and Runtime 0.200.0 for the shared execution contracts.
+
 ## 0.9.1
 
 Omni agent engines use the configured optimizer model through the metered Anthropic endpoint.

@@ -28,10 +28,7 @@ the exact measured candidate.
 
 ### CapabilityNotAdmittedError
 
-A binding kind whose resolver case is typed but not yet admitted (rag-index,
-memory-store, wasm, a2a). Thrown by the resolver — NEVER faked into a working
-surface. The TYPE arms exist so the union is closed against the spec; the
-resolver grows them later behind their lifecycle + admission gate.
+A consumer rejected a binding that its executor does not admit.
 
 #### Extends
 
@@ -594,7 +591,7 @@ arm): `version`/`contentHash`/`lift` are stamped by the promote step, never
 the author.
 
 `sourcePath` is the artifact's ORIGINAL path (including `null`). It is the
-byte-stable fold sort key — the resolver folds context artifacts in
+byte-stable fold sort key — consumers can fold context artifacts in
 `composeCertifiedPrompt` order, which sorts by `path ?? ''`, so a `null` path
 is load-bearing and MUST round-trip exactly. It is distinct from a context
 `iface.name` (display only): collapsing the two flips the fold order for a
@@ -753,10 +750,7 @@ One resolved subagent — folded into `AgentProfile.subagents`.
 
 ### ResolvedSurface
 
-What `composeCertifiedProfile` produces. Every binding fans into the same
-slots, consumed identically by the in-process seam (`RouterToolsSeam.{tools,
-executeToolCall}` + folded prompt) and the sandbox seam (`AgentProfile`).
-`dispose()` tears provisioned hosts down in REVERSE dependency order.
+Materialized capability surfaces supplied by a consumer-owned executor.
 
 #### Properties
 
@@ -3242,192 +3236,6 @@ True when an OTLP endpoint is configured (export will actually ship).
 
 ***
 
-### ProvisionedHost
-
-A live, provisioned host the resolver tore up for a `process-on-infra` arm.
- `teardown()` runs at `dispose()` in reverse provisioning order.
-
-#### Properties
-
-##### mcpConnection?
-
-> `optional` **mcpConnection?**: `AgentProfileMcpServer`
-
-Lower the inner binding's mcp connection now that the host is up; the URL/
- command points at the host. Absent when the host serves a non-mcp inner.
-
-#### Methods
-
-##### teardown()
-
-> **teardown**(): `Promise`\<`void`\>
-
-###### Returns
-
-`Promise`\<`void`\>
-
-***
-
-### ResolveCtx
-
-Per-call, per-tenant context the resolver reads. Everything that touches the
-network, a secret, or an infra provisioner is INJECTED so the manifest carries
-no live secret and the substrate-free caller wires only what it can host.
-
-#### Properties
-
-##### tenant?
-
-> `optional` **tenant?**: `string`
-
-Stable tenant id — namespaces billing + teardown (`tenant#target`).
-
-##### fetchImpl?
-
-> `optional` **fetchImpl?**: (`input`, `init?`) => `Promise`\<`Response`\>
-
-fetch impl for http tools. Defaults to global fetch; absent ⇒ http tools fail loud.
-
-###### Parameters
-
-###### input
-
-`string` \| `URL` \| `Request`
-
-###### init?
-
-`RequestInit`
-
-###### Returns
-
-`Promise`\<`Response`\>
-
-##### resolveSecret?
-
-> `optional` **resolveSecret?**: (`auth`, `tenant`) => `Promise`\<\{ `succeeded`: `true`; `value`: `string`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
-
-Resolve a declared credential to a live secret for THIS tenant. Returns a
-typed outcome — inspect `succeeded` before `value`. Absent ⇒ a binding that
-declares non-`none` auth fails loud (never a request with no credential).
-
-###### Parameters
-
-###### auth
-
-[`CapabilityAuth`](#capabilityauth)
-
-###### tenant
-
-`string` \| `undefined`
-
-###### Returns
-
-`Promise`\<\{ `succeeded`: `true`; `value`: `string`; \} \| \{ `succeeded`: `false`; `error`: `string`; \}\>
-
-##### runSandboxCode?
-
-> `optional` **runSandboxCode?**: (`code`, `entry`, `args`, `task`) => `Promise`\<`string`\>
-
-Run a `sandbox-code` body per call. Injected by the host that owns a sandbox
-client (the spine does not import the sandbox executor). Absent ⇒
-`sandbox-code` bindings fail loud.
-
-###### Parameters
-
-###### code
-
-[`ContentRef`](#contentref)
-
-###### entry
-
-`string`
-
-###### args
-
-`Record`\<`string`, `unknown`\>
-
-###### task
-
-`unknown`
-
-###### Returns
-
-`Promise`\<`string`\>
-
-##### provisionHost?
-
-> `optional` **provisionHost?**: (`host`, `inner`, `costTag`) => `Promise`\<[`ProvisionedHost`](#provisionedhost)\>
-
-Provision a host for a `process-on-infra` binding, then serve the inner
-binding inside it. Injected by the host that owns `createExecutor`. Absent ⇒
-`process-on-infra` bindings fail loud. The provider resolves the inner
-binding INSIDE the host and returns the connection + a teardown.
-
-###### Parameters
-
-###### host
-
-[`HostSpec`](#hostspec)
-
-###### inner
-
-[`DeliveryBinding`](#deliverybinding)
-
-###### costTag
-
-`string`
-
-###### Returns
-
-`Promise`\<[`ProvisionedHost`](#provisionedhost)\>
-
-##### probeLiveToolNames?
-
-> `optional` **probeLiveToolNames?**: (`capabilityId`) => `Promise`\<`string`[]\>
-
-Drift probe: return the LIVE tool names a resolved surface exposes for a
-given capability id (a `tools/list` over an mcp connection, the agent's
-actual registered tool names for a host tool). When present, the post-resolve
-drift check drops any tool/mcp whose live names diverge from the certified
-interface — the only callable surfaces are gate-blessed ones. Absent ⇒ the
-check enforces only the host-side executor↔spec parity (no live probe).
-
-###### Parameters
-
-###### capabilityId
-
-`string`
-
-###### Returns
-
-`Promise`\<`string`[]\>
-
-##### onDrop?
-
-> `optional` **onDrop?**: (`capabilityId`, `error`) => `void`
-
-Observe a DROPPED capability — a per-capability resolve failure that is
-fail-closed (the capability is omitted, never half-wired). The drop is the
-contract; this surfaces the diagnostic so it is never silently erased. NOT
-called for [CapabilityNotAdmittedError](#capabilitynotadmittederror) (that rethrows — a manifest
-carrying an un-admitted binding kind is a hard error, not a soft drop).
-
-###### Parameters
-
-###### capabilityId
-
-`string`
-
-###### error
-
-`Error`
-
-###### Returns
-
-`void`
-
-***
-
 ### AppliedIntelligence
 
 What the hook hands the agent each run. Additive over the prompt-only
@@ -3822,8 +3630,7 @@ Provenance attached while Runtime derives the exact profile diff.
 
 > **JsonSchema** = `Record`\<`string`, `unknown`\>
 
-A JSON Schema object describing a tool's parameters. Kept structural — the
- resolver forwards it verbatim into a `ToolSpec` / MCP `tools/list` check.
+A structural JSON Schema object describing a tool's parameters.
 
 ***
 
@@ -3840,7 +3647,7 @@ arm maps slot-for-slot onto `AgentProfile` + the host `RouterToolsSeam`.
 
 > **CapabilitySurface** = [`CapabilityInterface`](#capabilityinterface)\[`"surface"`\]
 
-Every interface surface tag — the closed set the resolver fans into slots.
+Every interface surface tag supported by the manifest schema.
 
 ***
 
@@ -3858,7 +3665,7 @@ no inlined blob: `github`/`blob` are pointers resolved at provision time.
 > **CapabilityAuth** = \{ `mode`: `"none"`; \} \| \{ `mode`: `"tangle-key"`; \} \| \{ `mode`: `"hub-connection"`; `providerId`: `string`; `scopes?`: `string`[]; \} \| \{ `mode`: `"secret-ref"`; `key`: `string`; \}
 
 How a binding authenticates at resolve time. Declared as a REQUIREMENT in the
-manifest; the live secret is resolved per-tenant by the resolver context,
+manifest; the consumer resolves the live secret per tenant,
 never inlined here.
 
 ***
@@ -3867,9 +3674,8 @@ never inlined here.
 
 > **DeliveryBinding** = \{ `kind`: `"inline"`; `content`: [`ContentRef`](#contentref); \} \| \{ `kind`: `"file"`; `path`: `string`; `content`: [`ContentRef`](#contentref); `executable?`: `boolean`; \} \| \{ `kind`: `"http"`; `url`: `string`; `method?`: `string`; `auth?`: [`CapabilityAuth`](#capabilityauth); \} \| \{ `kind`: `"sandbox-code"`; `entry`: `string`; `code`: [`ContentRef`](#contentref); `runtime?`: `string`; `harness?`: `string`; \} \| \{ `kind`: `"mcp-stdio"`; `command`: `string`; `args?`: `string`[]; `env?`: `Record`\<`string`, `string`\>; `cwd?`: `string`; \} \| \{ `kind`: `"mcp-remote"`; `url`: `string`; `transport`: `"http"` \| `"sse"`; `headers?`: `Record`\<`string`, `string`\>; \} \| \{ `kind`: `"process-on-infra"`; `host`: [`HostSpec`](#hostspec); `inner`: [`DeliveryBinding`](#deliverybinding); \} \| \{ `kind`: `"rag-index"`; `index`: [`ContentRef`](#contentref); `embedModel`: `string`; `topK?`: `number`; \} \| \{ `kind`: `"memory-store"`; `provision`: `"sqlite"`; `seed?`: [`ContentRef`](#contentref); \} \| \{ `kind`: `"wasm"`; `module`: [`ContentRef`](#contentref); `exports`: `string`[]; \} \| \{ `kind`: `"a2a"`; `endpoint`: `string`; `card`: [`ContentRef`](#contentref); `auth?`: [`CapabilityAuth`](#capabilityauth); \}
 
-How a capability is backed. OPEN tagged union — THE extension point. All arms
-are typed even when the resolver does not yet admit them; an un-admitted arm
-throws [CapabilityNotAdmittedError](#capabilitynotadmittederror) at resolve, never silently no-ops.
+Describes how a capability is backed.
+Consumers must admit a binding before executing it.
 
 ***
 
@@ -3877,7 +3683,7 @@ throws [CapabilityNotAdmittedError](#capabilitynotadmittederror) at resolve, nev
 
 > **DeliveryBindingKind** = [`DeliveryBinding`](#deliverybinding)\[`"kind"`\]
 
-Every binding kind — the open set the resolver dispatches over.
+Every binding kind represented by the manifest schema.
 
 ***
 
@@ -4363,7 +4169,7 @@ Lower the EXISTING plane wire (`CertifiedProfile`) into a `CapabilityManifest`.
 `prompt-surface`/`skill` artifacts → `context`/inline capabilities (the
 shipped fold, generalized); any other artifact type → best-effort binding
 inference. `promptSurface` is carried through so
-the resolver folds it first, exactly as `composeCertifiedPrompt` does today.
+`composeCertifiedPrompt` folds it before other prompt artifacts.
 This delivers the spine against today's wire before the plane changes.
 
 #### Parameters
@@ -5131,70 +4937,6 @@ state; Runtime owns the profile diff semantics and digest checks.
 #### Returns
 
 [`AgentImprovementProfileActivationPreparation`](#agentimprovementprofileactivationpreparation)
-
-***
-
-### composeCertifiedProfile()
-
-> **composeCertifiedProfile**(`base`, `manifest`, `ctx?`): `Promise`\<[`ResolvedSurface`](#resolvedsurface)\>
-
-Compose a certified profile into a uniform `ResolvedSurface`. Additive over
-`composeCertifiedPrompt`: the inline/context fold is delegated to
-`composeCertifiedPrompt` so the byte-stable ordering (prompt surface first,
-then type alphabetic, then path locale-compare) is reused EXACTLY — the
-prompt-only path is a strict subset of this.
-
-Fail-closed: a `null` manifest returns the base surface only.
-
-#### Parameters
-
-##### base
-
-###### systemPrompt
-
-`string`
-
-##### manifest
-
-[`CapabilityManifest`](#capabilitymanifest) \| `null`
-
-##### ctx?
-
-[`ResolveCtx`](#resolvectx) = `{}`
-
-#### Returns
-
-`Promise`\<[`ResolvedSurface`](#resolvedsurface)\>
-
-***
-
-### composeCertifiedProfileFromWire()
-
-> **composeCertifiedProfileFromWire**(`base`, `profile`, `ctx?`): `Promise`\<[`ResolvedSurface`](#resolvedsurface)\>
-
-Lower a plane `CertifiedProfile` straight into a `ResolvedSurface` via
- `manifestFromProfile` — the convenience the shipped pull lane calls when it
- already holds a `CertifiedProfile` (today's wire) rather than a manifest.
-
-#### Parameters
-
-##### base
-
-###### systemPrompt
-
-`string`
-
-##### profile
-
-[`CertifiedProfile`](#certifiedprofile) \| `null`
-
-##### ctx?
-
-[`ResolveCtx`](#resolvectx) = `{}`
-
-#### Returns
-
-`Promise`\<[`ResolvedSurface`](#resolvedsurface)\>
 
 ***
 

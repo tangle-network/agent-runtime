@@ -40,7 +40,11 @@ import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import type { DeliverableSpec } from './completion-gate'
 import { driverAgent } from './coordination-driver'
 import type { PriorCoordination } from './coordination-log'
-import { isLoopbackHost, serveCoordinationMcp } from './coordination-mcp'
+import {
+  assertCoordinationTransport,
+  type CoordinationTransportOptions,
+  serveCoordinationMcp,
+} from './coordination-mcp'
 import {
   type DriverAttemptRecord,
   type DriverProgressMark,
@@ -227,33 +231,12 @@ export function resolveSupervisorProfile(profile: SupervisorProfile): ResolvedSu
   }
 }
 
-/** Where the coordination MCP binds. Omit = an ephemeral port on `127.0.0.1` (the local-harness
- *  default); set `host` when the root or the harness runs off-host. */
-export interface CoordinationBinding {
-  readonly host?: string
-  readonly port?: number
-  /** Explicit acknowledgment required to bind a NON-loopback host — see
-   *  {@link assertCoordinationBinding} for what is being accepted. */
-  readonly allowUnauthenticatedRemote?: boolean
-}
+/** Listener, authenticated remote endpoint, and bounded request policy for one manager. */
+export type CoordinationBinding = CoordinationTransportOptions
 
-/**
- * Fail closed on a non-loopback coordination bind. `serveCoordinationMcp` mounts spawn_worker /
- * steer_agent / stop with NO authentication of any kind (it is a bare JSON-RPC-over-HTTP handler),
- * so a non-loopback bind lets anyone who can reach the port spawn agents and spend the run's
- * conserved budget. There is no token to require yet, so the only honest options are loopback or an
- * explicit, recorded acknowledgment — never a silent bind.
- */
+/** Validate a manager's coordination authentication and request limits before execution. */
 export function assertCoordinationBinding(binding: CoordinationBinding | undefined): void {
-  const host = binding?.host
-  if (host === undefined || isLoopbackHost(host)) return
-  if (binding?.allowUnauthenticatedRemote === true) return
-  throw new ConfigError(
-    `supervisorAgent: coordination.host=${JSON.stringify(host)} is not a loopback address and the coordination MCP ` +
-      'has no authentication: any client that can reach the port could call spawn_worker/steer_agent ' +
-      'and spend this run\'s budget. Bind a loopback host ("127.0.0.1", "localhost", "::1"), or set ' +
-      'coordination.allowUnauthenticatedRemote: true to accept that exposure explicitly.',
-  )
+  assertCoordinationTransport(binding ?? {})
 }
 
 /** Trusted run/node identity Runtime binds to one manager. Model-authored tool arguments cannot
@@ -431,6 +414,8 @@ export interface DriveHarness {
     readonly task: unknown
     readonly scope: Scope<unknown>
     readonly coordinationMcpUrl: string
+    /** Runtime-only transport credentials; never append them to the authored profile or task. */
+    readonly coordinationMcpHeaders?: Readonly<Record<string, string>>
     /** Fires when the coordination server accepts a result or declares completion. */
     readonly stopSignal?: AbortSignal
     /** Data-only product tool surface mounted on the coordination MCP. Runtime-owned drivers include
@@ -923,14 +908,10 @@ function buildSupervisorAgent(
         makeWorkerAgent: deps.makeWorkerAgent,
         ...(deps.authorizeDownMessage ? { authorizeDownMessage: deps.authorizeDownMessage } : {}),
         perWorker: deps.perWorker,
-        ...(coordination?.host !== undefined ? { host: coordination.host } : {}),
-        ...(coordination?.port !== undefined ? { port: coordination.port } : {}),
-        // `serveCoordinationMcp` enforces the same non-loopback rule itself (it is a public export
-        // anyone may call directly), so the caller's acknowledgment has to reach it — not just the
-        // `assertCoordinationBinding` above.
-        ...(coordination?.allowUnauthenticatedRemote === true
-          ? { allowUnauthenticatedRemote: true }
-          : {}),
+        ...(coordination ?? {}),
+        ...(context ? { identity: { runId: context.runNamespace, actorId: context.ownerId } } : {}),
+        // Forward the policy so direct server construction and manager preflight enforce the same
+        // authentication and request limits.
         ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
         onStop: (reason) => {
           if (!stopController.signal.aborted) {
@@ -1028,6 +1009,7 @@ function buildSupervisorAgent(
                 task: reentry === undefined ? task : reentry.steer,
                 scope,
                 coordinationMcpUrl: mcp.url,
+                coordinationMcpHeaders: mcp.headers,
                 stopSignal: stopController.signal,
                 coordinationTools,
               })

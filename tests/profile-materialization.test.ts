@@ -12,6 +12,7 @@ import {
   defineProfileMaterializationContract,
   fullProfileMaterialization,
   profileMaterializationAxes,
+  promptControlProfileMaterialization,
   promptModelProfileMaterialization,
   promptOnlyProfileMaterialization,
   promptResourceProfileMaterialization,
@@ -34,6 +35,9 @@ const EXPECTED_CANONICAL_AXES = [
   'modelSmall',
   'modelProvider',
   'modelReasoningEffort',
+  'modelMaxVisibleOutputTokens',
+  'modelMaxReasoningTokens',
+  'modelMaxTotalOutputTokens',
   'modelMetadata',
   'harness',
   'permissions',
@@ -108,10 +112,15 @@ describe('canonical axis set', () => {
       axes: ['modelDefault', 'modelSmall', 'modelProvider', 'modelReasoningEffort'],
     })
 
-    // `model` covers five leaves; the contract declares four, so the fifth is reported by NAME.
+    // Compound model changes must also validate every completion ceiling.
     expect(
       validateProfileMaterialization({ contract, changedAxes: ['model'] }).map((i) => i.axis),
-    ).toEqual(['modelMetadata'])
+    ).toEqual([
+      'modelMaxVisibleOutputTokens',
+      'modelMaxReasoningTokens',
+      'modelMaxTotalOutputTokens',
+      'modelMetadata',
+    ])
   })
 
   it('keeps every compound expansion inside the canonical leaf set', () => {
@@ -223,6 +232,29 @@ describe('profile materialization contracts', () => {
         changedAxes: requested,
       }),
     ).toEqual([])
+  })
+
+  it('distinguishes lowered Router ceilings from an injected inference function', () => {
+    const changedAxes = profileMaterializationAxes({
+      name: 'capped-worker',
+      model: { maxVisibleOutputTokens: 100, maxReasoningTokens: 200, maxTotalOutputTokens: 300 },
+    })
+    expect(
+      validateProfileMaterialization({
+        contract: promptModelProfileMaterialization,
+        changedAxes,
+      }).map((issue) => issue.axis),
+    ).toEqual(['modelMaxReasoningTokens'])
+    expect(
+      validateProfileMaterialization({
+        contract: promptControlProfileMaterialization,
+        changedAxes,
+      }).map((issue) => issue.axis),
+    ).toEqual([
+      'modelMaxVisibleOutputTokens',
+      'modelMaxReasoningTokens',
+      'modelMaxTotalOutputTokens',
+    ])
   })
 
   it('does not let a limited path claim model or prompt fields it cannot apply', () => {

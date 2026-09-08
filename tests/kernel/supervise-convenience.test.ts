@@ -890,7 +890,9 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
           routerKey: 'unused',
         },
       }),
-    ).toThrow(/requires a local bridge driverBackend.*explicit driveHarness.*resolveDriveHarness/)
+    ).toThrow(
+      /requires a local bridge.*authenticated coordination\.publicUrl.*explicit driveHarness/,
+    )
   })
 
   it('allowedModels passes when every configured model is in the set', async () => {
@@ -1384,28 +1386,28 @@ describe('supervise — the coordination bind is opt-in and fails closed off loo
     driveHarness: async () => {},
   }
 
-  it('refuses a non-loopback coordination host with no acknowledgment', () => {
+  it('refuses a non-loopback coordination host without authentication', () => {
     expect(() =>
       supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
         ...harnessOpts,
         coordination: { host: '10.0.0.7', port: 8931 },
       }),
-    ).toThrow(/not a loopback address.*allowUnauthenticatedRemote/s)
+    ).toThrow(/non-loopback address requires authentication/s)
   })
 
-  it('passes an acknowledged non-loopback bind through to the coordination server', async () => {
+  it('passes an authenticated non-loopback bind through to the coordination server', async () => {
     let url = ''
     await supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
       ...harnessOpts,
       driveHarness: async ({ coordinationMcpUrl }) => {
         url = coordinationMcpUrl
       },
-      coordination: { host: '0.0.0.0', allowUnauthenticatedRemote: true },
+      coordination: { host: '0.0.0.0', authentication: true },
     })
     expect(url).toMatch(/^http:\/\/0\.0\.0\.0:\d+\/mcp$/)
   })
 
-  it('binds the requested loopback host with no acknowledgment needed', async () => {
+  it('binds the requested loopback host without authentication needed', async () => {
     let url = ''
     await supervise(testAgentProfile('root', { harness: 'opencode' }), 't', {
       ...harnessOpts,

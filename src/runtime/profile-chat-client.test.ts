@@ -433,6 +433,7 @@ describe('profileChatClient exact Runtime adapter', () => {
       signal: new AbortController().signal,
     })
 
+    expect(complete.mock.calls[0]?.[0]).toMatchObject({ max_tokens: 100 })
     expect(result.succeeded).toBe(true)
     if (!result.succeeded) throw new Error(result.error)
     expect(result.response).toMatchObject({

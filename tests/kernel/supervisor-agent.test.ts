@@ -1284,7 +1284,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     ).toThrow(ConfigError)
   })
 
-  it('refuses a non-loopback coordination host with no acknowledgment (a ConfigError)', () => {
+  it('refuses a non-loopback coordination host without authentication (a ConfigError)', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
       supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
@@ -1316,7 +1316,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp$/)
   })
 
-  it('refuses a non-loopback coordination host with no acknowledgment', () => {
+  it('refuses a non-loopback coordination host without authentication', () => {
     const blobs = new InMemoryResultBlobStore()
     expect(() =>
       supervisorAgent(testAgentProfile('sup', { harness: 'opencode' }), {
@@ -1326,11 +1326,11 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
         driveHarness: async () => {},
         coordination: { host: '0.0.0.0' },
       }),
-    ).toThrow(/not a loopback address.*allowUnauthenticatedRemote/s)
+    ).toThrow(/non-loopback address requires authentication/s)
   })
 
   it.each(['127.0.0.1', 'localhost', '::1', '[::1]'])(
-    'accepts the loopback host %s with no acknowledgment',
+    'accepts the loopback host %s without authentication',
     (host) => {
       const blobs = new InMemoryResultBlobStore()
       expect(() =>
@@ -1502,7 +1502,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
     ).toThrow(/EXTERNAL-harness supervisor/u)
   })
 
-  it('binds an acknowledged non-loopback host and hands the harness that URL', async () => {
+  it('binds an authenticated non-loopback host and hands the harness that URL', async () => {
     const blobs = new InMemoryResultBlobStore()
     const journal = new InMemorySpawnJournal()
     let url = ''
@@ -1514,7 +1514,7 @@ describe('supervisorAgent — coordination bind + prompt hoisting on the harness
       makeWorkerAgent: () => deliveringLeaf('w', {}),
       perWorker,
       driveHarness,
-      coordination: { host: '0.0.0.0', allowUnauthenticatedRemote: true },
+      coordination: { host: '0.0.0.0', authentication: true },
     })
     await runSupervisor(root, blobs, journal)
     expect(url).toMatch(/^http:\/\/0\.0\.0\.0:\d+\/mcp$/)

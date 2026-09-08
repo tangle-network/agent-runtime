@@ -56,14 +56,15 @@ import type {
   WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
 import { composeRuntimeHooks, type RuntimeHooks } from '../../runtime-hooks'
+import { resolveAgentEnvironmentProvider } from '../environment-provider'
 import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
-import { unmeteredSpend, zeroSpend } from '../util'
+import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
-import { driverChild } from './driver-executor'
+import { driverChild, driverExecutorFactory, isDriverSpec } from './driver-executor'
 import type { DriverAttemptRecord, DriverRetryPolicy, OnUnmetContract } from './driver-retry'
 import type { BusRecord } from './event-bus'
 import type { SupervisorFinalizer } from './finalizer'
@@ -90,6 +91,14 @@ import {
   type SupervisorSpanRecorder,
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
+import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
+import {
+  consumeScopeRetainedOwnerResult,
+  prepareScopeRetainedOwnerTask,
+  scopeRetainedOwnerContext,
+  scopeRetainedOwnerPriorSpend,
+  scopeRetainedOwnerResult,
+} from './retained-scope-owner'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
 import {
@@ -109,6 +118,7 @@ import {
   meterRuntimeOwnedAccounting,
   meterRuntimeOwnedProviderAttempt,
   recordScopeOwnerMaterialization,
+  restoreScopeOwnerAcceptedExecution,
   scopeOwnerExecutorNodeContext,
 } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -141,7 +151,9 @@ import type {
   Executor,
   ExecutorContext,
   ExecutorExecutionBinding,
+  ExecutorFactory,
   ExecutorMaterialization,
+  ExecutorResult,
   NodeExecutionIdentity,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
@@ -149,6 +161,7 @@ import type {
   RootHandle,
   RootProviderModelEvidence,
   SpawnJournal,
+  Spend,
   SupervisedResult,
   UsageEvent,
 } from './types'
@@ -562,6 +575,8 @@ const routerSupervisorProfileMaterialization = defineProfileMaterializationContr
     'modelDefault',
     'modelProvider',
     'modelReasoningEffort',
+    'modelMaxVisibleOutputTokens',
+    'modelMaxTotalOutputTokens',
     'modelMetadata',
     'harness',
     'metadata',
@@ -634,10 +649,25 @@ function coordinationChannelSpawnPreflight(
   runtimeOwnsManager: boolean,
   hasCustomDriveHarness: boolean,
   managerBackend: ExecutorConfig | undefined,
+  coordination: CoordinationBinding | undefined,
 ): SpawnPreflight | undefined {
   if (!runtimeOwnsManager || hasCustomDriveHarness) return undefined
-  if (managerBackend !== undefined && automaticDriverBackendSupported(managerBackend)) {
-    return undefined
+  if (
+    managerBackend !== undefined &&
+    automaticDriverBackendSupported(managerBackend, coordination)
+  ) {
+    if (managerBackend.backend !== 'provider') return undefined
+    return async (profile) => {
+      if (!isExternalSupervisor(profile) || declaredRuntimeToolNames(profile).length === 0)
+        return undefined
+      return (await providerAcceptsCoordinationAttachments(managerBackend))
+        ? undefined
+        : {
+            cause: 'unmountable-tool',
+            detail:
+              "the 'provider' backend does not advertise create.runtimeAttachments.mcp; Runtime cannot mount this manager's coordination tools before dispatch",
+          }
+    }
   }
   const missingChannel =
     managerBackend === undefined
@@ -653,9 +683,8 @@ function coordinationChannelSpawnPreflight(
         `the profile declares ${declared
           .map((name) => JSON.stringify(`${coordinationProfileToolPrefix}${name}`))
           .join(', ')} with harness ${JSON.stringify(profile.harness)}, but ${missingChannel}: ` +
-        "Runtime's coordination MCP binds host loopback and reaches a harness only through the " +
-        "'bridge' backend's runtime-attachments seam. Drive managers through a bridge " +
-        'driverBackend, or supply driveHarness/resolveDriveHarness with a relay this child can reach',
+        'Use a local bridge, or a provider with runtime MCP attachments and an authenticated ' +
+        'coordination.publicUrl this child can reach; an explicit driveHarness may supply its own channel',
     }
   }
 }
@@ -692,10 +721,35 @@ function isExternalSupervisor(profile: AgentProfile): boolean {
   return harnessRunsAgent(profile.harness)
 }
 
-function automaticDriverBackendSupported(backend: ExecutorConfig): boolean {
-  // The built-in coordination server binds host loopback. A local bridge can reach it; a remote
-  // sandbox cannot until the caller supplies an explicit relay/tunnel through `driveHarness`.
-  return backend.backend === 'bridge'
+function automaticDriverBackendSupported(
+  backend: ExecutorConfig,
+  coordination?: CoordinationBinding,
+): boolean {
+  return (
+    backend.backend === 'bridge' ||
+    (backend.backend === 'provider' &&
+      !backend.steering &&
+      coordination?.authentication !== undefined &&
+      coordination.publicUrl !== undefined)
+  )
+}
+
+async function providerAcceptsCoordinationAttachments(
+  backend: Extract<ExecutorConfig, { backend: 'provider' }>,
+): Promise<boolean> {
+  const capabilities = await resolveAgentEnvironmentProvider(
+    backend.provider,
+    backend.registry,
+  ).capabilities()
+  const create = capabilities.create
+  if (!create || !('runtimeAttachments' in create)) return false
+  const attachments = create.runtimeAttachments
+  return Boolean(
+    attachments &&
+      typeof attachments === 'object' &&
+      'mcp' in attachments &&
+      attachments.mcp === true,
+  )
 }
 
 /** Run a harness-brained manager through the same executor factory as its children. The manager's
@@ -725,9 +779,20 @@ function driveHarnessFromBackend(
     task,
     scope,
     coordinationMcpUrl,
+    coordinationMcpHeaders,
     stopSignal,
     coordinationTools,
   }) => {
+    const retainedOwner =
+      boundBackend.backend === 'provider' ? scopeRetainedOwnerContext(scope) : undefined
+    const originalTask = retainedOwner ? await prepareScopeRetainedOwnerTask(scope, task) : task
+    const acceptedOwner = retainedOwner ? await scopeRetainedOwnerResult(scope) : undefined
+    if (acceptedOwner) {
+      await restoreScopeOwnerAcceptedExecution(scope)
+      consumeScopeRetainedOwnerResult(scope)
+      // The coordination journal still goes through the normal driver finalizer.
+      return
+    }
     const initialBudget = scope.budget
     const hasLiveCoordination = scope.view.inFlight > 0 || scope.view.waiting > 0
     if (
@@ -775,15 +840,74 @@ function driveHarnessFromBackend(
         : stopSignal === undefined
           ? turnStop.signal
           : AbortSignal.any([stopSignal, turnStop.signal])
-    const executor = baseFactory(spec, {
+    const attachment = {
+      transport: 'http' as const,
+      url: coordinationMcpUrl,
+      ...(coordinationMcpHeaders ? { headers: coordinationMcpHeaders } : {}),
+    }
+    let factory = baseFactory
+    if (boundBackend.backend === 'provider') {
+      const credentialName = 'AGENT_RUNTIME_COORDINATION_TOKEN'
+      const authorization = coordinationMcpHeaders?.Authorization
+      if (!authorization?.startsWith('Bearer ')) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider coordination requires a bearer credential',
+        )
+      }
+      if (Object.hasOwn(boundBackend.defaults?.env ?? {}, credentialName)) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved coordination credential name',
+        )
+      }
+      if (
+        Object.hasOwn(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}, coordinationMcpAlias)
+      ) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider defaults contain the reserved coordination attachment alias',
+        )
+      }
+      if (!(await providerAcceptsCoordinationAttachments(boundBackend))) {
+        throw new ValidationError(
+          'driveHarnessFromBackend: provider does not advertise create.runtimeAttachments.mcp; no environment was created',
+        )
+      }
+      factory = createExecutor({
+        ...boundBackend,
+        defaults: {
+          ...(boundBackend.defaults ?? {}),
+          env: { ...(boundBackend.defaults?.env ?? {}), [credentialName]: authorization.slice(7) },
+          runtimeAttachments: {
+            mcp: {
+              ...(boundBackend.defaults?.runtimeAttachments?.mcp ?? {}),
+              [coordinationMcpAlias]: {
+                transport: 'http',
+                url: coordinationMcpUrl,
+                headers: {
+                  Authorization: { kind: 'secret-ref', key: credentialName, format: 'bearer' },
+                },
+              },
+            },
+          },
+        },
+      })
+    }
+    const executor = factory(spec, {
       signal: scope.signal,
       node: scopeOwnerExecutorNodeContext(scope),
       seams: {
+        ...(retainedOwner
+          ? {
+              [retainedExecutorSeamKey]: {
+                ...retainedOwner,
+                onResult: async (result: ExecutorResult<unknown>) => commitOwnerResult(result),
+              },
+            }
+          : {}),
         ...(effectiveStopSignal === undefined
           ? {}
           : { [bridgeStopSignalKey]: effectiveStopSignal }),
         [bridgeRuntimeAttachmentsKey]: {
-          [coordinationMcpAlias]: { transport: 'http', url: coordinationMcpUrl },
+          [coordinationMcpAlias]: attachment,
         },
       },
     })
@@ -792,6 +916,21 @@ function driveHarnessFromBackend(
     let started = false
     let terminalAccountingCaptured = false
     let pendingUsage: UsageEvent[] = []
+    let observedOwnerSpend = zeroSpend()
+    let committedOwnerSpend = retainedOwner
+      ? await scopeRetainedOwnerPriorSpend(scope)
+      : zeroSpend()
+    const ownerDelta = (total: Spend): Spend => ({
+      iterations: Math.max(0, total.iterations - committedOwnerSpend.iterations),
+      tokens: {
+        input: Math.max(0, total.tokens.input - committedOwnerSpend.tokens.input),
+        output: Math.max(0, total.tokens.output - committedOwnerSpend.tokens.output),
+      },
+      usd: Math.max(0, total.usd - committedOwnerSpend.usd),
+      ms: Math.max(0, total.ms - committedOwnerSpend.ms),
+      ...(total.tokensKnown === false ? { tokensKnown: false } : {}),
+      ...(total.usdKnown === false ? { usdKnown: false } : {}),
+    })
     let meteredProviderAttempts = 0
     const providerEvidenceForNextMeter = (): ProviderModelExecutionEvidence => {
       const evidence = runtimeOwnedExecutorProviderEvidence(executor)
@@ -854,21 +993,24 @@ function driveHarnessFromBackend(
       const batch = pendingUsage
       pendingUsage = []
       const measured = spendFromUsageEvents(batch)
+      observedOwnerSpend = addRetainedSpend(observedOwnerSpend, measured)
+      const charge = retainedOwner ? ownerDelta(observedOwnerSpend) : measured
       await meterRuntimeOwnedProviderAttempt(
         scope,
         forceUnknown
           ? {
-              ...measured,
+              ...charge,
               tokensKnown: false,
               usdKnown: false,
             }
-          : measured,
+          : charge,
         providerEvidenceForNextMeter(),
         {
           role: 'driver',
           runtime: executor.runtime,
         },
       )
+      if (retainedOwner) committedOwnerSpend = addRetainedSpend(committedOwnerSpend, charge)
       const budget = scope.budget
       if (
         budget.tokensLeft <= 0 ||
@@ -925,6 +1067,26 @@ function driveHarnessFromBackend(
         },
       )
     }
+    const commitOwnerResult = async (result: ExecutorResult<unknown>) => {
+      const declaration = runtimeOwnedExecutorMaterialization(executor)
+      const binding = runtimeOwnedExecutorExecutionBinding(executor)
+      if (!declaration || !binding) {
+        throw new ValidationError(
+          'retained owner result requires terminal materialization before release',
+        )
+      }
+      if (!ownerMaterializationPublished) {
+        await publishMaterialization(declaration, binding)
+        ownerMaterializationPublished = true
+      }
+      await meterPending()
+      const total = { ...result.spent, iterations: 0 }
+      const delta = ownerDelta(total)
+      await meterRuntimeOwnedAccounting(scope, delta, { role: 'driver', runtime: executor.runtime })
+      committedOwnerSpend = addRetainedSpend(committedOwnerSpend, delta)
+      await retainedOwner!.onResult(result)
+      terminalAccountingCaptured = true
+    }
     try {
       // Construction transfers cleanup ownership immediately. Even a rejected receipt or an
       // unmetered runtime reaches the single bounded teardown path below.
@@ -954,6 +1116,7 @@ function driveHarnessFromBackend(
         }
       } else {
         await publishMaterialization(declaration!, executionBinding!)
+        ownerMaterializationPublished = true
       }
       if (executor.budgetExempt) {
         throw new ValidationError(
@@ -964,7 +1127,12 @@ function driveHarnessFromBackend(
       started = true
       // A coordination completion stops the NEXT external turn. The active bridge request must
       // drain so its served model and terminal materialization remain valid evidence.
-      const run = executor.execute(task, scope.signal)
+      if (retainedOwner?.admissions.length && !executor.recover) {
+        throw new ValidationError('retained owner executor does not support recovery')
+      }
+      const run = retainedOwner?.admissions.length
+        ? executor.recover!(originalTask, scope.signal)
+        : executor.execute(originalTask, scope.signal)
       if (isAsyncIterable<UsageEvent>(run)) {
         let turns = 0
         for await (const event of run) {
@@ -984,7 +1152,10 @@ function driveHarnessFromBackend(
         terminalAccountingCaptured = true
         // A stream carries increments, while its terminal artifact says whether either accounting
         // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
-        if (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false) {
+        if (
+          !retainedOwner &&
+          (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false)
+        ) {
           await meterRuntimeOwnedAccounting(
             scope,
             {
@@ -1008,7 +1179,7 @@ function driveHarnessFromBackend(
           { role: 'driver', runtime: executor.runtime },
         )
       }
-      if (pending !== undefined) {
+      if (pending !== undefined && !ownerMaterializationPublished) {
         const acknowledged = runtimeOwnedExecutorMaterialization(executor)
         const acknowledgedBinding = runtimeOwnedExecutorExecutionBinding(executor)
         if (acknowledged === undefined || acknowledgedBinding === undefined) {
@@ -1117,7 +1288,13 @@ function driveHarnessFromBackend(
     if (!deliver) return false
     return deliver.call(activeExecutor, message) !== false
   }
-  return attestRuntimeOwnedScopeOwner(drive, 'cli')
+  return attestRuntimeOwnedScopeOwner(
+    drive,
+    boundBackend.backend === 'provider'
+      ? (boundBackend.runtime ??
+          resolveAgentEnvironmentProvider(boundBackend.provider, boundBackend.registry).name)
+      : 'cli',
+  )
 }
 
 function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
@@ -1220,7 +1397,7 @@ export interface SuperviseOptions {
   readonly registry?: SuperviseRegistry
   /** Where the coordination MCP binds when the supervisor is harness-driven. Omit = an ephemeral
    *  port on `127.0.0.1`, which an off-host root cannot reach. A non-loopback host is refused
-   *  unless `allowUnauthenticatedRemote` acknowledges that the verbs are unauthenticated. */
+   *  unless authentication is configured; provider managers also need a reachable public URL. */
   readonly coordination?: CoordinationBinding
   /** OPT-IN peer mail for the run's workers: sibling-to-sibling `send_mail` / `read_mail`, bounded
    *  and audited (`CoordinationToolsOptions.peerMail`). The runtime mints one capability URL per
@@ -1251,8 +1428,8 @@ export interface SuperviseOptions {
    *  own leaves use this same factory. Composes with `authorizeSpawn`; `backend` is then optional.
    *  This is the seam an offline test or a pinning layer (an agent graph) should use. */
   readonly makeLeafAgent?: MakeWorkerAgent
-  /** Run harness-brained supervisors here. Automatic execution supports a local `bridge`; a remote
-   *  sandbox requires an explicit `driveHarness` with a reachable coordination relay or tunnel.
+  /** Run harness-brained supervisors here. Automatic execution supports a local `bridge`, or a
+   * provider advertising runtime MCP attachments with authenticated `coordination.publicUrl`.
    *  Defaults to `backend`; separate it when managers and workers use different services. */
   readonly driverBackend?: ExecutorConfig
   /** Security policy applied to every manager-authored child profile before budget reservation.
@@ -1827,6 +2004,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
   assertSuperviseOptionKeys(opts, 'supervise')
   const {
     backend,
+    coordination,
     driverBackend,
     deliverable,
     resolveDeliverable,
@@ -1865,6 +2043,17 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
   } = opts
   assertNoUncapturedExecutableOption(decisionData)
   const capturedData = detachedSnapshot(decisionData, 'supervise options')
+  const capturedCoordination =
+    coordination === undefined
+      ? undefined
+      : (() => {
+          const { publicUrl, onAudit, ...configuration } = coordination
+          return Object.freeze({
+            ...detachedSnapshot(configuration, 'supervise coordination configuration'),
+            ...(publicUrl === undefined ? {} : { publicUrl }),
+            ...(onAudit === undefined ? {} : { onAudit }),
+          })
+        })()
   const capturedBackend = backend === undefined ? undefined : snapshotExecutorConfig(backend)
   const capturedDriverBackend =
     driverBackend === undefined ? undefined : snapshotExecutorConfig(driverBackend)
@@ -1953,6 +2142,7 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
 
   return Object.freeze({
     ...capturedData,
+    ...(capturedCoordination === undefined ? {} : { coordination: capturedCoordination }),
     ...(capturedBackend === undefined ? {} : { backend: capturedBackend }),
     ...(capturedDriverBackend === undefined ? {} : { driverBackend: capturedDriverBackend }),
     ...(capturedDeliverable === undefined ? {} : { deliverable: capturedDeliverable }),
@@ -2355,6 +2545,7 @@ function superviseInternal(
       options.makeWorkerAgent === undefined,
       hasCustomDriveHarness,
       managerBackend,
+      options.coordination,
     ),
     options.backend?.backend === 'bridge' ? bridgeSpawnPreflight(options.backend) : undefined,
   )
@@ -2365,17 +2556,17 @@ function superviseInternal(
   // pre-spawn faults.
   const driverMaterialization = hasCustomDriveHarness
     ? (options.driveHarnessMaterialization ?? fullProfileMaterialization)
-    : managerBackend && automaticDriverBackendSupported(managerBackend)
+    : managerBackend && automaticDriverBackendSupported(managerBackend, options.coordination)
       ? backendProfileMaterialization(managerBackend)
       : undefined
   if (
     isExternalSupervisor(canonicalProfile) &&
     !options.driveHarness &&
     !options.resolveDriveHarness &&
-    (!managerBackend || !automaticDriverBackendSupported(managerBackend))
+    (!managerBackend || !automaticDriverBackendSupported(managerBackend, options.coordination))
   ) {
     throw new ValidationError(
-      `supervise: external supervisor profile.harness=${JSON.stringify(canonicalProfile.harness)} requires a local bridge driverBackend, an explicit driveHarness, or resolveDriveHarness with reachable coordination transport`,
+      `supervise: external supervisor profile.harness=${JSON.stringify(canonicalProfile.harness)} requires a local bridge, a provider with authenticated coordination.publicUrl and runtime MCP attachments, or an explicit driveHarness with reachable coordination transport`,
     )
   }
   const harnessClaims = new WeakMap<
@@ -2418,7 +2609,7 @@ function superviseInternal(
     if (options.driveHarness) {
       return claimDriveHarness(options.driveHarness, context.ownerId)
     }
-    return managerBackend && automaticDriverBackendSupported(managerBackend)
+    return managerBackend && automaticDriverBackendSupported(managerBackend, options.coordination)
       ? driveHarnessFromBackend(
           managerBackend,
           externalExecutionId('supervised-manager', {
@@ -2474,6 +2665,7 @@ function superviseInternal(
     ? workerTraceUnpropagatedDeclaration(options.backend.backend)
     : undefined
 
+  const recoveryFactories = new WeakMap<MakeWorkerAgent, ExecutorFactory<unknown>>()
   let makeWorkerAgent = options.makeWorkerAgent
   if (!makeWorkerAgent) {
     if (!options.backend && !options.makeLeafAgent) {
@@ -2502,7 +2694,11 @@ function superviseInternal(
       depth: number,
       parentOwnerId: string,
     ): MakeWorkerAgent => {
-      const makeRecursiveWorker: MakeWorkerAgent = (authoredProfile, spawnContext) => {
+      const makeRecursiveWorker = (
+        authoredProfile: AgentProfile,
+        spawnContext: WorkerSpawnContext | undefined,
+        recovering = false,
+      ): ReturnType<MakeWorkerAgent> => {
         if (!spawnContext) {
           throw new ValidationError('supervise: backend-derived workers require spawn context')
         }
@@ -2521,12 +2717,14 @@ function superviseInternal(
           ...(spawnContext.analyst !== undefined ? { analyst: spawnContext.analyst } : {}),
           ...(spawnContext.continuity !== undefined ? { continuity: spawnContext.continuity } : {}),
         })
-        const decision = options.authorizeSpawn
-          ? freezeDetached(options.authorizeSpawn(authorizationInput))
-          : Object.freeze({
-              profile: input,
-              ...(spawnContext.execution ? { execution: spawnContext.execution } : {}),
-            })
+        // Recovery reconstructs the admitted authority; authorization cannot replace it.
+        const decision =
+          !recovering && options.authorizeSpawn
+            ? freezeDetached(options.authorizeSpawn(authorizationInput))
+            : Object.freeze({
+                profile: input,
+                ...(spawnContext.execution ? { execution: spawnContext.execution } : {}),
+              })
         if (typeof decision !== 'object' || decision === null || Array.isArray(decision)) {
           throw new ValidationError('supervise: authorizeSpawn must return an AuthorizedSpawn')
         }
@@ -2619,7 +2817,7 @@ function superviseInternal(
           : undefined
         if (isExternalSupervisor(authorized) && !nestedDriveHarness) {
           throw new ValidationError(
-            `supervise: authored external supervisor profile.harness=${JSON.stringify(authorized.harness)} requires a local bridge driverBackend, an explicit driveHarness, or resolveDriveHarness with reachable coordination transport`,
+            `supervise: authored external supervisor profile.harness=${JSON.stringify(authorized.harness)} requires a local bridge, a provider with authenticated coordination.publicUrl and runtime MCP attachments, or an explicit driveHarness with reachable coordination transport`,
           )
         }
         assertProfileContract(
@@ -2654,6 +2852,9 @@ function superviseInternal(
           perWorker: nestedPerWorker,
           ...(options.router ? { router: options.router } : {}),
           ...(nestedDriveHarness ? { driveHarness: nestedDriveHarness } : {}),
+          ...(options.coordination && isExternalSupervisor(authorized)
+            ? { coordination: options.coordination }
+            : {}),
           nodeContext: {
             runId,
             runNamespace,
@@ -2718,7 +2919,52 @@ function superviseInternal(
           journal,
           childExecution.ref,
           () => acceptedSubmission,
+          recoveryFactories.get(childFactory),
         )
+      }
+      if (
+        options.makeLeafAgent === undefined &&
+        options.backend?.backend === 'provider' &&
+        !options.backend.steering
+      ) {
+        const factory = registerRetainedExecutorPreparation(
+          createExecutor(options.backend),
+          ({ spawned, profile, task }) => {
+            if (
+              !spawned.ownedTreeRoot ||
+              !spawned.parent ||
+              !spawned.assignmentId ||
+              !spawned.identity
+            )
+              return undefined
+            const execution = {
+              ...(spawned.identity.candidateDigest
+                ? { candidateDigest: spawned.identity.candidateDigest }
+                : {}),
+              ...(spawned.identity.correlation
+                ? { correlation: spawned.identity.correlation }
+                : {}),
+            }
+            const reconstructed = makeRecursiveWorker(
+              profile,
+              {
+                assignmentId: spawned.assignmentId,
+                parentNodeId: spawned.parent,
+                budget: spawned.budget,
+                task,
+                label: spawned.label,
+                ...(spawned.key === undefined ? {} : { key: spawned.key }),
+                execution,
+              },
+              true,
+            )
+            const spec = (reconstructed as Agent<unknown, unknown> & { executorSpec?: AgentSpec })
+              .executorSpec
+            if (!spec || !isDriverSpec(spec)) return undefined
+            return { spec, factory: driverExecutorFactory }
+          },
+        )
+        recoveryFactories.set(makeRecursiveWorker, factory)
       }
       return makeRecursiveWorker
     }
@@ -2771,7 +3017,9 @@ function superviseInternal(
         ? { priorCoordination }
         : {}),
       ...(finalizer ? { finalizer } : {}),
-      ...(options.coordination ? { coordination: options.coordination } : {}),
+      ...(options.coordination && isExternalSupervisor(canonicalProfile)
+        ? { coordination: options.coordination }
+        : {}),
       ...(spawnPreflight ? { preflightSpawn: spawnPreflight } : {}),
       ...(options.resolveSpawnProfile ? { resolveSpawnProfile: options.resolveSpawnProfile } : {}),
       ...(options.peerMail ? { peerMail: options.peerMail } : {}),
@@ -2837,6 +3085,9 @@ function superviseInternal(
       journal,
       blobs,
       executors: ctx.executors,
+      ...(recoveryFactories.get(workerFactory)
+        ? { recoverExecutor: recoveryFactories.get(workerFactory) }
+        : {}),
       rootIdentity: rootExecution.identity,
       ...(rootOwnerRuntime === undefined
         ? {}
