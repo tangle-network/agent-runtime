@@ -29,6 +29,7 @@
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs'
+import type { RunTerminalOutcome } from '@tangle-network/agent-eval'
 import type {
   AgentProfile,
   AgentRunSpec,
@@ -68,6 +69,13 @@ export interface BenchShotResult {
   /** Provider observations, including explicit unknown counters. Omitted when the shot reports none. */
   readonly usage?: ReturnType<typeof sumSandboxUsage>
   readonly events?: readonly SandboxEvent[]
+  /** Observed dispatch and terminal state, independent of artifact quality. */
+  readonly execution?: {
+    readonly phase: 'not-started' | 'started' | 'unknown'
+    readonly terminalOutcome: RunTerminalOutcome
+  }
+  /** Whether the artifact was captured without a read or extraction failure. */
+  readonly artifactAvailable?: boolean
 }
 
 /** Runs one (adapter, task, cell) shot. Defaults to `openSandboxRun`. */
@@ -137,9 +145,11 @@ export interface BenchCellTaskResult {
   readonly rep: number
   readonly resolved: boolean
   readonly score: number
-  /** false = the shot threw or produced no artifact (infra/empty), excluded from the resolve
-   *  denominator so a harness outage can't masquerade as a 0% capability result. */
+  /** Whether execution completed successfully and produced a readable, nonempty artifact. */
   readonly ok: boolean
+  readonly execution?: BenchShotResult['execution']
+  /** Available failed attempts remain in comparisons; unavailable measurement is reported separately. */
+  readonly measurement?: 'available' | 'unavailable'
   readonly detail?: string
   readonly wallMs: number
   /** Exact bytes given to the benchmark judge, retained even when judging fails. */
@@ -237,11 +247,13 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   }
   const controller = new AbortController()
   const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : undefined
+  const observedEvents: SandboxEvent[] = []
   const runOptions: OpenSandboxRunOptions = {
     agentRun,
     signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal,
     runId: `bench:${adapter.name}:${task.id}:${uniq}`,
     scenarioId: task.id,
+    onSandboxEvent: (event) => { observedEvents.push(event) },
   }
   const boxSetup = adapter.boxSetup
   if (boxSetup) {
@@ -262,8 +274,15 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   let result: BenchShotResult = { artifact: '', ok: false }
   try {
     run = await openSandboxRun(client, runOptions, deliverable)
+    result = { ...result, execution: { phase: 'unknown', terminalOutcome: 'unknown' } }
     const turn = await run.start(prompt ?? task.prompt)
-    result = { artifact: '', ok: false, usage: sumSandboxUsage(turn.events), events: turn.events }
+    result = {
+      artifact: '', ok: false, usage: sumSandboxUsage(turn.events), events: turn.events,
+      execution: {
+        phase: 'started',
+        terminalOutcome: turn.outcome.success ? 'succeeded' : turn.outcome.status === 'failed' ? 'failed' : 'incomplete',
+      },
+    }
     // Event-stream deliverable (adapter.output ?? finalText) — the FALLBACK.
     let artifact = (turn.out ?? '').trim()
     let boxExtractError: string | undefined
@@ -336,16 +355,26 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     result = {
       artifact,
       ok: turn.outcome.success && artifact.length > 0 && turn.readError === undefined && boxExtractError === undefined,
+      execution: result.execution,
+      artifactAvailable: turn.readError === undefined && boxExtractError === undefined,
       usage: result.usage,
       events: turn.events,
       ...(detail ? { detail } : {}),
     }
   } catch (err) {
+    const events = err instanceof SandboxRunAbortError ? err.events : observedEvents
     result = {
       ...result,
       ok: false,
+      artifactAvailable: false,
+      execution: {
+        phase: events.length > 0 ? 'started' : 'unknown',
+        terminalOutcome: result.execution?.terminalOutcome ?? 'unknown',
+      },
       detail: err instanceof Error ? err.message : String(err),
-      ...(err instanceof SandboxRunAbortError ? { usage: sumSandboxUsage(err.events), events: err.events } : {}),
+      // A thrown capture cannot establish that every paid receipt arrived.
+      usage: { ...sumSandboxUsage(events), tokensKnown: false, usdKnown: false },
+      events,
     }
   } finally {
     if (timer) clearTimeout(timer)
@@ -451,6 +480,8 @@ async function loopedShot(
     return {
       artifact: completed.at(-1)?.artifact ?? '',
       ok: false,
+      execution: pendingShot ? { phase: 'unknown', terminalOutcome: 'unknown' } : completed.at(-1)?.execution,
+      artifactAvailable: false,
       usage: combinedUsage(pendingShot ? [...completed, { artifact: '', ok: false }] : completed),
       events: completed.flatMap((shot) => shot.events ?? []),
       detail: err instanceof Error ? err.message : String(err),
@@ -458,8 +489,10 @@ async function loopedShot(
   }
 
   const best = result.rounds.reduce((winner, candidate) => {
-    if (shots.get(candidate.round)?.ok !== true) return winner
-    if (shots.get(winner.round)?.ok !== true) return candidate
+    const candidateShot = shots.get(candidate.round)
+    const winnerShot = shots.get(winner.round)
+    const rank = (shot: BenchShotResult | undefined) => shot?.ok ? 2 : shot?.artifactAvailable ? 1 : 0
+    if (rank(candidateShot) !== rank(winnerShot)) return rank(candidateShot) > rank(winnerShot) ? candidate : winner
     const a = scores.get(winner.round)
     const b = scores.get(candidate.round)
     if (!a) return candidate
@@ -472,6 +505,8 @@ async function loopedShot(
   return {
     artifact: best.artifact,
     ok: shots.get(best.round)?.ok === true && best.artifact.trim().length > 0,
+    execution: shots.get(best.round)?.execution,
+    artifactAvailable: shots.get(best.round)?.artifactAvailable,
     usage: combinedUsage([...shots.values()]),
     events: [...shots.values()].flatMap((shot) => shot.events ?? []),
     detail: JSON.stringify({
@@ -588,6 +623,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
     const startedAt = Date.now()
     let result: BenchCellTaskResult
     let out: BenchShotResult | undefined
+    let invoked = false
     try {
       opts.signal?.throwIfAborted()
       const shotInput = {
@@ -604,6 +640,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ...(opts.signal ? { signal: opts.signal } : {}),
         ...(opts.resolveClient ? { resolveClient: opts.resolveClient } : {}),
       }
+      invoked = true
       out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
       const score: BenchScore = await job.adapter.judge(job.task, out.artifact)
       result = {
@@ -614,6 +651,8 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         resolved: out.ok && score.resolved,
         score: out.ok ? score.score : 0,
         ok: out.ok,
+        execution: out.execution ?? { phase: out.ok ? 'started' : 'unknown', terminalOutcome: out.ok ? 'succeeded' : 'unknown' },
+        measurement: (out.artifactAvailable ?? out.ok) ? 'available' : 'unavailable',
         ...(out.detail ?? score.detail ? { detail: combineDetails(out.detail, score.detail) } : {}),
         wallMs: Date.now() - startedAt,
         artifact: out.artifact,
@@ -621,8 +660,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ...(out.events === undefined ? {} : { events: out.events }),
       }
     } catch (err) {
-      // A thrown shot/judge is infra error for THIS cell-task: ok=false excludes it from the
-      // resolve denominator (never a silent 0% that hides a harness outage).
+      // Missing results do not prove that dispatch or paid inference never occurred.
       result = {
         benchmark: job.benchmark,
         cell: job.cell.label,
@@ -631,6 +669,11 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         resolved: false,
         score: 0,
         ok: false,
+        execution: out?.execution ?? {
+          phase: !invoked ? 'not-started' : out?.ok ? 'started' : 'unknown',
+          terminalOutcome: out?.ok ? 'succeeded' : 'unknown',
+        },
+        measurement: 'unavailable',
         detail: err instanceof Error ? err.message.slice(0, 200) : String(err),
         wallMs: Date.now() - startedAt,
         ...(out === undefined ? {} : { artifact: out.artifact }),
@@ -660,7 +703,7 @@ function aggregate(perTask: readonly BenchCellTaskResult[]): BenchLeaderboardRow
     const key = `${r.benchmark}\u0000${r.cell}`
     const e = byKey.get(key) ?? { benchmark: r.benchmark, cell: r.cell, n: 0, resolved: 0, errored: 0, scoreSum: 0 }
     e.n += 1
-    if (!r.ok) e.errored += 1
+    if ((r.measurement ?? (r.ok ? 'available' : 'unavailable')) === 'unavailable') e.errored += 1
     else {
       if (r.resolved) e.resolved += 1
       e.scoreSum += r.score

@@ -9,8 +9,9 @@
  *   - `learned` — durable facts written to the cross-run `Corpus` so the NEXT
  *     run starts smarter (the continuous half of "continuous self-improvement").
  *
- * Findings are production observations (`proposal_origin:'production'`) and
- * never come from final evaluation (`derived_from_judge:false`). The observer is harness-agnostic: it
+ * The default analyst produces production observations from execution evidence.
+ * Injected analyses preserve their explicit proposal origins and evidence references.
+ * The observer is harness-agnostic: it
  * reads a trace + an output, so it watches opencode, codex, hermes, or a BYO
  * agent identically.
  */
@@ -39,13 +40,12 @@ export interface ObserveInput {
   outcome?: 'passed' | 'failed' | 'unknown'
   /** Provenance back to the run. */
   runId?: string
+  /** Caller-owned references to the retained evidence supplied in this input. */
+  evidenceRefs?: ReadonlyArray<ProposalFinding['evidence_refs'][number]>
 }
 
-export interface ObserveOptions {
-  /** Exact analyst identity. */
-  profile: AgentProfile
-  /** Execution substrate. All behavior comes from the profile. */
-  executor: ExecutorConfig
+/** @inline */
+interface ObserveCommonOptions {
   /** When set, learned facts are appended (idempotent) for the next run to read. */
   corpus?: Corpus
   /** Tags written onto learned facts + used by the next run's corpus query. */
@@ -53,7 +53,23 @@ export interface ObserveOptions {
   signal?: AbortSignal
   /** Cap the trace lines fed to the observer (keeps the call cheap). Default 80. */
   maxTraceLines?: number
+  /** Maximum output characters delivered to the default observer. Default 1200. */
+  maxOutputChars?: number
+  /** Evidence origin for the default observer. Defaults to production for existing callers. */
+  proposalOrigin?: ProposalFinding['proposal_origin']
 }
+
+/** A caller-selected analysis retains the same findings, usage, and corpus contract. */
+export type ObservationAnalysis = (
+  input: ObserveInput,
+  context: { signal?: AbortSignal },
+) => Promise<Pick<Observation, 'findings' | 'report' | 'usage'>>
+
+export type ObserveOptions = ObserveCommonOptions &
+  (
+    | { analysis: ObservationAnalysis; profile?: AgentProfile; executor?: ExecutorConfig }
+    | { analysis?: undefined; profile: AgentProfile; executor: ExecutorConfig }
+  )
 
 /** The default observer instruction — exported so an optimizer can seed its population. */
 export const defaultAnalystInstruction =
@@ -71,6 +87,33 @@ export interface Observation {
   report: string
   /** Measured model usage for this analysis turn. */
   usage: { input: number; output: number; known: boolean }
+}
+
+/** Analysis can fail after paid work; its measured subtotal must remain recoverable. */
+export class ObservationError extends Error {
+  constructor(
+    message: string,
+    readonly usage: Observation['usage'],
+    options?: ErrorOptions,
+  ) {
+    super(message, options)
+    validateUsage(usage)
+    this.name = 'ObservationError'
+  }
+}
+
+function validateUsage(usage: Observation['usage']): void {
+  if (
+    !Number.isSafeInteger(usage.input) ||
+    usage.input < 0 ||
+    !Number.isSafeInteger(usage.output) ||
+    usage.output < 0 ||
+    typeof usage.known !== 'boolean'
+  ) {
+    throw new TypeError(
+      'observation usage requires nonnegative safe integer subtotals and explicit known status',
+    )
+  }
 }
 
 /** Compact the trace into the lines the observer reasons over — tool calls,
@@ -141,7 +184,21 @@ const findingsSchema = {
 } as const
 
 /** The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus. */
-export async function observe(input: ObserveInput, opts: ObserveOptions): Promise<Observation> {
+async function analyzeWithProfile(
+  input: ObserveInput,
+  opts: ObserveCommonOptions & { profile: AgentProfile; executor: ExecutorConfig },
+): ReturnType<ObservationAnalysis> {
+  if (
+    opts.proposalOrigin !== undefined &&
+    !['production', 'search'].includes(opts.proposalOrigin)
+  ) {
+    throw new TypeError('observer proposal origin must be production or search')
+  }
+  for (const limit of [opts.maxTraceLines, opts.maxOutputChars]) {
+    if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+      throw new TypeError('observer context limits must be nonnegative safe integers')
+    }
+  }
   const traceSummary = summarizeTrace(input.trace, opts.maxTraceLines ?? 80)
   const res = await profileChatClient({
     profile: opts.profile,
@@ -155,7 +212,7 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
           role: 'user',
           content:
             `TASK: ${input.task}\n\nOUTCOME: ${input.outcome ?? 'unknown'}\n\n` +
-            `FINAL OUTPUT (truncated):\n${input.output.slice(0, 1200)}\n\n` +
+            `FINAL OUTPUT:\n${input.output.slice(0, opts.maxOutputChars ?? 1200)}\n\n` +
             `TRACE (in order; "xN" = repeated):\n${traceSummary}`,
         },
       ],
@@ -163,68 +220,95 @@ export async function observe(input: ObserveInput, opts: ObserveOptions): Promis
     { ...(opts.signal ? { signal: opts.signal } : {}) },
   )
 
-  const parsed = parseFindings(res.content)
-  const producedAt = input.runId ? `${input.runId}` : observerId
-  const findings = assertProposalFindings(
-    parsed.map((f) =>
-      makeProposalFinding({
-        analyst_id: observerId,
-        area: f.area,
-        severity: f.severity,
-        claim: f.claim,
-        recommended_action: f.recommended_action,
-        confidence: f.confidence,
-        evidence_refs: [],
-        // The observer reads behavior, never a final evaluation result.
-        derived_from_judge: false,
-        proposal_origin: 'production',
-        metadata: { audience: f.audience },
-        ...(input.runId ? { subject: input.runId } : {}),
-      }),
-    ),
-    'observe findings',
-  )
-
-  const learned: CorpusRecord[] = []
-  if (opts.corpus) {
-    for (const f of findings) {
-      const record: CorpusRecord = {
-        schemaVersion: '1.0.0',
-        id: f.finding_id,
-        runId: input.runId ?? observerId,
-        producedAt: f.produced_at ?? producedAt,
-        area: f.area,
-        claim: f.recommended_action ?? f.claim,
-        ...(f.claim ? { rationale: f.claim } : {}),
-        tags: [...(opts.tags ?? []), `audience:${(f.metadata?.audience as string) ?? 'agent'}`],
-        confidence: f.confidence,
-        evidence: [{ kind: 'finding', uri: f.finding_id }],
-      }
-      const r = await opts.corpus.append(record)
-      if (!r.succeeded) {
-        throw new Error(
-          `observe corpus append failed for '${record.id}' after storing ${learned.length}/${findings.length} findings: ${r.error}`,
-        )
-      }
-      learned.push(record)
-    }
+  const inputTokens = res.usage?.promptTokens
+  const outputTokens = res.usage?.completionTokens
+  const usage = {
+    input: inputTokens ?? 0,
+    output: outputTokens ?? 0,
+    known:
+      res.usage?.captured !== false &&
+      typeof inputTokens === 'number' &&
+      typeof outputTokens === 'number',
   }
+  validateUsage(usage)
+  try {
+    const parsed = parseFindings(res.content)
+    const findings = assertProposalFindings(
+      parsed.map((f) =>
+        makeProposalFinding({
+          analyst_id: observerId,
+          area: f.area,
+          severity: f.severity,
+          claim: f.claim,
+          recommended_action: f.recommended_action,
+          confidence: f.confidence,
+          evidence_refs: [...(input.evidenceRefs ?? [])],
+          // The observer reads behavior, never a final evaluation result.
+          derived_from_judge: false,
+          proposal_origin: opts.proposalOrigin ?? 'production',
+          metadata: { audience: f.audience },
+          ...(input.runId ? { subject: input.runId } : {}),
+        }),
+      ),
+      'observe findings',
+    )
 
-  const usage = res.usage
-  const inputTokens = usage?.promptTokens
-  const outputTokens = usage?.completionTokens
-  return {
-    findings: [...findings],
-    learned,
-    report: renderReport(findings),
-    usage: {
-      input: inputTokens ?? 0,
-      output: outputTokens ?? 0,
-      known:
-        usage?.captured !== false &&
-        typeof inputTokens === 'number' &&
-        typeof outputTokens === 'number',
-    },
+    return {
+      findings: [...findings],
+      report: renderReport(findings),
+      usage,
+    }
+  } catch (cause) {
+    throw new ObservationError(cause instanceof Error ? cause.message : String(cause), usage, {
+      cause,
+    })
+  }
+}
+
+/** Analyze through the selected implementation, then retain its validated findings in the corpus. */
+export async function observe(input: ObserveInput, opts: ObserveOptions): Promise<Observation> {
+  opts.signal?.throwIfAborted()
+  const analysis = opts.analysis
+    ? await opts.analysis(input, { ...(opts.signal ? { signal: opts.signal } : {}) })
+    : await analyzeWithProfile(input, opts)
+  validateUsage(analysis.usage)
+  const learned: CorpusRecord[] = []
+  try {
+    opts.signal?.throwIfAborted()
+    const findings = assertProposalFindings(analysis.findings, 'observe findings')
+    const producedAt = input.runId ?? observerId
+    if (opts.corpus) {
+      for (const f of findings) {
+        opts.signal?.throwIfAborted()
+        const record: CorpusRecord = {
+          schemaVersion: '1.0.0',
+          id: f.finding_id,
+          runId: input.runId ?? observerId,
+          producedAt: f.produced_at ?? producedAt,
+          area: f.area,
+          claim: f.recommended_action ?? f.claim,
+          ...(f.claim ? { rationale: f.claim } : {}),
+          tags: [...(opts.tags ?? []), `audience:${(f.metadata?.audience as string) ?? 'agent'}`],
+          confidence: f.confidence,
+          evidence: [{ kind: 'finding', uri: f.finding_id }, ...f.evidence_refs],
+        }
+        const r = await opts.corpus.append(record)
+        if (!r.succeeded) {
+          throw new Error(
+            `observe corpus append failed for '${record.id}' after storing ${learned.length}/${findings.length} findings: ${r.error}`,
+          )
+        }
+        learned.push(record)
+      }
+    }
+
+    return { ...analysis, findings: [...findings], learned }
+  } catch (cause) {
+    throw new ObservationError(
+      cause instanceof Error ? cause.message : String(cause),
+      analysis.usage,
+      { cause },
+    )
   }
 }
 

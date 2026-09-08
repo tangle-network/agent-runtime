@@ -339,6 +339,108 @@ writes never loses an acknowledged event.
 
 ***
 
+### HarvestError
+
+The completed batch evidence remains available even when every analysis failed.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new HarvestError**(`report`): [`HarvestError`](#harvesterror)
+
+###### Parameters
+
+###### report
+
+[`HarvestReport`](#harvestreport)
+
+###### Returns
+
+[`HarvestError`](#harvesterror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### report
+
+> `readonly` **report**: [`HarvestReport`](#harvestreport)
+
+***
+
+### ObservationError
+
+Analysis can fail after paid work; its measured subtotal must remain recoverable.
+
+#### Extends
+
+- `Error`
+
+#### Constructors
+
+##### Constructor
+
+> **new ObservationError**(`message`, `usage`, `options?`): [`ObservationError`](#observationerror)
+
+###### Parameters
+
+###### message
+
+`string`
+
+###### usage
+
+###### input
+
+`number`
+
+###### output
+
+`number`
+
+###### known
+
+`boolean`
+
+###### options?
+
+`ErrorOptions`
+
+###### Returns
+
+[`ObservationError`](#observationerror)
+
+###### Overrides
+
+`Error.constructor`
+
+#### Properties
+
+##### usage
+
+> `readonly` **usage**: `object`
+
+###### input
+
+> **input**: `number`
+
+###### output
+
+> **output**: `number`
+
+###### known
+
+> **known**: `boolean`
+
+***
+
 ### InMemoryCorpus
 
 In-memory `Corpus`. Keyed by record `id`; `append` validates the record, is idempotent on an
@@ -347,7 +449,7 @@ the same `id` (never overwrites). `query` routes through the single-sourced `app
 
 #### Implements
 
-- [`Corpus`](#corpus-2)
+- [`Corpus`](#corpus)
 
 #### Constructors
 
@@ -380,7 +482,7 @@ Append one accreted fact. Idempotent on an identical record; returns a typed out
 
 ###### Implementation of
 
-[`Corpus`](#corpus-2).[`append`](#append-2)
+[`Corpus`](#corpus).[`append`](#append-2)
 
 ##### query()
 
@@ -401,7 +503,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus-2).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-2)
 
 ***
 
@@ -418,7 +520,7 @@ separate (a learned fact is not a replay record).
 
 #### Implements
 
-- [`Corpus`](#corpus-2)
+- [`Corpus`](#corpus)
 
 #### Constructors
 
@@ -457,7 +559,7 @@ Append one accreted fact. Idempotent on an identical record; returns a typed out
 
 ###### Implementation of
 
-[`Corpus`](#corpus-2).[`append`](#append-2)
+[`Corpus`](#corpus).[`append`](#append-2)
 
 ##### query()
 
@@ -478,7 +580,7 @@ Query accreted facts by filter — most-confident first. Returns the matching re
 
 ###### Implementation of
 
-[`Corpus`](#corpus-2).[`query`](#query-2)
+[`Corpus`](#corpus).[`query`](#query-2)
 
 ***
 
@@ -4073,58 +4175,6 @@ The part of `output` the model spent on reasoning. Never added to `output`.
 
 ***
 
-### HarvestCorpusOptions
-
-#### Properties
-
-##### runs
-
-> **runs**: `AsyncIterable`\<[`ObserveInput`](#observeinput), `any`, `any`\> \| `Iterable`\<[`ObserveInput`](#observeinput), `any`, `any`\>
-
-The completed runs to analyze — map your store's rows to `ObserveInput`.
-
-##### profile
-
-> **profile**: `AgentProfile`
-
-Exact analyst identity.
-
-##### executor
-
-> **executor**: [`ExecutorConfig`](#executorconfig)
-
-Execution substrate. All behavior comes from the profile.
-
-##### corpus
-
-> **corpus**: [`Corpus`](#corpus-2)
-
-The durable corpus the facts accrete into.
-
-##### tags?
-
-> `optional` **tags?**: readonly `string`[]
-
-Tags written onto learned facts (the product/domain key the read side queries by).
-
-##### concurrency?
-
-> `optional` **concurrency?**: `number`
-
-Runs analyzed in parallel. Default 4.
-
-##### maxRuns?
-
-> `optional` **maxRuns?**: `number`
-
-Hard cap on runs consumed from the stream (a cost guard for unbounded stores).
-
-##### signal?
-
-> `optional` **signal?**: `AbortSignal`
-
-***
-
 ### HarvestFailure
 
 #### Properties
@@ -4826,45 +4876,11 @@ Terminal status only (passed/failed/unknown) — NOT a judge score; the
 
 Provenance back to the run.
 
-***
+##### evidenceRefs?
 
-### ObserveOptions
+> `optional` **evidenceRefs?**: readonly `EvidenceRef`[]
 
-#### Properties
-
-##### profile
-
-> **profile**: `AgentProfile`
-
-Exact analyst identity.
-
-##### executor
-
-> **executor**: [`ExecutorConfig`](#executorconfig)
-
-Execution substrate. All behavior comes from the profile.
-
-##### corpus?
-
-> `optional` **corpus?**: [`Corpus`](#corpus-2)
-
-When set, learned facts are appended (idempotent) for the next run to read.
-
-##### tags?
-
-> `optional` **tags?**: readonly `string`[]
-
-Tags written onto learned facts + used by the next run's corpus query.
-
-##### signal?
-
-> `optional` **signal?**: `AbortSignal`
-
-##### maxTraceLines?
-
-> `optional` **maxTraceLines?**: `number`
-
-Cap the trace lines fed to the observer (keeps the call cheap). Default 80.
+Caller-owned references to the retained evidence supplied in this input.
 
 ***
 
@@ -6611,7 +6627,7 @@ wants the single-blob `resources.instructions` form passes `target: 'resources'`
 
 ##### corpus
 
-> `readonly` **corpus**: [`Corpus`](#corpus-2)
+> `readonly` **corpus**: [`Corpus`](#corpus)
 
 ##### filter
 
@@ -10563,7 +10579,7 @@ Exact critic identity. Omitted means the exact worker profile also runs the crit
 
 ##### corpus?
 
-> `optional` **corpus?**: [`Corpus`](#corpus-2)
+> `optional` **corpus?**: [`Corpus`](#corpus)
 
 Across-run learning: when set, the analyst's observe() pass appends trace-derived
  facts here (the flywheel write side). Read-back is opt-in via `corpusReadback`
@@ -11042,7 +11058,7 @@ Exact critic identity. Omitted means the exact worker profile also runs the crit
 
 ##### corpus?
 
-> `optional` **corpus?**: [`Corpus`](#corpus-2)
+> `optional` **corpus?**: [`Corpus`](#corpus)
 
 Across-run learning: when set, the analyst's observe() pass appends trace-derived
  facts here (the flywheel write side). Read-back is opt-in via `corpusReadback`
@@ -11050,7 +11066,7 @@ Across-run learning: when set, the analyst's observe() pass appends trace-derive
 
 ###### Inherited from
 
-[`AgenticOptions`](#agenticoptions).[`corpus`](#corpus-4)
+[`AgenticOptions`](#agenticoptions).[`corpus`](#corpus-2)
 
 ##### corpusTags?
 
@@ -13970,7 +13986,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-21)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-19)
 
 ##### execution?
 
@@ -19281,7 +19297,7 @@ Assignment identity within the parent manager; absent only for the root.
 
 ###### Inherited from
 
-[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-18)
+[`SupervisorNodeContext`](#supervisornodecontext).[`profile`](#profile-16)
 
 ##### task
 
@@ -20630,7 +20646,7 @@ Per-spawn factory carrying caller configuration. Constructed only after admissio
 
 ##### executor?
 
-> `readonly` `optional` **executor?**: [`Executor`](#executor-5)\<`unknown`\>
+> `readonly` `optional` **executor?**: [`Executor`](#executor-3)\<`unknown`\>
 
 Bring-your-own executor: highest routing precedence after exact-profile intake validation.
 
@@ -22263,7 +22279,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-27)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-25)
 
 ##### abort()
 
@@ -25559,6 +25575,48 @@ mapper it already uses in the other direction, so a sandbox-shaped provider read
 
 ***
 
+### HarvestCorpusOptions
+
+> **HarvestCorpusOptions** = [`ObserveOptions`](#observeoptions) & `object`
+
+#### Type Declaration
+
+##### runs
+
+> **runs**: `AsyncIterable`\<[`ObserveInput`](#observeinput)\> \| `Iterable`\<[`ObserveInput`](#observeinput)\>
+
+The completed runs to analyze — map your store's rows to `ObserveInput`.
+
+##### corpus
+
+> **corpus**: [`Corpus`](#corpus)
+
+The durable corpus the facts accrete into.
+
+##### tags?
+
+> `optional` **tags?**: `ReadonlyArray`\<`string`\>
+
+Tags written onto learned facts (the product/domain key the read side queries by).
+
+##### concurrency?
+
+> `optional` **concurrency?**: `number`
+
+Runs analyzed in parallel. Default 4.
+
+##### maxRuns?
+
+> `optional` **maxRuns?**: `number`
+
+Hard cap on runs consumed from the stream (a cost guard for unbounded stores).
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+***
+
 ### InProcessOnPrompt
 
 > **InProcessOnPrompt** = (`prompt`, `ctx`) => `SandboxEvent`[] \| `AsyncIterable`\<`SandboxEvent`\> \| `Promise`\<`SandboxEvent`[]\>
@@ -25611,6 +25669,72 @@ runAgentRounds options minus the `ctx` (loopDispatch builds the ctx).
 > **SuperviseOptionsForDispatch** = `Omit`\<[`SuperviseOptions`](#superviseoptions), `"signal"`\>
 
 `supervise` options minus Eval-owned cancellation.
+
+***
+
+### ObservationAnalysis
+
+> **ObservationAnalysis** = (`input`, `context`) => `Promise`\<`Pick`\<[`Observation`](#observation), `"findings"` \| `"report"` \| `"usage"`\>\>
+
+A caller-selected analysis retains the same findings, usage, and corpus contract.
+
+#### Parameters
+
+##### input
+
+[`ObserveInput`](#observeinput)
+
+##### context
+
+###### signal?
+
+`AbortSignal`
+
+#### Returns
+
+`Promise`\<`Pick`\<[`Observation`](#observation), `"findings"` \| `"report"` \| `"usage"`\>\>
+
+***
+
+### ObserveOptions
+
+> **ObserveOptions** = `object` & \{ `analysis`: [`ObservationAnalysis`](#observationanalysis); `profile?`: `AgentProfile`; `executor?`: [`ExecutorConfig`](#executorconfig); \} \| \{ `analysis?`: `undefined`; `profile`: `AgentProfile`; `executor`: [`ExecutorConfig`](#executorconfig); \}
+
+#### Type Declaration
+
+##### corpus?
+
+> `optional` **corpus?**: [`Corpus`](#corpus)
+
+When set, learned facts are appended (idempotent) for the next run to read.
+
+##### tags?
+
+> `optional` **tags?**: readonly `string`[]
+
+Tags written onto learned facts + used by the next run's corpus query.
+
+##### signal?
+
+> `optional` **signal?**: `AbortSignal`
+
+##### maxTraceLines?
+
+> `optional` **maxTraceLines?**: `number`
+
+Cap the trace lines fed to the observer (keeps the call cheap). Default 80.
+
+##### maxOutputChars?
+
+> `optional` **maxOutputChars?**: `number`
+
+Maximum output characters delivered to the default observer. Default 1200.
+
+##### proposalOrigin?
+
+> `optional` **proposalOrigin?**: `ProposalFindingOrigin`
+
+Evidence origin for the default observer. Defaults to production for existing callers.
 
 ***
 
@@ -27248,7 +27372,7 @@ Exact admitted profile used to validate the stable effective identity at publica
 
 ### ExecutorFactory
 
-> **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor-5)\<`Out`\>
+> **ExecutorFactory**\<`Out`\> = (`spec`, `ctx`) => [`Executor`](#executor-3)\<`Out`\>
 
 Builds a fresh `Executor` for one spawn from the resolved, immutable spec. Per-spawn (not shared)
 so each child owns its own box/abort/teardown lifecycle. A BYO factory lets a user supply
@@ -27272,7 +27396,7 @@ construction args without pre-instantiating; it never bypasses exact-profile val
 
 #### Returns
 
-[`Executor`](#executor-5)\<`Out`\>
+[`Executor`](#executor-3)\<`Out`\>
 
 ***
 
@@ -29993,7 +30117,7 @@ cannot read the numbers.
 
 > **harvestCorpus**(`opts`): `Promise`\<[`HarvestReport`](#harvestreport)\>
 
-Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel.
+Batch the selected observation implementation over completed runs and retain its findings.
 
 #### Parameters
 
@@ -30342,11 +30466,51 @@ Wrap any MCP server as an `Environment`: `tools/list` becomes `AgenticTool[]` wi
 
 ***
 
+### observationFromRegistry()
+
+> **observationFromRegistry**(`registry`, `options`): [`ObservationAnalysis`](#observationanalysis)
+
+Adapt any Eval analyst registry, including recursive engines, to observation and harvesting.
+
+#### Parameters
+
+##### registry
+
+`Pick`\<`AnalystRegistry`, `"run"`\>
+
+##### options
+
+###### inputs
+
+`AnalystRunInputs` \| ((`input`) => `AnalystRunInputs` \| `Promise`\<`AnalystRunInputs`\>)
+
+###### proposalOrigin
+
+`ProposalFindingOrigin`
+
+The caller identifies the evidence admitted for this investigation.
+
+###### runOptions?
+
+`RegistryRunOpts`
+
+###### record?
+
+(`result`, `input`) => `void` \| `Promise`\<`void`\>
+
+Retain the complete registry result, including unsuccessful analysts, in caller-owned storage.
+
+#### Returns
+
+[`ObservationAnalysis`](#observationanalysis)
+
+***
+
 ### observe()
 
 > **observe**(`input`, `opts`): `Promise`\<[`Observation`](#observation)\>
 
-The third-person trace analyst: read a worker's trace and produce steer findings for the next attempt plus durable `learned` facts for the cross-run corpus.
+Analyze through the selected implementation, then retain its validated findings in the corpus.
 
 #### Parameters
 
@@ -32799,7 +32963,7 @@ In-memory, process-local conversation store with detached reads and writes.
 
 ### chatTransportExecutor()
 
-> **chatTransportExecutor**(`opts`): [`Executor`](#executor-5)\<`string`\>
+> **chatTransportExecutor**(`opts`): [`Executor`](#executor-3)\<`string`\>
 
 Build one exact profile-driven chat executor through `createExecutor`.
 Prefer `chatWorkerSeam` for supervised work because it supplies trusted node identity.
@@ -32812,7 +32976,7 @@ Prefer `chatWorkerSeam` for supervised work because it supplies trusted node ide
 
 #### Returns
 
-[`Executor`](#executor-5)\<`string`\>
+[`Executor`](#executor-3)\<`string`\>
 
 ***
 
@@ -32885,7 +33049,7 @@ supervisor node cannot be put in code mode through node config today.
 
 ### gateOnDeliverable()
 
-> **gateOnDeliverable**\<`Out`\>(`inner`, `deliverable`): [`Executor`](#executor-5)\<`Out`\>
+> **gateOnDeliverable**\<`Out`\>(`inner`, `deliverable`): [`Executor`](#executor-3)\<`Out`\>
 
 Wrap an `Executor` so its settlement `valid` reflects the deliverable check, not the
 inner verdict. Handles both `execute` shapes (one-shot `Promise<ExecutorResult>` and
@@ -32902,7 +33066,7 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 ##### inner
 
-[`Executor`](#executor-5)\<`Out`\>
+[`Executor`](#executor-3)\<`Out`\>
 
 ##### deliverable
 
@@ -32910,13 +33074,13 @@ executor has produced its output. The inner `score` is preserved; only `valid` i
 
 #### Returns
 
-[`Executor`](#executor-5)\<`Out`\>
+[`Executor`](#executor-3)\<`Out`\>
 
 ***
 
 ### mapExecutorResult()
 
-> **mapExecutorResult**\<`In`, `Out`\>(`inner`, `map`): [`Executor`](#executor-5)\<`Out`\>
+> **mapExecutorResult**\<`In`, `Out`\>(`inner`, `map`): [`Executor`](#executor-3)\<`Out`\>
 
 Transform a Runtime executor's terminal artifact without losing its private
 profile-materialization attestation or altering its measured spend. This is
@@ -32937,7 +33101,7 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 ##### inner
 
-[`Executor`](#executor-5)\<`In`\>
+[`Executor`](#executor-3)\<`In`\>
 
 ##### map
 
@@ -32945,7 +33109,7 @@ must not rebuild an Executor around a model transport merely to change `out`.
 
 #### Returns
 
-[`Executor`](#executor-5)\<`Out`\>
+[`Executor`](#executor-3)\<`Out`\>
 
 ***
 
@@ -33349,7 +33513,7 @@ traversal is ledgered and journaled.
 
 ### createInPlaceCliExecutor()
 
-> **createInPlaceCliExecutor**(`options`): [`Executor`](#executor-5)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
+> **createInPlaceCliExecutor**(`options`): [`Executor`](#executor-3)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
 
 **`Experimental`**
 
@@ -33370,7 +33534,7 @@ not an existing directory throws before the harness launches. `resultArtifact()`
 
 #### Returns
 
-[`Executor`](#executor-5)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
+[`Executor`](#executor-3)\<[`InPlaceHarnessResult`](#inplaceharnessresult)\>
 
 ***
 
@@ -35593,7 +35757,7 @@ forward and delegates every other surface to it.
 
 ### retryPreSpawnRefusals()
 
-> **retryPreSpawnRefusals**\<`Out`\>(`inner`, `policy`, `hooks?`): [`Executor`](#executor-5)\<`Out`\>
+> **retryPreSpawnRefusals**\<`Out`\>(`inner`, `policy`, `hooks?`): [`Executor`](#executor-3)\<`Out`\>
 
 Re-enter `execute` on one executor while a pre-spawn refusal keeps proving nothing ran.
 
@@ -35610,7 +35774,7 @@ without reimplementing the two proofs.
 
 ##### inner
 
-[`Executor`](#executor-5)\<`Out`\>
+[`Executor`](#executor-3)\<`Out`\>
 
 ##### policy
 
@@ -35622,7 +35786,7 @@ without reimplementing the two proofs.
 
 #### Returns
 
-[`Executor`](#executor-5)\<`Out`\>
+[`Executor`](#executor-3)\<`Out`\>
 
 ***
 
@@ -35692,7 +35856,7 @@ exists (the W3C grammar requires one); the legacy pair still carries a lone trac
 
 ### createWorktreeCliExecutor()
 
-> **createWorktreeCliExecutor**(`options`): [`Executor`](#executor-5)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+> **createWorktreeCliExecutor**(`options`): [`Executor`](#executor-3)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
 
 **`Experimental`**
 
@@ -35712,7 +35876,7 @@ without a configured prompt throws before a worktree is created. `resultArtifact
 
 #### Returns
 
-[`Executor`](#executor-5)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
+[`Executor`](#executor-3)\<[`WorktreeHarnessResult`](#worktreeharnessresult)\>
 
 ***
 
@@ -35756,7 +35920,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-30), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-28), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 

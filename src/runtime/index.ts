@@ -226,6 +226,7 @@ export {
 export { decodeHarnessUsage, type HarnessUsage } from './harness-usage'
 export {
   type HarvestCorpusOptions,
+  HarvestError,
   type HarvestFailure,
   type HarvestReport,
   harvestCorpus,
@@ -271,11 +272,14 @@ export {
   type McpEnvironmentOptions,
   sanitizeMcpToolSchema,
 } from './mcp-environment'
+export { observationFromRegistry } from './observation-registry'
 // The third-person observer: a worker's trace → trace-grounded findings, an
 // operator report, and durable corpus facts for the next run (the closed loop).
 export {
   defaultAnalystInstruction,
   type Observation,
+  type ObservationAnalysis,
+  ObservationError,
   type ObserveInput,
   type ObserveOptions,
   observe,

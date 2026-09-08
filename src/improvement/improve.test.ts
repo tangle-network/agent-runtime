@@ -4,16 +4,20 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  CostLedger,
   canonicalJson,
   contentHash,
   makeProposalFinding,
   type ProposalFinding,
 } from '@tangle-network/agent-eval'
 import {
+  costFromLedgerSummary,
   gitWorktreeAdapter,
   inMemoryCampaignStorage,
   type OptimizationMethod,
   type OptimizationMethodInput,
+  scopedOptimizationMethod,
+  sequentialOptimizationMethod,
   type Worktree,
   type WorktreeAdapter,
 } from '@tangle-network/agent-eval/campaign'
@@ -27,6 +31,7 @@ import { type AgentProfile, canonicalCandidateDigest } from '@tangle-network/age
 import { afterEach, describe, expect, it } from 'vitest'
 import { ConfigError } from '../errors'
 import { improve } from './improve'
+import { withMethodRuntimeControls } from './method-controls'
 import type { ReadonlyAgentProfile } from './profile-types'
 
 interface TestScenario extends Scenario {
@@ -266,6 +271,136 @@ const codeAuthorProfile = (): AgentProfile => ({
 })
 
 describe('improve method execution', () => {
+  it('reconciles separate resumed child run receipts through nested composition', async () => {
+    const ledger = new CostLedger()
+    const leaf = (name: string) =>
+      withMethodRuntimeControls<TestScenario, TextArtifact>(
+        {
+          name,
+          async optimize(input) {
+            const optimizerRun = `resumed-${name}`
+            const resumed = input.costLedger.list({ tags: { optimizerRun } }).length > 0
+            const call = await input.costLedger.runPaidCall({
+              channel: 'driver',
+              phase: 'optimizer',
+              actor: name,
+              model: 'offline-fixture',
+              tags: { optimizerRun },
+              maximumCharge: { externallyEnforcedMaximumUsd: 0.25 },
+              execute: async () => 'improved prompt',
+              receipt: () => ({
+                model: 'offline-fixture',
+                inputTokens: 1,
+                outputTokens: 1,
+                actualCostUsd: 0.25,
+              }),
+            })
+            if (!call.succeeded) throw call.error
+            return {
+              winnerSurface: call.value,
+              cost: costFromLedgerSummary(input.costLedger.summary({ tags: { optimizerRun } })),
+              provenance: {
+                source: {
+                  kind: 'package',
+                  evidence: 'declared',
+                  package: 'offline-fixture',
+                  version: '1',
+                },
+                runId: optimizerRun,
+                resumed,
+                evaluationCount: 0,
+                artifactDir: input.runDir,
+              },
+            }
+          },
+        },
+        { costAttribution: 'optimizer-run', validateCandidate() {} },
+      )
+    const method = sequentialOptimizationMethod({
+      name: 'resumed-stages',
+      methods: [
+        scopedOptimizationMethod({
+          name: 'first-scope',
+          method: leaf('first'),
+          project: (value) => value,
+          merge: (_baseline, value) => value,
+        }),
+        leaf('second'),
+      ],
+    })
+    const options = { ...methodOptions(method), costLedger: ledger }
+    const first = await improve(promptProfile(), options)
+    const resumed = await improve(promptProfile(), options)
+    expect(first.cost.accountingComplete).toBe(true)
+    expect(resumed.cost.accountingComplete).toBe(true)
+    expect(resumed.cost.totalCostUsd - first.cost.totalCostUsd).toBeCloseTo(0.5)
+    expect(ledger.list({ tags: { optimizerRun: 'resumed-first' } })).toHaveLength(2)
+    expect(ledger.list({ tags: { optimizerRun: 'resumed-second' } })).toHaveLength(2)
+  })
+
+  it('validates scoped sequential leaves against their own full stage baseline and winner', async () => {
+    const seen: Array<{ leaf: string; prompt: string | undefined; baseline: boolean }> = []
+    const stage = (leaf: string, winner: string, permittedBaseline: string) =>
+      scopedOptimizationMethod({
+        name: `scope-${leaf}`,
+        project: (value: MutableSurface) => JSON.parse(String(value)).prompt.systemPrompt,
+        merge: (value: MutableSurface, selected: MutableSurface) =>
+          JSON.stringify({
+            ...JSON.parse(String(value)),
+            prompt: { systemPrompt: selected },
+          }),
+        method: withMethodRuntimeControls(fixedMethod(winner), {
+          costAttribution: 'optimizer-run',
+          validateCandidate(input) {
+            const prompt = input.profile.prompt?.systemPrompt
+            seen.push({ leaf, prompt, baseline: input.isBaseline })
+            expect(input.profile.name).toBe('fixture-agent')
+            expect(JSON.parse(String(input.candidateSurface)).prompt.systemPrompt).toBe(prompt)
+            if (prompt !== (input.isBaseline ? permittedBaseline : winner))
+              throw new Error(`wrong authorizer ${leaf}`)
+          },
+        }),
+      })
+    const method = sequentialOptimizationMethod({
+      name: 'stages',
+      methods: [
+        stage('first', 'improved first', 'baseline'),
+        stage('second', 'improved second', 'improved first'),
+      ],
+    })
+    const result = await improve(promptProfile(), {
+      ...methodOptions(method),
+      surface: 'agent-profile',
+    })
+    expect(result.candidate.profile.prompt?.systemPrompt).toBe('improved second')
+    expect(seen).toEqual([
+      { leaf: 'first', prompt: 'baseline', baseline: true },
+      { leaf: 'first', prompt: 'improved first', baseline: false },
+      { leaf: 'second', prompt: 'improved first', baseline: true },
+      { leaf: 'second', prompt: 'improved second', baseline: false },
+    ])
+  })
+
+  it('rejects a composed leaf winner before final agent execution', async () => {
+    let forbiddenCalls = 0
+    const leaf = withMethodRuntimeControls(fixedMethod('forbidden'), {
+      costAttribution: 'optimizer-run',
+      validateCandidate(input) {
+        if (input.profile.prompt?.systemPrompt === 'forbidden') throw new Error('leaf denied')
+      },
+    })
+    await expect(
+      improve(promptProfile(), {
+        ...methodOptions(sequentialOptimizationMethod({ name: 'guarded', methods: [leaf] })),
+        agent: async (profile, scenario, context) => {
+          if (profile.prompt?.systemPrompt === 'forbidden') forbiddenCalls += 1
+          return paidProfile(profile, scenario, context)
+        },
+      }),
+    ).rejects.toThrow('leaf denied')
+    expect(forbiddenCalls).toBe(0)
+  })
+
   it('runs a complete method without exposing final-test cases and materializes its prompt', async () => {
     let observed: OptimizationMethodInput<TestScenario, TextArtifact> | undefined
     let observedEvaluationRef = ''

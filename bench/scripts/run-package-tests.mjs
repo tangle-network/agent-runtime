@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { access, readdir, readFile } from 'node:fs/promises'
+import { access, readdir, readFile, realpath } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -64,6 +65,15 @@ export async function run(command, args, env = process.env) {
   }
 }
 
+export async function runPythonTests(python, env = process.env) {
+  // Fixture roots must be physical paths; the production boundary rejects symlinked ancestors.
+  const physicalTemp = await realpath(env.TMPDIR || tmpdir())
+  await run(python, ['-m', 'unittest', 'discover', '-s', 'pier_agents', '-p', '*_test.py'], {
+    ...env,
+    TMPDIR: physicalTemp,
+  })
+}
+
 async function main() {
   const python = path.join(benchDir, '.venv', 'bin', 'python')
   try {
@@ -101,7 +111,7 @@ async function main() {
     await run('npx', ['vitest', 'run', ...vitestTests.map((file) => path.relative(benchDir, file))])
   }
 
-  await run(python, ['-m', 'unittest', 'discover', '-s', 'pier_agents', '-p', '*_test.py'])
+  await runPythonTests(python)
 
   console.log(
     `package tests passed: ${tests.length}/${tests.length} TypeScript files (${nodeTests.length} node:test + ${vitestTests.length} vitest) + Pier bridge`,

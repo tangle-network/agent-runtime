@@ -1,38 +1,31 @@
 /**
- * harvestCorpus — production traces → corpus, the G2 bridge (the playbook's step 6).
- * The flywheel's write side, batched: run the firewalled `observe()` analyst over a
- * stream of completed runs (yesterday's production traces, a benchmark's rollouts, a
- * fleet's day) and accrete the trace-derived facts into the durable corpus.
+ * Analyze completed runs through the selected observer and retain findings in a corpus.
  *
  * Store-agnostic by design: the caller maps its trace store's rows (a
  * `ProductionTraceSink` ndjson, OTLP spans, RunRecords) to `ObserveInput` — task text,
- * final output, the event trace, terminal outcome. The analyst reads BEHAVIOR only
- * (the firewall is structural: the input carries no judge verdict), and corpus appends
- * are idempotent on (claim + tags), so re-harvesting the same window is safe.
+ * final output, the event trace, terminal outcome.
+ * The default observer reads execution evidence; an injected analysis owns its admitted sources.
  *
  * The nightly product job is then three lines:
  *   const runs = mapSinkRowsToObserveInputs(await readSink(yesterday))
- *   const report = await harvestCorpus({ runs, chat, corpus, tags: ['gtm-agent'] })
+ *   const report = await harvestCorpus({ runs, profile, executor, corpus })
  *   log(report)   // runsObserved / findings / learned / failures
  *
- * NOTE on the read side: harvesting is safe and cheap; *injecting* facts back into runs
- * is the measured danger zone — naive unconditional priming tested NEGATIVE (−11.6pp,
- * context pollution; result now in .evolve/current.json + memory). Gate any priming design on its
- * own A/B; the corpus's first consumers are operators and optimizers, not prompts.
+ * Consumers choose how retained findings inform later work and how to assess their value.
  */
 
-import type { AgentProfile } from '@tangle-network/agent-interface'
-import { type Observation, type ObserveInput, observe } from './observe'
+import {
+  type Observation,
+  ObservationError,
+  type ObserveInput,
+  type ObserveOptions,
+  observe,
+} from './observe'
 import type { Corpus } from './personify/wave-types'
-import type { ExecutorConfig } from './supervise/runtime'
 
-export interface HarvestCorpusOptions {
+export type HarvestCorpusOptions = ObserveOptions & {
   /** The completed runs to analyze — map your store's rows to `ObserveInput`. */
   runs: AsyncIterable<ObserveInput> | Iterable<ObserveInput>
-  /** Exact analyst identity. */
-  profile: AgentProfile
-  /** Execution substrate. All behavior comes from the profile. */
-  executor: ExecutorConfig
   /** The durable corpus the facts accrete into. */
   corpus: Corpus
   /** Tags written onto learned facts (the product/domain key the read side queries by). */
@@ -61,9 +54,28 @@ export interface HarvestReport {
   usage: Observation['usage']
 }
 
-/** Batch the firewalled `observe()` analyst over completed runs and accrete the trace-derived facts into the durable corpus — the production-traces→corpus write side of the flywheel. */
+/** The completed batch evidence remains available even when every analysis failed. */
+export class HarvestError extends Error {
+  constructor(readonly report: HarvestReport) {
+    super(
+      `harvestCorpus: every run failed analysis (${report.failures.length}) — first: ${report.failures[0]?.error}`,
+    )
+    this.name = 'HarvestError'
+  }
+}
+
+/** Batch the selected observation implementation over completed runs and retain its findings. */
 export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<HarvestReport> {
-  const concurrency = Math.max(1, opts.concurrency ?? 4)
+  const concurrency = opts.concurrency ?? 4
+  if (
+    !Number.isSafeInteger(concurrency) ||
+    concurrency < 1 ||
+    (opts.maxRuns !== undefined && (!Number.isSafeInteger(opts.maxRuns) || opts.maxRuns < 0))
+  ) {
+    throw new TypeError(
+      'harvest limits require positive integer concurrency and nonnegative integer maxRuns',
+    )
+  }
   const report: HarvestReport = {
     runsObserved: 0,
     findings: 0,
@@ -83,28 +95,35 @@ export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<Harvest
 
   let consumed = 0
   let done = false
-  const next = async (): Promise<ObserveInput | null> => {
-    if (done || (opts.maxRuns !== undefined && consumed >= opts.maxRuns)) return null
-    const r = await iterator.next()
+  const next = async (): Promise<{ input: ObserveInput; sequence: number } | null> => {
+    if (done || opts.signal?.aborted || (opts.maxRuns !== undefined && consumed >= opts.maxRuns))
+      return null
+    // Reserve before awaiting so concurrent workers cannot exceed the requested cap.
+    const sequence = ++consumed
+    let r: IteratorResult<ObserveInput>
+    try {
+      r = await iterator.next()
+    } catch (error) {
+      done = true
+      report.failures.push({
+        runId: `source-${sequence}`,
+        error: `trace source: ${error instanceof Error ? error.message.slice(0, 300) : String(error)}`,
+      })
+      return null
+    }
     if (r.done) {
       done = true
       return null
     }
-    consumed += 1
-    return r.value
+    return { input: r.value, sequence }
   }
 
   const workers = Array.from({ length: concurrency }, async () => {
-    for (let input = await next(); input !== null; input = await next()) {
+    for (let run = await next(); run !== null; run = await next()) {
+      const { input, sequence } = run
       if (opts.signal?.aborted) return
       try {
-        const obs: Observation = await observe(input, {
-          profile: opts.profile,
-          executor: opts.executor,
-          corpus: opts.corpus,
-          tags: opts.tags ?? [],
-          ...(opts.signal ? { signal: opts.signal } : {}),
-        })
+        const obs: Observation = await observe(input, opts)
         report.runsObserved += 1
         report.findings += obs.findings.length
         report.learned += obs.learned.length
@@ -112,9 +131,13 @@ export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<Harvest
         report.usage.output += obs.usage.output
         report.usage.known &&= obs.usage.known
       } catch (e) {
-        report.usage.known = false
+        report.usage.known &&= e instanceof ObservationError && e.usage.known
+        if (e instanceof ObservationError) {
+          report.usage.input += e.usage.input
+          report.usage.output += e.usage.output
+        }
         report.failures.push({
-          runId: input.runId ?? `run-${consumed}`,
+          runId: input.runId ?? `run-${sequence}`,
           error: e instanceof Error ? e.message.slice(0, 300) : String(e),
         })
       }
@@ -124,9 +147,7 @@ export async function harvestCorpus(opts: HarvestCorpusOptions): Promise<Harvest
 
   // Fail loud when the whole batch failed — that's an infra problem, not a quiet no-op.
   if (report.runsObserved === 0 && report.failures.length > 0) {
-    throw new Error(
-      `harvestCorpus: every run failed analysis (${report.failures.length}) — first: ${report.failures[0]?.error}`,
-    )
+    throw new HarvestError(report)
   }
   return report
 }

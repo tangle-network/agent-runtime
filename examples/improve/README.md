@@ -1,12 +1,13 @@
-# Improve one profile field
+# Improve a profile
 
 ## When to use it
 
-Use `improve()` when you must change one part of an agent and independently prove that the selected change is better on cases the optimization method never saw.
+Use `improve()` to assess a candidate on cases hidden from its optimization method.
+The selected surface can be one field, several fields, or the complete profile.
 
 Runtime freezes the input profile, exposes only the selected surface to one complete optimization method, and re-measures the baseline and selected candidate on the final-test partition. It returns a detached candidate. It never mutates the live profile and it never activates the result.
 
-This is the **one canonical self-improvement example** in this repository. Older strategy-evolution, coding, and step-by-step walkthroughs were removed because they duplicated this same control flow or mixed research campaigns into the public learning path.
+This example demonstrates the maintained profile improvement API.
 
 ## Run it
 
@@ -15,7 +16,9 @@ pnpm build
 pnpm tsx examples/improve/improve.ts
 ```
 
-The example is offline. Its method, agent, and judge are deterministic so the partition firewall, cost receipts, final comparison, and promotion decision can be inspected without provider noise.
+The example is offline.
+An Eval analyst registry inspects a deterministic trace through Runtime's `observe` adapter and sends its findings into `improve`.
+Its method, agent, and judge are deterministic, allowing inspection of partition separation, cost receipts, and the final decision.
 
 ```text
 improve() proposed a detached prompt candidate and measured it on final-test scenarios
@@ -41,6 +44,7 @@ The literal `BASELINE` → `PROMOTED` fixture proves the integration contract. I
 
 For a production method, replace the deterministic method with `officialGepa(...)`, `officialSkillOpt(...)`, or another complete method from `@tangle-network/agent-eval`, then supply real disjoint partitions and the benchmark's own evaluator.
 
-`bench/src/swe-self-improve.mts` is the full-fidelity Runtime integration fixture for SWE-bench Verified. Paid upstream reproductions and long-horizon value campaigns belong in Discovery Lab, where budgets, revisions, partitions, and immutable result receipts can be compared without turning this examples directory into a research archive.
+Paid reproductions and learning campaigns belong in consuming labs, with registered partitions, budgets, and retained results.
+The older `bench/src/swe-self-improve.mts` driver uses `runStrategyEvolution`; it does not verify this API.
 
 See [`docs/improve.md`](../../docs/improve.md) for optimizer setup, redaction, provenance, proposals, review, and activation.

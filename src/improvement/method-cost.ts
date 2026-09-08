@@ -1,3 +1,4 @@
+import type { CostReceipt } from '@tangle-network/agent-eval'
 import type {
   CostLedgerHandle,
   OptimizationMethodInput,
@@ -16,6 +17,7 @@ const INVOCATION_TAG = 'runtimeInvocationId'
 interface MethodCostScope {
   evaluationRef: Sha256Digest
   invocationId: string
+  methodTag?: string
 }
 
 export type MethodCostAttribution = 'invocation' | 'optimizer-run'
@@ -45,12 +47,26 @@ export function assertMethodCostRecorded(
   invocationLedger: CostLedgerHandle,
   costCeiling: number | undefined,
   costAttribution: MethodCostAttribution = 'invocation',
+  historicalReceipts: readonly CostReceipt[] = [],
 ): void {
   const { cost } = result
-  const observed =
+  let observed =
     costAttribution === 'optimizer-run' && result.provenance?.runId
       ? compatibleLedger.summary({ tags: { optimizerRun: result.provenance.runId } })
       : invocationLedger.summary()
+  if (historicalReceipts.length > 0 && costAttribution === 'invocation') {
+    const receipts = new Map(invocationLedger.list().map((receipt) => [receipt.callId, receipt]))
+    for (const receipt of historicalReceipts) receipts.set(receipt.callId, receipt)
+    observed = {
+      ...observed,
+      totalCostUsd: [...receipts.values()].reduce((sum, receipt) => sum + receipt.costUsd, 0),
+      accountingComplete:
+        observed.accountingComplete &&
+        historicalReceipts.every(
+          (receipt) => !receipt.costUnknown && receipt.usageUnknown !== true,
+        ),
+    }
+  }
   if (costCeiling !== undefined && !cost.accountingComplete) {
     throw new ConfigError(
       `improve(): method '${methodName}' returned incomplete cost accounting under costCeiling; refusing final scoring`,
@@ -84,6 +100,7 @@ function scopedCostLedger(
   const invocationTags = {
     ...evaluationTags,
     [INVOCATION_TAG]: scope.invocationId,
+    ...(scope.methodTag === undefined ? {} : { [scope.methodTag]: '1' }),
   }
   const readTags = (filter: LedgerFilter): Record<string, string> =>
     costAttribution === 'optimizer-run' && hasOptimizerRunFilter(filter)
@@ -132,4 +149,15 @@ function approximatelyEqual(left: number, right: number): boolean {
 function exceeds(value: number, limit: number): boolean {
   const tolerance = Number.EPSILON * Math.max(1, Math.abs(value), Math.abs(limit)) * 8
   return value - limit > tolerance
+}
+
+/** Only prior root invocations are additional to a container's current invocation receipts. */
+export function methodHistoricalReceipts(
+  ledger: CostLedgerHandle,
+  optimizerRun: string,
+  invocationId: string,
+): readonly CostReceipt[] {
+  return ledger
+    .list({ tags: { optimizerRun } })
+    .filter((receipt) => receipt.tags?.[INVOCATION_TAG] !== invocationId)
 }
