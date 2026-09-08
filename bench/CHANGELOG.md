@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.4
+
+Requires Runtime 0.202.0 so Bench consumers receive explicit failed-execution settlement and retained failure recovery.
+Supports an optional Node test concurrency limit for hosts with constrained memory.
+
 ## 0.9.3
 
 Requires Runtime 0.201.0, Interface 2.5.0, Eval 0.176, and Knowledge 15 for scoped candidate knowledge.

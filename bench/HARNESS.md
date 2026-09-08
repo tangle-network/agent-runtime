@@ -37,6 +37,14 @@ pnpm verify:bench
 pnpm verify:official-optimizers
 ```
 
+Set `AGENT_BENCH_PACKAGE_TEST_CONCURRENCY=1` to run Node source test files sequentially on memory-constrained hosts.
+The value must be a positive safe integer; leaving it unset preserves Node's default concurrency.
+Vitest uses the worker limit in `bench/vitest.config.ts`.
+
+Packing resolves the Runtime dependency from `workspace:^` to a version range.
+A new Runtime compatibility line does not update previously published Bench packages.
+Check the packed dependency range and release Bench when consumers must receive that Runtime version.
+
 `verify:official-optimizers` exercises the official Optimize Anything bridge, engine identities, equal input budgets, resume compatibility, candidate callbacks, accounting, and package provenance. Its deterministic candidate improvement is deliberately a fixture. It does **not** reproduce the published GEPA or Omni benchmark numbers.
 
 ### Bounded benchmark matrix
