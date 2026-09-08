@@ -8,6 +8,21 @@ const execFileAsync = promisify(execFile)
 const benchDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const sourceDir = path.join(benchDir, 'src')
 
+export function packageNodeTestArgs(files, env = process.env) {
+  const raw = env.AGENT_BENCH_PACKAGE_TEST_CONCURRENCY
+  const concurrency = raw === undefined ? undefined : Number(raw)
+  if (raw !== undefined && (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(concurrency))) {
+    throw new Error('AGENT_BENCH_PACKAGE_TEST_CONCURRENCY must be a positive safe integer')
+  }
+  return [
+    '--test',
+    ...(concurrency === undefined ? [] : [`--test-concurrency=${concurrency}`]),
+    '--import',
+    'tsx',
+    ...files,
+  ]
+}
+
 export function resolvePackageTestTimeoutMs(env = process.env) {
   const raw = env.AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS
   if (raw === undefined) return undefined
@@ -74,7 +89,7 @@ async function main() {
   if (nodeTests.length > 0) {
     await run(
       process.execPath,
-      ['--test', '--import', 'tsx', ...nodeTests.map((file) => path.relative(benchDir, file))],
+      packageNodeTestArgs(nodeTests.map((file) => path.relative(benchDir, file))),
       {
         ...process.env,
         TSX_TSCONFIG_PATH: 'tsconfig.public.json',

@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { resolvePackageTestTimeoutMs, run } from './run-package-tests.mjs'
+import { packageNodeTestArgs, resolvePackageTestTimeoutMs, run } from './run-package-tests.mjs'
+
+test('package test concurrency reaches Node without changing selected files', () => {
+  const files = ['src/first.test.mts', 'src/second.test.ts']
+  assert.deepEqual(packageNodeTestArgs(files, {}), ['--test', '--import', 'tsx', ...files])
+  assert.deepEqual(packageNodeTestArgs(files, { AGENT_BENCH_PACKAGE_TEST_CONCURRENCY: '1' }), [
+    '--test', '--test-concurrency=1', '--import', 'tsx', ...files,
+  ])
+  for (const value of ['', '0', '-1', '1.5', 'Infinity', '9007199254740992']) {
+    assert.throws(
+      () => packageNodeTestArgs(files, { AGENT_BENCH_PACKAGE_TEST_CONCURRENCY: value }),
+      /must be a positive safe integer/,
+    )
+  }
+})
 
 test('package test timeout is optional and caller-controlled', () => {
   assert.equal(resolvePackageTestTimeoutMs({}), undefined)
