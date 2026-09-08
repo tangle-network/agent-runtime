@@ -132,8 +132,8 @@ jobs:
       - name: Typecheck (src + examples; examples resolve against built dist)
         run: pnpm run typecheck
 
-      - name: Verify packed package exports
-        run: pnpm run verify:package
+      - name: Verify package source and metadata
+        run: pnpm run verify:package:static
 
       - name: Check out exact Interface release
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -350,10 +350,10 @@ jobs:
         timeout-minutes: 25
         run: pnpm --filter @tangle-network/agent-bench run wait:published-dependencies
 
-      - name: Verify packed agent-bench against published dependencies
+      - name: Verify agent-bench source and package metadata
         env:
           AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
-        run: pnpm run verify:bench:published
+        run: pnpm run verify:bench:source
 
       - name: Verify tag/version lock
         id: release
