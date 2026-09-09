@@ -7,8 +7,14 @@ import type {
   AgentEnvironmentProvider,
 } from '@tangle-network/agent-interface/environment-provider'
 import { afterEach, describe, expect, it } from 'vitest'
-import { providerAsExecutor } from '../../src/runtime/environment-provider'
-import type { ProviderPlacement } from '../../src/runtime/provider-placement'
+import {
+  type ProviderExecutorOptions,
+  providerAsExecutor,
+} from '../../src/runtime/environment-provider'
+import {
+  type ProviderPlacement,
+  selectProviderPlacement,
+} from '../../src/runtime/provider-placement'
 import type { RetainedRunAdmission } from '../../src/runtime/retained-run-types'
 import {
   type RetainedExecutorContext,
@@ -85,6 +91,66 @@ describe('provider placement retained restart', () => {
     expect(fixture.counts).toEqual(before)
   })
 
+  it('refuses changed shared public provider defaults before reconnecting', async () => {
+    const selected = structuredClone(placement)
+    delete selected.create.providerOptions
+    const fixture = await interruptAfterDispatch(selected, {
+      providerOptions: { region: 'us-east' },
+    })
+    const before = { ...fixture.counts }
+    await expect(
+      fixture.recover(selected, { providerOptions: { region: 'eu-west' } }),
+    ).rejects.toMatchObject({
+      cause: { message: 'retained run intent conflicts with replay material' },
+    })
+    expect(fixture.counts).toEqual(before)
+  })
+
+  it('permits shared credential rotation and preserves authenticated attachments', async () => {
+    const defaults = {
+      env: { RUNTIME_TOKEN: 'runtime-credential-v1' },
+      runtimeAttachments: {
+        mcp: {
+          coordination: {
+            transport: 'http' as const,
+            url: 'https://runtime.example/mcp',
+            headers: {
+              Authorization: {
+                kind: 'secret-ref' as const,
+                key: 'RUNTIME_TOKEN',
+                format: 'bearer' as const,
+              },
+            },
+          },
+        },
+      },
+    }
+    const fixture = await interruptAfterDispatch(placement, defaults)
+    const rotated = { ...defaults, env: { RUNTIME_TOKEN: 'runtime-credential-v2' } }
+    const selected = selectProviderPlacement(profile, {
+      placements: [placement],
+      defaults: rotated,
+    })
+    expect(selected.options.defaults?.runtimeAttachments).toEqual(defaults.runtimeAttachments)
+    const executor = await fixture.recover(placement, rotated)
+    expect(executor.resultArtifact().out).toMatchObject({ content: 'durable result' })
+    expect(fixture.counts).toMatchObject({ creates: 1, dispatches: 1 })
+    expect(await readFile(fixture.admissionsFile, 'utf8')).not.toContain('runtime-credential-v1')
+    expect(await readFile(fixture.admissionsFile, 'utf8')).not.toContain('runtime-credential-v2')
+  })
+
+  it.each(['profile', 'idempotencyKey', 'requestedId'])(
+    'refuses a shared %s identity override',
+    (key) => {
+      expect(() =>
+        selectProviderPlacement(profile, {
+          placements: [placement],
+          defaults: { [key]: key === 'profile' ? profile : 'shared-id' },
+        }),
+      ).toThrow(`defaults.${key} is owned by Runtime`)
+    },
+  )
+
   it('permits opaque credential rotation when reconnecting the already-created environment', async () => {
     const fixture = await interruptAfterDispatch()
     const rotated = structuredClone(placement)
@@ -98,7 +164,10 @@ describe('provider placement retained restart', () => {
   })
 })
 
-async function interruptAfterDispatch() {
+async function interruptAfterDispatch(
+  initialPlacement = placement,
+  defaults?: ProviderExecutorOptions['defaults'],
+) {
   const root = await mkdtemp(join(tmpdir(), 'runtime-placement-recovery-'))
   roots.push(root)
   const stateFile = join(root, 'provider.json')
@@ -142,7 +211,8 @@ async function interruptAfterDispatch() {
     async onResult() {},
   })
   const initial = providerAsExecutor(provider(), {
-    placements: [placement],
+    placements: [initialPlacement],
+    defaults,
     destroyOnSettle: false,
   })({ profile, harness: 'opencode' }, initialContext)
   await expect(drain(initial.execute('produce result', initialContext.signal))).rejects.toThrow(
@@ -157,7 +227,7 @@ async function interruptAfterDispatch() {
   return {
     counts,
     admissionsFile,
-    async recover(selected: ProviderPlacement) {
+    async recover(selected: ProviderPlacement, recoveredDefaults = defaults) {
       // Both durable inputs are read by new objects; no original executor or admission array is reused.
       const reloaded: RetainedRunAdmission[] = JSON.parse(await readFile(admissionsFile, 'utf8'))
       const resumedContext = context({
@@ -171,6 +241,7 @@ async function interruptAfterDispatch() {
       })
       const resumed = providerAsExecutor(provider(), {
         placements: [selected],
+        defaults: recoveredDefaults,
         destroyOnSettle: false,
       })({ profile: structuredClone(profile), harness: 'opencode' }, resumedContext)
       await drain(resumed.recover!('produce result', resumedContext.signal))

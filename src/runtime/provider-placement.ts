@@ -40,6 +40,11 @@ export function selectProviderPlacement<T extends ProviderExecutorOptions>(
       'provider placements: backend, secrets and promptOptions belong in each placement',
     )
   }
+  for (const key of ['profile', 'idempotencyKey', 'requestedId']) {
+    if (Object.hasOwn(options.defaults ?? {}, key)) {
+      throw new ValidationError(`provider placements: defaults.${key} is owned by Runtime`)
+    }
+  }
   const placements = detachedSnapshot(options.placements, 'provider placements')
   const ids = new Set<string>()
   for (const placement of placements) {
@@ -105,15 +110,6 @@ export function selectProviderPlacement<T extends ProviderExecutorOptions>(
     )
   }
   const placement = matches[0]!
-  const identity = {
-    id: placement.id,
-    digest: canonicalCandidateDigest({
-      id: placement.id,
-      match: placement.match,
-      create: publicCreateOptions(placement.create),
-      promptOptions: publicPromptOptions(placement.promptOptions),
-    }),
-  }
   const common = options.defaults ?? {}
   if (
     Object.hasOwn(common.metadata ?? {}, placementMetadataKey) ||
@@ -128,24 +124,31 @@ export function selectProviderPlacement<T extends ProviderExecutorOptions>(
       )
     }
   }
+  const effectiveCreate = {
+    ...common,
+    ...placement.create,
+    ...(common.env === undefined && placement.create.env === undefined
+      ? {}
+      : { env: { ...common.env, ...placement.create.env } }),
+    metadata: { ...common.metadata, ...placement.create.metadata },
+  }
+  const identity = {
+    id: placement.id,
+    digest: canonicalCandidateDigest({
+      id: placement.id,
+      match: placement.match,
+      create: publicCreateOptions(effectiveCreate),
+      promptOptions: publicPromptOptions(placement.promptOptions),
+    }),
+  }
   return {
     identity,
     options: {
       ...options,
       placements: undefined,
       defaults: {
-        ...common,
-        ...placement.create,
-        ...(common.env === undefined && placement.create.env === undefined
-          ? {}
-          : {
-              env: { ...common.env, ...placement.create.env },
-            }),
-        metadata: {
-          ...common.metadata,
-          ...placement.create.metadata,
-          [placementMetadataKey]: identity,
-        },
+        ...effectiveCreate,
+        metadata: { ...effectiveCreate.metadata, [placementMetadataKey]: identity },
       },
       promptOptions: placement.promptOptions,
     },
@@ -175,8 +178,18 @@ function publicPromptOptions(options: ProviderPromptOptions | undefined): unknow
   }
 }
 
-function publicCreateOptions(create: ProviderPlacement['create']): unknown {
-  const { env, secrets, ...configuration } = create
+function publicCreateOptions(create: Partial<CreateAgentEnvironmentInput>): unknown {
+  // Runtime coordinates and authenticated attachments have their own retained-intent binding.
+  const {
+    env,
+    secrets,
+    signal: _signal,
+    profile: _profile,
+    idempotencyKey: _idempotencyKey,
+    requestedId: _requestedId,
+    runtimeAttachments: _runtimeAttachments,
+    ...configuration
+  } = create
   return {
     ...configuration,
     ...(env === undefined ? {} : { environmentVariableNames: Object.keys(env).sort() }),
