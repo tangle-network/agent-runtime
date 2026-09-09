@@ -93,7 +93,17 @@ class _LocalEnvironment:
         self.commands = []
 
     def agent_process_env(self, env):
-        return {**os.environ, **(env or {})}
+        process_env = {**os.environ, **(env or {})}
+        # This local adapter supplies the container's timeout utility on macOS.
+        # The candidate's signed public PATH and its production allowlist stay unchanged.
+        timeout = shutil.which("timeout")
+        if timeout is None:
+            raise RuntimeError("local candidate fixture requires GNU timeout on PATH")
+        directory = str(Path(timeout).absolute().parent.resolve())
+        entries = process_env["PATH"].split(os.pathsep)
+        if directory not in entries:
+            process_env["PATH"] = os.pathsep.join([directory, *entries])
+        return process_env
 
     async def upload_dir(self, source_dir, target_dir):
         shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)

@@ -100,3 +100,25 @@ Pier owns the task container and verifier; protected model usage and traces stay
 `FilePierCandidateTrialController` atomically reserves a unique Pier job, then persists the supervisor PID, process-session identity, and that job's exact Docker projects so a fresh evaluator process can stop and remove an abandoned trial.
 Run `PIER_REPO=/path/to/pier pnpm verify:pier` for the zero-model failure/pass and fresh-process recovery proof, and see `HARNESS.md` for the exact invocation and failure contract.
 From an installed npm package, expose the shipped Python module with `export PYTHONPATH="$(npm root)/@tangle-network/agent-bench${PYTHONPATH:+:$PYTHONPATH}"` before invoking Pier.
+
+## Control execution within a managed shot
+
+Supply `execute` to control whole sandbox prompts while Bench owns setup, extraction, grading, and cleanup.
+Your policy can inspect permitted working checks through the existing sandbox handle.
+
+```ts
+import { runBenchmarks, type BenchExecution } from '@tangle-network/agent-bench'
+import { executionOptions, chooseNextPrompt } from './policy.js'
+
+const execute: BenchExecution = async ({ run, prompt, signal }) => {
+  const first = await run.start(prompt)
+  const correction = await chooseNextPrompt({ first, box: run.box, sessionId: run.sessionId, signal })
+  if (correction !== undefined) await run.resume(correction)
+}
+
+const report = await runBenchmarks({ ...executionOptions, execute })
+```
+
+The consumer supplies and identifies `chooseNextPrompt`; Bench provides no learning policy.
+`perTask[].prompts` retains each invocation and its observed worker cost, including partial failures.
+See [the execution contract](./HARNESS.md#caller-controlled-prompts-within-a-task) for accounting, retry composition, and lifecycle limits.

@@ -35,6 +35,8 @@ import type {
   AgentRunSpec,
   Deliverable,
   OpenSandboxRunOptions,
+  SandboxRun,
+  TurnResult,
 } from '@tangle-network/agent-runtime/kernel'
 import { openSandboxRun, SandboxRunAbortError, sumSandboxUsage } from '@tangle-network/agent-runtime/kernel'
 import type { SandboxEvent } from '@tangle-network/sandbox'
@@ -61,6 +63,34 @@ export interface BenchCell {
   readonly profile?: AgentProfile
 }
 
+/** Caller-owned work inside a managed benchmark shot. Final grading stays outside this callback. */
+export interface BenchExecutionContext {
+  readonly prompt: string
+  readonly profile: AgentProfile
+  readonly benchmark: string
+  readonly taskId: string
+  readonly attempt: number
+  readonly signal: AbortSignal
+  /** Runtime owns session continuity. Bench owns capture, extraction, and close. */
+  readonly run: Pick<SandboxRun<string>, 'start' | 'resume' | 'box' | 'sessionId'>
+}
+
+export type BenchExecution = (context: BenchExecutionContext) => Promise<void>
+
+/** One submitted sandbox prompt, including partial evidence when its invocation throws. */
+export interface BenchPromptResult {
+  readonly attempt: number
+  readonly index: number
+  readonly method: 'start' | 'resume'
+  readonly prompt: string
+  readonly sessionId?: string
+  readonly outcome?: TurnResult<string>['outcome']
+  readonly events: readonly SandboxEvent[]
+  readonly usage: ReturnType<typeof sumSandboxUsage>
+  readonly readError?: string
+  readonly error?: string
+}
+
 /** A worker's artifact and observed execution evidence, before external grading. */
 export interface BenchShotResult {
   readonly artifact: string
@@ -69,6 +99,7 @@ export interface BenchShotResult {
   /** Provider observations, including explicit unknown counters. Omitted when the shot reports none. */
   readonly usage?: ReturnType<typeof sumSandboxUsage>
   readonly events?: readonly SandboxEvent[]
+  readonly prompts?: readonly BenchPromptResult[]
   /** Observed dispatch and terminal state, independent of artifact quality. */
   readonly execution?: {
     readonly phase: 'not-started' | 'started' | 'unknown'
@@ -87,6 +118,8 @@ export type BenchShot = (input: {
   readonly prompt?: string
   /** 1-based attempt index for looped runs. */
   readonly attempt?: number
+  /** Custom shots own whether they consume this managed execution callback. */
+  readonly execute?: BenchExecution
   readonly routerBaseUrl: string
   readonly routerKey: string
   /** Optional inference credential for the box; routerKey continues to authorize sandbox control. */
@@ -131,6 +164,8 @@ export interface RunBenchmarksOptions {
   /** Self-verify each benchmark's judge against its gold artifact on the first task before spending
    *  model tokens; a benchmark whose judge rejects its own gold is recorded unavailable. Default true. */
   readonly verifyJudge?: boolean
+  /** Caller policy inside each managed shot, including every refine-loop attempt. */
+  readonly execute?: BenchExecution
   /** Test seam: a deterministic shot runner. Defaults to the `openSandboxRun` leaf. */
   readonly runShot?: BenchShot
   /** Test seam: resolve a benchmark key to an adapter. Defaults to the registry `resolveAdapter`. */
@@ -157,6 +192,7 @@ export interface BenchCellTaskResult {
   readonly usage?: ReturnType<typeof sumSandboxUsage>
   /** Worker events only; benchmark grading remains outside this trace. */
   readonly events?: readonly SandboxEvent[]
+  readonly prompts?: readonly BenchPromptResult[]
 }
 
 export interface BenchLeaderboardRow {
@@ -204,7 +240,7 @@ function finalText(events: readonly SandboxEvent[]): string {
 
 /** The default real-agent shot: one `openSandboxRun` over the cell's harness+model, deliverable
  *  extracted by the adapter's parser (or final text), abortable on `timeoutMs`. */
-const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerBaseUrl, routerKey, modelApiKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, signal, resolveClient }) => {
+const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, attempt = 1, execute, routerBaseUrl, routerKey, modelApiKey, bridgeUrl, bridgeBearer, sandboxBaseUrl, timeoutMs, signal, resolveClient }) => {
   signal?.throwIfAborted()
   const client = (resolveClient ?? resolveBenchClient)({
     backend: cell.backend ?? 'router',
@@ -272,12 +308,91 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
   }
   let run: Awaited<ReturnType<typeof openSandboxRun<string>>> | undefined
   let result: BenchShotResult = { artifact: '', ok: false }
+  const prompts: BenchPromptResult[] = []
+  const execution: {
+    lastTurn?: TurnResult<string>
+    active?: Promise<TurnResult<string>>
+    accepting: boolean
+    coordinationError?: Error
+  } = { accepting: true }
   try {
     run = await openSandboxRun(client, runOptions, deliverable)
     result = { ...result, execution: { phase: 'unknown', terminalOutcome: 'unknown' } }
-    const turn = await run.start(prompt ?? task.prompt)
+    const managedRun = run
+    const invoke = (method: 'start' | 'resume', input: string): Promise<TurnResult<string>> => {
+      if (!execution.accepting || execution.active) {
+        execution.coordinationError = new Error(!execution.accepting
+          ? 'benchmark execution callback has settled'
+          : 'benchmark execution requires sequential start/resume calls')
+        throw execution.coordinationError
+      }
+      runOptions.signal.throwIfAborted()
+      const index = prompts.length
+      const eventStart = observedEvents.length
+      execution.lastTurn = undefined
+      const capture = async (): Promise<TurnResult<string>> => {
+        let turn: TurnResult<string> | undefined
+        let failure: unknown
+        try {
+          turn = await managedRun[method](input)
+          return turn
+        } catch (error) {
+          failure = error
+          throw error
+        } finally {
+          // The observer captures generic stream/parser failures as well as aborts.
+          const events = observedEvents.slice(eventStart)
+          if (turn) execution.lastTurn = { ...turn, events, outcome: { ...turn.outcome } }
+          let sessionId: string | undefined
+          try { sessionId = managedRun.sessionId } catch { /* Creation may have failed. */ }
+          const readError = turn?.readError ?? (failure instanceof SandboxRunAbortError ? failure.readError : undefined)
+          prompts.push({
+            attempt, index, method, prompt: input,
+            ...(sessionId === undefined ? {} : { sessionId }),
+            ...(turn === undefined ? {} : { outcome: { ...turn.outcome } }),
+            events,
+            usage: turn === undefined
+              ? { ...sumSandboxUsage(events), tokensKnown: false, usdKnown: false }
+              : sumSandboxUsage(events),
+            ...(readError === undefined ? {} : { readError }),
+            ...(turn !== undefined ? {} : { error: failure instanceof Error ? failure.message : String(failure) }),
+          })
+        }
+      }
+      const pending = capture()
+      execution.active = pending
+      // Observe even a caller's unawaited invocation; cleanup must await its capture.
+      void pending.then(() => { execution.active = undefined }, () => { execution.active = undefined })
+      return pending
+    }
+    const context: BenchExecutionContext = {
+      prompt: prompt ?? task.prompt, profile: structuredClone(profile), benchmark: adapter.name, taskId: task.id, attempt,
+      signal: runOptions.signal,
+      run: {
+        start: (input) => invoke('start', input),
+        resume: (input) => invoke('resume', input),
+        get box() { return managedRun.box },
+        get sessionId() { return managedRun.sessionId },
+      },
+    }
+    try {
+      await executeWithSignal(async () => {
+        if (execute) await execute(context)
+        else await context.run.start(context.prompt)
+      }, runOptions.signal)
+    } catch (error) {
+      if (execution.active) controller.abort()
+      throw error
+    } finally {
+      execution.accepting = false
+      await execution.active?.catch(() => undefined)
+    }
+    if (execution.coordinationError) throw execution.coordinationError
+    runOptions.signal.throwIfAborted()
+    const turn = execution.lastTurn
+    if (!turn) throw new Error(prompts.at(-1)?.error ?? 'benchmark execution returned without a completed prompt')
     result = {
-      artifact: '', ok: false, usage: sumSandboxUsage(turn.events), events: turn.events,
+      artifact: '', ok: false, usage: promptUsage(prompts), events: observedEvents, prompts,
       execution: {
         phase: 'started',
         terminalOutcome: turn.outcome.success ? 'succeeded' : turn.outcome.status === 'failed' ? 'failed' : 'incomplete',
@@ -358,11 +473,12 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
       execution: result.execution,
       artifactAvailable: turn.readError === undefined && boxExtractError === undefined,
       usage: result.usage,
-      events: turn.events,
+      events: observedEvents,
+      prompts,
       ...(detail ? { detail } : {}),
     }
   } catch (err) {
-    const events = err instanceof SandboxRunAbortError ? err.events : observedEvents
+    const events = observedEvents
     result = {
       ...result,
       ok: false,
@@ -372,9 +488,9 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
         terminalOutcome: result.execution?.terminalOutcome ?? 'unknown',
       },
       detail: err instanceof Error ? err.message : String(err),
-      // A thrown capture cannot establish that every paid receipt arrived.
-      usage: { ...sumSandboxUsage(events), tokensKnown: false, usdKnown: false },
+      usage: promptUsage(prompts),
       events,
+      prompts,
     }
   } finally {
     if (timer) clearTimeout(timer)
@@ -386,6 +502,25 @@ const openSandboxShot: BenchShot = async ({ adapter, task, cell, prompt, routerB
     }
   }
   return result
+}
+
+/** Stop waiting on policy work when cancelled; the caller must also cancel its external effects. */
+async function executeWithSignal(execute: () => Promise<void>, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  let onAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal.reason ?? new Error('aborted'))
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  try {
+    await Promise.race([Promise.resolve().then(execute), aborted])
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort)
+  }
+}
+
+function promptUsage(prompts: readonly BenchPromptResult[]): ReturnType<typeof sumSandboxUsage> {
+  return combinedUsage(prompts.map((prompt) => ({ artifact: '', ok: false, usage: prompt.usage })))
 }
 
 function parseMaybeJson(value: string): unknown {
@@ -484,6 +619,7 @@ async function loopedShot(
       artifactAvailable: false,
       usage: combinedUsage(pendingShot ? [...completed, { artifact: '', ok: false }] : completed),
       events: completed.flatMap((shot) => shot.events ?? []),
+      prompts: completed.flatMap((shot) => shot.prompts ?? []),
       detail: err instanceof Error ? err.message : String(err),
     }
   }
@@ -509,6 +645,7 @@ async function loopedShot(
     artifactAvailable: shots.get(best.round)?.artifactAvailable,
     usage: combinedUsage([...shots.values()]),
     events: [...shots.values()].flatMap((shot) => shot.events ?? []),
+    prompts: [...shots.values()].flatMap((shot) => shot.prompts ?? []),
     detail: JSON.stringify({
       mode: 'refine-loop',
       attempts: result.rounds.length,
@@ -639,6 +776,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
         ...(opts.resolveClient ? { resolveClient: opts.resolveClient } : {}),
+        ...(opts.execute ? { execute: opts.execute } : {}),
       }
       invoked = true
       out = loopAttempts > 1 ? await loopedShot(shotInput, shot, loopAttempts) : await shot(shotInput)
@@ -658,6 +796,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         artifact: out.artifact,
         ...(out.usage === undefined ? {} : { usage: out.usage }),
         ...(out.events === undefined ? {} : { events: out.events }),
+        ...(out.prompts === undefined ? {} : { prompts: out.prompts }),
       }
     } catch (err) {
       // Missing results do not prove that dispatch or paid inference never occurred.
@@ -679,6 +818,7 @@ export async function runBenchmarks(opts: RunBenchmarksOptions): Promise<RunBenc
         ...(out === undefined ? {} : { artifact: out.artifact }),
         ...(out?.usage === undefined ? {} : { usage: out.usage }),
         ...(out?.events === undefined ? {} : { events: out.events }),
+        ...(out?.prompts === undefined ? {} : { prompts: out.prompts }),
       }
     }
     void index

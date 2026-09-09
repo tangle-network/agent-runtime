@@ -166,6 +166,51 @@ writeFileSync(
     "import { createSweBenchAdapter, executePreparedPierCandidate, FilePierCandidateTrialController, resolveAdapter, runBenchmarks, runStagedJudge, StagedJudgeError, type BenchmarkAdapter, type JudgeArtifactReceipt, type PierCandidateTrialController, type PierCandidateTrialHandle, type PierDockerConnection, type StagedPierCandidateExecution } from '@tangle-network/agent-bench'\n\nconst adapter: BenchmarkAdapter = resolveAdapter('swe-bench')\nconst captureAdapter: BenchmarkAdapter = createSweBenchAdapter({ captureEvaluatorArtifacts: ({ taskId, attemptSequence }) => ({ destination: `/tmp/${taskId}/${attemptSequence}` }) })\nconst receipt = undefined as JudgeArtifactReceipt | undefined\nconst staged = undefined as StagedPierCandidateExecution | undefined\nconst trial = undefined as PierCandidateTrialHandle | undefined\nconst controller = undefined as PierCandidateTrialController | undefined\nconst dockerConnection = undefined as PierDockerConnection | undefined\nvoid adapter\nvoid captureAdapter\nvoid receipt\nvoid staged\nvoid trial\nvoid controller\nvoid dockerConnection\nvoid executePreparedPierCandidate\nvoid FilePierCandidateTrialController\nvoid runBenchmarks\nvoid runStagedJudge\nvoid StagedJudgeError\n",
   )
   await writeFile(
+    path.join(consumerDir, 'managed-execution.ts'),
+    `import assert from 'node:assert/strict'
+import { runBenchmarks, type BenchExecution, type BenchExecutionContext, type BenchPromptResult } from '@tangle-network/agent-bench'
+
+const sessions: Array<string | undefined> = []
+let closed = 0
+const execute: BenchExecution = async (context: BenchExecutionContext) => {
+  await context.run.start(context.prompt)
+  await context.run.resume('corrected')
+}
+const report = await runBenchmarks({
+  benchmarks: ['fixture'], cells: [{ label: 'worker', model: 'fixture' }],
+  routerBaseUrl: 'unused', routerKey: 'unused', verifyJudge: false, execute,
+  resolveAdapter: () => ({
+    name: 'fixture', preflight: async () => {},
+    loadTasks: async () => [{ id: 'task', prompt: 'initial' }],
+    goldArtifact: async () => undefined,
+    judge: async (_task, artifact) => ({ resolved: artifact === 'corrected', score: artifact === 'corrected' ? 1 : 0 }),
+  }),
+  resolveClient: () => ({
+    criuStatus: async () => ({ available: false }),
+    create: async () => ({
+      id: 'packed-fixture',
+      async *streamPrompt(prompt: string, options?: { sessionId?: string }) {
+        sessions.push(options?.sessionId)
+        yield { type: 'llm_call', data: { tokensIn: 2, tokensOut: 1, costUsd: 0.01 } }
+        yield { type: 'result', data: { finalText: prompt, success: true, status: 'success' } }
+        yield { type: 'done', data: { outcome: { type: 'completed' } } }
+      },
+      delete: async () => { closed += 1 },
+    }),
+  }) as never,
+})
+const prompts: readonly BenchPromptResult[] = report.perTask[0]?.prompts ?? []
+assert.equal(report.perTask[0]?.resolved, true)
+assert.equal(prompts.length, 2)
+assert.equal(prompts[1]?.method, 'resume')
+assert.equal(prompts[1]?.prompt, 'corrected')
+assert.equal(sessions[0], sessions[1])
+assert.ok(sessions[0])
+assert.equal(closed, 1)
+assert.deepEqual(report.perTask[0]?.usage, { input: 4, output: 2, costUsd: 0.02 })
+`,
+  )
+  await writeFile(
     path.join(consumerDir, 'index.mjs'),
     "import { resolveAdapter, runBenchmarks } from '@tangle-network/agent-bench'\nimport { ADAPTERS } from '@tangle-network/agent-bench/adapters'\nimport { createCragAdapter } from '@tangle-network/agent-bench/benchmarks/crag'\n\nif (typeof resolveAdapter !== 'function' || typeof runBenchmarks !== 'function') throw new Error('root exports are not executable')\nif (typeof ADAPTERS !== 'object' || typeof createCragAdapter !== 'function') throw new Error('subpath exports are not executable')\nif (resolveAdapter('crag').name !== 'crag') throw new Error('compiled adapter registry returned the wrong adapter')\nprocess.env.TOOLLM_FIXTURES = '1'\nconst toolLlmTasks = await resolveAdapter('toollm').loadTasks({ limit: 1 })\nif (toolLlmTasks.length !== 1 || toolLlmTasks[0]?.id !== '1') throw new Error('packed ToolLLM fixture loading failed')\n",
   )
@@ -189,7 +234,7 @@ if (!score.resolved || score.score !== 1) {
     `${JSON.stringify(
       {
         compilerOptions: publicTsconfig.compilerOptions,
-        files: ['index.ts'],
+        files: ['index.ts', 'managed-execution.ts'],
       },
       null,
       2,
@@ -255,6 +300,7 @@ for name in sorted(expected):
     throw new Error(`expected TypeScript ${TYPESCRIPT_6}, received ${typescript6.stdout.trim()}`)
   }
   await run('npm', ['exec', '--', 'tsx', 'index.ts'], consumerDir)
+  await run('npm', ['exec', '--', 'tsx', 'managed-execution.ts'], consumerDir)
   const installedPackage = path.join(consumerDir, 'node_modules', '@tangle-network', 'agent-bench')
   const prepared = await run(
     'npm',

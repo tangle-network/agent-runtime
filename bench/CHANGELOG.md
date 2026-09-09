@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0
+
+Adds caller-controlled start and resume inside managed benchmark shots.
+Retains setup, final extraction, grading, and cleanup while recording every prompt and its observed usage.
+The callback composes with outer retry attempts; learning policy and policy inference accounting remain consumer responsibilities.
+
 ## 0.9.4
 
 Requires Runtime 0.202.0 so Bench consumers receive explicit failed-execution settlement and retained failure recovery.
