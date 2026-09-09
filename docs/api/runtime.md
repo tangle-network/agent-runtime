@@ -1055,6 +1055,16 @@ Epoch ms of the terminal journal record; absent while live or when legacy eviden
 
 [`NodeSnapshot`](#nodesnapshot).[`settledAt`](#settledat-1)
 
+##### spawnedAt?
+
+> `readonly` `optional` **spawnedAt?**: `number`
+
+Epoch ms of the spawn journal record; absent when legacy evidence lacks a parseable `at`.
+
+###### Inherited from
+
+[`NodeSnapshot`](#nodesnapshot).[`spawnedAt`](#spawnedat-1)
+
 ##### spent
 
 > `readonly` **spent**: [`Spend`](#spend)
@@ -21694,6 +21704,12 @@ Immutable attempt bindings, oldest first. A retried/resumed node may have more t
 > `readonly` `optional` **settledAt?**: `number`
 
 Epoch ms of the terminal journal record; absent while live or when legacy evidence lacks it.
+
+##### spawnedAt?
+
+> `readonly` `optional` **spawnedAt?**: `number`
+
+Epoch ms of the spawn journal record; absent when legacy evidence lacks a parseable `at`.
 
 ##### spent
 

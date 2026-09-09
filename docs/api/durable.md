@@ -2239,6 +2239,12 @@ already knowing the root node or coordination run id stored inside it.
 
 > `readonly` **roots**: readonly `string`[]
 
+##### rootsBegunAt
+
+> `readonly` **rootsBegunAt**: readonly (`string` \| `null`)[]
+
+`at` from each top-level root's `begin` record, index-aligned with `roots`.
+
 ##### coordinationStreams
 
 > `readonly` **coordinationStreams**: readonly [`DurableCoordinationStreamIdentity`](#durablecoordinationstreamidentity)[]

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.206.0
+
+Durable supervision discovery exposes top-level root begin timestamps, and materialized tree nodes preserve their spawn timestamps for ordering and duration views.
+
 ## 0.204.1
 
 The runtime peer range admits sandbox SDK 0.38.x, including consumer-ready runtime-edge readiness from `waitFor("running")`.
