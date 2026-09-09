@@ -25,13 +25,8 @@ import {
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
-/**
- * Fixed in-box path the agent clones the instance repo into. It is the SINGLE
- * source of truth shared by the prompt template (which tells the agent to clone
- * here) and `boxExtract` (which runs `git diff` here after the shot) — so the
- * harness always knows exactly where the agent's edits live, for any instance.
- */
-const SWE_REPO_DIR = '/work'
+/** Setup and extraction use the same session workspace, whose root may be read-only outside it. */
+const SWE_REPO_DIR = './swe-bench-repo'
 
 /**
  * The SWE deliverable's FALLBACK parser, from the agent's event STREAM.
@@ -286,10 +281,10 @@ print(json.dumps(out))
           prompt: [
             `Repository: ${r.repo} @ ${r.base_commit}`,
             '',
-            `The repository is ALREADY cloned at ${SWE_REPO_DIR}, checked out at commit ${r.base_commit}. Work there directly (\`cd ${SWE_REPO_DIR}\`); do not re-clone.`,
+            `The repository is ALREADY cloned at ${SWE_REPO_DIR} relative to your initial session workspace, checked out at commit ${r.base_commit}. Work there directly (\`cd ${SWE_REPO_DIR}\`); do not re-clone.`,
             '',
             'Resolve this issue by editing the repository SOURCE so the failing tests pass without breaking the passing ones. Do NOT edit test files — the evaluation runs hidden tests on a fresh checkout, so editing tests does not count. Keep the change minimal and confined to the cloned repo.',
-            'Work iteratively: reproduce the issue, implement the fix in the source, and re-run the relevant tests until they pass. You do NOT need to print the diff — the harness reads your committed edits directly from the repo.',
+            'Work iteratively: reproduce the issue, implement the fix in the source, and re-run the relevant tests until they pass. You do NOT need to print the diff — the harness reads your source edits directly from the repo, including uncommitted changes.',
             '',
             '--- Issue ---',
             String(r.problem_statement ?? ''),

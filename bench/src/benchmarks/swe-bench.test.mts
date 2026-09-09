@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createSweBenchAdapter, scoreSweReport, sweEvaluationArgv } from './swe-bench'
 
 const taskId = 'django__django-12345'
@@ -58,4 +62,50 @@ test('SWE evaluation command preserves the requested instance image', () => {
     () => createSweBenchAdapter({ cacheLevel: 'invalid' as 'instance' }),
     /invalid cacheLevel/,
   )
+})
+
+
+test('SWE setup and extraction stay in the session workspace and exclude test edits', () => {
+  const root = mkdtempSync(join(tmpdir(), 'swe-workspace-'))
+  try {
+    const origin = join(root, 'origin')
+    const workspace = join(root, 'session')
+    mkdirSync(origin)
+    mkdirSync(workspace)
+    const git = (args: string[], input?: string) => execFileSync('git', args, { cwd: origin, input, encoding: 'utf8' }).trim()
+    git(['init', '--quiet'])
+    const blob = git(['hash-object', '-w', '--stdin'], 'before\n')
+    const tree = git(['mktree'], `100644 blob ${blob}\tsource.py\n`)
+    // Construct fixture history without changing the developer's Git identity or configuration.
+    const base = git(['hash-object', '-t', 'commit', '-w', '--stdin'],
+      `tree ${tree}\nauthor Fixture <fixture@example.invalid> 1 +0000\ncommitter Fixture <fixture@example.invalid> 1 +0000\n\nfixture\n`)
+    git(['update-ref', 'HEAD', base])
+    const task = { id: taskId, prompt: 'fix', metadata: { repo: 'fixture/repo', base_commit: base } }
+    const adapter = createSweBenchAdapter()
+    const setup = adapter.boxSetup!(task)
+    const extract = adapter.boxExtract!(task)
+    assert.match(setup.command, /^rm -rf '\.\//)
+    assert.equal(setup.cwd, undefined)
+    assert.equal(extract.cwd, undefined)
+    const env = {
+      ...process.env,
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: `url.file://${origin}.insteadOf`,
+      GIT_CONFIG_VALUE_0: 'https://github.com/fixture/repo',
+      GIT_CONFIG_KEY_1: 'protocol.file.allow',
+      GIT_CONFIG_VALUE_1: 'always',
+    }
+    execFileSync('sh', ['-c', setup.command], { cwd: workspace, env })
+    const repo = join(workspace, 'swe-bench-repo')
+    assert.ok(existsSync(join(repo, '.git')))
+    writeFileSync(join(repo, 'source.py'), 'after\n')
+    mkdirSync(join(repo, 'tests'))
+    writeFileSync(join(repo, 'tests', 'test_fix.py'), 'hidden-test-edit\n')
+    const patch = execFileSync('sh', ['-c', extract.command], { cwd: workspace, env, encoding: 'utf8' })
+    assert.match(patch, /diff --git a\/source.py b\/source.py/)
+    assert.match(patch, /\+after/)
+    assert.doesNotMatch(patch, /hidden-test-edit|test_fix/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
