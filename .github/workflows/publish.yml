@@ -16,21 +16,17 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  release-source:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
-      release-version: ${{ steps.release.outputs.version }}
-      package-sha256: ${{ steps.package.outputs.sha256 }}
+      sha: ${{ steps.release.outputs.sha }}
+      version: ${{ steps.release.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
           persist-credentials: false
-
-      - name: Read exact first-party cohort
-        id: cohort
-        run: node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"
 
       - name: Verify release source and version
         id: release
@@ -56,24 +52,9 @@ jobs:
             echo "::error::Tag/version mismatch: tag=$TAG_VERSION package=$NPM_VERSION."
             exit 1
           fi
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
           echo "version=$NPM_VERSION" >> "$GITHUB_OUTPUT"
           echo "Release source locked: $RELEASE_TAG at $TAG_SHA"
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          version: '0.11.32'
 
       # A release tag must sit on the tip of the line it releases. Without this, a
       # tag cut from an older commit publishes while newer merged commits are
@@ -116,6 +97,38 @@ jobs:
           git log --oneline "$TAG_SHA".."$MAIN_SHA" || true
           echo "Re-cut the tag at the tip of main, or push a $LINE branch for a backport."
           exit 1
+
+  verify:
+    needs: release-source
+    runs-on: ubuntu-latest
+    outputs:
+      release-version: ${{ needs.release-source.outputs.version }}
+      package-sha256: ${{ steps.package.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.sha }}
+          persist-credentials: false
+
+      - name: Read exact first-party cohort
+        id: cohort
+        run: node scripts/release-cohort.mjs --github-output "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.11.32'
 
       - name: Install deps
         run: pnpm install --frozen-lockfile && pnpm peers check
@@ -168,14 +181,6 @@ jobs:
           --cohort-manifest release/cohort.json
           --report "$RUNNER_TEMP/cohort-report.json"
 
-      - name: Verify packed Runtime with official GEPA and SkillOpt
-        run: pnpm run verify:official-optimizers
-
-      - name: Verify agent-bench against this release
-        env:
-          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
-        run: pnpm run verify:bench
-
       - name: Package and verify the exact Runtime archive
         id: package
         run: |
@@ -204,6 +209,7 @@ jobs:
             echo "::error::Expected one Runtime archive, found ${#packages[@]}."
             exit 1
           fi
+          cp "$RUNNER_TEMP/cohort-report.json" "$package_dir/cohort-report.json"
           manifest="$package_dir/agent-runtime-conformance-manifest.json"
           node scripts/emit-conformance-manifest.mjs \
             --tarball "${packages[0]}" \
@@ -221,12 +227,77 @@ jobs:
           path: |
             ${{ runner.temp }}/agent-runtime-package/*.tgz
             ${{ runner.temp }}/agent-runtime-package/agent-runtime-conformance-manifest.json
+            ${{ runner.temp }}/agent-runtime-package/cohort-report.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
 
+  verify-official-optimizers:
+    needs: release-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.11.32'
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile && pnpm peers check
+
+      - name: Verify official optimizers
+        run: pnpm run verify:official-optimizers
+
+  verify-runtime-bench:
+    needs: release-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-source.outputs.sha }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: '0.11.32'
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile && pnpm peers check
+
+      - name: Verify agent-bench against this release
+        env:
+          AGENT_BENCH_PACKAGE_TEST_TIMEOUT_MS: 900000
+        run: pnpm run verify:bench
+
   publish-npm:
-    needs: verify
+    needs: [verify, verify-official-optimizers, verify-runtime-bench]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
