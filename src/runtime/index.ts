@@ -242,6 +242,11 @@ export {
 } from './in-process-sandbox-client'
 // The one pseudo-box adapter: any non-box Executor → a SandboxClient for runAgentRounds.
 export { inlineSandboxClient } from './inline-sandbox-client'
+export {
+  type IsolatedCheckOptions,
+  type IsolatedCheckResult,
+  runIsolatedCheck,
+} from './isolated-checker'
 // API-key provisioning for adopted external MCP servers: secrets ride the
 // profile by NAME only; a KeyProvider resolves values at materialize time.
 export {

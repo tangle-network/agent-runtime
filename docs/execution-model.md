@@ -119,3 +119,27 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 ```
 
 **Net:** the "unified thing" is the `Executor` port. Everything that runs work — a router call, a cli-bridge turn, a `claude -p` subprocess, a full sandbox rollout, or a BYO agent — is an `Executor`, chosen by data via `createExecutor`, metered by one budget pool. Drivers and workers are both `act`s over that port; the only structural difference is the driver carries the operator toolbox (so it can spawn/steer) and the worker does not.
+
+## Isolated checks of untrusted run trees
+
+Use `runIsolatedCheck` from `@tangle-network/agent-runtime/kernel` to execute checks supplied by an untrusted run tree.
+The checker requires Linux, `/usr/bin/bwrap`, and permission to create user, mount, network, and process namespaces.
+Unsupported hosts return a refusal; the checker never executes the command directly on the host.
+
+Provide the trusted workspace root, the tree path, and an executable with its argument array.
+The checker copies the tree without following symbolic links and mounts that writable copy at the tree's canonical host path.
+Writes disappear after execution.
+The namespace exposes trusted system toolchains, private process and device filesystems, and temporary storage.
+Workspace parents contain no host files; sibling trees and external symbolic-link targets remain inaccessible.
+The checker rejects toolchain mounts that overlap the workspace or tree, including canonical paths through symbolic links.
+Keep the input tree and system toolchains stable during preparation; this API does not synchronize concurrent host writers.
+
+The command receives only an explicit executable search path, home directory, and locale.
+Timeouts, cancellation, and output overflow kill the Bubblewrap process group; namespace teardown also terminates descendants.
+Command time and captured output have limits.
+Copy preparation, disk consumption, and memory consumption do not have quotas.
+Use a separately resource-limited host when those resources require protection.
+
+Run `bash scripts/verify-isolated-checker-linux.sh` for the real Linux boundary tests.
+The script copies source into disposable Docker containers and never mounts the host workspace.
+It tests successful isolation with namespace privileges and refusal without those privileges.
