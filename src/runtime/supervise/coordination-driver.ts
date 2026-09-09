@@ -69,7 +69,7 @@ import {
 import { createInbox, type Inbox } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
-import { withBudgetResources } from './resources'
+import { addResourceSpend, withBudgetResources } from './resources'
 import { applyRunCancellation } from './run-cancellation'
 import {
   claimWorkerSteerDelivery,
@@ -1086,6 +1086,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           res.costProvenance === 'provider-receipt' || res.costProvenance === 'billing-receipt'
         const cacheUsage = promptCacheTokenClasses(res.usage?.input, res.promptCache)
         const turnSpend: Spend = {
+          ...addResourceSpend(res.resources),
           iterations: 0,
           tokens: {
             input: res.usage?.input ?? 0,

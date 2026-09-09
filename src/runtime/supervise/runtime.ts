@@ -1,4 +1,5 @@
 import { selectProviderPlacement } from '../provider-placement'
+import { addResourceSpend } from './resources'
 /**
  *
  * The leaf runtime — the built-in `Executor` IMPLEMENTATIONS behind the ONE
@@ -817,6 +818,7 @@ export const routerInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) => {
         )
         if (r.model !== undefined) recordRuntimeOwnedProviderModel(executor, r.model)
         const spent: Spend = {
+          ...addResourceSpend(r.resources),
           iterations: 1,
           tokens: r.usage
             ? cloneTokenUsage({
@@ -1031,6 +1033,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         let billedUsd = 0
         let usdKnown = true
         let turns = 0
+        let resources: Spend['resources']
         let transportAttempts = 0
         let observedModel: string | undefined
         let reasoningTokens = 0
@@ -1114,6 +1117,14 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
                 !controller.signal.aborted
               if (interruptAbort) {
                 turns += 1
+                resources = addResourceSpend(
+                  Object.fromEntries(
+                    Object.entries(resources ?? {}).map(([name, value]) => [
+                      name,
+                      { ...value, known: false },
+                    ]),
+                  ),
+                ).resources
                 transportAttempts += routerTransportAttemptsFromError(e) ?? 1
                 tokensKnown = false
                 usdKnown = false
@@ -1125,6 +1136,22 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             cleanup()
             // The inference completed — count the turn and merge its terminal receipt.
             turns += 1
+            const priorResources = resources
+            resources = addResourceSpend(resources, res.resources).resources
+            resources = addResourceSpend(
+              Object.fromEntries(
+                Object.entries(resources ?? {}).map(([name, value]) => [
+                  name,
+                  {
+                    ...value,
+                    known:
+                      value.known &&
+                      res.resources?.[name] !== undefined &&
+                      (turns === 1 || priorResources?.[name] !== undefined),
+                  },
+                ]),
+              ),
+            ).resources
             transportAttempts += res.transportAttempts
             if (res.model !== undefined) recordRuntimeOwnedProviderModel(executor, res.model)
             assertObservedRouterModel(res.model, model, 'routerToolsInlineExecutor')
@@ -1237,6 +1264,7 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         const priced = isModelPriced(model)
         const estimatedUsd = priced ? estimateCost(tokens.input, tokens.output, model) : undefined
         const spent: Spend = {
+          ...addResourceSpend(resources),
           iterations: turns,
           tokens,
           ...(tokensKnown ? {} : { tokensKnown: false }),

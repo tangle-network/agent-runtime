@@ -60,3 +60,28 @@ Reservations include all standard and named channels atomically.
 Known unused allocations return to the pool.
 Missing or unknown enforced measurements block further admission and remain unknown after restart.
 The runtime trusts executor measurements; it does not measure accelerator use or network traffic itself.
+
+A model-driven root also needs a measured receipt for every enforced dimension.
+A custom child executor alone cannot supply the root's measurements.
+The existing `router.complete` transport can return them as `usage.resources`:
+
+```ts
+return {
+  ...completion,
+  usage: {
+    ...completion.usage,
+    resources: {
+      compute: { unit: 'millisecond', amount: measuredComputeMs, known: true },
+      transfer: { unit: 'byte', amount: measuredTransferBytes, known: true },
+    },
+  },
+}
+```
+
+The transport must forward the Runtime-authored request without changing its model, profile, tools, or settings.
+It must derive those amounts from trustworthy measurements for that completion.
+An explicit measured zero is valid; an omitted dimension remains unknown and blocks admission.
+Buffered and streamed Router responses use the same receipt validation.
+Inline Router executors sum turn receipts and preserve unknown measurements across turns.
+Custom tool-loop brains can return the same map as `resources` on their existing response.
+The public `supervise` regression is `tests/kernel/named-resource-driver.test.ts`.
