@@ -163,6 +163,52 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     expect(result.kind).toBe('winner')
   })
 
+  it('SANDBOX arm exposes dynamically resolved tools through the MCP allowlist', async () => {
+    const blobs = new InMemoryResultBlobStore()
+    const journal = new InMemorySpawnJournal()
+    let listed: string[] = []
+    const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {
+      const response = (await jsonRpc(coordinationMcpUrl, 'tools/list', {})) as {
+        result?: { tools?: Array<{ name: string }> }
+      }
+      listed = response.result?.tools?.map((tool) => tool.name) ?? []
+      await jsonRpc(coordinationMcpUrl, 'stop', {})
+    }
+    const root = supervisorAgent(
+      testAgentProfile('dynamic-tools', {
+        harness: 'opencode',
+        tools: runtimeToolDeclarations('knowledge_read'),
+      }),
+      {
+        blobs,
+        makeWorkerAgent: () => deliveringLeaf('w', { answer: 7 }),
+        perWorker,
+        driveHarness,
+        nodeContext: {
+          runId: 'sup',
+          runNamespace: 'durable-run-namespace',
+          ownerId: 'owner-root',
+          depth: 0,
+          identity: {
+            profileDigest: `sha256:${'a'.repeat(64)}`,
+            taskDigest: `sha256:${'b'.repeat(64)}`,
+            correlation: { campaign: 'dynamic-tools' },
+          },
+        },
+        resolveSupervisorTools: async () => [
+          {
+            name: 'knowledge_read',
+            description: 'Read one persistent knowledge page',
+            inputSchema: { type: 'object', properties: { pageId: { type: 'string' } } },
+            handler: async () => ({ ok: true }),
+          },
+        ],
+      },
+    )
+    await runSupervisor(root, blobs, journal)
+    expect(listed).toContain('knowledge_read')
+  })
+
   it('refuses an enabled unknown Runtime declaration before dispatching the provider', () => {
     const blobs = new InMemoryResultBlobStore()
     let harnessCalls = 0

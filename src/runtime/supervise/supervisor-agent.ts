@@ -780,7 +780,14 @@ function buildSupervisorAgent(
         systemPrompt: resolveSupervisorSystemPrompt(stableProfile) ?? '',
         ...(deps.deliverable ? { deliverable: deps.deliverable } : {}),
         ...(deps.onAcceptedSubmission ? { onAcceptedSubmission: deps.onAcceptedSubmission } : {}),
-        toolNames: runtimeToolNames,
+        // Include resolved product tools in the explicit allowlist. Without
+        // this, tools are materialized but unreachable by the driver.
+        toolNames: [
+          ...new Set([
+            ...runtimeToolNames,
+            ...(nodeTools?.map((tool) => tool.name) ?? []),
+          ]),
+        ],
         ...(nodeTools?.length ? { nodeTools } : {}),
         ...(deps.maxLiveWorkers !== undefined ? { maxLiveWorkers: deps.maxLiveWorkers } : {}),
         ...(deps.extraTools ? { extraTools: deps.extraTools } : {}),
@@ -941,7 +948,14 @@ function buildSupervisorAgent(
           ? { priorAnalystDefinitions: priorCoordination.analystDefinitions }
           : {}),
         ...(nodeTools?.length ? { nodeTools } : {}),
-        toolNames: runtimeToolNames,
+        // The external harness receives the same allowlist as the in-process
+        // driver; resolved tools must be named or MCP rejects them preflight.
+        toolNames: [
+          ...new Set([
+            ...runtimeToolNames,
+            ...(nodeTools?.map((tool) => tool.name) ?? []),
+          ]),
+        ],
         onCoordinationTools: (tools) => slot.bind(tools),
       })
       ledger = mcp
