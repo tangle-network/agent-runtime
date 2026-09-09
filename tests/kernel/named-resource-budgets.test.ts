@@ -37,6 +37,40 @@ function conserved(pool: ReturnType<typeof createBudgetPool>) {
 }
 
 describe('caller-named resource conservation', () => {
+  it('admits fractional capacity and reconciles rounded sums without changing receipts', () => {
+    const fractional = (limit: number): Budget => ({
+      maxTokens: 10,
+      maxIterations: 1,
+      resources: { gpu: { unit: 'seconds', limit } },
+    })
+    const pool = createBudgetPool({ ...fractional(0.3), maxIterations: 3 }, 0)
+    const first = pool.reserve(fractional(0.1))
+    const second = pool.reserve({ ...fractional(0.2), maxTokens: 0 })
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    const spend = (amount: number): Spend => ({
+      ...zeroSpend(),
+      resources: { gpu: { unit: 'seconds', amount, known: true } },
+    })
+    if (!first.ok || !second.ok) throw new Error('reservation failed')
+    pool.reconcile(first.ticket, spend(0.1))
+    pool.reconcile(second.ticket, spend(0.2))
+    expect(pool.readout().resources?.gpu.committed).toBe(0.1 + 0.2)
+    expect(pool.reserve({ ...fractional(0.000001), maxTokens: 0 }).ok).toBe(false)
+    const single = createBudgetPool(fractional(0.3), 0)
+    const ticket = single.reserve(fractional(0.3))
+    if (!ticket.ok) throw new Error('reservation failed')
+    single.reconcile(ticket.ticket, spend(0.1 + 0.2))
+    const over = createBudgetPool(fractional(0.3), 0)
+    const overTicket = over.reserve(fractional(0.3))
+    if (!overTicket.ok) throw new Error('reservation failed')
+    expect(() => over.reconcile(overTicket.ticket, spend(0.300001))).toThrow('spent')
+    const large = createBudgetPool(fractional(Number.MAX_SAFE_INTEGER - 1), 0)
+    expect(large.reserve(fractional(Number.MAX_SAFE_INTEGER)).ok).toBe(false)
+    const tiny = createBudgetPool(fractional(1e-30), 0)
+    expect(tiny.reserve(fractional(2e-30)).ok).toBe(false)
+  })
+
   it('reserves all channels atomically and refunds only known unused capacity', () => {
     const pool = createBudgetPool(budget(), 0)
     const first = pool.reserve(budget(6))

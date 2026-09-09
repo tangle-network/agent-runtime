@@ -15,7 +15,7 @@ import { testAgentProfile } from './test-agent-profile'
 
 const resources = { compute: { unit: 'GPU-second', limit: 20 } }
 
-async function runStream(terminal: Spend['resources'], interrupted = false) {
+async function runStream(terminal: Spend['resources'], interrupted = false, increments = [3, 2]) {
   const budget = { maxIterations: 3, maxTokens: 100, resources }
   const pool = createBudgetPool(budget, 0)
   const journal = new InMemorySpawnJournal()
@@ -36,8 +36,9 @@ async function runStream(terminal: Spend['resources'], interrupted = false) {
     runtime: 'router',
     execute: async function* (): AsyncIterable<UsageEvent> {
       yield { kind: 'tokens', input: 1, output: 1 }
-      yield { kind: 'resource', name: 'compute', unit: 'GPU-second', amount: 3, known: true }
-      yield { kind: 'resource', name: 'compute', unit: 'GPU-second', amount: 2, known: true }
+      for (const amount of increments) {
+        yield { kind: 'resource', name: 'compute', unit: 'GPU-second', amount, known: true }
+      }
       if (interrupted) throw new Error('connection interrupted')
       yield { kind: 'iteration' }
     },
@@ -67,6 +68,23 @@ async function runStream(terminal: Spend['resources'], interrupted = false) {
 }
 
 describe('named resource aggregation at execution boundaries', () => {
+  it('accepts equivalent fractional stream and terminal totals', async () => {
+    const { settled, pool } = await runStream(
+      {
+        compute: { unit: 'GPU-second', amount: 0.3, known: true },
+      },
+      false,
+      [0.1, 0.2],
+    )
+    expect(settled?.kind).toBe('done')
+    expect(settled?.spent.resources?.compute).toEqual({
+      unit: 'GPU-second',
+      amount: 0.1 + 0.2,
+      known: true,
+    })
+    expect(pool.readout().resources?.compute.known).toBe(true)
+  })
+
   it('charges streamed increments once when the terminal receipt repeats the total', async () => {
     const { settled, pool, scope, id } = await runStream({
       compute: { unit: 'GPU-second', amount: 5, known: true },

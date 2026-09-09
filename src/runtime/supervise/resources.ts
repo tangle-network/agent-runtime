@@ -1,5 +1,12 @@
 import type { Budget, ResourceSpend, Spend } from './types'
 
+/** Allow binary rounding of fractional measurements, but compare integer counters exactly. */
+export function resourceAmountsEqual(left: number, right: number): boolean {
+  if (left === right) return true
+  if (Number.isInteger(left) && Number.isInteger(right)) return false
+  return Math.abs(left - right) <= Number.EPSILON * Math.max(Math.abs(left), Math.abs(right))
+}
+
 /** Validate caller-owned names and units without assigning domain meaning to them. */
 export function assertResources(
   resources: Budget['resources'] | Spend['resources'],
@@ -86,7 +93,7 @@ export function resourceTelemetry(streamed: Spend, terminal: Spend): Pick<Spend,
       known:
         value.known &&
         (other?.known ?? true) &&
-        (other === undefined || other.amount === value.amount),
+        (other === undefined || resourceAmountsEqual(other.amount, value.amount)),
     })
   }
   return addResourceSpend(Object.fromEntries(resources))

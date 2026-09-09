@@ -58,7 +58,12 @@
 import { ValidationError } from '../../errors'
 import type { LoopTokenUsage } from '../types'
 import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
-import { addResourceSpend, assertResources, withBudgetResources } from './resources'
+import {
+  addResourceSpend,
+  assertResources,
+  resourceAmountsEqual,
+  withBudgetResources,
+} from './resources'
 import type { Budget, Spend, TokenUsageProvenance, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
@@ -464,9 +469,16 @@ export function createBudgetPool(
         state.committed += retained
         state.remaining -= retained
         violation ??= `resource ${name}: unknown usage under an enforced limit`
-      } else if (reserved?.[name] && amount > allocation) {
+      } else if (
+        reserved?.[name] &&
+        amount > allocation &&
+        !resourceAmountsEqual(amount, allocation)
+      ) {
         violation ??= `resource ${name}: spent ${amount} > reserved ${allocation}`
-      } else if (state.remaining < 0) {
+      } else if (
+        state.remaining < 0 &&
+        !resourceAmountsEqual(state.committed + state.reserved, state.limit)
+      ) {
         violation ??= `resource ${name}: exceeded root limit ${state.limit}`
       }
     }
@@ -484,7 +496,11 @@ export function createBudgetPool(
       const wanted = b.resources?.[name]
       if (!wanted) throw new ValidationError(`resource ${name}: child must declare its limit`)
       if (wanted.unit !== state.unit) throw new ValidationError(`resource ${name}: unit mismatch`)
-      if (!state.known || wanted.limit > state.remaining)
+      if (
+        !state.known ||
+        (wanted.limit > state.remaining &&
+          !resourceAmountsEqual(state.committed + state.reserved + wanted.limit, state.limit))
+      )
         return { ok: false, reason: 'budget-exhausted' }
     }
     for (const name of Object.keys(b.resources ?? {})) {
