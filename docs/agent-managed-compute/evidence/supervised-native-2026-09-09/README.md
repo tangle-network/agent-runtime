@@ -5,6 +5,7 @@ A separate replacement process attached their exact persisted Runtime bindings a
 The corrected run matched 184/184 and 188/188 original frames.
 Fresh control stopped the first worker while its sibling remained running, then stopped the sibling.
 Both environments were deleted and their absence was verified.
+`cleanup-inventory.matchingSandboxes: 2` counts the pre-deletion matched list; it does not count environments remaining after cleanup.
 
 ## Evidence
 
