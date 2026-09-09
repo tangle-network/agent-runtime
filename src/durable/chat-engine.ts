@@ -104,6 +104,47 @@ function defaultLog(message: string, meta?: Record<string, unknown>): void {
 }
 
 /**
+ * Preserve the useful part of a thrown HTTP Response at the stream boundary.
+ *
+ * Product routes commonly throw a typed Response for an upstream failure. A
+ * Response is not an Error, so String(response) produces the unusable
+ * "[object Response]" and hides the status that decides the next action.
+ * Read a clone so the caller's response body remains available to its owner.
+ */
+async function thrownErrorMessage(error: unknown): Promise<string> {
+  if (!(error instanceof Response)) {
+    return error instanceof Error ? error.message : String(error)
+  }
+
+  const prefix = `HTTP ${error.status}`
+  try {
+    const text = await error.clone().text()
+    if (!text.trim()) return prefix
+    try {
+      const body = JSON.parse(text) as {
+        error?: { code?: unknown; message?: unknown } | string
+        message?: unknown
+      }
+      const nested =
+        typeof body.error === 'object' && body.error !== null ? body.error.message : body.error
+      const message =
+        typeof nested === 'string'
+          ? nested
+          : typeof body.message === 'string'
+            ? body.message
+            : undefined
+      if (message) return `${prefix}: ${message.slice(0, 500)}`
+    } catch {
+      // Fall through to the status. Arbitrary upstream HTML or text is not a
+      // stable product error contract and should not be copied into a chat.
+    }
+  } catch {
+    // A consumed or unavailable body still has a useful HTTP status.
+  }
+  return prefix
+}
+
+/**
  * Run one chat turn. Returns immediately with a `ReadableStream` body;
  * execution starts while the stream is constructed. Backend
  * failures surface as `error` + `session.run.failed` events.
@@ -162,7 +203,7 @@ export function handleChatTurn(input: RunChatTurnInput): ChatTurnResult {
           data: { sessionId: identity.sessionId },
         })
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
+        const message = await thrownErrorMessage(err)
         log('[chat-engine] turn failed', { error: message })
         await emit({ type: 'error', data: { message } })
         await emit({
