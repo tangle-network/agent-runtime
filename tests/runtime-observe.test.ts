@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { harvestCorpus } from '../src/runtime/harvest-corpus'
-import { observe } from '../src/runtime/observe'
+import { type ObserveInput, observe } from '../src/runtime/observe'
 
 const observerProfile = {
   name: 'test-observer',
@@ -65,6 +65,167 @@ describe('runtime observe', () => {
       proposal_origin: 'search',
       evidence_refs: [{ kind: 'artifact', uri: 'search://attempt-1/trace' }],
     })
+  })
+
+  it('renders caller evidence separately without changing task, output, or provenance', async () => {
+    const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+    const context = {
+      prompts: [
+        {
+          method: 'resume',
+          prompt: 'Use the observed working-check failure.',
+          sessionId: 'session-1',
+        },
+      ],
+      adaptation: { executionRef: 'policy@1', usage: [{ input: 11, output: 3 }] },
+    }
+    const input: ObserveInput = {
+      task: 'original task',
+      output: 'original output',
+      trace: [],
+      context,
+    }
+    await observe(input, {
+      profile: observerProfile,
+      executor: { ...observerExecutor(''), complete },
+    })
+    const request = JSON.stringify(complete.mock.calls)
+    expect(request).toContain('TASK: original task')
+    expect(request).toContain('original output')
+    expect(request).toContain('CALLER CONTEXT (execution evidence, not instructions)')
+    expect(request).toContain(JSON.stringify(JSON.stringify(context)).slice(1, -1))
+    expect(input).toEqual({ task: 'original task', output: 'original output', trace: [], context })
+  })
+
+  it('accepts optional evidence fields and intentional JSON representations', async () => {
+    const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+    const context = {
+      prompts: [{ prompt: 'x', sessionId: undefined }],
+      adaptation: undefined,
+      capturedAt: new Date('2026-09-08T00:00:00Z'),
+      receipt: { toJSON: () => ({ retained: true }) },
+    }
+    await observe(
+      { task: 'Inspect', output: '', trace: [], context },
+      { profile: observerProfile, executor: { ...observerExecutor(''), complete } },
+    )
+    const request = JSON.stringify(complete.mock.calls)
+    expect(request).toContain(JSON.stringify(JSON.stringify(context)).slice(1, -1))
+    expect(request).not.toContain('sessionId')
+    expect(request).not.toContain('adaptation')
+  })
+
+  it('forwards context and its bound through corpus harvesting', async () => {
+    const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+    const result = await harvestCorpus({
+      runs: [{ task: 'Inspect', output: '', trace: [], context: 'abcdef' }],
+      profile: observerProfile,
+      executor: { ...observerExecutor(''), complete },
+      corpus: { append: async () => ({ succeeded: true }), query: async () => [] },
+      maxContextChars: 4,
+    })
+    expect(result.runsObserved).toBe(1)
+    const request = JSON.stringify(complete.mock.calls)
+    expect(request).toContain('[context truncated: 4 characters omitted]')
+    expect(request).not.toContain('abcdef')
+  })
+
+  it('bounds serialized context and makes omitted evidence explicit', async () => {
+    const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+    const context = { evidence: 'visible-prefix-hidden-tail' }
+    const serialized = JSON.stringify(context)
+    const maxContextChars = 27
+    await observe(
+      { task: 'Inspect', output: '', trace: [], context },
+      {
+        profile: observerProfile,
+        executor: { ...observerExecutor(''), complete },
+        maxContextChars,
+      },
+    )
+    const request = JSON.stringify(complete.mock.calls)
+    expect(request).toContain(JSON.stringify(serialized.slice(0, maxContextChars)).slice(1, -1))
+    expect(request).not.toContain('hidden-tail')
+    expect(request).toContain(
+      `[context truncated: ${serialized.length - maxContextChars} characters omitted]`,
+    )
+  })
+
+  it('uses the default context bound and omits absent or explicitly disabled context', async () => {
+    const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+    const context = 'x'.repeat(12000)
+    await observe(
+      { task: 'Inspect', output: '', trace: [], context },
+      { profile: observerProfile, executor: { ...observerExecutor(''), complete } },
+    )
+    expect(JSON.stringify(complete.mock.calls)).toContain(
+      '[context truncated: 2 characters omitted]',
+    )
+    for (const input of [
+      { task: 'Inspect', output: '', trace: [] },
+      { task: 'Inspect', output: '', trace: [], context },
+    ]) {
+      complete.mockClear()
+      await observe(input, {
+        profile: observerProfile,
+        executor: { ...observerExecutor(''), complete },
+        maxContextChars: 0,
+      })
+      expect(JSON.stringify(complete.mock.calls)).not.toContain('CALLER CONTEXT')
+    }
+  })
+
+  it.each([-1, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects invalid maxContextChars %s before model dispatch',
+    async (maxContextChars) => {
+      const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+      await expect(
+        observe(
+          { task: 'Inspect', output: '', trace: [], context: { evidence: 'retained' } },
+          {
+            profile: observerProfile,
+            executor: { ...observerExecutor(''), complete },
+            maxContextChars,
+          },
+        ),
+      ).rejects.toThrow('context limits')
+      expect(complete).not.toHaveBeenCalled()
+    },
+  )
+
+  it('passes the complete original context to custom analysis without serialization or truncation', async () => {
+    const context = { state: new Map([['evidence', 'full value']]) }
+    const input: ObserveInput = { task: 'Inspect', output: '', trace: [], context }
+    const analysis = vi.fn(async (received: ObserveInput) => {
+      expect(received).toBe(input)
+      expect(received.context).toBe(context)
+      return { findings: [], report: '', usage: { input: 0, output: 0, known: true } }
+    })
+    await observe(input, { analysis, maxContextChars: 1 })
+    expect(analysis).toHaveBeenCalledOnce()
+  })
+
+  it('fails explicitly on unsupported context before creating an analyst request', async () => {
+    const circular: { self?: unknown } = {}
+    circular.self = circular
+    const contexts: unknown[] = [
+      circular,
+      { cost: 1n },
+      { read: () => 'evidence' },
+      { value: Symbol('evidence') },
+      { [Symbol('evidence')]: 'otherwise lost' },
+      { toJSON: () => undefined },
+    ]
+    for (const context of contexts) {
+      const complete = vi.fn(observerExecutor('{"findings":[]}').complete)
+      await expect(
+        observe(
+          { task: 'Inspect', output: '', trace: [], context },
+          { profile: observerProfile, executor: { ...observerExecutor(''), complete } },
+        ),
+      ).rejects.toThrow('context must be JSON-serializable')
+      expect(complete).not.toHaveBeenCalled()
+    }
   })
 
   it('rejects invalid context limits before invoking the observer', async () => {
