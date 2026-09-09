@@ -8,9 +8,11 @@
 |---|---|
 | **agent-runtime** | exact execution, reusable benchmark adapters, packed-consumer checks, one full-fidelity integration fixture |
 | **discovery** | research questions, preregistrations, acceptance criteria, negative results, and decisions about what is worth testing |
-| **discovery-lab** | paid campaigns, upstream method reproductions, long-horizon hill climbs, immutable receipts, and result archives |
+| **supervisor-lab** | registered adaptive-agent and retained-learning comparisons, including carried versus revised profiles |
+| **discovery-lab** | research campaigns and evidence for Discovery, including immutable inputs, run records, and result archives |
 
-A benchmark implementation may begin here while it is becoming a reusable adapter. Once the question is “does method X improve benchmark Y?”, the campaign belongs in Discovery Lab.
+A benchmark implementation may begin here while it is becoming a reusable adapter. Once the question is “does method X improve benchmark Y?”, the campaign belongs in the consuming lab.
+Supervisor Lab owns adaptive-learning comparisons; Discovery Lab owns research campaigns for Discovery.
 
 ## Evidence levels
 
@@ -20,8 +22,8 @@ Use these labels literally. Do not promote one level into another in prose.
 |---|---|---|
 | **contract proof** | packages install; identities, budgets, callbacks, resume, and receipts have the expected shape | root `pnpm verify:official-optimizers`, `pnpm verify:bench` |
 | **evaluator proof** | the benchmark's own evaluator can distinguish known fail/pass artifacts in the exact environment | adapter preflight and gold/self-check |
-| **reproduction proof** | an upstream method is run at a pinned revision on its claimed benchmark under a matched protocol | Discovery Lab reproduction manifest and runner |
-| **value proof** | the integrated method beats the preregistered baseline on frozen evidence with uncertainty and complete cost accounting | Discovery Lab result receipt |
+| **reproduction proof** | an upstream method is run at a pinned revision on its claimed benchmark under a matched protocol | Consuming lab reproduction manifest and runner |
+| **value proof** | the integrated method beats the preregistered baseline on frozen evidence with uncertainty and complete cost accounting | Consuming lab result receipt |
 | **production proof** | a promoted artifact transfers to real traffic under a canary or controlled rollout | product repository / platform telemetry |
 
 A localization score, output-shape check, LLM quality judge, or toy deterministic reward can be useful for development. None is a substitute for the benchmark's outcome evaluator.
@@ -133,4 +135,4 @@ A new file under `bench/src` must be one of:
 - a package-consumer or evaluator calibration test;
 - one canonical full-fidelity fixture that exercises a public Runtime contract.
 
-A one-off campaign, generation-N optimizer script, bespoke dashboard, or historical result belongs in Discovery Lab. If an older file has no package script, no importer, and no unique reusable primitive, delete it rather than adding another index entry.
+A one-off campaign, generation-N optimizer script, bespoke dashboard, or historical result belongs in the consuming lab. If an older file has no package script, no importer, and no unique reusable primitive, delete it rather than adding another index entry.

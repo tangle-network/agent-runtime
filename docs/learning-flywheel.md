@@ -80,6 +80,42 @@ Keep final assessment separate at the level whose improvement is claimed.
 Fresh tasks within a domain can assess a specialist or domain learner.
 A claim about process transfer requires an appropriate comparison in new domains.
 
+## Adaptation boundaries
+
+Learning can change a later decision within a task, between tasks, or across domains.
+Runtime has no general learner switch.
+Compose existing execution, control, storage, and evaluation boundaries.
+
+| Boundary | Existing behavior | Limit |
+| --- | --- | --- |
+| Before a local model request | `ToolLoopHooks.beforeTurn` is awaited and can update messages | This applies to requests executed by the local tool loop |
+| During execution | Steering queues instructions; supported interruption can stop the current request | Acceptance does not prove model consumption or changed behavior |
+| After tools or child results | Later requests can use results to revise decisions | Interruption does not undo completed effects |
+| Before a sandbox prompt | Session continuation supplies another whole harness prompt | One prompt can contain multiple native model requests |
+| On session resume | The selected backend restores supported session state | Session reuse does not establish profile, tool, or model reload |
+| Between tasks | Profiles, artifacts, and retained knowledge can affect subsequent work | Stored state matters only when execution reads it |
+
+A local tool-loop turn is one logical model call followed by its tool calls.
+Transport retries can produce multiple physical requests.
+A sandbox turn is one prompt invocation, and a task can span multiple sessions.
+Sandbox continuation does not establish a portable host barrier before every native model request.
+See [the local loop](../src/runtime/tool-loop.ts) and [sandbox lineage](../src/runtime/sandbox-lineage.ts).
+
+`RuntimeHooks` receive observations without awaiting observer completion or returning replacement actions.
+Learning actions must use a control or storage boundary with its actual ordering and failure behavior.
+Peer mail remains attributed evidence and does not require another inference before settlement.
+See [runtime observers](../src/runtime-hooks.ts), [the inbox](../src/runtime/supervise/inbox.ts), and [executor settlement](../src/runtime/supervise/runtime.ts).
+
+Profile reload depends on the backend.
+The bridge rejects changed materialization across session turns.
+Chat resume can retain previous system instructions while prepending current instructions.
+Validate revision behavior before claiming an in-place profile replacement.
+See [chat resume](../src/runtime/supervise/chat-transport-executor.ts) and [executor materialization](../src/runtime/supervise/runtime.ts).
+
+Define an adaptive candidate through its initial program, starting state, and permitted inputs and capabilities.
+Record permitted state and artifact changes during execution.
+Keep final assessment independent of the adaptive decisions it measures.
+
 ## Across-run evidence
 
 The across-run comparison, also called Gate B, tests learning over a declared sequence or horizon.
