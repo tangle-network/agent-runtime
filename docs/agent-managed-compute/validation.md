@@ -223,3 +223,8 @@ The [2026-09-09 live records](./evidence/interactive-2026-09-09/README.md) cover
 Exact-reference reconnect replayed all 168 and 192 captured frames, respectively.
 The second run received an accepted stop acknowledgement and then observed `exited` before verified sandbox deletion.
 Worker native-child binding, live coordinator restart, environment expiry, and local Bridge conformance remain outside this proof.
+
+The [supervised native worker records](./evidence/supervised-native-2026-09-09/README.md) test attachment after the original coordinator process receives SIGKILL.
+A replacement process recovered both persisted worker identities and replayed all 372 original frames.
+Stopping the first worker left its sibling running; both stops and subsequent environment deletions were verified.
+These records do not establish resumed scheduling, Braid restart behavior, environment expiry, or local Bridge conformance.
