@@ -1,7 +1,8 @@
-import { spawn } from 'node:child_process'
-import { chmod, cp, lstat, mkdtemp, readdir, realpath, rm, stat } from 'node:fs/promises'
+import { execFile, spawn } from 'node:child_process'
+import { cp, mkdtemp, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
+import { promisify } from 'node:util'
 
 export interface IsolatedCheckOptions {
   /** Trusted workspace boundary containing the untrusted tree. */
@@ -18,8 +19,14 @@ export type IsolatedCheckResult =
   | { succeeded: true; value: { stdout: string; stderr: string } }
   | {
       succeeded: false
-      reason: 'refused' | 'failed' | 'timeout' | 'cancelled' | 'output-limit'
+      reason: 'refused' | 'failed' | 'timeout' | 'cancelled' | 'output-limit' | 'cleanup-failed'
       diagnostic: string
+      /** Bounded command evidence, when a process was launched. */
+      stdout?: string
+      stderr?: string
+      exitCode?: number | null
+      /** Cleanup failures never replace the primary command failure. */
+      cleanupDiagnostic?: string
     }
 
 const toolchains = ['/usr', '/bin', '/lib', '/lib64']
@@ -40,6 +47,7 @@ export async function runIsolatedCheck(
   options: IsolatedCheckOptions,
 ): Promise<IsolatedCheckResult> {
   let scratch: string | undefined
+  let result: IsolatedCheckResult
   try {
     if (process.platform !== 'linux') throw new Error('Linux Bubblewrap namespaces are required')
     const timeoutMs = options.timeoutMs ?? 30_000
@@ -120,15 +128,28 @@ export async function runIsolatedCheck(
       '--',
       ...options.command,
     ]
-    return await execute(args, timeoutMs, maxOutputBytes, options.signal)
+    result = await execute(args, timeoutMs, maxOutputBytes, options.signal)
   } catch (error) {
-    return { succeeded: false, reason: 'refused', diagnostic: String(error) }
-  } finally {
-    if (scratch) {
-      await restoreDirectoryAccess(scratch)
-      await rm(scratch, { recursive: true, force: true })
+    result = { succeeded: false, reason: 'refused', diagnostic: String(error) }
+  }
+  if (scratch) {
+    try {
+      await removeScratch(scratch)
+    } catch (error) {
+      const cleanupDiagnostic = String(error)
+      result = result.succeeded
+        ? {
+            succeeded: false,
+            reason: 'cleanup-failed',
+            diagnostic: cleanupDiagnostic,
+            stdout: result.value.stdout,
+            stderr: result.value.stderr,
+            exitCode: 0,
+          }
+        : { ...result, cleanupDiagnostic }
     }
   }
+  return result
 }
 
 function execute(
@@ -138,14 +159,15 @@ function execute(
   signal?: AbortSignal,
 ): Promise<IsolatedCheckResult> {
   return new Promise((done) => {
-    const child = spawn('/usr/bin/bwrap', args, {
+    const child = spawn('/usr/bin/bwrap', ['--json-status-fd', '3', ...args], {
       env: {},
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
       detached: true,
     })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
     let bytes = 0
+    let status = ''
     let failure: 'timeout' | 'cancelled' | 'output-limit' | undefined
     const stop = (reason: typeof failure) => {
       failure ??= reason
@@ -167,8 +189,15 @@ function execute(
       if (remaining) target.push(chunk.subarray(0, remaining))
       if (bytes > limit) stop('output-limit')
     }
-    child.stdout.on('data', capture(stdout))
-    child.stderr.on('data', capture(stderr))
+    child.stdio[3]?.on('data', (chunk: Buffer) => {
+      if (status.length + chunk.length > 16_384) {
+        stop('output-limit')
+        return
+      }
+      status += chunk.toString()
+    })
+    child.stdout!.on('data', capture(stdout))
+    child.stderr!.on('data', capture(stderr))
     let spawnError: Error | undefined
     child.on('error', (error) => {
       spawnError = error
@@ -178,23 +207,73 @@ function execute(
       signal?.removeEventListener('abort', cancel)
       const out = Buffer.concat(stdout).toString()
       const err = Buffer.concat(stderr).toString()
-      if (failure) done({ succeeded: false, reason: failure, diagnostic: err || failure })
+      const evidence = { stdout: out, stderr: err, exitCode: code }
+      // Only Bubblewrap writes this private pipe; command stderr cannot forge setup status.
+      const executed = status.split('\n').some((line) => {
+        try {
+          const record: unknown = JSON.parse(line)
+          return (
+            record !== null &&
+            typeof record === 'object' &&
+            'exit-code' in record &&
+            typeof record['exit-code'] === 'number' &&
+            record['exit-code'] === code
+          )
+        } catch {
+          return false
+        }
+      })
+      if (failure)
+        done({ succeeded: false, reason: failure, diagnostic: err || failure, ...evidence })
       else if (spawnError)
-        done({ succeeded: false, reason: 'refused', diagnostic: String(spawnError) })
+        done({ succeeded: false, reason: 'refused', diagnostic: String(spawnError), ...evidence })
+      else if (!executed)
+        done({
+          succeeded: false,
+          reason: 'refused',
+          diagnostic: err || 'Bubblewrap did not confirm command execution',
+          ...evidence,
+        })
       else if (code !== 0)
         done({
           succeeded: false,
-          reason: err.startsWith('bwrap:') ? 'refused' : 'failed',
-          diagnostic: err || `Check exited ${code}`,
+          reason: 'failed',
+          diagnostic: err || out || `Check exited ${code}`,
+          ...evidence,
         })
       else done({ succeeded: true, value: { stdout: out, stderr: err } })
     })
   })
 }
 
-// The child may remove directory permissions. Never follow its links during cleanup.
-async function restoreDirectoryAccess(path: string): Promise<void> {
-  if (!(await lstat(path)).isDirectory()) return
-  await chmod(path, 0o700)
-  for (const entry of await readdir(path)) await restoreDirectoryAccess(join(path, entry))
+const executeFile = promisify(execFile)
+
+/** GNU tools traverse relative to open directories, including trees deeper than PATH_MAX.
+ * Recursive chmod ignores encountered symlinks; rm never follows their targets. */
+async function removeScratch(path: string): Promise<void> {
+  const options = { env: {}, timeout: 10_000, maxBuffer: 16_384 }
+  let permissionError: unknown
+  try {
+    await executeFile(
+      '/bin/chmod',
+      ['--recursive', '--preserve-root', 'u+rwX', '--', path],
+      options,
+    )
+  } catch (error) {
+    permissionError = error
+  }
+  try {
+    await executeFile(
+      '/bin/rm',
+      ['--recursive', '--force', '--one-file-system', '--', path],
+      options,
+    )
+  } catch (error) {
+    throw new Error(
+      [permissionError, error]
+        .filter((value) => value !== undefined)
+        .map(String)
+        .join('; '),
+    )
+  }
 }

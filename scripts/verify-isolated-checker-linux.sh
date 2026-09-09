@@ -18,7 +18,8 @@ COPY . /app
 ENTRYPOINT ["node", "/app/tests/runtime/isolated-checker.linux.mjs"]
 DOCKERFILE
 docker build --quiet --tag "$proof_image" "$proof_context"
-docker run --rm --privileged --env HOST_SECRET=hidden "$proof_image"
+docker run --rm --memory=256m --pids-limit=64 --privileged --env HOST_SECRET=hidden "$proof_image"
+docker run --rm --memory=256m --pids-limit=64 --privileged "$proof_image" --cleanup-failure
 # Explicitly deny the namespace syscall even on engines allowing unprivileged namespaces.
 printf '%s\n' '{"defaultAction":"SCMP_ACT_ALLOW","syscalls":[{"names":["unshare"],"action":"SCMP_ACT_ERRNO"}]}' > "$proof_context/deny-unshare.json"
-docker run --rm --security-opt "seccomp=$proof_context/deny-unshare.json" "$proof_image" --refusal
+docker run --rm --memory=256m --pids-limit=64 --security-opt "seccomp=$proof_context/deny-unshare.json" "$proof_image" --refusal

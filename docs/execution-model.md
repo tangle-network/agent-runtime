@@ -123,7 +123,7 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
 ## Isolated checks of untrusted run trees
 
 Use `runIsolatedCheck` from `@tangle-network/agent-runtime/kernel` to execute checks supplied by an untrusted run tree.
-The checker requires Linux, `/usr/bin/bwrap`, and permission to create user, mount, network, and process namespaces.
+The checker requires Linux, `/usr/bin/bwrap` with `--json-status-fd`, GNU `/bin/chmod` and `/bin/rm`, and permission to create user, mount, network, and process namespaces.
 Unsupported hosts return a refusal; the checker never executes the command directly on the host.
 
 Provide the trusted workspace root, the tree path, and an executable with its argument array.
@@ -137,6 +137,10 @@ Keep the input tree and system toolchains stable during preparation; this API do
 The command receives only an explicit executable search path, home directory, and locale.
 Timeouts, cancellation, and output overflow kill the Bubblewrap process group; namespace teardown also terminates descendants.
 Command time and captured output have limits.
+Failed commands retain bounded stdout, stderr, and exit-code evidence.
+A private Bubblewrap status pipe distinguishes setup refusals from command failures; command stderr cannot change that classification.
+Cleanup uses symlink-safe directory traversal, including trees deeper than the host path-length limit.
+Cleanup failures return typed results and preserve any primary command failure.
 Copy preparation, disk consumption, and memory consumption do not have quotas.
 Use a separately resource-limited host when those resources require protection.
 
