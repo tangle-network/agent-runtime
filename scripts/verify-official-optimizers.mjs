@@ -107,26 +107,19 @@ try {
     packedPackageJson,
     '@tangle-network/sandbox',
   )
-  assertVersion(
-    packedAgentEvalVersion,
-    catalogRange('@tangle-network/agent-eval'),
-    'packed @tangle-network/agent-eval development dependency',
-  )
-  assertVersion(
-    packedAgentInterfaceVersion,
-    catalogRange('@tangle-network/agent-interface'),
-    'packed @tangle-network/agent-interface development dependency',
-  )
-  assertVersion(
-    packedSandboxVersion,
-    catalogRange('@tangle-network/sandbox'),
-    'packed @tangle-network/sandbox development dependency',
-  )
-  assertVersion(
-    requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
-    catalogRange('@tangle-network/agent-knowledge'),
-    'packed @tangle-network/agent-knowledge dependency',
-  )
+  for (const [name, version] of [
+    ['@tangle-network/agent-eval', packedAgentEvalVersion],
+    ['@tangle-network/agent-interface', packedAgentInterfaceVersion],
+    ['@tangle-network/sandbox', packedSandboxVersion],
+    [
+      '@tangle-network/agent-knowledge',
+      requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
+    ],
+  ]) {
+    if (!rangeAdmits(catalogRange(name), version)) {
+      throw new Error(`packed ${name}@${version} is outside catalog range ${catalogRange(name)}`)
+    }
+  }
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
