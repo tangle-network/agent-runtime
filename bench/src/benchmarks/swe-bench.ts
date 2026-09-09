@@ -25,7 +25,7 @@ import {
 } from './_harness'
 import type { BenchmarkAdapter, BenchScore, BenchTask, LoadOptions } from './types'
 
-/** Setup and extraction use the same session workspace, whose root may be read-only outside it. */
+/** Root-level directories are not writable in every sandbox; use the session workspace. */
 const SWE_REPO_DIR = './swe-bench-repo'
 
 /**

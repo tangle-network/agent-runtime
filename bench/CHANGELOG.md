@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.3
+
+Uses Runtime 0.209.0, Eval 0.180.0, and Knowledge 15.0.3 together, including named resource accounting and source-attributed resource reports.
+SWE-bench setup, prompts, and patch extraction use the writable session workspace instead of a root-level directory.
+Official grading behavior is unchanged.
+
 ## 0.11.2
 
 Supports SWE-bench 5.x by detecting removed cache and namespace evaluator flags while retaining the 4.x path.

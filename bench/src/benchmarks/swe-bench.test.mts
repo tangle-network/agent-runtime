@@ -64,7 +64,6 @@ test('SWE evaluation command preserves the requested instance image', () => {
   )
 })
 
-
 test('SWE setup and extraction stay in the session workspace and exclude test edits', () => {
   const root = mkdtempSync(join(tmpdir(), 'swe-workspace-'))
   try {
