@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import type { BenchmarkAdapter, BenchScore, BenchTask } from './benchmarks/types'
-import { runBenchmarks, type BenchShot } from './run-benchmarks'
+import { runBenchmarks, type BenchShot, type BenchExecution, type BenchExecutionContext } from './run-benchmarks'
 
 function stubAdapter(name: string, n: number): BenchmarkAdapter {
   const tasks: BenchTask[] = Array.from({ length: n }, (_, i) => ({
@@ -47,6 +47,7 @@ const shot: BenchShot = async ({ adapter, task, cell }) => {
 }
 
 async function main(): Promise<void> {
+  await managedExecutionProof()
   // Matrix: 2 benchmarks × 3 cells × 4 tasks = 24 shots.
   const report = await runBenchmarks({
     benchmarks: ['alpha', 'beta'],
@@ -389,6 +390,182 @@ async function main(): Promise<void> {
   )
 
   console.log('run-benchmarks.test: OK (24-shot matrix, subset, reps, unavailable-skip, judge self-check, guards)')
+}
+
+async function managedExecutionProof(): Promise<void> {
+  function fixture(options: { failure?: 'stream' | 'abort'; signal?: AbortSignal; onSecond?: () => void } = {}) {
+    const operations: string[] = []
+    const requests: Array<{ prompt: string; sessionId?: string }> = []
+    let creates = 0
+    let grades = 0
+    const client = {
+      async create() {
+        creates += 1
+        let patch = 'WRONG'
+        let turns = 0
+        return {
+          id: `managed-box-${creates}`,
+          async exec(command: string, opts?: { sessionId?: string }) {
+            operations.push(command)
+            assert.ok(opts?.sessionId, 'working checks and extraction address the worker session')
+            return { exitCode: 0, stdout: command === 'extract' ? patch : 'working check: repair the missing branch', stderr: '' }
+          },
+          async *streamPrompt(prompt: string, opts?: { sessionId?: string; signal?: AbortSignal }) {
+            turns += 1
+            requests.push({ prompt, sessionId: opts?.sessionId })
+            operations.push(`prompt:${turns}`)
+            // A repeated receipt id across prompts must not collapse paid calls.
+            yield { type: 'llm_call', data: { id: 'same-receipt-id', tokensIn: 11, tokensOut: 3, costUsd: 0.02 } }
+            if (turns === 2) {
+              options.onSecond?.()
+              if (options.failure === 'stream') throw new Error('second prompt disconnected')
+              if (options.failure === 'abort') {
+                assert.equal(opts?.signal?.aborted, true)
+                throw Object.assign(new Error('cancelled second prompt'), { name: 'AbortError' })
+              }
+            }
+            if (prompt.includes('repair the missing branch')) patch = 'PATCH'
+            yield { type: 'result', data: { finalText: patch, success: true, status: 'success' } }
+            yield { type: 'done', data: { outcome: { type: 'completed' } } }
+          },
+          async delete() { operations.push('delete') },
+        }
+      },
+      async criuStatus() { return { available: false } },
+    }
+    const adapter: BenchmarkAdapter = {
+      name: 'managed',
+      preflight: async () => {},
+      loadTasks: async () => [{ id: 'task', prompt: 'fix the branch', metadata: { gold: 'PRIVATE FINAL ORACLE' } }],
+      boxSetup: () => ({ command: 'setup' }),
+      boxExtract: () => ({ command: 'extract' }),
+      goldArtifact: async () => 'PATCH',
+      judge: async (_task, artifact) => {
+        grades += 1
+        operations.push('judge')
+        return { resolved: artifact === 'PATCH', score: artifact === 'PATCH' ? 1 : 0 }
+      },
+    }
+    return {
+      operations, requests, get creates() { return creates }, get grades() { return grades },
+      run: (execute?: BenchExecution, loopAttempts = 1) => runBenchmarks({
+        benchmarks: ['managed'], cells: [{ label: 'worker', model: 'model', backend: 'sandbox' }],
+        routerBaseUrl: 'unused', routerKey: 'unused', verifyJudge: false, loopAttempts,
+        ...(options.signal ? { signal: options.signal } : {}),
+        ...(execute ? { execute } : {}),
+        resolveAdapter: () => adapter, resolveClient: () => client as never,
+      }),
+    }
+  }
+  const correct: BenchExecution = async (context) => {
+    assert.deepEqual(Object.keys(context).sort(), ['attempt', 'benchmark', 'profile', 'prompt', 'run', 'signal', 'taskId'])
+    assert.equal('close' in context.run, false)
+    assert.equal(context.profile.model?.default, 'model')
+    const first = await context.run.start(context.prompt)
+    assert.equal(first.out, 'WRONG')
+    const feedback = await context.run.box.exec('working-check', { sessionId: context.run.sessionId })
+    await context.run.resume(feedback.stdout)
+  }
+  const enabled = fixture()
+  const report = await enabled.run(correct)
+  assert.equal(report.perTask[0]?.resolved, true)
+  assert.deepEqual(enabled.operations, ['setup', 'prompt:1', 'working-check', 'prompt:2', 'extract', 'delete', 'judge'])
+  assert.equal(enabled.creates, 1)
+  assert.equal(enabled.grades, 1)
+  assert.equal(enabled.requests[0]?.sessionId, enabled.requests[1]?.sessionId)
+  assert.equal(enabled.requests[1]?.prompt, 'working check: repair the missing branch')
+  assert.deepEqual(report.perTask[0]?.usage, { input: 22, output: 6, costUsd: 0.04 })
+  assert.deepEqual(report.perTask[0]?.prompts?.map((p) => [p.attempt, p.index, p.method, p.prompt]), [
+    [1, 0, 'start', 'fix the branch'], [1, 1, 'resume', 'working check: repair the missing branch'],
+  ])
+  assert.equal(report.perTask[0]?.events?.length, 6)
+  const disabled = fixture()
+  const withheld = await disabled.run(async ({ run, prompt }) => {
+    await run.start(prompt)
+    await run.resume('try again without a correction')
+  })
+  assert.equal(withheld.perTask[0]?.resolved, false, 'withholding the correction prevents the scripted repair')
+  assert.deepEqual(withheld.perTask[0]?.usage, report.perTask[0]?.usage, 'control spends the same scripted resources')
+  const defaultRun = await fixture().run()
+  assert.equal(defaultRun.perTask[0]?.prompts?.length, 1)
+  assert.deepEqual(defaultRun.perTask[0]?.usage, { input: 11, output: 3, costUsd: 0.02 })
+
+  for (const failure of ['stream', 'abort'] as const) {
+    const controller = new AbortController()
+    const broken = fixture({ failure, signal: controller.signal, onSecond: () => { if (failure === 'abort') controller.abort() } })
+    const failed = await broken.run(correct)
+    const row = failed.perTask[0]!
+    assert.equal(row.ok, false)
+    assert.equal(row.measurement, 'unavailable')
+    assert.equal(row.prompts?.length, 2)
+    assert.equal(row.events?.length, 4)
+    assert.deepEqual(row.usage, { input: 22, output: 6, costUsd: 0.04, tokensKnown: false, usdKnown: false })
+    assert.equal(row.prompts?.[0]?.usage.tokensKnown, undefined)
+    assert.equal(row.prompts?.[1]?.usage.tokensKnown, false)
+    assert.equal(broken.operations.filter((op) => op === 'delete').length, 1)
+    assert.equal(broken.operations.includes('extract'), false)
+  }
+  const policyFailure = fixture()
+  const policyFailed = await policyFailure.run(async ({ run, prompt }) => {
+    await run.start(prompt)
+    throw new Error('policy failed after paid work')
+  })
+  assert.equal(policyFailed.perTask[0]?.ok, false)
+  assert.deepEqual(policyFailed.perTask[0]?.usage, { input: 11, output: 3, costUsd: 0.02 })
+  assert.match(policyFailed.perTask[0]?.detail ?? '', /policy failed/)
+  assert.equal(policyFailure.operations.filter((op) => op === 'delete').length, 1)
+
+  const policyAbortController = new AbortController()
+  const policyAbort = fixture({ signal: policyAbortController.signal })
+  const abortedPolicy = await policyAbort.run(async ({ run, prompt }) => {
+    await run.start(prompt)
+    policyAbortController.abort()
+    await new Promise<void>(() => {})
+  })
+  assert.equal(abortedPolicy.perTask[0]?.ok, false, 'cancellation stops waiting for policy work')
+  assert.equal(abortedPolicy.perTask[0]?.prompts?.length, 1)
+  assert.deepEqual(abortedPolicy.perTask[0]?.usage, { input: 11, output: 3, costUsd: 0.02 })
+  assert.equal(policyAbort.operations.filter((op) => op === 'delete').length, 1)
+
+  const looped = fixture()
+  const retried = await looped.run(async ({ run, prompt, attempt }) => {
+    await run.start(prompt)
+    await run.resume(attempt === 2 ? 'repair the missing branch' : 'check again')
+  }, 2)
+  assert.equal(retried.perTask[0]?.resolved, true)
+  assert.equal(looped.creates, 2)
+  assert.deepEqual(retried.perTask[0]?.prompts?.map((p) => [p.attempt, p.index]), [[1, 0], [1, 1], [2, 0], [2, 1]])
+  assert.deepEqual(retried.perTask[0]?.usage, { input: 44, output: 12, costUsd: 0.08 })
+  assert.equal(looped.operations.filter((op) => op === 'setup').length, 2)
+  assert.equal(looped.operations.filter((op) => op === 'extract').length, 2)
+  assert.equal(looped.operations.filter((op) => op === 'delete').length, 2)
+
+  const unawaited = fixture()
+  const awaitedByOwner = await unawaited.run(async ({ run, prompt }) => { void run.start(prompt) })
+  assert.equal(awaitedByOwner.perTask[0]?.prompts?.length, 1)
+  assert.deepEqual(unawaited.operations, ['setup', 'prompt:1', 'extract', 'delete', 'judge'])
+  const overlapping = fixture()
+  const overlap = await overlapping.run(async ({ run, prompt }) => {
+    const first = run.start(prompt)
+    assert.throws(() => run.resume('overlap'), /sequential/)
+    await first
+  })
+  assert.equal(overlap.perTask[0]?.ok, false)
+  assert.equal(overlapping.operations.includes('extract'), false)
+  let retained: BenchExecutionContext['run'] | undefined
+  await fixture().run(async ({ run, prompt }) => { retained = run; await run.start(prompt) })
+  assert.throws(() => retained!.resume('too late'), /settled/)
+  const skipped = await fixture().run(async () => {})
+  assert.equal(skipped.perTask[0]?.ok, false)
+  assert.equal(skipped.perTask[0]?.prompts?.length, 0)
+  const passthrough: BenchExecution = async () => {}
+  let received: BenchExecution | undefined
+  await runBenchmarks({
+    benchmarks: ['alpha'], cells: [{ label: 'custom', model: 'm' }], n: 1,
+    routerBaseUrl: 'unused', routerKey: 'unused', resolveAdapter: resolveStub,
+    execute: passthrough, runShot: async ({ execute }) => { received = execute; return { artifact: '', ok: false } },
+  })
+  assert.equal(received, passthrough, 'custom shots choose how to consume the callback')
 }
 
 void main()

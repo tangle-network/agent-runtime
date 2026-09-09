@@ -73,6 +73,42 @@ The current Runtime lineage suppresses sandbox deletion errors, so a returned re
 The caller's abort signal stops queued shots and reaches active sandbox turns.
 `modelApiKey` supplies sandbox inference authorization separately from the `routerKey` used for sandbox control.
 
+### Caller-controlled prompts within a task
+
+`runBenchmarks({ execute })` invokes the callback inside each managed sandbox shot.
+The context supplies the task prompt, executed profile, benchmark and task identities, attempt number, and abort signal.
+Its managed `run` exposes Runtime's `start`, `resume`, `box`, and `sessionId`.
+Use the live box for permitted working checks in the same session.
+Submit worker prompts through managed `start` and `resume` so Bench captures their outcomes and usage.
+Direct sandbox prompt calls bypass this accounting.
+The callback must leave session lifecycle, extraction, and cleanup to Bench.
+It receives no adapter, final grader, or task metadata containing gold material.
+This callback is trusted consumer code, not an isolation boundary for arbitrary code.
+
+Return after the final prompt completes.
+Bench extracts the last captured prompt's artifact and applies the adapter's final grading outside the callback.
+Start and resume calls must be sequential.
+Bench waits for an unawaited active invocation before extraction and refuses calls after the callback settles.
+The callback must use its signal to cancel external work.
+Bench stops awaiting policy work when cancelled, but cannot stop external effects that ignore cancellation.
+
+Each task's `prompts` retains ordered method, prompt, attempt, session identity, outcome, events, usage, and capture errors.
+Prompt indices start at zero; attempt numbers start at one.
+Usage sums each prompt separately, including failed and interrupted prompts.
+A partial capture retains observed counters and marks accounting incomplete.
+These counters cover sandbox workers only; consumers must account for policy and working-evaluator inference separately.
+Consumers must bind their callback source, configuration, profiles, and initial state to their execution identity.
+
+`execute` runs inside every `loopAttempts` shot.
+Those outer attempts still create fresh sandboxes and use the existing checker feedback policy.
+Use one outer attempt when final grading must remain unavailable to adaptation.
+A custom `runShot` receives `execute` and owns whether it consumes the callback.
+
+A sandbox prompt can contain multiple native model requests.
+Same-session continuation does not prove a barrier before every native request, profile reload, coordinator restart, or fresh-session state transfer.
+Offline fake-sandbox tests prove the managed contract and correction consumption only.
+They establish no live learning gain or provider session restoration.
+
 ### Retained strategy driver
 
 ```bash
