@@ -196,6 +196,16 @@ function shapeName<Task, D>(
 function resolveShapeBudget(root: Budget, over?: Partial<ShapeBudget>): ShapeBudget {
   const fanout = over?.fanout ?? defaultFanout
   const perChild: Budget = over?.perChild ?? {
+    ...(root.resources === undefined
+      ? {}
+      : {
+          resources: Object.fromEntries(
+            Object.entries(root.resources).map(([name, resource]) => [
+              name,
+              { ...resource, limit: Math.floor(resource.limit / fanout) },
+            ]),
+          ),
+        }),
     maxIterations: Math.max(1, Math.floor(root.maxIterations / fanout)),
     maxTokens: Math.max(1, Math.floor(root.maxTokens / fanout)),
     ...(root.maxUsd !== undefined ? { maxUsd: root.maxUsd / fanout } : {}),

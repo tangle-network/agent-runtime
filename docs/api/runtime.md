@@ -6338,7 +6338,7 @@ readonly `AnalystFinding`[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -8277,7 +8277,7 @@ policy belong to the exact executable `AgentProfile` consumed by `streamAgentTur
 
 > `optional` **complete?**: (`body`, `request?`) => `Promise`\<`unknown`\>
 
-Injectable OpenAI-compatible transport for offline execution.
+Injectable OpenAI-compatible transport. Optional usage.resources carries measured turn totals.
 
 ###### Parameters
 
@@ -12105,6 +12105,10 @@ Opaque, single-use reservation handle returned by `reserve` and consumed by
 
 > `readonly` **reserved**: `object`
 
+###### resources?
+
+> `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceLimit`](#resourcelimit)\>\>
+
 ###### tokens
 
 > `readonly` **tokens**: `number`
@@ -12158,7 +12162,7 @@ while the public readout remains explicitly unknown.
 > **reserve**(`b`): \{ `ok`: `true`; `ticket`: [`ReservationTicket`](#reservationticket); \} \| \{ `ok`: `false`; `reason`: [`ReservationRejection`](#reservationrejection); \}
 
 Atomically reserve a child's full ceiling from the free balance. Fails closed
-({ ok: false }) when the pool can't cover tokens, usd, or iterations — the
+({ ok: false }) when the pool can't cover standard or named channels — the
 caller inspects `ok` before `ticket`.
 
 ###### Parameters
@@ -12223,14 +12227,14 @@ The current readout, reflecting all outstanding reservations.
 
 ##### observe()
 
-> **observe**(`spend`): `void`
+> **observe**(`spend`, `options?`): `void`
 
 Record OBSERVED spend that did NOT go through reserve/reconcile — the driver's OWN inference
 (its chat turns), which is real compute but not a spawned child. A direct `free → committed`
 debit, so `total ≡ free + reserved + committed` is preserved: equal-k counts the driver's
 tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
-when a run overspends — that is honest (the readout then signals exhaustion). It never throws:
-the spend already happened, so accounting records reality; the in-loop guard prevents MORE.
+when a run overspends. Unknown enforced resource usage is recorded before throwing.
+Partial increments defer completeness checks until the invocation reports its terminal spend.
 The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
 only makes the live `readout()` reflect driver inference for the in-loop guard.
 
@@ -12239,6 +12243,12 @@ only makes the live `readout()` reflect driver inference for the in-loop guard.
 ###### spend
 
 [`Spend`](#spend)
+
+###### options?
+
+###### partial?
+
+`boolean`
 
 ###### Returns
 
@@ -13849,7 +13859,7 @@ What a finalizer gets to decide with. `delivered` is the ONLY output material; `
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ***
 
@@ -15924,6 +15934,10 @@ False when observed `tokens` is only a known subtotal, not a complete total — 
 
 False when observed dollar spend is only a known subtotal, not a complete total.
 
+##### resources?
+
+> `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceSpend`](#resourcespend)\>\>
+
 ##### pendingMessages
 
 > `readonly` **pendingMessages**: `number`
@@ -16050,6 +16064,10 @@ The scope-side facts about a child, independent of whether its executor cooperat
 ##### usdKnown?
 
 > `readonly` `optional` **usdKnown?**: `boolean`
+
+##### resources?
+
+> `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceSpend`](#resourcespend)\>\>
 
 ***
 
@@ -21095,6 +21113,43 @@ inspects `succeeded` before `value` (no silent fallback).
 
 ***
 
+### ResourceLimit
+
+Caller-defined resource ceiling in non-negative safe-integer units, consistent throughout a tree.
+
+#### Properties
+
+##### unit
+
+> `readonly` **unit**: `string`
+
+##### limit
+
+> `readonly` **limit**: `number`
+
+***
+
+### ResourceSpend
+
+Non-negative safe-integer subtotal. False means unknown, even when amount is zero.
+Select sufficiently fine units, such as GPU-milliseconds.
+
+#### Properties
+
+##### unit
+
+> `readonly` **unit**: `string`
+
+##### amount
+
+> `readonly` **amount**: `number`
+
+##### known
+
+> `readonly` **known**: `boolean`
+
+***
+
 ### Budget
 
 A budget envelope on a spawn or the root. All ceilings; the pool reserves against them.
@@ -21117,6 +21172,10 @@ A budget envelope on a spawn or the root. All ceilings; the pool reserves agains
 
 > `readonly` `optional` **deadlineMs?**: `number`
 
+##### resources?
+
+> `readonly` `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceLimit`](#resourcelimit)\>\>
+
 ***
 
 ### Spend
@@ -21129,6 +21188,10 @@ in the journal, and the budget pool never reserves, commits, or refunds against 
 holds the reason.
 
 #### Properties
+
+##### resources?
+
+> `optional` **resources?**: `Readonly`\<`Record`\<`string`, [`ResourceSpend`](#resourcespend)\>\>
 
 ##### iterations
 
@@ -21389,7 +21452,7 @@ The live tree — reads the in-memory nursery, not the journal.
 
 ##### budget
 
-> `readonly` **budget**: `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> `readonly` **budget**: `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Conserved-pool readouts (post-reservation).
 
@@ -22532,7 +22595,7 @@ Default impl returns false for every settlement (flat — never widens).
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 ###### Returns
 
@@ -26761,7 +26824,7 @@ What the supervisor AUTHORS per sub-task: one complete canonical profile whose n
 
 ### BudgetReadout
 
-> **BudgetReadout** = `Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+> **BudgetReadout** = `Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
@@ -27356,7 +27419,7 @@ How a token count was obtained.
 
 ### UsageEvent
 
-> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](#tokenusageprovenance); \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"iteration"`; \}
+> **UsageEvent** = \{ `kind`: `"tokens"`; `tokensKnown?`: `false`; `input`: `number`; `output`: `number`; `freshInput?`: `number`; `cacheRead?`: `number`; `cacheWrite?`: `number`; `cacheBreakdownKnown?`: `false`; `provenance?`: [`TokenUsageProvenance`](#tokenusageprovenance); \} \| \{ `kind`: `"cost"`; `usdKnown`: `true`; `usd`: `number`; `provenance`: `"provider-receipt"` \| `"billing-receipt"`; \} \| \{ `kind`: `"cost"`; `usdKnown`: `false`; `usd`: `number`; `usdEstimated?`: `number`; `provenance`: `"catalog-estimate"` \| `"uncaptured"`; \} \| \{ `kind`: `"progress"`; `progress`: [`ExecutorProgressEvent`](#executorprogressevent); \} \| \{ `kind`: `"resource"`; `name`: `string`; `unit`: `string`; `amount`: `number`; `known`: `boolean`; \} \| \{ `kind`: `"iteration"`; \}
 
 #### Union Members
 
@@ -27503,6 +27566,12 @@ Observed output, not accounting. Meters ignore it; the turn projection publishes
 ###### progress
 
 > **progress**: [`ExecutorProgressEvent`](#executorprogressevent)
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"resource"`; `name`: `string`; `unit`: `string`; `amount`: `number`; `known`: `boolean`; \}
 
 ***
 
@@ -28598,7 +28667,7 @@ Durable provider identity evidence, independent from the planned materialization
 
 ### SpendChannel
 
-> **SpendChannel** = `"tokens"` \| `"usd"`
+> **SpendChannel** = `"tokens"` \| `"usd"` \| `` `resource:${string}` ``
 
 The accounting channels a usage gap leaves incomplete.
 
@@ -29008,7 +29077,7 @@ Provider-neutral conversation record accepted by a tool-loop brain.
 
 ### ToolLoopChat
 
-> **ToolLoopChat** = (`messages`, `tools`, `context?`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
+> **ToolLoopChat** = (`messages`, `tools`, `context?`) => `Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `resources?`: [`Spend`](#spend)\[`"resources"`\]; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
 
 One inference turn over the running conversation + the tool specs → the model's text, any
  tool calls, and token usage. The seam every brain satisfies.
@@ -29029,7 +29098,7 @@ One inference turn over the running conversation + the tool specs → the model'
 
 #### Returns
 
-`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
+`Promise`\<\{ `content?`: `string` \| `null`; `toolCalls`: [`ToolLoopToolCall`](#toollooptoolcall)[]; `usage?`: \{ `input`: `number`; `output`: `number`; `reasoning?`: `number`; \}; `resources?`: [`Spend`](#spend)\[`"resources"`\]; `costUsd?`: `number`; `costProvenance?`: `"provider-receipt"` \| `"billing-receipt"` \| `"catalog-estimate"`; `usageUnknown?`: `true`; `model?`: `string`; `promptCache?`: `Readonly`\<`Record`\<`string`, `number` \| `string`\>\>; `transportAttempts?`: `number`; \}\>
 
 ***
 
@@ -33658,7 +33727,7 @@ readonly [`FinalizerSettled`](#finalizersettled)[]
 
 ###### budget
 
-`Readonly`\<\{ `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
+`Readonly`\<\{ `resources?`: `Readonly`\<`Record`\<`string`, \{ `unit`: `string`; `limit`: `number`; `remaining`: `number`; `reserved`: `number`; `committed`: `number`; `known`: `boolean`; \}\>\>; `tokensLeft`: `number`; `tokensKnown`: `boolean`; `cacheBreakdownKnown`: `boolean`; `usdLeft`: `number`; `usdCapped`: `boolean`; `usdKnown`: `boolean`; `iterationsLeft`: `number`; `deadlineMs`: `number`; `reservedTokens`: `number`; \}\>
 
 #### Returns
 

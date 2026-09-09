@@ -11,6 +11,7 @@
 
 import { ValidationError } from '../errors'
 import type { ToolSpec } from './router-client'
+import type { Spend } from './supervise/types'
 
 /** Provider-neutral conversation record accepted by a tool-loop brain. */
 export type ToolLoopMessageRecord = Record<string, unknown>
@@ -41,6 +42,8 @@ export type ToolLoopChat = (
   content?: string | null
   toolCalls: ToolLoopToolCall[]
   usage?: { input: number; output: number; reasoning?: number }
+  /** Caller-measured resource totals for this turn; omission makes enforced dimensions unknown. */
+  resources?: Spend['resources']
   /** Dollar value reported for the turn. It is not billed spend unless provenance says so. */
   costUsd?: number
   costProvenance?: 'provider-receipt' | 'billing-receipt' | 'catalog-estimate'

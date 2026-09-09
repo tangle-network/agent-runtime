@@ -46,6 +46,7 @@ import {
   attestRuntimeOwnedDeferredExecutor,
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
+import { addResourceSpend } from './resources'
 import { RetainedExecutionPendingError, retainedExecutorContext } from './retained-executor'
 import {
   finalizeScopeOwnerMaterialization,
@@ -483,7 +484,8 @@ function isNonZeroSpend(s: Spend): boolean {
     s.usd > 0 ||
     s.ms > 0 ||
     s.tokensKnown === false ||
-    s.usdKnown === false
+    s.usdKnown === false ||
+    Object.keys(s.resources ?? {}).length > 0
   )
 }
 
@@ -584,6 +586,25 @@ function unreportedSpend(total: Spend, prior: Spend): Spend {
   }
   return {
     ...total,
+    ...addResourceSpend(
+      total.resources === undefined
+        ? undefined
+        : Object.fromEntries(
+            Object.entries(total.resources).map(([name, value]) => {
+              const previous = prior.resources?.[name]
+              if (previous && previous.unit !== value.unit)
+                throw new ValidationError(`resource ${name}: unit mismatch`)
+              return [
+                name,
+                {
+                  ...value,
+                  amount: Math.max(0, value.amount - (previous?.amount ?? 0)),
+                  known: value.known && (previous?.known ?? true),
+                },
+              ]
+            }),
+          ),
+    ),
     iterations: Math.max(0, total.iterations - prior.iterations),
     tokens,
     usd: Math.max(0, total.usd - prior.usd),

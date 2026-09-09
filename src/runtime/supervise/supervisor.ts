@@ -58,6 +58,7 @@ import { prepareScopeResume, type ScopeResumeState, sumSpendFromEvents } from '.
 
 export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './recover-executors'
 
+import { withBudgetResources } from './resources'
 import { createScope, finalizeScopeOwnerMaterialization, startScopeRecoveries } from './scope'
 import { detachedSnapshot } from './snapshot'
 import type {
@@ -1214,10 +1215,13 @@ async function terminalAccounting(
  *  result this list rides on. */
 function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
   const labels = new Map<NodeId, string>()
+  const budgets = new Map<NodeId, SpawnedEvent['budget']>()
   const terminal = new Set<NodeId>()
   for (const ev of events) {
-    if (ev.kind === 'spawned') labels.set(ev.id, ev.label)
-    else if (closesCursorSlot(ev)) terminal.add(ev.id)
+    if (ev.kind === 'spawned') {
+      labels.set(ev.id, ev.label)
+      budgets.set(ev.id, ev.budget)
+    } else if (closesCursorSlot(ev)) terminal.add(ev.id)
   }
   const gaps = new Map<
     string,
@@ -1236,11 +1240,25 @@ function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
   }
   for (const ev of events) {
     if (ev.kind === 'spawned' && ev.parent !== undefined && !terminal.has(ev.id)) {
-      record(ev.id, 'never-settled', ['tokens', 'usd'])
+      record(ev.id, 'never-settled', [
+        'tokens',
+        'usd',
+        ...Object.keys(ev.budget.resources ?? {}).map((name): SpendChannel => `resource:${name}`),
+      ])
     } else if (ev.kind === 'cancelled' && ev.spent === undefined) {
-      record(ev.id, 'unreported', ['tokens', 'usd'])
+      record(ev.id, 'unreported', [
+        'tokens',
+        'usd',
+        ...Object.keys(budgets.get(ev.id)?.resources ?? {}).map(
+          (name): SpendChannel => `resource:${name}`,
+        ),
+      ])
     } else if (ev.kind === 'settled' || (ev.kind === 'cancelled' && ev.spent !== undefined)) {
-      record(ev.id, 'unreported', unknownChannels(ev.spent!))
+      record(
+        ev.id,
+        'unreported',
+        unknownChannels(withBudgetResources(ev.spent!, budgets.get(ev.id) ?? {})),
+      )
     } else if (ev.kind === 'metered') {
       record(ev.id, 'unreported', unknownChannels(ev.spend))
     }
@@ -1261,6 +1279,9 @@ function unknownChannels(spend: Spend): SpendChannel[] {
   const channels: SpendChannel[] = []
   if (spend.tokensKnown === false) channels.push('tokens')
   if (spend.usdKnown === false) channels.push('usd')
+  for (const [name, resource] of Object.entries(spend.resources ?? {})) {
+    if (!resource.known) channels.push(`resource:${name}`)
+  }
   return channels
 }
 
@@ -1275,6 +1296,7 @@ function isNonEmptySpend(s: Spend): boolean {
     s.usd > 0 ||
     s.ms > 0 ||
     s.tokensKnown === false ||
-    s.usdKnown === false
+    s.usdKnown === false ||
+    Object.values(s.resources ?? {}).some((resource) => resource.amount > 0 || !resource.known)
   )
 }

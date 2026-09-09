@@ -44,3 +44,45 @@ Three settings are worth knowing.
 Multi-agent orchestration usually becomes glue code: spawn, track, collect, and guess when the work is done.
 This is one call with defaults, so you write a goal and a profile instead of a framework.
 "Done" is your check against a worker's output, so a worker cannot claim success, and a failure reports the real reason and the spend.
+
+## Caller-named resource limits
+
+Run the offline [resource accounting example](./named-resources.ts):
+
+```bash
+pnpm tsx --tsconfig tsconfig.examples.json examples/supervise/named-resources.ts
+```
+
+`Budget.resources` pairs each caller-owned name with a unit and limit.
+Executors report matching `Spend.resources` totals or incremental resource usage events.
+Every child must declare all dimensions enforced by its parent.
+Reservations include all standard and named channels atomically.
+Known unused allocations return to the pool.
+Missing or unknown enforced measurements block further admission and remain unknown after restart.
+The runtime trusts executor measurements; it does not measure accelerator use or network traffic itself.
+
+A model-driven root also needs a measured receipt for every enforced dimension.
+A custom child executor alone cannot supply the root's measurements.
+The existing `router.complete` transport can return them as `usage.resources`:
+
+```ts
+return {
+  ...completion,
+  usage: {
+    ...completion.usage,
+    resources: {
+      compute: { unit: 'millisecond', amount: measuredComputeMs, known: true },
+      transfer: { unit: 'byte', amount: measuredTransferBytes, known: true },
+    },
+  },
+}
+```
+
+The transport must forward the Runtime-authored request without changing its model, profile, tools, or settings.
+It must derive those amounts from trustworthy measurements for that completion.
+An explicit measured zero is valid; an omitted dimension remains unknown and blocks admission.
+Buffered and streamed Router responses use the same receipt validation.
+After a transport retry, the final measured subtotal remains available, but completeness becomes unknown because earlier attempts lack receipts.
+Inline Router executors sum turn receipts and preserve unknown measurements across turns.
+Custom tool-loop brains can return the same map as `resources` on their existing response.
+The public `supervise` regression is `tests/kernel/named-resource-driver.test.ts`.

@@ -15,6 +15,7 @@ import { RuntimeRunStateError } from '../../errors'
 import { addSpend, zeroSpend } from '../util'
 import { assertValidSpend, type BudgetPoolRestore, createBudgetPool } from './budget'
 import { executorFailureReason } from './executor-outcome'
+import { addResourceSpend, withBudgetResources } from './resources'
 import { prepareRetainedExecutor, type RetainedChildRecovery } from './retained-executor'
 import type { ScopeArgs } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -289,6 +290,8 @@ export function sumSpendFromEvents(events: SpawnEvent[]): {
     (rootBudget?.maxUsd ?? 0) - totals.childWork.usd - totals.driverInference.usd,
   )
   for (const budget of uncertainSpawnBudgets(events)) {
+    const unknown = withBudgetResources(zeroSpend(), budget)
+    Object.assign(totals.childWork, addResourceSpend(totals.childWork.resources, unknown.resources))
     totals.childWork.iterations += budget.maxIterations
     // The numeric value is the charged upper bound, not a fabricated measurement. The false flag
     // makes that distinction machine-readable in every report.
@@ -306,12 +309,28 @@ export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   childWork: Spend
   driverInference: Spend
 } {
+  const budgets = new Map(
+    events.flatMap((event) =>
+      event.kind === 'spawned' ? [[event.id, event.budget] as const] : [],
+    ),
+  )
   let childWork = zeroSpend()
   let driverInference = zeroSpend()
+  const owners = new Map<NodeId, Spend>()
   for (const ev of events) {
-    if (ev.kind === 'settled' || (ev.kind === 'cancelled' && ev.spent !== undefined))
-      childWork = addSpend(childWork, ev.spent!)
-    else if (ev.kind === 'metered') driverInference = addSpend(driverInference, ev.spend)
+    if (ev.kind === 'settled' || ev.kind === 'cancelled')
+      childWork = addSpend(
+        childWork,
+        withBudgetResources(
+          ev.spent ?? { ...zeroSpend(), tokensKnown: false, usdKnown: false },
+          budgets.get(ev.id) ?? {},
+        ),
+      )
+    else if (ev.kind === 'metered')
+      owners.set(ev.id, addSpend(owners.get(ev.id) ?? zeroSpend(), ev.spend))
+  }
+  for (const [id, spend] of owners) {
+    driverInference = addSpend(driverInference, withBudgetResources(spend, budgets.get(id) ?? {}))
   }
   return { childWork, driverInference }
 }
@@ -329,14 +348,20 @@ export async function prepareScopeResume(
   const recovering = new Set(prepared.recoveries.map((item) => item.spawned.id))
   // A restored manager's full reservation already covers its previous inference.
   // Its executor reconciles total spend and publishes only the unrecorded meter delta.
-  const measured = sumMeasuredSpendFromEvents(
-    prior.filter((event) => event.kind !== 'metered' || !recovering.has(event.id)),
+  const measuredEvents = prior.filter(
+    (event) => event.kind !== 'metered' || !recovering.has(event.id),
+  )
+  const measured = sumMeasuredSpendFromEvents(measuredEvents)
+  const hasCommittedEvidence = measuredEvents.some(
+    (event) => event.kind === 'metered' || event.kind === 'settled' || event.kind === 'cancelled',
   )
   const settled = await replaySpawnTree(opts.journal, opts.blobs, opts.runId)
   signal.throwIfAborted()
   return {
     poolRestore: {
-      committed: addSpend(measured.childWork, measured.driverInference),
+      ...(hasCommittedEvidence
+        ? { committed: addSpend(measured.childWork, measured.driverInference) }
+        : {}),
       uncertainReservations: uncertainSpawnBudgets(prior, recovering),
     },
     resumeFrom: {

@@ -1,8 +1,8 @@
 /**
  *
  * The conserved budget reservation pool — the invariant the whole instrument
- * rests on (critique M5/B3). One root `Budget` becomes a conserved pool of three
- * quantities (tokens, usd, iterations) plus an absolute deadline. Children reserve
+ * rests on (critique M5/B3). One root `Budget` becomes a conserved pool of standard
+ * quantities (tokens, usd, iterations) and caller-named resources plus an absolute deadline. Children reserve
  * atomically at spawn and reconcile at settle:
  *
  *   total ≡ free + reserved + committed          (for every known quantity)
@@ -26,16 +26,11 @@
  * it trusts a reported `input`: the token channel is an accounting unit, not a trust boundary
  * against a provider that misreports its own usage.
  *
- * THE POOL RESERVES AGAINST THREE QUANTITIES AND NO MORE. `Spend.boxMinutes` — platform box wall
- * time — is reported and summed, and it is never reserved, never committed, and never refunded.
- * The reason is the conservation law above: a reservation is only meaningful against a ceiling a
- * caller declared and a measurement the pool can trust, and box minutes have neither. `Budget`
- * declares no box ceiling, and the number the sandbox executor reports is DERIVED from the box
- * lifetime it watched (`boxMinutesProvenance: 'estimated'`), not a platform receipt. Reserving
- * against an estimate would let a derived number refuse real work, which is the same defect as a
- * gate that cannot fire, inverted. When the platform reports minutes itself
- * (`boxMinutesProvenance: 'observed'`) and a `Budget` gains a box ceiling, the channel becomes a
- * conserved quantity; until both hold, it is evidence only.
+ * Named resources require explicit units, ceilings, and complete executor measurements.
+ * Missing or unknown enforced measurements close admission for that resource.
+ * The pool trusts those receipts; it does not independently meter external systems.
+ * `Spend.boxMinutes` remains evidence only and has no implicit resource ceiling.
+ * Callers must not present estimated box lifetime as a measured resource receipt.
  *
  * Pure and deterministic: the run's start instant is supplied, there is no I/O, and no
  * wall-clock or RNG read. A `reserve`/`reconcile` ticket is single-use (fail-loud on double or
@@ -63,6 +58,7 @@
 import { ValidationError } from '../../errors'
 import type { LoopTokenUsage } from '../types'
 import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
+import { addResourceSpend, assertResources, withBudgetResources } from './resources'
 import type { Budget, Spend, TokenUsageProvenance, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
@@ -72,6 +68,7 @@ export type { Budget, Spend, UsageEvent }
 export interface ReservationTicket {
   readonly id: number
   readonly reserved: {
+    readonly resources?: Budget['resources']
     readonly tokens: number
     readonly usd: number
     readonly iterations: number
@@ -94,6 +91,19 @@ export interface ReservationTicket {
  *  `usdCapped` distinguishes a real `usdLeft <= 0` exhaustion from an uncapped pool (which always
  *  reads `usdLeft: 0`) — the in-loop guard needs it to bound a usd-capped driver. */
 export type BudgetReadout = Readonly<{
+  resources?: Readonly<
+    Record<
+      string,
+      {
+        unit: string
+        limit: number
+        remaining: number
+        reserved: number
+        committed: number
+        known: boolean
+      }
+    >
+  >
   tokensLeft: number
   /**
    * False once the pool has recorded work whose token count was UNREPORTED (a `Spend` with
@@ -147,6 +157,7 @@ export function assertValidBudget(budget: Budget, label = 'budget'): void {
       throw new Error(`${label}.${field} must be a non-negative finite number`)
     }
   }
+  assertResources(budget.resources, 'limit', `${label}.resources`)
   safeInteger(budget.maxIterations, 'maxIterations')
   safeInteger(budget.maxTokens, 'maxTokens')
   if (budget.maxUsd !== undefined) finiteNonNegative(budget.maxUsd, 'maxUsd')
@@ -154,6 +165,7 @@ export function assertValidBudget(budget: Budget, label = 'budget'): void {
 }
 
 export function assertValidSpend(spend: Spend, label: string): void {
+  assertResources(spend.resources, 'amount', `${label}.resources`)
   if (!Number.isSafeInteger(spend.iterations) || spend.iterations < 0) {
     throw new Error(`${label}.iterations must be a non-negative safe integer`)
   }
@@ -223,7 +235,7 @@ export function assertValidSpend(spend: Spend, label: string): void {
 export interface BudgetPool {
   /**
    * Atomically reserve a child's full ceiling from the free balance. Fails closed
-   * ({ ok: false }) when the pool can't cover tokens, usd, or iterations — the
+   * ({ ok: false }) when the pool can't cover standard or named channels — the
    * caller inspects `ok` before `ticket`.
    */
   reserve(
@@ -246,12 +258,12 @@ export interface BudgetPool {
    * (its chat turns), which is real compute but not a spawned child. A direct `free → committed`
    * debit, so `total ≡ free + reserved + committed` is preserved: equal-k counts the driver's
    * tokens and the in-loop budget guard (`readout().tokensLeft`) sees them. `free` may go negative
-   * when a run overspends — that is honest (the readout then signals exhaustion). It never throws:
-   * the spend already happened, so accounting records reality; the in-loop guard prevents MORE.
+   * when a run overspends. Unknown enforced resource usage is recorded before throwing.
+   * Partial increments defer completeness checks until the invocation reports its terminal spend.
    * The DURABLE record is the journal's `metered` event (written by `Scope.meter`); this debit
    * only makes the live `readout()` reflect driver inference for the in-loop guard.
    */
-  observe(spend: Spend): void
+  observe(spend: Spend, options?: { partial?: boolean }): void
   /** Fail loud if any reservation is still open — the conserved-pool leak detector. Called at the
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
@@ -269,6 +281,7 @@ export function spendFromUsageEvents(events: UsageEvent[]): Spend {
 
 /** Running accounting totals folded from `UsageEvent`s. */
 export interface UsageTotals {
+  resources?: Spend['resources']
   tokens: LoopTokenUsage
   tokensKnown: boolean
   /** Which evidence the counted tokens came from. `undefined` until the first `tokens` event. */
@@ -297,6 +310,13 @@ export function newUsageTotals(): UsageTotals {
  * `iteration` advances the iteration count.
  */
 export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
+  if (ev.kind === 'resource') {
+    totals.resources = addResourceSpend(
+      totals.resources,
+      Object.fromEntries([[ev.name, { unit: ev.unit, amount: ev.amount, known: ev.known }]]),
+    ).resources
+    return
+  }
   if (ev.kind === 'tokens') {
     addTokenUsage(totals.tokens, ev)
     if (ev.tokensKnown === false) totals.tokensKnown = false
@@ -322,6 +342,7 @@ export function meterUsageEvent(totals: UsageTotals, ev: UsageEvent): void {
  *  read wall-clock. */
 export function spendFromUsageTotals(totals: UsageTotals): Spend {
   return {
+    ...addResourceSpend(totals.resources),
     iterations: totals.iterations,
     tokens: totals.tokens,
     ...(totals.tokensKnown ? {} : { tokensKnown: false }),
@@ -394,6 +415,69 @@ export function createBudgetPool(
 
   const absoluteDeadlineMs = root.deadlineMs === undefined ? 0 : runStartedAtMs + root.deadlineMs
 
+  const resources = new Map<
+    string,
+    {
+      unit: string
+      limit: number
+      remaining: number
+      reserved: number
+      committed: number
+      known: boolean
+    }
+  >(
+    Object.entries(root.resources ?? {}).map(
+      ([name, value]) =>
+        [
+          name,
+          { ...value, remaining: value.limit, reserved: 0, committed: 0, known: true },
+        ] as const,
+    ),
+  )
+
+  function validateResourceUnits(spend: Spend): void {
+    for (const [name, value] of Object.entries(spend.resources ?? {})) {
+      const limit = resources.get(name)
+      if (limit && limit.unit !== value.unit) throw new Error(`resource ${name}: unit mismatch`)
+    }
+  }
+
+  function commitResources(
+    spend: Spend,
+    reserved: Budget['resources'] = {},
+    requireAll = true,
+  ): string | undefined {
+    let violation: string | undefined
+    for (const [name, state] of resources) {
+      const value = spend.resources?.[name]
+      if (!requireAll && value === undefined) continue
+      const allocation = reserved?.[name]?.limit ?? 0
+      const amount = value?.amount ?? 0
+      state.reserved -= allocation
+      const committed = state.committed + amount
+      const overflow = !Number.isSafeInteger(committed)
+      state.committed = Math.min(committed, Number.MAX_SAFE_INTEGER)
+      // Subtract reserved capacity first so every intermediate balance stays a safe integer.
+      state.remaining = state.limit - state.reserved - state.committed
+      if (value?.known !== true || overflow) {
+        state.known = false
+        // The remaining balance cannot fund another invocation without a complete receipt.
+        // Consume free capacity conservatively; later known refunds do not reopen admission.
+        const retained = Math.max(0, state.remaining)
+        state.committed += retained
+        state.remaining -= retained
+        violation ??= overflow
+          ? `resource ${name}: amount overflow under an enforced limit`
+          : `resource ${name}: unknown usage under an enforced limit`
+      } else if (reserved?.[name] && amount > allocation) {
+        violation ??= `resource ${name}: spent ${amount} > reserved ${allocation}`
+      } else if (state.remaining < 0) {
+        violation ??= `resource ${name}: exceeded root limit ${state.limit}`
+      }
+    }
+    return violation
+  }
+
   let nextTicketId = 0
   const open = new Set<number>()
 
@@ -401,6 +485,17 @@ export function createBudgetPool(
     b: Budget,
   ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection } {
     assertValidBudget(b, 'reservation budget')
+    for (const [name, state] of resources) {
+      const wanted = b.resources?.[name]
+      if (!wanted) throw new ValidationError(`resource ${name}: child must declare its limit`)
+      if (wanted.unit !== state.unit) throw new ValidationError(`resource ${name}: unit mismatch`)
+      if (!state.known || wanted.limit > state.remaining)
+        return { ok: false, reason: 'budget-exhausted' }
+    }
+    for (const name of Object.keys(b.resources ?? {})) {
+      if (!resources.has(name))
+        throw new ValidationError(`resource ${name}: root must declare its limit`)
+    }
     const wantTokens = b.maxTokens
     const wantUsd = b.maxUsd ?? 0
     const wantIterations = b.maxIterations
@@ -417,6 +512,11 @@ export function createBudgetPool(
     if (wantUsd > 0 && !usdCapped) return { ok: false, reason: 'usd-unbudgeted' }
     if (wantUsd > freeUsd) return { ok: false, reason: 'budget-exhausted' }
 
+    for (const [name, state] of resources) {
+      const amount = b.resources![name]!.limit
+      state.remaining -= amount
+      state.reserved += amount
+    }
     freeTokens -= wantTokens
     reservedTokens += wantTokens
     freeIterations -= wantIterations
@@ -433,6 +533,13 @@ export function createBudgetPool(
       ticket: {
         id,
         reserved: {
+          ...(b.resources === undefined
+            ? {}
+            : {
+                resources: Object.fromEntries(
+                  Object.entries(b.resources).map(([name, value]) => [name, { ...value }]),
+                ),
+              }),
           tokens: wantTokens,
           usd: wantUsd,
           iterations: wantIterations,
@@ -447,6 +554,7 @@ export function createBudgetPool(
       throw new Error(`budget pool: reconcile of unknown or already-settled ticket ${ticket.id}`)
     }
     assertValidSpend(spent, `budget pool ticket ${ticket.id} spend`)
+    validateResourceUnits(spent)
     const { tokens: rTokens, usd: rUsd, iterations: rIterations } = ticket.reserved
     const unknownUnderCap = usdCapped && spent.usdKnown === false
     const spentTokens = chargedTokens(spent.tokens)
@@ -520,11 +628,14 @@ export function createBudgetPool(
       committedUsd += spent.usd
     }
 
+    const resourceViolation = commitResources(spent, ticket.reserved.resources)
+    violation ??= resourceViolation
     if (violation !== undefined) throw new Error(`budget pool: ${violation}`)
   }
 
-  function observe(spend: Spend): void {
+  function observe(spend: Spend, options: { partial?: boolean } = {}): void {
     assertValidSpend(spend, 'observed spend')
+    validateResourceUnits(spend)
     // Unknown dollars under a dollar cap are REFUSED before any balance mutates: unlike a
     // reconciled child (whose reservation must settle), an observation has no ticket to strand,
     // so the honest reading is a fail-loud refusal the caller surfaces — `driver-failed` carrying
@@ -554,10 +665,19 @@ export function createBudgetPool(
     committedIterations += spend.iterations
     committedUsd += spend.usd
     if (usdCapped) freeUsd -= spend.usd
+    const violation = commitResources(spend, {}, !options.partial)
+    if (violation) throw new ValidationError(`budget pool: ${violation}`)
   }
 
   function readout(): BudgetReadout {
     return {
+      ...(resources.size
+        ? {
+            resources: Object.fromEntries(
+              [...resources].map(([name, value]) => [name, { ...value }]),
+            ),
+          }
+        : {}),
       tokensLeft: freeTokens,
       tokensKnown: !tokensTainted,
       cacheBreakdownKnown: !cacheBreakdownTainted,
@@ -586,6 +706,8 @@ export function createBudgetPool(
   // refusing to record it would be the zero-cost restart the pool must never allow.
   if (restore.committed !== undefined) {
     assertValidSpend(restore.committed, 'budget restore committed')
+    validateResourceUnits(restore.committed)
+    commitResources(restore.committed)
     const committed = restore.committed
     if (committed.tokensKnown === false) tokensTainted = true
     if (!hasCompleteCacheBreakdown(committed.tokens)) cacheBreakdownTainted = true
@@ -612,6 +734,11 @@ export function createBudgetPool(
     // The child ran (or may have run) without a settle record: its telemetry is unknown, so the
     // pool charges the full declared ceiling and reports the balance as a ceiling, never a
     // measurement.
+    const unknownResources = withBudgetResources(
+      { iterations: 0, tokens: zeroTokenUsage(), usd: 0, ms: 0 },
+      root,
+    )
+    commitResources(unknownResources)
     tokensTainted = true
     usdMeasured = false
     freeTokens -= uncertain.maxTokens

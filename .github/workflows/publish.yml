@@ -118,7 +118,7 @@ jobs:
           exit 1
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile && pnpm peers check
 
       - name: Lint (biome)
         run: pnpm run lint
@@ -344,7 +344,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile && pnpm peers check
 
       - name: Wait for published agent-bench dependencies
         timeout-minutes: 25

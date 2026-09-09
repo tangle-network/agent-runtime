@@ -20,6 +20,8 @@ import { estimateCost, isModelPriced } from '@tangle-network/agent-eval'
 import type { ReasoningEffort } from '@tangle-network/agent-interface'
 import { ValidationError } from '../errors'
 import { type RouterRetryPolicy, resolveRouterRetryPolicy } from './router-retry-policy'
+import { addResourceSpend } from './supervise/resources'
+import type { Spend } from './supervise/types'
 import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 
 /**
@@ -31,7 +33,7 @@ import { runBrainLoop, type ToolLoopChat } from './tool-loop'
 export interface RouterTransportConfig {
   routerBaseUrl: string
   routerKey: string
-  /** Injectable OpenAI-compatible transport for offline execution. */
+  /** Injectable OpenAI-compatible transport. Optional usage.resources carries measured turn totals. */
   complete?: (
     body: Record<string, unknown>,
     request?: {
@@ -110,6 +112,8 @@ export interface RouterChatResult {
   reasoning?: string
   /** REAL usage, or undefined when the provider reported none. */
   usage?: { input: number; output: number; reasoning?: number }
+  /** Explicit per-turn resource measurements supplied by the transport. */
+  resources?: Spend['resources']
   /** Local catalog estimate derived from usage; never a provider billing receipt. */
   costUsd?: number
   /** Present with `costUsd` so consumers cannot mistake a catalog estimate for billed spend. */
@@ -227,7 +231,11 @@ function parseChatResult(
     }>
     usage?: RawUsage
   }
-  const { usage, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(data.usage, model)
+  const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
+    data.usage,
+    model,
+    transportAttempts,
+  )
   const msg = data.choices?.[0]?.message
   if (!msg) throw new ValidationError('router completion: no choices[0].message')
   const { content, reasoning } = splitReasoning(
@@ -240,6 +248,7 @@ function parseChatResult(
     ...(reportedModel(data.model) ? { model: reportedModel(data.model) } : {}),
     ...(reasoning ? { reasoning } : {}),
     ...(usage ? { usage } : {}),
+    ...(resources ? { resources } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(costProvenance ? { costProvenance } : {}),
     ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
@@ -287,6 +296,8 @@ export interface RouterChatToolsResult {
   content: string | null
   toolCalls: RouterToolCall[]
   usage?: { input: number; output: number; reasoning?: number }
+  /** Explicit per-turn resource measurements supplied by the transport. */
+  resources?: Spend['resources']
   costUsd?: number
   /** Present with `costUsd` so consumers cannot mistake a catalog estimate for billed spend. */
   costProvenance?: 'catalog-estimate'
@@ -400,13 +411,18 @@ export async function routerChatWithTools(
     name: tc.function?.name ?? '',
     arguments: tc.function?.arguments ?? '{}',
   }))
-  const { usage, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(data.usage, cfg.model)
+  const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
+    data.usage,
+    cfg.model,
+    transportAttempts,
+  )
   return {
     content: msg?.content ?? null,
     toolCalls,
     transportAttempts,
     ...(reportedModel(data.model) ? { model: reportedModel(data.model) } : {}),
     ...(usage ? { usage } : {}),
+    ...(resources ? { resources } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(costProvenance ? { costProvenance } : {}),
     ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
@@ -477,13 +493,23 @@ function providerRequestExtras(
 function meterTurn(
   raw: RawUsage | undefined,
   model: string,
+  transportAttempts: number,
 ): {
   usage?: { input: number; output: number; reasoning?: number }
+  /** Explicit per-turn resource measurements supplied by the transport. */
+  resources?: Spend['resources']
   costUsd?: number
   costProvenance?: 'catalog-estimate'
   billedCostUsd?: number
   cache?: PromptCacheUsage
 } {
+  let resources = addResourceSpend(raw?.resources).resources
+  if (transportAttempts > 1 && resources !== undefined) {
+    // The final receipt cannot prove that failed transport attempts consumed no resources.
+    resources = Object.fromEntries(
+      Object.entries(resources).map(([name, value]) => [name, { ...value, known: false }]),
+    )
+  }
   const reasoning = providerReasoningTokens(raw)
   const usage =
     raw && typeof raw.prompt_tokens === 'number' && typeof raw.completion_tokens === 'number'
@@ -497,6 +523,7 @@ function meterTurn(
   const billedCostUsd = providerBilledCost(raw)
   if (!usage) {
     return {
+      ...(resources ? { resources } : {}),
       ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
       ...(cache ? { cache } : {}),
     }
@@ -514,6 +541,7 @@ function meterTurn(
       : localEstimate
   return {
     usage,
+    ...(resources ? { resources } : {}),
     ...(costUsd !== undefined ? { costUsd, costProvenance: 'catalog-estimate' as const } : {}),
     ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
     ...(cache ? { cache } : {}),
@@ -553,6 +581,7 @@ export interface PromptCacheUsage {
 }
 
 interface RawUsage {
+  resources?: Spend['resources']
   prompt_tokens?: number
   completion_tokens?: number
   cost?: number
@@ -779,7 +808,11 @@ export async function streamRouterChatWithTools(
       name: call.name ?? '',
       arguments: call.arguments || '{}',
     }))
-  const { usage, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(rawUsage, cfg.model)
+  const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
+    rawUsage,
+    cfg.model,
+    transportAttempts,
+  )
   return {
     // `null` only when NO content field was ever sent — the buffered path's `msg?.content ?? null`.
     content: sawContent ? split.content : null,
@@ -789,6 +822,7 @@ export async function streamRouterChatWithTools(
     ...(split.reasoning ? { reasoning: split.reasoning } : {}),
     ...(finishReason !== undefined ? { finishReason } : {}),
     ...(usage ? { usage } : {}),
+    ...(resources ? { resources } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(costProvenance ? { costProvenance } : {}),
     ...(billedCostUsd !== undefined ? { billedCostUsd } : {}),
@@ -1207,6 +1241,7 @@ export function routerBrain(
       content: result.content,
       toolCalls: result.toolCalls,
       ...(result.usage !== undefined ? { usage: result.usage } : {}),
+      ...addResourceSpend(result.resources),
       ...(result.usageUnknown === true ? { usageUnknown: true as const } : {}),
       ...(result.model !== undefined ? { model: result.model } : {}),
       ...(result.cache !== undefined ? { promptCache: Object.freeze({ ...result.cache }) } : {}),
