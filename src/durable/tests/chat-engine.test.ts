@@ -100,6 +100,32 @@ describe('handleChatTurn', () => {
     expect(events.at(-1)?.type).toBe('session.run.failed')
   })
 
+  it('preserves the status and safe message from a thrown Response', async () => {
+    const { body } = handleChatTurn({
+      identity: IDENTITY,
+      log: () => undefined,
+      hooks: {
+        produce: () => {
+          async function* stream(): AsyncGenerator<ChatStreamEvent, void, unknown> {
+            yield { type: 'message.part.updated', data: { delta: 'partial' } }
+            throw Response.json(
+              { error: { code: 'delegation_failed', message: 'Platform rejected the child key' } },
+              { status: 503 },
+            )
+          }
+          return { stream: stream(), finalText: () => '' }
+        },
+        persistAssistantMessage: async () => undefined,
+      },
+    })
+
+    const events = await drain(body)
+    expect(events.find((e) => e.type === 'error')?.data?.message).toBe(
+      'HTTP 503: Platform rejected the child key',
+    )
+    expect(events.at(-1)?.type).toBe('session.run.failed')
+  })
+
   it('onEvent side channel receives every emitted event', async () => {
     const broadcast: string[] = []
     const { body } = handleChatTurn({
