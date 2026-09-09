@@ -1,3 +1,19 @@
+/** Provenance of an explicit cancellation, preserved through every abort link. */
+export class RunCancellationReason extends Error {
+  constructor(
+    readonly source: string,
+    reason: string,
+    readonly operationId?: string,
+  ) {
+    super(reason)
+    this.name = 'RunCancellationReason'
+  }
+
+  override toString(): string {
+    return this.message
+  }
+}
+
 /**
  * One abort race, and one abort cascade, for the supervision tree.
  *
@@ -20,6 +36,7 @@
  */
 export function abortReason(signal: AbortSignal, fallback: string): unknown {
   const reason = signal.reason
+  if (reason instanceof RunCancellationReason) return reason
   if (typeof reason === 'string' && reason.length > 0) return reason
   // `abort()` with no argument sets a DOMException whose message is the platform placeholder
   // ("This operation was aborted"), which carries no more information than the generic death it
@@ -33,7 +50,13 @@ export function abortReason(signal: AbortSignal, fallback: string): unknown {
 /** An `AbortError` carrying the signal's own string reason, or `fallback` when it states none. */
 export function abortError(signal: AbortSignal, fallback: string): Error {
   const reason = abortReason(signal, fallback)
-  const error = new Error(typeof reason === 'string' && reason.length > 0 ? reason : fallback)
+  const error = new Error(
+    reason instanceof Error
+      ? reason.message
+      : typeof reason === 'string' && reason.length > 0
+        ? reason
+        : fallback,
+  )
   error.name = 'AbortError'
   return error
 }

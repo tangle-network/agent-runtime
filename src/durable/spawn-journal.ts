@@ -645,7 +645,7 @@ export function aggregateProviderModelEvidence(
     // This event is a parent-side summary. Its owned tree is the authoritative source and is
     // traversed above; consuming its summary here would count nested attempts twice.
     if (node.ownedTreeRoot !== undefined) return
-    if (event.kind === 'cancelled') {
+    if (event.kind === 'cancelled' && event.providerModel === undefined) {
       markMissing()
       return
     }
@@ -1037,8 +1037,11 @@ export async function replaySpawnTree(
         kind: 'down',
         handle: handleFor(ev.id, 'cancelled'),
         reason: ev.reason,
-        infra: false,
-        trace: { status: 'unavailable', reason: 'execution-did-not-start' },
+        infra: ev.infra === true,
+        ...(ev.providerModel === undefined
+          ? {}
+          : { providerModel: copyProviderModelEvidence(ev.providerModel) }),
+        trace: ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' },
         ...settlementTime(ev.at),
         seq: ev.seq,
       })
@@ -1210,7 +1213,10 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
     } else {
       const node = requireNode(nodes, ev.id)
       node.status = 'cancelled'
-      node.trace = { status: 'unavailable', reason: 'execution-did-not-start' }
+      node.trace = ev.trace ?? { status: 'unavailable', reason: 'execution-did-not-start' }
+      if (ev.spent !== undefined) node.spent = cloneSpend(ev.spent)
+      node.providerModel = copyProviderModelEvidence(ev.providerModel)
+      node.outRef = ev.outRef
       const settledAt = Date.parse(ev.at)
       if (Number.isFinite(settledAt)) node.settledAt = settledAt
     }

@@ -91,3 +91,22 @@ No provider event carries a billing receipt, so the executor reports `usdKnown: 
 dollar-capped budget pool REFUSES an unknown dollar cost rather than comparing against a floor, so
 this example sets a token budget and no dollar cap. That refusal is the contract working: a
 ceiling priced off an unmeasured number is a ceiling that cannot fire.
+
+## Different child placements
+
+The example declares separate Codex and OpenCode placements on the same provider backend.
+Each placement selects a create backend, secret references, and turn options from the unchanged child profile.
+Selection requires exactly one matching declaration; absent and ambiguous matches refuse before environment creation.
+Declare credentials and backend options in each placement.
+Shared defaults carry common infrastructure, including Runtime coordination attachments.
+A placement cannot replace a shared environment variable or inject Runtime attachments.
+
+The execution binding receipt names the placement ID and a digest of its public configuration.
+The materialization plan binds the same identity.
+The digest includes credential names and authentication file paths, and excludes credential contents.
+Retained replay binds that identity alongside the original profile and turn.
+A mapped task cannot replace the selected backend, credential configuration, or profile model.
+The same placement selection applies to steerable provider sessions.
+
+This example uses an offline provider and a scripted supervisor.
+It proves request routing and receipts; it does not establish live credentials or model quality.

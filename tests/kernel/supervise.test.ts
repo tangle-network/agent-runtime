@@ -2218,7 +2218,7 @@ describe('supervisor', () => {
     }
     const result = await supervisor.run(driver, 't', supervisorOpts({ signal: controller.signal }))
     expect(result.kind).toBe('no-winner')
-    if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+    if (result.kind === 'no-winner') expect(result.reason).toBe('cancelled')
   })
 
   it('a bound RootHandle reads the live tree and is fail-loud when detached', async () => {

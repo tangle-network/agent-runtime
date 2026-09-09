@@ -476,7 +476,7 @@ describe('runGraph — the 2-node cyclic case over supervise()', () => {
       signal: controller.signal,
     })
     expect(res.result.kind).toBe('no-winner')
-    if (res.result.kind === 'no-winner') expect(res.result.reason).toBe('aborted')
+    if (res.result.kind === 'no-winner') expect(res.result.reason).toBe('cancelled')
     expect(res.exhaustedEdges).toContain('delegates:driver->worker')
     // The ledger still tells the cap story — delivered, then refused — without blaming the cap.
     expect(res.ledger.map((row) => row.outcome)).toEqual(['delivered', 'unpropagated'])

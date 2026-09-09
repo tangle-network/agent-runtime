@@ -309,7 +309,8 @@ export function sumMeasuredSpendFromEvents(events: SpawnEvent[]): {
   let childWork = zeroSpend()
   let driverInference = zeroSpend()
   for (const ev of events) {
-    if (ev.kind === 'settled') childWork = addSpend(childWork, ev.spent)
+    if (ev.kind === 'settled' || (ev.kind === 'cancelled' && ev.spent !== undefined))
+      childWork = addSpend(childWork, ev.spent!)
     else if (ev.kind === 'metered') driverInference = addSpend(driverInference, ev.spend)
   }
   return { childWork, driverInference }

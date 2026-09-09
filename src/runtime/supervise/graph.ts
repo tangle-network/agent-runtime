@@ -1303,7 +1303,9 @@ export function superviseAgentGraph(
     // stays observable in `exhaustedEdges` either way.
     const lifecycleEnded =
       result.kind === 'no-winner' &&
-      (result.reason === 'aborted' || result.reason === 'budget-exhausted')
+      (result.reason === 'aborted' ||
+        result.reason === 'cancelled' ||
+        result.reason === 'budget-exhausted')
     if (result.kind !== 'winner' && !lifecycleEnded && exhaustedDelegates.size > 0) {
       // Fail LOUD: the backstop, not the task, ended this run. The evidence rides on the error.
       // Only DELEGATES caps refuse spawns, so only they can be the cause named here.

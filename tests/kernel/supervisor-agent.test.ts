@@ -882,9 +882,12 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     await cancelled
     const result = await running
 
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
     expect(nestedSignal?.aborted).toBe(true)
-    expect(nestedSignal?.reason).toBe('stop the experiment tree')
+    expect(nestedSignal?.reason).toMatchObject({
+      message: 'stop the experiment tree',
+      source: 'root-handle',
+    })
   })
 
   it('a caller abort cancels a product tool invoked through the external MCP path', async () => {
@@ -974,9 +977,12 @@ describe('supervisorAgent — the brain is resolved from profile.harness (backen
     const result = await running
     await finished
 
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
     expect(externalSignal?.aborted).toBe(true)
-    expect(externalSignal?.reason).toBe('caller signal aborted')
+    expect(externalSignal?.reason).toMatchObject({
+      message: 'caller signal aborted',
+      source: 'signal',
+    })
     expect(externalResponse).toMatchObject({
       error: { code: -32000, message: 'caller signal aborted' },
     })

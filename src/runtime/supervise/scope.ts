@@ -36,7 +36,7 @@ import { notifyRuntimeHookEvent, type RuntimeHooks } from '../../runtime-hooks'
 import type { RetainedInteractiveAdmission } from '../retained-run-types'
 import type { Iteration } from '../types'
 import { cloneTokenUsage, zeroSpend } from '../util'
-import { abortError } from './abortable'
+import { abortError, RunCancellationReason } from './abortable'
 import {
   assertValidSpend,
   type BudgetPool,
@@ -280,6 +280,7 @@ export interface LiveWorkerCapacityState {
  * delivery; `seq` is stamped by `next()`, never here.
  */
 interface LiveChild {
+  cancellationReason?: RunCancellationReason
   readonly id: NodeId
   status: NodeStatus
   runtime: NodeSnapshot['runtime']
@@ -328,7 +329,7 @@ interface LiveChild {
   /** The executor's optional cancellation operation, captured at spawn — backs `scope.cancel`. */
   readonly requestCancel?: (request: ExecutorCancellationRequest) => Promise<ExecutorCancellation>
   /** Abort this child's own signal — the local half of `scope.cancel`. */
-  readonly abortChild: (reason?: string) => void
+  readonly abortChild: (reason?: unknown) => void
   /** Kernel-owned declaration of the exact execution plan, durable before `execute` starts. */
   materialization?: ProfileMaterializationReceipt
   /** One immutable record per concrete execution attempt. */
@@ -904,7 +905,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           return bindings && bindings.length > 0 ? Object.freeze([...bindings]) : undefined
         },
         abort(reason?: string): void {
-          controller.abort(reason)
+          controller.abort(new RunCancellationReason('worker-handle', reason ?? 'worker cancelled'))
         },
       }
 
@@ -945,8 +946,19 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           ? { readInteractiveReady: executor.interactiveReady.bind(executor) }
           : {}),
         ...(executor.cancel ? { requestCancel: executor.cancel.bind(executor) } : {}),
-        abortChild: (reason?: string): void => controller.abort(reason),
+        abortChild: (reason?: unknown): void => controller.abort(reason),
       }
+      const recordCancellation = (): void => {
+        if (
+          !live.executorDone &&
+          live.acceptedResult === undefined &&
+          controller.signal.reason instanceof RunCancellationReason
+        ) {
+          live.cancellationReason = controller.signal.reason
+        }
+      }
+      if (controller.signal.aborted) recordCancellation()
+      else controller.signal.addEventListener('abort', recordCancellation, { once: true })
       children.set(id, live)
       if (opts.key !== undefined) {
         keyed.set(opts.key, {
@@ -1419,7 +1431,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       id,
       status: 'waiting',
       runtime: 'wait',
-      abortChild: (reason?: string): void => waitAbort.abort(reason),
+      abortChild: (reason?: unknown): void => waitAbort.abort(reason),
       // A wait's recorded budget is zero on every channel — nothing was reserved, so nothing may
       // be reconciled, and a journal reader sums it as the zero it truly is.
       budget: { maxIterations: 0, maxTokens: 0 },
@@ -1579,7 +1591,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (child.requestCancel) return await child.requestCancel(request)
     // No backend operation exists for this runtime. Abort the child locally and say exactly that,
     // so a caller never reads a local abort as provider acceptance.
-    child.abortChild('cancelled')
+    child.abortChild(new RunCancellationReason('scope', 'cancelled'))
     return {
       status: 'unknown',
       effect: 'cancel_requested',
@@ -2274,14 +2286,16 @@ async function finalizeSettlement<Out>(
     await appendSettlementMetering(args.journal, args.root, child.id, settlement.metered, at)
   }
   if (settlement.kind === 'down') {
-    child.status = 'failed'
+    const cancellation = child.cancellationReason
+    child.status = cancellation === undefined ? 'failed' : 'cancelled'
     child.trace = settlement.trace
     child.providerModel = settlement.providerModel
     if (!child.recoveryPending)
       await args.journal.appendEvent(args.root, {
-        kind: 'settled',
+        ...(cancellation === undefined
+          ? { kind: 'settled' as const, status: 'down' as const }
+          : { kind: 'cancelled' as const, source: cancellation.source }),
         id: child.id,
-        status: 'down',
         spent: child.spent,
         infra: settlement.infra,
         reason: settlement.reason,

@@ -421,14 +421,14 @@ describe('provisionSupervisor', () => {
         supervisorId: provisioned.supervisorId,
         workerId: provisioned.workerId,
         supervisorStatus: receipt.supervisorStatus,
-        workerStatus: 'down',
+        workerStatus: 'cancelled',
         resourcesReleased: true,
         remainingResources: [],
       })
       await expect(provisioned.cleanup()).resolves.toEqual(receipt)
       expect(fixture.stats.destroyCalls).toBe(1)
       const finalWorker = loadTopSnapshot(root).supervisors[0]?.workers[0]
-      expect(finalWorker?.status).toBe('down')
+      expect(finalWorker?.status).toBe('cancelled')
       expect(finalWorker?.spend.iterations).toBe(1)
       expect(finalWorker?.metered.iterations).toBe(0)
     } finally {

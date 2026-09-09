@@ -1,3 +1,4 @@
+import { selectProviderPlacement } from '../provider-placement'
 /**
  *
  * The leaf runtime — the built-in `Executor` IMPLEMENTATIONS behind the ONE
@@ -5311,7 +5312,11 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
       case 'cli-in-place':
         return cliInPlaceExecutor(spec, seamed)
       case 'provider': {
-        const providerSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
+        const originalSeam = readSeam<ProviderSeam>(seamed, providerSeamKey, 'provider')
+        const selected = originalSeam.steering
+          ? selectProviderPlacement(spec.profile, originalSeam)
+          : undefined
+        const providerSeam = selected?.options ?? originalSeam
         const provider = resolveAgentEnvironmentProvider(
           providerSeam.provider,
           providerSeam.registry,
@@ -5361,10 +5366,31 @@ export function createExecutor(config: ExecutorConfig): ExecutorFactory<unknown>
           const executor = sandboxExecutor({ ...spec, harness }, providerCtx)
           // The copy renames the runtime only; it must keep the sandbox executor's materialization
           // evidence, or exact turn execution would refuse the executor Runtime itself built.
-          return inheritRuntimeOwnedExecutorAttestation(executor, {
+          const wrapper = inheritRuntimeOwnedExecutorAttestation(executor, {
             ...executor,
             runtime: providerSeam.runtime ?? (provider.name as Runtime),
           })
+          if (selected?.identity) {
+            const declaration = runtimeOwnedExecutorMaterialization(executor)!
+            const binding = runtimeOwnedExecutorExecutionBinding(executor)!
+            attestRuntimeOwnedExecutor(
+              wrapper,
+              {
+                ...declaration,
+                plan: { ...(declaration.plan as object), placement: selected.identity },
+              },
+              {
+                ...binding,
+                binding: { ...(binding.binding as object), placement: selected.identity },
+                descriptor: {
+                  ...binding.descriptor,
+                  placementId: selected.identity.id,
+                  placementDigest: selected.identity.digest,
+                },
+              },
+            )
+          }
+          return wrapper
         }
         const profileForCreate = providerSeam.profileForCreate
         return providerAsExecutor(provider, {

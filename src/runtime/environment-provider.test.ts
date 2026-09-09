@@ -5,6 +5,7 @@ import {
   type AgentProfile,
   type AgentRunCancellationRequest,
   agentRunCancellationRequestDigest,
+  canonicalAgentProfileDigest,
 } from '@tangle-network/agent-interface'
 import type {
   BackendType,
@@ -30,10 +31,13 @@ import {
   providerAsSandboxClient,
   sandboxClientAsProvider,
 } from './environment-provider'
+import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
+import { retainedCreateMaterial } from './retained-run-intent'
 import { collectAgentTurn, streamAgentTurn } from './stream-agent-turn'
 import { createBudgetPool } from './supervise/budget'
 import { createExecutor, createExecutorRegistry } from './supervise/runtime'
 import { createScope } from './supervise/scope'
+import { superviseWithTestBrain } from './supervise/supervise'
 import type { AgentSpec, ExecutorContext, UsageEvent } from './supervise/types'
 import type { SandboxClient } from './types'
 
@@ -2581,6 +2585,282 @@ describe('environment provider adapters', () => {
     })
     expect(executor.resultArtifact().out).toMatchObject({ content: 'from-named-provider' })
     expect(registry.names()).toEqual(['named-provider'])
+  })
+})
+
+describe('declared provider placements', () => {
+  const placements: ProviderPlacement[] = (['opencode', 'codex'] as const).map((harness) => ({
+    id: `${harness}-seat`,
+    match: { harness, provider: 'fixture', model: 'fixture/model' },
+    create: { backend: harness, secrets: [`${harness}-credential`] },
+    promptOptions: { backend: { type: harness, model: { apiKeyEnv: `${harness}-credential` } } },
+  }))
+  const profiles: AgentProfile[] = placements.map(({ match }) => ({
+    name: match.harness,
+    harness: match.harness,
+    model: { provider: 'fixture', default: 'fixture/model' },
+  }))
+
+  it('executes two differently placed children in one supervised tree with exact receipts', async () => {
+    const creates: import('./environment-provider').CreateAgentEnvironmentInput[] = []
+    const turns: AgentTurnInput[] = []
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture',
+      capabilities: fakeCapabilities,
+      async create(input) {
+        creates.push(input)
+        return fakeEnvironment({
+          id: `env-${creates.length}`,
+          async *stream(turn) {
+            turns.push(turn)
+            yield {
+              type: 'done',
+              data: { finalText: 'ANSWER=42', tokenUsage: { inputTokens: 1, outputTokens: 1 } },
+            }
+          },
+        })
+      },
+    }
+    const journal = new InMemorySpawnJournal()
+    let step = 0
+    await superviseWithTestBrain(
+      {
+        name: 'lead',
+        tools: {
+          agent_runtime_coordination_spawn_worker: true,
+          agent_runtime_coordination_await_event: true,
+        },
+        harness: 'cli-base',
+        model: { provider: 'fixture', default: 'fixture/model' },
+      },
+      'execute both profiles',
+      {
+        backend: { backend: 'provider', provider, placements },
+        journal,
+        runId: 'placements',
+        budget: { maxIterations: 20, maxTokens: 10000 },
+        perWorker: { maxIterations: 1, maxTokens: 100 },
+        brain: async () => {
+          const turn = step++
+          if (turn < 2)
+            return {
+              content: 'spawn',
+              toolCalls: [
+                {
+                  id: `s${turn}`,
+                  name: 'spawn_worker',
+                  arguments: JSON.stringify({
+                    profile: profiles[turn],
+                    task: 'emit answer',
+                    label: `worker-${turn}`,
+                  }),
+                },
+              ],
+            }
+          if (turn < 4)
+            return {
+              content: 'await',
+              toolCalls: [{ id: `a${turn}`, name: 'await_event', arguments: '{}' }],
+            }
+          return { content: 'done', toolCalls: [] }
+        },
+      },
+    )
+    expect(creates).toHaveLength(2)
+    expect(turns).toHaveLength(2)
+    for (const [index, create] of creates.entries()) {
+      const placement = placements.find((item) => item.create.backend === create.backend)!
+      expect(create.secrets).toEqual(placement.create.secrets)
+      expect(turns[index]?.providerOptions?.backend).toEqual(placement.promptOptions?.backend)
+      expect(create.profile).toEqual(profiles.find((profile) => profile.harness === create.backend))
+      expect(create.metadata?.runtimeProviderPlacement).toMatchObject({
+        id: placement.id,
+        digest: expect.stringMatching(/^sha256:/),
+      })
+    }
+    const events = await journal.loadTree('placements')
+    const materialized = events?.filter(
+      (event) => event.kind === 'materialized' && event.id !== 'placements',
+    )
+    expect(materialized).toHaveLength(2)
+    const serialized = JSON.stringify(materialized)
+    for (const profile of profiles)
+      expect(serialized).toContain(canonicalAgentProfileDigest(profile))
+    for (const placement of placements)
+      expect(JSON.stringify(events?.filter((event) => event.kind === 'execution-bound'))).toContain(
+        placement.id,
+      )
+    expect(serialized).not.toContain('apiKeyEnv')
+  })
+
+  it('refuses unmatched, ambiguous, mismatched and mutable declarations before create', () => {
+    let creates = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture',
+      capabilities: fakeCapabilities,
+      async create() {
+        creates++
+        throw new Error('must not create')
+      },
+    }
+    const profile = profiles[0]!
+    const ctx = { signal: new AbortController().signal, seams: {} }
+    const factory = createExecutor({ backend: 'provider', provider, placements })
+    expect(() =>
+      factory({ profile: { ...profile, harness: 'claude-code' }, harness: null }, ctx),
+    ).toThrow(/found 0/)
+    expect(() =>
+      createExecutor({
+        backend: 'provider',
+        provider,
+        placements: [placements[0]!, { ...placements[0]!, id: 'other' }],
+      })({ profile, harness: null }, ctx),
+    ).toThrow(/found 2/)
+    expect(() =>
+      createExecutor({
+        backend: 'provider',
+        provider,
+        placements: [{ ...placements[0]!, create: { backend: 'codex' } }],
+      })({ profile, harness: null }, ctx),
+    ).toThrow(/must match/)
+    const mutable = structuredClone(placements)
+    const captured = providerAsExecutor(provider, { placements: mutable })
+    mutable[0]!.create.backend = 'claude-code'
+    expect(() => captured({ profile, harness: null }, ctx)).not.toThrow()
+    expect(creates).toBe(0)
+  })
+
+  it('binds placement identity and public settings across recovery while retaining runtime attachments', () => {
+    const common = {
+      env: { RUNTIME_TOKEN: 'private-runtime-token' },
+      runtimeAttachments: {
+        mcp: {
+          coordination: {
+            transport: 'http' as const,
+            url: 'https://runtime.example/mcp',
+            headers: {
+              Authorization: {
+                kind: 'secret-ref' as const,
+                key: 'RUNTIME_TOKEN',
+                format: 'bearer' as const,
+              },
+            },
+          },
+        },
+      },
+    }
+    const selected = selectProviderPlacement(profiles[0]!, { placements, defaults: common })
+    expect(selected.options.defaults?.runtimeAttachments).toEqual(common.runtimeAttachments)
+    expect(selected.options.defaults?.env).toEqual(common.env)
+    const material = retainedCreateMaterial({ ...selected.options.defaults, profile: profiles[0]! })
+    expect(material).toMatchObject({ placement: selected.identity })
+    const changed = structuredClone(placements)
+    changed[0]!.create.resources = { cpu: 4 }
+    const other = selectProviderPlacement(profiles[0]!, { placements: changed })
+    expect(other.identity?.digest).not.toBe(selected.identity?.digest)
+    expect(JSON.stringify(material)).not.toContain('private-runtime-token')
+    expect(() =>
+      selectProviderPlacement(profiles[0]!, { placements, defaults: { secrets: ['other-seat'] } }),
+    ).toThrow(/each placement/)
+  })
+
+  it('captures the exact profile before a caller or create hook can change its harness', async () => {
+    const creates: import('./environment-provider').CreateAgentEnvironmentInput[] = []
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture',
+      capabilities: fakeCapabilities,
+      async create(input) {
+        creates.push(input)
+        return fakeEnvironment({
+          async *stream() {
+            yield {
+              type: 'done',
+              data: { finalText: 'ok', tokenUsage: { inputTokens: 1, outputTokens: 1 } },
+            }
+          },
+        })
+      },
+    }
+    const profile = structuredClone(profiles[0]!)
+    const ctx = { signal: new AbortController().signal, seams: {} }
+    const executor = providerAsExecutor(provider, { placements })({ profile, harness: null }, ctx)
+    profile.harness = 'codex'
+    await collect(executor.execute('run', ctx.signal) as AsyncIterable<UsageEvent>)
+    expect(creates[0]).toMatchObject({
+      backend: 'opencode',
+      profile: { harness: 'opencode' },
+      secrets: ['opencode-credential'],
+    })
+    expect(() =>
+      providerAsExecutor(provider, {
+        placements,
+        profileForCreate: (input) => {
+          input.harness = 'codex'
+          return input
+        },
+      })({ profile: profiles[0]!, harness: null }, ctx),
+    ).toThrow()
+  })
+
+  it('preserves placement and runtime credential env beside steering trace env', async () => {
+    let created: import('./environment-provider').CreateAgentEnvironmentInput | undefined
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture',
+      capabilities: fakeCapabilities,
+      async create(input) {
+        created = input
+        return fakeEnvironment({ async *stream() {} })
+      },
+    }
+    const placement = {
+      ...placements[0]!,
+      create: { ...placements[0]!.create, env: { SEAT_TOKEN: 'seat-secret' } },
+    }
+    const selected = selectProviderPlacement(profiles[0]!, {
+      placements: [placement],
+      defaults: { env: { RUNTIME_TOKEN: 'runtime-secret' } },
+    })
+    await providerAsSandboxClient(provider, selected.options).create({
+      backend: { type: 'opencode', profile: profiles[0]! },
+      env: { TRACE_ID: 'trace', PARENT_SPAN_ID: 'span' },
+    })
+    expect(created?.env).toEqual({
+      SEAT_TOKEN: 'seat-secret',
+      RUNTIME_TOKEN: 'runtime-secret',
+      TRACE_ID: 'trace',
+      PARENT_SPAN_ID: 'span',
+    })
+  })
+
+  it('refuses mapped credential and profile substitutions before creating an environment', async () => {
+    let creates = 0
+    const provider: AgentEnvironmentProvider = {
+      name: 'fixture',
+      capabilities: fakeCapabilities,
+      async create() {
+        creates++
+        throw new Error('must not create')
+      },
+    }
+    const ctx = { signal: new AbortController().signal, seams: {} }
+    const spec = { profile: profiles[0]!, harness: null }
+    const executor = providerAsExecutor(provider, {
+      placements,
+      taskToTurn: (_task, _profile, turn) => ({
+        ...turn,
+        providerOptions: { backend: { type: 'codex' } },
+      }),
+    })(spec, ctx)
+    await expect(
+      collect(executor.execute('run', ctx.signal) as AsyncIterable<UsageEvent>),
+    ).rejects.toThrow(/cannot replace/)
+    expect(() =>
+      providerAsExecutor(provider, {
+        placements,
+        profileForCreate: (profile) => ({ ...profile, harness: 'codex' }),
+      })(spec, ctx),
+    ).toThrow(/cannot change/)
+    expect(creates).toBe(0)
   })
 })
 

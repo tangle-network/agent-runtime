@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.208.0
+
+Provider executors select caller-declared child placements, preserve exact profiles, and bind configuration identity across retained recovery.
+Cancellation preserves its source and worker spend, survives startup races, and reports observation timing and teardown uncertainty.
+Linux checks run in isolated namespaces over disposable writable copies, with bounded output and explicit refusal when isolation is unavailable.
+The process cleanup regression test waits for grandchild readiness before triggering its timeout.
+
 ## 0.206.1
 
 Run cancellation observers tolerate a final filesystem event after the root run unbinds, while preserving errors from active observers.

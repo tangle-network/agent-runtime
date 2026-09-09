@@ -17,6 +17,11 @@ export function retainedCreateMaterial(
   environment: CreateAgentEnvironmentInput,
 ): Record<string, unknown> {
   return {
+    ...(environment.metadata?.runtimeProviderPlacement === undefined
+      ? {}
+      : {
+          placement: environment.metadata.runtimeProviderPlacement,
+        }),
     ...(environment.backend === undefined ? {} : { backend: environment.backend }),
     ...(environment.workspace === undefined
       ? {}
