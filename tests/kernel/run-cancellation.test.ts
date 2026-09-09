@@ -113,7 +113,6 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       { content: 'done' },
     ])
     let call = 0
-    let requestedEffect: string | undefined
     const brain: ToolLoopChat = async (messages, tools, context) => {
       const index = call
       call += 1
@@ -122,11 +121,6 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
         expect(cancelRun(dir, 'op-run', { reason: 'operator', source: 'test' }).effect).toBe(
           'unknown',
         )
-      }
-      if (index === 2) {
-        // The abort was issued at the previous turn boundary, so the durable record already
-        // states it — before the run's own terminal state is known.
-        requestedEffect = readRunCancellation(dir, 'op-run')?.effect
       }
       return script(messages, tools, context)
     }
@@ -139,7 +133,6 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       brain,
     })
 
-    expect(requestedEffect).toBe('cancel_requested')
     expect(result.kind).toBe('no-winner')
     if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
     // A reconnecting client derives everything from the directory: the terminal effect is
@@ -149,7 +142,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     expect(cancelRun(dir, 'op-run', { reason: 'operator', source: 'test' })).toEqual(record)
   })
 
-  it('a run that settles on its own despite the request reads not_live, never success', async () => {
+  it('cancellation on the final router turn preserves already delivered child evidence', async () => {
     const dir = await runDir()
     const script = scriptedBrain([
       { toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }] },
@@ -160,8 +153,12 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     const brain: ToolLoopChat = async (messages, tools, context) => {
       const index = call
       call += 1
-      // Written on the LAST brain turn: the run finishes before the driver can apply it.
-      if (index === 2) cancelRun(dir, 'op-late', { source: 'test' })
+      if (index === 2) {
+        cancelRun(dir, 'op-late', { source: 'test' })
+        await expect
+          .poll(() => readRunCancellation(dir, 'op-late')?.effect)
+          .toBe('cancel_requested')
+      }
       return script(messages, tools, context)
     }
 
@@ -173,10 +170,55 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
       brain,
     })
 
-    expect(result.kind).toBe('winner')
+    expect(result.kind).toBe('no-winner')
+    if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+    expect(result.tree.nodes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ status: 'done' })]),
+    )
     const record = readRunCancellation(dir, 'op-late')
-    expect(record?.effect).toBe('not_live')
-    expect(record?.detail).toContain('run ended')
+    expect(record?.effect).toBe('cancelled')
+  })
+
+  it('cancels live children after a router director returns and enters drain', async () => {
+    const dir = await runDir()
+    const cleanup = new AbortController()
+    let finalize!: () => void
+    const finalized = new Promise<void>((resolve) => {
+      finalize = resolve
+    })
+    const pending = supervise(rootProfile(), 'solve it', {
+      budget,
+      runId: 'router-drain',
+      runDir: dir,
+      signal: cleanup.signal,
+      childSettleGraceMs: 5_000,
+      makeWorkerAgent: () => hangingLeaf('w'),
+      brain: scriptedBrain([
+        {
+          toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }],
+        },
+        { content: 'done' },
+      ]),
+      finalizer: async () => {
+        finalize()
+        return undefined
+      },
+    })
+    try {
+      await finalized
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      cancelRun(dir, 'router-drain-cancel', { reason: 'operator', source: 'test' })
+      await expect
+        .poll(() => readRunCancellation(dir, 'router-drain-cancel')?.effect, { timeout: 2_000 })
+        .toBe('cancelled')
+      const result = await pending
+      expect(result.kind).toBe('no-winner')
+      if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+      expect(result.tree.inFlight).toBe(0)
+    } finally {
+      cleanup.abort()
+      await pending
+    }
   })
 
   it('a request written after the run ended is never answered as success', async () => {

@@ -2188,9 +2188,9 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
  * Record what a run-scoped cancel actually did, at the ONE place that observes the run's terminal
  * state: the `supervise()` settle path.
  *
- * The root manager writes `cancel_requested` when it issues the abort; only here is the run's own
- * outcome known. A run that ends `aborted` after that request reads `cancelled`; a run that
- * reached any other terminal state despite the request terminated nothing and reads `not_live`,
+ * The observer writes `cancel_requested` when it issues the abort; only here is the run's own
+ * outcome known. An aborted run reads `cancelled` only with confirmed teardown, otherwise `unknown`.
+ * A run that reached any other terminal state despite the request terminated nothing and reads `not_live`,
  * never a success. A request the run ended before applying is expired here too, so a reader can
  * tell run-over from in-progress and a stale request cannot outlive its run.
  */
@@ -2218,6 +2218,14 @@ function recordRunCancellationOutcome(
       ...base,
       effect: 'not_live',
       detail: 'run ended before the request was applied',
+    })
+    return
+  }
+  if (aborted && result.teardownUnconfirmed?.length) {
+    writeRunCancellation(dir, {
+      ...base,
+      effect: 'unknown',
+      detail: `run aborted but teardown remains unconfirmed for: ${result.teardownUnconfirmed.map((node) => node.id).join(', ')}`,
     })
     return
   }
@@ -3084,7 +3092,7 @@ function superviseInternal(
     if (runControl !== undefined) supervisor.attach(runControl)
     // The run owns cancellation until every descendant has drained, even after its director returns.
     const cancellation =
-      rootDriveHarness !== undefined && options.runDir !== undefined && runControl !== undefined
+      options.runDir !== undefined && runControl !== undefined
         ? watchRunCancellation(resolve(options.runDir), (reason) => runControl.abort(reason))
         : undefined
     const run = supervisor.run(agent, canonicalTask, {

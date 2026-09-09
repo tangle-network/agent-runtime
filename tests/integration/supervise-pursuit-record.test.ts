@@ -39,59 +39,72 @@ import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
 
-it('acknowledges durable cancellation after the external director returns while a child drains', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'cancel-after-director-'))
-  const cleanup = new AbortController()
-  let started!: () => void
-  let finalized!: () => void
-  const directorFinalized = new Promise<void>((resolve) => {
-    finalized = resolve
-  })
-  const childStarted = new Promise<void>((resolve) => {
-    started = resolve
-  })
-  let aborted = false
-  const pending = run(dir, 'cancel-after-director', {
-    signal: cleanup.signal,
-    childSettleGraceMs: 5_000,
-    finalizer: async () => {
-      finalized()
-      return undefined
-    },
-    makeWorkerAgent: () =>
-      deliveringLeaf('waiting-child', async (signal) => {
-        started()
-        await new Promise<void>((resolve) => {
-          const stop = () => {
-            aborted = true
-            resolve()
-          }
-          if (signal.aborted) stop()
-          else signal.addEventListener('abort', stop, { once: true })
+it.each([true, false])(
+  'records durable cancellation after director return with teardown confirmed=%s',
+  async (destroyed) => {
+    const dir = await mkdtemp(join(tmpdir(), 'cancel-after-director-'))
+    const cleanup = new AbortController()
+    let started!: () => void
+    let finalized!: () => void
+    const directorFinalized = new Promise<void>((resolve) => {
+      finalized = resolve
+    })
+    const childStarted = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    let aborted = false
+    const pending = run(dir, 'cancel-after-director', {
+      signal: cleanup.signal,
+      childSettleGraceMs: 5_000,
+      finalizer: async () => {
+        finalized()
+        return undefined
+      },
+      makeWorkerAgent: () =>
+        deliveringLeaf(
+          'waiting-child',
+          async (signal) => {
+            started()
+            await new Promise<void>((resolve) => {
+              const stop = () => {
+                aborted = true
+                resolve()
+              }
+              if (signal.aborted) stop()
+              else signal.addEventListener('abort', stop, { once: true })
+            })
+          },
+          destroyed,
+        ),
+      driveHarness: async ({ coordinationMcpUrl }: Parameters<DriveHarness>[0]) => {
+        await jsonRpc(coordinationMcpUrl, 'tools/call', {
+          name: 'spawn_worker',
+          arguments: { profile: testAgentProfile('worker'), task: 'wait', label: 'worker' },
         })
-      }),
-    driveHarness: async ({ coordinationMcpUrl }: Parameters<DriveHarness>[0]) => {
-      await jsonRpc(coordinationMcpUrl, 'tools/call', {
-        name: 'spawn_worker',
-        arguments: { profile: testAgentProfile('worker'), task: 'wait', label: 'worker' },
-      })
-    },
-  })
-  try {
-    await childStarted
-    await directorFinalized
-    await new Promise<void>((resolve) => setImmediate(resolve))
-    cancelRun(dir, 'cancel-drain', { reason: 'operator', source: 'test' })
-    await expect.poll(() => aborted, { timeout: 2_000 }).toBe(true)
-    await pending
-    expect(aborted).toBe(true)
-    expect(readRunCancellation(dir, 'cancel-drain')?.effect).toBe('cancelled')
-  } finally {
-    cleanup.abort()
-    await pending
-    await rm(dir, { recursive: true, force: true })
-  }
-})
+      },
+    })
+    try {
+      await childStarted
+      await directorFinalized
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      cancelRun(dir, 'cancel-drain', { reason: 'operator', source: 'test' })
+      await expect.poll(() => aborted, { timeout: 2_000 }).toBe(true)
+      const settled = await pending
+      expect(aborted).toBe(true)
+      const cancellation = readRunCancellation(dir, 'cancel-drain')
+      expect(cancellation?.effect).toBe(destroyed ? 'cancelled' : 'unknown')
+      if (!destroyed) {
+        expect(settled.result.teardownUnconfirmed).toHaveLength(1)
+        expect(cancellation?.detail).toContain(settled.result.teardownUnconfirmed?.[0]?.id)
+        expect(settled.result.tree.nodes).toHaveLength(1)
+      }
+    } finally {
+      cleanup.abort()
+      await pending
+      await rm(dir, { recursive: true, force: true })
+    }
+  },
+)
 
 it('fences a nested driver retry when durable cancellation races a backend failure', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'cancel-nested-retry-'))
@@ -138,6 +151,7 @@ it('fences a nested driver retry when durable cancellation races a backend failu
 function deliveringLeaf(
   name: string,
   beforeExecute?: (signal: AbortSignal) => Promise<void>,
+  destroyed = true,
 ): Agent<unknown, unknown> {
   const executor: Executor<unknown> = {
     runtime: 'record-test-worker',
@@ -149,7 +163,7 @@ function deliveringLeaf(
         yield { kind: 'cost', usd: 0, usdKnown: true, provenance: 'provider-receipt' } as UsageEvent
       })()
     },
-    teardown: () => Promise.resolve({ destroyed: true }),
+    teardown: () => Promise.resolve({ destroyed }),
     resultArtifact: (): ExecutorResult<unknown> => ({
       outRef: `record:${name}`,
       out: { worker: name },
