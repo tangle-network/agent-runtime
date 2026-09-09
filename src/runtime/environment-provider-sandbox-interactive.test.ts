@@ -22,6 +22,7 @@ import {
   startRetainedInteractiveRun,
 } from './retained-interactive'
 import { claimRetainedInteractiveControl } from './retained-interactive-control'
+import { mintRetainedIdentity } from './retained-run-start'
 import type { SandboxClient } from './types'
 
 const profile: AgentProfile = {
@@ -423,7 +424,10 @@ function controlFor(
 function terminalReady(attachCount: number) {
   return {
     connectionId: `connection-${attachCount}`,
-    sessionId: 'retained-session:sandbox-interactive-environment:sandbox-interactive-process',
+    sessionId: mintRetainedIdentity(
+      'sandbox-interactive-environment',
+      'sandbox-interactive-process',
+    ).sessionId,
     restored: attachCount > 1,
     detachTimeoutMs: 300_000,
     attachCount,

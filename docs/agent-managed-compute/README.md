@@ -17,6 +17,8 @@ The core execution model is sound:
 
 Retained provider children and managers can reconcile original invocations after a local coordinator restart.
 Durable inputs, ordered admissions, content-addressed results, and usage records support that recovery.
+New retained sessions use deterministic, bounded identifiers that are safe for provider workspace paths.
+Recovery preserves the recorded session and execution identifiers and validates the original request material.
 Recovery restores live descendants and their reservations before the manager resumes.
 Managers and children then continue together through the existing Scope lifecycle.
 Unresolved provider work remains uncertain until exact identity and completion can be established.
