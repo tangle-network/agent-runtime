@@ -99,6 +99,7 @@ import {
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
+import { watchRunCancellation } from './run-cancellation'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
 import {
@@ -2187,9 +2188,9 @@ export function captureSuperviseOptions(opts: SuperviseOptions): SuperviseOption
  * Record what a run-scoped cancel actually did, at the ONE place that observes the run's terminal
  * state: the `supervise()` settle path.
  *
- * The root manager writes `cancel_requested` when it issues the abort; only here is the run's own
- * outcome known. A run that ends `aborted` after that request reads `cancelled`; a run that
- * reached any other terminal state despite the request terminated nothing and reads `not_live`,
+ * The observer writes `cancel_requested` when it issues the abort; only here is the run's own
+ * outcome known. An aborted run reads `cancelled` only with confirmed teardown, otherwise `unknown`.
+ * A run that reached any other terminal state despite the request terminated nothing and reads `not_live`,
  * never a success. A request the run ended before applying is expired here too, so a reader can
  * tell run-over from in-progress and a stale request cannot outlive its run.
  */
@@ -2217,6 +2218,14 @@ function recordRunCancellationOutcome(
       ...base,
       effect: 'not_live',
       detail: 'run ended before the request was applied',
+    })
+    return
+  }
+  if (aborted && result.teardownUnconfirmed?.length) {
+    writeRunCancellation(dir, {
+      ...base,
+      effect: 'unknown',
+      detail: `run aborted but teardown remains unconfirmed for: ${result.teardownUnconfirmed.map((node) => node.id).join(', ')}`,
     })
     return
   }
@@ -2911,7 +2920,11 @@ function superviseInternal(
           // parents them and label references stay the root's alone.
           ...(options.runDir === undefined
             ? {}
-            : { controlDir: resolve(options.runDir), controlScope: 'subtree' as const }),
+            : {
+                controlDir: resolve(options.runDir),
+                controlScope: 'subtree' as const,
+                abortRun: (reason: string) => runControl?.abort(reason),
+              }),
         })
         return driverChild(
           authorized,
@@ -2976,6 +2989,9 @@ function superviseInternal(
       rootOwnerId,
     )
   }
+  // Share one root control with every manager's pre-attempt cancellation fence.
+  const runControl =
+    options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
   const workerFactory = makeWorkerAgent
 
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
@@ -2989,11 +3005,6 @@ function superviseInternal(
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
-    // The ONE root control this run is aborted through: the caller's handle when it supplied one,
-    // otherwise a Runtime-minted handle for the durable run-cancel path. A run with neither a
-    // caller handle nor a `runDir` has no external abort party and mints nothing.
-    const runControl =
-      options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
     const agentDeps = {
       blobs,
       makeWorkerAgent: workerFactory,
@@ -3079,6 +3090,11 @@ function superviseInternal(
 
     const supervisor = createSupervisor<unknown, unknown>()
     if (runControl !== undefined) supervisor.attach(runControl)
+    // The run owns cancellation until every descendant has drained, even after its director returns.
+    const cancellation =
+      options.runDir !== undefined && runControl !== undefined
+        ? watchRunCancellation(resolve(options.runDir), (reason) => runControl.abort(reason))
+        : undefined
     const run = supervisor.run(agent, canonicalTask, {
       budget: options.budget,
       runId,
@@ -3117,7 +3133,12 @@ function superviseInternal(
       ...(options.runDir === undefined ? {} : { interactiveBindingDir: resolve(options.runDir) }),
     })
     const settle = async () => {
-      const result = await run
+      let result: Awaited<typeof run>
+      try {
+        result = await run
+      } finally {
+        cancellation?.close()
+      }
       recordRunCancellationOutcome(options.runDir, result, now)
       const rootProviderModel =
         ctx.resume === true

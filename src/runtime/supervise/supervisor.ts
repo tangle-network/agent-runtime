@@ -516,8 +516,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
       // fans it out to each live child's executor (acquire-aware reap included).
       const controller = new AbortController()
+      let cascadeAborted = false
       const cascadeAbort = (reason?: string): boolean => {
         if (controller.signal.aborted) return false
+        cascadeAborted = true
         // Carry the reason on the signal so it chains down to each child's abort signal
         // (`childAbort.signal.reason`) — the diagnostic the scope's executors observe.
         controller.abort(reason)
@@ -689,6 +691,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
+        // Explicit cancellation can arrive during the join barrier; its cleanup abort is distinct.
+        executionAborted ||= cascadeAborted
         if (opts.signal) opts.signal.removeEventListener('abort', onCallerAbort)
         rootLease?.release()
       }
@@ -1076,8 +1080,8 @@ async function drainCursor(scope: Scope<unknown>): Promise<void> {
  * bucket — and it is why `driver-failed` cannot be produced without an `error` to attach.
  */
 function classifyNoWinner(
-  /** Whether the cascade was aborted at the moment root execution settled — NOT the controller's
-   *  state now. The join barrier itself aborts the cascade to tear children down, so reading the
+  /** Whether execution was aborted, including an explicit cascade during descendant drain —
+   *  NOT the controller's state now. The join barrier itself aborts children, so reading the
    *  live controller here reported every driver failure that happened to have a live child as
    *  `aborted`, hiding the real cause (#741: the run with one live child reported `aborted`, the
    *  identical failure with none reported `driver-failed`). */

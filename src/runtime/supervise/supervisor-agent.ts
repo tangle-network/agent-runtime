@@ -64,7 +64,7 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
-import { watchRunCancellation } from './run-cancellation'
+import { applyRunCancellation } from './run-cancellation'
 import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
 import {
@@ -950,7 +950,6 @@ function buildSupervisorAgent(
         providerVisibleProfile(stableProfile),
         'supervisorAgent provider-visible profile',
       )
-      let cancellation: ReturnType<typeof watchRunCancellation> | undefined
       try {
         // A restored `submission` record proves this manager's completion check already accepted
         // the value. Return it before starting another harness process.
@@ -958,13 +957,6 @@ function buildSupervisorAgent(
         if (recoveredSubmission) {
           deps.onAcceptedSubmission?.(recoveredSubmission.result)
           return recoveredSubmission.result
-        }
-        if (
-          deps.controlDir !== undefined &&
-          deps.abortRun !== undefined &&
-          deps.controlScope !== 'subtree'
-        ) {
-          cancellation = watchRunCancellation(deps.controlDir, deps.abortRun)
         }
         // The retry's progress mark. `tokensLeft` only falls, so the difference from the first
         // reading is everything this run has spent from the shared pool — the driver's own turns
@@ -995,7 +987,9 @@ function buildSupervisorAgent(
         }
         await runDriverWithRetry({
           drive: async (attempt, reentry) => {
-            cancellation?.check()
+            if (deps.controlDir !== undefined && deps.abortRun !== undefined) {
+              applyRunCancellation(deps.controlDir, deps.abortRun, () => new Date().toISOString())
+            }
             scope.signal.throwIfAborted()
             // Every drive after the first is a new execution attempt of the root.
             beginScopeOwnerAttempt(scope, attempt)
@@ -1049,9 +1043,6 @@ function buildSupervisorAgent(
             : {}),
           ...(deps.onDriverAttempt ? { onAttempt: deps.onDriverAttempt } : {}),
         })
-        // Match router semantics: after the driver finishes, cancellation must not void
-        // delivered work while the finalizer reads it.
-        cancellation?.close()
         // Drain settled-but-unpulled children first — a gate-verified delivery the harness never
         // awaited must still reach the finalize ledger.
         await mcp.drainResolved()
@@ -1071,7 +1062,6 @@ function buildSupervisorAgent(
           budget: scope.budget,
         })
       } finally {
-        cancellation?.close()
         await mcp.close()
       }
     },
