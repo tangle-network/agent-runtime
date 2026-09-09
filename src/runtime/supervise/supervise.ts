@@ -40,7 +40,7 @@ import {
   unsupportedProfileDimensions,
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
-import { ConfigError, ValidationError } from '../../errors'
+import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   AnalyzeOnSettleRoute,
@@ -3074,7 +3074,15 @@ function superviseInternal(
         ? {}
         : {
             controlDir: resolve(options.runDir),
-            abortRun: (reason: string) => runControl.abort(reason),
+            abortRun: (reason: string) => {
+              try {
+                runControl.abort(reason)
+              } catch (error) {
+                // A filesystem watcher can deliver one final event after settle unbinds the
+                // handle. That race is already terminal; preserve real observer failures.
+                if (!(error instanceof RuntimeRunStateError)) throw error
+              }
+            },
           }),
     } satisfies SupervisorAgentDeps
     const agent =
@@ -3093,7 +3101,13 @@ function superviseInternal(
     // The run owns cancellation until every descendant has drained, even after its director returns.
     const cancellation =
       options.runDir !== undefined && runControl !== undefined
-        ? watchRunCancellation(resolve(options.runDir), (reason) => runControl.abort(reason))
+        ? watchRunCancellation(resolve(options.runDir), (reason) => {
+            try {
+              runControl.abort(reason)
+            } catch (error) {
+              if (!(error instanceof RuntimeRunStateError)) throw error
+            }
+          })
         : undefined
     const run = supervisor.run(agent, canonicalTask, {
       budget: options.budget,

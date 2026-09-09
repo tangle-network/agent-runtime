@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.206.1
+
+Run cancellation observers tolerate a final filesystem event after the root run unbinds, while preserving errors from active observers.
+
 ## 0.206.0
 
 Durable supervision discovery exposes top-level root begin timestamps, and materialized tree nodes preserve their spawn timestamps for ordering and duration views.
