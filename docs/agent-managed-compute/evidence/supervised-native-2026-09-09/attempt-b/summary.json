@@ -1,0 +1,60 @@
+{
+  "status": "partial-proof-with-later-stop-ordering-failure",
+  "run": "runtime-773-workers-20260909-b",
+  "runtimeSource": "0c45a1035d29f90303a61ddb2b879039ad87c987",
+  "sdk": "0.38.2",
+  "provider": "1.1.6",
+  "interface": "2.6.0",
+  "executedScriptSha256": "bdf9b7b308b0f12700eef964c63c27817775f631f2e4af37b2f6d26b625db4ab",
+  "publicScriptChanges": "Removed machine-specific source defaults and account email; proof logic unchanged.",
+  "coordinatorPid": 2123,
+  "replacementPid": 3075,
+  "coordinatorTermination": "SIGKILL",
+  "supervisorSchedulingResumed": false,
+  "braidRestartTested": false,
+  "modelPromptsSentByProof": 0,
+  "workers": [
+    {
+      "workerId": "runtime-773-workers-20260909-b:s0",
+      "parentId": "runtime-773-workers-20260909-b",
+      "environmentId": "sandbox-9a97337b2799",
+      "executionId": "retained-execution-91a3682ebff0ad5665bf887dad369a01131a53efda6a8668ccfcf860a4b0e3bd",
+      "originalOutputFrames": 175,
+      "matchedOriginalFrames": 175
+    },
+    {
+      "workerId": "runtime-773-workers-20260909-b:s1",
+      "parentId": "runtime-773-workers-20260909-b",
+      "environmentId": "sandbox-a3f7fd320f32",
+      "executionId": "retained-execution-68cf82277eaa2c2aa8fe4af4130b728008082cd3c14d43a3dd622d59edc77a9c",
+      "originalOutputFrames": 161,
+      "matchedOriginalFrames": 161
+    }
+  ],
+  "overallExitCode": 1,
+  "sandboxesCreated": 2,
+  "sandboxesDeletedAndAbsenceVerified": 2,
+  "initialLocalRefusal": {
+    "run": "runtime-773-workers-20260909-a",
+    "cause": "File run context enabled resume without required rootIdentity. Corrected to explicitly fresh run before any sandbox was created.",
+    "sandboxesCreated": 0
+  },
+  "stopFailure": {
+    "observed": {
+      "name": "Error",
+      "message": null,
+      "code": null,
+      "httpStatus": null,
+      "cause": null
+    },
+    "diagnosis": "The proof detached each replay terminal, then reused its released control claim for stop. SDK onClose releases that claim; provider stop revalidates it. A new control claim is required after detach.",
+    "diagnosisEvidence": "Installed SDK0.38.2 dist/sandbox-CzBWptVE.js:2033-2034 and maintained interactive-controller.ts:166-168; SDK focused release/reclaim test passed1/1.",
+    "limit": "Exact live transport error text/code was discarded by proof logging and cannot be recovered. No stop acknowledgement or sibling-cancellation assertion passed."
+  },
+  "limits": [
+    "Control/resource values were requests; actual CPU, memory, disk, lifetime and egress enforcement were not measured.",
+    "No model token or dollar usage receipt was collected.",
+    "Worker processes survived coordinator loss and reattached through durable Runtime bindings; scheduler recovery was not exercised.",
+    "No Braid UI restart, environment expiry, or local Bridge conformance was exercised."
+  ]
+}

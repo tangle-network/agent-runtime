@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "workerId": "runtime-773-workers-20260909-b:s0",
+  "recordedAt": "2026-09-09T21:47:44.935Z",
+  "phase": "interactive_intent",
+  "provider": "tangle-sandbox",
+  "idempotencyKey": "supervised-interactive-environment-e12c2c5f4a3320b1930a4ab453b6178db4f465da938187a63af399ff18bfa987",
+  "interactiveIdempotencyKey": "supervised-interactive-session-468156e06dd6e92b023583a93e00317f67cc22e88c338318c9a6a407afebb492",
+  "sessionId": "retained-session-91a3682ebff0ad5665bf887dad369a01131a53efda6a8668ccfcf860a4b0e3bd",
+  "executionId": "retained-execution-91a3682ebff0ad5665bf887dad369a01131a53efda6a8668ccfcf860a4b0e3bd",
+  "runId": "interactive-intent-run:9d487e89e7d1aa7e76eed29dddc38e010156322c116a6951937027371735525f",
+  "requestedProfileDigest": "sha256:ba6d415cc9c76d83889f04643f4a484106c8dcf666f153df818e2d8f01ebdb2a",
+  "requestDigest": "sha256:9d487e89e7d1aa7e76eed29dddc38e010156322c116a6951937027371735525f"
+}

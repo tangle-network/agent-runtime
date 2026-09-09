@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "workerId": "runtime-773-workers-20260909-c:s1",
+  "label": "worker-1",
+  "journalRoot": "runtime-773-workers-20260909-c",
+  "recordedAt": "2026-09-09T21:58:28.458Z",
+  "status": "available",
+  "ref": {
+    "run": {
+      "runId": "interactive-run-d5b97f1e0e99c2468dc3d80af81bd9debc59163f278f7ca434ce2064e0d107cc",
+      "provider": "tangle-sandbox",
+      "environmentId": "sandbox-8a2d1b51aee1",
+      "sessionId": "retained-session-38e387ce55d44e338e15c01acce008d6233678437cae97aef1dc7432413bfbcb",
+      "executionId": "retained-execution-38e387ce55d44e338e15c01acce008d6233678437cae97aef1dc7432413bfbcb",
+      "requestDigest": "sha256:d5b97f1e0e99c2468dc3d80af81bd9debc59163f278f7ca434ce2064e0d107cc"
+    },
+    "preparationReceipt": {
+      "kind": "agent-execution-preparation",
+      "schemaVersion": 1,
+      "preparationId": "interactive-preparation:e3fbf7ef-599b-40cc-bd23-e9ba28880ae7",
+      "requestDigest": "sha256:d5b97f1e0e99c2468dc3d80af81bd9debc59163f278f7ca434ce2064e0d107cc",
+      "authoredProfileDigest": "sha256:de726c44759e51d70811bf6c8dd171cf3a0640f4d749d0160473d3d7310a1573",
+      "effectiveProfileDigest": "sha256:de726c44759e51d70811bf6c8dd171cf3a0640f4d749d0160473d3d7310a1573",
+      "backend": "codex",
+      "harness": "codex",
+      "harnessVersion": "sidecar-registry",
+      "resolvedModel": {
+        "requested": "openai/gpt-5.6-luna",
+        "resolved": "openai/gpt-5.6-luna",
+        "provider": "openai"
+      },
+      "workspace": {
+        "leaseId": "interactive:retained-session-38e387ce55d44e338e15c01acce008d6233678437cae97aef1dc7432413bfbcb:e3fbf7ef-599b-40cc-bd23-e9ba28880ae7",
+        "provider": "tangle-sidecar",
+        "identityDigest": "sha256:2f7c157953ecf088508f976c461111ca9f4a8fdb20e09f78fa7fafa6be34c628",
+        "isolation": "per-run",
+        "sourceSnapshotDigest": "sha256:8fac8f7e5e5568c4188c7820ccf32d28b990eddb7339640a6450bf8836f51a23",
+        "sourceSnapshotPolicy": {
+          "kind": "provider-declared",
+          "name": "sidecar-interactive-workspace",
+          "version": 1,
+          "digest": "sha256:3c1690cf4d29a6098aeac0b1b5e457044dc6f928caa6780de536f1cc23344739"
+        },
+        "preparedWorkspaceDigest": "sha256:a110fa6f948210d08516bc204801d362f3b238c5b6f9c433409c3a0c873bb2cf",
+        "profileActivationDigest": "sha256:5f1c18343ab7756fb6de445d8cc56158cf437b9a247d6353245ee3154dea291f"
+      },
+      "axisResults": [],
+      "executionPlanDigest": "sha256:4d77c3c772a6e4e51147810e5ddf060b6f676dfd8025697db53fd10ce00a7657",
+      "materializer": {
+        "name": "@tangle-network/agent-profile-materialize",
+        "version": "workspace"
+      },
+      "expiresAtMs": 1789077508281,
+      "digest": "sha256:02deb7df30a21670cfdf95cd8182f3b7ba55497ab3b1c141cbc709f51e05a31f"
+    },
+    "incarnationId": "e3fbf7ef-599b-40cc-bd23-e9ba28880ae7",
+    "startedAt": "2026-09-09T21:58:28.281Z"
+  },
+  "refDigest": "sha256:519f269e235a890424b01162c057e65231bf0df3b41996d0aeec5e9b24695e64"
+}

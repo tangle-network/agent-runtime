@@ -1,0 +1,53 @@
+{
+  "name": "runtime-773-workers-20260909-c",
+  "mode": "orchestrate",
+  "pid": 54848,
+  "modelPrompts": 0,
+  "startedAt": "2026-09-09T21:58:11.273Z",
+  "steps": [
+    {
+      "step": "account-ownership-verified",
+      "at": "2026-09-09T21:58:13.107Z"
+    },
+    {
+      "step": "requested-limits",
+      "at": "2026-09-09T21:58:13.230Z",
+      "cpuCores": 1,
+      "memoryMB": 1024,
+      "diskGB": 1,
+      "maxLifetimeSeconds": 300,
+      "idleTimeoutSeconds": 180,
+      "egress": "blocked",
+      "sandboxMaximum": 2
+    },
+    {
+      "step": "coordinator-process-killed",
+      "at": "2026-09-09T21:58:37.159Z",
+      "pid": 55003,
+      "signal": "SIGKILL"
+    },
+    {
+      "step": "replacement-process-completed",
+      "at": "2026-09-09T21:59:07.804Z",
+      "pid": 56987,
+      "exitCode": 0
+    },
+    {
+      "step": "cleanup-confirmed",
+      "at": "2026-09-09T21:59:12.546Z",
+      "environmentId": "sandbox-8a2d1b51aee1",
+      "gone": true
+    },
+    {
+      "step": "cleanup-confirmed",
+      "at": "2026-09-09T21:59:15.901Z",
+      "environmentId": "sandbox-988cecf9b895",
+      "gone": true
+    },
+    {
+      "step": "cleanup-inventory",
+      "at": "2026-09-09T21:59:15.902Z",
+      "matchingSandboxes": 2
+    }
+  ]
+}
