@@ -36,7 +36,7 @@ jobs:
           version: '0.11.32'
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile && pnpm peers check
 
       - name: Check publish credential isolation
         run: pnpm run check:publish-workflow
@@ -131,7 +131,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install package set
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile && pnpm peers check
 
       - name: Build current agent-runtime
         run: pnpm run build
@@ -161,7 +161,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install package set
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile && pnpm peers check
 
       - name: Verify packed Runtime with official GEPA and SkillOpt
         run: pnpm run verify:official-optimizers
