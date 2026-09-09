@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.203.2
+
+Peer messages no longer extend completed router work with another inference.
+Tool results and supervisor steering still require their pending turns.
+The learning guide distinguishes local model requests, sandbox prompts, session resume, and between-task adaptation.
+
 ## 0.202.0
 
 Explicit provider turn failures now settle supervised children as `down`, retaining the failure reason, usage, and partial artifact.
