@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+The published benchmark package now admits sandbox SDK 0.38.x, including consumer-ready runtime-edge readiness.
+
 ## 0.11.0
 
 Adds caller-controlled start and resume inside managed benchmark shots.
