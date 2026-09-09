@@ -159,6 +159,32 @@ describe("createExecutor({ backend: 'provider' })", () => {
     expect(turns[0]?.providerOptions?.messages).toHaveLength(1)
   })
 
+  it('passes the canonical task turn to taskToTurn for safe customization', async () => {
+    const { provider, turns } = recordingProvider()
+    let defaultTurn: AgentTurnInput | undefined
+
+    await settle(
+      spec,
+      createExecutor({
+        backend: 'provider',
+        provider,
+        taskToTurn: (_task, _profile, turn) => {
+          defaultTurn = turn
+          return {
+            ...turn,
+            providerOptions: { messages: [{ role: 'user', content: turn.prompt }] },
+          }
+        },
+      }),
+    )
+
+    expect(defaultTurn?.prompt).toBe('write the answer')
+    expect(turns[0]?.prompt).toBe('write the answer')
+    expect(turns[0]?.providerOptions?.messages).toEqual([
+      { role: 'user', content: 'write the answer' },
+    ])
+  })
+
   it('refuses a turn-level model rather than recording one the provider did not run', async () => {
     const { provider } = recordingProvider()
 
