@@ -1,0 +1,45 @@
+{
+  "name": "runtime-773-workers-20260909-c",
+  "mode": "coordinator",
+  "pid": 55003,
+  "modelPrompts": 0,
+  "startedAt": "2026-09-09T21:58:14.012Z",
+  "steps": [
+    {
+      "step": "account-ownership-verified",
+      "at": "2026-09-09T21:58:14.376Z"
+    },
+    {
+      "step": "worker-spawned",
+      "at": "2026-09-09T21:58:14.529Z",
+      "workerId": "runtime-773-workers-20260909-c:s0"
+    },
+    {
+      "step": "worker-detached-running",
+      "at": "2026-09-09T21:58:25.202Z",
+      "workerId": "runtime-773-workers-20260909-c:s0",
+      "environmentId": "sandbox-988cecf9b895",
+      "frameCount": 184
+    },
+    {
+      "step": "worker-spawned",
+      "at": "2026-09-09T21:58:25.203Z",
+      "workerId": "runtime-773-workers-20260909-c:s1"
+    },
+    {
+      "step": "worker-detached-running",
+      "at": "2026-09-09T21:58:37.102Z",
+      "workerId": "runtime-773-workers-20260909-c:s1",
+      "environmentId": "sandbox-8a2d1b51aee1",
+      "frameCount": 188
+    },
+    {
+      "step": "ready-for-coordinator-crash",
+      "at": "2026-09-09T21:58:37.103Z",
+      "workerIds": [
+        "runtime-773-workers-20260909-c:s0",
+        "runtime-773-workers-20260909-c:s1"
+      ]
+    }
+  ]
+}

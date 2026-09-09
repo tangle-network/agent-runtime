@@ -1,0 +1,1 @@
+{"name":"worker-1","model":{"default":"openai/gpt-5.6-luna","provider":"openai"},"harness":"codex"}

@@ -1,0 +1,39 @@
+{
+  "name": "runtime-773-workers-20260909-b",
+  "mode": "coordinator",
+  "pid": 2123,
+  "modelPrompts": 0,
+  "startedAt": "2026-09-09T21:47:44.088Z",
+  "steps": [
+    {
+      "step": "account-ownership-verified"
+    },
+    {
+      "step": "worker-spawned",
+      "workerId": "runtime-773-workers-20260909-b:s0"
+    },
+    {
+      "step": "worker-detached-running",
+      "workerId": "runtime-773-workers-20260909-b:s0",
+      "environmentId": "sandbox-9a97337b2799",
+      "frameCount": 175
+    },
+    {
+      "step": "worker-spawned",
+      "workerId": "runtime-773-workers-20260909-b:s1"
+    },
+    {
+      "step": "worker-detached-running",
+      "workerId": "runtime-773-workers-20260909-b:s1",
+      "environmentId": "sandbox-a3f7fd320f32",
+      "frameCount": 161
+    },
+    {
+      "step": "ready-for-coordinator-crash",
+      "workerIds": [
+        "runtime-773-workers-20260909-b:s0",
+        "runtime-773-workers-20260909-b:s1"
+      ]
+    }
+  ]
+}

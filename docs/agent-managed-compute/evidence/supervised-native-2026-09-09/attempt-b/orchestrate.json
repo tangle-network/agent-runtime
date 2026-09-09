@@ -1,0 +1,46 @@
+{
+  "name": "runtime-773-workers-20260909-b",
+  "mode": "orchestrate",
+  "pid": 2086,
+  "modelPrompts": 0,
+  "startedAt": "2026-09-09T21:47:42.284Z",
+  "steps": [
+    {
+      "step": "account-ownership-verified"
+    },
+    {
+      "step": "requested-limits",
+      "cpuCores": 1,
+      "memoryMB": 1024,
+      "diskGB": 1,
+      "maxLifetimeSeconds": 300,
+      "idleTimeoutSeconds": 180,
+      "egress": "blocked",
+      "sandboxMaximum": 2
+    },
+    {
+      "step": "coordinator-process-killed",
+      "pid": 2123,
+      "signal": "SIGKILL"
+    },
+    {
+      "step": "cleanup-confirmed",
+      "environmentId": "sandbox-a3f7fd320f32",
+      "gone": true
+    },
+    {
+      "step": "cleanup-confirmed",
+      "environmentId": "sandbox-9a97337b2799",
+      "gone": true
+    },
+    {
+      "step": "cleanup-inventory",
+      "matchingSandboxes": 2
+    },
+    {
+      "step": "failure",
+      "name": "AssertionError",
+      "status": null
+    }
+  ]
+}

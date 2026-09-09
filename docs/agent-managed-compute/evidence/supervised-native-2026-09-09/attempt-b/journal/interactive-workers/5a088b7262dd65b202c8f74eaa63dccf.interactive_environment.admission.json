@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "workerId": "runtime-773-workers-20260909-b:s1",
+  "recordedAt": "2026-09-09T21:47:57.826Z",
+  "phase": "interactive_environment",
+  "provider": "tangle-sandbox",
+  "environmentId": "sandbox-a3f7fd320f32",
+  "idempotencyKey": "supervised-interactive-environment-4c927c6c6f0f565e83296a0b8633a6f01255545d38587b1cdc548a176b699d70",
+  "interactiveIdempotencyKey": "supervised-interactive-session-bba2f072362aafb756c577d33328d2de0a5e9bf76639ed5b34869d16acd9ebc1",
+  "requestDigest": "sha256:ef82c70a518bb33570803ff0d13cfe2372398de8143452372b9856ab9688316e"
+}

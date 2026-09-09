@@ -1,0 +1,191 @@
+{
+  "status": "passed",
+  "run": "runtime-773-workers-20260909-c",
+  "runtimeSource": "0c45a1035d29f90303a61ddb2b879039ad87c987",
+  "sdk": "0.38.2",
+  "provider": "1.1.6",
+  "interface": "2.6.0",
+  "executedScriptSha256": "82bae17ea0cbb9677685d9f7da50398cb00f1f30019d462569e9d3f62ad68d56",
+  "publicScriptChanges": "Removed machine-specific source defaults and account email; proof logic unchanged.",
+  "modelPromptsSentByProof": 0,
+  "workers": [
+    {
+      "step": "exact-worker-recovered",
+      "at": "2026-09-09T21:58:51.373Z",
+      "workerId": "runtime-773-workers-20260909-c:s0",
+      "originalCoordinatorPid": 55003,
+      "replacementPid": 56987,
+      "initialFrames": 184,
+      "replayFrames": 218,
+      "matchingFrames": 184,
+      "ref": {
+        "run": {
+          "runId": "interactive-run-2388a583a7f00287e62ac8421ea49692e9256d705eb434c3c7795cfb87d8e24d",
+          "provider": "tangle-sandbox",
+          "environmentId": "sandbox-988cecf9b895",
+          "sessionId": "retained-session-4d39d1f15772cf9b5c9fa9b82e5b960d3ffddd09b6b78e0307bc87370c2dd622",
+          "executionId": "retained-execution-4d39d1f15772cf9b5c9fa9b82e5b960d3ffddd09b6b78e0307bc87370c2dd622",
+          "requestDigest": "sha256:2388a583a7f00287e62ac8421ea49692e9256d705eb434c3c7795cfb87d8e24d"
+        },
+        "preparationReceipt": {
+          "kind": "agent-execution-preparation",
+          "schemaVersion": 1,
+          "preparationId": "interactive-preparation:446e1e0c-4d99-44d4-bcb9-d42d94f21595",
+          "requestDigest": "sha256:2388a583a7f00287e62ac8421ea49692e9256d705eb434c3c7795cfb87d8e24d",
+          "authoredProfileDigest": "sha256:ba6d415cc9c76d83889f04643f4a484106c8dcf666f153df818e2d8f01ebdb2a",
+          "effectiveProfileDigest": "sha256:ba6d415cc9c76d83889f04643f4a484106c8dcf666f153df818e2d8f01ebdb2a",
+          "backend": "codex",
+          "harness": "codex",
+          "harnessVersion": "sidecar-registry",
+          "resolvedModel": {
+            "requested": "openai/gpt-5.6-luna",
+            "resolved": "openai/gpt-5.6-luna",
+            "provider": "openai"
+          },
+          "workspace": {
+            "leaseId": "interactive:retained-session-4d39d1f15772cf9b5c9fa9b82e5b960d3ffddd09b6b78e0307bc87370c2dd622:446e1e0c-4d99-44d4-bcb9-d42d94f21595",
+            "provider": "tangle-sidecar",
+            "identityDigest": "sha256:fd1fc2a8cea378a6899082cd23348af1b664187ccf96b9962980cd7bf5fae2e7",
+            "isolation": "per-run",
+            "sourceSnapshotDigest": "sha256:bfb1e320d8e32c43663012cf5d2726aff166e6a5ef97e8ebb886525bf36e23ac",
+            "sourceSnapshotPolicy": {
+              "kind": "provider-declared",
+              "name": "sidecar-interactive-workspace",
+              "version": 1,
+              "digest": "sha256:3c1690cf4d29a6098aeac0b1b5e457044dc6f928caa6780de536f1cc23344739"
+            },
+            "preparedWorkspaceDigest": "sha256:50022558ca660edfc34284be70c65f026690db469df5839c651a9b0c7bc28e63",
+            "profileActivationDigest": "sha256:5e711d9c5b63a9558946d724418606bd87d19bbb6eff6ec676ad5d0e1d231b8a"
+          },
+          "axisResults": [],
+          "executionPlanDigest": "sha256:4d77c3c772a6e4e51147810e5ddf060b6f676dfd8025697db53fd10ce00a7657",
+          "materializer": {
+            "name": "@tangle-network/agent-profile-materialize",
+            "version": "workspace"
+          },
+          "expiresAtMs": 1789077497521,
+          "digest": "sha256:a498a353276503443103aa2d5fdc3d052aecc138b0d58a6137276627ca6c6f89"
+        },
+        "incarnationId": "446e1e0c-4d99-44d4-bcb9-d42d94f21595",
+        "startedAt": "2026-09-09T21:58:17.521Z"
+      }
+    },
+    {
+      "step": "exact-worker-recovered",
+      "at": "2026-09-09T21:59:02.200Z",
+      "workerId": "runtime-773-workers-20260909-c:s1",
+      "originalCoordinatorPid": 55003,
+      "replacementPid": 56987,
+      "initialFrames": 188,
+      "replayFrames": 218,
+      "matchingFrames": 188,
+      "ref": {
+        "run": {
+          "runId": "interactive-run-d5b97f1e0e99c2468dc3d80af81bd9debc59163f278f7ca434ce2064e0d107cc",
+          "provider": "tangle-sandbox",
+          "environmentId": "sandbox-8a2d1b51aee1",
+          "sessionId": "retained-session-38e387ce55d44e338e15c01acce008d6233678437cae97aef1dc7432413bfbcb",
+          "executionId": "retained-execution-38e387ce55d44e338e15c01acce008d6233678437cae97aef1dc7432413bfbcb",
+          "requestDigest": "sha256:d5b97f1e0e99c2468dc3d80af81bd9debc59163f278f7ca434ce2064e0d107cc"
+        },
+        "preparationReceipt": {
+          "kind": "agent-execution-preparation",
+          "schemaVersion": 1,
+          "preparationId": "interactive-preparation:e3fbf7ef-599b-40cc-bd23-e9ba28880ae7",
+          "requestDigest": "sha256:d5b97f1e0e99c2468dc3d80af81bd9debc59163f278f7ca434ce2064e0d107cc",
+          "authoredProfileDigest": "sha256:de726c44759e51d70811bf6c8dd171cf3a0640f4d749d0160473d3d7310a1573",
+          "effectiveProfileDigest": "sha256:de726c44759e51d70811bf6c8dd171cf3a0640f4d749d0160473d3d7310a1573",
+          "backend": "codex",
+          "harness": "codex",
+          "harnessVersion": "sidecar-registry",
+          "resolvedModel": {
+            "requested": "openai/gpt-5.6-luna",
+            "resolved": "openai/gpt-5.6-luna",
+            "provider": "openai"
+          },
+          "workspace": {
+            "leaseId": "interactive:retained-session-38e387ce55d44e338e15c01acce008d6233678437cae97aef1dc7432413bfbcb:e3fbf7ef-599b-40cc-bd23-e9ba28880ae7",
+            "provider": "tangle-sidecar",
+            "identityDigest": "sha256:2f7c157953ecf088508f976c461111ca9f4a8fdb20e09f78fa7fafa6be34c628",
+            "isolation": "per-run",
+            "sourceSnapshotDigest": "sha256:8fac8f7e5e5568c4188c7820ccf32d28b990eddb7339640a6450bf8836f51a23",
+            "sourceSnapshotPolicy": {
+              "kind": "provider-declared",
+              "name": "sidecar-interactive-workspace",
+              "version": 1,
+              "digest": "sha256:3c1690cf4d29a6098aeac0b1b5e457044dc6f928caa6780de536f1cc23344739"
+            },
+            "preparedWorkspaceDigest": "sha256:a110fa6f948210d08516bc204801d362f3b238c5b6f9c433409c3a0c873bb2cf",
+            "profileActivationDigest": "sha256:5f1c18343ab7756fb6de445d8cc56158cf437b9a247d6353245ee3154dea291f"
+          },
+          "axisResults": [],
+          "executionPlanDigest": "sha256:4d77c3c772a6e4e51147810e5ddf060b6f676dfd8025697db53fd10ce00a7657",
+          "materializer": {
+            "name": "@tangle-network/agent-profile-materialize",
+            "version": "workspace"
+          },
+          "expiresAtMs": 1789077508281,
+          "digest": "sha256:02deb7df30a21670cfdf95cd8182f3b7ba55497ab3b1c141cbc709f51e05a31f"
+        },
+        "incarnationId": "e3fbf7ef-599b-40cc-bd23-e9ba28880ae7",
+        "startedAt": "2026-09-09T21:58:28.281Z"
+      }
+    }
+  ],
+  "stopEvidence": [
+    {
+      "step": "fresh-stop-control-acquired",
+      "at": "2026-09-09T21:59:03.599Z",
+      "index": 0
+    },
+    {
+      "step": "exact-worker-stopped",
+      "at": "2026-09-09T21:59:04.810Z",
+      "workerId": "runtime-773-workers-20260909-c:s0",
+      "status": "accepted",
+      "effect": "stopped",
+      "terminalState": "exited"
+    },
+    {
+      "step": "sibling-unaffected-by-selected-worker-stop",
+      "at": "2026-09-09T21:59:05.734Z",
+      "runningWorkerId": "runtime-773-workers-20260909-c:s1"
+    },
+    {
+      "step": "fresh-stop-control-acquired",
+      "at": "2026-09-09T21:59:06.565Z",
+      "index": 1
+    },
+    {
+      "step": "exact-worker-stopped",
+      "at": "2026-09-09T21:59:07.791Z",
+      "workerId": "runtime-773-workers-20260909-c:s1",
+      "status": "accepted",
+      "effect": "stopped",
+      "terminalState": "exited"
+    }
+  ],
+  "cleanupEvidence": [
+    {
+      "step": "cleanup-confirmed",
+      "at": "2026-09-09T21:59:12.546Z",
+      "environmentId": "sandbox-8a2d1b51aee1",
+      "gone": true
+    },
+    {
+      "step": "cleanup-confirmed",
+      "at": "2026-09-09T21:59:15.901Z",
+      "environmentId": "sandbox-988cecf9b895",
+      "gone": true
+    },
+    {
+      "step": "cleanup-inventory",
+      "at": "2026-09-09T21:59:15.902Z",
+      "matchingSandboxes": 2
+    }
+  ],
+  "overallExitCode": 0,
+  "supervisorSchedulingResumed": false,
+  "braidRestartTested": false,
+  "resourceEnforcementMeasured": false
+}
