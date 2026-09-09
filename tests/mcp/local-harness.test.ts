@@ -14,6 +14,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as scheduleTimeout } from 'node:timers'
 import { HARNESS_NATIVE_MODEL } from '@tangle-network/agent-eval'
 import type { AgentProfile } from '@tangle-network/agent-interface'
 import { describe, expect, it, vi } from 'vitest'
@@ -909,28 +910,48 @@ describe('runLocalHarness', () => {
     if (process.platform === 'win32') return
     const cwd = mkdtempSync(join(tmpdir(), 'agent-runtime-process-tree-'))
     const pidFile = join(cwd, 'grandchild.pid')
-    const grandchildScript = `process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)`
-    const parentScript = [
-      `const {spawn}=require('node:child_process')`,
+    const grandchildScript = [
       `const fs=require('node:fs')`,
-      `const child=spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)}],{stdio:'ignore'})`,
-      `fs.writeFileSync(process.argv[1],String(child.pid))`,
-      `process.on('SIGTERM',()=>process.exit(0))`,
+      // Readiness deliberately exceeds the old one-second startup window.
+      `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1200)`,
+      `process.on('SIGTERM',()=>{})`,
+      `fs.writeFileSync(process.argv[1],String(process.pid))`,
       `setInterval(()=>{},1000)`,
     ].join(';')
+    const parentScript = [
+      `const {spawn}=require('node:child_process')`,
+      `process.on('SIGTERM',()=>process.exit(0))`,
+      `spawn(process.execPath,['-e',${JSON.stringify(grandchildScript)},process.argv[1]],{stdio:'ignore'})`,
+      `setInterval(()=>{},1000)`,
+    ].join(';')
+    const ctl = new AbortController()
     let grandchildPid: number | undefined
     let run: ReturnType<typeof runLocalHarness> | undefined
+    let fireDeadline: (() => void) | undefined
+    // Hold only the harness deadline. Real OS startup and termination polling keep real time.
+    const deadline = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation((callback, ms, ...args) => {
+        if (ms === 2_000) {
+          fireDeadline = () => callback(...args)
+          return scheduleTimeout(() => {}, 60_000)
+        }
+        return scheduleTimeout(callback, ms, ...args)
+      })
     try {
       run = runLocalHarness({
         harness: 'claude-code',
         cwd,
         taskPrompt: 'process-tree cancellation smoke',
         invocation: { command: process.execPath, args: ['-e', parentScript, pidFile] },
-        // This covers real OS process startup; timeout behavior itself is tested above with fake time.
         timeoutMs: 2_000,
+        signal: ctl.signal,
       })
-      await waitForFile(pidFile, 1_000)
+      deadline.mockRestore()
+      expect(fireDeadline).toBeTypeOf('function')
+      await waitForFile(pidFile, 10_000)
       grandchildPid = Number(readFileSync(pidFile, 'utf8'))
+      fireDeadline!()
       const result = await run
 
       expect(result.timedOut).toBe(true)
@@ -939,6 +960,8 @@ describe('runLocalHarness', () => {
         expect.objectContaining({ code: 'ESRCH' }),
       )
     } finally {
+      deadline.mockRestore()
+      ctl.abort()
       await run?.catch(() => undefined)
       if (grandchildPid !== undefined) {
         try {
@@ -949,7 +972,7 @@ describe('runLocalHarness', () => {
       }
       rmSync(cwd, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 
   it('retains only the newest configured bytes from noisy output', async () => {
     const result = await runLocalHarness({
