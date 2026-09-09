@@ -44,3 +44,19 @@ Three settings are worth knowing.
 Multi-agent orchestration usually becomes glue code: spawn, track, collect, and guess when the work is done.
 This is one call with defaults, so you write a goal and a profile instead of a framework.
 "Done" is your check against a worker's output, so a worker cannot claim success, and a failure reports the real reason and the spend.
+
+## Caller-named resource limits
+
+Run the offline [resource accounting example](./named-resources.ts):
+
+```bash
+pnpm tsx --tsconfig tsconfig.examples.json examples/supervise/named-resources.ts
+```
+
+`Budget.resources` pairs each caller-owned name with a unit and limit.
+Executors report matching `Spend.resources` totals or incremental resource usage events.
+Every child must declare all dimensions enforced by its parent.
+Reservations include all standard and named channels atomically.
+Known unused allocations return to the pool.
+Missing or unknown enforced measurements block further admission and remain unknown after restart.
+The runtime trusts executor measurements; it does not measure accelerator use or network traffic itself.

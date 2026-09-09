@@ -7,6 +7,7 @@
  */
 
 import type { SandboxInstance } from '@tangle-network/sandbox'
+import { addResourceSpend } from './supervise/resources'
 import type { Spend, TokenUsageProvenance } from './supervise/types'
 import type { LoopTokenUsage } from './types'
 
@@ -197,6 +198,7 @@ export function unmeteredSpend(ms: number): Spend {
 /** Copy a conserved spend without dropping a completeness marker or the catalog-priced part. */
 export function cloneSpend(spend: Spend): Spend {
   return {
+    ...addResourceSpend(spend.resources),
     iterations: spend.iterations,
     tokens: cloneTokenUsage(spend.tokens),
     ...(spend.tokensKnown === false ? { tokensKnown: false } : {}),
@@ -217,6 +219,7 @@ export function addSpend(a: Spend, b: Spend): Spend {
   const tokens = cloneTokenUsage(a.tokens)
   addTokenUsage(tokens, b.tokens)
   return {
+    ...addResourceSpend(a.resources, b.resources),
     iterations: a.iterations + b.iterations,
     tokens,
     ...(a.tokensKnown === false || b.tokensKnown === false ? { tokensKnown: false } : {}),

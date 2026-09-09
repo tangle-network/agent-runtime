@@ -485,6 +485,7 @@ export type UsageEvent =
       kind: 'progress'
       progress: ExecutorProgressEvent
     }
+  | { kind: 'resource'; name: string; unit: string; amount: number; known: boolean }
   | { kind: 'iteration' }
 
 /** The runtime tag of a `Executor` impl. Open by intent: custom runtimes use their own string name.
@@ -704,12 +705,26 @@ export interface ExecutorRegistry {
 
 // ── Budget — the conserved reservation pool ───────────────────────────────────
 
+/** Caller-defined resource ceiling. Names and units must agree throughout a tree. */
+export interface ResourceLimit {
+  readonly unit: string
+  readonly limit: number
+}
+
+/** Reported subtotal; false means the total is unknown, even when amount is zero. */
+export interface ResourceSpend {
+  readonly unit: string
+  readonly amount: number
+  readonly known: boolean
+}
+
 /** A budget envelope on a spawn or the root. All ceilings; the pool reserves against them. */
 export interface Budget {
   readonly maxIterations: number
   readonly maxTokens: number
   readonly maxUsd?: number
   readonly deadlineMs?: number
+  readonly resources?: Readonly<Record<string, ResourceLimit>>
 }
 
 /**
@@ -721,6 +736,7 @@ export interface Budget {
  * holds the reason.
  */
 export interface Spend {
+  resources?: Readonly<Record<string, ResourceSpend>>
   iterations: number
   tokens: LoopTokenUsage
   /** Token accounting is known unless explicitly false. A false value marks work that HAPPENED with
@@ -1046,22 +1062,7 @@ export interface Scope<Out> {
   /** The live tree — reads the in-memory nursery, not the journal. */
   readonly view: TreeView
   /** Conserved-pool readouts (post-reservation). */
-  readonly budget: Readonly<{
-    tokensLeft: number
-    /** `false` once a turn settled without reporting its tokens: `tokensLeft` is then a ceiling,
-     *  not a measurement. */
-    tokensKnown: boolean
-    /** `false` once a charged spend arrived without a readable prompt-cache split. That spend was
-     *  charged at its rolled-up prompt total, which counts a cached prefix again on every turn that
-     *  reads it, so `tokensLeft` is an upper bound on newly-presented work. */
-    cacheBreakdownKnown: boolean
-    usdLeft: number
-    usdCapped: boolean
-    usdKnown: boolean
-    iterationsLeft: number
-    deadlineMs: number
-    reservedTokens: number
-  }>
+  readonly budget: import('./budget').BudgetReadout
   /** One tree-wide view of simultaneous spawned work. Every nested scope reads the same counter;
    *  the root agent itself is not a spawned worker. `freeSlots` is `null` when no limit is set.
    *  `unconfirmed` NAMES the settled children whose executor teardown was never acknowledged —
@@ -1608,7 +1609,7 @@ export interface NoWinnerError {
 }
 
 /** The accounting channels a usage gap leaves incomplete. */
-export type SpendChannel = 'tokens' | 'usd'
+export type SpendChannel = 'tokens' | 'usd' | `resource:${string}`
 
 /**
  * One journaled node whose usage accounting is incomplete — the named gap behind a `false`

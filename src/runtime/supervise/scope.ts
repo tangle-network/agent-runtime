@@ -80,6 +80,7 @@ import {
   type WorkerProgress,
 } from './progress'
 import { prepareScopeResume } from './recover-executors'
+import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import {
   type RetainedChildRecovery,
   RetainedExecutionPendingError,
@@ -705,7 +706,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       spec = prepared.spec
       identity = prepared.identity
       if (opts.key !== undefined && !isCompleteIdentity(identity)) {
-        args.pool.reconcile(reservation.ticket, zeroSpend())
+        args.pool.reconcile(reservation.ticket, withBudgetResources(zeroSpend(), opts.budget, true))
         permit.release()
         return { ok: false, reason: 'invalid-identity' }
       }
@@ -718,7 +719,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       if (!outcome.succeeded) throw new ValidationError(`scope.spawn: ${outcome.error}`)
       resolved = outcome
     } catch (error) {
-      args.pool.reconcile(reservation.ticket, zeroSpend())
+      args.pool.reconcile(reservation.ticket, withBudgetResources(zeroSpend(), opts.budget, true))
       permit.release()
       throw error
     }
@@ -1291,7 +1292,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       permit.release()
       clearChildDeadline?.()
       if (cascadeAbort) args.signal.removeEventListener('abort', cascadeAbort)
-      args.pool.reconcile(reservation.ticket, zeroSpend())
+      args.pool.reconcile(reservation.ticket, withBudgetResources(zeroSpend(), opts.budget, true))
       throw err
     }
   }
@@ -1568,6 +1569,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         steerable: child.deliver !== undefined && !child.delivered,
         startedAt: child.startedAt,
         lastActivityAt: child.lastActivityAt,
+        ...addResourceSpend(child.spent.resources),
         turns: child.spent.iterations,
         tokens: child.spent.tokens,
         ...(child.spent.tokensKnown === false ? { tokensKnown: false } : {}),
@@ -1640,6 +1642,8 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     if (args.signal.aborted) {
       throw new ValidationError('scope.meter: cannot record new driver work after scope abort')
     }
+    const partial = providerModel !== undefined || accountingOnly
+    if (!partial) spend = withBudgetResources(spend, args.pool.readout())
     const seq = meterSeq++
     // Debit the driver's own inference against the shared conserved pool (free → committed), so
     // equal-k counts it live and `budget.tokensLeft` reflects it for the in-loop guard.
@@ -1648,7 +1652,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // returning the refusal; otherwise the terminal result would falsely report that cost as $0.
     let observeError: unknown
     try {
-      args.pool.observe(spend)
+      args.pool.observe(spend, { partial })
     } catch (error) {
       observeError = error
     }
@@ -2562,6 +2566,24 @@ async function runChild<C>(
     // A refused pre-execution path (including an unmetered executor) reconciles zero and refunds
     // its whole reservation. Every path that actually executes reports measured or unknown spend.
     try {
+      try {
+        spend = withBudgetResources(spend, opts.budget, !started)
+        live.spent = withBudgetResources(
+          live.spent,
+          opts.budget,
+          !started || executor.accounting?.() !== undefined,
+        )
+      } catch (error) {
+        // Invalid resource receipts cannot leave a ticket open or authorize a refund.
+        spend = withBudgetResources({ ...spend, resources: undefined }, opts.budget)
+        live.spent = withBudgetResources({ ...live.spent, resources: undefined }, opts.budget)
+        try {
+          pool.reconcile(ticket, spend)
+        } catch {
+          // Unknown enforced usage closes the ticket before reporting its violation.
+        }
+        throw error
+      }
       pool.reconcile(ticket, spend)
       return undefined
     } catch (error) {
@@ -2773,7 +2795,21 @@ async function runChild<C>(
       // lower bound, but never reinterpret the unreported remainder as zero under either root
       // ceiling. A recursive executor's explicit accounting remains authoritative on its throw
       // path; a persistence/teardown failure after a terminal artifact does too.
-      live.spent = { ...live.spent, tokensKnown: false, usdKnown: false }
+      live.spent = {
+        ...live.spent,
+        tokensKnown: false,
+        usdKnown: false,
+        ...(live.spent.resources === undefined
+          ? {}
+          : {
+              resources: Object.fromEntries(
+                Object.entries(live.spent.resources).map(([name, value]) => [
+                  name,
+                  { ...value, known: false },
+                ]),
+              ),
+            }),
+      }
     }
     const reconcileError = reconcileOnce(accounting?.reservation ?? live.spent)
     // A crashed driver child still re-homes the partial inference it durably metered.
@@ -3014,6 +3050,7 @@ async function foldStream(
       const ev = next.value
       meterUsageEvent(totals, ev)
       await onProgress?.({
+        ...addResourceSpend(totals.resources),
         iterations: totals.iterations,
         tokens: cloneTokenUsage(totals.tokens),
         ...(totals.tokensKnown ? {} : { tokensKnown: false }),
@@ -3042,6 +3079,7 @@ function preserveUnknownTelemetry(streamed: Spend, terminal: Spend): Spend {
   const terminalTokens = cloneTokenUsage(terminal.tokens)
   return {
     ...streamed,
+    ...resourceTelemetry(streamed, terminal),
     tokens: {
       ...streamed.tokens,
       ...(streamed.tokens.freshInput === undefined && terminalTokens.freshInput !== undefined

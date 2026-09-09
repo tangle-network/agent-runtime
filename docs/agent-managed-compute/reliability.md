@@ -277,3 +277,27 @@ Deleting a run must either delete referenced private blobs or record why shared 
 - Do not use one shared mutable checkout as the default parallel workspace.
 - Do not make every provider pretend it supports live steering or sessions.
 - Do not merge agent knowledge state into coordinator state.
+
+## Caller-named resource accounting
+
+`Budget.resources` declares caller-owned names, explicit units, and non-negative finite limits.
+`Spend.resources` reports amounts and explicit completeness flags in those same units.
+A resource usage event reports an increment; a terminal spend reports the total for the same invocation.
+The runtime avoids counting streamed and terminal measurements twice.
+Conflicting totals retain the larger subtotal and mark completeness unknown.
+
+The existing budget pool reserves standard and named channels together before starting a child.
+Each child must declare every resource enforced by its parent, with matching units.
+Known settlement commits measured usage and refunds the unused allocation.
+An overrun remains recorded and fails settlement.
+Missing or unknown enforced measurements close admission for that dimension.
+An omitted measurement becomes unknown, including when an executor terminates or cancellation interrupts reporting.
+Only a proven refusal before execution can refund an unmeasured allocation as known zero.
+
+Names, units, amounts, and unknown flags survive journal aggregation and retained execution recovery.
+Unknown recovery evidence cannot grant fresh usable capacity.
+These are accounting limits: callers must supply trustworthy measurements from their executors.
+Estimated box lifetime remains separate evidence and does not become a measured resource receipt.
+
+See the offline [example](../../examples/supervise/named-resources.ts).
+The concurrent conservation and durable replay proof is in `tests/kernel/named-resource-budgets.test.ts`.

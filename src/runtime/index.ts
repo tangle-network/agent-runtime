@@ -1084,6 +1084,8 @@ export type {
   ProfileMaterializationReceipt,
   ProviderModelAttemptEvidence,
   ProviderModelExecutionEvidence,
+  ResourceLimit,
+  ResourceSpend,
   ResultBlobStore,
   ResumedKeyState,
   ResumedWork,

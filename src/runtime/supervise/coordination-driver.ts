@@ -69,6 +69,7 @@ import {
 import { createInbox, type Inbox } from './inbox'
 import { providerAttemptEvidence } from './materialization'
 import { isTerminalNodeStatus } from './node-status'
+import { withBudgetResources } from './resources'
 import { applyRunCancellation } from './run-cancellation'
 import {
   claimWorkerSteerDelivery,
@@ -318,7 +319,13 @@ function poolStarved(scope: Scope<unknown>, perWorker: Budget): boolean {
   const usdStarved =
     b.usdCapped &&
     (b.usdLeft <= 0 || (perWorker.maxUsd !== undefined && b.usdLeft < perWorker.maxUsd))
-  return tokenStarved || iterationStarved || usdStarved
+  const resourceStarved = Object.entries(b.resources ?? {}).some(
+    ([name, value]) =>
+      !value.known ||
+      value.remaining <= 0 ||
+      value.remaining < (perWorker.resources?.[name]?.limit ?? 0),
+  )
+  return tokenStarved || iterationStarved || usdStarved || resourceStarved
 }
 
 /** The absolute wall-clock deadline (when the root set one) has passed. */
@@ -1040,7 +1047,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
           opts.onProviderModel?.(undefined)
           await meterRuntimeOwnedProviderAttempt(
             scope,
-            unmeteredSpend(0),
+            withBudgetResources(unmeteredSpend(0), scope.budget),
             providerAttemptEvidence(undefined),
             {
               driver: opts.name,
@@ -1092,7 +1099,7 @@ export function driverAgent(opts: DriverAgentOptions): Agent<unknown, unknown> {
         }
         await meterRuntimeOwnedProviderAttempt(
           scope,
-          turnSpend,
+          withBudgetResources(turnSpend, scope.budget),
           providerAttemptEvidence(res.model),
           {
             driver: opts.name,

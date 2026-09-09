@@ -92,6 +92,7 @@ import {
   type SupervisorSpanRecorder,
 } from './otel-spans'
 import type { PeerMailLimits } from './peer-mail'
+import { addResourceSpend, resourceTelemetry, withBudgetResources } from './resources'
 import { registerRetainedExecutorPreparation, retainedExecutorSeamKey } from './retained-executor'
 import {
   consumeScopeRetainedOwnerResult,
@@ -802,6 +803,9 @@ function driveHarnessFromBackend(
       (initialBudget.tokensLeft <= 0 ||
         initialBudget.iterationsLeft <= 0 ||
         (initialBudget.usdCapped && initialBudget.usdLeft <= 0) ||
+        Object.values(initialBudget.resources ?? {}).some(
+          (resource) => !resource.known || resource.remaining <= 0,
+        ) ||
         (initialBudget.deadlineMs > 0 && now() >= initialBudget.deadlineMs))
     ) {
       throw new ValidationError('driveHarnessFromBackend: supervisor budget exhausted')
@@ -923,6 +927,25 @@ function driveHarnessFromBackend(
       ? await scopeRetainedOwnerPriorSpend(scope)
       : zeroSpend()
     const ownerDelta = (total: Spend): Spend => ({
+      ...addResourceSpend(
+        total.resources === undefined
+          ? undefined
+          : Object.fromEntries(
+              Object.entries(total.resources).map(([name, value]) => {
+                const prior = committedOwnerSpend.resources?.[name]
+                if (prior && prior.unit !== value.unit)
+                  throw new ValidationError(`resource ${name}: unit mismatch`)
+                return [
+                  name,
+                  {
+                    ...value,
+                    amount: Math.max(0, value.amount - (prior?.amount ?? 0)),
+                    known: value.known && (prior?.known ?? true),
+                  },
+                ]
+              }),
+            ),
+      ),
       iterations: Math.max(0, total.iterations - committedOwnerSpend.iterations),
       tokens: {
         input: Math.max(0, total.tokens.input - committedOwnerSpend.tokens.input),
@@ -1017,6 +1040,9 @@ function driveHarnessFromBackend(
       if (
         budget.tokensLeft <= 0 ||
         (budget.usdCapped && budget.usdLeft <= 0) ||
+        Object.values(budget.resources ?? {}).some(
+          (resource) => !resource.known || resource.remaining <= 0,
+        ) ||
         (budget.deadlineMs > 0 && now() >= budget.deadlineMs)
       ) {
         throw new ValidationError('driveHarnessFromBackend: supervisor budget exhausted')
@@ -1082,7 +1108,10 @@ function driveHarnessFromBackend(
         ownerMaterializationPublished = true
       }
       await meterPending()
-      const total = { ...result.spent, iterations: 0 }
+      const total = withBudgetResources(
+        { ...result.spent, ...resourceTelemetry(observedOwnerSpend, result.spent), iterations: 0 },
+        scope.budget,
+      )
       const delta = ownerDelta(total)
       await meterRuntimeOwnedAccounting(scope, delta, { role: 'driver', runtime: executor.runtime })
       committedOwnerSpend = addRetainedSpend(committedOwnerSpend, delta)
@@ -1151,16 +1180,38 @@ function driveHarnessFromBackend(
         }
         await meterPending()
         const artifact = executor.resultArtifact()
-        terminalAccountingCaptured = true
+        const terminalResources = withBudgetResources(
+          { ...artifact.spent, ...resourceTelemetry(observedOwnerSpend, artifact.spent) },
+          scope.budget,
+        ).resources
+        const resourceCorrection = addResourceSpend(
+          terminalResources === undefined
+            ? undefined
+            : Object.fromEntries(
+                Object.entries(terminalResources).map(([name, value]) => [
+                  name,
+                  {
+                    ...value,
+                    amount: Math.max(
+                      0,
+                      value.amount - (observedOwnerSpend.resources?.[name]?.amount ?? 0),
+                    ),
+                  },
+                ]),
+              ),
+        )
         // A stream carries increments, while its terminal artifact says whether either accounting
         // channel was omitted. Preserve unknowns in the shared pool instead of treating them as 0.
         if (
           !retainedOwner &&
-          (artifact.spent.tokensKnown === false || artifact.spent.usdKnown === false)
+          (artifact.spent.tokensKnown === false ||
+            artifact.spent.usdKnown === false ||
+            resourceCorrection.resources !== undefined)
         ) {
           await meterRuntimeOwnedAccounting(
             scope,
             {
+              ...resourceCorrection,
               iterations: 0,
               tokens: { input: 0, output: 0 },
               ...(artifact.spent.tokensKnown === false ? { tokensKnown: false } : {}),
@@ -1171,15 +1222,16 @@ function driveHarnessFromBackend(
             { role: 'driver', runtime: executor.runtime, telemetry: 'unknown' },
           )
         }
+        terminalAccountingCaptured = true
       } else {
         const artifact = await run
-        terminalAccountingCaptured = true
         await meterRuntimeOwnedProviderAttempt(
           scope,
-          { ...artifact.spent, iterations: 0 },
+          withBudgetResources({ ...artifact.spent, iterations: 0 }, scope.budget),
           providerEvidenceForNextMeter(),
           { role: 'driver', runtime: executor.runtime },
         )
+        terminalAccountingCaptured = true
       }
       if (pending !== undefined && !ownerMaterializationPublished) {
         const acknowledged = runtimeOwnedExecutorMaterialization(executor)
@@ -1245,7 +1297,11 @@ function driveHarnessFromBackend(
               evidence?.attempts[meteredProviderAttempts]?.providerDispatch === 'not_started'
             await meterRuntimeOwnedProviderAttempt(
               scope,
-              providerDispatchDidNotStart ? zeroSpend() : unmeteredSpend(0),
+              withBudgetResources(
+                providerDispatchDidNotStart ? zeroSpend() : unmeteredSpend(0),
+                scope.budget,
+                providerDispatchDidNotStart,
+              ),
               providerEvidenceForNextMeter(),
               {
                 role: 'driver',
@@ -1259,8 +1315,21 @@ function driveHarnessFromBackend(
           if (meteredProviderAttempts === 0) {
             await meterRuntimeOwnedProviderAttempt(
               scope,
-              unmeteredSpend(0),
+              withBudgetResources(unmeteredSpend(0), scope.budget),
               providerEvidenceForNextMeter(),
+              { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
+            )
+          }
+          // Increments cannot prove the final resource total after an interrupted invocation.
+          const attempts = runtimeOwnedExecutorProviderEvidence(executor)?.attempts
+          const provenNotStarted =
+            attempts !== undefined &&
+            attempts.length > 0 &&
+            attempts.every((attempt) => attempt.providerDispatch === 'not_started')
+          if (scope.budget.resources !== undefined && !provenNotStarted) {
+            await meterRuntimeOwnedAccounting(
+              scope,
+              withBudgetResources(zeroSpend(), scope.budget),
               { role: 'driver', runtime: executor.runtime, telemetry: 'unknown-after-failure' },
             )
           }
@@ -2275,6 +2344,16 @@ function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
 
 function defaultPerWorker(budget: Budget): Budget {
   return {
+    ...(budget.resources === undefined
+      ? {}
+      : {
+          resources: Object.fromEntries(
+            Object.entries(budget.resources).map(([name, value]) => [
+              name,
+              { unit: value.unit, limit: value.limit / 4 },
+            ]),
+          ),
+        }),
     maxIterations: Math.max(1, Math.floor(budget.maxIterations / 4)),
     maxTokens: Math.max(1, Math.floor(budget.maxTokens / 4)),
     ...(budget.maxUsd !== undefined ? { maxUsd: budget.maxUsd / 4 } : {}),

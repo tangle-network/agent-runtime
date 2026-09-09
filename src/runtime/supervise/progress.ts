@@ -23,7 +23,8 @@
  */
 
 import { isLiveNodeStatus } from './node-status'
-import type { NodeStatus } from './types'
+import { addResourceSpend } from './resources'
+import type { NodeStatus, Spend } from './types'
 
 /** How long a worker may produce no metered activity before a `progress()` read calls it stalled.
  *  Deliberately generous: a coding harness routinely spends minutes inside one tool call, and a
@@ -91,6 +92,7 @@ export interface WorkerProgress {
   readonly usd: number
   /** False when observed dollar spend is only a known subtotal, not a complete total. */
   readonly usdKnown?: boolean
+  readonly resources?: Spend['resources']
   /** Steers delivered but not yet read by the worker. */
   readonly pendingMessages: number
   /** Newest-last window of tool/turn activity; empty when the executor exposes none. */
@@ -152,6 +154,7 @@ export interface ScopeProgressInput {
   readonly tokensKnown?: boolean
   readonly usd: number
   readonly usdKnown?: boolean
+  readonly resources?: Spend['resources']
 }
 
 /** Fold the scope-derived facts and the executor's optional enrichment into one read. Pure: the
@@ -172,6 +175,7 @@ export function readWorkerProgress(
   const idleMs = Math.max(0, now - lastActivityAt)
   const note = executor?.note
   return {
+    ...addResourceSpend(scope.resources),
     id: scope.id,
     status: scope.status,
     live,

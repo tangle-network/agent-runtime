@@ -1595,7 +1595,19 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
     const maxTokens = field('maxTokens')
     const maxUsd = field('maxUsd')
     const deadlineMs = field('deadlineMs')
+    const rawResources = o.resources
+    if (
+      rawResources !== undefined &&
+      (!rawResources || typeof rawResources !== 'object' || Array.isArray(rawResources))
+    ) {
+      throw new Error('coordination tools: "budget.resources" must be a resource map')
+    }
+    const resources =
+      rawResources === undefined ? base.resources : { ...base.resources, ...rawResources }
     const merged: Budget = {
+      ...(resources === undefined
+        ? {}
+        : { resources: resources as NonNullable<Budget['resources']> }),
       maxIterations: maxIterations ?? base.maxIterations,
       maxTokens: maxTokens ?? base.maxTokens,
       ...((maxUsd ?? base.maxUsd) === undefined ? {} : { maxUsd: maxUsd ?? base.maxUsd }),
@@ -2816,6 +2828,17 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
               maxTokens: { type: 'number', minimum: 0 },
               maxUsd: { type: 'number', minimum: 0 },
               deadlineMs: { type: 'number', minimum: 0 },
+              resources: {
+                type: 'object',
+                additionalProperties: {
+                  type: 'object',
+                  properties: {
+                    unit: { type: 'string', minLength: 1 },
+                    limit: { type: 'number', minimum: 0 },
+                  },
+                  required: ['unit', 'limit'],
+                },
+              },
             },
           },
         },

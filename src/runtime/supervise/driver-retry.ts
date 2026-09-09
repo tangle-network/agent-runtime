@@ -294,6 +294,12 @@ export function budgetStop(
   // retry could only reproduce the same refusal. The pool's own state proves this, independently of
   // how the refusal was thrown.
   if (budget.usdCapped && budget.usdKnown === false) return 'budget-exhausted'
+  if (
+    Object.values(budget.resources ?? {}).some(
+      (resource) => !resource.known || resource.remaining <= 0,
+    )
+  )
+    return 'budget-exhausted'
   return undefined
 }
 
