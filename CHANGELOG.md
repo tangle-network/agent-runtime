@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.209.0
+
+Budgets accept caller-named resources with explicit units, atomic reservations, measured refunds, and durable usage accounting.
+Choose integer units such as GPU milliseconds, storage bytes, or API requests to preserve exact conservation across workers and restarts.
+Missing, conflicting, or unknown enforced measurements close further admission while retaining the available evidence.
+Streams, nested execution, cancellation, and replay share the same resource accounting contract.
+
 ## 0.208.0
 
 Provider executors select caller-declared child placements, preserve exact profiles, and bind configuration identity across retained recovery.
