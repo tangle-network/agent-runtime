@@ -216,3 +216,10 @@ Ship the distributed path only when:
 A failed or underpowered benchmark remains open work.
 
 It is not evidence that agent-managed compute is ineffective.
+
+## Retained interactive Sandbox evidence
+
+The [2026-09-09 live records](./evidence/interactive-2026-09-09/README.md) cover two bounded Codex terminal runs without model prompts.
+Exact-reference reconnect replayed all 168 and 192 captured frames, respectively.
+The second run received an accepted stop acknowledgement and then observed `exited` before verified sandbox deletion.
+Worker native-child binding, live coordinator restart, environment expiry, and local Bridge conformance remain outside this proof.
