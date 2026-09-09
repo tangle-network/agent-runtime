@@ -166,9 +166,17 @@ export function sweEvaluationArgv(args: {
   readonly instanceId: string
   readonly cacheLevel: SweBenchCacheLevel
   readonly namespace?: 'swebench' | 'none'
-  /** SWE-bench <=4.1 accepts image cache and namespace controls; 5.x removed them. */
-  readonly legacyFlags?: boolean
 }): string[] {
+  return sweEvaluationArgvForHarness(args, true)
+}
+
+function sweEvaluationArgvForHarness(args: {
+  readonly predictionsPath: string
+  readonly runId: string
+  readonly instanceId: string
+  readonly cacheLevel: SweBenchCacheLevel
+  readonly namespace?: 'swebench' | 'none'
+}, legacyFlags: boolean): string[] {
   const common = [
     '-m', 'swebench.harness.run_evaluation',
     '--dataset_name', DATASET,
@@ -177,7 +185,7 @@ export function sweEvaluationArgv(args: {
     '--instance_ids', args.instanceId,
     '--max_workers', '1',
   ]
-  if (args.legacyFlags === false) return common
+  if (!legacyFlags) return common
   return [...common, '--namespace', args.namespace ?? scorerNamespace(), '--cache_level', args.cacheLevel]
 }
 
@@ -321,14 +329,13 @@ print(json.dumps(out))
         },
         // The official evaluation harness. Pulls/builds the instance image, applies
         // the patch, runs the test spec, writes a per-run report JSON in cwd.
-        argv: (dir) => sweEvaluationArgv({
+        argv: (dir) => sweEvaluationArgvForHarness({
           predictionsPath: join(dir, 'preds.json'),
           runId,
           instanceId: task.id,
           cacheLevel,
           namespace: scorerNamespace(),
-          legacyFlags: useLegacyFlags,
-        }),
+        }, useLegacyFlags),
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json
           const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
