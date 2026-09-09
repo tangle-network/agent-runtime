@@ -1080,8 +1080,8 @@ async function drainCursor(scope: Scope<unknown>): Promise<void> {
  * bucket — and it is why `driver-failed` cannot be produced without an `error` to attach.
  */
 function classifyNoWinner(
-  /** Whether the cascade was aborted at the moment root execution settled — NOT the controller's
-   *  state now. The join barrier itself aborts the cascade to tear children down, so reading the
+  /** Whether execution was aborted, including an explicit cascade during descendant drain —
+   *  NOT the controller's state now. The join barrier itself aborts children, so reading the
    *  live controller here reported every driver failure that happened to have a live child as
    *  `aborted`, hiding the real cause (#741: the run with one live child reported `aborted`, the
    *  identical failure with none reported `driver-failed`). */
