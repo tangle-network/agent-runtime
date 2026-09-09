@@ -5,7 +5,7 @@ import type { Agent, Spend } from '../../src/runtime/supervise/types'
 import type { ToolLoopChat } from '../../src/runtime/tool-loop'
 import { runtimeToolDeclarations, testAgentProfile } from './test-agent-profile'
 
-it.each(['reported', 'missing', 'malformed'])(
+it.each(['reported', 'missing', 'malformed', 'retried'])(
   'meters explicit root resource receipts before tool calls: receipt=%s',
   async (mode) => {
     const reported = mode === 'reported'
@@ -20,6 +20,7 @@ it.each(['reported', 'missing', 'malformed'])(
     const journal = new InMemorySpawnJournal()
     let entered = 0
     let calls = 0
+    let transportCalls = 0
     const brain: ToolLoopChat = async () => ({
       toolCalls:
         calls++ === 0
@@ -33,7 +34,7 @@ it.each(['reported', 'missing', 'malformed'])(
             ]
           : [],
       usage: { input: 1, output: 1 },
-      ...(reported ? { resources: receipt } : {}),
+      ...(reported || mode === 'retried' ? { resources: receipt } : {}),
     })
     const leaf: Agent<unknown, unknown> = {
       name: 'leaf',
@@ -64,6 +65,9 @@ it.each(['reported', 'missing', 'malformed'])(
     const result = await supervise(
       testAgentProfile('root', {
         harness: 'cli-base',
+        model: {
+          metadata: { retry: { maxAttempts: 2, initialBackoffMs: 0, maxBackoffMs: 0, jitter: 0 } },
+        },
         tools: runtimeToolDeclarations('spawn_worker', 'await_event'),
       }),
       'work',
@@ -72,6 +76,8 @@ it.each(['reported', 'missing', 'malformed'])(
           routerBaseUrl: 'http://unused.invalid/v1',
           routerKey: 'offline',
           complete: async (body) => {
+            if (mode === 'retried' && transportCalls++ === 0)
+              throw new TypeError('fetch failed after dispatch')
             expect(body.model).toBe('offline-test-model')
             const result = await brain([], [])
             return {
@@ -127,7 +133,7 @@ it.each(['reported', 'missing', 'malformed'])(
       if (event.kind !== 'metered') continue
       expect(event.spend.resources?.compute).toEqual({
         unit: 'millisecond',
-        amount: reported ? 2 : 0,
+        amount: reported || mode === 'retried' ? 2 : 0,
         known: reported,
       })
     }

@@ -234,6 +234,7 @@ function parseChatResult(
   const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
     data.usage,
     model,
+    transportAttempts,
   )
   const msg = data.choices?.[0]?.message
   if (!msg) throw new ValidationError('router completion: no choices[0].message')
@@ -413,6 +414,7 @@ export async function routerChatWithTools(
   const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
     data.usage,
     cfg.model,
+    transportAttempts,
   )
   return {
     content: msg?.content ?? null,
@@ -491,6 +493,7 @@ function providerRequestExtras(
 function meterTurn(
   raw: RawUsage | undefined,
   model: string,
+  transportAttempts: number,
 ): {
   usage?: { input: number; output: number; reasoning?: number }
   /** Explicit per-turn resource measurements supplied by the transport. */
@@ -500,7 +503,13 @@ function meterTurn(
   billedCostUsd?: number
   cache?: PromptCacheUsage
 } {
-  const resources = addResourceSpend(raw?.resources).resources
+  let resources = addResourceSpend(raw?.resources).resources
+  if (transportAttempts > 1 && resources !== undefined) {
+    // The final receipt cannot prove that failed transport attempts consumed no resources.
+    resources = Object.fromEntries(
+      Object.entries(resources).map(([name, value]) => [name, { ...value, known: false }]),
+    )
+  }
   const reasoning = providerReasoningTokens(raw)
   const usage =
     raw && typeof raw.prompt_tokens === 'number' && typeof raw.completion_tokens === 'number'
@@ -802,6 +811,7 @@ export async function streamRouterChatWithTools(
   const { usage, resources, costUsd, costProvenance, billedCostUsd, cache } = meterTurn(
     rawUsage,
     cfg.model,
+    transportAttempts,
   )
   return {
     // `null` only when NO content field was ever sent — the buffered path's `msg?.content ?? null`.

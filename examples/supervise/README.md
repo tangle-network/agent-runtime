@@ -82,6 +82,7 @@ The transport must forward the Runtime-authored request without changing its mod
 It must derive those amounts from trustworthy measurements for that completion.
 An explicit measured zero is valid; an omitted dimension remains unknown and blocks admission.
 Buffered and streamed Router responses use the same receipt validation.
+After a transport retry, the final measured subtotal remains available, but completeness becomes unknown because earlier attempts lack receipts.
 Inline Router executors sum turn receipts and preserve unknown measurements across turns.
 Custom tool-loop brains can return the same map as `resources` on their existing response.
 The public `supervise` regression is `tests/kernel/named-resource-driver.test.ts`.

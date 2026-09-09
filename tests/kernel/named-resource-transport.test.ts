@@ -1,5 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest'
-import { routerChatWithUsage, streamRouterChatWithTools } from '../../src/runtime/router-client'
+import {
+  routerChatWithTools,
+  routerChatWithUsage,
+  streamRouterChatWithTools,
+} from '../../src/runtime/router-client'
 import {
   routerInlineExecutor,
   routerToolsInlineExecutor,
@@ -134,5 +138,45 @@ it.each(['complete', 'missing-first', 'missing-last'])(
       known: completeReceipt,
     })
     await executor.teardown()
+  },
+)
+
+it.each(['scalar', 'tools', 'stream'] as const)(
+  'marks retried %s resource totals unknown while preserving the measured subtotal',
+  async (mode) => {
+    let attempts = 0
+    const receipt = {
+      model: config.model,
+      choices: [{ message: { content: 'done' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, resources },
+    }
+    const retry = { maxAttempts: 2, initialBackoffMs: 0, maxBackoffMs: 0, jitter: 0 }
+    const complete = async () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('fetch failed after dispatch')
+      return receipt
+    }
+    vi.stubGlobal('fetch', async () => {
+      attempts += 1
+      if (attempts === 1) throw new TypeError('fetch failed after dispatch')
+      const frame = { ...receipt, choices: [{ delta: { content: 'done' }, finish_reason: 'stop' }] }
+      return new Response(`data: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`, {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+    })
+    const result =
+      mode === 'scalar'
+        ? await routerChatWithUsage({ ...config, retry, complete }, [])
+        : mode === 'tools'
+          ? await routerChatWithTools({ ...config, retry, complete }, [], [])
+          : await streamRouterChatWithTools({ ...config, retry }, [], [])
+    expect(attempts).toBe(2)
+    expect(result.transportAttempts).toBe(2)
+    expect(result.resources).toEqual({
+      compute: { ...resources.compute, known: false },
+      transfer: { ...resources.transfer, known: false },
+    })
+    expect(resources.compute.known).toBe(true)
+    expect(resources.transfer.known).toBe(true)
   },
 )
