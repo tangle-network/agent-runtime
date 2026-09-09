@@ -11,6 +11,7 @@ import {
   AgentRunCancellationRequestSchema,
   type ContextTransferRequest,
   ContextTransferRequestSchema,
+  canonicalCandidateDigest,
   contextTransferRequestDigest,
   type InteractionCapabilities,
   interactionRequestDigest,
@@ -43,7 +44,7 @@ import {
   startRetainedRunInEnvironment,
 } from './retained-run'
 import { createRetainedRunHandle } from './retained-run-handle'
-import { mintRetainedIdentity } from './retained-run-start'
+import { assertRetainedRunReplayMaterial, mintRetainedIdentity } from './retained-run-start'
 
 const childScript = new URL('../../tests/helpers/retained-run-child.ts', import.meta.url).pathname
 const retainedRequestDigest = `sha256:${'a'.repeat(64)}` as const
@@ -314,143 +315,240 @@ describe('retained runtime run control', () => {
     ).toEqual(['restart-native-operation'])
   })
 
-  it('persists public headless intent before create and replays private values after a crash', async () => {
-    const identity = mintRetainedIdentity('headless-intent-environment', 'headless-intent-turn')
-    const controlRef = {
-      runId: 'headless-intent-run',
-      provider: 'test-provider',
-      environmentId: 'environment-1',
-      ...identity,
-      requestDigest: retainedRequestDigest,
-    }
-    const session: AgentSession = {
-      id: identity.sessionId,
-      controlRef,
-      status: async () => 'running',
-      async *events() {
-        yield* []
-      },
-      result: async () => ({ text: 'recovered', success: true, sessionId: identity.sessionId }),
-      prompt: async () => ({ text: 'continued', success: true }),
-      cancel: async () => {},
-    }
-    const provider = providerWithEnvironment({
-      async dispatch() {
-        return { id: session.id, provider: 'test-provider', controlRef }
-      },
-      session: () => session,
-    })
-    const environment = {
-      profile: { name: 'worker' },
-      idempotencyKey: 'headless-intent-environment',
-      workspace: {
-        repoUrl: 'https://github.com/tangle-network/braid.git',
-        gitRef: 'main',
-        cwd: { base: 'repository' as const, path: 'packages/braid' },
-      },
-      secrets: { TANGLE_TOKEN: 'headless-secret-value' },
-      providerOptions: { credential: 'headless-provider-secret' },
-    }
-    const turn = { prompt: 'replay this exact turn', turnId: 'headless-intent-turn' }
-    let creates = 0
-    let created: CreateAgentEnvironmentInput | undefined
-    const originalCreate = provider.create
-    provider.create = async (input) => {
-      creates += 1
-      created = input
-      return originalCreate(input)
-    }
-    const firstAdmissions: RetainedRunAdmission[] = []
-    const failed = await startRetainedRun({
-      provider,
-      environment,
-      turn,
-      onAdmission: async (admission) => {
-        firstAdmissions.push(admission)
-        if (admission.phase === 'intent') throw new Error('coordinator crashed')
-      },
-    }).catch((error: unknown) => error)
-
-    expect(failed).toBeInstanceOf(RetainedRunAdmissionError)
-    expect((failed as RetainedRunAdmissionError).phase).toBe('intent')
-    expect(creates).toBe(0)
-    const intent = firstAdmissions[0]
-    if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
-    expect(JSON.stringify(intent)).not.toContain('headless-secret-value')
-    expect(JSON.stringify(intent)).not.toContain('headless-provider-secret')
-
-    await expect(
-      startRetainedRun({
+  it.each(['current', 'legacy-readable', 'legacy-hashed'])(
+    'persists public headless intent and replays %s coordinates after a crash',
+    async (format) => {
+      const identity =
+        format === 'current'
+          ? mintRetainedIdentity('headless-intent-environment', 'headless-intent-turn')
+          : {
+              sessionId:
+                format === 'legacy-readable'
+                  ? 'retained-session:headless-intent-environment:headless-intent-turn'
+                  : `retained-session:${'b'.repeat(64)}`,
+              executionId:
+                format === 'legacy-readable'
+                  ? 'retained-execution:headless-intent-environment:headless-intent-turn'
+                  : `retained-execution:${'b'.repeat(64)}`,
+            }
+      const controlRef = {
+        runId: 'headless-intent-run',
+        provider: 'test-provider',
+        environmentId: 'environment-1',
+        ...identity,
+        requestDigest: retainedRequestDigest,
+      }
+      const session: AgentSession = {
+        id: identity.sessionId,
+        controlRef,
+        status: async () => 'running',
+        async *events() {
+          yield* []
+        },
+        result: async () => ({ text: 'recovered', success: true, sessionId: identity.sessionId }),
+        prompt: async () => ({ text: 'continued', success: true }),
+        cancel: async () => {},
+      }
+      let dispatched: AgentTurnInput | undefined
+      const provider = providerWithEnvironment({
+        async dispatch(input) {
+          dispatched = input
+          return { id: session.id, provider: 'test-provider', controlRef }
+        },
+        session: () => session,
+      })
+      const environment = {
+        profile: { name: 'worker' },
+        idempotencyKey: 'headless-intent-environment',
+        workspace: {
+          repoUrl: 'https://github.com/tangle-network/braid.git',
+          gitRef: 'main',
+          cwd: { base: 'repository' as const, path: 'packages/braid' },
+        },
+        secrets: { TANGLE_TOKEN: 'headless-secret-value' },
+        providerOptions: { credential: 'headless-provider-secret' },
+      }
+      const turn = { prompt: 'replay this exact turn', turnId: 'headless-intent-turn' }
+      let creates = 0
+      let created: CreateAgentEnvironmentInput | undefined
+      const originalCreate = provider.create
+      provider.create = async (input) => {
+        creates += 1
+        created = input
+        return originalCreate(input)
+      }
+      const firstAdmissions: RetainedRunAdmission[] = []
+      const failed = await startRetainedRun({
         provider,
         environment,
-        turn: { ...turn, prompt: 'changed replay material' },
-        intent,
-        onAdmission: async () => {},
-      }),
-    ).rejects.toThrow('retained run intent conflicts with replay material')
-    expect(creates).toBe(0)
+        turn,
+        ...(format === 'current' ? {} : { identity }),
+        onAdmission: async (admission) => {
+          firstAdmissions.push(admission)
+          if (admission.phase === 'intent') throw new Error('coordinator crashed')
+        },
+      }).catch((error: unknown) => error)
 
-    await expect(
-      startRetainedRun({
-        provider,
-        environment: {
-          ...environment,
-          workspace: {
-            ...environment.workspace,
-            cwd: { base: 'repository', path: 'packages/other' },
+      expect(failed).toBeInstanceOf(RetainedRunAdmissionError)
+      expect((failed as RetainedRunAdmissionError).phase).toBe('intent')
+      expect(creates).toBe(0)
+      const intent = firstAdmissions[0]
+      if (intent?.phase !== 'intent') throw new Error('expected the headless intent admission')
+      expect(JSON.stringify(intent)).not.toContain('headless-secret-value')
+      expect(JSON.stringify(intent)).not.toContain('headless-provider-secret')
+      const immutableIntent = JSON.stringify(intent)
+      expect(() =>
+        assertRetainedRunReplayMaterial(provider, { environment, turn }, intent),
+      ).not.toThrow()
+      expect(() =>
+        assertRetainedRunReplayMaterial(
+          provider,
+          {
+            environment,
+            turn,
+            identity: { ...identity, sessionId: 'changed-session' },
           },
-        },
-        turn,
-        intent,
-        onAdmission: async () => {},
-      }),
-    ).rejects.toThrow('retained run intent conflicts with replay material')
-    expect(creates).toBe(0)
+          intent,
+        ),
+      ).toThrow('retained run intent conflicts with replay material')
+      expect(() =>
+        assertRetainedRunReplayMaterial(
+          provider,
+          { environment, turn },
+          {
+            ...intent,
+            sessionId: 'changed-session',
+          },
+        ),
+      ).toThrow('retained run intent conflicts with replay material')
 
-    await expect(
-      startRetainedRun({
+      await expect(
+        startRetainedRun({
+          provider,
+          environment,
+          turn: { ...turn, prompt: 'changed replay material' },
+          intent,
+          onAdmission: async () => {},
+        }),
+      ).rejects.toThrow('retained run intent conflicts with replay material')
+      expect(creates).toBe(0)
+
+      await expect(
+        startRetainedRun({
+          provider,
+          environment: {
+            ...environment,
+            workspace: {
+              ...environment.workspace,
+              cwd: { base: 'repository', path: 'packages/other' },
+            },
+          },
+          turn,
+          intent,
+          onAdmission: async () => {},
+        }),
+      ).rejects.toThrow('retained run intent conflicts with replay material')
+      expect(creates).toBe(0)
+
+      await expect(
+        startRetainedRun({
+          provider,
+          environment: {
+            ...environment,
+            secrets: { OTHER_TOKEN: 'headless-secret-value' },
+          },
+          turn,
+          intent,
+          onAdmission: async () => {},
+        }),
+      ).rejects.toThrow('retained run intent conflicts with replay material')
+      expect(creates).toBe(0)
+
+      const recoveryAdmissions = recordedAdmissions()
+      const recovered = await recoverRetainedRun({
         provider,
-        environment: {
-          ...environment,
-          secrets: { OTHER_TOKEN: 'headless-secret-value' },
+        admission: intent,
+        replay: {
+          environment: {
+            ...environment,
+            secrets: { TANGLE_TOKEN: 'changed-low-entropy' },
+          },
+          turn,
         },
-        turn,
-        intent,
-        onAdmission: async () => {},
-      }),
-    ).rejects.toThrow('retained run intent conflicts with replay material')
-    expect(creates).toBe(0)
+        onAdmission: recoveryAdmissions.onAdmission,
+      })
+      expect(recovered.outcome).toBe('recovered')
+      expect(recovered.outcome === 'recovered' && recovered.handle.controlRef).toMatchObject(
+        identity,
+      )
+      expect(dispatched).toEqual({ ...turn, ...identity, detach: true })
+      expect(JSON.stringify(intent)).toBe(immutableIntent)
+      expect(creates).toBe(1)
+      expect(created?.metadata).toEqual({
+        retainedIdempotencyKey: environment.idempotencyKey,
+      })
+      expect(created?.workspace).toEqual({
+        repoUrl: 'https://github.com/tangle-network/braid.git',
+        gitRef: 'main',
+        cwd: { base: 'repository', path: 'packages/braid' },
+      })
+      expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
+      expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })
+      expect(recoveryAdmissions.admissions.map((admission) => admission.phase)).toEqual([
+        'environment',
+        'dispatched',
+      ])
+    },
+  )
 
-    const recoveryAdmissions = recordedAdmissions()
-    const recovered = await recoverRetainedRun({
-      provider,
-      admission: intent,
-      replay: {
-        environment: {
-          ...environment,
-          secrets: { TANGLE_TOKEN: 'changed-low-entropy' },
-        },
-        turn,
-      },
-      onAdmission: recoveryAdmissions.onAdmission,
-    })
-    expect(recovered.outcome).toBe('recovered')
-    expect(creates).toBe(1)
-    expect(created?.metadata).toEqual({
-      retainedIdempotencyKey: environment.idempotencyKey,
-    })
-    expect(created?.workspace).toEqual({
-      repoUrl: 'https://github.com/tangle-network/braid.git',
-      gitRef: 'main',
-      cwd: { base: 'repository', path: 'packages/braid' },
-    })
-    expect(created?.secrets).toEqual({ TANGLE_TOKEN: 'changed-low-entropy' })
-    expect(created?.providerOptions).toEqual({ credential: 'headless-provider-secret' })
-    expect(recoveryAdmissions.admissions.map((admission) => admission.phase)).toEqual([
-      'environment',
-      'dispatched',
-    ])
-  })
+  it.each([
+    { sessionId: ' session', executionId: 'execution', label: 'retained session id' },
+    { sessionId: 'session', executionId: 'execution ', label: 'retained execution id' },
+  ])(
+    'rejects a self-consistent intent with an invalid $label before provider work',
+    async ({ sessionId, executionId, label }) => {
+      const replay = {
+        environment: { profile: { name: 'worker' }, idempotencyKey: 'workspace' },
+        turn: { prompt: 'check', turnId: 'turn' },
+      }
+      const coordinates = {
+        provider: 'test-provider',
+        idempotencyKey: 'workspace',
+        turnId: 'turn',
+        sessionId,
+        executionId,
+        requestedProfileDigest: canonicalCandidateDigest(replay.environment.profile),
+      }
+      const requestDigest = canonicalCandidateDigest({
+        kind: 'retained-run-intent.v1',
+        ...coordinates,
+        create: {},
+        turn: { prompt: 'check' },
+      })
+      const intent = {
+        phase: 'intent' as const,
+        ...coordinates,
+        requestDigest,
+        runId: `retained-intent-run:${requestDigest.slice('sha256:'.length)}`,
+      }
+      let providerCalls = 0
+      const provider = providerWithEnvironment({})
+      provider.capabilities = async () => {
+        providerCalls += 1
+        throw new Error('provider boundary reached')
+      }
+      expect(() => assertRetainedRunReplayMaterial(provider, replay, intent)).toThrow(label)
+      await expect(
+        startRetainedRun({
+          ...replay,
+          provider,
+          intent,
+          onAdmission: async () => {},
+        }),
+      ).rejects.toThrow(label)
+      expect(providerCalls).toBe(0)
+    },
+  )
 
   it('recovers a headless intent after a coordinator SIGKILL before provider.create', async () => {
     const stateFile = join(directory, 'intent-crash-provider.json')
@@ -3428,19 +3526,26 @@ describe('retained runtime run control', () => {
     })
   })
 
-  it('bounds long retained identities without losing deterministic replay', () => {
-    const environmentKey = `environment-${'e'.repeat(256)}`
-    const turnId = `turn-${'t'.repeat(256)}`
+  it.each([
+    ['environment', 'turn'],
+    [
+      'runtime:research-frontier-continuation-20260909:s0',
+      'research-frontier-continuation-20260909:s0:turn:0',
+    ],
+    ['environment:/% α', 'turn:/% β'],
+    [`environment-${'e'.repeat(256)}`, `turn-${'t'.repeat(256)}`],
+  ])('mints deterministic filesystem-safe coordinates for %s', (environmentKey, turnId) => {
     const first = mintRetainedIdentity(environmentKey, turnId)
     const second = mintRetainedIdentity(environmentKey, turnId)
 
     expect(first).toEqual(second)
-    expect(first.sessionId).toMatch(/^retained-session:[a-f0-9]{64}$/u)
-    expect(first.executionId).toMatch(/^retained-execution:[a-f0-9]{64}$/u)
+    expect(first.sessionId).toMatch(/^retained-session-[a-f0-9]{64}$/u)
+    expect(first.executionId).toMatch(/^retained-execution-[a-f0-9]{64}$/u)
     expect(first.sessionId.length).toBeLessThanOrEqual(128)
     expect(first.executionId.length).toBeLessThanOrEqual(128)
-    expect(first.sessionId).not.toContain(environmentKey)
-    expect(first.executionId).not.toContain(turnId)
+    expect(mintRetainedIdentity(`${environmentKey}x`, turnId)).not.toEqual(first)
+    expect(mintRetainedIdentity(environmentKey, `${turnId}x`)).not.toEqual(first)
+    expect(mintRetainedIdentity('a:b', 'c')).not.toEqual(mintRetainedIdentity('a', 'b:c'))
   })
 
   it('fails loud with the provider reference when dispatch dishonors the requested identity', async () => {

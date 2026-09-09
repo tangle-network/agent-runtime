@@ -11,7 +11,9 @@ import {
   type AgentProfile,
   agentInteractiveSessionControlClaimRequestDigest,
   agentInteractiveSessionPromptRequestDigest,
+  agentInteractiveSessionRunRef,
   agentInteractiveSessionStopRequestDigest,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
 } from '@tangle-network/agent-interface'
 import type {
@@ -28,7 +30,12 @@ import {
   startRetainedInteractiveRun,
 } from './retained-interactive'
 import { claimRetainedInteractiveControl } from './retained-interactive-control'
-import type { RetainedInteractiveAdmission } from './retained-run-types'
+import { mintRetainedIdentity } from './retained-run-start'
+import type {
+  RetainedInteractiveAdmission,
+  RetainedInteractiveEnvironmentAdmission,
+  RetainedInteractiveIntentAdmission,
+} from './retained-run-types'
 
 const profile: AgentProfile = {
   name: 'Braid product engineer',
@@ -72,8 +79,7 @@ describe('retained interactive runs', () => {
       provider: 'test-provider',
       idempotencyKey: 'workspace-1',
       interactiveIdempotencyKey: 'native-turn-1',
-      sessionId: 'retained-session:workspace-1:native-turn-1',
-      executionId: 'retained-execution:workspace-1:native-turn-1',
+      ...mintRetainedIdentity('workspace-1', 'native-turn-1'),
       runId: expect.stringMatching(/^interactive-intent-run:/u),
       requestedProfileDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
       requestDigest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
@@ -82,7 +88,9 @@ describe('retained interactive runs', () => {
       phase: 'interactive_environment',
       request: { initialPrompt: 'Inspect this workspace.', cols: 120, rows: 40 },
     })
-    expect(handle.ref.run.sessionId).toBe('retained-session:workspace-1:native-turn-1')
+    expect(handle.ref.run.sessionId).toBe(
+      mintRetainedIdentity('workspace-1', 'native-turn-1').sessionId,
+    )
     expect((await handle.status()).state).toBe('running')
     const control = await claimRetainedInteractiveControl({ handle, holderId: 'braid-ui' })
     const promptAcknowledgement = await handle.sendPrompt(
@@ -276,7 +284,7 @@ describe('retained interactive runs', () => {
     })
 
     expect(recovered?.ref.run.sessionId).toBe(
-      'retained-session:workspace-intent-crash:native-intent-crash',
+      mintRetainedIdentity('workspace-intent-crash', 'native-intent-crash').sessionId,
     )
     expect(fixture.createCalls).toBe(1)
     expect(fixture.environmentCreations).toBe(1)
@@ -370,6 +378,164 @@ describe('retained interactive runs', () => {
     expect(fixture.createCalls).toBe(createCallsBeforeReplay)
     expect(fixture.processStarts).toBe(processStartsBeforeReplay)
   })
+
+  it('replays a historical intent with its recorded identities and rejects changed coordinates', async () => {
+    const fixture = interactiveProvider()
+    const intent: RetainedInteractiveIntentAdmission = {
+      phase: 'interactive_intent',
+      provider: 'test-provider',
+      idempotencyKey: 'workspace-history',
+      interactiveIdempotencyKey: 'native-history',
+      sessionId: 'retained-session:workspace-history:native-history',
+      executionId: 'retained-execution:workspace-history:native-history',
+      runId:
+        'interactive-intent-run:6c516c44b5b285523175da7526453e3cad0096d4980013bd021c7364adbea0d2',
+      requestedProfileDigest:
+        'sha256:f1ed1f46786b31a3ba0038b55d40bdbd3edec5b99a86d8962d017f1253111283',
+      requestDigest: 'sha256:6c516c44b5b285523175da7526453e3cad0096d4980013bd021c7364adbea0d2',
+    }
+    const replay = {
+      environment: { profile, idempotencyKey: intent.idempotencyKey },
+      interactiveIdempotencyKey: intent.interactiveIdempotencyKey,
+    }
+    for (const changed of [
+      { ...intent, sessionId: 'session-other' },
+      { ...intent, executionId: 'execution-other' },
+    ]) {
+      await expect(
+        recoverRetainedInteractiveRun({
+          provider: fixture.provider,
+          admission: changed,
+          replay,
+          onAdmission: async () => {},
+        }),
+      ).rejects.toThrow('interactive intent conflicts with replay material')
+    }
+    expect(fixture.createCalls).toBe(0)
+
+    const recovered = await recoverRetainedInteractiveRun({
+      provider: fixture.provider,
+      admission: intent,
+      replay,
+      onAdmission: async () => {},
+    })
+
+    expect(recovered?.ref.run).toMatchObject({
+      sessionId: intent.sessionId,
+      executionId: intent.executionId,
+    })
+    expect(fixture.createCalls).toBe(1)
+    expect(fixture.processStarts).toBe(1)
+  })
+
+  it.each(['sessionId', 'executionId'] as const)(
+    'rejects a digest-consistent malformed intent %s before provider creation',
+    async (field) => {
+      const fixture = interactiveProvider()
+      const identity = {
+        ...mintRetainedIdentity('workspace-malformed', 'native-malformed'),
+        [field]: ' invalid-coordinate ',
+      }
+      const intentMaterial = {
+        provider: fixture.provider.name,
+        idempotencyKey: 'workspace-malformed',
+        interactiveIdempotencyKey: 'native-malformed',
+        ...identity,
+        requestedProfileDigest: canonicalAgentProfileDigest(profile),
+      }
+      const requestDigest = canonicalCandidateDigest({
+        kind: 'retained-interactive-intent.v1',
+        ...intentMaterial,
+        create: {},
+        start: {},
+      })
+
+      await expect(
+        recoverRetainedInteractiveRun({
+          provider: fixture.provider,
+          admission: {
+            phase: 'interactive_intent',
+            ...intentMaterial,
+            requestDigest,
+            runId: `interactive-intent-run:${requestDigest.slice('sha256:'.length)}`,
+          },
+          replay: {
+            environment: { profile, idempotencyKey: intentMaterial.idempotencyKey },
+            interactiveIdempotencyKey: intentMaterial.interactiveIdempotencyKey,
+          },
+          onAdmission: async () => {},
+        }),
+      ).rejects.toThrow('outer whitespace')
+      expect(fixture.createCalls).toBe(0)
+      expect(fixture.startCalls).toBe(0)
+    },
+  )
+
+  it.each([
+    {
+      format: 'readable',
+      idempotencyKey: 'workspace-history',
+      sessionId: 'retained-session:workspace-history:native-history',
+      executionId: 'retained-execution:workspace-history:native-history',
+    },
+    {
+      format: 'digest',
+      idempotencyKey: `workspace-${'x'.repeat(128)}`,
+      sessionId:
+        'retained-session:c9828a31d8ff9eefd907b22f99861d6130a6998d33cc1691b2d1678e7b871a1e',
+      executionId:
+        'retained-execution:c9828a31d8ff9eefd907b22f99861d6130a6998d33cc1691b2d1678e7b871a1e',
+    },
+  ])(
+    'recovers historical $format environment coordinates without starting another process',
+    async ({ idempotencyKey, sessionId, executionId }) => {
+      const fixture = interactiveProvider()
+      const start = { profile, requestedProfileDigest: canonicalAgentProfileDigest(profile) }
+      const request: AgentInteractiveSessionStart = {
+        ...start,
+        run: agentInteractiveSessionRunRef(
+          { provider: 'test-provider', environmentId: 'sandbox-1', sessionId, executionId },
+          start,
+        ),
+      }
+      const admission: RetainedInteractiveEnvironmentAdmission = {
+        phase: 'interactive_environment',
+        provider: 'test-provider',
+        environmentId: 'sandbox-1',
+        idempotencyKey,
+        interactiveIdempotencyKey: 'native-history',
+        request,
+      }
+      const environment = await fixture.provider.get!('sandbox-1')
+      await environment!.startInteractive!(request)
+
+      for (const changed of [
+        { ...admission, idempotencyKey: 'workspace-other' },
+        { ...admission, interactiveIdempotencyKey: 'native-other' },
+      ]) {
+        await expect(
+          recoverRetainedInteractiveRun({
+            provider: fixture.provider,
+            admission: changed,
+            onAdmission: async () => {},
+          }),
+        ).rejects.toThrow('does not match its recovery coordinates')
+      }
+      expect(fixture.startCalls).toBe(1)
+
+      const recovered = await recoverRetainedInteractiveRun({
+        provider: fixture.provider,
+        admission,
+        onAdmission: async () => {},
+      })
+
+      expect(recovered?.ref.run).toEqual(request.run)
+      expect(fixture.startRequests).toEqual([request, request])
+      expect(fixture.startCalls).toBe(2)
+      expect(fixture.processStarts).toBe(1)
+      expect(fixture.createCalls).toBe(0)
+    },
+  )
 
   it('binds the derived workspace cwd to replay identity', async () => {
     const fixture = interactiveProvider()

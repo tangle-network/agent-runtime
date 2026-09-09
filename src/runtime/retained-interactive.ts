@@ -69,10 +69,18 @@ export async function startRetainedInteractiveRun(
     throw new Error('retained interactive runs require AgentProfile.harness')
   }
   const requestedProfileDigest = canonicalAgentProfileDigest(profile)
-  const identity = mintRetainedIdentity(
-    startOptions.environment.idempotencyKey,
-    startOptions.interactiveIdempotencyKey,
-  )
+  const identity =
+    startOptions.intent === undefined
+      ? mintRetainedIdentity(
+          startOptions.environment.idempotencyKey,
+          startOptions.interactiveIdempotencyKey,
+        )
+      : {
+          sessionId: startOptions.intent.sessionId,
+          executionId: startOptions.intent.executionId,
+        }
+  assertStableText(identity.sessionId, 'retained session id')
+  assertStableText(identity.executionId, 'retained execution id')
   const intent = interactiveIntent(startOptions, profile, identity)
   if (startOptions.intent === undefined) {
     // This is the only admission that can be written before provider.create.
@@ -220,12 +228,33 @@ function exactRecoveryRequest(
   if (
     request.run.provider !== admission.provider ||
     request.run.environmentId !== admission.environmentId ||
-    request.run.sessionId !== identity.sessionId ||
-    request.run.executionId !== identity.executionId
+    ((request.run.sessionId !== identity.sessionId ||
+      request.run.executionId !== identity.executionId) &&
+      !matchesHistoricalInteractiveIdentity(admission, request))
   ) {
     throw new Error('interactive admission does not match its recovery coordinates')
   }
   return request
+}
+
+function matchesHistoricalInteractiveIdentity(
+  admission: RetainedInteractiveEnvironmentAdmission,
+  request: AgentInteractiveSessionStart,
+): boolean {
+  // These admissions predate storage-safe IDs and still bind both idempotency keys.
+  // Reconstruct their coordinates only to validate the stored request, never to replace it.
+  const base = `${encodeURIComponent(admission.idempotencyKey)}:${encodeURIComponent(admission.interactiveIdempotencyKey)}`
+  const digest = canonicalCandidateDigest({ kind: 'retained-identity.v1', base }).slice(
+    'sha256:'.length,
+  )
+  const historicalId = (prefix: string): string => {
+    const readable = `${prefix}:${base}`
+    return readable.length <= 128 ? readable : `${prefix}:${digest}`
+  }
+  return (
+    request.run.sessionId === historicalId('retained-session') &&
+    request.run.executionId === historicalId('retained-execution')
+  )
 }
 
 /** Rebuild controls for one exact provider-owned coding-agent process. @stable */
