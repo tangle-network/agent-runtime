@@ -63,7 +63,7 @@
       "runStagedJudge": "value fe6d6b4d0aec",
       "scoreAnswerArtifact": "value 70f66d0d7881",
       "scoreSweReport": "value 17ca3b647ae6",
-      "sweEvaluationArgv": "value 5dbd5ca7ba5d",
+      "sweEvaluationArgv": "value 7f8a8da79558",
       "swePatchOutput": "value 373728f5643d",
       "tokenF1": "value e296535d0047"
     },
@@ -268,7 +268,7 @@
       "SweBenchCacheLevel": "value 0a1a02002f02",
       "createSweBenchAdapter": "value bb707bd68479",
       "scoreSweReport": "value 17ca3b647ae6",
-      "sweEvaluationArgv": "value 5dbd5ca7ba5d",
+      "sweEvaluationArgv": "value 7f8a8da79558",
       "swePatchOutput": "value 373728f5643d"
     },
     "./benchmarks/t2-ragbench": {
