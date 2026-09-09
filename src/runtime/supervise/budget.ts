@@ -58,12 +58,7 @@
 import { ValidationError } from '../../errors'
 import type { LoopTokenUsage } from '../types'
 import { addTokenUsage, chargedTokens, hasCompleteCacheBreakdown, zeroTokenUsage } from '../util'
-import {
-  addResourceSpend,
-  assertResources,
-  resourceAmountsEqual,
-  withBudgetResources,
-} from './resources'
+import { addResourceSpend, assertResources, withBudgetResources } from './resources'
 import type { Budget, Spend, TokenUsageProvenance, UsageEvent } from './types'
 
 export type { Budget, Spend, UsageEvent }
@@ -459,26 +454,24 @@ export function createBudgetPool(
       const allocation = reserved?.[name]?.limit ?? 0
       const amount = value?.amount ?? 0
       state.reserved -= allocation
-      state.committed += amount
-      state.remaining += allocation - amount
-      if (value?.known !== true) {
+      const committed = state.committed + amount
+      const overflow = !Number.isSafeInteger(committed)
+      state.committed = Math.min(committed, Number.MAX_SAFE_INTEGER)
+      // Subtract reserved capacity first so every intermediate balance stays a safe integer.
+      state.remaining = state.limit - state.reserved - state.committed
+      if (value?.known !== true || overflow) {
         state.known = false
         // The remaining balance cannot fund another invocation without a complete receipt.
         // Consume free capacity conservatively; later known refunds do not reopen admission.
         const retained = Math.max(0, state.remaining)
         state.committed += retained
         state.remaining -= retained
-        violation ??= `resource ${name}: unknown usage under an enforced limit`
-      } else if (
-        reserved?.[name] &&
-        amount > allocation &&
-        !resourceAmountsEqual(amount, allocation)
-      ) {
+        violation ??= overflow
+          ? `resource ${name}: amount overflow under an enforced limit`
+          : `resource ${name}: unknown usage under an enforced limit`
+      } else if (reserved?.[name] && amount > allocation) {
         violation ??= `resource ${name}: spent ${amount} > reserved ${allocation}`
-      } else if (
-        state.remaining < 0 &&
-        !resourceAmountsEqual(state.committed + state.reserved, state.limit)
-      ) {
+      } else if (state.remaining < 0) {
         violation ??= `resource ${name}: exceeded root limit ${state.limit}`
       }
     }
@@ -496,11 +489,7 @@ export function createBudgetPool(
       const wanted = b.resources?.[name]
       if (!wanted) throw new ValidationError(`resource ${name}: child must declare its limit`)
       if (wanted.unit !== state.unit) throw new ValidationError(`resource ${name}: unit mismatch`)
-      if (
-        !state.known ||
-        (wanted.limit > state.remaining &&
-          !resourceAmountsEqual(state.committed + state.reserved + wanted.limit, state.limit))
-      )
+      if (!state.known || wanted.limit > state.remaining)
         return { ok: false, reason: 'budget-exhausted' }
     }
     for (const name of Object.keys(b.resources ?? {})) {

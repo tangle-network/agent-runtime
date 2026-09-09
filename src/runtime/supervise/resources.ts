@@ -1,12 +1,5 @@
 import type { Budget, ResourceSpend, Spend } from './types'
 
-/** Allow binary rounding of fractional measurements, but compare integer counters exactly. */
-export function resourceAmountsEqual(left: number, right: number): boolean {
-  if (left === right) return true
-  if (Number.isInteger(left) && Number.isInteger(right)) return false
-  return Math.abs(left - right) <= Number.EPSILON * Math.max(Math.abs(left), Math.abs(right))
-}
-
 /** Validate caller-owned names and units without assigning domain meaning to them. */
 export function assertResources(
   resources: Budget['resources'] | Spend['resources'],
@@ -35,8 +28,8 @@ export function assertResources(
         : 'amount' in resource
           ? resource.amount
           : undefined
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-      throw new Error(`${label}.${name}.${kind} must be a non-negative finite number`)
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`${label}.${name}.${kind} must be a non-negative safe integer`)
     }
     if (kind === 'amount' && (!('known' in resource) || typeof resource.known !== 'boolean')) {
       throw new Error(`${label}.${name}.known must be a boolean`)
@@ -44,7 +37,8 @@ export function assertResources(
   }
 }
 
-/** Missing contributors are not usage claims; enforced omissions are marked before aggregation. */
+/** Missing contributors are not usage claims; enforced omissions are marked before aggregation.
+ * Overflow retains a safe lower bound and marks it unknown, preserving readable component receipts. */
 export function addResourceSpend(...maps: ReadonlyArray<Spend['resources']>): {
   resources?: Record<string, ResourceSpend>
 } {
@@ -55,11 +49,10 @@ export function addResourceSpend(...maps: ReadonlyArray<Spend['resources']>): {
       const prior = totals.get(name)
       if (prior && prior.unit !== resource.unit) throw new Error(`resource ${name}: unit mismatch`)
       const amount = (prior?.amount ?? 0) + resource.amount
-      if (!Number.isFinite(amount)) throw new Error(`resource ${name}: amount overflow`)
       totals.set(name, {
         unit: resource.unit,
-        amount,
-        known: (prior?.known ?? true) && resource.known,
+        amount: Math.min(amount, Number.MAX_SAFE_INTEGER),
+        known: (prior?.known ?? true) && resource.known && Number.isSafeInteger(amount),
       })
     }
   }
@@ -93,7 +86,7 @@ export function resourceTelemetry(streamed: Spend, terminal: Spend): Pick<Spend,
       known:
         value.known &&
         (other?.known ?? true) &&
-        (other === undefined || resourceAmountsEqual(other.amount, value.amount)),
+        (other === undefined || other.amount === value.amount),
     })
   }
   return addResourceSpend(Object.fromEntries(resources))

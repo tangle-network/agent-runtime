@@ -280,14 +280,21 @@ Deleting a run must either delete referenced private blobs or record why shared 
 
 ## Caller-named resource accounting
 
-`Budget.resources` declares caller-owned names, explicit units, and non-negative finite limits.
-`Spend.resources` reports amounts and explicit completeness flags in those same units.
+`Budget.resources` declares caller-owned names, explicit units, and non-negative safe-integer limits.
+`Spend.resources` reports safe-integer amounts and explicit completeness flags in those same units.
+Choose units fine enough for the measurement, such as GPU-milliseconds or bytes.
+Fractional values and values above `Number.MAX_SAFE_INTEGER` are rejected.
+Default worker partitions round each resource allocation down to an integer.
 A resource usage event reports an increment; a terminal spend reports the total for the same invocation.
 The runtime avoids counting streamed and terminal measurements twice.
 Conflicting totals retain the larger subtotal and mark completeness unknown.
+An aggregate above `Number.MAX_SAFE_INTEGER` retains that value as a lower bound and marks completeness unknown.
+Original child receipts remain in the journal.
+Overflow closes enforced admission and settles the affected reservation.
 
 The existing budget pool reserves standard and named channels together before starting a child.
 Each child must declare every resource enforced by its parent, with matching units.
+`supervise` rejects incompatible `perWorker` resource declarations before invoking its driver.
 Known settlement commits measured usage and refunds the unused allocation.
 An overrun remains recorded and fails settlement.
 Missing or unknown enforced measurements close admission for that dimension.
@@ -297,6 +304,10 @@ Only a proven refusal before execution can refund an unmeasured allocation as kn
 Names, units, amounts, and unknown flags survive journal aggregation and retained execution recovery.
 Unknown recovery evidence cannot grant fresh usable capacity.
 These are accounting limits: callers must supply trustworthy measurements from their executors.
+Standard backends cannot invent measurements for caller-defined resources.
+Custom executor receipts or explicit metering must supply those measurements, including the driver's own work.
+A caller-owned `ToolLoopChat` can return `resources` with each result, including explicit known-zero measurements.
+GPU usage and `boxMinutes` do not convert into named resources automatically.
 Estimated box lifetime remains separate evidence and does not become a measured resource receipt.
 
 See the offline [example](../../examples/supervise/named-resources.ts).

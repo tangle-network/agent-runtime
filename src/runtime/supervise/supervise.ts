@@ -2326,6 +2326,22 @@ function assertPerWorkerWithinPool(perWorker: Budget, pool: Budget): void {
     child > total
       ? `supervise perWorker.${field} (${child}) exceeds budget.${field} (${total})`
       : null
+  for (const [name, resource] of Object.entries(pool.resources ?? {})) {
+    const child = perWorker.resources?.[name]
+    if (!child)
+      throw new ValidationError(
+        `supervise perWorker resource ${name}: child must declare its limit`,
+      )
+    if (child.unit !== resource.unit)
+      throw new ValidationError(`supervise perWorker resource ${name}: unit mismatch`)
+    const problem = over(child.limit, resource.limit, `resources.${name}.limit`)
+    if (problem) throw new ValidationError(problem)
+  }
+  for (const name of Object.keys(perWorker.resources ?? {})) {
+    if (!Object.hasOwn(pool.resources ?? {}, name)) {
+      throw new ValidationError(`supervise perWorker resource ${name}: root must declare its limit`)
+    }
+  }
   const problems = [
     over(perWorker.maxTokens, pool.maxTokens, 'maxTokens'),
     over(perWorker.maxIterations, pool.maxIterations, 'maxIterations'),
@@ -2350,7 +2366,7 @@ function defaultPerWorker(budget: Budget): Budget {
           resources: Object.fromEntries(
             Object.entries(budget.resources).map(([name, value]) => [
               name,
-              { unit: value.unit, limit: value.limit / 4 },
+              { unit: value.unit, limit: Math.floor(value.limit / 4) },
             ]),
           ),
         }),

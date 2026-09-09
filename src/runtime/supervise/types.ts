@@ -705,13 +705,14 @@ export interface ExecutorRegistry {
 
 // ── Budget — the conserved reservation pool ───────────────────────────────────
 
-/** Caller-defined resource ceiling. Names and units must agree throughout a tree. */
+/** Caller-defined resource ceiling in non-negative safe-integer units, consistent throughout a tree. */
 export interface ResourceLimit {
   readonly unit: string
   readonly limit: number
 }
 
-/** Reported subtotal; false means the total is unknown, even when amount is zero. */
+/** Non-negative safe-integer subtotal. False means unknown, even when amount is zero.
+ * Select sufficiently fine units, such as GPU-milliseconds. */
 export interface ResourceSpend {
   readonly unit: string
   readonly amount: number

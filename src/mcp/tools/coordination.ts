@@ -2834,7 +2834,7 @@ export function createCoordinationTools(opts: CoordinationToolsOptions): Coordin
                   type: 'object',
                   properties: {
                     unit: { type: 'string', minLength: 1 },
-                    limit: { type: 'number', minimum: 0 },
+                    limit: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
                   },
                   required: ['unit', 'limit'],
                 },

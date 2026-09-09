@@ -12,6 +12,7 @@ import { createBudgetPool, spendFromUsageEvents } from '../../src/runtime/superv
 import { prepareScopeResume } from '../../src/runtime/supervise/recover-executors'
 import { withBudgetResources } from '../../src/runtime/supervise/resources'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
+import { superviseWithTestBrain } from '../../src/runtime/supervise/supervise'
 import { createSupervisor } from '../../src/runtime/supervise/supervisor'
 import type { Agent, Budget, Executor, Spend, UsageEvent } from '../../src/runtime/supervise/types'
 import { addSpend, cloneSpend, zeroSpend } from '../../src/runtime/util'
@@ -37,39 +38,242 @@ function conserved(pool: ReturnType<typeof createBudgetPool>) {
 }
 
 describe('caller-named resource conservation', () => {
-  it('admits fractional capacity and reconciles rounded sums without changing receipts', () => {
-    const fractional = (limit: number): Budget => ({
-      maxTokens: 10,
-      maxIterations: 1,
-      resources: { gpu: { unit: 'seconds', limit } },
+  it('conserves repeated integer allocations, refunds, and restored receipts exactly', () => {
+    const pool = createBudgetPool(budget(200), 0)
+    const tickets = Array.from({ length: 100 }, () => {
+      const reservation = pool.reserve(budget(2))
+      if (!reservation.ok) throw new Error('reservation failed')
+      return reservation.ticket
     })
-    const pool = createBudgetPool({ ...fractional(0.3), maxIterations: 3 }, 0)
-    const first = pool.reserve(fractional(0.1))
-    const second = pool.reserve({ ...fractional(0.2), maxTokens: 0 })
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    const spend = (amount: number): Spend => ({
+    expect(pool.reserve(budget(1)).ok).toBe(false)
+    let committed = zeroSpend()
+    for (const ticket of tickets) {
+      const receipt = measured(1, 10)
+      pool.reconcile(ticket, receipt)
+      committed = addSpend(committed, receipt)
+    }
+    pool.assertNoOpenTickets()
+    expect(pool.readout().resources?.gpu).toMatchObject({
+      remaining: 100,
+      committed: 100,
+      reserved: 0,
+      known: true,
+    })
+    conserved(pool)
+    const restored = createBudgetPool(budget(200), 0, { committed })
+    expect(restored.readout().resources).toEqual(pool.readout().resources)
+    const final = restored.reserve(budget(100))
+    if (!final.ok) throw new Error('reservation failed')
+    restored.reconcile(final.ticket, measured(100, 1_000))
+    expect(restored.readout().resources?.gpu.remaining).toBe(0)
+    conserved(restored)
+  })
+
+  it('saturates overflowing totals as unknown without leaking a reservation', () => {
+    const maximum = Number.MAX_SAFE_INTEGER
+    const huge: Budget = {
+      maxTokens: 10,
+      maxIterations: 10,
+      resources: { gpu: { unit: 'seconds', limit: maximum } },
+    }
+    const pool = createBudgetPool(huge, 0)
+    const receipt = (amount: number): Spend => ({
       ...zeroSpend(),
       resources: { gpu: { unit: 'seconds', amount, known: true } },
     })
+    const first = pool.reserve({
+      ...huge,
+      resources: { gpu: { unit: 'seconds', limit: maximum - 1 } },
+    })
+    const second = pool.reserve({
+      maxTokens: 0,
+      maxIterations: 0,
+      resources: { gpu: { unit: 'seconds', limit: 1 } },
+    })
     if (!first.ok || !second.ok) throw new Error('reservation failed')
-    pool.reconcile(first.ticket, spend(0.1))
-    pool.reconcile(second.ticket, spend(0.2))
-    expect(pool.readout().resources?.gpu.committed).toBe(0.1 + 0.2)
-    expect(pool.reserve({ ...fractional(0.000001), maxTokens: 0 }).ok).toBe(false)
-    const single = createBudgetPool(fractional(0.3), 0)
-    const ticket = single.reserve(fractional(0.3))
-    if (!ticket.ok) throw new Error('reservation failed')
-    single.reconcile(ticket.ticket, spend(0.1 + 0.2))
-    const over = createBudgetPool(fractional(0.3), 0)
-    const overTicket = over.reserve(fractional(0.3))
-    if (!overTicket.ok) throw new Error('reservation failed')
-    expect(() => over.reconcile(overTicket.ticket, spend(0.300001))).toThrow('spent')
-    const large = createBudgetPool(fractional(Number.MAX_SAFE_INTEGER - 1), 0)
-    expect(large.reserve(fractional(Number.MAX_SAFE_INTEGER)).ok).toBe(false)
-    const tiny = createBudgetPool(fractional(1e-30), 0)
-    expect(tiny.reserve(fractional(2e-30)).ok).toBe(false)
+    pool.reconcile(first.ticket, receipt(maximum - 1))
+    expect(() => pool.reconcile(second.ticket, receipt(2))).toThrow('overflow')
+    pool.assertNoOpenTickets()
+    expect(pool.readout().resources?.gpu).toMatchObject({
+      remaining: 0,
+      reserved: 0,
+      committed: maximum,
+      known: false,
+    })
+    expect(
+      pool.reserve({
+        maxTokens: 0,
+        maxIterations: 0,
+        resources: { gpu: { unit: 'seconds', limit: 0 } },
+      }).ok,
+    ).toBe(false)
+    const total = addSpend(receipt(maximum - 1), receipt(2))
+    expect(total.resources?.gpu).toEqual({ unit: 'seconds', amount: maximum, known: false })
+    expect(createBudgetPool(huge, 0, { committed: total }).readout().resources?.gpu.known).toBe(
+      false,
+    )
+    conserved(pool)
   })
+
+  it('rounds default named worker partitions down before starting the driver', async () => {
+    let calls = 0
+    await superviseWithTestBrain(testAgentProfile('root', { harness: 'cli-base' }), 'work', {
+      budget: budget(10),
+      brain: async () => {
+        calls += 1
+        return {
+          content: 'done',
+          toolCalls: [],
+          usage: { input: 1, output: 1 },
+          costUsd: 0,
+          costProvenance: 'provider-receipt',
+        }
+      },
+      makeWorkerAgent: () => {
+        throw new Error('worker must not run')
+      },
+    })
+    expect(calls).toBe(1)
+  })
+
+  it.each([
+    [undefined, 'must declare'],
+    [{ gpu: { unit: 'minutes', limit: 1 }, io: { unit: 'bytes', limit: 1 } }, 'unit mismatch'],
+    [{ gpu: { unit: 'seconds', limit: 11 }, io: { unit: 'bytes', limit: 1 } }, 'exceeds'],
+    [
+      {
+        gpu: { unit: 'seconds', limit: 1 },
+        io: { unit: 'bytes', limit: 1 },
+        extra: { unit: 'items', limit: 1 },
+      },
+      'root must declare',
+    ],
+  ] as const)(
+    'rejects incompatible worker dimensions before invoking the driver: %j',
+    (resources, message) => {
+      let calls = 0
+      expect(() =>
+        superviseWithTestBrain(testAgentProfile('root', { harness: 'cli-base' }), 'work', {
+          budget: budget(),
+          perWorker: { maxTokens: 1, maxIterations: 1, resources },
+          brain: async () => {
+            calls += 1
+            throw new Error('driver must not run')
+          },
+          makeWorkerAgent: () => {
+            throw new Error('worker must not run')
+          },
+        }),
+      ).toThrow(message)
+      expect(calls).toBe(0)
+    },
+  )
+
+  it.each([false, true])(
+    'retains exact component receipts through durable replay (overflow=%s)',
+    async (overflow) => {
+      const dir = await mkdtemp(join(tmpdir(), 'named-resource-overflow-'))
+      try {
+        const maximum = Number.MAX_SAFE_INTEGER
+        const allocations = overflow
+          ? [
+              [maximum - 1, maximum - 1],
+              [2, 1],
+            ]
+          : Array.from({ length: 100 }, () => [1, 2])
+        const total = overflow ? maximum : 100
+        const journal = new FileSpawnJournal(join(dir, 'journal.jsonl'))
+        const blobs = new FileResultBlobStore(join(dir, 'blobs'))
+        const root: Budget = {
+          maxTokens: 200,
+          maxIterations: 200,
+          resources: { gpu: { unit: 'milliseconds', limit: overflow ? maximum : 200 } },
+        }
+        let release!: () => void
+        const barrier = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        const leaf = (amount: number): Agent<unknown, string> => ({
+          name: `leaf-${amount}`,
+          act: async () => 'done',
+          executorSpec: {
+            profile: testAgentProfile(`leaf-${amount}`),
+            harness: null,
+            executor: {
+              runtime: 'named-resource-test',
+              async execute() {
+                await barrier
+                return this.resultArtifact()
+              },
+              resultArtifact: () => ({
+                outRef: 'done',
+                out: 'done',
+                spent: {
+                  ...zeroSpend(),
+                  resources: { gpu: { unit: 'milliseconds', amount, known: true } },
+                },
+              }),
+              teardown: async () => ({ destroyed: true }),
+            },
+          },
+        })
+        const result = await createSupervisor<unknown, string>().run(
+          {
+            name: 'root',
+            async act(task, scope) {
+              for (const [amount, limit] of allocations) {
+                expect(
+                  scope.spawn(leaf(amount), task, {
+                    label: `leaf-${amount}`,
+                    budget: {
+                      maxTokens: 1,
+                      maxIterations: 1,
+                      resources: { gpu: { unit: 'milliseconds', limit } },
+                    },
+                  }).ok,
+                ).toBe(true)
+              }
+              release()
+              for (let index = 0; index < allocations.length; index += 1) await scope.next()
+              expect(scope.budget.resources?.gpu.known).toBe(!overflow)
+              return 'done'
+            },
+          },
+          'task',
+          { budget: root, runId: 'overflow', journal, blobs, executors: createExecutorRegistry() },
+        )
+        expect(result.spentTotal.resources?.gpu).toEqual({
+          unit: 'milliseconds',
+          amount: total,
+          known: !overflow,
+        })
+        const events = await new FileSpawnJournal(join(dir, 'journal.jsonl')).loadTree('overflow')
+        if (!events) throw new Error('journal absent')
+        const receipts = events.flatMap((event) =>
+          event.kind === 'settled' || event.kind === 'cancelled'
+            ? [event.spent?.resources?.gpu]
+            : [],
+        )
+        expect(receipts).toHaveLength(allocations.length)
+        expect(receipts).toEqual(
+          expect.arrayContaining(
+            allocations.map(([amount]) => ({ unit: 'milliseconds', amount, known: true })),
+          ),
+        )
+        const restored = await prepareScopeResume(
+          { runId: 'overflow', journal, blobs },
+          events,
+          new AbortController().signal,
+          () => Date.now(),
+        )
+        expect(
+          createBudgetPool(root, 0, restored.poolRestore).readout().resources?.gpu,
+        ).toMatchObject({ known: !overflow, remaining: overflow ? 0 : 100 })
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('reserves all channels atomically and refunds only known unused capacity', () => {
     const pool = createBudgetPool(budget(), 0)
@@ -92,8 +296,16 @@ describe('caller-named resource conservation', () => {
   })
 
   it('rejects malformed units, negative/nonfinite values, and unbudgeted dimensions before mutation', () => {
-    for (const limit of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(() => createBudgetPool(budget(limit), 0)).toThrow()
+    for (const limit of [
+      -1,
+      0.1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(() =>
+        createBudgetPool({ ...budget(), resources: { gpu: { unit: 'seconds', limit } } }, 0),
+      ).toThrow('safe integer')
     }
     const pool = createBudgetPool(budget(), 0)
     const before = pool.readout()
@@ -108,7 +320,13 @@ describe('caller-named resource conservation', () => {
       createBudgetPool({ maxTokens: 1, maxIterations: 1 }, 0).reserve(budget(1)),
     ).toThrow('root must declare')
     expect(pool.readout()).toEqual(before)
-    for (const amount of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const amount of [
+      -1,
+      0.1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
       expect(() =>
         spendFromUsageEvents([
           { kind: 'resource', name: 'gpu', unit: 'seconds', amount, known: true },

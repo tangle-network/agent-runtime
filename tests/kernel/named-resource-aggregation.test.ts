@@ -13,7 +13,7 @@ import type {
 } from '../../src/runtime/supervise/types'
 import { testAgentProfile } from './test-agent-profile'
 
-const resources = { compute: { unit: 'GPU-second', limit: 20 } }
+const resources = { compute: { unit: 'GPU-second', limit: 200 } }
 
 async function runStream(terminal: Spend['resources'], interrupted = false, increments = [3, 2]) {
   const budget = { maxIterations: 3, maxTokens: 100, resources }
@@ -68,21 +68,40 @@ async function runStream(terminal: Spend['resources'], interrupted = false, incr
 }
 
 describe('named resource aggregation at execution boundaries', () => {
-  it('accepts equivalent fractional stream and terminal totals', async () => {
+  it('reconciles 100 streamed increments exactly against the terminal receipt', async () => {
     const { settled, pool } = await runStream(
       {
-        compute: { unit: 'GPU-second', amount: 0.3, known: true },
+        compute: { unit: 'GPU-second', amount: 100, known: true },
       },
       false,
-      [0.1, 0.2],
+      Array.from({ length: 100 }, () => 1),
     )
     expect(settled?.kind).toBe('done')
     expect(settled?.spent.resources?.compute).toEqual({
       unit: 'GPU-second',
-      amount: 0.1 + 0.2,
+      amount: 100,
       known: true,
     })
-    expect(pool.readout().resources?.compute.known).toBe(true)
+    expect(pool.readout().resources?.compute).toMatchObject({
+      committed: 100,
+      remaining: 100,
+      known: true,
+    })
+  })
+
+  it('closes an overflowing stream as unknown and retains its safe lower bound', async () => {
+    const { settled, pool, scope, id } = await runStream(undefined, false, [
+      Number.MAX_SAFE_INTEGER,
+      1,
+    ])
+    expect(settled?.kind).toBe('down')
+    expect(scope.view.nodes.find((node) => node.id === id)?.spent.resources?.compute).toEqual({
+      unit: 'GPU-second',
+      amount: Number.MAX_SAFE_INTEGER,
+      known: false,
+    })
+    pool.assertNoOpenTickets()
+    expect(pool.readout().resources?.compute.known).toBe(false)
   })
 
   it('charges streamed increments once when the terminal receipt repeats the total', async () => {
@@ -94,7 +113,7 @@ describe('named resource aggregation at execution boundaries', () => {
     })
     expect(pool.readout().resources?.compute).toMatchObject({
       committed: 5,
-      remaining: 15,
+      remaining: 195,
       known: true,
     })
     expect(scope.progress(id)?.resources).toEqual(settled?.spent.resources)
@@ -123,13 +142,15 @@ describe('named resource aggregation at execution boundaries', () => {
     })
     expect(pool.readout().resources?.compute).toMatchObject({
       committed: 5,
-      remaining: 15,
+      remaining: 195,
       known: true,
     })
   })
   it.each([
     { unit: 'minute', amount: 5, known: true },
     { unit: 'GPU-second', amount: -1, known: true },
+    { unit: 'GPU-second', amount: 0.1, known: true },
+    { unit: 'GPU-second', amount: Number.MAX_SAFE_INTEGER + 1, known: true },
     { unit: 'GPU-second', amount: Number.NaN, known: true },
   ])(
     'closes reservations and preserves unknown usage for malformed receipts: %j',

@@ -202,7 +202,7 @@ function resolveShapeBudget(root: Budget, over?: Partial<ShapeBudget>): ShapeBud
           resources: Object.fromEntries(
             Object.entries(root.resources).map(([name, resource]) => [
               name,
-              { ...resource, limit: resource.limit / fanout },
+              { ...resource, limit: Math.floor(resource.limit / fanout) },
             ]),
           ),
         }),
