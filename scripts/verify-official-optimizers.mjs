@@ -15,6 +15,7 @@ import { parse as parseYaml } from 'yaml'
 import {
   assertPeerMatchesDevelopmentDependency,
   cohortRange,
+  isExactVersionSpec,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
@@ -107,26 +108,23 @@ try {
     packedPackageJson,
     '@tangle-network/sandbox',
   )
-  assertVersion(
-    packedAgentEvalVersion,
-    catalogRange('@tangle-network/agent-eval'),
-    'packed @tangle-network/agent-eval development dependency',
-  )
-  assertVersion(
-    packedAgentInterfaceVersion,
-    catalogRange('@tangle-network/agent-interface'),
-    'packed @tangle-network/agent-interface development dependency',
-  )
-  assertVersion(
-    packedSandboxVersion,
-    catalogRange('@tangle-network/sandbox'),
-    'packed @tangle-network/sandbox development dependency',
-  )
-  assertVersion(
-    requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
-    catalogRange('@tangle-network/agent-knowledge'),
-    'packed @tangle-network/agent-knowledge dependency',
-  )
+  for (const [name, spec, version] of [
+    ['@tangle-network/agent-eval', packedAgentEvalVersion, workspaceAgentEvalVersion],
+    ['@tangle-network/agent-interface', packedAgentInterfaceVersion, workspaceAgentInterfaceVersion],
+    ['@tangle-network/sandbox', packedSandboxVersion, workspaceSandboxVersion],
+    [
+      '@tangle-network/agent-knowledge',
+      requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
+      workspaceAgentKnowledgeVersion,
+    ],
+  ]) {
+    const valid = isExactVersionSpec(spec)
+      ? spec === version && rangeAdmits(catalogRange(name), version)
+      : rangeAdmits(spec, version) && rangeAdmits(catalogRange(name), version)
+    if (!valid) {
+      throw new Error(`packed ${name}@${spec} does not admit ${version} within catalog range ${catalogRange(name)}`)
+    }
+  }
   writeFileSync(
     join(appDir, 'package.json'),
     `${JSON.stringify(
@@ -312,7 +310,7 @@ function assertInstalledVersion(appDir, packageName, expected) {
 
 function assertInstalledAdmitted(appDir, packageName, range) {
   const actual = installedPackageVersion(appDir, packageName)
-  if (!rangeAdmits(range, actual)) {
+  if (range !== actual && !rangeAdmits(range, actual)) {
     throw new Error(`installed ${packageName}@${actual} is outside its declared range ${range}`)
   }
 }

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.204.0
+
+Observers accept caller-owned structured evidence separately from task, output, and summarized trace.
+Default analysis bounds serialized context with an explicit truncation marker and rejects unsupported JSON values before inference.
+Custom analysis receives the full original context.
+
 ## 0.203.2
 
 Peer messages no longer extend completed router work with another inference.

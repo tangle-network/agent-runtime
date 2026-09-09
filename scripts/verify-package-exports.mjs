@@ -236,6 +236,8 @@ try {
       // The caller-brain seam is production: ToolLoopChat resolves from /kernel (issue 694 option A).
       import {
         attachWorker,
+        type ObserveInput,
+        type ObserveOptions,
         readWorkerSteerAcknowledgement,
         type ToolLoopChat as KernelToolLoopChat,
         type WorkerInteractiveBinding,
@@ -380,6 +382,18 @@ try {
         }
         void activationOutcome
       }
+      const observationInput: ObserveInput = {
+        task: 'Inspect', output: 'done', trace: [], context: { prompts: ['correction'] },
+      }
+      const observationOptions: ObserveOptions = {
+        maxContextChars: 12000,
+        analysis: async (input) => ({
+          findings: [], report: JSON.stringify(input.context),
+          usage: { input: 0, output: 0, known: true },
+        }),
+      }
+      void observationInput
+      void observationOptions
       void execution
       void activation
       void outcome

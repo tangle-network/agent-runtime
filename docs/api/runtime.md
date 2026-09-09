@@ -4863,6 +4863,13 @@ What it produced (its final answer / artifact summary).
 
 The worker's trace — any event array (sandbox events, tool-call records).
 
+##### context?
+
+> `optional` **context?**: `unknown`
+
+Caller-owned execution evidence, separate from task/output and final grading.
+The default analyst requires JSON-serializable data; custom analysis receives the original value.
+
 ##### outcome?
 
 > `optional` **outcome?**: `"unknown"` \| `"failed"` \| `"passed"`
@@ -25729,6 +25736,13 @@ Cap the trace lines fed to the observer (keeps the call cheap). Default 80.
 > `optional` **maxOutputChars?**: `number`
 
 Maximum output characters delivered to the default observer. Default 1200.
+
+##### maxContextChars?
+
+> `optional` **maxContextChars?**: `number`
+
+Maximum serialized context characters before a truncation marker. Default 12000; zero omits context.
+Applies only to the default analyst. Custom analysis receives the complete input.
 
 ##### proposalOrigin?
 
