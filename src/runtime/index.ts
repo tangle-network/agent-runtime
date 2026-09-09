@@ -210,6 +210,7 @@ export {
   type ProviderAsSandboxClientOptions,
   type ProviderExecutorOptions,
   type ProviderLeafOut,
+  type ProviderPlacement,
   type ProviderPromptOptions,
   providerAsExecutor,
   providerAsSandboxClient,

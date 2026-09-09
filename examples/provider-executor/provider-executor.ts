@@ -113,16 +113,20 @@ const workerProfile: AgentProfile = {
 
 const supervisorProfile: AgentProfile = {
   name: 'provider-supervisor',
+  tools: {
+    agent_runtime_coordination_spawn_worker: true,
+    agent_runtime_coordination_await_event: true,
+  },
   harness: 'cli-base',
   model: { provider: 'offline', default: 'offline-test-model', metadata: { maxTurns: 8 } },
   prompt: {
     systemPrompt:
-      'You are a supervisor. Spawn one worker, await it with await_event, and stop once it delivered.',
+      'You are a supervisor. Spawn both workers, await each with await_event, and stop once they deliver.',
   },
 }
 
 /**
- * A scripted driver: spawn one worker, await it, stop. It ignores the folded messages and
+ * A scripted driver: spawn two workers, await them, stop. It ignores the folded messages and
  * advances a fixed plan, so it exercises the wiring without inference. A real supervisor READS
  * the worker output and composes its next move from it — see `examples/driver-loop/`.
  */
@@ -141,8 +145,22 @@ function scriptedBrain(): ToolLoopChat {
         },
       ],
     },
+    {
+      content: 'delegating to the second declared harness',
+      toolCalls: [
+        {
+          name: 'spawn_worker',
+          arguments: {
+            profile: { ...workerProfile, name: 'opencode-worker', harness: 'opencode' },
+            task: `Emit the exact line ${expectedAnswer}.`,
+            label: 'opencode-worker',
+          },
+        },
+      ],
+    },
     { content: 'awaiting the worker', toolCalls: [{ name: 'await_event', arguments: {} }] },
-    { content: 'worker delivered — stopping', toolCalls: [] },
+    { content: 'awaiting the other worker', toolCalls: [{ name: 'await_event', arguments: {} }] },
+    { content: 'workers delivered', toolCalls: [] },
   ]
   let index = 0
   return (messages) => {
@@ -168,13 +186,21 @@ function providerBackend(provider: AgentEnvironmentProvider): ExecutorConfig {
   return {
     backend: 'provider',
     provider,
-    // Create-time defaults the provider merges under every environment it makes for this run.
     defaults: { metadata: { pursuit: 'provider-executor-example' } },
-    // Per-run prompt options merged under every turn — the same field, the same name, and the
-    // same kernel-owned exclusions as `ExecCtx.promptOptions` on the sandbox path. The seat
-    // credential rides here because it belongs to the call, not to the agent: an `AgentProfile`
-    // is portable and a credential is not.
-    promptOptions: { backend: seatBackend, timeoutMs: 120_000 },
+    placements: [
+      {
+        id: 'codex-seat',
+        match: { harness: 'codex', provider: 'offline', model: 'offline-test-model' },
+        create: { backend: 'codex', secrets: ['CODEX_CREDENTIAL'] },
+        promptOptions: { backend: seatBackend, timeoutMs: 120_000 },
+      },
+      {
+        id: 'opencode-seat',
+        match: { harness: 'opencode', provider: 'offline', model: 'offline-test-model' },
+        create: { backend: 'opencode', secrets: ['OPENCODE_API_KEY'] },
+        promptOptions: { backend: { type: 'opencode', model: { apiKeyEnv: 'OPENCODE_API_KEY' } } },
+      },
+    ],
   }
 }
 
@@ -231,7 +257,9 @@ async function main(): Promise<void> {
   )
   console.log(`create metadata: ${JSON.stringify(creates[0]?.metadata)}`)
   // Proof the credential reached the environment rather than being dropped on the way.
-  console.log(`turn credential: ${JSON.stringify(turns[0]?.providerOptions?.backend)}`)
+  console.log(
+    `placements: ${JSON.stringify(creates.map((input) => input.metadata?.runtimeProviderPlacement))}`,
+  )
   console.log(`turn timeout: ${turns[0]?.timeoutMs}`)
 }
 

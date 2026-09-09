@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { type ProviderPlacement, selectProviderPlacement } from './provider-placement'
+
+export type { ProviderPlacement } from './provider-placement'
+
 import {
   type AgentExactRunControlRef,
   AgentExactRunControlRefSchema,
@@ -14,6 +18,7 @@ import {
   AgentRunCancellationRequestSchema,
   type AgentRunControlRef,
   agentInteractiveSessionRefMatchesStart,
+  canonicalAgentProfileDigest,
   canonicalCandidateDigest,
   canonicalWorkspaceCwd,
   harnessSystemPromptIntents,
@@ -261,6 +266,13 @@ export function providerAsSandboxClient(
         ...defaults,
         ...sandboxInput,
         ...customInput,
+        ...(defaults.env === undefined &&
+        sandboxInput.env === undefined &&
+        customInput.env === undefined
+          ? {}
+          : {
+              env: { ...defaults.env, ...sandboxInput.env, ...customInput.env },
+            }),
         providerOptions: {
           ...(defaults.providerOptions ?? {}),
           ...(sandboxInput.providerOptions ?? {}),
@@ -452,6 +464,8 @@ function providerTurnDefaults(
 /** Options for running a provider as a supervise-mode executor.
  * @experimental */
 export interface ProviderExecutorOptions {
+  /** Select exactly one caller-declared placement from each child's unchanged profile. */
+  placements?: readonly ProviderPlacement[]
   defaults?: Partial<CreateAgentEnvironmentInput>
   runtime?: Runtime
   destroyOnSettle?: boolean
@@ -525,7 +539,22 @@ export function providerAsExecutor(
   provider: AgentEnvironmentProvider,
   options: ProviderExecutorOptions = {},
 ): ExecutorFactory<unknown> {
-  return (spec, ctx) => createProviderExecutor(provider, spec.profile, ctx, options)
+  const captured =
+    options.placements === undefined
+      ? options
+      : {
+          ...options,
+          placements: detachedSnapshot(options.placements, 'provider placements'),
+          defaults: detachedSnapshot(options.defaults, 'provider placement defaults'),
+        }
+  return (spec, ctx) => {
+    const profile =
+      captured.placements === undefined
+        ? spec.profile
+        : detachedSnapshot(spec.profile, 'provider placement profile')
+    const selected = selectProviderPlacement(profile, captured)
+    return createProviderExecutor(provider, profile, ctx, selected.options, selected.identity)
+  }
 }
 
 function createProviderExecutor(
@@ -533,6 +562,7 @@ function createProviderExecutor(
   profile: AgentProfile,
   ctx: ExecutorContext,
   options: ProviderExecutorOptions,
+  placement?: { id: string; digest: string },
 ): Executor<unknown> {
   const controller = linkAbort(ctx.signal)
 
@@ -551,6 +581,14 @@ function createProviderExecutor(
   // them, so the declaration carries the overlaid profile and exact turn execution refuses the run
   // rather than presenting the authored profile as what the provider received.
   const createProfile = options.profileForCreate?.(profile) ?? profile
+  if (
+    placement &&
+    canonicalAgentProfileDigest(createProfile) !== canonicalAgentProfileDigest(profile)
+  ) {
+    throw new ValidationError(
+      'provider placement: profileForCreate cannot change the selected profile',
+    )
+  }
   const executionId = retention?.executionId ?? ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
   const providerModel = concreteProfileModel(createProfile)
@@ -579,6 +617,7 @@ function createProviderExecutor(
       requireTerminalEvent: options.requireTerminalEvent ?? true,
       tokenLimits,
       environmentId: null,
+      ...(placement ? { placement } : {}),
     },
   }
   const plannedBinding: ExecutorExecutionBinding = {
@@ -587,8 +626,14 @@ function createProviderExecutor(
       provider: provider.name,
       executionId,
       model: providerModel ?? null,
+      ...(placement ? { placement } : {}),
     },
-    descriptor: { kind: 'agent-environment', transport: 'provider', backend: provider.name },
+    descriptor: {
+      kind: 'agent-environment',
+      transport: 'provider',
+      backend: provider.name,
+      ...(placement ? { placementId: placement.id, placementDigest: placement.digest } : {}),
+    },
   }
 
   let executor!: Executor<unknown>
@@ -735,11 +780,27 @@ async function* streamProviderExecutor(
   // wrapping a second readiness poll around a provider that already honors the contract would hide
   // a provider that does not, and a provider that does not is an upstream defect to report.
   const defaultTurn = taskToTurnInput(args.task, linked)
-  const turn = providerTurnWithDefaults(
+  let turn = providerTurnWithDefaults(
     providerTurnDefaults(args.options.promptOptions, `providerAsExecutor(${args.provider.name})`),
     args.options.taskToTurn?.(args.task, args.profile, defaultTurn) ?? defaultTurn,
     linked,
   )
+  if (args.options.defaults?.metadata?.runtimeProviderPlacement !== undefined) {
+    if (turn.model !== undefined && turn.model !== concreteProfileModel(args.profile)) {
+      throw new ValidationError('provider placement: taskToTurn cannot replace the profile model')
+    }
+    const declared = providerTurnDefaults(args.options.promptOptions, 'provider placement')
+    if (
+      canonicalCandidateDigest(turn.providerOptions ?? {}) !==
+      canonicalCandidateDigest(declared?.providerOptions ?? {})
+    ) {
+      throw new ValidationError(
+        'provider placement: taskToTurn cannot replace declared provider options',
+      )
+    }
+    const { signal: _signal, ...material } = turn
+    turn = { ...detachedSnapshot(material, 'provider placement turn'), signal: linked }
+  }
   const source = await providerExecutionSource(args, turn, linked)
   const environment = source.environment
   args.onEnvironment(environment)
