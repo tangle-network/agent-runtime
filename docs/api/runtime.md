@@ -4102,9 +4102,11 @@ rewrite the caller's task mapping.
 
 ##### taskToTurn?
 
-> `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
+> `optional` **taskToTurn?**: (`task`, `specProfile`, `defaultTurn`) => `AgentTurnInput`
 
 **`Experimental`**
+
+Map the task while retaining the kernel's canonical prompt mapping by default.
 
 ###### Parameters
 
@@ -4115,6 +4117,10 @@ rewrite the caller's task mapping.
 ###### specProfile
 
 `AgentProfile`
+
+###### defaultTurn
+
+`AgentTurnInput`
 
 ###### Returns
 
@@ -17262,9 +17268,9 @@ rewrite the caller's task mapping.
 
 ##### taskToTurn?
 
-> `optional` **taskToTurn?**: (`task`, `specProfile`) => `AgentTurnInput`
+> `optional` **taskToTurn?**: (`task`, `specProfile`, `defaultTurn`) => `AgentTurnInput`
 
-**`Experimental`**
+Map the task while retaining the kernel's canonical prompt mapping by default.
 
 ###### Parameters
 
@@ -17275,6 +17281,10 @@ rewrite the caller's task mapping.
 ###### specProfile
 
 `AgentProfile`
+
+###### defaultTurn
+
+`AgentTurnInput`
 
 ###### Returns
 
