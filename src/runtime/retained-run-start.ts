@@ -47,15 +47,12 @@ import type {
 import { detachedSnapshot } from './supervise/snapshot'
 import { freshTurnInput } from './turn-input'
 
-const MAX_RETAINED_IDENTITY_BYTES = 128
-
 /**
  * Mint deterministic dispatch coordinates from the two caller-supplied keys.
  * The same `(idempotencyKey, turnId)` pair yields the same coordinates in
  * every process, so a pre-dispatch admission record always names the exact
- * session and execution the dispatch will request. Short inputs keep a
- * readable URL-encoded identity. Long inputs use a full SHA-256 digest so
- * provider storage layers never receive an overlong composite identifier.
+ * session and execution the dispatch will request. A full SHA-256 digest
+ * keeps provider session identifiers bounded and safe for workspace paths.
  */
 export function mintRetainedIdentity(
   idempotencyKey: string,
@@ -65,14 +62,10 @@ export function mintRetainedIdentity(
   const digest = canonicalCandidateDigest({ kind: 'retained-identity.v1', base }).slice(
     'sha256:'.length,
   )
-  const sessionId = boundedRetainedIdentity('retained-session', base, digest)
-  const executionId = boundedRetainedIdentity('retained-execution', base, digest)
-  return { sessionId, executionId }
-}
-
-function boundedRetainedIdentity(prefix: string, base: string, digest: string): string {
-  const readable = `${prefix}:${base}`
-  return readable.length <= MAX_RETAINED_IDENTITY_BYTES ? readable : `${prefix}:${digest}`
+  return {
+    sessionId: `retained-session-${digest}`,
+    executionId: `retained-execution-${digest}`,
+  }
 }
 
 /**
@@ -91,16 +84,17 @@ export async function startRetainedRun(
 ): Promise<RetainedRunHandle> {
   assertStableText(options.environment.idempotencyKey, 'environment idempotency key')
   assertStableText(options.turn.turnId, 'turn idempotency key')
-  if (options.identity !== undefined) {
-    assertStableText(options.identity.sessionId, 'retained session id')
-    assertStableText(options.identity.executionId, 'retained execution id')
-  }
   if (typeof options.onAdmission !== 'function') {
     throw new Error('startRetainedRun requires an awaited onAdmission durability hook')
   }
-  const identity =
+  const { sessionId, executionId } =
     options.identity ??
+    // Admission coordinates remain authoritative across generator changes.
+    options.intent ??
     mintRetainedIdentity(options.environment.idempotencyKey, options.turn.turnId)
+  const identity = { sessionId, executionId }
+  assertStableText(identity.sessionId, 'retained session id')
+  assertStableText(identity.executionId, 'retained execution id')
   const contextTransfer = retainedContextTransfer(options.turn.contextTransfer)
   if (!options.provider.get) {
     throw new Error(`provider "${options.provider.name}" cannot reconstruct an environment by id`)
@@ -519,8 +513,9 @@ export function assertRetainedRunReplayMaterial(
   replay: RetainedRunStartMaterial,
   admission: RetainedRunIntentAdmission,
 ): void {
-  const identity =
-    replay.identity ?? mintRetainedIdentity(replay.environment.idempotencyKey, replay.turn.turnId)
+  const identity = replay.identity ?? admission
+  assertStableText(identity.sessionId, 'retained session id')
+  assertStableText(identity.executionId, 'retained execution id')
   assertExactRetainedRunIntent(
     admission,
     retainedRunIntent(
