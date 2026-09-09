@@ -443,6 +443,10 @@ See:
 
 > **apiKey**: `string`
 
+##### emailVerified
+
+> **emailVerified**: `true`
+
 ##### user
 
 > **user**: `object`
@@ -457,15 +461,13 @@ See:
 
 ###### name?
 
-> `optional` **name?**: `string`
+> `optional` **name?**: `string` \| `null`
 
 ##### plan
 
-> **plan**: `object`
+> **plan**: \{ `tier`: `string`; \} \| `null`
 
-###### tier
-
-> **tier**: `string`
+Null when the platform could not provide a subscription. This is not a paid-access grant.
 
 ***
 
