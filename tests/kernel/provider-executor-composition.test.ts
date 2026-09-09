@@ -170,7 +170,10 @@ describe("createExecutor({ backend: 'provider' })", () => {
         provider,
         taskToTurn: (_task, _profile, turn) => {
           defaultTurn = turn
-          return { ...turn, providerOptions: { messages: [{ role: 'user', content: turn.prompt }] } }
+          return {
+            ...turn,
+            providerOptions: { messages: [{ role: 'user', content: turn.prompt }] },
+          }
         },
       }),
     )
