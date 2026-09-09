@@ -254,7 +254,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     })
     expect(readRunCancellation(dir, 'pre-start')).toMatchObject({
       effect: 'cancelled',
-      path: 'deadline',
+      path: 'observer',
     })
   })
 

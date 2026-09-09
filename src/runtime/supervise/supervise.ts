@@ -2216,6 +2216,10 @@ function recordRunCancellationOutcome(
     requestedAt: request.at,
     observedAt,
     ...(record?.path === undefined ? {} : { path: record.path }),
+    ...(record?.appliedAfterMs === undefined ? {} : { appliedAfterMs: record.appliedAfterMs }),
+    ...(record?.deadlineExceeded === undefined
+      ? {}
+      : { deadlineExceeded: record.deadlineExceeded }),
     ...(request.reason === undefined ? {} : { reason: request.reason }),
   }
   if (record === undefined) {

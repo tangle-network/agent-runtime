@@ -13,23 +13,25 @@ export function applyRunCancellation(
   dir: string,
   abortRun: (reason: string, request?: RunCancelRequest) => void,
   now: () => string,
-  path: 'observer' | 'turn-boundary' = 'turn-boundary',
+  path: 'observer' | 'turn-boundary' | 'fallback' = 'turn-boundary',
 ): RunCancellation | undefined {
   const request = readRunCancelRequest(dir)
   if (request === undefined) return undefined
   const prior = readRunCancellation(dir, request.operationId)
   if (prior !== undefined) return prior
   abortRun(request.reason ?? 'run cancel requested', request)
+  const observedAt = now()
+  const appliedAfterMs = Math.max(0, Date.parse(observedAt) - Date.parse(request.at))
   const record: RunCancellation = {
     operationId: request.operationId,
     effect: 'cancel_requested',
-    path:
-      request.deadlineMs !== undefined &&
-      Date.parse(now()) >= Date.parse(request.at) + request.deadlineMs
-        ? 'deadline'
-        : path,
+    path,
+    appliedAfterMs,
+    ...(request.deadlineMs === undefined
+      ? {}
+      : { deadlineExceeded: appliedAfterMs > request.deadlineMs }),
     requestedAt: request.at,
-    observedAt: now(),
+    observedAt,
     ...(request.reason === undefined ? {} : { reason: request.reason }),
     detail: 'root abort issued to the whole run; termination not yet proven',
   }
@@ -45,9 +47,9 @@ export function watchRunCancellation(
   mkdirSync(workerCancellationsDir(dir), { recursive: true })
   let active = true
   let failure: unknown
-  const check = (): void => {
+  const check = (path: 'observer' | 'fallback' = 'observer'): void => {
     if (failure !== undefined) throw failure
-    if (active) applyRunCancellation(dir, abortRun, () => new Date().toISOString(), 'observer')
+    if (active) applyRunCancellation(dir, abortRun, () => new Date().toISOString(), path)
   }
   const fail = (error: unknown): void => {
     if (!active) return
@@ -63,11 +65,21 @@ export function watchRunCancellation(
     }
   })
   watcher.on('error', fail)
+  // Filesystem notifications are advisory. Scan the same durable inbox when one is dropped.
+  const fallback = setInterval(() => {
+    try {
+      check('fallback')
+    } catch (error) {
+      fail(error)
+    }
+  }, 100)
+  fallback.unref()
   return {
     check,
     close(): void {
       active = false
       watcher.close()
+      clearInterval(fallback)
     },
   }
 }

@@ -168,8 +168,8 @@ export interface RunCancelRequest {
   readonly at: string
   /** Who asked — 'human', a brain label, a tool name. Provenance, not authorization. */
   readonly source: string
-  /** Requested observation bound. The observer cascades immediately when scheduled;
-   * blocked event loops and provider teardown can exceed this bound. */
+  /** Requested observation target, measured by the acknowledgement's deadlineExceeded field.
+   * The observer always cascades eagerly. This does not guarantee scheduler latency or cleanup. */
   readonly deadlineMs?: number
   readonly reason?: string
 }
@@ -189,7 +189,11 @@ export interface RunCancelRequest {
  */
 export interface RunCancellation {
   /** Runtime path that issued the cascade. */
-  readonly path?: 'observer' | 'turn-boundary' | 'deadline'
+  readonly path?: 'observer' | 'turn-boundary' | 'fallback'
+  /** Runtime clock elapsed between request timestamp and cascade application. */
+  readonly appliedAfterMs?: number
+  /** Whether application exceeded the requested deadlineMs; absent when no target was requested. */
+  readonly deadlineExceeded?: boolean
   readonly operationId: string
   readonly effect: RetainedRunEffect
   /** ISO timestamp of the original request. */
