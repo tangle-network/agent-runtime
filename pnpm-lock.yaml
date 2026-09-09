@@ -57,7 +57,7 @@ importers:
         specifier: 'catalog:'
         version: 0.9.6(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4))
       '@tangle-network/agent-knowledge':
-        specifier: 15.0.2
+        specifier: '>=15.0.2 <16.0.0'
         version: 15.0.2(@tangle-network/agent-eval@0.179.0(@modelcontextprotocol/sdk@1.30.0(supports-color@10.2.2)(zod@4.5.4)))(@tangle-network/agent-interface@2.6.0)
       '@tangle-network/agent-profile-materialize':
         specifier: 'catalog:'
