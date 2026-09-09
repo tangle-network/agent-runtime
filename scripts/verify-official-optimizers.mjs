@@ -15,6 +15,7 @@ import { parse as parseYaml } from 'yaml'
 import {
   assertPeerMatchesDevelopmentDependency,
   cohortRange,
+  isExactVersionSpec,
   rangeAdmits,
   requiredPackedDevelopmentDependency,
   requiredPackedPackageVersion,
@@ -107,17 +108,21 @@ try {
     packedPackageJson,
     '@tangle-network/sandbox',
   )
-  for (const [name, version] of [
-    ['@tangle-network/agent-eval', packedAgentEvalVersion],
-    ['@tangle-network/agent-interface', packedAgentInterfaceVersion],
-    ['@tangle-network/sandbox', packedSandboxVersion],
+  for (const [name, spec, version] of [
+    ['@tangle-network/agent-eval', packedAgentEvalVersion, workspaceAgentEvalVersion],
+    ['@tangle-network/agent-interface', packedAgentInterfaceVersion, workspaceAgentInterfaceVersion],
+    ['@tangle-network/sandbox', packedSandboxVersion, workspaceSandboxVersion],
     [
       '@tangle-network/agent-knowledge',
       requiredPackedDependency(packedPackageJson, '@tangle-network/agent-knowledge'),
+      workspaceAgentKnowledgeVersion,
     ],
   ]) {
-    if (!rangeAdmits(catalogRange(name), version)) {
-      throw new Error(`packed ${name}@${version} is outside catalog range ${catalogRange(name)}`)
+    const valid = isExactVersionSpec(spec)
+      ? spec === version && rangeAdmits(catalogRange(name), version)
+      : rangeAdmits(spec, version) && rangeAdmits(catalogRange(name), version)
+    if (!valid) {
+      throw new Error(`packed ${name}@${spec} does not admit ${version} within catalog range ${catalogRange(name)}`)
     }
   }
   writeFileSync(
