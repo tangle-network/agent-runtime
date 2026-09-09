@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.203.3
+## 0.204.0
 
 Observers accept caller-owned structured evidence separately from task, output, and summarized trace.
 Default analysis bounds serialized context with an explicit truncation marker and rejects unsupported JSON values before inference.
