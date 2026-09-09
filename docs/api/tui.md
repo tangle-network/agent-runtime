@@ -937,7 +937,7 @@ never carries file contents, so a diagnostic is safe to show or log without leak
 
 ### TopJournalEvent
 
-> **TopJournalEvent** = \{ `kind`: `"spawned"`; `id`: `string`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"settled"`; `id`: `string`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: `string`; `reason?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"metered"`; `id`: `string`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"progress"`; `id`: `string`; `spend?`: `unknown`; `seq?`: `number`; `at?`: `string`; \}
+> **TopJournalEvent** = \{ `kind`: `"spawned"`; `id`: `string`; `parent?`: `string`; `label?`: `string`; `budget?`: `unknown`; `runtime?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"settled"`; `id`: `string`; `status?`: `string`; `outRef?`: `string`; `verdict?`: `unknown`; `spent?`: `unknown`; `infra?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"cancelled"`; `spent?`: `unknown`; `id`: `string`; `reason?`: `string`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"metered"`; `id`: `string`; `spend?`: `unknown`; `accountingOnly?`: `boolean`; `seq?`: `number`; `at?`: `string`; \} \| \{ `kind`: `"progress"`; `id`: `string`; `spend?`: `unknown`; `seq?`: `number`; `at?`: `string`; \}
 
 **`Experimental`**
 

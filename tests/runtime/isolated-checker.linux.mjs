@@ -1,9 +1,20 @@
 // Run in a disposable privileged Linux container; never mount untrusted host trees.
 import assert from 'node:assert/strict'
 import childProcess, { spawn } from 'node:child_process'
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
+
 if (process.argv.includes('--cleanup-failure')) {
   const original = childProcess.execFile
   childProcess.execFile = (file, args, options, callback) => {
@@ -19,7 +30,8 @@ const { runIsolatedCheck } = await import('../../src/runtime/isolated-checker.ts
 
 if (process.argv.includes('--cleanup-failure')) {
   const tree = await mkdtemp('/work/cleanup-failure-')
-  const run = (script) => runIsolatedCheck({ workspaceRoot: tree, tree, command: ['/bin/sh', '-c', script] })
+  const run = (script) =>
+    runIsolatedCheck({ workspaceRoot: tree, tree, command: ['/bin/sh', '-c', script] })
   const primary = await run('echo primary-stdout; exit 7')
   assert.equal(primary.reason, 'failed', JSON.stringify(primary))
   assert.equal(primary.exitCode, 7)
@@ -95,13 +107,23 @@ try {
   setTimeout(() => controller.abort(), 100)
   assert.equal((await run('sleep 30', { signal: controller.signal })).reason, 'cancelled')
   assert.equal((await run('mkdir locked && chmod 000 locked')).succeeded, true)
-  const scratchBefore = (await readdir('/tmp')).filter((name) => name.startsWith('runtime-check-')).sort()
+  const scratchBefore = (await readdir('/tmp'))
+    .filter((name) => name.startsWith('runtime-check-'))
+    .sort()
   const deep = await runIsolatedCheck({
-    workspaceRoot: workspace, tree,
-    command: ['/usr/local/bin/node', '-e', "const fs=require('node:fs');for(let i=0;i<80;i++){fs.mkdirSync('d'.repeat(64));process.chdir('d'.repeat(64))}"],
+    workspaceRoot: workspace,
+    tree,
+    command: [
+      '/usr/local/bin/node',
+      '-e',
+      "const fs=require('node:fs');for(let i=0;i<80;i++){fs.mkdirSync('d'.repeat(64));process.chdir('d'.repeat(64))}",
+    ],
   })
   assert.equal(deep.succeeded, true, JSON.stringify(deep))
-  assert.deepEqual((await readdir('/tmp')).filter((name) => name.startsWith('runtime-check-')).sort(), scratchBefore)
+  assert.deepEqual(
+    (await readdir('/tmp')).filter((name) => name.startsWith('runtime-check-')).sort(),
+    scratchBefore,
+  )
   const spoofed = await run('echo bwrap:spoof >&2; exit 7')
   assert.equal(spoofed.reason, 'failed', JSON.stringify(spoofed))
   assert.equal(spoofed.exitCode, 7)
