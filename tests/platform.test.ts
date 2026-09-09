@@ -48,8 +48,9 @@ describe('PlatformAuthClient', () => {
       return new Response(
         JSON.stringify({
           apiKey: 'sk-tan-xyz',
+          emailVerified: true,
           user: { id: 'user_1', email: 'a@b.com', name: 'A' },
-          plan: { tier: 'pro' },
+          subscription: { plan: 'pro' },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       )
@@ -62,8 +63,59 @@ describe('PlatformAuthClient', () => {
     const out = await client.exchange('c-1')
     expect(out.apiKey).toBe('sk-tan-xyz')
     expect(out.user.id).toBe('user_1')
-    expect(out.plan.tier).toBe('pro')
+    expect(out.emailVerified).toBe(true)
+    expect(out.plan?.tier).toBe('pro')
   })
+
+  it('retains a nullable name and missing subscription without inventing a plan', async () => {
+    const client = new PlatformAuthClient({
+      baseUrl: 'https://id.tangle.tools',
+      appId: 'casework',
+      fetchImpl: mockFetch(() =>
+        Response.json({
+          apiKey: 'one-time-key',
+          emailVerified: true,
+          user: { id: 'user-1', email: 'lawyer@firm.example', name: null },
+        }),
+      ),
+    })
+    expect(await client.exchange('code')).toEqual({
+      apiKey: 'one-time-key',
+      emailVerified: true,
+      user: { id: 'user-1', email: 'lawyer@firm.example', name: null },
+      plan: null,
+    })
+  })
+
+  it.each([
+    { emailVerified: false },
+    { emailVerified: undefined },
+    { emailVerified: undefined, user: { id: 'u', email: 'a@firm.example', emailVerified: true } },
+    { user: { id: 'u', email: 'user@users.noreply.tangle.tools' } },
+    { user: { id: 'u', email: `0x${'a'.repeat(40)}@tangle.tools` } },
+    { user: { id: 'u', email: 'not-an-email' } },
+    { user: { id: 'u', email: 'a@firm.example', name: [] } },
+    { subscription: { plan: null } },
+    { apiKey: '' },
+  ])(
+    'refuses an unverified or malformed identity without exposing the exchange key: %j',
+    async (override) => {
+      const body = {
+        apiKey: 'one-time-secret-must-not-leak',
+        emailVerified: true,
+        user: { id: 'user-1', email: 'a@firm.example' },
+        ...override,
+      }
+      const client = new PlatformAuthClient({
+        baseUrl: 'https://id.tangle.tools',
+        appId: 'casework',
+        fetchImpl: mockFetch(() => Response.json(body)),
+      })
+      const error = await client.exchange('code').catch((value: unknown) => value)
+      expect(error).toBeInstanceOf(PlatformAuthError)
+      expect(JSON.stringify(error)).not.toContain('one-time-secret-must-not-leak')
+    },
+  )
 
   it('raises PlatformAuthError on platform-side errors', async () => {
     const fetchImpl = mockFetch(
