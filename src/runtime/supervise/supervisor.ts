@@ -516,8 +516,10 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // (caller signal, RootHandle.abort, breaker trip, deadline) aborts it; the scope
       // fans it out to each live child's executor (acquire-aware reap included).
       const controller = new AbortController()
+      let cascadeAborted = false
       const cascadeAbort = (reason?: string): boolean => {
         if (controller.signal.aborted) return false
+        cascadeAborted = true
         // Carry the reason on the signal so it chains down to each child's abort signal
         // (`childAbort.signal.reason`) — the diagnostic the scope's executors observe.
         controller.abort(reason)
@@ -689,6 +691,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         } catch (error) {
           if (actOutcome?.ok !== false) actOutcome = { ok: false, error }
         }
+        // Explicit cancellation can arrive during the join barrier; its cleanup abort is distinct.
+        executionAborted ||= cascadeAborted
         if (opts.signal) opts.signal.removeEventListener('abort', onCallerAbort)
         rootLease?.release()
       }

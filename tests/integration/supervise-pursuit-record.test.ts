@@ -21,7 +21,11 @@ import {
   settleRecordJson,
 } from '../../src/durable/settle-record'
 import { SupervisePursuitError, supervisePursuit } from '../../src/durable/supervise-pursuit'
-import type { DriveHarness } from '../../src/runtime/supervise/supervisor-agent'
+import { cancelRun, readRunCancellation } from '../../src/runtime/supervise/run-layout'
+import type {
+  DriveHarness,
+  DriveHarnessOwnerContext,
+} from '../../src/runtime/supervise/supervisor-agent'
 import type {
   Agent,
   AgentSpec,
@@ -35,11 +39,111 @@ import { runtimeToolDeclarations, testAgentProfile } from '../kernel/test-agent-
 const budget: Budget = { maxIterations: 100, maxTokens: 100_000 }
 const perWorker: Budget = { maxIterations: 4, maxTokens: 1_000 }
 
-function deliveringLeaf(name: string): Agent<unknown, unknown> {
+it('acknowledges durable cancellation after the external director returns while a child drains', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cancel-after-director-'))
+  const cleanup = new AbortController()
+  let started!: () => void
+  let finalized!: () => void
+  const directorFinalized = new Promise<void>((resolve) => {
+    finalized = resolve
+  })
+  const childStarted = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  let aborted = false
+  const pending = run(dir, 'cancel-after-director', {
+    signal: cleanup.signal,
+    childSettleGraceMs: 5_000,
+    finalizer: async () => {
+      finalized()
+      return undefined
+    },
+    makeWorkerAgent: () =>
+      deliveringLeaf('waiting-child', async (signal) => {
+        started()
+        await new Promise<void>((resolve) => {
+          const stop = () => {
+            aborted = true
+            resolve()
+          }
+          if (signal.aborted) stop()
+          else signal.addEventListener('abort', stop, { once: true })
+        })
+      }),
+    driveHarness: async ({ coordinationMcpUrl }: Parameters<DriveHarness>[0]) => {
+      await jsonRpc(coordinationMcpUrl, 'tools/call', {
+        name: 'spawn_worker',
+        arguments: { profile: testAgentProfile('worker'), task: 'wait', label: 'worker' },
+      })
+    },
+  })
+  try {
+    await childStarted
+    await directorFinalized
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    cancelRun(dir, 'cancel-drain', { reason: 'operator', source: 'test' })
+    await expect.poll(() => aborted, { timeout: 2_000 }).toBe(true)
+    await pending
+    expect(aborted).toBe(true)
+    expect(readRunCancellation(dir, 'cancel-drain')?.effect).toBe('cancelled')
+  } finally {
+    cleanup.abort()
+    await pending
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+it('fences a nested driver retry when durable cancellation races a backend failure', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cancel-nested-retry-'))
+  let attempts = 0
+  try {
+    const result = await run(dir, 'cancel-nested-retry', {
+      driveHarness: undefined,
+      makeWorkerAgent: undefined,
+      backend: {
+        backend: 'router',
+        routerBaseUrl: 'http://unused.invalid',
+        routerKey: 'unused',
+        model: 'unused/model',
+      },
+      driverRetry: { initialBackoffMs: 0, maxBackoffMs: 0 },
+      childSettleGraceMs: 5_000,
+      resolveDriveHarness: (context: DriveHarnessOwnerContext): DriveHarness => {
+        if (context.depth === 0)
+          return async ({ coordinationMcpUrl }) => {
+            await jsonRpc(coordinationMcpUrl, 'tools/call', {
+              name: 'spawn_worker',
+              arguments: {
+                profile: testAgentProfile('manager', { tools: runtimeToolDeclarations('stop') }),
+                task: 'work',
+                label: 'manager',
+              },
+            })
+          }
+        return async () => {
+          attempts += 1
+          cancelRun(dir, 'retry-race', { reason: 'operator', source: 'test' })
+          throw new Error('bridge execution cancelled')
+        }
+      },
+    })
+    expect(attempts, JSON.stringify(result.result)).toBe(1)
+    expect(result.result.kind).toBe('no-winner')
+    expect(readRunCancellation(dir, 'retry-race')?.effect).toBe('cancelled')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+function deliveringLeaf(
+  name: string,
+  beforeExecute?: (signal: AbortSignal) => Promise<void>,
+): Agent<unknown, unknown> {
   const executor: Executor<unknown> = {
     runtime: 'record-test-worker',
-    execute() {
+    execute(_task, signal) {
       return (async function* () {
+        await beforeExecute?.(signal)
         yield { kind: 'iteration' } as UsageEvent
         yield { kind: 'tokens', input: 5, output: 5 } as UsageEvent
         yield { kind: 'cost', usd: 0, usdKnown: true, provenance: 'provider-receipt' } as UsageEvent
@@ -67,7 +171,8 @@ async function jsonRpc(url: string, method: string, params: unknown): Promise<vo
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
   })
   if (!response.ok) throw new Error(`coordination MCP returned ${response.status}`)
-  await response.json()
+  const body = await response.json()
+  if (body.error || body.result?.isError) throw new Error(JSON.stringify(body))
 }
 
 const driveHarness: DriveHarness = async ({ coordinationMcpUrl }) => {

@@ -99,6 +99,7 @@ import {
   scopeRetainedOwnerPriorSpend,
   scopeRetainedOwnerResult,
 } from './retained-scope-owner'
+import { watchRunCancellation } from './run-cancellation'
 import { createFileRunContext, createInMemoryRunContext } from './run-context'
 import { readRunCancellation, readRunCancelRequest, writeRunCancellation } from './run-layout'
 import {
@@ -2911,7 +2912,11 @@ function superviseInternal(
           // parents them and label references stay the root's alone.
           ...(options.runDir === undefined
             ? {}
-            : { controlDir: resolve(options.runDir), controlScope: 'subtree' as const }),
+            : {
+                controlDir: resolve(options.runDir),
+                controlScope: 'subtree' as const,
+                abortRun: (reason: string) => runControl?.abort(reason),
+              }),
         })
         return driverChild(
           authorized,
@@ -2976,6 +2981,9 @@ function superviseInternal(
       rootOwnerId,
     )
   }
+  // Share one root control with every manager's pre-attempt cancellation fence.
+  const runControl =
+    options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
   const workerFactory = makeWorkerAgent
 
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
@@ -2989,11 +2997,6 @@ function superviseInternal(
     const priorCoordination = log ? await log.load(runId, rootOwnerId) : undefined
 
     const authorizeRootMessage = authorizeDownFor(canonicalProfile, 1)
-    // The ONE root control this run is aborted through: the caller's handle when it supplied one,
-    // otherwise a Runtime-minted handle for the durable run-cancel path. A run with neither a
-    // caller handle nor a `runDir` has no external abort party and mints nothing.
-    const runControl =
-      options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
     const agentDeps = {
       blobs,
       makeWorkerAgent: workerFactory,
@@ -3079,6 +3082,11 @@ function superviseInternal(
 
     const supervisor = createSupervisor<unknown, unknown>()
     if (runControl !== undefined) supervisor.attach(runControl)
+    // The run owns cancellation until every descendant has drained, even after its director returns.
+    const cancellation =
+      rootDriveHarness !== undefined && options.runDir !== undefined && runControl !== undefined
+        ? watchRunCancellation(resolve(options.runDir), (reason) => runControl.abort(reason))
+        : undefined
     const run = supervisor.run(agent, canonicalTask, {
       budget: options.budget,
       runId,
@@ -3117,7 +3125,12 @@ function superviseInternal(
       ...(options.runDir === undefined ? {} : { interactiveBindingDir: resolve(options.runDir) }),
     })
     const settle = async () => {
-      const result = await run
+      let result: Awaited<typeof run>
+      try {
+        result = await run
+      } finally {
+        cancellation?.close()
+      }
       recordRunCancellationOutcome(options.runDir, result, now)
       const rootProviderModel =
         ctx.resume === true
