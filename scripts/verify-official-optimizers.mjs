@@ -310,7 +310,7 @@ function assertInstalledVersion(appDir, packageName, expected) {
 
 function assertInstalledAdmitted(appDir, packageName, range) {
   const actual = installedPackageVersion(appDir, packageName)
-  if (!rangeAdmits(range, actual)) {
+  if (range !== actual && !rangeAdmits(range, actual)) {
     throw new Error(`installed ${packageName}@${actual} is outside its declared range ${range}`)
   }
 }
