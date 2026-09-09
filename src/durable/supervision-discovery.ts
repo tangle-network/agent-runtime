@@ -20,12 +20,15 @@ export interface DurableSupervisionDiscovery {
   readonly spawnJournalPath: string
   readonly coordinationLogPath: string
   readonly roots: readonly NodeId[]
+  /** `at` from each top-level root's `begin` record, index-aligned with `roots`. */
+  readonly rootsBegunAt: readonly (string | null)[]
   readonly coordinationStreams: readonly DurableCoordinationStreamIdentity[]
 }
 
 type SpawnJournalIdentityRecord = {
   readonly kind?: unknown
   readonly root?: unknown
+  readonly at?: unknown
   readonly event?: unknown
 }
 
@@ -61,6 +64,7 @@ export async function discoverDurableSupervisionRun(
 
   const allRoots = new Set<NodeId>()
   const nestedRoots = new Set<NodeId>()
+  const rootsBegunAt = new Map<NodeId, string | null>()
   if (spawnText !== undefined) {
     for (const record of parseCommittedJsonLines<SpawnJournalIdentityRecord>(
       spawnText,
@@ -71,6 +75,7 @@ export async function discoverDurableSupervisionRun(
           throw new Error(`${spawnJournalPath}: begin record has no non-empty string root identity`)
         }
         allRoots.add(record.root as NodeId)
+        rootsBegunAt.set(record.root as NodeId, typeof record.at === 'string' ? record.at : null)
         continue
       }
       if (record.kind !== 'event') continue
@@ -126,11 +131,13 @@ export async function discoverDurableSupervisionRun(
       }),
     )
 
+  const roots = [...allRoots].filter((root) => !nestedRoots.has(root)).sort(compareText)
   return Object.freeze({
     runDir: canonicalRunDir,
     spawnJournalPath,
     coordinationLogPath,
-    roots: Object.freeze([...allRoots].filter((root) => !nestedRoots.has(root)).sort(compareText)),
+    roots: Object.freeze(roots),
+    rootsBegunAt: Object.freeze(roots.map((root) => rootsBegunAt.get(root) ?? null)),
     coordinationStreams: Object.freeze(coordinationStreams),
   })
 }

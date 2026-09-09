@@ -222,6 +222,7 @@ describe('loadSpawnForest', () => {
     expect(nested?.view.root).toBe(owner)
     expect(nested?.view.nodes.map((node) => node.id)).toEqual([owner, leafId])
     expect(nested?.view.nodes.find((node) => node.id === owner)?.spent).toMatchObject(turnSpend)
+    expect(nested?.view.nodes.find((node) => node.id === leafId)?.spawnedAt).toBe(0)
     expect(forest.nodes.map((node) => node.id)).toEqual([root, owner, leafId])
     expect(
       forest.events.some(

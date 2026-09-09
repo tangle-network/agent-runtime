@@ -1146,6 +1146,8 @@ export interface NodeSnapshot {
   readonly executionBindings?: ReadonlyArray<ExecutionBindingReceipt>
   /** Epoch ms of the terminal journal record; absent while live or when legacy evidence lacks it. */
   readonly settledAt?: number
+  /** Epoch ms of the spawn journal record; absent when legacy evidence lacks a parseable `at`. */
+  readonly spawnedAt?: number
   /** Conserved spend so far for this node. */
   readonly spent: Spend
   /** Provider model evidence persisted separately from the execution plan. */

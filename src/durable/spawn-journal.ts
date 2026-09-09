@@ -1186,6 +1186,7 @@ export function materializeTreeView(events: SpawnEvent[]): TreeView {
       ...(ev.ownedTreeRoot === undefined ? {} : { ownedTreeRoot: ev.ownedTreeRoot }),
       ...(ev.assignmentId === undefined ? {} : { assignmentId: ev.assignmentId }),
       ...(ev.identity ? { identity: ev.identity } : {}),
+      ...(Number.isFinite(Date.parse(ev.at)) ? { spawnedAt: Date.parse(ev.at) } : {}),
       spent: zeroSpend(),
     })
   }
@@ -1283,6 +1284,7 @@ interface MutableSnapshot {
   outRef?: string
   trace?: NodeSnapshot['trace']
   settledAt?: number
+  spawnedAt?: number
 }
 
 /** Copy provider evidence at the journal boundary so replay never exposes mutable event state. */
@@ -1336,6 +1338,7 @@ function freezeSnapshot(node: MutableSnapshot): NodeSnapshot {
     outRef: node.outRef,
     trace: node.trace,
     settledAt: node.settledAt,
+    spawnedAt: node.spawnedAt,
   }
 }
 

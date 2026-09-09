@@ -46,6 +46,7 @@ describe('discoverDurableSupervisionRun', () => {
       spawnJournalPath: join(resolve(dir), 'spawn-journal.jsonl'),
       coordinationLogPath: join(resolve(dir), 'coordination-log.jsonl'),
       roots: ['root-a', 'root-b'],
+      rootsBegunAt: ['2026-08-16T00:00:01Z', '2026-08-16T00:00:00Z'],
       coordinationStreams: [
         {
           runId: 'run-a',
@@ -94,12 +95,14 @@ describe('discoverDurableSupervisionRun', () => {
     const result = await discoverDurableSupervisionRun(dir)
 
     expect(result.roots).toEqual(['root-main'])
+    expect(result.rootsBegunAt).toEqual(['2026-08-16T00:00:00Z'])
   })
 
   it('returns an empty discovery for a valid directory with no durable files', async () => {
     const dir = fixtureDir()
     const result = await discoverDurableSupervisionRun(dir)
     expect(result.roots).toEqual([])
+    expect(result.rootsBegunAt).toEqual([])
     expect(result.coordinationStreams).toEqual([])
     expect(Object.isFrozen(result)).toBe(true)
   })
@@ -134,6 +137,16 @@ describe('discoverDurableSupervisionRun', () => {
       `${JSON.stringify({ kind: 'begin', at: '2026-08-16T00:00:00Z' })}\n`,
     )
     await expect(discoverDurableSupervisionRun(missingRoot)).rejects.toThrow(/root identity/)
+
+    const missingAt = fixtureDir()
+    writeFileSync(
+      join(missingAt, 'spawn-journal.jsonl'),
+      `${JSON.stringify({ kind: 'begin', root: 'root-a' })}\n`,
+    )
+    await expect(discoverDurableSupervisionRun(missingAt)).resolves.toMatchObject({
+      roots: ['root-a'],
+      rootsBegunAt: [null],
+    })
 
     const malformedOwnedRoot = fixtureDir()
     writeFileSync(
