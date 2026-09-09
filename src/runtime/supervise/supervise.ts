@@ -40,7 +40,7 @@ import {
   unsupportedProfileDimensions,
   worktreeCliProfileMaterialization,
 } from '../../agent/profile-materialization'
-import { ConfigError, RuntimeRunStateError, ValidationError } from '../../errors'
+import { ConfigError, ValidationError } from '../../errors'
 import type {
   AnalystRegistry,
   AnalyzeOnSettleRoute,
@@ -61,6 +61,7 @@ import { agentHarness, harnessRunsAgent } from '../harness-role'
 import type { RouterTransportConfig } from '../router-client'
 import type { ToolLoopChat, ToolLoopCompactionOptions } from '../tool-loop'
 import { addSpend as addRetainedSpend, unmeteredSpend, zeroSpend } from '../util'
+import { RunCancellationReason } from './abortable'
 import { assertValidBudget, spendFromUsageEvents } from './budget'
 import { type DeliverableSpec, gateOnDeliverable } from './completion-gate'
 import { DEFAULT_SUCCESSFUL_SHUTDOWN_MS, teardownExecutor } from './deadline'
@@ -2205,12 +2206,16 @@ function recordRunCancellationOutcome(
   if (request === undefined) return
   const record = readRunCancellation(dir, request.operationId)
   if (record !== undefined && record.effect !== 'cancel_requested') return
-  const aborted = result.kind === 'no-winner' && result.reason === 'aborted'
+  const aborted =
+    result.kind === 'no-winner' &&
+    result.reason === 'cancelled' &&
+    result.operationId === request.operationId
   const observedAt = new Date(now()).toISOString()
   const base = {
     operationId: request.operationId,
     requestedAt: request.at,
     observedAt,
+    ...(record?.path === undefined ? {} : { path: record.path }),
     ...(request.reason === undefined ? {} : { reason: request.reason }),
   }
   if (record === undefined) {
@@ -2232,7 +2237,7 @@ function recordRunCancellationOutcome(
   writeRunCancellation(
     dir,
     aborted
-      ? { ...base, effect: 'cancelled', detail: 'the run reached its terminal aborted state' }
+      ? { ...base, effect: 'cancelled', detail: 'the run reached its terminal cancelled state' }
       : {
           ...base,
           effect: 'not_live',
@@ -2923,7 +2928,7 @@ function superviseInternal(
             : {
                 controlDir: resolve(options.runDir),
                 controlScope: 'subtree' as const,
-                abortRun: (reason: string) => runControl?.abort(reason),
+                abortRun: cancelDurableRun,
               }),
         })
         return driverChild(
@@ -2992,6 +2997,17 @@ function superviseInternal(
   // Share one root control with every manager's pre-attempt cancellation fence.
   const runControl =
     options.rootHandle ?? (options.runDir === undefined ? undefined : createRootHandle<unknown>())
+  const durableCancellation = new AbortController()
+  const cancelDurableRun = (
+    reason: string,
+    request?: import('./run-layout').RunCancelRequest,
+  ): void => {
+    durableCancellation.abort(
+      request === undefined
+        ? new Error(reason)
+        : new RunCancellationReason(request.source, reason, request.operationId),
+    )
+  }
   const workerFactory = makeWorkerAgent
 
   // Every configuration fault above throws SYNCHRONOUSLY — a caller that guards with
@@ -3074,15 +3090,7 @@ function superviseInternal(
         ? {}
         : {
             controlDir: resolve(options.runDir),
-            abortRun: (reason: string) => {
-              try {
-                runControl.abort(reason)
-              } catch (error) {
-                // A filesystem watcher can deliver one final event after settle unbinds the
-                // handle. That race is already terminal; preserve real observer failures.
-                if (!(error instanceof RuntimeRunStateError)) throw error
-              }
-            },
+            abortRun: cancelDurableRun,
           }),
     } satisfies SupervisorAgentDeps
     const agent =
@@ -3101,14 +3109,14 @@ function superviseInternal(
     // The run owns cancellation until every descendant has drained, even after its director returns.
     const cancellation =
       options.runDir !== undefined && runControl !== undefined
-        ? watchRunCancellation(resolve(options.runDir), (reason) => {
-            try {
-              runControl.abort(reason)
-            } catch (error) {
-              if (!(error instanceof RuntimeRunStateError)) throw error
-            }
-          })
+        ? watchRunCancellation(resolve(options.runDir), cancelDurableRun)
         : undefined
+    try {
+      cancellation?.check()
+    } catch (error) {
+      cancellation?.close()
+      throw error
+    }
     const run = supervisor.run(agent, canonicalTask, {
       budget: options.budget,
       runId,
@@ -3136,7 +3144,9 @@ function superviseInternal(
       ...(probes ? { probes } : {}),
       ...(ctx.resume === true ? { resume: true } : {}),
       ...(options.now ? { now: options.now } : {}),
-      ...(options.signal ? { signal: options.signal } : {}),
+      signal: options.signal
+        ? AbortSignal.any([options.signal, durableCancellation.signal])
+        : durableCancellation.signal,
       ...(hooks ? { hooks } : {}),
       // Only a run that actually records spans hands trace context down to its workers; with no
       // recorder this key is absent and no spawned worker's environment is touched.
@@ -3152,6 +3162,7 @@ function superviseInternal(
         result = await run
       } finally {
         cancellation?.close()
+        cancellation?.check()
       }
       recordRunCancellationOutcome(options.runDir, result, now)
       const rootProviderModel =

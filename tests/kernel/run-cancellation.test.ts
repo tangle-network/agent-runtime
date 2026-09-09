@@ -39,7 +39,11 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /** A worker that runs until its per-child signal aborts — so the run is genuinely live when the
  *  cancel lands, and the cascade is what ends it. */
-function hangingLeaf(name: string, onStart?: () => void): Agent<unknown, unknown> {
+function hangingLeaf(
+  name: string,
+  onStart?: () => void,
+  destroyed = true,
+): Agent<unknown, unknown> {
   const executor: Executor<unknown> = {
     runtime: 'router',
     execute(_task: unknown, signal: AbortSignal): Promise<ExecutorResult<unknown>> {
@@ -53,7 +57,7 @@ function hangingLeaf(name: string, onStart?: () => void): Agent<unknown, unknown
         signal.addEventListener('abort', fail, { once: true })
       })
     },
-    teardown: () => Promise.resolve({ destroyed: true }),
+    teardown: () => Promise.resolve({ destroyed }),
     resultArtifact: (): ExecutorResult<unknown> => ({
       outRef: 'never',
       out: {},
@@ -134,7 +138,13 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     })
 
     expect(result.kind).toBe('no-winner')
-    if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+    if (result.kind === 'no-winner') expect(result.reason).toBe('cancelled')
+    expect(result).toMatchObject({
+      source: 'test',
+      operationId: 'op-run',
+      cancellationReason: 'operator',
+    })
+    expect(result.tree.nodes.some((node) => node.status === 'cancelled')).toBe(true)
     // A reconnecting client derives everything from the directory: the terminal effect is
     // `cancelled`, and repeating the operation is a pure lookup.
     const record = readRunCancellation(dir, 'op-run')
@@ -171,7 +181,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     })
 
     expect(result.kind).toBe('no-winner')
-    if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+    if (result.kind === 'no-winner') expect(result.reason).toBe('cancelled')
     expect(result.tree.nodes).toEqual(
       expect.arrayContaining([expect.objectContaining({ status: 'done' })]),
     )
@@ -213,12 +223,88 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
         .toBe('cancelled')
       const result = await pending
       expect(result.kind).toBe('no-winner')
-      if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+      if (result.kind === 'no-winner') expect(result.reason).toBe('cancelled')
       expect(result.tree.inFlight).toBe(0)
     } finally {
       cleanup.abort()
       await pending
     }
+  })
+
+  it('applies a request queued before root startup without entering a turn', async () => {
+    const dir = await runDir()
+    cancelRun(dir, 'pre-start', { source: 'operator', deadlineMs: 0 })
+    let turns = 0
+    const result = await supervise(rootProfile(), 'stop', {
+      budget,
+      runDir: dir,
+      runId: 'queued-start',
+      makeWorkerAgent: () => hangingLeaf('unused'),
+      brain: async () => {
+        turns++
+        throw new Error('must not start')
+      },
+    })
+    expect(turns).toBe(0)
+    expect(result).toMatchObject({
+      kind: 'no-winner',
+      reason: 'cancelled',
+      source: 'operator',
+      operationId: 'pre-start',
+    })
+    expect(readRunCancellation(dir, 'pre-start')).toMatchObject({
+      effect: 'cancelled',
+      path: 'deadline',
+    })
+  })
+
+  it('cancels a root inside a turn that never returns', async () => {
+    const dir = await runDir()
+    let entered!: () => void
+    const live = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const pending = supervise(rootProfile(), 'stop', {
+      budget,
+      runDir: dir,
+      runId: 'long-turn',
+      makeWorkerAgent: () => hangingLeaf('unused'),
+      brain: async () => {
+        entered()
+        return new Promise(() => {})
+      },
+    })
+    await live
+    cancelRun(dir, 'long-turn-stop', { source: 'operator', deadlineMs: 50 })
+    const result = await pending
+    expect(result).toMatchObject({ reason: 'cancelled', source: 'operator' })
+    expect(readRunCancellation(dir, 'long-turn-stop')).toMatchObject({ effect: 'cancelled' })
+  }, 2_000)
+
+  it('reports cancellation without claiming unconfirmed resources were destroyed', async () => {
+    const dir = await runDir()
+    let started!: () => void
+    const live = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    const pending = supervise(rootProfile(), 'stop', {
+      budget,
+      runDir: dir,
+      runId: 'unconfirmed',
+      makeWorkerAgent: () => hangingLeaf('w', started, false),
+      brain: scriptedBrain([
+        {
+          toolCalls: [{ name: 'spawn_worker', arguments: { profile: {}, task: 'go', label: 'w' } }],
+        },
+        { toolCalls: [{ name: 'await_event', arguments: {} }] },
+      ]),
+    })
+    await live
+    cancelRun(dir, 'unconfirmed-stop', { source: 'operator' })
+    const result = await pending
+    expect(result).toMatchObject({ reason: 'cancelled', source: 'operator' })
+    expect(result.teardownUnconfirmed).toHaveLength(1)
+    expect(readRunCancellation(dir, 'unconfirmed-stop')).toMatchObject({ effect: 'unknown' })
   })
 
   it('a request written after the run ended is never answered as success', async () => {
@@ -285,7 +371,7 @@ describe('acknowledged run-scoped cancellation (#862)', () => {
     })
 
     expect(result.kind).toBe('no-winner')
-    if (result.kind === 'no-winner') expect(result.reason).toBe('aborted')
+    if (result.kind === 'no-winner') expect(result.reason).toBe('cancelled')
     expect(readRunCancellation(dir, operationId)?.effect).toBe('cancelled')
   })
 })

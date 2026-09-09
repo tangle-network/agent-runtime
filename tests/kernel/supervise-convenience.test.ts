@@ -167,7 +167,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
     controller.abort()
     const result = await running
 
-    expect(result).toMatchObject({ kind: 'no-winner', reason: 'aborted' })
+    expect(result).toMatchObject({ kind: 'no-winner', reason: 'cancelled' })
     expect(teardownCalled).toBe(true)
   })
 
@@ -1137,7 +1137,7 @@ describe('supervise — the one-call convenience (defaults blobs/perWorker/journ
 
     expect(transportSignal?.aborted).toBe(true)
     expect(result.kind).toBe('no-winner')
-    expect(result.kind === 'no-winner' && result.reason).toBe('aborted')
+    expect(result.kind === 'no-winner' && result.reason).toBe('cancelled')
   })
 
   it('allowedModels reads a canonical AgentProfile model through its resolved default id', () => {

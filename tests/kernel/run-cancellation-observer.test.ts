@@ -14,10 +14,42 @@ describe('external run cancellation observation', () => {
     try {
       observer.check()
       observer.check()
-      expect(abort).toHaveBeenCalledExactlyOnceWith('operator')
+      expect(abort).toHaveBeenCalledExactlyOnceWith(
+        'operator',
+        expect.objectContaining({ source: 'human', operationId: 'existing' }),
+      )
       expect(readRunCancellation(dir, 'existing')?.effect).toBe('cancel_requested')
     } finally {
       observer.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not acknowledge a callback that failed to issue cancellation', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
+    cancelRun(dir, 'rejected')
+    const observer = watchRunCancellation(dir, () => {
+      throw new Error('not bound')
+    })
+    try {
+      expect(() => observer.check()).toThrow('not bound')
+      expect(readRunCancellation(dir, 'rejected')).toBeUndefined()
+    } finally {
+      observer.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('validates and preserves the immutable requested deadline', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'run-cancel-observer-'))
+    try {
+      for (const deadlineMs of [-1, NaN, Infinity]) {
+        expect(() => cancelRun(dir, 'deadline', { deadlineMs })).toThrow(/deadlineMs/)
+      }
+      cancelRun(dir, 'deadline', { deadlineMs: 50 })
+      expect(() => cancelRun(dir, 'deadline', { deadlineMs: 51 })).toThrow(/deadlineMs/)
+      expect(cancelRun(dir, 'deadline', { deadlineMs: 50 }).effect).toBe('unknown')
+    } finally {
       await rm(dir, { recursive: true, force: true })
     }
   })

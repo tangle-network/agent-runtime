@@ -977,9 +977,7 @@ describe('acknowledged worker cancellation (#758)', () => {
       ),
     ).toBe(true)
     const tree = (await journal.loadTree('run-settle')) as SpawnEvent[]
-    expect(
-      tree.some((e) => e.kind === 'settled' && e.id === 'run-settle:s0' && e.status === 'down'),
-    ).toBe(true)
+    expect(tree.some((e) => e.kind === 'cancelled' && e.id === 'run-settle:s0')).toBe(true)
     expect(readWorkerCancellation(dir, 'op-settle')?.effect).toBe('cancelled')
   })
 })

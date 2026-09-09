@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../durable/spawn-journal'
 import { ValidationError } from '../../errors'
 import { createExecutorRegistry } from './runtime'
-import { createSupervisor } from './supervisor'
+import { createRootHandle, createSupervisor } from './supervisor'
 import type { Agent, Scope, Spend, SupervisorOpts } from './types'
 
 /** A supervisor wired to in-memory durability with a frozen clock — no network, no sandbox. The
@@ -106,7 +106,7 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
     expect(result.spentTotal.tokens.input).toBe(900)
   })
 
-  it('still reports `aborted` when the driver throws after a caller abort', async () => {
+  it('reports `cancelled` when the driver throws after a caller abort', async () => {
     const controller = new AbortController()
     const supervisor = createSupervisor<unknown, unknown>()
     const result = await supervisor.run(
@@ -120,11 +120,70 @@ describe('supervisor: the driver rejection survives onto the typed no-winner', (
 
     expect(result.kind).toBe('no-winner')
     if (result.kind !== 'no-winner') return
-    expect(result.reason).toBe('aborted')
+    expect(result.reason).toBe('cancelled')
     // Same rule as the budget arm: the abort outranks the throw, and an outranked rejection is
     // not smuggled back as `error`.
     expect('error' in result).toBe(false)
     expect(result.error).toBeUndefined()
+  })
+
+  it('preserves cancellation when a deadline passes before settlement', async () => {
+    const controller = new AbortController()
+    let clock = 1
+    const result = await createSupervisor().run(
+      driver(async () => {
+        controller.abort('operator stop')
+        clock = 100
+        throw new Error('cancelled')
+      }),
+      'task',
+      supervisorOpts({
+        signal: controller.signal,
+        now: () => clock,
+        budget: { maxIterations: 10, maxTokens: 1000, deadlineMs: 50 },
+      }),
+    )
+    expect(result).toMatchObject({
+      reason: 'cancelled',
+      source: 'signal',
+      cancellationReason: 'operator stop',
+    })
+  })
+
+  it('preserves a deadline that wins before cancellation', async () => {
+    const controller = new AbortController()
+    const result = await createSupervisor().run(
+      driver(async (scope) => {
+        scope.signal.addEventListener('abort', () => controller.abort('too late'), { once: true })
+        return new Promise(() => {})
+      }),
+      'task',
+      supervisorOpts({
+        signal: controller.signal,
+        now: Date.now,
+        budget: { maxIterations: 10, maxTokens: 1000, deadlineMs: 10 },
+      }),
+    )
+    expect(result).toMatchObject({ reason: 'budget-exhausted' })
+  })
+
+  it('names an explicit root handle cancellation', async () => {
+    const handle = createRootHandle()
+    const supervisor = createSupervisor()
+    supervisor.attach(handle)
+    const result = await supervisor.run(
+      driver(async () => {
+        handle.abort('operator stop')
+        return new Promise(() => {})
+      }),
+      'task',
+      supervisorOpts(),
+    )
+    expect(result).toMatchObject({
+      reason: 'cancelled',
+      source: 'root-handle',
+      cancellationReason: 'operator stop',
+    })
   })
 
   it('normalizes a non-Error rejection rather than dropping it', async () => {

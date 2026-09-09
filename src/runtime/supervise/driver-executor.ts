@@ -303,7 +303,11 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         // A manager may finish work itself through an assignment-selected completion check. That
         // accepted submission is already independent evidence, so carry it to this settlement
         // instead of requiring an unrelated nested child or running the check again.
-        const verdict = deriveDeliveryVerdict(settled, out, spec.acceptedSubmission?.() === true)
+        const verdict = deriveDeliveryVerdict(
+          events.filter((event) => event.kind === 'settled'),
+          out,
+          spec.acceptedSubmission?.() === true,
+        )
         artifact = {
           outRef: `${driverRuntime}:${nestedRoot}`,
           // No accepted finalizer output is a present, unassessed result. Undefined is the
@@ -330,7 +334,9 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         accounting = partial?.accounting
         const events = await journal.loadTree(nestedRoot).catch(() => undefined)
         const settledIds = new Set(
-          events?.filter((event) => event.kind === 'settled').map((event) => event.id),
+          events
+            ?.filter((event) => event.kind === 'settled' || event.kind === 'cancelled')
+            .map((event) => event.id),
         )
         if (
           events?.some(
@@ -444,8 +450,10 @@ async function loadTreeEvents(journal: SpawnJournal, nestedRoot: string): Promis
   return events
 }
 
-function isSettled(ev: SpawnEvent): ev is Extract<SpawnEvent, { kind: 'settled' }> {
-  return ev.kind === 'settled'
+function isSettled(
+  ev: SpawnEvent,
+): ev is Extract<SpawnEvent, { kind: 'settled' | 'cancelled' }> & { spent: Spend } {
+  return ev.kind === 'settled' || (ev.kind === 'cancelled' && ev.spent !== undefined)
 }
 
 /** Sum the conserved spend over the nested tree's settled events — the honest per-channel

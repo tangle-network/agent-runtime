@@ -670,7 +670,7 @@ function delay(ms: number, keepAlive = false): Promise<void> {
 
 function updateStateFromResult(state: MutableState, result: SupervisedResult<unknown>): void {
   state.status =
-    result.kind === 'winner' ? 'done' : result.reason === 'aborted' ? 'cancelled' : 'down'
+    result.kind === 'winner' ? 'done' : result.reason === 'cancelled' ? 'cancelled' : 'down'
   state.completedAt = new Date().toISOString()
 }
 

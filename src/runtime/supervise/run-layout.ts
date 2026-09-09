@@ -168,6 +168,9 @@ export interface RunCancelRequest {
   readonly at: string
   /** Who asked — 'human', a brain label, a tool name. Provenance, not authorization. */
   readonly source: string
+  /** Requested observation bound. The observer cascades immediately when scheduled;
+   * blocked event loops and provider teardown can exceed this bound. */
+  readonly deadlineMs?: number
   readonly reason?: string
 }
 
@@ -180,11 +183,13 @@ export interface RunCancelRequest {
  *  - `'unknown'`          — no runtime has answered yet. Never a success.
  *  - `'cancel_requested'` — the root manager issued the run's cascading abort; the run's terminal
  *                           state is not yet observed.
- *  - `'cancelled'`        — the run reached its terminal state ABORTED after that request.
+ *  - `'cancelled'`        — the run reached its terminal cancelled state with confirmed teardown.
  *  - `'not_live'`         — the run was not live to cancel: it settled on its own despite the
  *                           request, or it ended before the request was applied.
  */
 export interface RunCancellation {
+  /** Runtime path that issued the cascade. */
+  readonly path?: 'observer' | 'turn-boundary' | 'deadline'
   readonly operationId: string
   readonly effect: RetainedRunEffect
   /** ISO timestamp of the original request. */
@@ -748,8 +753,18 @@ export function writeRunCancellation(eventDir: string, record: RunCancellation):
 export function cancelRun(
   eventDir: string,
   operationId: string,
-  options: { readonly reason?: string; readonly source?: string } = {},
+  options: {
+    readonly reason?: string
+    readonly source?: string
+    readonly deadlineMs?: number
+  } = {},
 ): RunCancellation {
+  if (
+    options.deadlineMs !== undefined &&
+    (!Number.isFinite(options.deadlineMs) || options.deadlineMs < 0)
+  ) {
+    throw new Error('cancelRun: deadlineMs must be a finite nonnegative number')
+  }
   const opId = operationId.trim()
   if (!opId) throw new Error('cancelRun: operationId is empty')
   const pending = readRunCancelRequest(eventDir)
@@ -763,6 +778,7 @@ export function cancelRun(
     operationId: opId,
     source: options.source ?? 'human',
     ...(options.reason === undefined ? {} : { reason: options.reason }),
+    ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
   }
   if (pending !== undefined) assertSameRunCancelRequest(pending, candidate)
   const acknowledged = readRunCancellation(eventDir, opId)
@@ -781,6 +797,7 @@ export function cancelRun(
     at: new Date().toISOString(),
     source,
     ...(options.reason === undefined ? {} : { reason: options.reason }),
+    ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
   }
   if (pending === undefined) {
     const dir = workerCancellationsDir(eventDir)
@@ -796,6 +813,7 @@ export function cancelRun(
       source,
       queued: true,
       ...(options.reason === undefined ? {} : { reason: options.reason }),
+      ...(options.deadlineMs === undefined ? {} : { deadlineMs: options.deadlineMs }),
     })
   }
   return {
@@ -816,6 +834,7 @@ type WorkerCancelRequestCandidate = {
 }
 
 type RunCancelRequestCandidate = {
+  readonly deadlineMs?: number
   readonly operationId: string
   readonly source: string
   readonly reason?: string
@@ -879,6 +898,11 @@ function assertSameRunCancelRequest(
         `(source '${existing.source}' != '${candidate.source}')`,
     )
   }
+  if (existing.deadlineMs !== candidate.deadlineMs) {
+    throw new Error(
+      `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request (deadlineMs differs)`,
+    )
+  }
   if (existing.reason !== candidate.reason) {
     throw new Error(
       `cancelRun: operation '${candidate.operationId}' conflicts with its admitted request ` +
@@ -905,6 +929,8 @@ function isRunCancelRequest(value: Partial<RunCancelRequest>): value is RunCance
     value.operationId.length > 0 &&
     typeof value.at === 'string' &&
     typeof value.source === 'string' &&
+    (value.deadlineMs === undefined ||
+      (Number.isFinite(value.deadlineMs) && value.deadlineMs >= 0)) &&
     (value.reason === undefined || typeof value.reason === 'string')
   )
 }

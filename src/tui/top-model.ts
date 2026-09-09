@@ -178,6 +178,7 @@ export type TopJournalEvent =
     }
   | {
       readonly kind: 'cancelled'
+      readonly spent?: unknown
       readonly id: string
       readonly reason?: string
       readonly seq?: number
@@ -439,6 +440,10 @@ function buildSupervisorView(
       worker.status = 'cancelled'
       if (event.at) worker.endedAt = event.at
       if (event.reason) worker.reason = event.reason
+      if (event.spent !== undefined) {
+        worker.spend = addSpend(worker.spend, parseSpend(event.spent))
+        worker.metered = emptySpend
+      }
       continue
     }
 

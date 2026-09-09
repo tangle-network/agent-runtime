@@ -1240,11 +1240,11 @@ describe('bridgeExecutor upstream-error propagation', () => {
     await cancelSeen
     const events = (await journal.loadTree(runId)) ?? []
     const settlement = events.find(
-      (event): event is Extract<SpawnEvent, { kind: 'settled' }> =>
-        event.kind === 'settled' && event.id.endsWith(':s0'),
+      (event): event is Extract<SpawnEvent, { kind: 'cancelled' }> =>
+        event.kind === 'cancelled' && event.id.endsWith(':s0'),
     )
-    expect(settlement?.status).toBe('down')
-    expect(settlement?.spent.tokens).toMatchObject({ input: 17, output: 3 })
+    expect(settlement?.kind).toBe('cancelled')
+    expect(settlement?.spent?.tokens).toMatchObject({ input: 17, output: 3 })
     expect(settlement?.providerModel).toEqual({
       status: 'known',
       attempts: [{ observations: [servedModel] }],

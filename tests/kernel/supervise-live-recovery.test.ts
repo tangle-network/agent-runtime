@@ -289,6 +289,9 @@ it.each([false, true])(
         events.filter((event) => event.kind === 'execution-result' && event.id === 'root:s0'),
       ).toHaveLength(1)
       expect(
+        events.filter((event) => event.kind === 'cancelled' && event.id === 'root:s0'),
+      ).toHaveLength(0)
+      expect(
         events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
       ).toMatchObject([
         {

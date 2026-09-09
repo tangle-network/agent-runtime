@@ -43,7 +43,7 @@ import {
 } from '../../durable/spawn-journal'
 import { RuntimeRunStateError } from '../../errors'
 import { addSpend } from '../util'
-import { runAbortable } from './abortable'
+import { RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
 import { armDeadlineTimer } from './deadline'
 import { runTree } from './finalizer'
@@ -299,7 +299,7 @@ type NoWinnerReason = (SupervisedResult<unknown> & { kind: 'no-winner' })['reaso
 
 /** The reasons the supervisor can prove from its OWN lifecycle state — everything except the
  *  driver's rejection, which no lifecycle observation can establish. */
-type LifecycleNoWinnerReason = Exclude<NoWinnerReason, 'driver-failed'>
+type LifecycleNoWinnerReason = Exclude<NoWinnerReason, 'driver-failed' | 'cancelled'>
 
 /** A captured `act()` rejection. Wrapped rather than passed bare so `throw undefined` — legal, and
  *  exactly the kind of authoring bug this field exists to surface — is still distinguishable from
@@ -517,7 +517,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // fans it out to each live child's executor (acquire-aware reap included).
       const controller = new AbortController()
       let cascadeAborted = false
-      const cascadeAbort = (reason?: string): boolean => {
+      const cascadeAbort = (reason?: unknown): boolean => {
         if (controller.signal.aborted) return false
         cascadeAborted = true
         // Carry the reason on the signal so it chains down to each child's abort signal
@@ -526,9 +526,19 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
         return true
       }
 
-      const onCallerAbort = () => cascadeAbort('caller signal aborted')
+      const onCallerAbort = () =>
+        cascadeAbort(
+          opts.signal?.reason instanceof RunCancellationReason
+            ? opts.signal.reason
+            : new RunCancellationReason(
+                'signal',
+                typeof opts.signal?.reason === 'string'
+                  ? opts.signal.reason
+                  : 'caller signal aborted',
+              ),
+        )
       if (opts.signal) {
-        if (opts.signal.aborted) cascadeAbort('caller signal aborted')
+        if (opts.signal.aborted) onCallerAbort()
         else opts.signal.addEventListener('abort', onCallerAbort, { once: true })
       }
 
@@ -590,7 +600,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       if (rootLease) {
         rootLease.bind({
           scope: openScope,
-          cascadeAbort,
+          cascadeAbort: (reason) =>
+            cascadeAbort(new RunCancellationReason('root-handle', reason ?? 'root handle aborted')),
           signal: pushRootSignal(cascadeAbort),
           deliver: rootDeliver ? (message) => rootDeliver(message) !== false : () => false,
         })
@@ -704,6 +715,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // Success and failure both pass the same conservation check. A child promise is never allowed
       // to disappear behind a swallowed cleanup error and leave a reservation open.
       pool.assertNoOpenTickets()
+      if (controller.signal.reason instanceof RunCancellationReason) return noWinner()
       if (actOutcome.ok) {
         if (executionAborted) return noWinner()
         // Every child has settled (join barrier above); no reservation may remain. A leaked ticket
@@ -777,6 +789,18 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           allChildrenDownAtSettle,
           downCountAtSettle,
         )
+        if (controller.signal.reason instanceof RunCancellationReason) {
+          const cancellation = controller.signal.reason
+          return {
+            ...common,
+            reason: 'cancelled',
+            source: cancellation.source,
+            cancellationReason: cancellation.message,
+            ...(cancellation.operationId === undefined
+              ? {}
+              : { operationId: cancellation.operationId }),
+          }
+        }
         if (lifecycle !== undefined) return { ...common, reason: lifecycle }
         // No lifecycle cause AND the driver threw ⇒ the driver itself is the fault. `error` is
         // REQUIRED on this arm, and it is present by construction: this is the only branch that
@@ -906,9 +930,10 @@ export function createRootHandle<Out>(): SteerableRootHandle<Out> {
 /** A `RootSignal` sink: `cancel` cascades an abort; pause/resume/ask are observability
  *  signals the substrate accepts but does not act on here (the chat/pi-viz client owns
  *  pause semantics — building them now would be mechanism ahead of the gate). */
-function pushRootSignal(cascadeAbort: (reason?: string) => void): (msg: RootSignal) => void {
+function pushRootSignal(cascadeAbort: (reason?: unknown) => void): (msg: RootSignal) => void {
   return (msg: RootSignal): void => {
-    if (msg.kind === 'cancel') cascadeAbort(msg.reason ?? 'root signal: cancel')
+    if (msg.kind === 'cancel')
+      cascadeAbort(new RunCancellationReason('root-signal', msg.reason ?? 'root signal: cancel'))
   }
 }
 
@@ -1212,8 +1237,10 @@ function spendGapsFromEvents(events: SpawnEvent[]): SpendGap[] {
   for (const ev of events) {
     if (ev.kind === 'spawned' && ev.parent !== undefined && !terminal.has(ev.id)) {
       record(ev.id, 'never-settled', ['tokens', 'usd'])
-    } else if (ev.kind === 'settled') {
-      record(ev.id, 'unreported', unknownChannels(ev.spent))
+    } else if (ev.kind === 'cancelled' && ev.spent === undefined) {
+      record(ev.id, 'unreported', ['tokens', 'usd'])
+    } else if (ev.kind === 'settled' || (ev.kind === 'cancelled' && ev.spent !== undefined)) {
+      record(ev.id, 'unreported', unknownChannels(ev.spent!))
     } else if (ev.kind === 'metered') {
       record(ev.id, 'unreported', unknownChannels(ev.spend))
     }

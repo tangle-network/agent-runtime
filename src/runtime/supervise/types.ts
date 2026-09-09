@@ -1264,7 +1264,19 @@ export type SpawnEvent =
       seq: number
       at: string
     }
-  | { kind: 'cancelled'; id: NodeId; reason: string; seq: number; at: string }
+  | {
+      kind: 'cancelled'
+      id: NodeId
+      reason: string
+      source?: string
+      infra?: boolean
+      spent?: Spend
+      providerModel?: ProviderModelExecutionEvidence
+      trace?: WorkerTraceEvidence
+      outRef?: string
+      seq: number
+      at: string
+    }
   | {
       /** GRAPH ENGINE fold input: the exact inputs one node instance was given, pinned by content
        *  address BEFORE the instance spawns. `onCrash: 'restart'` re-runs from this ref, never
@@ -1649,7 +1661,7 @@ export type SupervisedResult<Out> =
        *  Present whenever any driver metered. */
       spentBreakdown?: { driverInference: Spend; childWork: Spend }
     }
-  | {
+  | ({
       /**
        * The LIFECYCLE no-winner arms: the supervisor itself proved why nothing was delivered, so
        * the reason is complete on its own and there is no driver rejection to hand back. A tripped
@@ -1658,7 +1670,6 @@ export type SupervisedResult<Out> =
        * BECAUSE the pool emptied or the run was aborted, the lifecycle cause is the explanation.
        */
       kind: 'no-winner'
-      reason: 'all-children-down' | 'budget-exhausted' | 'aborted'
       tree: TreeView
       downCount: number
       /** The conserved spend incurred before the run failed — real cost is paid even when no
@@ -1681,7 +1692,15 @@ export type SupervisedResult<Out> =
       /** Never present on a lifecycle arm — the discriminant, not prose, is what makes
        *  `if (r.reason === 'driver-failed') r.error.message` compile and every other arm refuse it. */
       error?: never
-    }
+    } & (
+      | { reason: 'all-children-down' | 'budget-exhausted' | 'aborted' }
+      | {
+          reason: 'cancelled'
+          readonly source: string
+          readonly cancellationReason: string
+          readonly operationId?: string
+        }
+    ))
   | {
       /**
        * The DRIVER-FAULT arm: `act()` rejected, no child ever went down, and no lifecycle cause
