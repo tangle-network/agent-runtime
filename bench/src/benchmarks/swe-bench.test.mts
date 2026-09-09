@@ -59,3 +59,15 @@ test('SWE evaluation command preserves the requested instance image', () => {
     /invalid cacheLevel/,
   )
 })
+
+test('SWE evaluation command omits flags removed by current harnesses', () => {
+  const argv = sweEvaluationArgv({
+    predictionsPath: '/tmp/preds.json',
+    runId: 'modern',
+    instanceId: taskId,
+    cacheLevel: 'env',
+    legacyFlags: false,
+  })
+  assert.equal(argv.includes('--namespace'), false)
+  assert.equal(argv.includes('--cache_level'), false)
+})
