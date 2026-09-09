@@ -117,6 +117,10 @@ The same boundary applies to trace analysts, Prime Agent RLM, and DSPy RLM: Runt
 ### The conformance manifest
 
 Each release candidate carries one manifest beside its packed archive: `agent-runtime-conformance-manifest.json`, uploaded with the `.tgz` by `publish.yml`.
+The same artifact retains the raw `cohort-report.json` used to verify that manifest.
+The release workflow validates the tag once, then checks the archive, official optimizers, and Bench concurrently against that commit.
+Publication requires all three checks and verifies the uploaded archive digest before publishing.
+
 
 `release/cohort.json` is the single source for the exact Interface, Eval, and Knowledge source releases used by CI and publication.
 Update each version and full source commit together when the dependency cohort changes.
