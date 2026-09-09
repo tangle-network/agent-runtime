@@ -37,14 +37,16 @@ export interface AuthorizeUrlOptions {
 
 export interface ExchangeCodeResult {
   apiKey: string
+  emailVerified: true
   user: {
     id: string
     email: string
-    name?: string
+    name?: string | null
   }
+  /** Null when the platform could not provide a subscription. This is not a paid-access grant. */
   plan: {
     tier: string
-  }
+  } | null
 }
 
 /** Thrown when a `PlatformAuthClient` request returns a non-success status. */
@@ -56,6 +58,55 @@ export class PlatformAuthError extends Error {
   ) {
     super(message)
     this.name = 'PlatformAuthError'
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isNonemptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/** Validate the platform's verified identity before consumers create a local session. */
+function parseExchangeResult(body: unknown, status: number): ExchangeCodeResult {
+  const invalid = (): never => {
+    // A successful but malformed response can contain the one-time API secret.
+    throw new PlatformAuthError(
+      'Platform exchange response has no valid verified identity',
+      status,
+      { code: 'INVALID_EXCHANGE_RESPONSE' },
+    )
+  }
+  if (
+    !isRecord(body) ||
+    !isNonemptyString(body.apiKey) ||
+    body.emailVerified !== true ||
+    !isRecord(body.user)
+  )
+    return invalid()
+  const user = body.user
+  if (!isNonemptyString(user.id) || !isNonemptyString(user.email)) return invalid()
+  const email = user.email.trim()
+  if (
+    email.length > 320 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ||
+    /(?:@users\.noreply\.tangle\.tools$|^0x[a-f0-9]{40}@tangle\.tools$)/i.test(email)
+  )
+    return invalid()
+  if (user.name !== undefined && user.name !== null && typeof user.name !== 'string')
+    return invalid()
+  let plan: ExchangeCodeResult['plan'] = null
+  if (body.subscription !== undefined) {
+    if (!isRecord(body.subscription) || !isNonemptyString(body.subscription.plan)) return invalid()
+    plan = { tier: body.subscription.plan }
+  }
+  return {
+    apiKey: body.apiKey,
+    emailVerified: true,
+    user: { id: user.id, email, ...(user.name !== undefined ? { name: user.name } : {}) },
+    plan,
   }
 }
 
@@ -113,14 +164,6 @@ export class PlatformAuthClient {
           : `Platform exchange failed (${res.status})`
       throw new PlatformAuthError(message, res.status, body)
     }
-    const result = body as Partial<ExchangeCodeResult>
-    if (!result.apiKey || !result.user?.id) {
-      throw new PlatformAuthError(
-        'Platform exchange response is missing apiKey or user',
-        res.status,
-        body,
-      )
-    }
-    return result as ExchangeCodeResult
+    return parseExchangeResult(body, res.status)
   }
 }
