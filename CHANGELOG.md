@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.204.1
+
+The runtime peer range admits sandbox SDK 0.38.x, including consumer-ready runtime-edge readiness from `waitFor("running")`.
+
 ## 0.204.0
 
 Observers accept caller-owned structured evidence separately from task, output, and summarized trace.
