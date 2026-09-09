@@ -63,6 +63,110 @@ describe('router-tools executor drains the inbox', () => {
       { status: 200, headers: { 'content-type': 'application/json' } },
     )
 
+  it.each(['none', 'steer', 'tool'] as const)(
+    'peer mail only reaches another inference when continuation is required: %s',
+    async (continuation) => {
+      const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = []
+      let deliver: (message: unknown) => unknown = () => false
+      const executeToolCall = vi.fn(async () => 'inspection complete')
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init?: { body?: string }) => {
+          bodies.push(JSON.parse(init?.body ?? '{}'))
+          if (bodies.length === 1) {
+            // Deliver while the first inference is in flight, before its response is available.
+            expect(
+              deliver({
+                mail: {
+                  mailId: 'm1',
+                  threadId: 'm1',
+                  depth: 0,
+                  from: 'peer',
+                  to: 'w',
+                  kind: 'tell',
+                  subject: 'inspection result',
+                  body: 'the peer measured 41ms',
+                  evidenceRefs: ['blob:inspection'],
+                  at: 0,
+                },
+              }),
+            ).toBe(true)
+            if (continuation === 'steer') {
+              expect(deliver({ steer: 'also inspect wide characters' })).toBe(true)
+            }
+            if (continuation === 'tool') {
+              return new Response(
+                JSON.stringify({
+                  choices: [
+                    {
+                      message: {
+                        content: '',
+                        tool_calls: [
+                          {
+                            id: 'call_inspect',
+                            type: 'function',
+                            function: { name: 'inspect', arguments: '{}' },
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                  usage: { prompt_tokens: 1, completion_tokens: 1 },
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+              )
+            }
+          }
+          return noToolReply()
+        }),
+      )
+      const factory = createExecutor({
+        backend: 'router-tools',
+        model: 'test-model',
+        routerBaseUrl: 'http://router.test',
+        routerKey: 'k',
+        tools: [
+          {
+            type: 'function',
+            function: { name: 'inspect', parameters: { type: 'object', properties: {} } },
+          },
+        ],
+        executeToolCall,
+      })
+      const spec: AgentSpec = {
+        profile: testAgentProfile('w', {
+          harness: 'cli-base',
+          model: { provider: 'test', default: 'test-model' },
+          prompt: { systemPrompt: 'sys' },
+          tools: { inspect: true },
+        }),
+        harness: null,
+      } as AgentSpec
+      const exec = factory(spec, { signal: new AbortController().signal, seams: {} })
+      deliver = (message) => exec.deliver?.(message)
+
+      await exec.execute('inspect character handling', new AbortController().signal)
+
+      expect(bodies).toHaveLength(continuation === 'none' ? 1 : 2)
+      expect(executeToolCall).toHaveBeenCalledTimes(continuation === 'tool' ? 1 : 0)
+      if (continuation !== 'none') {
+        const messages = bodies[1]?.messages ?? []
+        expect(
+          messages.some((message) => message.content?.includes('the peer measured 41ms')),
+        ).toBe(true)
+        if (continuation === 'steer') {
+          expect(
+            messages.some((message) => message.content?.includes('also inspect wide characters')),
+          ).toBe(true)
+        } else {
+          expect(messages).toContainEqual(
+            expect.objectContaining({ role: 'tool', content: 'inspection complete' }),
+          )
+        }
+      }
+    },
+  )
+
   it('a worker may not settle while a steer is pending — it flushes, folds it in, and continues', async () => {
     const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = []
     let calls = 0

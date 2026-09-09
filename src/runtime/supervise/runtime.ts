@@ -1044,7 +1044,6 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
         const flush = () => {
           const pending = inbox.drain()
           if (pending.length) messages.push({ role: 'user', content: inbox.fold(pending) })
-          return pending.length > 0
         }
 
         // The external abort sources (caller signal + executor teardown), merged ONCE — so we don't
@@ -1148,9 +1147,9 @@ export const routerToolsInlineExecutor: ExecutorFactory<unknown> = (spec, ctx) =
             if (res.content) lastText = res.content
             const toolCalls = res.toolCalls
             if (toolCalls.length === 0) {
-              // Before settling, flush once more — a worker may not finish while a steer/answer it never
-              // read is still pending. If anything flushed, keep going; otherwise it is truly done.
-              if (flush()) continue
+              // Only authority messages require another turn. Peer mail joins an already-required
+              // turn at the next boundary, but cannot keep a finished worker running.
+              if (inbox.pendingAuthority() > 0) continue
               messages.push({ role: 'assistant', content: res.content ?? '' })
               break
             }
