@@ -167,16 +167,26 @@ export function sweEvaluationArgv(args: {
   readonly cacheLevel: SweBenchCacheLevel
   readonly namespace?: 'swebench' | 'none'
 }): string[] {
-  return [
+  return sweEvaluationArgvForHarness(args, true)
+}
+
+function sweEvaluationArgvForHarness(args: {
+  readonly predictionsPath: string
+  readonly runId: string
+  readonly instanceId: string
+  readonly cacheLevel: SweBenchCacheLevel
+  readonly namespace?: 'swebench' | 'none'
+}, legacyFlags: boolean): string[] {
+  const common = [
     '-m', 'swebench.harness.run_evaluation',
     '--dataset_name', DATASET,
     '--predictions_path', args.predictionsPath,
     '--run_id', args.runId,
     '--instance_ids', args.instanceId,
     '--max_workers', '1',
-    '--namespace', args.namespace ?? scorerNamespace(),
-    '--cache_level', args.cacheLevel,
   ]
+  if (!legacyFlags) return common
+  return [...common, '--namespace', args.namespace ?? scorerNamespace(), '--cache_level', args.cacheLevel]
 }
 
 function shellQuote(value: string): string {
@@ -207,6 +217,7 @@ export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): Ben
     && typeof options.captureEvaluatorArtifacts !== 'function'
   ) throw new Error('swe-bench: captureEvaluatorArtifacts must be a function')
   let attemptSequence = 0
+  let legacyFlags: boolean | undefined
   return {
     name: 'swe-bench-verified',
     output: swePatchOutput,
@@ -237,9 +248,10 @@ export function createSweBenchAdapter(options: SweBenchAdapterOptions = {}): Ben
         modules: ['swebench'],
         requireDocker: true,
         fix:
-          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install swebench ; ` +
+          `Fix: (1) python3 -m venv bench/.venv && bench/.venv/bin/pip install 'swebench>=4,<6' ; ` +
           `(2) ensure the Docker daemon is running (the judge builds per-instance images).`,
       })
+      legacyFlags = await detectLegacyFlags()
     },
 
     async loadTasks(opts: LoadOptions = {}) {
@@ -293,6 +305,7 @@ print(json.dumps(out))
     },
 
     async judge(task: BenchTask, artifact: string): Promise<BenchScore> {
+      const useLegacyFlags = await ensureLegacyFlags()
       const runId = safeRunId('bench', task.id)
       const capture = options.captureEvaluatorArtifacts?.({
         taskId: task.id,
@@ -316,13 +329,13 @@ print(json.dumps(out))
         },
         // The official evaluation harness. Pulls/builds the instance image, applies
         // the patch, runs the test spec, writes a per-run report JSON in cwd.
-        argv: (dir) => sweEvaluationArgv({
+        argv: (dir) => sweEvaluationArgvForHarness({
           predictionsPath: join(dir, 'preds.json'),
           runId,
           instanceId: task.id,
           cacheLevel,
           namespace: scorerNamespace(),
-        }),
+        }, useLegacyFlags),
         async parseReport(dir) {
           // Report file: agent-runtime-bench.<run_id>.json
           const report = await readJsonReport<SweReport>(join(dir, `agent-runtime-bench.${runId}.json`))
@@ -330,5 +343,21 @@ print(json.dumps(out))
         },
       })
     },
+  }
+
+  async function detectLegacyFlags(): Promise<boolean> {
+    const script = `
+import subprocess, sys
+result = subprocess.run([sys.executable, '-m', 'swebench.harness.run_evaluation', '--help'], capture_output=True, text=True)
+if result.returncode != 0:
+    raise SystemExit(result.stderr or result.stdout or str(result.returncode))
+print('legacy' if '--namespace' in result.stdout and '--cache_level' in result.stdout else 'modern')
+`
+    return (await runVenvPython(script)).trim() === 'legacy'
+  }
+
+  async function ensureLegacyFlags(): Promise<boolean> {
+    if (legacyFlags === undefined) legacyFlags = await detectLegacyFlags()
+    return legacyFlags
   }
 }

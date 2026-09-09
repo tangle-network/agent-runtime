@@ -477,7 +477,12 @@ export interface ProviderExecutorOptions {
    * remains the input to `taskToTurn`, so execution-only normalization cannot
    * rewrite the caller's task mapping. */
   profileForCreate?: (profile: AgentProfile) => AgentProfile
-  taskToTurn?: (task: unknown, specProfile: AgentProfile) => AgentTurnInput
+  /** Map the task while retaining the kernel's canonical prompt mapping by default. */
+  taskToTurn?: (
+    task: unknown,
+    specProfile: AgentProfile,
+    defaultTurn: AgentTurnInput,
+  ) => AgentTurnInput
 }
 
 /**
@@ -729,9 +734,10 @@ async function* streamProviderExecutor(
   // `acquireSandbox` exists because a raw `SandboxClient.create` returns before the box is ready;
   // wrapping a second readiness poll around a provider that already honors the contract would hide
   // a provider that does not, and a provider that does not is an upstream defect to report.
+  const defaultTurn = taskToTurnInput(args.task, linked)
   const turn = providerTurnWithDefaults(
     providerTurnDefaults(args.options.promptOptions, `providerAsExecutor(${args.provider.name})`),
-    args.options.taskToTurn?.(args.task, args.profile) ?? taskToTurnInput(args.task, linked),
+    args.options.taskToTurn?.(args.task, args.profile, defaultTurn) ?? defaultTurn,
     linked,
   )
   const source = await providerExecutionSource(args, turn, linked)

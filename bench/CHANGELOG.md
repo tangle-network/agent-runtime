@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.2
+
+Supports SWE-bench 5.x by detecting removed cache and namespace evaluator flags while retaining the 4.x path.
+
 ## 0.11.1
 
 The published benchmark package now admits sandbox SDK 0.38.x, including consumer-ready runtime-edge readiness.
