@@ -102,6 +102,9 @@ importers:
       publint:
         specifier: 'catalog:'
         version: 0.3.24
+      semver:
+        specifier: ^7.8.5
+        version: 7.8.5
       tsdown:
         specifier: 'catalog:'
         version: 0.22.14(@arethetypeswrong/core@0.18.5)(publint@0.3.24)(tsx@4.23.12)(typescript@6.0.3)

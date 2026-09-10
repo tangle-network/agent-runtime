@@ -1,3 +1,4 @@
+import { satisfies, valid } from 'semver'
 import { sandboxCompatibilityVersions, sandboxPeerRange } from './dependency-contract.mjs'
 
 const unsupportedDependencyProtocol = /^(?:catalog|file|link|patch|portal|workspace):/
@@ -58,22 +59,9 @@ export function expectedPeerRange(version) {
   return Number(match[1]) >= 1 ? `^${version}` : currentMinorPeerRange(version)
 }
 
-/** A caret range admits a version when the major matches and the floor is at or below it. */
-export function caretAdmits(range, version) {
-  const floor = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(range)
-  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
-  if (floor === null || found === null) return false
-  const [floorMajor, floorMinor, floorPatch] = floor.slice(1).map(Number)
-  const [major, minor, patch] = found.slice(1).map(Number)
-  if (floorMajor < 1 || major !== floorMajor) return false
-  return minor * 1_000_000 + patch >= floorMinor * 1_000_000 + floorPatch
-}
-
-const exactVersion = /^\d+\.\d+\.\d+(?:[-+].*)?$/
-
 /** True when a specifier names one version and admits no other. */
 export function isExactVersionSpec(spec) {
-  return typeof spec === 'string' && exactVersion.test(spec.trim())
+  return typeof spec === 'string' && valid(spec.trim()) !== null
 }
 
 /**
@@ -89,21 +77,9 @@ export function cohortRange(spec) {
   return isExactVersionSpec(spec) ? expectedPeerRange(spec.trim()) : spec
 }
 
-/** A `>=floor <ceiling` window admits a version at or above the floor and below the ceiling. */
-export function windowAdmits(range, version) {
-  const window = /^>=(\d+)\.(\d+)\.(\d+)\s+<(\d+)\.(\d+)\.(\d+)$/.exec(range)
-  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
-  if (window === null || found === null) return false
-  const parts = window.slice(1).map(Number)
-  const order = ([major, minor, patch]) =>
-    major * 1_000_000_000_000 + minor * 1_000_000 + patch
-  const target = order(found.slice(1).map(Number))
-  return target >= order(parts.slice(0, 3)) && target < order(parts.slice(3))
-}
-
-/** A range admits a version through either supported cohort shape. */
+/** Use npm's version rules while keeping the cohort's no-exact-pin policy. */
 export function rangeAdmits(range, version) {
-  return caretAdmits(range, version) || windowAdmits(range, version)
+  return typeof range === 'string' && !isExactVersionSpec(range) && satisfies(version, range)
 }
 
 /**

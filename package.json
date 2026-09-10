@@ -139,6 +139,7 @@
     "miniflare": "4.20260722.0",
     "oxc-parser": "0.147.0",
     "publint": "catalog:",
+    "semver": "^7.8.5",
     "tsdown": "catalog:",
     "tsx": "catalog:",
     "typedoc": "0.28.20",

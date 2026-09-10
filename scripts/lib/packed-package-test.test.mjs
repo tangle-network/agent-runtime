@@ -72,6 +72,24 @@ describe('rangeAdmits', () => {
   it('refuses an exact specifier, which states no range', () => {
     expect(rangeAdmits('0.145.21', '0.145.21')).toBe(false)
   })
+
+  it('does not admit prereleases through stable ranges', () => {
+    expect(rangeAdmits('>=0.36.4 <0.39.0', '0.38.2-develop.1')).toBe(false)
+    expect(rangeAdmits('^1.0.0', '1.4.2-rc.1')).toBe(false)
+  })
+
+  it('admits only the named snapshot beside the stable range', () => {
+    const range = '>=0.36.4 <0.39.0 || 0.39.0-develop.1'
+    expect(rangeAdmits(range, '0.38.2')).toBe(true)
+    expect(rangeAdmits(range, '0.39.0-develop.1')).toBe(true)
+    expect(rangeAdmits(range, '0.39.0-develop.2')).toBe(false)
+    expect(rangeAdmits(range, '0.39.0')).toBe(false)
+  })
+
+  it('compares multi-digit version components without collisions', () => {
+    expect(rangeAdmits('>=0.1.1000000 <0.2.0', '0.2.0')).toBe(false)
+    expect(rangeAdmits('>=0.1.1000000 <0.2.0', '0.1.1000000')).toBe(true)
+  })
 })
 
 describe('assertFirstPartyRangeSpecs', () => {
