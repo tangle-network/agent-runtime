@@ -158,6 +158,42 @@ describe('streamAgentTurn: box backend', () => {
     })
   })
 
+  it('meters Codex usage inside the provider raw envelope', async () => {
+    const box = await makeBox([
+      {
+        type: 'raw',
+        data: {
+          type: 'raw',
+          backend: 'codex',
+          event: {
+            type: 'turn.completed',
+            usage: {
+              input_tokens: 317069,
+              cached_input_tokens: 257024,
+              cache_write_input_tokens: 0,
+              output_tokens: 3190,
+              reasoning_output_tokens: 883,
+            },
+          },
+          sandboxId: 'sandbox-fixture',
+        },
+      },
+      { type: 'result', data: { finalText: 'OK' } },
+      doneEvent(),
+    ] as SandboxEvent[])
+
+    const turn = await collectAgentTurn(
+      streamObservedAgentTurn({ kind: 'box', box }, { prompt: 'answer' }),
+    )
+    expect(turn.finalText).toBe('OK')
+    expect(turn.usage).toEqual({
+      input: 317069,
+      output: 3190,
+      usdKnown: false,
+      promptCache: { readTokens: 257024, writeTokens: 0 },
+    })
+  })
+
   it('charges a turn once when it reports both a canonical usage event and its own', async () => {
     const box = await makeBox([
       {

@@ -144,19 +144,24 @@ const codexUsageContext = 'codex turn.completed'
 const decodeCodexTurnUsage: HarnessUsageDecoder = (event) => {
   if (String(event.type ?? '') !== 'raw') return undefined
   const data = plainRecord(event.data)
-  if (data === undefined || data.type !== 'turn.completed' || data.usage === undefined) {
+  // Provider placements wrap Interface raw events once more with transport metadata. Accept both
+  // the direct CLI shape and `{ type: 'raw', event: { type: 'turn.completed', usage } }` so the
+  // provider path cannot silently settle a real Codex turn with zero/unknown tokens.
+  const record =
+    data?.type === 'raw' && plainRecord(data.event) !== undefined ? plainRecord(data.event) : data
+  if (record === undefined || record.type !== 'turn.completed' || record.usage === undefined) {
     return undefined
   }
-  const record = parseCodexUsageRecord(data.usage, codexUsageContext)
+  const usage = parseCodexUsageRecord(record.usage, codexUsageContext)
   return {
     harness: 'codex',
-    input: record.inputTokens,
-    output: record.outputTokens,
-    cachedInput: record.cachedInputTokens,
-    reasoningOutput: record.reasoningOutputTokens,
-    ...(record.cacheWriteInputTokens === undefined
+    input: usage.inputTokens,
+    output: usage.outputTokens,
+    cachedInput: usage.cachedInputTokens,
+    reasoningOutput: usage.reasoningOutputTokens,
+    ...(usage.cacheWriteInputTokens === undefined
       ? {}
-      : { cacheWriteInput: record.cacheWriteInputTokens }),
+      : { cacheWriteInput: usage.cacheWriteInputTokens }),
   }
 }
 
