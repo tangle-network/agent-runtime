@@ -64,6 +64,7 @@ import {
   profileModelExecutionSettings,
 } from './model-policy'
 import type { PeerMailLimits } from './peer-mail'
+import type { ExecutorProgress } from './progress'
 import { applyRunCancellation } from './run-cancellation'
 import { beginScopeOwnerAttempt } from './scope'
 import { detachedSnapshot } from './snapshot'
@@ -73,6 +74,7 @@ import {
   type SettledLedger,
   type StopRule,
 } from './stop-rules'
+import type { TraceSource } from './trace-source'
 import type { Agent, Budget, NodeExecutionIdentity, ResultBlobStore, Scope } from './types'
 
 /** Runtime-owned coordination is mounted under this MCP alias. */
@@ -425,6 +427,10 @@ export interface DriveHarness {
   /** Optional live inbox for the manager session this adapter currently drives. Return `false`
    * when no executor inbox is active instead of claiming a message was delivered. */
   deliver?(message: unknown): boolean
+  /** Optional live evidence from the harness execution currently being driven. */
+  traceSource?(): TraceSource | undefined
+  /** Optional live progress from the harness execution currently being driven. */
+  progress?(): ExecutorProgress | undefined
 }
 
 /** Trusted manager identity available before its external harness starts. A product uses this to
@@ -853,6 +859,8 @@ function buildSupervisorAgent(
           },
         }
       : {}),
+    traceSource: () => driveHarness.traceSource?.(),
+    progress: () => driveHarness.progress?.(),
     async act(task, scope) {
       const context = nodeContextSeed
         ? supervisorNodeContext(nodeContextSeed, stableProfile, task, scope)
