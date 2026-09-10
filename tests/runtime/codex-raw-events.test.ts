@@ -117,6 +117,18 @@ describe('the recorded codex session — every event survives the canonical pars
 const codexTurn = (usage: unknown): SandboxEvent =>
   ({ type: 'raw', data: { type: 'turn.completed', usage } }) as unknown as SandboxEvent
 
+/** The provider placement shape wraps the Codex event in Interface's normalized raw envelope. */
+const providerCodexTurn = (usage: unknown): SandboxEvent =>
+  ({
+    type: 'raw',
+    data: {
+      type: 'raw',
+      backend: 'codex',
+      event: { type: 'turn.completed', usage },
+      sandboxId: 'sandbox-fixture',
+    },
+  }) as unknown as SandboxEvent
+
 /**
  * A second real codex turn, captured off `codex exec --json` and already checked in at
  * `tests/mcp/local-harness.test.ts`. It reports FOUR counters (no `cache_write_input_tokens`) and
@@ -183,6 +195,22 @@ describe('the codex usage decoder — the harness registry reads turn.completed'
       output: 273,
       cachedInput: 19200,
       reasoningOutput: 191,
+    })
+  })
+
+  it('reads the provider-normalized Interface raw envelope', () => {
+    expect(decodeHarnessUsage(providerCodexTurn(capturedCodexTurn), 'codex')).toEqual({
+      harness: 'codex',
+      input: 41935,
+      output: 273,
+      cachedInput: 19200,
+      reasoningOutput: 191,
+    })
+    expect(sumSandboxUsage([providerCodexTurn(capturedCodexTurn)], 'codex-worker')).toEqual({
+      input: 41935,
+      output: 273,
+      costUsd: 0,
+      usdKnown: false,
     })
   })
 
