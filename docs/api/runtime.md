@@ -17685,11 +17685,11 @@ Ask the box to stop the running execution on this exact session and report what 
 
 ##### traceSource()
 
-> **traceSource**(): [`TraceSource`](#tracesource-1)
+> **traceSource**(): [`TraceSource`](#tracesource-2)
 
 ###### Returns
 
-[`TraceSource`](#tracesource-1)
+[`TraceSource`](#tracesource-2)
 
 ##### artifact()
 
@@ -19675,6 +19675,26 @@ when no executor inbox is active instead of claiming a message was delivered.
 
 `boolean`
 
+##### traceSource()?
+
+> `optional` **traceSource**(): [`TraceSource`](#tracesource-2) \| `undefined`
+
+Optional live evidence from the harness execution currently being driven.
+
+###### Returns
+
+[`TraceSource`](#tracesource-2) \| `undefined`
+
+##### progress()?
+
+> `optional` **progress**(): [`ExecutorProgress`](#executorprogress) \| `undefined`
+
+Optional live progress from the harness execution currently being driven.
+
+###### Returns
+
+[`ExecutorProgress`](#executorprogress) \| `undefined`
+
 ***
 
 ### SupervisorAgentDeps
@@ -20335,6 +20355,26 @@ path; returning `true` means the message was accepted for the current manager se
 
 `boolean` \| `void`
 
+##### traceSource()?
+
+> `optional` **traceSource**(): [`TraceSource`](#tracesource-2) \| `undefined`
+
+Optional live tool evidence exposed by executors that can observe it.
+
+###### Returns
+
+[`TraceSource`](#tracesource-2) \| `undefined`
+
+##### progress()?
+
+> `optional` **progress**(): [`ExecutorProgress`](#executorprogress) \| `undefined`
+
+Optional live execution progress exposed by executors that can observe it.
+
+###### Returns
+
+[`ExecutorProgress`](#executorprogress) \| `undefined`
+
 ***
 
 ### Executor
@@ -20467,7 +20507,7 @@ mid-flight — it can only be waited on.
 
 ##### traceSource()?
 
-> `optional` **traceSource**(): [`TraceSource`](#tracesource-1) \| `undefined`
+> `optional` **traceSource**(): [`TraceSource`](#tracesource-2) \| `undefined`
 
 Optional live tool-call trace for the ONLINE detectors (`watchTrace`). An executor that
 can see its worker's tool calls exposes them here, so a supervisor can run the streaming
@@ -20477,7 +20517,7 @@ this runtime (the settle-time analyzers still work).
 
 ###### Returns
 
-[`TraceSource`](#tracesource-1) \| `undefined`
+[`TraceSource`](#tracesource-2) \| `undefined`
 
 ##### interactive()?
 
@@ -21625,7 +21665,7 @@ Pull-based and side-effect free — reading it starts no timer and spends nothin
 
 ##### traceSource()
 
-> **traceSource**(`nodeId`): [`TraceSource`](#tracesource-1) \| `undefined`
+> **traceSource**(`nodeId`): [`TraceSource`](#tracesource-2) \| `undefined`
 
 The live tool-call trace of one child when its executor exposes one (`Executor.traceSource`),
  for running the online detector panel over a RUNNING worker. `undefined` otherwise.
@@ -21638,7 +21678,7 @@ The live tool-call trace of one child when its executor exposes one (`Executor.t
 
 ###### Returns
 
-[`TraceSource`](#tracesource-1) \| `undefined`
+[`TraceSource`](#tracesource-2) \| `undefined`
 
 ##### interactive()
 
@@ -33472,7 +33512,7 @@ Subscribe to a `TraceSource` and run the streaming detectors over its live spans
 
 ##### source
 
-[`TraceSource`](#tracesource-1)
+[`TraceSource`](#tracesource-2)
 
 ##### opts?
 
@@ -35371,7 +35411,7 @@ Collect and persist one executor's structured tool trace without changing its ta
 
 ##### readSource
 
-(() => [`TraceSource`](#tracesource-1) \| `undefined`) \| `undefined`
+(() => [`TraceSource`](#tracesource-2) \| `undefined`) \| `undefined`
 
 ##### blobs
 
@@ -35480,7 +35520,7 @@ A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): th
 
 ##### source
 
-> **source**: [`TraceSource`](#tracesource-1)
+> **source**: [`TraceSource`](#tracesource-2)
 
 ##### record
 
@@ -35500,7 +35540,7 @@ A push source for OWNED tool loops (router-tools / cli-bridge tool dispatch): th
 
 ### sandboxSessionTraceSource()
 
-> **sandboxSessionTraceSource**(`box`, `sessionId`, `opts?`): [`TraceSource`](#tracesource-1)
+> **sandboxSessionTraceSource**(`box`, `sessionId`, `opts?`): [`TraceSource`](#tracesource-2)
 
 The SANDBOX / fleet trace source: read a box session's message parts and decode the harness's tool
  calls into spans. `collect` (settle) is the solid path — `box.messages({sessionId})` → parts → spans;
@@ -35539,7 +35579,7 @@ The box's harness (e.g. 'opencode', 'claude-code') → selects its decoder adapt
 
 #### Returns
 
-[`TraceSource`](#tracesource-1)
+[`TraceSource`](#tracesource-2)
 
 ***
 
@@ -35553,7 +35593,7 @@ Collect the source's spans and run the agent-eval batch analyzers over them unde
 
 ##### source
 
-[`TraceSource`](#tracesource-1)
+[`TraceSource`](#tracesource-2)
 
 ##### runId?
 

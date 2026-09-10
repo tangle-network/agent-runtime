@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.210.0
+
+The public `Agent` and `DriveHarness` contracts expose optional `traceSource()` and `progress()`
+observation methods so Runtime can preserve provider evidence through recursive supervision.
+Existing agents remain valid because both methods are optional; consumers that snapshot or re-export
+these structural types should regenerate their API records and adopt this release.
+Provider Codex usage now decodes the nested raw envelope, so provider turns report their measured
+token totals instead of settling as zero-valued unknown usage.
+
 ## 0.209.0
 
 Budgets accept caller-named resources with explicit units, atomic reservations, measured refunds, and durable usage accounting.
