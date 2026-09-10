@@ -1359,6 +1359,8 @@ function driveHarnessFromBackend(
     if (!deliver) return false
     return deliver.call(activeExecutor, message) !== false
   }
+  drive.traceSource = () => activeExecutor?.traceSource?.()
+  drive.progress = () => activeExecutor?.progress?.()
   return attestRuntimeOwnedScopeOwner(
     drive,
     boundBackend.backend === 'provider'

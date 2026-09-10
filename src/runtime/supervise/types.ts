@@ -85,6 +85,10 @@ export interface Agent<Task, Out> {
    */
   // biome-ignore lint/suspicious/noConfusingVoidType: void is the legacy contract; boolean adds an acknowledgement without breaking existing agents.
   deliver?(msg: unknown): void | boolean
+  /** Optional live tool evidence exposed by executors that can observe it. */
+  traceSource?(): TraceSource | undefined
+  /** Optional live execution progress exposed by executors that can observe it. */
+  progress?(): ExecutorProgress | undefined
 }
 
 // ── The open leaf runtime ─────────────────────────────────────────────────────

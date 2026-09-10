@@ -103,6 +103,7 @@ import {
   retainedExecutorContext,
 } from './supervise/retained-executor'
 import { detachedSnapshot } from './supervise/snapshot'
+import { createPushTraceSource, decodeBoxPart, type TraceSource } from './supervise/trace-source'
 import type {
   Executor,
   ExecutorCancellation,
@@ -591,6 +592,7 @@ function createProviderExecutor(
   }
   const executionId = retention?.executionId ?? ctx.node?.nodeId ?? `provider-run-${randomUUID()}`
   const attemptId = ctx.node?.attemptId ?? newExecutionAttemptId(executionId)
+  const trace = createPushTraceSource({ runId: executionId })
   const providerModel = concreteProfileModel(createProfile)
   // The provider owns the model call inside its environment and the create input carries no
   // completion cap, so a requested ceiling is refused before the environment is paid for.
@@ -652,6 +654,7 @@ function createProviderExecutor(
       options,
       retention,
       executionId,
+      trace,
       recovering,
       onRetained: (handle) => {
         retained = handle
@@ -743,6 +746,7 @@ function createProviderExecutor(
       }
       return artifact
     },
+    traceSource: (): TraceSource => trace.source,
   }
   return attestRuntimeOwnedPendingExecutor(executor, runtime, plannedDeclaration, plannedBinding)
 }
@@ -759,6 +763,7 @@ interface StreamProviderExecutorArgs {
   options: ProviderExecutorOptions
   retention?: RetainedExecutorContext
   executionId: string
+  trace: ReturnType<typeof createPushTraceSource>
   recovering: boolean
   onRetained: (handle: RetainedRunHandle) => void
   onPending: (pending: boolean) => void
@@ -805,6 +810,7 @@ async function* streamProviderExecutor(
   const environment = source.environment
   args.onEnvironment(environment)
   const events: AgentEnvironmentEvent[] = []
+  const seenTraceCalls = new Set<string>()
   const tokens = zeroTokenUsage()
   const usageLedger = createSandboxUsageLedger(args.profile.harness)
   let sawCompleteTokenReceipt = false
@@ -828,6 +834,18 @@ async function* streamProviderExecutor(
       events.push(event)
       text += textFromEnvironmentEvent(event)
       const sandboxEvent = sandboxEventFromEnvironmentEvent(event)
+      const eventData = sandboxEvent.data
+      const part =
+        eventData !== null && typeof eventData === 'object'
+          ? (eventData as { readonly part?: unknown }).part
+          : undefined
+      if (part !== undefined) {
+        const step = decodeBoxPart(part, args.profile.harness)
+        if (step !== undefined && (step.callId === undefined || !seenTraceCalls.has(step.callId))) {
+          if (step.callId !== undefined) seenTraceCalls.add(step.callId)
+          args.trace.record(step)
+        }
+      }
       const failureEvent = providerFailureEvent(event, sandboxEvent)
       if (failureEvent) {
         explicitFailure = true

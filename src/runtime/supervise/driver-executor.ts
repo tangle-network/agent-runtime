@@ -46,6 +46,7 @@ import {
   attestRuntimeOwnedDeferredExecutor,
   runtimeOwnedScopeOwnerRuntime,
 } from './materialization'
+import type { ExecutorProgress } from './progress'
 import { addResourceSpend } from './resources'
 import { RetainedExecutionPendingError, retainedExecutorContext } from './retained-executor'
 import {
@@ -54,6 +55,7 @@ import {
   nestedScopeSeamKey,
   startScopeRecoveries,
 } from './scope'
+import type { TraceSource } from './trace-source'
 import { attestNestedDriverTreeOwner, driverRuntime, nestedDriverTreeRoot } from './tree-key'
 import type {
   Agent,
@@ -86,6 +88,8 @@ interface DriverSpec extends AgentSpec {
    *  check. The check itself runs in the manager, exactly once, before this executor settles. */
   readonly acceptedSubmission?: () => boolean
   readonly recoverExecutor?: ExecutorFactory<unknown>
+  readonly traceSource?: () => TraceSource | undefined
+  readonly progress?: () => ExecutorProgress | undefined
 }
 
 /**
@@ -104,6 +108,16 @@ export function driverChild<Out>(
   recoverExecutor?: ExecutorFactory<unknown>,
 ): Agent<unknown, Out> {
   const name = profile.name ?? driver.name
+  const traceSource = (
+    driver as Agent<unknown, Out> & {
+      traceSource?: () => TraceSource | undefined
+    }
+  ).traceSource
+  const progress = (
+    driver as Agent<unknown, Out> & {
+      progress?: () => ExecutorProgress | undefined
+    }
+  ).progress
   const rawSpec: DriverSpec = {
     profile,
     harness: null,
@@ -113,6 +127,8 @@ export function driverChild<Out>(
     journal,
     ...(acceptedSubmission ? { acceptedSubmission } : {}),
     ...(recoverExecutor ? { recoverExecutor } : {}),
+    ...(traceSource ? { traceSource } : {}),
+    ...(progress ? { progress } : {}),
   }
   const spec = executableAgentSpecSnapshot(rawSpec, 'driverChild') as DriverSpec
   const deliver = driver.deliver?.bind(driver)
@@ -208,6 +224,8 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
 
   const executor: Executor<unknown> = {
     runtime: driverRuntime,
+    ...(spec.traceSource ? { traceSource: spec.traceSource } : {}),
+    ...(spec.progress ? { progress: spec.progress } : {}),
     ...(deliver
       ? {
           deliver(message: unknown): boolean {
