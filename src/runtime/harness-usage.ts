@@ -131,8 +131,10 @@ const codexUsageContext = 'codex turn.completed'
 
 /**
  * codex reports the tokens of a turn inside its own `turn.completed` event, which rides the
- * transport as `{ type: 'raw', data: { type: 'turn.completed', usage: { … } } }`. It emits no
- * canonical usage event, so this adapter is a codex worker's only usage source.
+ * transport either as `{ type: 'raw', data: { type: 'turn.completed', usage: { … } } }` or as
+ * the provider-normalized Interface envelope `{ type: 'raw', data: { type: 'raw', event: {
+ * type: 'turn.completed', usage: { … } } } }`. It emits no canonical usage event, so this adapter
+ * is a codex worker's only usage source.
  *
  * The record is read by `parseCodexUsageRecord`, the same reader `runLocalHarness` uses on the
  * codex CLI's own stdout, so both surfaces hold one field policy and both cross-field invariants.
@@ -143,7 +145,11 @@ const codexUsageContext = 'codex turn.completed'
  */
 const decodeCodexTurnUsage: HarnessUsageDecoder = (event) => {
   if (String(event.type ?? '') !== 'raw') return undefined
-  const data = plainRecord(event.data)
+  const envelope = plainRecord(event.data)
+  const data =
+    envelope?.type === 'raw' && plainRecord(envelope.event) !== undefined
+      ? plainRecord(envelope.event)
+      : envelope
   if (data === undefined || data.type !== 'turn.completed' || data.usage === undefined) {
     return undefined
   }
