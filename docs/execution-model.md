@@ -41,6 +41,20 @@ Before, each bench hand-rolled its own pseudo-box client. Now there is **one exe
                 └────────── same Executor port underneath ──────────┘
 ```
 
+### Bridge implementation ownership
+
+`supervise/runtime.ts` keeps backend configuration, factory selection, and the existing public exports.
+Bridge code follows these internal boundaries:
+
+- `bridge-config.ts` captures transport configuration and resolves protected credential references at dispatch.
+- `bridge-executor.ts` owns the executor lifecycle, steering, materialization, and measured usage.
+- `bridge-transport.ts` owns admission checks, HTTP requests, ordered reconnect, and acknowledged cancellation.
+- `bridge-protocol.ts` decodes streams and validates receipts without owning network or executor state.
+
+Dependencies flow from the executor through transport to protocol validation.
+Shared seam validation lives in `executor-seams.ts`; result pointer construction lives in `executor-outcome.ts`.
+New backends still implement the existing `Executor` contract.
+
 ## 2. Driver vs worker — judgment vs labor
 
 ```
