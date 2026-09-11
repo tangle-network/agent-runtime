@@ -64,6 +64,7 @@ import type {
   SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
+import { defaultRedactor } from '../redact'
 import {
   assertEventBinding,
   awaitAbortable,
@@ -1160,10 +1161,13 @@ async function providerExecutionSource(
             ? {}
             : {
                 eventStreamComplete: false,
-                eventStreamError:
-                  observationFailure.error instanceof Error
-                    ? observationFailure.error.message
-                    : String(observationFailure.error),
+                eventStreamError: String(
+                  defaultRedactor(
+                    observationFailure.error instanceof Error
+                      ? observationFailure.error.message
+                      : String(observationFailure.error),
+                  ),
+                ).slice(0, 2_048),
               }),
         },
         ...(result.usage ? { usage: result.usage } : {}),

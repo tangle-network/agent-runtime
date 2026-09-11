@@ -25,7 +25,7 @@ afterEach(async () => {
 })
 
 describe('supervised retained provider recovery', () => {
-  it.each(['transport', 'transport-open', 'transport-partial'] as const)(
+  it.each(['transport', 'transport-open', 'transport-partial', 'transport-secret'] as const)(
     'settles an exact completed result after %s observation failure',
     async (observationFailure) => {
       const fixture = await setup('dispatched', false, 1, undefined, undefined, observationFailure)
@@ -45,11 +45,14 @@ describe('supervised retained provider recovery', () => {
                 type: 'result',
                 data: expect.objectContaining({
                   eventStreamComplete: false,
-                  eventStreamError: 'retained event connection lost',
+                  eventStreamError: expect.stringMatching(
+                    /^retained event connection lost.{0,2018}$/su,
+                  ),
                 }),
               }),
             ]),
           })
+          expect(JSON.stringify(settled.out)).not.toContain('private-observation-credential')
         }
         return settled?.kind === 'done' ? settled.out : 'unresolved'
       })
@@ -397,7 +400,12 @@ async function setup(
   childCount = 1,
   usage = { inputTokens: 3, outputTokens: 2 },
   failure?: string,
-  observationFailure?: 'transport' | 'transport-open' | 'transport-partial' | 'binding',
+  observationFailure?:
+    | 'transport'
+    | 'transport-open'
+    | 'transport-partial'
+    | 'transport-secret'
+    | 'binding',
   resultFailure?: 'unavailable' | 'foreign',
 ) {
   const root = await mkdtemp(join(tmpdir(), 'supervise-retained-'))
@@ -426,6 +434,11 @@ async function setup(
               throw new Error('retained event connection lost')
             return observe()
             async function* observe() {
+              if (observationFailure === 'transport-secret') {
+                throw new Error(
+                  `retained event connection lost Bearer private-observation-credential https://provider.example/?token=private-observation-credential ${'x'.repeat(5_000)}`,
+                )
+              }
               if (observationFailure === 'transport-partial') {
                 yield {
                   type: 'usage',
