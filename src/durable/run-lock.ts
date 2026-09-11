@@ -119,6 +119,31 @@ export async function readRunDirectoryLock(
   return existing.state === 'holder' ? existing.holder : undefined
 }
 
+/** What {@link runDirectoryHolderIsLive} proved about a run directory's recorded holder. */
+export interface RunDirectoryHolderLiveness {
+  /** True only while the process that took the lock is still the process that holds the pid. */
+  readonly live: boolean
+  /** The holder the lock file names. Absent when no lock file names one, which reads as not live. */
+  readonly holder?: RunDirectoryLockHolder
+}
+
+/**
+ * Whether a run directory is still held by the live process that took its lock.
+ *
+ * The same rule `acquireRunDirectoryLock` applies to decide whether a lock is stale, exposed so a
+ * caller — a supervisor picking up an abandoned directory, an operator tool listing runs — asks
+ * the question instead of hand-rolling `process.kill(pid, 0)`. A bare signal probe cannot tell a
+ * live holder from an unrelated process that later took the same pid, which is the failure this
+ * lock's start token exists to prevent.
+ */
+export async function runDirectoryHolderIsLive(
+  runDir: string,
+): Promise<RunDirectoryHolderLiveness> {
+  const existing = await readLockFile(resolve(runDir, RUN_DIRECTORY_LOCK_FILE))
+  if (existing.state !== 'holder') return { live: false }
+  return { live: await holderIsLive(existing.holder), holder: existing.holder }
+}
+
 const execFileAsync = promisify(execFile)
 
 /**

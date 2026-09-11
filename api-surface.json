@@ -514,6 +514,7 @@
       "PursuitStatus": "type 8a9aa4ae39bb",
       "RUN_DIRECTORY_LOCK_FILE": "value e2845e1b76b7",
       "RunChatTurnInput": "type 3aafc346a44b",
+      "RunDirectoryHolderLiveness": "type 9790330da322",
       "RunDirectoryLock": "type 2aff17d3b194",
       "RunDirectoryLockHolder": "type 703a8ec365ab",
       "RunDirectoryLockedError": "value bf00b522d645",
@@ -532,6 +533,7 @@
       "readFailureRecord": "value f4ae9add9dd5",
       "readRunDirectoryLock": "value 13d8f2062433",
       "readSettleRecord": "value 1ff34b03afee",
+      "runDirectoryHolderIsLive": "value 0ed0d53c77f6",
       "settleRecordJson": "value 7e8cbf0155c1",
       "supervisePursuit": "value ff560cf64200",
       "verifyObserverRecords": "value 0c68d6d910e5"

@@ -8,6 +8,7 @@ import {
   RUN_DIRECTORY_LOCK_FILE,
   RunDirectoryLockedError,
   readRunDirectoryLock,
+  runDirectoryHolderIsLive,
 } from '../run-lock'
 
 /** A pid that belonged to a process which has already exited. */
@@ -182,5 +183,54 @@ describe('acquireRunDirectoryLock', () => {
     const lock = await acquireRunDirectoryLock(nested, 'run:new')
     expect((await stat(nested)).isDirectory()).toBe(true)
     await lock.release()
+  })
+})
+
+describe('runDirectoryHolderIsLive', () => {
+  let runDir: string
+  beforeEach(async () => {
+    runDir = await mkdtemp(join(tmpdir(), 'run-lock-live-'))
+  })
+  afterEach(async () => {
+    await rm(runDir, { recursive: true, force: true })
+  })
+
+  it('reads a stale lock whose pid was reused as NOT live', async () => {
+    // The pid exists — it is this test process — so `process.kill(pid, 0)` would report a live
+    // holder. Only the start token separates the holder that took the lock from whoever holds
+    // its pid now, which is why a caller must not hand-roll the signal probe.
+    const holder = {
+      pid: process.pid,
+      processStart: 'old-process',
+      startedAt: '2026-09-06T06:14:43.597Z',
+      runId: 'dead',
+    }
+    await writeFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), `${JSON.stringify(holder)}\n`)
+
+    const liveness = await runDirectoryHolderIsLive(runDir)
+    expect(liveness.live).toBe(false)
+    // The holder is still reported, so a caller can say WHICH run abandoned the directory.
+    expect(liveness.holder).toEqual(holder)
+  })
+
+  it('reads a held directory as live and an unlocked one as not live', async () => {
+    expect(await runDirectoryHolderIsLive(runDir)).toEqual({ live: false })
+
+    const lock = await acquireRunDirectoryLock(runDir, 'run:a')
+    const held = await runDirectoryHolderIsLive(runDir)
+    expect(held.live).toBe(true)
+    expect(held.holder?.runId).toBe('run:a')
+
+    await lock.release()
+    expect(await runDirectoryHolderIsLive(runDir)).toEqual({ live: false })
+  })
+
+  it('reads a lock whose holder process is gone as not live', async () => {
+    const holder = { pid: deadPid(), startedAt: '2026-09-06T06:14:43.597Z', runId: 'run:killed' }
+    await writeFile(join(runDir, RUN_DIRECTORY_LOCK_FILE), `${JSON.stringify(holder)}\n`)
+
+    const liveness = await runDirectoryHolderIsLive(runDir)
+    expect(liveness.live).toBe(false)
+    expect(liveness.holder).toEqual(holder)
   })
 })
