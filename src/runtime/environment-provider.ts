@@ -882,6 +882,9 @@ async function* streamProviderExecutor(
       // No provider event carries a billing receipt, so the dollar channel stays unproven even
       // when the provider reported a number. A dollar cap must refuse rather than compare.
       usdKnown: false,
+      // Unproven therefore priced, not charged: naming the whole amount on the estimate channel is
+      // what keeps `usd - usdEstimated` reading as the money a provider is known to have billed.
+      ...(usd > 0 ? { usdEstimated: usd } : {}),
       ms: Date.now() - started,
     }
     // Scored HERE, before the `finally` destroys the environment: a validator that reads a file or
@@ -979,7 +982,13 @@ async function* streamProviderExecutor(
     }
     if (receipt.costUsd) {
       usd += receipt.costUsd
-      yield { kind: 'cost', usdKnown: false, usd: receipt.costUsd, provenance: 'uncaptured' }
+      yield {
+        kind: 'cost',
+        usdKnown: false,
+        usd: receipt.costUsd,
+        usdEstimated: receipt.costUsd,
+        provenance: 'uncaptured',
+      }
     }
   }
 }
