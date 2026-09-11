@@ -64,6 +64,7 @@ import type {
   SandboxRuntimeCapabilities,
 } from '@tangle-network/sandbox'
 import { createAgentRunOutcomeTracker } from '@tangle-network/sandbox/runtime'
+import { defaultRedactor } from '../redact'
 import {
   assertEventBinding,
   awaitAbortable,
@@ -1096,15 +1097,59 @@ async function providerExecutionSource(
     if (!environment) throw new Error('retained provider environment is unavailable')
     const session = exactSession(environment, handle.controlRef).session
     async function* events(): AsyncIterable<AgentEnvironmentEvent> {
-      for await (const event of session.events({
-        executionId: handle.controlRef.executionId,
-        signal,
-      })) {
-        assertEventBinding(event, handle.controlRef)
-        yield event
+      let iterator: AsyncIterator<AgentEnvironmentEvent> | undefined
+      let observationFailure: { error: unknown } | undefined
+      try {
+        iterator = session
+          .events({
+            executionId: handle.controlRef.executionId,
+            signal,
+          })
+          [Symbol.asyncIterator]()
+      } catch (error) {
+        if (signal.aborted) throw error
+        observationFailure = { error }
       }
-      // A closed stream proves nothing. The exact retained result is the terminal authority.
-      const result = await awaitAbortable(handle.result(), signal)
+      try {
+        while (iterator !== undefined) {
+          let next: IteratorResult<AgentEnvironmentEvent>
+          try {
+            next = await awaitAbortable(
+              Promise.resolve().then(() => iterator!.next()),
+              signal,
+            )
+          } catch (error) {
+            if (signal.aborted) throw error
+            observationFailure = { error }
+            break
+          }
+          if (next.done) break
+          // A received event for another execution must never be accepted as evidence.
+          assertEventBinding(next.value, handle.controlRef)
+          yield next.value
+        }
+      } finally {
+        if (signal.aborted || observationFailure !== undefined) {
+          void Promise.resolve()
+            .then(() => iterator?.return?.())
+            .catch(() => undefined)
+        } else {
+          await iterator?.return?.()
+        }
+      }
+      // Observation failure does not establish execution failure. Only the exact retained
+      // result can settle the invocation; retain incomplete observation beside that result.
+      let result: AgentTurnResult
+      try {
+        result = await awaitAbortable(handle.result(), signal)
+      } catch (error) {
+        if (observationFailure === undefined || signal.aborted) throw error
+        throw new AggregateError(
+          [observationFailure.error, error],
+          'retained event observation failed and its exact result could not be reconciled',
+          { cause: error },
+        )
+      }
       yield {
         type: 'result',
         data: {
@@ -1112,6 +1157,18 @@ async function providerExecutionSource(
           success: result.success,
           ...(result.error ? { error: result.error } : {}),
           usageMode: 'cumulative',
+          ...(observationFailure === undefined
+            ? {}
+            : {
+                eventStreamComplete: false,
+                eventStreamError: String(
+                  defaultRedactor(
+                    observationFailure.error instanceof Error
+                      ? observationFailure.error.message
+                      : String(observationFailure.error),
+                  ),
+                ).slice(0, 2_048),
+              }),
         },
         ...(result.usage ? { usage: result.usage } : {}),
       }

@@ -25,6 +25,119 @@ afterEach(async () => {
 })
 
 describe('supervised retained provider recovery', () => {
+  it.each(['transport', 'transport-open', 'transport-partial', 'transport-secret'] as const)(
+    'settles an exact completed result after %s observation failure',
+    async (observationFailure) => {
+      const fixture = await setup('dispatched', false, 1, undefined, undefined, observationFailure)
+      const result = await fixture.run(async (scope) => {
+        const child = scope.spawn(fixture.worker(), 'task', {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 10 },
+        })
+        expect(child.ok).toBe(true)
+        const settled = await scope.next()
+        expect(settled?.kind).toBe('done')
+        if (settled?.kind === 'done') {
+          expect(settled.out).toMatchObject({
+            content: 'durable result',
+            events: expect.arrayContaining([
+              expect.objectContaining({
+                type: 'result',
+                data: expect.objectContaining({
+                  eventStreamComplete: false,
+                  eventStreamError: expect.stringMatching(
+                    /^retained event connection lost.{0,2018}$/su,
+                  ),
+                }),
+              }),
+            ]),
+          })
+          expect(JSON.stringify(settled.out)).not.toContain('private-observation-credential')
+        }
+        return settled?.kind === 'done' ? settled.out : 'unresolved'
+      })
+      expect(result.kind).toBe('winner')
+      expect(fixture.dispatches()).toBe(1)
+      expect(fixture.creations()).toBe(1)
+      expect(fixture.resultReads()).toBe(1)
+      const events = (await fixture.context.journal.loadTree('root')) ?? []
+      expect(
+        events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
+      ).toMatchObject([
+        { status: 'done', spent: { iterations: 1, tokens: { input: 3, output: 2 } } },
+      ])
+    },
+  )
+
+  it('settles a retained execution failure after its event connection is lost', async () => {
+    const fixture = await setup(
+      'dispatched',
+      false,
+      1,
+      undefined,
+      'provider turn failed',
+      'transport',
+    )
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 10 },
+      })
+      expect(await scope.next()).toMatchObject({ kind: 'down', reason: 'provider turn failed' })
+      return 'inspected'
+    })
+    expect(fixture.resultReads()).toBe(1)
+    expect(fixture.dispatches()).toBe(1)
+    const events = (await fixture.context.journal.loadTree('root')) ?? []
+    expect(
+      events.filter((event) => event.kind === 'settled' && event.id === 'root:s0'),
+    ).toMatchObject([{ status: 'down', spent: { iterations: 1, tokens: { input: 3, output: 2 } } }])
+  })
+
+  it.each(['unavailable', 'foreign'] as const)(
+    'keeps an execution in doubt when its event stream fails and the exact result is %s',
+    async (resultFailure) => {
+      const fixture = await setup(
+        'dispatched',
+        false,
+        1,
+        undefined,
+        undefined,
+        'transport',
+        resultFailure,
+      )
+      await fixture.run(async (scope) => {
+        scope.spawn(fixture.worker(), 'task', {
+          key: 'work',
+          budget: { maxIterations: 1, maxTokens: 10 },
+        })
+        expect(await scope.next()).toMatchObject({ kind: 'down' })
+        return 'inspected'
+      })
+      expect(fixture.resultReads()).toBe(1)
+      expect(fixture.dispatches()).toBe(1)
+      const events = (await fixture.context.journal.loadTree('root')) ?? []
+      expect(events.some((event) => event.kind === 'execution-result')).toBe(false)
+      expect(events.some((event) => event.kind === 'settled')).toBe(false)
+    },
+  )
+
+  it('does not reconcile an event from a different retained execution', async () => {
+    const fixture = await setup('dispatched', false, 1, undefined, undefined, 'binding')
+    await fixture.run(async (scope) => {
+      scope.spawn(fixture.worker(), 'task', {
+        key: 'work',
+        budget: { maxIterations: 1, maxTokens: 10 },
+      })
+      const settled = await scope.next()
+      expect(settled?.kind).toBe('down')
+      return 'inspected'
+    })
+    expect(fixture.resultReads()).toBe(0)
+    const events = (await fixture.context.journal.loadTree('root')) ?? []
+    expect(events.some((event) => event.kind === 'execution-result')).toBe(false)
+  })
+
   it('reconnects a dispatched child after lost local acknowledgement without another dispatch', async () => {
     const fixture = await setup('dispatched')
     await fixture.first()
@@ -287,6 +400,13 @@ async function setup(
   childCount = 1,
   usage = { inputTokens: 3, outputTokens: 2 },
   failure?: string,
+  observationFailure?:
+    | 'transport'
+    | 'transport-open'
+    | 'transport-partial'
+    | 'transport-secret'
+    | 'binding',
+  resultFailure?: 'unavailable' | 'foreign',
 ) {
   const root = await mkdtemp(join(tmpdir(), 'supervise-retained-'))
   roots.push(root)
@@ -295,6 +415,7 @@ async function setup(
   const context = createFileRunContext(runDir)
   let createCount = 0
   let dispatchCount = 0
+  let resultCount = 0
   let resumedTokens: number | undefined
   const provider = (): AgentEnvironmentProvider => {
     const base = durableRetainedProvider(stateFile)
@@ -308,11 +429,45 @@ async function setup(
         const session = environment.session!(id, options)
         return {
           ...session,
-          result: async () => ({
-            ...(await session.result()),
-            usage,
-            ...(failure ? { success: false, error: failure } : {}),
-          }),
+          events(options) {
+            if (observationFailure === 'transport-open')
+              throw new Error('retained event connection lost')
+            return observe()
+            async function* observe() {
+              if (observationFailure === 'transport-secret') {
+                throw new Error(
+                  `retained event connection lost Bearer private-observation-credential https://provider.example/?token=private-observation-credential ${'x'.repeat(5_000)}`,
+                )
+              }
+              if (observationFailure === 'transport-partial') {
+                yield {
+                  type: 'usage',
+                  data: { usageMode: 'cumulative' },
+                  usage: { inputTokens: 2, outputTokens: 1 },
+                }
+              }
+              if (observationFailure === 'transport' || observationFailure === 'transport-partial')
+                throw new Error('retained event connection lost')
+              if (observationFailure === 'binding') {
+                yield {
+                  type: 'status',
+                  data: { executionId: 'foreign-execution', status: 'completed' },
+                }
+                return
+              }
+              yield* session.events(options)
+            }
+          },
+          result: async () => {
+            resultCount++
+            if (resultFailure === 'unavailable') throw new Error('exact result is unavailable')
+            return {
+              ...(await session.result()),
+              usage,
+              ...(failure ? { success: false, error: failure } : {}),
+              ...(resultFailure === 'foreign' ? { sessionId: 'foreign-session' } : {}),
+            }
+          },
         }
       },
     })
@@ -371,6 +526,7 @@ async function setup(
     run,
     creations: () => createCount,
     dispatches: () => dispatchCount,
+    resultReads: () => resultCount,
     resumeBudget: () => resumedTokens,
     first: async () => {
       const injected = new Set<string>()
