@@ -622,7 +622,10 @@ export {
   type BudgetPoolRestore,
   type BudgetReadout,
   createBudgetPool,
+  type LeakedReservation,
+  type ReservationHolder,
   type ReservationRejection,
+  type ReservationStage,
   type ReservationTicket,
   spendFromUsageEvents,
 } from './supervise/budget'

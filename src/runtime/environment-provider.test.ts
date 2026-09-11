@@ -396,7 +396,7 @@ describe('environment provider adapters', () => {
 
     expect(usage).toEqual([
       { kind: 'tokens', input: 7, output: 16 },
-      { kind: 'cost', usd: 0.03, usdKnown: false, provenance: 'uncaptured' },
+      { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ])
     expect(artifact).toMatchObject({
@@ -1360,9 +1360,9 @@ describe('environment provider adapters', () => {
 
     expect(usage).toEqual([
       { kind: 'tokens', input: 7, output: 16 },
-      // A provider event's dollar figure carries no receipt, so it is an observed floor rather
-      // than measured spend — a dollar cap must not be enforced against it.
-      { kind: 'cost', usd: 0.03, usdKnown: false, provenance: 'uncaptured' },
+      // A provider event's dollar figure carries no receipt, so it is a price rather than a
+      // charge: the whole amount rides `usdEstimated` and a dollar cap is not enforced against it.
+      { kind: 'cost', usd: 0.03, usdKnown: false, usdEstimated: 0.03, provenance: 'uncaptured' },
       { kind: 'iteration' },
     ])
     expect(artifact.out).toMatchObject({ content: 'hello world' })
@@ -1371,6 +1371,8 @@ describe('environment provider adapters', () => {
       tokens: { input: 7, output: 16 },
       usd: 0.03,
       usdKnown: false,
+      // `usd - usdEstimated` is what names billed money, so the settlement reports none.
+      usdEstimated: 0.03,
     })
   })
 
@@ -1592,13 +1594,15 @@ describe('environment provider adapters', () => {
       // not fit inside the total it says it partitions buys no credit, so nothing is classified
       // and the split is declared unknown.
       { kind: 'tokens', input: 2, output: 7, cacheBreakdownKnown: false },
-      { kind: 'cost', usd: 0.1, usdKnown: false, provenance: 'uncaptured' },
+      { kind: 'cost', usd: 0.1, usdKnown: false, usdEstimated: 0.1, provenance: 'uncaptured' },
       { kind: 'iteration' },
       // Turn 3 reports a cache WRITE and no read. The measured write is carried; the rest of the
       // prompt stays unclassified, so the split is incomplete rather than completed with a zero.
       { kind: 'tokens', input: 5, output: 13, cacheWrite: 2, cacheBreakdownKnown: false },
-      { kind: 'cost', usd: 0.2, usdKnown: false, provenance: 'uncaptured' },
+      { kind: 'cost', usd: 0.2, usdKnown: false, usdEstimated: 0.2, provenance: 'uncaptured' },
       { kind: 'iteration' },
+      // The settlement's own dollar channel: no turn priced anything further, so there is nothing
+      // to name on the estimate channel and a zero here stays unknown rather than estimated.
       { kind: 'cost', usd: 0, usdKnown: false, provenance: 'uncaptured' },
     ])
     expect(turns).toHaveLength(3)

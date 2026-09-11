@@ -1327,6 +1327,12 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
         : (result.winner?.verdict ?? leafVerdict(result))
     const tokensKnown = result.tokenUsage.tokensKnown !== false
     const usdKnown = result.costUsdKnown !== false
+    // The loop reported dollars that no billing receipt proves, so every one of them is a price
+    // rather than a charge. Naming them on the estimate channel is what keeps `usd - usdEstimated`
+    // reading as billed money: without it a cloud child's whole figure read as provider spend and
+    // a pursuit report was 40x the money that had actually moved (#1175). `usdKnown` is untouched
+    // — an unproven number never becomes a receipt, and a dollar cap still refuses it.
+    const usdEstimated = usdKnown || result.costUsd <= 0 ? undefined : result.costUsd
     const outWithUsage = {
       ...outWithOutcome,
       ...(result.estimatedCostUsd !== undefined
@@ -1348,6 +1354,7 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
       ...(tokensKnown ? {} : { tokensKnown: false }),
       usd: result.costUsd,
       ...(usdKnown ? {} : { usdKnown: false }),
+      ...(usdEstimated === undefined ? {} : { usdEstimated }),
       ms: Date.now() - started,
       ...(boxMinutes === undefined
         ? { boxMinutesKnown: false, boxMinutesProvenance: 'uncaptured' as const }
@@ -1387,7 +1394,13 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
     if (result.iterations.length > 0 || result.costUsd) {
       yield usdKnown
         ? { kind: 'cost', usdKnown: true, usd: result.costUsd, provenance: 'provider-receipt' }
-        : { kind: 'cost', usdKnown: false, usd: result.costUsd, provenance: 'uncaptured' }
+        : {
+            kind: 'cost',
+            usdKnown: false,
+            usd: result.costUsd,
+            ...(usdEstimated === undefined ? {} : { usdEstimated }),
+            provenance: 'uncaptured',
+          }
     }
   } finally {
     linked.release()

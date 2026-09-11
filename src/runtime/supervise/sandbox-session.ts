@@ -262,8 +262,16 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       }
       if (typeof call.costUsd === 'number' && call.costUsd > 0) {
         usd += call.costUsd
-        // Numeric sandbox cost has no billing-provenance/completeness receipt.
-        yield { kind: 'cost', usd: call.costUsd, usdKnown: false, provenance: 'uncaptured' }
+        // Numeric sandbox cost has no billing-provenance/completeness receipt, so the whole amount
+        // is a price rather than a charge and rides the estimate channel too — `usd - usdEstimated`
+        // is what names billed money, and without it this figure read as provider spend (#1175).
+        yield {
+          kind: 'cost',
+          usd: call.costUsd,
+          usdKnown: false,
+          usdEstimated: call.costUsd,
+          provenance: 'uncaptured',
+        }
       }
     }
 
@@ -387,6 +395,10 @@ export function createSteerableSandboxSession(args: SteerableSandboxArgs): Steer
       ...(tokensKnown ? {} : { tokensKnown: false }),
       usd,
       ...(state.turns > 0 ? { usdKnown: false } : {}),
+      // Every dollar this worker saw came without a receipt, so the estimate channel names all of
+      // them. The `usdKnown: false` guard is the type's own rule: an estimate on a measured
+      // channel is a contradiction the pool refuses.
+      ...(state.turns > 0 && usd > 0 ? { usdEstimated: usd } : {}),
       ms: now() - started,
     }
     const out = {

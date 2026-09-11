@@ -84,6 +84,33 @@ export interface ReservationTicket {
   }
 }
 
+/** Where in the spawn lifecycle a reservation was last seen. `admitted` is the window between
+ *  `reserve` and the hand-off to the child's execution, which the spawning code owns; `executing`
+ *  means the child owns the ticket and only its settlement can close it. */
+export type ReservationStage = 'admitted' | 'executing'
+
+/** Who holds a reservation. Recorded at `reserve` and refined through `attribute` once admission
+ *  mints a node id, so a ticket stranded at the join barrier names the work that holds it instead
+ *  of a bare counter. Every field except `stage` is optional: a pool used directly (no `Scope`)
+ *  names nothing, and an unattributable leak must still be reportable. */
+export interface ReservationHolder {
+  /** The manager-scoped assignment identity the caller declared (`SpawnOpts.assignmentId`, else
+   *  its `key`), when it declared one. */
+  readonly assignment?: string
+  /** The spawn label — the name an operator recognizes in a journal. */
+  readonly label?: string
+  /** The spawned node's id, once admission minted one. Absent for a reservation that escaped
+   *  before its child had an identity. */
+  readonly childId?: string
+  readonly stage: ReservationStage
+}
+
+/** One reservation still open when a run reached its join barrier — a conserved-pool leak,
+ *  reported with the holder that can be chased rather than only its ticket id. */
+export interface LeakedReservation extends ReservationHolder {
+  readonly ticketId: number
+}
+
 /** Post-reservation pool readout — the shape `Scope.budget` exposes. `tokensLeft`,
  *  `usdLeft`, and `reservedTokens` reflect committed-but-unsettled reservations;
  *  `deadlineMs` is the ABSOLUTE wall-clock deadline (0 when the root set none).
@@ -240,7 +267,15 @@ export interface BudgetPool {
    */
   reserve(
     b: Budget,
+    holder?: ReservationHolder,
   ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection }
+  /**
+   * Name (or rename) who holds an open reservation. Merges into what `reserve` recorded, so a
+   * caller states only what it just learned — the node id admission minted, or the stage the
+   * ticket moved to. A settled or unknown ticket is ignored: attribution is leak EVIDENCE, never
+   * a lifecycle guard, and must not be able to fail a run that is otherwise healthy.
+   */
+  attribute(ticket: ReservationTicket, holder: ReservationHolder): void
   /**
    * Release a reservation: commit the actual `spent`, refund the unspent remainder
    * to the free pool. Throws on an unknown or already-reconciled ticket (fail loud —
@@ -268,6 +303,9 @@ export interface BudgetPool {
    *  supervisor's join barrier: once every child has settled, no ticket may remain (a leaked
    *  reservation would silently break `total ≡ free + reserved + committed`). */
   assertNoOpenTickets(): void
+  /** Every reservation still open, with its holder. Empty on a healthy pool. Read at the join
+   *  barrier so a run that failed can REPORT a leak it must not also be destroyed by. */
+  openReservations(): ReadonlyArray<LeakedReservation>
 }
 
 /** Fold a normalized `UsageEvent` array into a `Spend`. Tokens and usd are separate
@@ -479,10 +517,11 @@ export function createBudgetPool(
   }
 
   let nextTicketId = 0
-  const open = new Set<number>()
+  const open = new Map<number, ReservationHolder>()
 
   function reserve(
     b: Budget,
+    holder: ReservationHolder = { stage: 'admitted' },
   ): { ok: true; ticket: ReservationTicket } | { ok: false; reason: ReservationRejection } {
     assertValidBudget(b, 'reservation budget')
     for (const [name, state] of resources) {
@@ -527,7 +566,7 @@ export function createBudgetPool(
     }
 
     const id = nextTicketId++
-    open.add(id)
+    open.set(id, holder)
     return {
       ok: true,
       ticket: {
@@ -547,6 +586,12 @@ export function createBudgetPool(
         },
       },
     }
+  }
+
+  function attribute(ticket: ReservationTicket, holder: ReservationHolder): void {
+    const current = open.get(ticket.id)
+    if (current === undefined) return
+    open.set(ticket.id, { ...current, ...holder })
   }
 
   function reconcile(ticket: ReservationTicket, spent: Spend): void {
@@ -690,10 +735,14 @@ export function createBudgetPool(
     }
   }
 
+  function openReservations(): ReadonlyArray<LeakedReservation> {
+    return [...open].map(([ticketId, holder]) => Object.freeze({ ticketId, ...holder }))
+  }
+
   function assertNoOpenTickets(): void {
     if (open.size > 0) {
       throw new Error(
-        `budget pool: ${open.size} reservation(s) still open at join barrier (leaked ticket ids: ${[...open].join(', ')}) — conserved-pool invariant violated`,
+        `budget pool: ${open.size} reservation(s) still open at join barrier (${openReservations().map(describeLeakedReservation).join('; ')}) — conserved-pool invariant violated`,
       )
     }
   }
@@ -760,10 +809,23 @@ export function createBudgetPool(
 
   return {
     reserve,
+    attribute,
     reconcile,
     spendFrom: foldUsage,
     readout,
     observe,
     assertNoOpenTickets,
+    openReservations,
   }
+}
+
+/** Name one leaked reservation by its holder, so the invariant message points at the work that
+ *  holds the ticket rather than at a counter an operator cannot chase. */
+function describeLeakedReservation(leak: LeakedReservation): string {
+  const parts = [`ticket ${leak.ticketId}`]
+  if (leak.childId !== undefined) parts.push(`child ${leak.childId}`)
+  if (leak.label !== undefined) parts.push(`label ${leak.label}`)
+  if (leak.assignment !== undefined) parts.push(`assignment ${leak.assignment}`)
+  parts.push(`stage ${leak.stage}`)
+  return parts.join(', ')
 }

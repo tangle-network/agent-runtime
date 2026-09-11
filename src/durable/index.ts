@@ -63,10 +63,12 @@ export {
 export {
   acquireRunDirectoryLock,
   RUN_DIRECTORY_LOCK_FILE,
+  type RunDirectoryHolderLiveness,
   type RunDirectoryLock,
   RunDirectoryLockedError,
   type RunDirectoryLockHolder,
   readRunDirectoryLock,
+  runDirectoryHolderIsLive,
 } from './run-lock'
 export {
   type DurableFailureRecord,

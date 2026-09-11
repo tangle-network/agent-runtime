@@ -471,11 +471,12 @@ export type UsageEvent =
       usdKnown: false
       usd: number
       /**
-       * The part of `usd` this runtime priced from a model catalog because no provider receipt
-       * covered the work. A catalog price approximates what a provider would bill and never
-       * measures what it did.
+       * The part of `usd` that is a PRICE rather than a charge: a model catalog's own number, or
+       * a figure a provider stated with no billing receipt behind it. Either way it approximates
+       * what a provider would bill and never measures what it did, so `usd - usdEstimated` stays
+       * the amount a provider is known to have billed.
        *
-       * Absence means this runtime priced nothing here, NOT that `usd` is a receipt.
+       * Absence means nothing here was priced, NOT that `usd` is a receipt.
        */
       usdEstimated?: number
       /**
@@ -754,10 +755,10 @@ export interface Spend {
    *  when enforcing a dollar-denominated comparison or limit. */
   usdKnown?: boolean
   usd: number
-  /** The part of `usd` priced from a model catalog because no provider receipt covered the work.
+  /** The part of `usd` that is a PRICE rather than a charge, because no provider receipt covered
+   *  the work: a model catalog's own number, or a figure a provider stated but did not bill.
    *  `usd - usdEstimated` is what a provider is known to have billed. Present only with
-   *  `usdKnown: false`; absence means nothing here was catalog-priced, not that `usd` is
-   *  measured. */
+   *  `usdKnown: false`; absence means nothing here was priced, not that `usd` is measured. */
   usdEstimated?: number
   ms: number
   /**
@@ -1692,6 +1693,12 @@ export type SupervisedResult<Out> =
        *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
        *  healthy run never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      /** Budget reservations still open when the run reached its join barrier, each named by the
+       *  assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
+       *  `total ≡ free + reserved + committed` does not hold, so `spentTotal` is a floor rather
+       *  than a measurement — the run still settles with the tree and the spend the journal
+       *  recorded. Present exactly when non-empty; a healthy run never carries it. */
+      leakedReservations?: ReadonlyArray<import('./budget').LeakedReservation>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1733,6 +1740,12 @@ export type SupervisedResult<Out> =
        *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
        *  healthy run never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      /** Budget reservations still open when the run reached its join barrier, each named by the
+       *  assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
+       *  `total ≡ free + reserved + committed` does not hold, so `spentTotal` is a floor rather
+       *  than a measurement — the run still settles with the tree and the spend the journal
+       *  recorded. Present exactly when non-empty; a healthy run never carries it. */
+      leakedReservations?: ReadonlyArray<import('./budget').LeakedReservation>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
