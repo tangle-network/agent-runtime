@@ -197,6 +197,19 @@ export interface Executor<Out> {
    */
   teardownTimeoutMs?: number
   /**
+   * Optional release of a RETAINED execution that no later process will recover.
+   *
+   * `teardown` keeps a pending retained execution's environment alive by construction: the paid
+   * work inside it is what a resumed run reconciles. Once the root has reached its own terminal
+   * outcome nothing will, and the environment is a leak — measured 2026-09-11, four settled runs
+   * held 18 of a 60-slot fleet for 19 to 37 hours this way. The supervisor calls this at root
+   * settlement, never on a resumable interruption (an explicit cancellation, a process crash), and
+   * journals one `environment-teardown` receipt per environment returned. `signal` bounds the
+   * attempt; an executor that holds no retained execution answers with no receipts. After a
+   * `destroyed: true` receipt the executor's `teardown` must answer `destroyed: true` as well.
+   */
+  releaseRetained?(signal: AbortSignal): Promise<ReadonlyArray<EnvironmentTeardownReceipt>>
+  /**
    * The replay source (B1): the content-addressed `outRef` + the materialized output the
    * driver branched on, its verdict, and the conserved spend. Read once, after settle.
    */
@@ -354,6 +367,22 @@ export interface ExecutorTeardownWarning {
   readonly error: string
   /** ISO timestamp of the failed attempt. */
   readonly at: string
+}
+
+/**
+ * The receipt for one provider environment an executor held for a RETAINED execution and was
+ * asked to release at root settlement (see {@link Executor.releaseRetained}). One receipt per
+ * environment, naming the provider's own id, so a fleet listing can be reconciled against what
+ * the run says it released. `destroyed: false` carries why in `detail`.
+ */
+export interface EnvironmentTeardownReceipt {
+  readonly provider: string
+  /** The provider-issued environment id — the same id the `execution-admitted` record carries. */
+  readonly environmentId: string
+  readonly destroyed: boolean
+  /** Why the environment could not be proven destroyed; present exactly when `destroyed` is
+   *  false. */
+  readonly detail?: string
 }
 
 /**
@@ -1417,6 +1446,24 @@ export type SpawnEvent =
       at: string
     }
   | {
+      /** One provider environment a settled retained-pending child held, released at root
+       *  settlement — or not. The run had reached a terminal outcome no later process resumes, so
+       *  the environment its executor kept for recovery could never be recovered; this is the
+       *  receipt of the supervisor's release, one per environment, naming the provider's own id
+       *  so a fleet listing can be reconciled against it. A `destroyed: false` receipt carries why
+       *  in `detail`, and the node is then also journaled as `teardown-unconfirmed`.
+       *  Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
+       *  per node, outside the cursor-uniqueness namespace. */
+      kind: 'environment-teardown'
+      id: NodeId
+      provider: string
+      environmentId: string
+      destroyed: boolean
+      detail?: string
+      seq: number
+      at: string
+    }
+  | {
       /** One GRAPH-EDGE traversal (`runGraph`): what the runtime actually DELIVERED across a
        *  delegates/analyzes edge, with byte counts — the observability that makes an edge's
        *  directive trustable and therefore optimizable. Informational: replay,
@@ -1555,6 +1602,24 @@ export interface SupervisorOpts {
    * @experimental
    */
   readonly resume?: boolean
+  /**
+   * What root settlement does with a provider environment that a settled child still holds for a
+   * RETAINED execution (`Executor.releaseRetained`). Such a child settles `down` with its cursor
+   * slot open and its environment alive, because a later process that resumes this run reconciles
+   * the paid execution inside it.
+   *
+   * - `'release'`: the run will not be resumed, so nothing would ever reconcile or release those
+   *   environments. The join barrier releases each one and journals an `environment-teardown`
+   *   receipt per environment. Measured 2026-09-11: four settled runs held 18 of a 60-slot
+   *   Sandbox fleet for 19 to 37 hours without it.
+   * - `'keep'`: a later process may resume this run, so the environments stay for its recovery.
+   *
+   * Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
+   * `'release'`. A caller that owns finality says so: `supervisePursuit` records a settle record
+   * that refuses re-entry, so it always releases. A process crash never reaches settlement, so it
+   * releases nothing under either value.
+   */
+  readonly retainedAtSettlement?: 'release' | 'keep'
   readonly now?: () => number
   readonly signal?: AbortSignal
   /** Lifecycle stream sink, threaded into the root `Scope` so every `spawn`/settle emits on the

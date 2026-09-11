@@ -27,6 +27,7 @@ import {
   type AgentSession,
   type AgentTurnInput,
   createAgentEnvironmentProviderRegistry,
+  DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
   providerAsExecutor,
   providerAsSandboxClient,
   sandboxClientAsProvider,
@@ -512,6 +513,78 @@ describe('environment provider adapters', () => {
     expect(createOptions).toMatchObject({
       backend: { profile: { name: 'resolved:catalog/researcher' } },
     })
+  })
+
+  it('sends an idle timeout on every Sandbox create, unless the create options name one', async () => {
+    // Runtime sent no idle timeout at all and Sandbox substitutes none, so the platform's global
+    // setting was the only bound. Measured 2026-09-11: 18 of a 60-slot fleet were still running 19
+    // to 37 hours after the runs that created them had settled.
+    const created: Array<CreateSandboxOptions | undefined> = []
+    const box = {
+      id: 'sbx-idle',
+      status: 'running',
+      async *streamPrompt(): AsyncIterable<SandboxEvent> {
+        yield { type: 'result', data: { finalText: 'ok' } } as SandboxEvent
+      },
+    } as unknown as SandboxInstance
+    const client: SandboxClient = {
+      async create(options?: CreateSandboxOptions): Promise<SandboxInstance> {
+        created.push(options)
+        return box
+      },
+    }
+
+    // The documented platform default, restated so a longer operator setting cannot loosen it.
+    expect(DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS).toBe(1_800)
+    const environment = await sandboxClientAsProvider(client).create({
+      profile: { name: 'worker' },
+    })
+    expect(created.at(-1)?.idleTimeoutSeconds).toBe(DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS)
+
+    // A fork is a new sandbox from the same adapter, so it carries the same bound.
+    await environment.fork?.({ id: 'snapshot-1' })
+    expect(created.at(-1)).toMatchObject({
+      fromSnapshot: 'snapshot-1',
+      fromSandboxId: 'sbx-idle',
+      idleTimeoutSeconds: DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS,
+    })
+
+    await sandboxClientAsProvider(client, { idleTimeoutSeconds: 900 }).create({
+      profile: { name: 'worker' },
+    })
+    expect(created.at(-1)?.idleTimeoutSeconds).toBe(900)
+
+    // The caller's own Sandbox create options win over the adapter's value.
+    await sandboxClientAsProvider(client, { idleTimeoutSeconds: 900 }).create({
+      profile: { name: 'worker' },
+      providerOptions: { sandboxCreateOptions: { idleTimeoutSeconds: 120 } },
+    })
+    expect(created.at(-1)?.idleTimeoutSeconds).toBe(120)
+
+    // A caller-owned mapper still gets the bound unless it names its own.
+    await sandboxClientAsProvider(client, {
+      mapCreateInput: () => ({ backend: { type: 'opencode' } }) as CreateSandboxOptions,
+    }).create({ profile: { name: 'worker' } })
+    expect(created.at(-1)?.idleTimeoutSeconds).toBe(DEFAULT_SANDBOX_IDLE_TIMEOUT_SECONDS)
+    await sandboxClientAsProvider(client, {
+      mapCreateInput: () =>
+        ({ backend: { type: 'opencode' }, idleTimeoutSeconds: 60 }) as CreateSandboxOptions,
+    }).create({ profile: { name: 'worker' } })
+    expect(created.at(-1)?.idleTimeoutSeconds).toBe(60)
+
+    // A supervised provider child creates through the same adapter, so its environment is bounded.
+    const factory = providerAsExecutor(sandboxClientAsProvider(client, { idleTimeoutSeconds: 600 }))
+    const spec: AgentSpec = { profile: { name: 'worker' } as AgentProfile, harness: null }
+    const ctx: ExecutorContext = { signal: new AbortController().signal, seams: {} }
+    await collect(factory(spec, ctx).execute('task', ctx.signal) as AsyncIterable<UsageEvent>)
+    expect(created.at(-1)?.idleTimeoutSeconds).toBe(600)
+
+    expect(() => sandboxClientAsProvider(client, { idleTimeoutSeconds: 0 })).toThrow(
+      /positive whole number of seconds/,
+    )
+    expect(() => sandboxClientAsProvider(client, { idleTimeoutSeconds: 1.5 })).toThrow(
+      /positive whole number of seconds/,
+    )
   })
 
   it('refuses advertised runtime attachments without a supported create mapper', async () => {
