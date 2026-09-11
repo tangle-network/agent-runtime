@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { settleRecordJson } from '../../src/durable/settle-record'
 import { InMemoryResultBlobStore, InMemorySpawnJournal } from '../../src/durable/spawn-journal'
 import { createBudgetPool } from '../../src/runtime/supervise/budget'
 import { createExecutorRegistry } from '../../src/runtime/supervise/runtime'
@@ -113,6 +114,22 @@ describe('a reservation leaked at the join barrier', () => {
     // `executing` says the ticket escaped from the child's own run, not from admission.
     expect(leak?.stage).toBe('executing')
     expect(typeof leak?.ticketId).toBe('number')
+  })
+
+  it('survives into the durable settle record, which is what an autopsy reads', async () => {
+    const result = await runRoot(async (task, scope) => {
+      await spawnLeakingChild(task, scope)
+      return undefined
+    })
+
+    // `result.json` holds the whole settled result, so the finding outlives the process that made
+    // it. The leak was the reason #1181 left a `failure.json` with `nodes: 0` and no settle record
+    // at all; the evidence is worth nothing if it only exists in memory.
+    const recorded = JSON.parse(settleRecordJson(result)) as {
+      leakedReservations?: ReadonlyArray<{ childId?: string; assignment?: string }>
+    }
+    expect(recorded.leakedReservations).toHaveLength(1)
+    expect(recorded.leakedReservations?.[0]?.assignment).toBe('extract-ghrist')
   })
 
   it('still fails loud on the success path, where a corrupt total would travel as a winner', async () => {
