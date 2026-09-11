@@ -237,16 +237,27 @@ describe('coordination MCP over a live Scope — the real keystone (HTTP → MCP
 /** Run `body` against a REAL live scope — the same path the sandbox supervisor arm uses — and
  *  surface whatever it returned or threw. No stub scope: a bind gate is only meaningful on the
  *  scope the server would actually have fronted. */
-async function withLiveScope<T>(body: (scope: Scope<unknown>) => Promise<T>): Promise<T> {
+async function withLiveScope<T>(
+  body: (scope: Scope<unknown>) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
   const blobs = new InMemoryResultBlobStore()
   let captured: { ok: true; value: T } | { ok: false; error: unknown } | undefined
+  let started = false
+  let complete!: () => void
+  const completed = new Promise<void>((resolve) => {
+    complete = resolve
+  })
   const root: Agent<unknown, unknown> = {
     name: 'bind-gate',
     async act(_task, scope: Scope<unknown>) {
+      started = true
       try {
         captured = { ok: true, value: await body(scope) }
       } catch (error) {
         captured = { ok: false, error }
+      } finally {
+        complete()
       }
       return undefined
     },
@@ -259,7 +270,11 @@ async function withLiveScope<T>(body: (scope: Scope<unknown>) => Promise<T>): Pr
     executors: createExecutorRegistry(),
     maxDepth: 2,
     now: () => 0,
+    signal,
   })
+  if (!started) throw new Error('the root agent never ran')
+  // Cancellation can settle the supervisor before the listener finishes closing.
+  await completed
   if (!captured) throw new Error('the root agent never ran')
   if (!captured.ok) throw captured.error
   return captured.value
@@ -422,6 +437,7 @@ describe('serveCoordinationMcp receives the peerMail the supervisor forwards', (
 async function withBoundHttp<T>(
   extra: Partial<Parameters<typeof serveCoordinationMcp>[0]>,
   body: (mcp: Awaited<ReturnType<typeof serveCoordinationMcp>>) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   return withLiveScope(async (scope) => {
     const mcp = await serveCoordinationMcp({
@@ -447,7 +463,7 @@ async function withBoundHttp<T>(
     } finally {
       await mcp.close()
     }
-  })
+  }, signal)
 }
 
 function postHttp(
@@ -720,24 +736,136 @@ describe('authenticated and bounded coordination HTTP', () => {
     })
   })
 
-  it('returns a caller-owned reachable endpoint and binds its audience without putting credentials in the URL', async () => {
-    await withBoundHttp(
-      { publicUrl: ({ actorId }) => `https://coordination.example/${actorId}` },
-      async (mcp) => {
-        expect(mcp.url).toBe('https://coordination.example/actor-a')
-        expect(mcp.url).not.toContain(mcp.headers.Authorization!)
-        const response = await fetch(`http://127.0.0.1:${mcp.port}/actor-a`, {
-          method: 'POST',
-          headers: {
-            ...mcp.headers,
-            Host: 'coordination.example',
-            'content-type': 'application/json',
+  it.each([false, true])(
+    'binds the caller-owned endpoint and credential audience with async resolution=%s',
+    async (asynchronous) => {
+      await withBoundHttp(
+        {
+          publicUrl: ({ actorId }) => {
+            const url = `https://coordination.example/${actorId}`
+            return asynchronous ? Promise.resolve(url) : url
           },
-          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-        })
-        expect(response.status).toBe(200)
+        },
+        async (mcp) => {
+          expect(mcp.url).toBe('https://coordination.example/actor-a')
+          expect(mcp.url).not.toContain(mcp.headers.Authorization!)
+          const response = await fetch(`http://127.0.0.1:${mcp.port}/actor-a`, {
+            method: 'POST',
+            headers: {
+              ...mcp.headers,
+              Host: 'coordination.example',
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+          })
+          expect(response.status).toBe(200)
+        },
+      )
+    },
+  )
+
+  it('denies requests while the public address is being resolved', async () => {
+    const addresses: string[] = []
+    await withBoundHttp(
+      {
+        publicUrl: async ({ host, port, runId, actorId, signal }) => {
+          expect({ host, runId, actorId }).toEqual({
+            host: '127.0.0.1',
+            runId: 'run-a',
+            actorId: 'actor-a',
+          })
+          expect(signal.aborted).toBe(false)
+          const url = `http://${host}:${port}/mcp`
+          addresses.push(url)
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+          })
+          expect(response.status).toBe(403)
+          return url
+        },
+      },
+      async (mcp) => {
+        expect(mcp.url).toBe(addresses[0])
+        expect((await postHttp(mcp, mcp.headers)).status).toBe(200)
       },
     )
+  })
+
+  it.each([
+    'http://coordination.example/mcp',
+    'https://secret@coordination.example/mcp',
+    'https://coordination.example/mcp?secret=value',
+    'https://coordination.example/mcp#secret',
+  ])('closes the listener when async resolution returns an unsafe endpoint: %s', async (url) => {
+    let localUrl = ''
+    const ready = vi.fn()
+    await expect(
+      withBoundHttp(
+        {
+          publicUrl: async ({ port }) => {
+            localUrl = `http://127.0.0.1:${port}/mcp`
+            return url
+          },
+        },
+        ready,
+      ),
+    ).rejects.toThrow(/coordination publicUrl/)
+    expect(ready).not.toHaveBeenCalled()
+    await expect(fetch(localUrl)).rejects.toThrow()
+  })
+
+  it('closes the listener when the async resolver rejects', async () => {
+    let localUrl = ''
+    const ready = vi.fn()
+    const failure = new Error('endpoint provisioning failed')
+    await expect(
+      withBoundHttp(
+        {
+          publicUrl: async ({ port }) => {
+            localUrl = `http://127.0.0.1:${port}/mcp`
+            throw failure
+          },
+        },
+        ready,
+      ),
+    ).rejects.toBe(failure)
+    expect(ready).not.toHaveBeenCalled()
+    await expect(fetch(localUrl)).rejects.toThrow()
+  })
+
+  it('cancels a pending resolver, closes its listener, and observes a late rejection', async () => {
+    const controller = new AbortController()
+    let resolverSignal: AbortSignal | undefined
+    let localUrl = ''
+    let rejectResolution!: (error: Error) => void
+    const pending = new Promise<string>((_resolve, reject) => {
+      rejectResolution = reject
+    })
+    const ready = vi.fn()
+    await expect(
+      withBoundHttp(
+        {
+          publicUrl: ({ port, signal }) => {
+            resolverSignal = signal
+            localUrl = `http://127.0.0.1:${port}/mcp`
+            queueMicrotask(() => controller.abort('manager cancelled'))
+            return pending
+          },
+        },
+        ready,
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({
+      name: 'AbortError',
+      message: 'manager cancelled',
+    })
+    expect(resolverSignal?.aborted).toBe(true)
+    expect(ready).not.toHaveBeenCalled()
+    await expect(fetch(localUrl)).rejects.toThrow()
+    rejectResolution(new Error('late provisioning failure'))
+    await new Promise<void>((resolve) => setImmediate(resolve))
   })
 })
 
