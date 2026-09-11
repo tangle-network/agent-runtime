@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.4
+
+Admit Sandbox 0.39 through the shared dependency catalog and consume Runtime's retained result reconciliation fix.
+
 ## 0.11.3
 
 Uses Runtime 0.209.0, Eval 0.180.0, and Knowledge 15.0.3 together, including named resource accounting and source-attributed resource reports.
