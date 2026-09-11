@@ -48,6 +48,9 @@ interface MockScript {
   readonly verdict?: DefaultVerdict
   /** When set, `execute` throws — the scope types it into a `down` settlement. */
   readonly failWith?: string
+  /** When set, `execute` throws this exact value, so a test can supply an error that wraps a
+   *  `cause` rather than a bare message. */
+  readonly throwError?: unknown
   /** When set, `execute` blocks on this promise until the scope aborts it. */
   readonly block?: Promise<void>
   /** When set, the executor implements `deliver` (the inbox) and pushes received messages here. */
@@ -64,6 +67,7 @@ function mockExecutor(script: MockScript): Executor<unknown> {
       // resultArtifact(). A `block` script parks until the spawn-scoped signal aborts,
       // so an abort mid-flight tears the child down deterministically.
       return (async function* () {
+        if (script.throwError !== undefined) throw script.throwError
         if (script.failWith !== undefined) throw new ValidationError(script.failWith)
         if (script.block) {
           await Promise.race([
@@ -1497,6 +1501,71 @@ describe('reactive scope', () => {
       expect(down.reason).toContain('leaf exploded')
     }
     expect(done?.kind).toBe('done')
+  })
+
+  it('a down reason carries the cause chain, so a fixed-message wrapper stays diagnosable', async () => {
+    // RetainedExecutionPendingError has ONE fixed message and holds the real failure as `cause`.
+    // Recording only the message made 143 of 199 children across 16 pursuits (2026-09-11)
+    // indistinguishable from one another in the run record: every one read "retained provider
+    // execution requires reconciliation before replacement" and nothing else (#1182).
+    const { scope } = await beginScope()
+    const wrapped = new Error(
+      'retained provider execution requires reconciliation before replacement',
+      {
+        cause: new TypeError('session result rejected: executionId did not match controlRef'),
+      },
+    )
+    scope.spawn(leafAgent('wrapped', { out: null, events: [], throwError: wrapped }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'wrapped',
+    })
+    const settles: Settled<unknown>[] = []
+    for (let s = await scope.next(); s !== null; s = await scope.next()) settles.push(s)
+    const down = settles.find((s) => s.kind === 'down')
+    expect(down).toBeDefined()
+    if (down?.kind === 'down') {
+      expect(down.reason).toContain('requires reconciliation before replacement')
+      expect(down.reason).toContain('TypeError: session result rejected')
+    }
+  })
+
+  it('a down reason walks a nested cause chain and stops before it can run away', async () => {
+    const { scope } = await beginScope()
+    // Six deep; the walk is bounded at four so a long or cyclic chain cannot turn one settle
+    // reason into a dump.
+    let deepest: Error = new Error('level-6-innermost')
+    for (const level of [5, 4, 3, 2, 1]) deepest = new Error(`level-${level}`, { cause: deepest })
+    scope.spawn(leafAgent('deep', { out: null, events: [], throwError: deepest }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'deep',
+    })
+    const settles: Settled<unknown>[] = []
+    for (let s = await scope.next(); s !== null; s = await scope.next()) settles.push(s)
+    const down = settles.find((s) => s.kind === 'down')
+    if (down?.kind === 'down') {
+      expect(down.reason).toContain('level-1')
+      expect(down.reason).toContain('level-5')
+      expect(down.reason).not.toContain('level-6-innermost')
+    }
+  })
+
+  it('a cyclic cause chain terminates instead of hanging the settle', async () => {
+    const { scope } = await beginScope()
+    const outer = new Error('outer-cycle')
+    const inner = new Error('inner-cycle', { cause: outer })
+    ;(outer as { cause?: unknown }).cause = inner
+    scope.spawn(leafAgent('cycle', { out: null, events: [], throwError: outer }), 'task', {
+      budget: { maxIterations: 1, maxTokens: 10 },
+      label: 'cycle',
+    })
+    const settles: Settled<unknown>[] = []
+    for (let s = await scope.next(); s !== null; s = await scope.next()) settles.push(s)
+    const down = settles.find((s) => s.kind === 'down')
+    if (down?.kind === 'down') {
+      expect(down.reason).toContain('outer-cycle')
+      expect(down.reason).toContain('inner-cycle')
+      expect(down.reason.length).toBeLessThan(400)
+    }
   })
 
   it('spawn fails closed on depth-exceeded', async () => {

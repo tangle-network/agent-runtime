@@ -3273,7 +3273,18 @@ function isInfraError(err: unknown): boolean {
   return err instanceof ValidationError
 }
 
+/** The message a settle record carries for a thrown executor, with its cause chain. A wrapper such
+ *  as `RetainedExecutionPendingError` has one fixed message, so without the chain a run record says
+ *  a child went down and nothing else; across 16 pursuits on 2026-09-11, 143 of 199 children
+ *  settled that way and none was diagnosable from the record (#1182). Bounded, because a cause
+ *  chain can be cyclic or long and a reason is a line, not a dump. */
 function errMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  return String(err)
+  if (!(err instanceof Error)) return String(err)
+  const parts = [err.message]
+  let cause: unknown = err.cause
+  for (let depth = 0; depth < 4 && cause !== undefined && cause !== null; depth += 1) {
+    parts.push(cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause))
+    cause = cause instanceof Error ? cause.cause : undefined
+  }
+  return parts.join(': caused by ')
 }

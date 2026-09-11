@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.213.0
+
+A `down` settlement's `reason` now carries the thrown error's `cause` chain, appended as
+`: caused by <name>: <message>`, up to four levels deep.
+An error class with one fixed message and the real failure on `cause` previously reduced every
+distinct failure to the same line: across 16 pursuits on 2026-09-11, 143 of 199 children settled as
+`retained provider execution requires reconciliation before replacement` and the run record held
+nothing that separated them.
+The walk is bounded, so a long or cyclic chain cannot turn one settle reason into a dump.
+A consumer that matches a settle `reason` by equality should match by prefix or substring instead;
+a reason with no `cause` behind it is unchanged.
+
 ## 0.212.0
 
 The bridge model-route probe (`GET /v1/capabilities?model=…`, run before every spawn and every
