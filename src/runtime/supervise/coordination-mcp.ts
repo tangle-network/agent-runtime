@@ -45,6 +45,7 @@ import {
   type SpawnPreflight,
   type WorkerWatchOptions,
 } from '../../mcp/tools/coordination'
+import { runAbortable } from './abortable'
 import {
   type CoordinationHttpOptions,
   coordinationHttpHandler,
@@ -117,6 +118,8 @@ export interface CoordinationPublicAddress {
   readonly port: number
   readonly runId: string
   readonly actorId: string
+  /** Manager cancellation and deadline; pass this to asynchronous endpoint provisioning. */
+  readonly signal: AbortSignal
 }
 
 export interface CoordinationTransportOptions extends CoordinationHttpOptions {
@@ -124,8 +127,8 @@ export interface CoordinationTransportOptions extends CoordinationHttpOptions {
   readonly port?: number
   /** Required for remote binds. Each server mints a distinct run/actor credential. */
   readonly authentication?: true | CoordinationAuthentication
-  /** Caller-owned reachable endpoint or mapping. Runtime does not create a relay or tunnel. */
-  readonly publicUrl?: string | ((address: CoordinationPublicAddress) => string)
+  /** Caller-owned reachable endpoint or mapping, awaited before dispatch. Runtime creates no tunnel. */
+  readonly publicUrl?: string | ((address: CoordinationPublicAddress) => string | Promise<string>)
 }
 
 export function assertCoordinationTransport(options: CoordinationTransportOptions): void {
@@ -496,10 +499,15 @@ export async function serveCoordinationMcp(
   const localUrl = `http://${urlHost}:${port}/mcp`
   let url: string
   try {
+    const resolver = opts.publicUrl
     const configured =
-      typeof opts.publicUrl === 'function'
-        ? opts.publicUrl({ host, port, ...identity })
-        : opts.publicUrl
+      typeof resolver === 'function'
+        ? await runAbortable(
+            async () => resolver({ host, port, ...identity, signal: opts.scope.signal }),
+            opts.scope.signal,
+            'coordination public address resolution aborted',
+          )
+        : resolver
     const publicAddress = new URL(configured ?? localUrl)
     if (
       !['http:', 'https:'].includes(publicAddress.protocol) ||

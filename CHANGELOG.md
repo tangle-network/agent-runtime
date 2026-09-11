@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.219.0
+
+Coordination public address resolvers can now return a promise and receive the manager's cancellation signal.
+Runtime waits for the reachable endpoint before dispatch, denies requests during setup, and closes the listener when resolution fails or is cancelled.
+Recursive managers can expose independently allocated ports through their provider's existing network API.
+
 ## 0.218.2
 
 A run that no later process will resume now releases the provider environments its retained

@@ -150,50 +150,82 @@ it('refuses advertised remote coordination when the provider cannot mount runtim
   expect(toolResults.some((text) => text.includes('runtimeAttachments'))).toBe(true)
 })
 
-it('mounts an authenticated reachable coordination attachment without changing the provider profile', async () => {
-  let creates = 0
-  let mountedStatus: number | undefined
-  let receivedProfile: AgentProfile | undefined
-  const provider: AgentEnvironmentProvider = {
-    name: 'attachment-boundary',
-    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
-    async create(input) {
-      creates++
-      receivedProfile = input.profile
-      const server = input.runtimeAttachments?.mcp['agent-runtime-coordination']
-      if (server?.transport !== 'http') throw new Error('missing HTTP coordination attachment')
-      const response = await fetch(server.url, {
-        method: 'POST',
-        headers: {
-          ...Object.fromEntries(
-            Object.entries(server.headers ?? {}).map(([name, value]) => {
-              if (value.kind !== 'secret-ref' || value.format !== 'bearer')
-                throw new Error('test expects a private bearer reference')
-              return [name, `Bearer ${input.env?.[value.key]}`]
-            }),
-          ),
-          'content-type': 'application/json',
+it.each([false, true])(
+  'mounts coordination without changing the profile, async resolution=%s',
+  async (asynchronous) => {
+    let creates = 0
+    let mountedStatus: number | undefined
+    let receivedProfile: AgentProfile | undefined
+    const provider: AgentEnvironmentProvider = {
+      name: 'attachment-boundary',
+      capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
+      async create(input) {
+        creates++
+        receivedProfile = input.profile
+        const server = input.runtimeAttachments?.mcp['agent-runtime-coordination']
+        if (server?.transport !== 'http') throw new Error('missing HTTP coordination attachment')
+        const response = await fetch(server.url, {
+          method: 'POST',
+          headers: {
+            ...Object.fromEntries(
+              Object.entries(server.headers ?? {}).map(([name, value]) => {
+                if (value.kind !== 'secret-ref' || value.format !== 'bearer')
+                  throw new Error('test expects a private bearer reference')
+                return [name, `Bearer ${input.env?.[value.key]}`]
+              }),
+            ),
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+        })
+        mountedStatus = response.status
+        // This test ends at real provider admission and MCP reachability, without model inference.
+        throw new Error('test stopped after attachment admission')
+      },
+    }
+    const { events, toolResults } = await spawnLeadFromRoot(
+      {
+        backend: { backend: 'provider', provider },
+        coordination: {
+          authentication: true,
+          publicUrl: ({ port }) => {
+            const url = `http://127.0.0.1:${port}/mcp`
+            return asynchronous ? Promise.resolve(url) : url
+          },
         },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
-      })
-      mountedStatus = response.status
-      // This test ends at real provider admission and MCP reachability, without model inference.
-      throw new Error('test stopped after attachment admission')
-    },
+        driverRetry: { enabled: false },
+      },
+      true,
+    )
+    expect(creates, JSON.stringify({ events, toolResults })).toBe(1)
+    expect(mountedStatus).toBe(200)
+    expect(receivedProfile?.name).toBe(spawnCapableChild.name)
+    expect(receivedProfile?.mcp?.['agent-runtime-coordination']).toBeUndefined()
+  },
+)
+
+it('never admits a provider manager when asynchronous endpoint provisioning fails', async () => {
+  const { provider: base, creates } = neverCreatingProvider()
+  const provider: AgentEnvironmentProvider = {
+    ...base,
+    capabilities: () => ({ create: { runtimeAttachments: { mcp: true } } }),
   }
-  const { events, toolResults } = await spawnLeadFromRoot(
+  let localUrl = ''
+  const { events } = await spawnLeadFromRoot(
     {
       backend: { backend: 'provider', provider },
       coordination: {
         authentication: true,
-        publicUrl: ({ port }) => `http://127.0.0.1:${port}/mcp`,
+        publicUrl: async ({ port }) => {
+          localUrl = `http://127.0.0.1:${port}/mcp`
+          throw new Error('endpoint provisioning failed')
+        },
       },
       driverRetry: { enabled: false },
     },
     true,
   )
-  expect(creates, JSON.stringify({ events, toolResults })).toBe(1)
-  expect(mountedStatus).toBe(200)
-  expect(receivedProfile?.name).toBe(spawnCapableChild.name)
-  expect(receivedProfile?.mcp?.['agent-runtime-coordination']).toBeUndefined()
+  expect(creates()).toBe(0)
+  expect(events.some((event) => event.kind === 'settled' && event.status === 'down')).toBe(true)
+  await expect(fetch(localUrl)).rejects.toThrow()
 })

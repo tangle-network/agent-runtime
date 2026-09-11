@@ -13309,6 +13309,12 @@ Caller-owned secret keys. Keep prior keys to verify unexpired credentials after 
 
 > `readonly` **actorId**: `string`
 
+##### signal
+
+> `readonly` **signal**: `AbortSignal`
+
+Manager cancellation and deadline; pass this to asynchronous endpoint provisioning.
+
 ***
 
 ### CoordinationTransportOptions
@@ -13399,9 +13405,9 @@ Required for remote binds. Each server mints a distinct run/actor credential.
 
 ##### publicUrl?
 
-> `readonly` `optional` **publicUrl?**: `string` \| ((`address`) => `string`)
+> `readonly` `optional` **publicUrl?**: `string` \| ((`address`) => `string` \| `Promise`\<`string`\>)
 
-Caller-owned reachable endpoint or mapping. Runtime does not create a relay or tunnel.
+Caller-owned reachable endpoint or mapping, awaited before dispatch. Runtime creates no tunnel.
 
 ***
 
@@ -14446,7 +14452,7 @@ root scope and every live child, including acquisition and backend execution.
 
 ###### Inherited from
 
-[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-20)
+[`SuperviseOptions`](#superviseoptions).[`signal`](#signal-21)
 
 ##### execution?
 
@@ -22797,7 +22803,7 @@ Phantom: binds the handle to the supervised run's output type. Type-only — nev
 
 ###### Inherited from
 
-[`RootHandle`](#roothandle-2).[`signal`](#signal-26)
+[`RootHandle`](#roothandle-2).[`signal`](#signal-27)
 
 ##### abort()
 
@@ -36602,7 +36608,7 @@ and a watched path that was also mounted compares against its mount (never repor
 
 The harvest takes no `AbortSignal`: it is pure fan-out over the read seam and waits on nothing
 itself, so every cancellable moment belongs to the reader. Pass a signal to the reader instead
-([BoxSurfaceReaderOptions.signal](#signal-29), or close over one in a custom [SurfaceReader](#surfacereader)) —
+([BoxSurfaceReaderOptions.signal](#signal-30), or close over one in a custom [SurfaceReader](#surfacereader)) —
 that cuts the backoff waits, and the harvest still returns the diffs it did establish rather
 than discarding settle-time evidence on a late cancellation.
 
