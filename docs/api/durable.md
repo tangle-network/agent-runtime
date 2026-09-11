@@ -2569,6 +2569,12 @@ the question instead of hand-rolling `process.kill(pid, 0)`. A bare signal probe
 live holder from an unrelated process that later took the same pid, which is the failure this
 lock's start token exists to prevent.
 
+The answer is ADVISORY: it is read outside the mutation guard `acquireRunDirectoryLock` holds,
+so a `false` can be stale by the time the caller acts on it and a concurrent acquire can take
+the directory in between. Reporting and listing are what this is for. A caller that intends to
+TAKE the directory calls `acquireRunDirectoryLock`, which evaluates the same rule under the
+guard and refuses atomically.
+
 #### Parameters
 
 ##### runDir

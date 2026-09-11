@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.216.0
+
+A provider-stated dollar with no billing receipt behind it is priced once, not twice.
+The cost path priced every call a catalog could price and then added the provider's own stated
+total, so a run whose provider reported dollars AND whose calls were catalogue-priced counted the
+same work on both channels.
+Only the calls no receipt covers are priced now, so `usd - usdEstimated` remains what a provider is
+known to have billed.
+A consumer reading `usdEstimated` on a run with partial receipts should expect a smaller figure.
+
+The durable settle record now retains a leaked reservation, so a run that hit the conserved-pool
+invariant is diagnosable from its own record rather than only from the exception.
+`runDirectoryHolderIsLive` is documented as advisory: it answers about the instant it was asked.
+
 ## 0.215.0
 
 A lost bridge run now waits before replaying, instead of burning every reconnect attempt back to
