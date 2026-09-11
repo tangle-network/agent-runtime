@@ -684,9 +684,16 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     // Reserve the child's whole ceiling atomically; fail CLOSED when the pool can't cover
     // it (never read-then-spawn overcommit, so Σk is conserved by construction). This happens
     // before a fresh lazy agent factory is called: refused work constructs nothing.
+    // The ticket is named from the moment it exists. A node id arrives only after admission, so
+    // the holder is refined below; a leak caught before then still carries the assignment.
+    const assignment = opts.assignmentId ?? opts.key
     let reservation: ReturnType<BudgetPool['reserve']>
     try {
-      reservation = args.pool.reserve(opts.budget)
+      reservation = args.pool.reserve(opts.budget, {
+        ...(assignment === undefined ? {} : { assignment }),
+        label: opts.label,
+        stage: 'admitted',
+      })
     } catch (error) {
       permit.release()
       throw error
@@ -734,6 +741,7 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
     try {
       const ordinal = recovery?.spawned.seq ?? spawnOrdinal++
       const id: NodeId = recovery?.spawned.id ?? `${args.parentId}:s${ordinal}`
+      args.pool.attribute(reservation.ticket, { childId: id, stage: 'admitted' })
       const attemptId = newExecutionAttemptId(id)
       const startedAt = recovery ? Date.parse(recovery.spawned.at) : now()
       if (!Number.isFinite(startedAt))
@@ -1226,6 +1234,9 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
         recovery !== undefined,
         closeRetainedWrites,
       )
+      // `runChild` owns the ticket from here: only the child's settlement closes it, so a leak
+      // found at the join barrier points at a child that never settled rather than at admission.
+      args.pool.attribute(reservation.ticket, { stage: 'executing' })
       const interactiveBindingCommitted = spawnCommitted.then(async () => {
         if (args.interactiveBindingDir === undefined) return
         const immediate = readInteractiveSession(live)

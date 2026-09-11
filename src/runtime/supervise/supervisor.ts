@@ -713,21 +713,26 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // carried in, so `tree` covers the same work `spentTotal` bills for. Identical to `scope.view`
       // on every run that did not resume.
       const tree = runTree(scope)
-      // Success and failure both pass the same conservation check. A child promise is never allowed
-      // to disappear behind a swallowed cleanup error and leave a reservation open.
-      pool.assertNoOpenTickets()
+      // Reservations still open once every child has settled, read once at the barrier and named
+      // by their holders. A leak breaks `total ≡ free + reserved + committed`, so the winner path
+      // below still fails loud rather than hand back an output whose `spentTotal` cannot be
+      // trusted. A run that produced NO winner reports the same leak as an integrity finding
+      // instead: its tree and the spend the journal recorded are real, and replacing that
+      // settlement with an exception discards a whole pursuit over cleanup bookkeeping (#1181).
+      const leakedReservations = pool.openReservations()
       if (controller.signal.reason instanceof RunCancellationReason) return noWinner()
       if (actOutcome.ok) {
         if (executionAborted) return noWinner()
-        // Every child has settled (join barrier above); no reservation may remain. A leaked ticket
-        // would silently corrupt the conserved spend total, so fail loud here — on the success path
-        // only, where the act() error precedence does not apply.
         const out = actOutcome.out
         // Completion-oracle at the root: a `winner` MUST carry a real `Out`. A driver that ran to
         // completion but selected nothing (its keep-best finalize found no DELIVERED child) returns
         // `undefined` — that is a no-winner, never a winner wrapping `undefined`. The supervisor's
         // contract is to refuse coercing a non-result into a best-effort Out (Foreman's 0/18 lesson).
         if (out !== undefined) {
+          // The one arm that claims a trustworthy `spentTotal` beside a delivered output, so it is
+          // the one arm that keeps the invariant as an assertion: a leaked ticket here would let a
+          // corrupt conserved total travel as a success.
+          pool.assertNoOpenTickets()
           // The driver synthesized a winner. Content-address it for the replay `outRef`, put it
           // once, and sum the conserved spend off every journaled settlement. No re-ranking — the
           // driver already selected.
@@ -777,6 +782,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           spentTotal,
           providerModel,
           ...(teardownUnconfirmed.length > 0 ? { teardownUnconfirmed } : {}),
+          ...(leakedReservations.length > 0 ? { leakedReservations } : {}),
           ...(gaps.length > 0 ? { spendGaps: gaps } : {}),
         }
         // The lifecycle causes outrank the driver's own rejection, so they are asked first and a

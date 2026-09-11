@@ -1692,6 +1692,12 @@ export type SupervisedResult<Out> =
        *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
        *  healthy run never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      /** Budget reservations still open when the run reached its join barrier, each named by the
+       *  assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
+       *  `total ≡ free + reserved + committed` does not hold, so `spentTotal` is a floor rather
+       *  than a measurement — the run still settles with the tree and the spend the journal
+       *  recorded. Present exactly when non-empty; a healthy run never carries it. */
+      leakedReservations?: ReadonlyArray<import('./budget').LeakedReservation>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
@@ -1733,6 +1739,12 @@ export type SupervisedResult<Out> =
        *  each is journaled as a `teardown-unconfirmed` event. Present exactly when non-empty; a
        *  healthy run never carries it. */
       teardownUnconfirmed?: ReadonlyArray<UnconfirmedTeardown>
+      /** Budget reservations still open when the run reached its join barrier, each named by the
+       *  assignment, child id, and lifecycle stage that holds it. The conserved-pool identity
+       *  `total ≡ free + reserved + committed` does not hold, so `spentTotal` is a floor rather
+       *  than a measurement — the run still settles with the tree and the spend the journal
+       *  recorded. Present exactly when non-empty; a healthy run never carries it. */
+      leakedReservations?: ReadonlyArray<import('./budget').LeakedReservation>
       /** The journaled nodes whose usage accounting is incomplete — the named gaps behind a
        *  `false` `tokensKnown`/`usdKnown` on `spentTotal`. Present exactly when non-empty. */
       spendGaps?: ReadonlyArray<SpendGap>
