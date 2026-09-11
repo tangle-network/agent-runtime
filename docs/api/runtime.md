@@ -4004,6 +4004,16 @@ require this explicit mapper until the maintained Sandbox SDK transports them.
 
 `CreateSandboxOptions`
 
+##### idleTimeoutSeconds?
+
+> `optional` **idleTimeoutSeconds?**: `number`
+
+**`Experimental`**
+
+`idleTimeoutSeconds` sent on every Sandbox create this adapter makes (a mapped create, a
+`mapCreateInput` result, or a fork), unless those create options already name one. Defaults to
+[DEFAULT\_SANDBOX\_IDLE\_TIMEOUT\_SECONDS](#default_sandbox_idle_timeout_seconds); a positive whole number of seconds.
+
 ***
 
 ### ProviderLeafOut
@@ -14759,6 +14769,20 @@ An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
 [`SuperviseOptions`](#superviseoptions).[`childSettleGraceMs`](#childsettlegracems-1)
 
+##### retainedAtSettlement?
+
+> `readonly` `optional` **retainedAtSettlement?**: `"release"` \| `"keep"`
+
+What root settlement does with provider environments that settled children still hold for a
+retained execution: `'release'` them with one `environment-teardown` receipt each, or `'keep'`
+them for a later call that resumes this run. Default: `'keep'` with `runDir` (re-running the
+same `runDir` and `runId` resumes), `'release'` without it (nothing can resume an in-memory
+run). See `SupervisorOpts.retainedAtSettlement`.
+
+###### Inherited from
+
+[`SuperviseOptions`](#superviseoptions).[`retainedAtSettlement`](#retainedatsettlement-1)
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](#resolvedriveharness-2)
@@ -18894,6 +18918,16 @@ How long live children may keep running after the root driver returns or fails, 
 barrier cascades the abort into them. `null` waits until children settle or the caller cancels.
 An explicit run deadline always wins. Omit/`0` = immediate teardown.
 
+##### retainedAtSettlement?
+
+> `readonly` `optional` **retainedAtSettlement?**: `"release"` \| `"keep"`
+
+What root settlement does with provider environments that settled children still hold for a
+retained execution: `'release'` them with one `environment-teardown` receipt each, or `'keep'`
+them for a later call that resumes this run. Default: `'keep'` with `runDir` (re-running the
+same `runDir` and `runId` resumes), `'release'` without it (nothing can resume an in-memory
+run). See `SupervisorOpts.retainedAtSettlement`.
+
 ##### resolveDriveHarness?
 
 > `readonly` `optional` **resolveDriveHarness?**: [`ResolveDriveHarness`](#resolvedriveharness-2)
@@ -20716,6 +20750,31 @@ Tear the executor's resources down. `grace` mirrors the OTP shutdown spec
 
 `Promise`\<\{ `destroyed`: `boolean`; `detail?`: `string`; \}\>
 
+##### releaseRetained()?
+
+> `optional` **releaseRetained**(`signal`): `Promise`\<readonly [`EnvironmentTeardownReceipt`](#environmentteardownreceipt)[]\>
+
+Optional release of a RETAINED execution that no later process will recover.
+
+`teardown` keeps a pending retained execution's environment alive by construction: the paid
+work inside it is what a resumed run reconciles. Once the root has reached its own terminal
+outcome nothing will, and the environment is a leak — measured 2026-09-11, four settled runs
+held 18 of a 60-slot fleet for 19 to 37 hours this way. The supervisor calls this at root
+settlement, never on a resumable interruption (an explicit cancellation, a process crash), and
+journals one `environment-teardown` receipt per environment returned. `signal` bounds the
+attempt; an executor that holds no retained execution answers with no receipts. After a
+`destroyed: true` receipt the executor's `teardown` must answer `destroyed: true` as well.
+
+###### Parameters
+
+###### signal
+
+`AbortSignal`
+
+###### Returns
+
+`Promise`\<readonly [`EnvironmentTeardownReceipt`](#environmentteardownreceipt)[]\>
+
 ##### resultArtifact()
 
 > **resultArtifact**(): `object`
@@ -20930,6 +20989,38 @@ What the teardown threw, as text.
 > `readonly` **at**: `string`
 
 ISO timestamp of the failed attempt.
+
+***
+
+### EnvironmentTeardownReceipt
+
+The receipt for one provider environment an executor held for a RETAINED execution and was
+asked to release at root settlement (see [Executor.releaseRetained](#releaseretained)). One receipt per
+environment, naming the provider's own id, so a fleet listing can be reconciled against what
+the run says it released. `destroyed: false` carries why in `detail`.
+
+#### Properties
+
+##### provider
+
+> `readonly` **provider**: `string`
+
+##### environmentId
+
+> `readonly` **environmentId**: `string`
+
+The provider-issued environment id — the same id the `execution-admitted` record carries.
+
+##### destroyed
+
+> `readonly` **destroyed**: `boolean`
+
+##### detail?
+
+> `readonly` `optional` **detail?**: `string`
+
+Why the environment could not be proven destroyed; present exactly when `destroyed` is
+ false.
 
 ***
 
@@ -22410,6 +22501,26 @@ Default `false` refuses an existing run ID instead of replacing its journal.
 Configure `recoverExecutor` to reconcile retained children before new work is admitted.
 Unresolved keyed work remains in doubt.
 The file run lock provides local ownership, without distributed fencing.
+
+##### retainedAtSettlement?
+
+> `readonly` `optional` **retainedAtSettlement?**: `"release"` \| `"keep"`
+
+What root settlement does with a provider environment that a settled child still holds for a
+RETAINED execution (`Executor.releaseRetained`). Such a child settles `down` with its cursor
+slot open and its environment alive, because a later process that resumes this run reconciles
+the paid execution inside it.
+
+- `'release'`: the run will not be resumed, so nothing would ever reconcile or release those
+  environments. The join barrier releases each one and journals an `environment-teardown`
+  receipt per environment. Measured 2026-09-11: four settled runs held 18 of a 60-slot
+  Sandbox fleet for 19 to 37 hours without it.
+- `'keep'`: a later process may resume this run, so the environments stay for its recovery.
+
+Default: `'keep'` when `resume` is true (a durable run a later process may continue), else
+`'release'`. A caller that owns finality says so: `supervisePursuit` records a settle record
+that refuses re-entry, so it always releases. A process crash never reaches settlement, so it
+releases nothing under either value.
 
 ##### now?
 
@@ -28068,7 +28179,7 @@ Epoch ms parsed from the durable settlement/cancellation record when available.
 
 ### SpawnEvent
 
-> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\>; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
+> **SpawnEvent** = \{ `kind`: `"spawned"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `key?`: `string`; `assignmentId?`: `string`; `budget`: [`Budget`](#budget-18); `runtime`: [`Runtime`](#runtime-7); `ownedTreeRoot?`: [`NodeId`](#nodeid-6); `identity?`: [`NodeExecutionIdentity`](#nodeexecutionidentity); `profileRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-input"`; `id`: [`NodeId`](#nodeid-6); `taskRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-admitted"`; `id`: [`NodeId`](#nodeid-6); `admission`: [`RetainedRunAdmission`](#retainedrunadmission); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-result"`; `outcome?`: `Pick`\<`AgentTurnResult`, `"success"` \| `"error"`\>; `id`: [`NodeId`](#nodeid-6); `outRef`: `string`; `spent`: [`Spend`](#spend); `verdict?`: `DefaultVerdict`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"execution-bound"`; `id`: [`NodeId`](#nodeid-6); `binding`: [`ExecutionBindingReceipt`](#executionbindingreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"materialized"`; `id`: [`NodeId`](#nodeid-6); `receipt`: [`ProfileMaterializationReceipt`](#profilematerializationreceipt); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"settled"`; `id`: [`NodeId`](#nodeid-6); `status`: `"done"` \| `"down"`; `outRef?`: `string`; `verdict?`: `DefaultVerdict`; `spent`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `infra?`: `boolean`; `reason?`: `string`; `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"cancelled"`; `id`: [`NodeId`](#nodeid-6); `reason`: `string`; `source?`: `string`; `infra?`: `boolean`; `spent?`: [`Spend`](#spend); `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `trace?`: [`WorkerTraceEvidence`](#workertraceevidence); `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"node-inputs-resolved"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `instance`: `string`; `inputRef`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge-verdict"`; `id`: [`NodeId`](#nodeid-6); `edge`: `string`; `fired`: `boolean`; `sourceStatus`: `"done"` \| `"down"` \| `"invalid"`; `capped?`: `boolean`; `inputRef?`: `string`; `toInstance?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"join-state"`; `id`: [`NodeId`](#nodeid-6); `node`: `string`; `rule`: `"all"` \| `"any"` \| `"any_failed"` \| `"all_done"`; `satisfiedBy`: `ReadonlyArray`\<`string`\>; `consumedPending`: `ReadonlyArray`\<`string`\>; `instance`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"waiting"`; `id`: [`NodeId`](#nodeid-6); `parent?`: [`NodeId`](#nodeid-6); `label`: `string`; `spec`: [`WaitSpec`](#waitspec); `armedAt`: `number`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"woken"`; `id`: [`NodeId`](#nodeid-6); `by`: `"fired"` \| `"timeout"` \| `"cancelled"` \| `"expired"`; `outRef?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"metered"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `accountingOnly?`: `true`; `providerModel?`: [`ProviderModelExecutionEvidence`](#providermodelexecutionevidence); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"progress"`; `id`: [`NodeId`](#nodeid-6); `spend`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"reconciled"`; `id`: [`NodeId`](#nodeid-6); `spent`: [`Spend`](#spend); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"teardown-unconfirmed"`; `id`: [`NodeId`](#nodeid-6); `label`: `string`; `runtime`: [`Runtime`](#runtime-7); `status`: [`NodeStatus`](#nodestatus); `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"edge"`; `id`: [`NodeId`](#nodeid-6); `edge`: \{ `kind`: `"delegates"` \| `"analyzes"` \| `"data"`; `from`: `string`; `to`: `string`; `directive?`: `string`; `port?`: `string`; \}; `traversal`: `number`; `outcome`: `"delivered"` \| `"stripped"` \| `"empty"` \| `"unpropagated"`; `continuity?`: `"fresh"` \| `"resume"` \| `"steer"`; `bytes`: `number`; `reason?`: `string`; `seq`: `number`; `at`: `string`; \} \| \{ `kind`: `"trace-unpropagated"`; `id`: [`NodeId`](#nodeid-6); `expectedTraceId`: `string`; `backend`: `string`; `reason`: `"no-env-channel"` \| `"no-worker-process"` \| `"caller-omitted"`; `seq`: `number`; `at`: `string`; \}
 
 Journaled spawn-tree events (B1/B2). `seq` is the cursor order; `at` is an ISO
  timestamp for human inspection only (NOT a replay input).
@@ -28737,6 +28848,53 @@ A settled child whose executor teardown was never acknowledged: the run cannot p
 > **status**: [`NodeStatus`](#nodestatus)
 
 The node's terminal status when the barrier read it.
+
+###### seq
+
+> **seq**: `number`
+
+###### at
+
+> **at**: `string`
+
+***
+
+##### Type Literal
+
+\{ `kind`: `"environment-teardown"`; `id`: [`NodeId`](#nodeid-6); `provider`: `string`; `environmentId`: `string`; `destroyed`: `boolean`; `detail?`: `string`; `seq`: `number`; `at`: `string`; \}
+
+###### kind
+
+> **kind**: `"environment-teardown"`
+
+One provider environment a settled retained-pending child held, released at root
+ settlement — or not. The run had reached a terminal outcome no later process resumes, so
+ the environment its executor kept for recovery could never be recovered; this is the
+ receipt of the supervisor's release, one per environment, naming the provider's own id
+ so a fleet listing can be reconciled against it. A `destroyed: false` receipt carries why
+ in `detail`, and the node is then also journaled as `teardown-unconfirmed`.
+ Informational: replay, `materializeTreeView`, and cost readers skip it, and its `seq` is
+ per node, outside the cursor-uniqueness namespace.
+
+###### id
+
+> **id**: [`NodeId`](#nodeid-6)
+
+###### provider
+
+> **provider**: `string`
+
+###### environmentId
+
+> **environmentId**: `string`
+
+###### destroyed
+
+> **destroyed**: `boolean`
+
+###### detail?
+
+> `optional` **detail?**: `string`
 
 ###### seq
 
@@ -29437,6 +29595,28 @@ Default ceiling for a single `await_event` block (ms). Chosen well under any rea
 > `const` **defaultAuditorInstruction**: `string`
 
 Default system instruction for intent-auditor agents: diagnose diverged/drifting trajectories.
+
+***
+
+### DEFAULT\_SANDBOX\_IDLE\_TIMEOUT\_SECONDS
+
+> `const` **DEFAULT\_SANDBOX\_IDLE\_TIMEOUT\_SECONDS**: `1800` = `1_800`
+
+The idle timeout this adapter sends when nothing else names one: 1,800 seconds.
+
+Sandbox substitutes no value of its own: an omitted field falls back to the platform's global
+idle timeout, documented as 30 minutes unless an operator changed it, and Runtime sent none. Idle
+means inactivity to Sandbox, which suspends the sandbox (the container stops; the workspace is
+kept) rather than deleting it. The SDK does not define inactivity further. A request in flight
+counts as activity: a Discovery Lab seat created with `idleTimeoutSeconds: 1800` ran one request
+to 2,252 seconds, ended by a per-request cap, not by idling (fleet-launch-2026-08-22).
+
+The value restates the documented default, so it can tighten a longer operator setting but never
+loosen the default. It is 3.8 times the longest gap between frames recorded across a healthy
+fleet run (469 seconds, same report), and a supervised provider child is observed through an open
+stream for its whole turn. It is a backstop for a process that dies holding an environment; the
+settlement barrier releases retained environments itself (`Executor.releaseRetained`). It does
+nothing on a driver with a create/delete-only lifecycle, which the SDK says skips suspension.
 
 ***
 

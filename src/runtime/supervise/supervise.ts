@@ -1629,6 +1629,14 @@ export interface SuperviseOptions {
    * An explicit run deadline always wins. Omit/`0` = immediate teardown.
    */
   readonly childSettleGraceMs?: number | null
+  /**
+   * What root settlement does with provider environments that settled children still hold for a
+   * retained execution: `'release'` them with one `environment-teardown` receipt each, or `'keep'`
+   * them for a later call that resumes this run. Default: `'keep'` with `runDir` (re-running the
+   * same `runDir` and `runId` resumes), `'release'` without it (nothing can resume an in-memory
+   * run). See `SupervisorOpts.retainedAtSettlement`.
+   */
+  readonly retainedAtSettlement?: 'release' | 'keep'
   /** Resolve one custom external-harness session per trusted manager identity. Use this instead of
    * `driveHarness` when recursive managers must be independently steerable. */
   readonly resolveDriveHarness?: ResolveDriveHarness
@@ -1841,6 +1849,7 @@ const superviseOptionKeys = [
   'blobs',
   'budget',
   'childSettleGraceMs',
+  'retainedAtSettlement',
   'compaction',
   'continuityByProfile',
   'coordination',
@@ -3240,6 +3249,9 @@ function superviseInternal(
       maxDepth: options.maxDepth ?? 8,
       ...(options.childSettleGraceMs !== undefined
         ? { childSettleGraceMs: options.childSettleGraceMs }
+        : {}),
+      ...(options.retainedAtSettlement !== undefined
+        ? { retainedAtSettlement: options.retainedAtSettlement }
         : {}),
       ...(options.maxLiveWorkers !== undefined ? { maxLiveWorkers: options.maxLiveWorkers } : {}),
       ...(probes ? { probes } : {}),

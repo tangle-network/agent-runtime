@@ -41,7 +41,7 @@ import {
   contentAddress,
   loadSpawnForest,
 } from '../../durable/spawn-journal'
-import { RuntimeRunStateError } from '../../errors'
+import { RuntimeRunStateError, ValidationError } from '../../errors'
 import { addSpend } from '../util'
 import { abortReason, RunCancellationReason, runAbortable } from './abortable'
 import { type BudgetPool, createBudgetPool } from './budget'
@@ -59,7 +59,12 @@ import { prepareScopeResume, type ScopeResumeState, sumSpendFromEvents } from '.
 export { maxSeqOf, sumMeasuredSpendFromEvents, uncertainSpawnBudgets } from './recover-executors'
 
 import { withBudgetResources } from './resources'
-import { createScope, finalizeScopeOwnerMaterialization, startScopeRecoveries } from './scope'
+import {
+  createScope,
+  finalizeScopeOwnerMaterialization,
+  releaseRetainedEnvironments,
+  startScopeRecoveries,
+} from './scope'
 import { detachedSnapshot } from './snapshot'
 import type {
   Agent,
@@ -360,6 +365,7 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       withinMs,
       childSettleGraceMs,
       resume,
+      retainedAtSettlement: requestedRetainedAtSettlement,
       now: suppliedNow,
       signal,
       hooks,
@@ -381,11 +387,23 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           ...(withinMs === undefined ? {} : { withinMs }),
           ...(childSettleGraceMs === undefined ? {} : { childSettleGraceMs }),
           ...(resume === undefined ? {} : { resume }),
+          ...(requestedRetainedAtSettlement === undefined
+            ? {}
+            : { retainedAtSettlement: requestedRetainedAtSettlement }),
           ...(interactiveBindingDir === undefined ? {} : { interactiveBindingDir }),
         },
       },
       'supervisor.run',
     )
+    if (
+      requestedRetainedAtSettlement !== undefined &&
+      requestedRetainedAtSettlement !== 'release' &&
+      requestedRetainedAtSettlement !== 'keep'
+    ) {
+      throw new ValidationError(
+        `supervisor: retainedAtSettlement must be 'release' or 'keep', got ${JSON.stringify(requestedRetainedAtSettlement)}`,
+      )
+    }
     opts = Object.freeze({
       ...input.options,
       journal: journalStore,
@@ -631,6 +649,8 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
       // Settled children whose executor teardown was never acknowledged, read at the join
       // barrier. Surfaced on every result arm so the leak is loud without voiding the run.
       let teardownUnconfirmed: ReadonlyArray<UnconfirmedTeardown> = []
+      const retainedAtSettlement =
+        opts.retainedAtSettlement ?? (opts.resume === true ? 'keep' : 'release')
       // `teardown-unconfirmed` records live outside the cursor namespace, like `metered`/`edge`.
       let teardownSeq = 0
       let executionAborted = controller.signal.aborted
@@ -687,6 +707,16 @@ export function createSupervisor<Task, Out>(): Supervisor<Task, Out> {
           : 0
         try {
           teardownUnconfirmed = await drainLiveChildren(openScope, controller, settleGraceMs)
+          // A retained-pending child kept its environment through the barrier so that a process
+          // resuming this run could reconcile the paid execution inside it. When the run will not
+          // be resumed, nothing ever would — measured 2026-09-11, four settled `no-winner` runs
+          // held 18 of a 60-slot fleet for 19 to 37 hours and later runs were refused for capacity.
+          // Whether a later process resumes is the caller's knowledge, not the outcome's, so the
+          // policy decides; the unconfirmed set is re-read so a released node is no longer named.
+          if (retainedAtSettlement === 'release') {
+            await releaseRetainedEnvironments(openScope)
+            teardownUnconfirmed = openScope.workerCapacity.unconfirmed
+          }
           // The leak is real and must surface, so it is journaled per node — durable evidence a
           // fleet autopsy reads without the run's outcome being voided by cleanup bookkeeping.
           for (const node of teardownUnconfirmed) {

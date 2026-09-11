@@ -274,6 +274,7 @@ const GRAPH_FORWARDED_SUPERVISE_OPTIONS = [
   'repromptOnUnmet',
   'onUnmetContract',
   'childSettleGraceMs',
+  'retainedAtSettlement',
   'resolveDriveHarness',
   'driveHarnessMaterialization',
   'resolveSupervisorTools',

@@ -53,6 +53,7 @@ import {
   finalizeScopeOwnerMaterialization,
   type NestedScopeSeam,
   nestedScopeSeamKey,
+  releaseRetainedEnvironments,
   startScopeRecoveries,
 } from './scope'
 import type { TraceSource } from './trace-source'
@@ -62,6 +63,7 @@ import type {
   AgentExecutionRef,
   AgentSpec,
   DefaultVerdict,
+  EnvironmentTeardownReceipt,
   Executor,
   ExecutorAccounting,
   ExecutorContext,
@@ -204,6 +206,9 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         close?: Promise<void>
       }
     | undefined
+  // The nested scope outlives `active`: it is what the root's settlement release reaches this
+  // manager's retained children through, after the manager itself has settled.
+  let nestedScopeHeld: Scope<unknown> | undefined
 
   const closeActive = (reason: string): Promise<void> => {
     if (active === undefined) return Promise.resolve()
@@ -287,6 +292,7 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
         throw new RetainedExecutionPendingError(error)
       }
       active = { controller, scope: nestedScope }
+      nestedScopeHeld = nestedScope
 
       try {
         if (recovering) {
@@ -393,6 +399,15 @@ export const driverExecutorFactory: ExecutorFactory<unknown> = (rawSpec, ctx) =>
             detail: `Nested executor cleanup is unconfirmed: ${unconfirmedDescendants.join(', ')}`,
           }
         : { destroyed: true }
+    },
+    async releaseRetained(): Promise<ReadonlyArray<EnvironmentTeardownReceipt>> {
+      // A manager holds no environment of its own. Its retained children live in the nested scope,
+      // which journals their receipts to the nested tree; what changes here is the answer this
+      // executor's `teardown` gives next, read from the nested scope after the release.
+      if (nestedScopeHeld === undefined) return []
+      await releaseRetainedEnvironments(nestedScopeHeld)
+      unconfirmedDescendants = nestedScopeHeld.workerCapacity.unconfirmed.map((node) => node.id)
+      return []
     },
     resultArtifact(): ExecutorResult<unknown> {
       if (!artifact) {

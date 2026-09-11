@@ -23,6 +23,12 @@ export interface SupervisePursuitOptions extends SuperviseOptions {
    * Intelligence joins those isolated projections without a shared write head.
    */
   readonly runDir: string
+  /**
+   * Always `'release'`. The settle record refuses re-entry, so no later call resumes a settled
+   * pursuit and nothing else would release the provider environments its retained children hold.
+   * `'keep'` is refused rather than ignored.
+   */
+  readonly retainedAtSettlement?: 'release'
 }
 
 export interface SupervisedPursuitResult<Result> {
@@ -87,6 +93,11 @@ export async function supervisePursuit(
   if (runDir.length === 0) {
     throw new TypeError('supervisePursuit: runDir must be non-empty')
   }
+  if ((opts.retainedAtSettlement as string | undefined) === 'keep') {
+    throw new TypeError(
+      "supervisePursuit: retainedAtSettlement 'keep' cannot hold, because a settled pursuit is never re-entered",
+    )
+  }
 
   const observerPath = resolve(runDir, 'observer.jsonl')
   const settlePath = resolve(runDir, SETTLE_RECORD_FILE)
@@ -114,6 +125,10 @@ export async function supervisePursuit(
     try {
       result = await supervise(profile, task, {
         ...superviseOptions,
+        // The settle record written below makes this settlement final, so the environments a
+        // retained child holds are released at the barrier instead of kept for a resume that the
+        // record will refuse (measured 2026-09-11: 18 of a 60-slot fleet held 19 to 37 hours).
+        retainedAtSettlement: 'release',
         // The observer runs first so a caller hook that throws cannot prevent the
         // canonical lifecycle fact from entering the durable journal.
         hooks: withPursuitContext(pursuitId, composeRuntimeHooks(observer.hooks, hooks)),

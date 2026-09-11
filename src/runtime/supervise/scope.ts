@@ -97,6 +97,7 @@ import type {
   AgentSpec,
   Budget,
   DefaultVerdict,
+  EnvironmentTeardownReceipt,
   ExecutionBindingReceipt,
   Executor,
   ExecutorCancellation,
@@ -258,6 +259,10 @@ type RuntimeOwnedProviderMeter = (
 /** Runtime-owned provider evidence is written through this private scope capability. */
 const runtimeOwnedProviderMeters = new WeakMap<object, RuntimeOwnedProviderMeter>()
 const recoveryStarters = new WeakMap<object, () => Promise<void>>()
+const retainedReleasers = new WeakMap<object, () => Promise<void>>()
+
+/** Per-child bound on a retained release: one remote destroy, answered or abandoned. */
+const RETAINED_RELEASE_TIMEOUT_MS = 30_000
 
 /** @internal Admit original children before the parent acts; do not wait for their results. */
 export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void> {
@@ -265,6 +270,23 @@ export async function startScopeRecoveries(scope: Scope<unknown>): Promise<void>
   if (!start) return
   recoveryStarters.delete(scope)
   await start()
+}
+
+/**
+ * @internal Release what this scope's settled children still hold for a retained execution, and
+ * confirm each one's teardown afterwards through the executor's own teardown verb.
+ *
+ * A retained-pending child settles `down` with its cursor slot open and its environment alive,
+ * because a resumed process reconciles the paid execution inside it. The supervisor calls this
+ * once the root has reached a terminal outcome that no later process resumes — never while the
+ * root is live, and never on a resumable interruption, since the open slot and the live
+ * environment are exactly what a resume recovers. One `environment-teardown` receipt is journaled
+ * per environment, on this scope's own tree; a nested manager reaches its children through
+ * `Executor.releaseRetained`, and its nested scope journals theirs.
+ */
+export async function releaseRetainedEnvironments(scope: Scope<unknown>): Promise<void> {
+  const release = retainedReleasers.get(scope)
+  if (release) await release()
 }
 
 /** Mutable only inside Scope admission/release. Every nested scope receives this exact object. */
@@ -329,6 +351,14 @@ interface LiveChild {
   readonly readInteractiveReady?: () => Promise<WorkerInteractiveSession>
   /** The executor's optional cancellation operation, captured at spawn — backs `scope.cancel`. */
   readonly requestCancel?: (request: ExecutorCancellationRequest) => Promise<ExecutorCancellation>
+  /** The executor's optional retained release, captured at spawn — what the root's settlement
+   *  sweep calls for a settled child whose cleanup is still unconfirmed. */
+  readonly releaseRetained?: (
+    signal: AbortSignal,
+  ) => Promise<ReadonlyArray<EnvironmentTeardownReceipt>>
+  /** Re-ask the executor's teardown verb after a retained release; resolves only on
+   *  `destroyed: true`, so confirmation always comes from the same verb every other path uses. */
+  readonly confirmTeardown?: () => Promise<void>
   /** Abort this child's own signal — the local half of `scope.cancel`. */
   readonly abortChild: (reason?: unknown) => void
   /** Kernel-owned declaration of the exact execution plan, durable before `execute` starts. */
@@ -960,6 +990,12 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
           ? { readInteractiveReady: executor.interactiveReady.bind(executor) }
           : {}),
         ...(executor.cancel ? { requestCancel: executor.cancel.bind(executor) } : {}),
+        ...(executor.releaseRetained
+          ? {
+              releaseRetained: executor.releaseRetained.bind(executor),
+              confirmTeardown: () => teardownExecutor(executor, 'brutalKill', undefined, now),
+            }
+          : {}),
         abortChild: (reason?: unknown): void => controller.abort(reason),
       }
       const recordCancellation = (): void => {
@@ -1877,6 +1913,67 @@ export function createScope<Out>(args: ScopeArgs): Scope<Out> {
       }
     })
   }
+  retainedReleasers.set(scope, async () => {
+    // Settled children whose cleanup is unconfirmed because they hold a retained execution
+    // themselves, or because a nested manager's descendants do. Any other unconfirmed child (a
+    // destroy that failed on the ordinary path) is named exactly as before and not retried here.
+    const held = [...children.values()].filter(
+      (child) =>
+        isTerminalNodeStatus(child.status) &&
+        !child.cleanupConfirmed &&
+        (child.recoveryPending === true || child.ownedTreeRoot !== undefined) &&
+        child.releaseRetained !== undefined &&
+        child.confirmTeardown !== undefined,
+    )
+    const released = await Promise.all(
+      held.map(
+        async (
+          child,
+        ): Promise<{ child: LiveChild; receipts: ReadonlyArray<EnvironmentTeardownReceipt> }> => {
+          const bound = new AbortController()
+          const timer = setTimeout(
+            () =>
+              bound.abort(
+                new ValidationError(
+                  `retained release did not acknowledge within ${RETAINED_RELEASE_TIMEOUT_MS}ms`,
+                ),
+              ),
+            RETAINED_RELEASE_TIMEOUT_MS,
+          )
+          timer.unref?.()
+          try {
+            const receipts = await child.releaseRetained!(bound.signal)
+            if (receipts.every((receipt) => receipt.destroyed)) {
+              try {
+                await child.confirmTeardown!()
+                child.cleanupConfirmed = true
+              } catch {
+                // Still unconfirmed; the barrier names the node as it did before.
+              }
+            }
+            return { child, receipts }
+          } catch {
+            // The executor answered with no receipt at all. Nothing can be named, so the node
+            // stays unconfirmed rather than being receipted as released.
+            return { child, receipts: [] }
+          } finally {
+            clearTimeout(timer)
+          }
+        },
+      ),
+    )
+    for (const { child, receipts } of released) {
+      for (const receipt of receipts) {
+        await appendEnvironmentTeardown(
+          args.journal,
+          args.root,
+          child.id,
+          receipt,
+          new Date(now()).toISOString(),
+        )
+      }
+    }
+  })
   registerScopeRetainedOwner(scope as Scope<unknown>, {
     rootId: args.root,
     nodeId: args.parentId,
@@ -2298,10 +2395,32 @@ async function appendReconciledFloor(
   await appendAcknowledged(journal, root, { kind: 'reconciled', id, spent, seq, at })
 }
 
+/** A release receipt has the same per-child sequence discipline: outside the cursor namespace and
+ *  monotonic per node, so a run released in two processes keeps its receipts ordered. */
+async function appendEnvironmentTeardown(
+  journal: SpawnJournal,
+  root: NodeId,
+  id: NodeId,
+  receipt: EnvironmentTeardownReceipt,
+  at: string,
+): Promise<void> {
+  const seq = await nextPerNodeSeq(journal, root, 'environment-teardown', id)
+  await journal.appendEvent(root, {
+    kind: 'environment-teardown',
+    id,
+    provider: receipt.provider,
+    environmentId: receipt.environmentId,
+    destroyed: receipt.destroyed,
+    ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
+    seq,
+    at,
+  })
+}
+
 async function nextPerNodeSeq(
   journal: SpawnJournal,
   root: NodeId,
-  kind: 'metered' | 'reconciled',
+  kind: 'metered' | 'reconciled' | 'environment-teardown',
   id: NodeId,
 ): Promise<number> {
   const prior = (await journal.loadTree(root)) ?? []
