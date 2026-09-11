@@ -232,6 +232,15 @@ export interface Iteration<Task, Output> {
   costUsd: number
   /** False when `costUsd` is only the observed subtotal, not a complete bill. */
   costUsdKnown?: false
+  /**
+   * The part of `costUsd` that came from calls carrying no billing receipt, summed per call.
+   *
+   * `costUsdKnown` is an AND over the iteration, so it cannot say HOW MUCH of the total is
+   * unproven: one receiptless call marks the whole iteration unknown. This is the amount that
+   * belongs on `Spend.usdEstimated`, which keeps `usd - usdEstimated` reading as billed money on
+   * a settlement that mixed both kinds. Absent when every dollar here carried a receipt.
+   */
+  unprovenCostUsd?: number
   /** Local/catalog estimates remain separate from billed spend. */
   estimatedCostUsd?: number
   /** Provider-reported prompt-cache fields; absent fields remain unknown. */
@@ -332,6 +341,9 @@ export interface LoopResult<Task, Output, Decision> {
   costUsd: number
   /** False when `costUsd` is only the observed subtotal, not a complete bill. */
   costUsdKnown?: false
+  /** Sum of every iteration's `unprovenCostUsd` — the part of `costUsd` no billing receipt
+   *  covers. Absent when every dollar in the loop carried one. */
+  unprovenCostUsd?: number
   /** Sum of separately-labelled local/catalog estimates. */
   estimatedCostUsd?: number
   /** Aggregated provider-reported prompt-cache fields. */

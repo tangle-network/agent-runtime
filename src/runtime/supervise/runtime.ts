@@ -1327,12 +1327,19 @@ async function* streamSandboxLeaf(args: StreamSandboxArgs): AsyncIterable<UsageE
         : (result.winner?.verdict ?? leafVerdict(result))
     const tokensKnown = result.tokenUsage.tokensKnown !== false
     const usdKnown = result.costUsdKnown !== false
-    // The loop reported dollars that no billing receipt proves, so every one of them is a price
-    // rather than a charge. Naming them on the estimate channel is what keeps `usd - usdEstimated`
-    // reading as billed money: without it a cloud child's whole figure read as provider spend and
-    // a pursuit report was 40x the money that had actually moved (#1175). `usdKnown` is untouched
-    // — an unproven number never becomes a receipt, and a dollar cap still refuses it.
-    const usdEstimated = usdKnown || result.costUsd <= 0 ? undefined : result.costUsd
+    // The dollars no billing receipt proves are a price rather than a charge. Naming them on the
+    // estimate channel is what keeps `usd - usdEstimated` reading as billed money: without it a
+    // cloud child's whole figure read as provider spend and a pursuit report was 40x the money
+    // that had actually moved (#1175).
+    //
+    // The amount comes from the loop's PER-CALL sum, never from `costUsdKnown`: that flag is an
+    // AND across every call and iteration, so a settlement mixing a receipted turn with an
+    // unproven one would price the receipted dollars too and report $0 billed against money a
+    // provider really did charge. Clamped by `costUsd` because the estimate is a part OF the
+    // total, which is the pool's own rule (`assertValidSpend`). `usdKnown` is untouched — an
+    // unproven number never becomes a receipt, and a dollar cap still refuses it.
+    const unprovenUsd = Math.min(result.unprovenCostUsd ?? 0, result.costUsd)
+    const usdEstimated = unprovenUsd > 0 ? unprovenUsd : undefined
     const outWithUsage = {
       ...outWithOutcome,
       ...(result.estimatedCostUsd !== undefined

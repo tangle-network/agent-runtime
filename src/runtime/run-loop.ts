@@ -722,7 +722,13 @@ async function executeIteration<Task, Output>(args: ExecuteIterationArgs<Task, O
   const creditLlmCall = (llmCall: RuntimeStreamEvent & { type: 'llm_call' }): void => {
     sawLlmCall = true
     slot.costUsd += llmCall.costUsd ?? 0
-    if (llmCall.usdKnown === false) slot.costUsdKnown = false
+    if (llmCall.usdKnown === false) {
+      slot.costUsdKnown = false
+      // Accumulated per CALL, because `costUsdKnown` is an AND over the whole iteration: one
+      // unproven call marks the iteration unknown, and a consumer that priced the iteration TOTAL
+      // from that flag would relabel every receipt-backed dollar beside it as a price.
+      slot.unprovenCostUsd = (slot.unprovenCostUsd ?? 0) + (llmCall.costUsd ?? 0)
+    }
     if (llmCall.estimatedCostUsd !== undefined) {
       slot.estimatedCostUsd = (slot.estimatedCostUsd ?? 0) + llmCall.estimatedCostUsd
     }
@@ -1091,6 +1097,10 @@ function finalize<Task, Output, Decision>(
   }
   const costUsd = args.iterations.reduce((sum, iter) => sum + iter.costUsd, 0)
   const costUsdKnown = args.iterations.every((iter) => iter.costUsdKnown !== false)
+  const unprovenCostUsd = args.iterations.reduce(
+    (sum, iter) => sum + (iter.unprovenCostUsd ?? 0),
+    0,
+  )
   const estimatedCostUsd = args.iterations.reduce(
     (sum, iter) => sum + (iter.estimatedCostUsd ?? 0),
     0,
@@ -1118,6 +1128,7 @@ function finalize<Task, Output, Decision>(
     durationMs: args.now() - args.startMs,
     costUsd,
     ...(costUsdKnown ? {} : { costUsdKnown: false }),
+    ...(unprovenCostUsd > 0 ? { unprovenCostUsd } : {}),
     ...(estimatedCostUsd > 0 ? { estimatedCostUsd } : {}),
     ...(Object.keys(promptCache).length > 0 ? { promptCache } : {}),
     tokenUsage,

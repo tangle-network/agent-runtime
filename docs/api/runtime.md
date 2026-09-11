@@ -24328,6 +24328,17 @@ Raw sandbox event stream collected for this iteration. Present on a failed itera
 
 False when `costUsd` is only the observed subtotal, not a complete bill.
 
+##### unprovenCostUsd?
+
+> `optional` **unprovenCostUsd?**: `number`
+
+The part of `costUsd` that came from calls carrying no billing receipt, summed per call.
+
+`costUsdKnown` is an AND over the iteration, so it cannot say HOW MUCH of the total is
+unproven: one receiptless call marks the whole iteration unknown. This is the amount that
+belongs on `Spend.usdEstimated`, which keeps `usd - usdEstimated` reading as billed money on
+a settlement that mixed both kinds. Absent when every dollar here carried a receipt.
+
 ##### estimatedCostUsd?
 
 > `optional` **estimatedCostUsd?**: `number`
@@ -24595,6 +24606,13 @@ Sum of every iteration's `costUsd`.
 > `optional` **costUsdKnown?**: `false`
 
 False when `costUsd` is only the observed subtotal, not a complete bill.
+
+##### unprovenCostUsd?
+
+> `optional` **unprovenCostUsd?**: `number`
+
+Sum of every iteration's `unprovenCostUsd` — the part of `costUsd` no billing receipt
+ covers. Absent when every dollar in the loop carried one.
 
 ##### estimatedCostUsd?
 
